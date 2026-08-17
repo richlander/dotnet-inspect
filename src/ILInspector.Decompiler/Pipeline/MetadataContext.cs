@@ -7,7 +7,7 @@ namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
 /// The multi-assembly resolution environment a decompile session reads through:
-/// an <see cref="IAssemblyReferenceResolver"/> plus a pool of assemblies opened on demand.
+/// an <see cref="IAssemblyBindingPolicy"/> plus a pool of assemblies opened on demand.
 /// Where <see cref="MetadataSource"/> owns the readers for the ONE assembly being
 /// decompiled, this owns the readers for every OTHER assembly consulted while
 /// recovering cross-assembly facts (value-type-ness of a bare token, interface
@@ -61,15 +61,30 @@ public sealed class MetadataContext : IDisposable
         Lazy<OpenedAssembly?>> _openedRegistrations =
             new(ReferenceEqualityComparer.Instance);
     readonly TypeResolutionCatalog _typeResolutionCatalog = new();
-    readonly AssemblyReferenceBindingPolicy _bindingPolicy;
+    readonly IAssemblyBindingPolicy _bindingPolicy;
+    readonly IAssemblyReferenceResolver? _resolver;
 
     public MetadataContext(IAssemblyReferenceResolver resolver)
     {
-        Resolver = resolver;
+        ArgumentNullException.ThrowIfNull(resolver);
+        _resolver = resolver;
         _bindingPolicy = new AssemblyReferenceBindingPolicy(resolver);
     }
 
-    internal IAssemblyReferenceResolver Resolver { get; }
+    /// <summary>
+    /// Creates a decompiler metadata context over an existing immutable
+    /// assembly-binding policy.
+    /// </summary>
+    internal MetadataContext(IAssemblyBindingPolicy bindingPolicy)
+    {
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        _bindingPolicy = bindingPolicy;
+    }
+
+    internal IAssemblyReferenceResolver Resolver =>
+        _resolver
+        ?? throw new InvalidOperationException(
+            "This metadata context uses an assembly binding policy directly.");
 
     /// <summary>
     /// Returns the cached reader for an on-disk assembly, opening it on first
@@ -140,9 +155,6 @@ public sealed class MetadataContext : IDisposable
 
         return null;
     }
-
-    internal ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
-        => Resolver.Resolve(identity, scope);
 
     public void Dispose()
     {

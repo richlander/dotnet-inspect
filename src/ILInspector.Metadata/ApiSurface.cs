@@ -534,6 +534,7 @@ public enum TypeParameterTypeKind
 
 public class ApiSignature
 {
+    internal string? ExtensionReceiverType { get; set; }
     public string? ReturnType { get; set; }
     public string? CanonicalReturnType { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];

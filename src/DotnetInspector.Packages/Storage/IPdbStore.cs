@@ -13,6 +13,8 @@ namespace DotnetInspector.Packages;
 /// dictionary and returns <c>null</c> for the local path. This lets the snupkg
 /// download / symbol-server acquisition logic run unchanged on desktop while a
 /// browser/WASM host supplies an in-memory cache.
+/// Backend failures may use any exception appropriate to the implementation;
+/// cancellation is reported with <see cref="OperationCanceledException"/>.
 /// </remarks>
 public interface IPdbStore
 {

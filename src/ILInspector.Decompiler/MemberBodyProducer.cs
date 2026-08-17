@@ -241,10 +241,8 @@ public static class MemberBodyProducer
         var start = ResolvedAssemblyReference.CreateFromPath(
             dllPath,
             AssemblyResolutionProvenance.Local("StartAssembly"));
-        var composed = ComposeCore(
+        TypeCompositionResult composed = ComposeCore(
             type,
-            dllPath,
-            pdbPath,
             () => ResolveDefinition(start, type, resolver, context),
             (definition, ctx) => Pipeline.MetadataSource.Open(
                 definition.Assembly.Assembly,
@@ -253,9 +251,52 @@ public static class MemberBodyProducer
                 ctx),
             context,
             printerOptions);
-        return composed is null
+        return composed.Error is { } error
+            ? DecompilerResult.Success(
+                $"// {DiagnosticIds.InternalError}: type source unavailable: {error.GetType().Name}: {error.Message}")
+            : composed.Text is null
             ? DecompilerResult.Failure("DI_TYPESOURCE_NONE", $"No C# type source composed for {type.FullName}.")
-            : DecompilerResult.Success(composed);
+            : DecompilerResult.Success(composed.Text);
+    }
+
+    /// <summary>
+    /// Projects a whole type from a descriptor-backed assembly under the
+    /// binding-consistent policy supplied by its inspection context.
+    /// </summary>
+    public static DecompilerResult Project(
+        ApiType type,
+        ResolvedAssemblyReference assembly,
+        IAssemblyBindingPolicy bindingPolicy,
+        Pipeline.MetadataContext? context = null,
+        Pipeline.PrinterOptions? printerOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+
+        TypeCompositionResult composed = ComposeCore(
+            type,
+            () => ResolveDefinition(
+                assembly,
+                type,
+                bindingPolicy,
+                context),
+            (definition, ctx) => Pipeline.MetadataSource.Open(
+                definition.Assembly.Assembly,
+                externalPdbPath: null,
+                bindingPolicy,
+                ctx),
+            context,
+            printerOptions);
+        return composed.Error is { } error
+            ? DecompilerResult.Failure(
+                DiagnosticIds.InternalError,
+                $"Type source unavailable: {error.GetType().Name}: {error.Message}")
+            : composed.Text is null
+            ? DecompilerResult.Failure(
+                "DI_TYPESOURCE_NONE",
+                $"No C# type source composed for {type.FullName}.")
+            : DecompilerResult.Success(composed.Text);
     }
 
     /// <summary>
@@ -326,6 +367,45 @@ public static class MemberBodyProducer
                 definition.Assembly.Assembly,
                 pdbPath,
                 resolver,
+                ctx),
+            context,
+            printerOptions,
+            attributeMode);
+    }
+
+    /// <summary>
+    /// Renders one whole member from a descriptor-backed assembly under the
+    /// binding-consistent policy supplied by its inspection context.
+    /// </summary>
+    public static MemberRenderResult ProduceMember(
+        ApiType type,
+        ApiMember member,
+        ResolvedAssemblyReference assembly,
+        IAssemblyBindingPolicy bindingPolicy,
+        Pipeline.MetadataContext? context = null,
+        Pipeline.PrinterOptions? printerOptions = null,
+        MemberRenderAttributeMode attributeMode =
+            MemberRenderAttributeMode.All)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(bindingPolicy);
+        if (!Enum.IsDefined(attributeMode))
+            throw new ArgumentOutOfRangeException(nameof(attributeMode));
+
+        return ComposeMemberCore(
+            type,
+            member,
+            () => ResolveDefinition(
+                assembly,
+                type,
+                bindingPolicy,
+                context),
+            (definition, ctx) => Pipeline.MetadataSource.Open(
+                definition.Assembly.Assembly,
+                externalPdbPath: null,
+                bindingPolicy,
                 ctx),
             context,
             printerOptions,
@@ -412,20 +492,9 @@ public static class MemberBodyProducer
         IAssemblyReferenceResolver resolver,
         Pipeline.MetadataContext? context)
     {
-        MetadataTypeDefinitionName? name = type.DefinitionName;
+        MetadataTypeDefinitionName? name = GetDefinitionName(type);
         if (name is null)
-        {
-            string metadataName = type.MetadataName ?? type.Name;
-            if (metadataName.Contains('+', StringComparison.Ordinal)
-                || MetadataTypeDefinitionName.Create(
-                    type.Namespace ?? "",
-                    [metadataName])
-                    is not MetadataTypeDefinitionNameResult.Valid valid)
-            {
-                return null;
-            }
-            name = valid.Name;
-        }
+            return null;
 
         var request = TypeResolutionRequest.FromAssembly(
             start,
@@ -453,22 +522,77 @@ public static class MemberBodyProducer
             : null;
     }
 
-    static string? ComposeCore(
+    static ResolvedTypeDefinition? ResolveDefinition(
+        ResolvedAssemblyReference start,
         ApiType type,
-        string dllPath,
-        string? pdbPath,
+        IAssemblyBindingPolicy bindingPolicy,
+        Pipeline.MetadataContext? context)
+    {
+        MetadataTypeDefinitionName? name = GetDefinitionName(type);
+        if (name is null)
+            return null;
+
+        var request = TypeResolutionRequest.FromAssembly(
+            start,
+            AssemblyResolutionScope.Any,
+            name);
+        TypeResolutionOutcome outcome;
+        if (context is not null)
+        {
+            outcome = context.Resolve(start, request);
+        }
+        else
+        {
+            using var catalog = new TypeResolutionCatalog();
+            using TypeResolutionContext resolutionContext =
+                catalog.CreateContext(
+                    bindingPolicy,
+                    [start],
+                    [request]);
+            outcome = resolutionContext.Resolve(request);
+        }
+
+        return outcome is TypeResolutionOutcome.Resolved resolved
+            ? resolved.Definition
+            : null;
+    }
+
+    static MetadataTypeDefinitionName? GetDefinitionName(ApiType type)
+    {
+        if (type.DefinitionName is { } definitionName)
+            return definitionName;
+
+        string metadataName = type.MetadataName ?? type.Name;
+        if (metadataName.Contains('+', StringComparison.Ordinal)
+            || MetadataTypeDefinitionName.Create(
+                type.Namespace ?? "",
+                [metadataName])
+                is not MetadataTypeDefinitionNameResult.Valid valid)
+        {
+            return null;
+        }
+
+        return valid.Name;
+    }
+
+    sealed record TypeCompositionResult(
+        string? Text,
+        Exception? Error = null);
+
+    static TypeCompositionResult ComposeCore(
+        ApiType type,
         Func<ResolvedTypeDefinition?> locateType,
         Func<ResolvedTypeDefinition, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
         Pipeline.MetadataContext? context,
         Pipeline.PrinterOptions? printerOptions)
     {
         if (type.Kind is "delegate")
-            return null;
+            return new TypeCompositionResult(Text: null);
 
         try
         {
             if (locateType() is not { } definition)
-                return null;
+                return new TypeCompositionResult(Text: null);
 
             Stream? stream = null;
             PEReader? peReader = null;
@@ -481,7 +605,7 @@ public static class MemberBodyProducer
                 if (!definition.Address.TryResolve(
                         reader,
                         out TypeDefinitionHandle typeHandle))
-                    return null;
+                    return new TypeCompositionResult(Text: null);
 
                     // Bodies are decompiled from the same on-disk assembly the
                     // forwarder resolved to. The same resolver resolves cross-assembly
@@ -535,8 +659,13 @@ public static class MemberBodyProducer
 
                     sb.AppendLf("}");
                     if (!any)
-                        return null;
-                    return HoistUsings(sb.ToString().TrimEnd(), reader, type.Namespace, bodyNamespaces);
+                        return new TypeCompositionResult(Text: null);
+                    return new TypeCompositionResult(
+                        HoistUsings(
+                            sb.ToString().TrimEnd(),
+                            reader,
+                            type.Namespace,
+                            bodyNamespaces));
             }
             finally
             {
@@ -548,7 +677,7 @@ public static class MemberBodyProducer
         {
             // Degrade honestly: the section renders the reason instead of
             // silently disappearing.
-            return $"// {DiagnosticIds.InternalError}: type source unavailable: {ex.GetType().Name}: {ex.Message}";
+            return new TypeCompositionResult(Text: null, ex);
         }
     }
 

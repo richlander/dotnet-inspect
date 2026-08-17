@@ -91,6 +91,7 @@ public static class PdbAcquisitionService
 
         if (result is PortablePdbAcquisitionResult.Acquired acquired)
         {
+            string? localPath = acquired.Pdb.LocalPath;
             Stream stream =
                 await acquired.Pdb.OpenReadAsync(
                     cancellationToken).ConfigureAwait(false);
@@ -98,7 +99,7 @@ public static class PdbAcquisitionService
                 stream,
                 "Symbol Package",
                 acquired.Pdb.SymbolServer,
-                acquired.Pdb.LocalPath,
+                localPath,
                 throwOnReadFailure: true);
         }
         else if (result.WindowsPdbDetected)

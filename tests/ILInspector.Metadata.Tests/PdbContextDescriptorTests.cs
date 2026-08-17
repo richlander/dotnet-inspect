@@ -70,6 +70,109 @@ public class PdbContextDescriptorTests
         Assert.Throws<InvalidOperationException>(() => context.AssemblyPath);
     }
 
+    [Theory]
+    [InlineData(DescriptorOpenKind.PdbContext, false)]
+    [InlineData(DescriptorOpenKind.PdbContext, true)]
+    [InlineData(DescriptorOpenKind.AssemblyImage, false)]
+    [InlineData(DescriptorOpenKind.AssemblyImage, true)]
+    [InlineData(DescriptorOpenKind.PrefetchedSession, false)]
+    [InlineData(DescriptorOpenKind.PrefetchedSession, true)]
+    public void DescriptorOpenPrimaryFailure_IsNotMaskedByCleanupFailure(
+        DescriptorOpenKind openKind,
+        bool fatalFailure)
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(PdbContextDescriptorTests).Assembly.Location);
+        Exception primaryFailure =
+            fatalFailure
+                ? new OutOfMemoryException(
+                    "Synthetic fatal descriptor-open failure.")
+                : new OperationCanceledException(
+                    "Synthetic descriptor-open cancellation.");
+        var cleanupFailure =
+            new IOException(
+                "Synthetic descriptor cleanup failure.");
+        var stream =
+            new PrimaryAndCleanupFailureStream(
+                image,
+                primaryFailure,
+                cleanupFailure);
+        var descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(image),
+                path: null,
+                () => stream,
+                AssemblyResolutionProvenance.Local("test"));
+
+        Action operation =
+            openKind switch
+            {
+                DescriptorOpenKind.PdbContext =>
+                    () => PdbContext.Open(descriptor),
+                DescriptorOpenKind.AssemblyImage =>
+                    () => AssemblyImage.Open(descriptor),
+                DescriptorOpenKind.PrefetchedSession =>
+                    () => AssemblyInspectionSession
+                        .OpenPrefetched(stream),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(openKind)),
+            };
+        Exception error =
+            fatalFailure
+                ? Assert.Throws<OutOfMemoryException>(operation)
+                : Assert.Throws<OperationCanceledException>(operation);
+
+        Assert.Same(primaryFailure, error);
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
+    public enum DescriptorOpenKind
+    {
+        PdbContext,
+        AssemblyImage,
+        PrefetchedSession,
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PdbContextConstructionPrimaryFailure_ReleasesOwnedStream(
+        bool fatalFailure)
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(PdbContextDescriptorTests).Assembly.Location);
+        Exception primaryFailure =
+            fatalFailure
+                ? new OutOfMemoryException(
+                    "Synthetic fatal context-construction failure.")
+                : new OperationCanceledException(
+                    "Synthetic context-construction cancellation.");
+        var stream =
+            new SecondLengthAndCleanupFailureStream(
+                image,
+                primaryFailure,
+                new IOException(
+                    "Synthetic context-construction cleanup failure."));
+        var descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(image),
+                path: null,
+                () => stream,
+                AssemblyResolutionProvenance.Local("test"));
+
+        Exception error =
+            fatalFailure
+                ? Assert.Throws<OutOfMemoryException>(
+                    () => PdbContext.Open(descriptor))
+                : Assert.Throws<OperationCanceledException>(
+                    () => PdbContext.Open(descriptor));
+
+        Assert.Same(primaryFailure, error);
+        Assert.Equal(1, stream.DisposeCount);
+    }
+
     [Fact]
     public void DeclarationInventory_UsesAuthoritativeDescriptorStream()
     {
@@ -227,5 +330,61 @@ public class PdbContextDescriptorTests
         var image = new BlobBuilder();
         builder.Serialize(image);
         return image.ToArray();
+    }
+
+    sealed class PrimaryAndCleanupFailureStream(
+        byte[] bytes,
+        Exception primaryFailure,
+        Exception cleanupFailure)
+        : MemoryStream(bytes, writable: false)
+    {
+        internal int DisposeCount { get; private set; }
+
+        public override bool CanRead =>
+            throw primaryFailure;
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisposeCount++;
+                base.Dispose(disposing);
+                throw cleanupFailure;
+            }
+            base.Dispose(disposing);
+        }
+    }
+
+    sealed class SecondLengthAndCleanupFailureStream(
+        byte[] bytes,
+        Exception primaryFailure,
+        Exception cleanupFailure)
+        : MemoryStream(bytes, writable: false)
+    {
+        int _lengthReads;
+
+        internal int DisposeCount { get; private set; }
+
+        public override long Length
+        {
+            get
+            {
+                _lengthReads++;
+                if (_lengthReads == 2)
+                    throw primaryFailure;
+                return base.Length;
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisposeCount++;
+                base.Dispose(disposing);
+                throw cleanupFailure;
+            }
+            base.Dispose(disposing);
+        }
     }
 }
