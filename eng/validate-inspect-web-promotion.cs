@@ -92,10 +92,17 @@ static ValidationResult Validate(
     }
     RequireFresh(job.CompletedAt, maxAge, now, $"Job '{StagingJob}'");
 
-    ArtifactInfo artifact = RequireSingle(
-        artifacts,
-        artifact => artifact.Name == SiteArtifact,
-        $"'{SiteArtifact}' artifact");
+    if (artifacts.Count != 1)
+    {
+        throw new InvalidOperationException(
+            $"Staging run contains {artifacts.Count} artifacts; expected one.");
+    }
+    ArtifactInfo artifact = artifacts[0];
+    if (artifact.Name != SiteArtifact)
+    {
+        throw new InvalidOperationException(
+            $"Staging artifact is named {artifact.Name}, not {SiteArtifact}.");
+    }
     if (artifact.WorkflowRunId != run.Id)
     {
         throw new InvalidOperationException(
@@ -367,7 +374,7 @@ static void RunSelfTest()
             repository,
             TimeSpan.FromDays(30),
             now),
-        "contains 0");
+        "contains 0 artifacts");
     ExpectFailure(
         () => Validate(
             run,
@@ -376,7 +383,25 @@ static void RunSelfTest()
             repository,
             TimeSpan.FromDays(30),
             now),
-        "contains 2");
+        "contains 2 artifacts");
+    ExpectFailure(
+        () => Validate(
+            run,
+            jobs,
+            [artifacts[0], artifacts[0] with { Id = 203, Name = "other-artifact" }],
+            repository,
+            TimeSpan.FromDays(30),
+            now),
+        "contains 2 artifacts");
+    ExpectFailure(
+        () => Validate(
+            run,
+            jobs,
+            [artifacts[0] with { Name = "other-artifact" }],
+            repository,
+            TimeSpan.FromDays(30),
+            now),
+        "not inspect-web-site");
     ExpectFailure(
         () => Validate(
             run,

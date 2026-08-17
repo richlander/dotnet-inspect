@@ -24,8 +24,6 @@ jobs:
     name: Build staging artifact
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
-    outputs:
-      artifact_id: ${{ steps.site.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v6
 
@@ -51,7 +49,6 @@ jobs:
             -p:BuildTimestampUtc="$built_at"
 
       - name: Upload staged site artifact
-        id: site
         uses: actions/upload-artifact@v7
         with:
           name: inspect-web-site
@@ -71,7 +68,7 @@ jobs:
       - name: Download staged site artifact
         uses: actions/download-artifact@v8
         with:
-          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          name: inspect-web-site
           path: artifacts/inspect-web-publish/wwwroot
           digest-mismatch: error
 

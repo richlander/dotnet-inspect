@@ -5,6 +5,11 @@ namespace CiChangeDetection;
 
 internal static class PromotionWorkflowContract
 {
+    private const string AzureAction =
+        "Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1";
+    private const string IndexCheck =
+        "test -f artifacts/inspect-web-publish/wwwroot/index.html";
+
     internal static void AssertMutations(string repository)
     {
         string promotionPath = Path.Combine(
@@ -38,14 +43,11 @@ internal static class PromotionWorkflowContract
 
                   - name: Setup .NET
             """;
-        string mutatedPromotion = promotionWorkflow.Replace(
+        AssertMutationRejected(
+            promotionWorkflow,
             trustedCheckout,
             candidateCheckout,
-            StringComparison.Ordinal);
-        if (mutatedPromotion == promotionWorkflow)
-            throw new InvalidOperationException("Promotion checkout mutation did not apply.");
-        ExpectFailure(
-            () => ValidatePromotion(mutatedPromotion),
+            ValidatePromotion,
             "Promotion workflow contract accepted candidate-controlled production checkout.");
 
         const string stagingDownload =
@@ -60,15 +62,43 @@ internal static class PromotionWorkflowContract
 
                   - name: Download staged site artifact
             """;
-        string mutatedStaging = stagingWorkflow.Replace(
+        AssertMutationRejected(
+            stagingWorkflow,
             stagingDownload,
             stagingCheckout,
-            StringComparison.Ordinal);
-        if (mutatedStaging == stagingWorkflow)
-            throw new InvalidOperationException("Staging checkout mutation did not apply.");
-        ExpectFailure(
-            () => ValidateStaging(mutatedStaging),
+            ValidateStaging,
             "Staging workflow contract accepted candidate code in the deployment job.");
+
+        AssertMutationRejected(
+            promotionWorkflow,
+            "      - name: Setup .NET\n        uses: actions/setup-dotnet@v5",
+            "      - name: Setup .NET\n        uses: actions/download-artifact@v8",
+            ValidatePromotion,
+            "Promotion workflow contract accepted an alternate setup action.");
+        AssertMutationRejected(
+            promotionWorkflow,
+            "            \"$EXPECTED_DIGEST\"\n",
+            "            \"$EXPECTED_DIGEST\" || true\n",
+            ValidatePromotion,
+            "Promotion workflow contract accepted disabled revalidation.");
+        AssertMutationRejected(
+            promotionWorkflow,
+            "      - name: Revalidate staged site\n",
+            "      - name: Download staged site artifact\n",
+            ValidatePromotion,
+            "Promotion workflow contract accepted download before revalidation.");
+        AssertMutationRejected(
+            stagingWorkflow,
+            $"        run: {IndexCheck}\n",
+            $"        run: {IndexCheck} || true\n",
+            ValidateStaging,
+            "Staging workflow contract accepted disabled artifact verification.");
+        AssertMutationRejected(
+            stagingWorkflow,
+            "          skip_app_build: true\n",
+            "",
+            ValidateStaging,
+            "Staging workflow contract accepted Azure app build.");
     }
 
     private static void ValidatePromotion(string workflow)
@@ -92,10 +122,13 @@ internal static class PromotionWorkflowContract
 
         YamlMappingNode environment =
             GetRequiredMapping(deploy, "environment", "jobs.deploy");
-        RequireScalarValue(
+        RequireExactScalarValues(
             environment,
-            "name",
-            "inspect-web-production",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["name"] = "inspect-web-production",
+                ["url"] = "https://dotnet-inspect.net",
+            },
             "jobs.deploy.environment");
 
         YamlSequenceNode steps = GetRequiredSequence(deploy, "steps", "jobs.deploy");
@@ -114,24 +147,70 @@ internal static class PromotionWorkflowContract
             "actions/checkout@v6",
             "jobs.deploy checkout");
 
-        RequireStep(steps, 1, "Setup .NET");
+        YamlMappingNode setup = RequireStep(steps, 1, "Setup .NET");
+        RequireExactKeys(setup, ["name", "uses", "with"], "production setup step");
+        RequireScalarValue(
+            setup,
+            "uses",
+            "actions/setup-dotnet@v5",
+            "production setup step");
+        RequireExactScalarValues(
+            GetRequiredMapping(setup, "with", "production setup step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["dotnet-version"] = "11.0.x",
+                ["dotnet-quality"] = "preview",
+            },
+            "production setup step.with");
+
         YamlMappingNode revalidate =
             RequireStep(steps, 2, "Revalidate staged site");
+        RequireExactKeys(
+            revalidate,
+            ["name", "shell", "env", "run"],
+            "revalidation step");
         RequireScalarValue(revalidate, "shell", "bash", "revalidation step");
+        RequireExactScalarValues(
+            GetRequiredMapping(revalidate, "env", "revalidation step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["GH_TOKEN"] = "${{ secrets.GITHUB_TOKEN }}",
+                ["STAGING_RUN_ID"] = "${{ inputs.staging_run_id }}",
+                ["EXPECTED_SHA"] = "${{ needs.resolve.outputs.sha }}",
+                ["EXPECTED_ATTEMPT"] = "${{ needs.resolve.outputs.run_attempt }}",
+                ["EXPECTED_ARTIFACT_ID"] =
+                    "${{ needs.resolve.outputs.artifact_id }}",
+                ["EXPECTED_DIGEST"] =
+                    "${{ needs.resolve.outputs.artifact_digest }}",
+            },
+            "revalidation step.env");
         string revalidationCommand = GetRequiredScalar(
             revalidate,
             "run",
             "revalidation step");
-        if (!revalidationCommand.Contains(
-                "bash eng/validate-inspect-web-promotion.sh",
-                StringComparison.Ordinal))
+        const string ExpectedRevalidation =
+            """
+            bash eng/validate-inspect-web-promotion.sh \
+              "$STAGING_RUN_ID" \
+              720 \
+              "$RUNNER_TEMP/revalidated-inspect-web" \
+              "$EXPECTED_SHA" \
+              "$EXPECTED_ATTEMPT" \
+              "$EXPECTED_ARTIFACT_ID" \
+              "$EXPECTED_DIGEST"
+            """;
+        if (revalidationCommand.TrimEnd() != ExpectedRevalidation)
         {
             throw new InvalidOperationException(
-                "Production revalidation must execute the trusted promotion validator.");
+                "Production revalidation command does not match the trusted contract.");
         }
 
         YamlMappingNode download =
             RequireStep(steps, 3, "Download staged site artifact");
+        RequireExactKeys(
+            download,
+            ["name", "uses", "with"],
+            "artifact download step");
         RequireScalarValue(
             download,
             "uses",
@@ -139,32 +218,59 @@ internal static class PromotionWorkflowContract
             "artifact download step");
         YamlMappingNode downloadWith =
             GetRequiredMapping(download, "with", "artifact download step");
-        RequireScalarValue(
+        RequireExactScalarValues(
             downloadWith,
-            "artifact-ids",
-            "${{ needs.resolve.outputs.artifact_id }}",
-            "artifact download step.with");
-        RequireScalarValue(
-            downloadWith,
-            "digest-mismatch",
-            "error",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["artifact-ids"] = "${{ needs.resolve.outputs.artifact_id }}",
+                ["github-token"] = "${{ secrets.GITHUB_TOKEN }}",
+                ["repository"] = "${{ github.repository }}",
+                ["run-id"] = "${{ inputs.staging_run_id }}",
+                ["path"] = "artifacts/inspect-web-publish/wwwroot",
+                ["digest-mismatch"] = "error",
+            },
             "artifact download step.with");
 
         YamlMappingNode verify =
             RequireStep(steps, 4, "Verify staged site artifact");
+        RequireExactKeys(
+            verify,
+            ["name", "shell", "run"],
+            "artifact verification step");
+        RequireScalarValue(
+            verify,
+            "shell",
+            "bash",
+            "artifact verification step");
         RequireScalarValue(
             verify,
             "run",
-            "test -f artifacts/inspect-web-publish/wwwroot/index.html",
+            IndexCheck,
             "artifact verification step");
 
         YamlMappingNode deployStep =
             RequireStep(steps, 5, "Deploy to production");
+        RequireExactKeys(
+            deployStep,
+            ["name", "uses", "with"],
+            "production deploy step");
         RequireScalarValue(
             deployStep,
             "uses",
-            "Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1",
+            AzureAction,
             "production deploy step");
+        RequireExactScalarValues(
+            GetRequiredMapping(deployStep, "with", "production deploy step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["azure_static_web_apps_api_token"] =
+                    "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB }}",
+                ["action"] = "upload",
+                ["app_location"] = "artifacts/inspect-web-publish/wwwroot",
+                ["output_location"] = "",
+                ["skip_app_build"] = "true",
+            },
+            "production deploy step.with");
     }
 
     private static void ValidateStaging(string workflow)
@@ -184,33 +290,43 @@ internal static class PromotionWorkflowContract
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "staging workflow");
         YamlMappingNode build = GetRequiredMapping(jobs, "build", "staging jobs");
         RequireAbsent(build, "environment", "jobs.build");
-        YamlMappingNode buildOutputs =
-            GetRequiredMapping(build, "outputs", "jobs.build");
-        RequireScalarValue(
-            buildOutputs,
-            "artifact_id",
-            "${{ steps.site.outputs.artifact-id }}",
-            "jobs.build.outputs");
+        RequireAbsent(build, "outputs", "jobs.build");
         YamlSequenceNode buildSteps = GetRequiredSequence(build, "steps", "jobs.build");
         YamlMappingNode upload = RequireNamedStep(
             buildSteps,
             "Upload staged site artifact",
             "jobs.build");
-        RequireScalarValue(upload, "id", "site", "staging artifact upload step");
+        RequireExactKeys(
+            upload,
+            ["name", "uses", "with"],
+            "staging artifact upload step");
         RequireScalarValue(
             upload,
             "uses",
             "actions/upload-artifact@v7",
             "staging artifact upload step");
+        RequireExactScalarValues(
+            GetRequiredMapping(upload, "with", "staging artifact upload step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["name"] = "inspect-web-site",
+                ["path"] = "artifacts/inspect-web-publish/wwwroot",
+                ["if-no-files-found"] = "error",
+                ["retention-days"] = "30",
+            },
+            "staging artifact upload step.with");
 
         YamlMappingNode deploy = GetRequiredMapping(jobs, "deploy", "staging jobs");
         RequireScalarValue(deploy, "needs", "build", "jobs.deploy");
         YamlMappingNode environment =
             GetRequiredMapping(deploy, "environment", "jobs.deploy");
-        RequireScalarValue(
+        RequireExactScalarValues(
             environment,
-            "name",
-            "inspect-web-staging",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["name"] = "inspect-web-staging",
+                ["url"] = "https://dotnet-inspect.ca",
+            },
             "jobs.deploy.environment");
         YamlSequenceNode deploySteps =
             GetRequiredSequence(deploy, "steps", "jobs.deploy");
@@ -223,6 +339,10 @@ internal static class PromotionWorkflowContract
 
         YamlMappingNode download =
             RequireStep(deploySteps, 0, "Download staged site artifact");
+        RequireExactKeys(
+            download,
+            ["name", "uses", "with"],
+            "staging artifact download step");
         RequireScalarValue(
             download,
             "uses",
@@ -230,32 +350,56 @@ internal static class PromotionWorkflowContract
             "staging artifact download step");
         YamlMappingNode downloadWith =
             GetRequiredMapping(download, "with", "staging artifact download step");
-        RequireScalarValue(
+        RequireExactScalarValues(
             downloadWith,
-            "artifact-ids",
-            "${{ needs.build.outputs.artifact_id }}",
-            "staging artifact download step.with");
-        RequireScalarValue(
-            downloadWith,
-            "digest-mismatch",
-            "error",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["name"] = "inspect-web-site",
+                ["path"] = "artifacts/inspect-web-publish/wwwroot",
+                ["digest-mismatch"] = "error",
+            },
             "staging artifact download step.with");
 
         YamlMappingNode verify =
             RequireStep(deploySteps, 1, "Verify staged site artifact");
+        RequireExactKeys(
+            verify,
+            ["name", "shell", "run"],
+            "staging artifact verification step");
+        RequireScalarValue(
+            verify,
+            "shell",
+            "bash",
+            "staging artifact verification step");
         RequireScalarValue(
             verify,
             "run",
-            "test -f artifacts/inspect-web-publish/wwwroot/index.html",
+            IndexCheck,
             "staging artifact verification step");
 
         YamlMappingNode deployStep =
             RequireStep(deploySteps, 2, "Deploy to staging");
+        RequireExactKeys(
+            deployStep,
+            ["name", "uses", "with"],
+            "staging deploy step");
         RequireScalarValue(
             deployStep,
             "uses",
-            "Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1",
+            AzureAction,
             "staging deploy step");
+        RequireExactScalarValues(
+            GetRequiredMapping(deployStep, "with", "staging deploy step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["azure_static_web_apps_api_token"] =
+                    "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_STAGING }}",
+                ["action"] = "upload",
+                ["app_location"] = "artifacts/inspect-web-publish/wwwroot",
+                ["output_location"] = "",
+                ["skip_app_build"] = "true",
+            },
+            "staging deploy step.with");
     }
 
     private static YamlMappingNode RequireNamedStep(
@@ -287,6 +431,22 @@ internal static class PromotionWorkflowContract
         }
 
         throw new InvalidOperationException(message);
+    }
+
+    private static void AssertMutationRejected(
+        string workflow,
+        string oldValue,
+        string newValue,
+        Action<string> validate,
+        string message)
+    {
+        string mutated = workflow.Replace(
+            oldValue,
+            newValue,
+            StringComparison.Ordinal);
+        if (mutated == workflow)
+            throw new InvalidOperationException($"Mutation did not apply: {message}");
+        ExpectFailure(() => validate(mutated), message);
     }
 
     private static YamlMappingNode RequireStep(
