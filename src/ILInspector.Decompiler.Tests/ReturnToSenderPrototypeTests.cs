@@ -957,7 +957,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_UsesSignatureToDisambiguateDottedTypeTarget()
+    public void CompileBackTargets_UsesCanonicalSignatureToDisambiguateDottedTypeTarget()
     {
         var assemblyPath = EmitTypeNameCollisionFixture();
         try
@@ -968,7 +968,7 @@ public class ReturnToSenderPrototypeTests
                     "N.C",
                     "SignatureShared",
                     Overload: 0,
-                    Signature: "`0(int)")]));
+                    Signature: CanonicalMethodSignature("int SignatureShared(int value);"))]));
 
             Assert.Contains("int SignatureShared(int", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("int SignatureShared(string", result.Source, StringComparison.Ordinal);
