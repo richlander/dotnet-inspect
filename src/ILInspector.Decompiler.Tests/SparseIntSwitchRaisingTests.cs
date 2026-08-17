@@ -140,6 +140,55 @@ public class SparseIntSwitchRaisingTests
 
     [Fact]
     [Trait("Area", "Pass")]
+    public void FinalDispatchComparisonWithoutFallthrough_DeclinesSwitchRaise()
+    {
+        var body = new BlockContainer();
+
+        void AddComparison(int offset, ComparisonKind kind, int constant, int target)
+        {
+            var block = new Block(offset);
+            block.Add(new ConditionalBranch(
+                new Comparison(
+                    kind,
+                    isUnsigned: false,
+                    new LoadArgument(0, "value", s_int),
+                    new Constant(constant, s_int)),
+                target));
+            body.Add(block);
+        }
+
+        AddComparison(0x00, ComparisonKind.GreaterThan, 0, 0x20);
+
+        var explicitDefault = new Block(0x10);
+        explicitDefault.Add(new Branch(0x80));
+        body.Add(explicitDefault);
+
+        AddComparison(0x20, ComparisonKind.Equal, 1, 0x90);
+        AddComparison(0x30, ComparisonKind.Equal, 2, 0xA0);
+
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                s_void,
+                [new Parameter("value", s_int)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Equal(
+            3,
+            function.Descendants.OfType<ConditionalBranch>().Count());
+    }
+
+    [Fact]
+    [Trait("Area", "Pass")]
     public void NestedBranchEnteringSecondComparison_DeclinesSwitchRaise()
     {
         var body = new BlockContainer();

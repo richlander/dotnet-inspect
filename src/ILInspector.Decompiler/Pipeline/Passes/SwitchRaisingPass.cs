@@ -2014,6 +2014,8 @@ public sealed class SwitchRaisingPass : IIrPass
                     index++;
                     continue;
                 }
+                if (dispatchEnd + 1 >= blocks.Count)
+                    return false;
                 outcome = blocks[dispatchEnd + 1].StartOffset;
                 break;
             }
