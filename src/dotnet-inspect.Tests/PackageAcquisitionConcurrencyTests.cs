@@ -693,6 +693,60 @@ public sealed class PackageAcquisitionConcurrencyTests : IDisposable
     }
 
     [Fact]
+    public async Task ProbeNuspecXmlAsync_UnreadableCachedReplica_IsIndeterminate()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Unix permissions are required for this cache replica test.");
+            return;
+        }
+
+        const string PackageName = "Nuspec.Unreadable.Cache";
+        const string Version = "1.0.0";
+        string sourceDir = Path.Combine(
+            _testRoot,
+            "nuspec-unreadable");
+        Directory.CreateDirectory(sourceDir);
+        File.WriteAllText(
+            Path.Combine(sourceDir, $"{PackageName}.nuspec"),
+            $"<package><metadata><id>{PackageName}</id>"
+            + $"<version>{Version}</version></metadata></package>");
+        CommittedPackage committed = NuGetCache.CommitPackage(
+            sourceDir,
+            nupkgPath: null,
+            PackageName,
+            Version,
+            TestSourceKey);
+
+        File.SetUnixFileMode(
+            committed.ExtractPath,
+            UnixFileMode.UserExecute);
+        try
+        {
+            using var client = new HttpClient(new NotFoundHandler());
+            NuspecProbeResult probe =
+                await PackageExtractor.ProbeNuspecXmlAsync(
+                    client,
+                    PackageName,
+                    Version,
+                    sourceOptions: s_nugetOrgSource);
+
+            Assert.Equal(
+                NuspecProbeStatus.Indeterminate,
+                probe.Status);
+            Assert.Null(probe.Xml);
+        }
+        finally
+        {
+            File.SetUnixFileMode(
+                committed.ExtractPath,
+                UnixFileMode.UserRead
+                    | UnixFileMode.UserWrite
+                    | UnixFileMode.UserExecute);
+        }
+    }
+
+    [Fact]
     public async Task ProbeNuspecXmlAsync_UsesValidLowerPrecedenceCachedReplica()
     {
         string packageName = $"Nuspec.Replica.{Guid.NewGuid():N}";

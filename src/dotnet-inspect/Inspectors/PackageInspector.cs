@@ -270,10 +270,11 @@ internal static class PackageInspector
         result.IsRidSpecificPointerPackage = wrapperTool.IsRidSpecificPointerPackage;
         result.RuntimeIdentifierPackages = wrapperTool.RuntimeIdentifierPackages;
 
-        MarkAcquiredRidPackages(
+        await MarkAcquiredRidPackagesAsync(
             result,
             resolution,
-            wrapper.Version ?? result.Version);
+            wrapper.Version ?? result.Version,
+            logger.Log);
 
         if (verifyRidPackageAvailability
             && result.IsRidSpecificPointerPackage
@@ -292,33 +293,47 @@ internal static class PackageInspector
         }
     }
 
-    internal static void MarkAcquiredRidPackages(
+    internal static async Task MarkAcquiredRidPackagesAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
-        string? wrapperVersion)
+        string? wrapperVersion,
+        Action<string>? log = null)
     {
         if (result.RuntimeIdentifierPackages is not { Count: > 0 })
             return;
 
-        IEnumerable<(string? PackageName, string? Version)> acquiredPackages =
+        IEnumerable<(
+            string ExtractPath,
+            string? PackageName,
+            string? Version)> acquiredPackages =
             resolution.ToolWrapperChain
                 .Skip(1)
                 .Select(package => (
+                    package.ExtractPath,
                     (string?)package.PackageName,
                     package.Version))
                 .Append((
+                    resolution.ExtractPath,
                     resolution.PackageName,
                     resolution.Version));
         foreach (RidPackageReference package in result.RuntimeIdentifierPackages)
         {
-            if (acquiredPackages.Any(acquired =>
+            var acquired = acquiredPackages.FirstOrDefault(acquired =>
                 string.Equals(
                     package.PackageId,
                     acquired.PackageName,
                     StringComparison.OrdinalIgnoreCase)
                 && VersionsEqual(
                     wrapperVersion,
-                    acquired.Version)))
+                    acquired.Version));
+            if (acquired.PackageName is not null
+                && acquired.Version is not null
+                && (await PackageExtractor.ProbeExtractedPackageNuspecAsync(
+                    acquired.ExtractPath,
+                    acquired.PackageName,
+                    acquired.Version,
+                    log).ConfigureAwait(false)).Status
+                == NuspecProbeStatus.Present)
             {
                 package.Exists = true;
             }

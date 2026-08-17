@@ -111,6 +111,10 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         File.Copy(
             typeof(PackageInspectorMetadataSourceTests).Assembly.Location,
             Path.Combine(payloadTools, "Payload.dll"));
+        WriteNuspec(
+            payloadRoot,
+            "Wrapper.Package.any",
+            "1.0.0");
         string localPackagePath = Path.Combine(
             _root,
             "Wrapper.Package.1.0.0.nupkg");
@@ -252,6 +256,10 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         File.Copy(
             typeof(PackageInspectorMetadataSourceTests).Assembly.Location,
             Path.Combine(payloadTools, "Payload.dll"));
+        WriteNuspec(
+            payloadRoot,
+            "Wrapper.Package.any",
+            "1.0.0");
 
         string configPath = Path.Combine(_root, "nuget.config");
         await File.WriteAllTextAsync(
@@ -419,8 +427,18 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Fact]
-    public void MarkAcquiredRidPackages_UsesResolutionCoordinatesAndRedirectChain()
+    public async Task MarkAcquiredRidPackages_UsesResolutionCoordinatesAndRedirectChain()
     {
+        string middlePath = Path.Combine(_root, "middle");
+        Directory.CreateDirectory(middlePath);
+        WriteNuspec(
+            middlePath,
+            "Wrapper.Package.middle",
+            "1.0.0");
+        WriteNuspec(
+            _root,
+            "Wrapper.Package.any",
+            "1.0.0");
         var result = new InspectionResult
         {
             PackageName = "Spoofed.By.Payload.Nuspec",
@@ -457,14 +475,14 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                     "1.0.0",
                     ProducerKey: "wrapper-source"),
                 new ToolWrapperPackage(
-                    Path.Combine(_root, "middle"),
+                    middlePath,
                     "Wrapper.Package.middle",
                     "1.0.0",
                     ProducerKey: "middle-source"),
             ],
         };
 
-        PackageInspector.MarkAcquiredRidPackages(
+        await PackageInspector.MarkAcquiredRidPackagesAsync(
             result,
             resolution,
             wrapperVersion: "1.0.0");
@@ -475,8 +493,12 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     }
 
     [Fact]
-    public void MarkAcquiredRidPackages_UsesNormalizedVersionIdentity()
+    public async Task MarkAcquiredRidPackages_UsesNormalizedVersionIdentity()
     {
+        WriteNuspec(
+            _root,
+            "Wrapper.Package.any",
+            "1.0.0+payload");
         var result = new InspectionResult
         {
             RuntimeIdentifierPackages =
@@ -494,12 +516,53 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             PackageName: "Wrapper.Package.any",
             Version: "1.0.0+payload");
 
-        PackageInspector.MarkAcquiredRidPackages(
+        await PackageInspector.MarkAcquiredRidPackagesAsync(
             result,
             resolution,
             wrapperVersion: "1.0.0+wrapper");
 
         Assert.True(Assert.Single(result.RuntimeIdentifierPackages).Exists);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Wrong.Payload.Identity")]
+    public async Task MarkAcquiredRidPackages_RequiresMatchingNuspec(
+        string? nuspecId)
+    {
+        if (nuspecId is not null)
+        {
+            WriteNuspec(
+                _root,
+                nuspecId,
+                "1.0.0",
+                fileName: "Wrapper.Package.any.nuspec");
+        }
+
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "any",
+                    PackageId = "Wrapper.Package.any",
+                },
+            ],
+        };
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: "Wrapper.Package.any",
+            Version: "1.0.0");
+
+        await PackageInspector.MarkAcquiredRidPackagesAsync(
+            result,
+            resolution,
+            wrapperVersion: "1.0.0");
+
+        Assert.Null(
+            Assert.Single(result.RuntimeIdentifierPackages).Exists);
     }
 
     [Fact]
@@ -898,6 +961,21 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 """);
         }
         return stream.ToArray();
+    }
+
+    private static void WriteNuspec(
+        string directory,
+        string packageId,
+        string version,
+        string? fileName = null)
+    {
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(
+            Path.Combine(
+                directory,
+                fileName ?? $"{packageId}.nuspec"),
+            $"<package><metadata><id>{packageId}</id>"
+            + $"<version>{version}</version></metadata></package>");
     }
 
     private sealed class RoutingHandler(

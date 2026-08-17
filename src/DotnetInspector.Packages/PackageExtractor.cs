@@ -967,6 +967,24 @@ public static class PackageExtractor
             validateCoordinate: true).ConfigureAwait(false);
 
     /// <summary>
+    /// Probes an extracted package for bounded, coordinate-matching nuspec
+    /// evidence.
+    /// </summary>
+    public static async Task<NuspecProbeResult> ProbeExtractedPackageNuspecAsync(
+        string extractPath,
+        string packageId,
+        string version,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+        => await ProbeExtractedPackageNuspecCoreAsync(
+            extractPath,
+            packageId,
+            version,
+            validateCoordinate: true,
+            log,
+            cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
     /// Probes a local package archive for bounded, coordinate-matching nuspec
     /// evidence.
     /// </summary>
@@ -1186,38 +1204,25 @@ public static class PackageExtractor
                      sourceKeys))
         {
             string cachedPath = cached.ExtractPath;
-            if (!NuGetCache.IsCachedPackageValid(cachedPath))
-            {
-                sawIndeterminateSource = true;
-                continue;
-            }
-
             try
             {
-                var cachedNuspec = Directory
-                    .GetFiles(
-                        cachedPath,
-                        "*.nuspec",
-                        SearchOption.TopDirectoryOnly)
-                    .FirstOrDefault();
-                if (cachedNuspec != null)
+                if (!NuGetCache.IsCachedPackageValid(cachedPath))
                 {
-                    string? cachedXml =
-                        await TryReadNuspecFileAsync(
-                                cachedNuspec,
-                                strictUtf8: validateCoordinate)
-                            .ConfigureAwait(false);
-                    if (cachedXml != null
-                        && (!validateCoordinate
-                            || IsExpectedNuspec(
-                                cachedXml,
-                                packageId,
-                                version)))
-                    {
-                        return new NuspecProbeResult(
-                            cachedXml,
-                            NuspecProbeStatus.Present);
-                    }
+                    sawIndeterminateSource = true;
+                    continue;
+                }
+
+                NuspecProbeResult cachedProbe =
+                    await ProbeExtractedPackageNuspecCoreAsync(
+                        cachedPath,
+                        packageId,
+                        version,
+                        validateCoordinate,
+                        log,
+                        CancellationToken.None).ConfigureAwait(false);
+                if (cachedProbe.Status == NuspecProbeStatus.Present)
+                {
+                    return cachedProbe;
                 }
             }
             catch (IOException ex)
@@ -1317,6 +1322,83 @@ public static class PackageExtractor
             sawAuthoritativeAbsence && !sawIndeterminateSource
                 ? NuspecProbeStatus.Absent
                 : NuspecProbeStatus.Indeterminate);
+    }
+
+    private static async Task<NuspecProbeResult>
+        ProbeExtractedPackageNuspecCoreAsync(
+            string extractPath,
+            string packageId,
+            string version,
+            bool validateCoordinate,
+            Action<string>? log,
+            CancellationToken cancellationToken)
+    {
+        if (!IsValidPackageId(packageId)
+            || !TryNormalizePackageVersion(version, out _))
+        {
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Indeterminate);
+        }
+
+        try
+        {
+            string[] nuspecs = Directory
+                .EnumerateFiles(
+                    extractPath,
+                    "*",
+                    SearchOption.TopDirectoryOnly)
+                .Where(path => path.EndsWith(
+                    ".nuspec",
+                    StringComparison.OrdinalIgnoreCase))
+                .Take(2)
+                .ToArray();
+            if (nuspecs.Length == 0
+                || (validateCoordinate && nuspecs.Length > 1))
+            {
+                log?.Invoke(
+                    nuspecs.Length == 0
+                        ? "Extracted package contained no root nuspec file."
+                        : "Extracted package contained multiple root nuspec files.");
+                return new NuspecProbeResult(
+                    null,
+                    NuspecProbeStatus.Indeterminate);
+            }
+
+            string? xml = await TryReadNuspecFileAsync(
+                    nuspecs[0],
+                    cancellationToken,
+                    strictUtf8: validateCoordinate)
+                .ConfigureAwait(false);
+            if (xml is null
+                || (validateCoordinate
+                    && !IsExpectedNuspec(
+                        xml,
+                        packageId,
+                        version)))
+            {
+                log?.Invoke(
+                    "Extracted package nuspec was unreadable, malformed, or "
+                    + "did not match the requested package.");
+                return new NuspecProbeResult(
+                    null,
+                    NuspecProbeStatus.Indeterminate);
+            }
+
+            return new NuspecProbeResult(
+                xml,
+                NuspecProbeStatus.Present);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException)
+        {
+            log?.Invoke(
+                $"Extracted package nuspec could not be inspected: {ex.GetType().Name}");
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Indeterminate);
+        }
     }
 
     private static bool IsExpectedNuspec(

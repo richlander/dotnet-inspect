@@ -311,7 +311,9 @@ explicit manifest selection requests it: a coordinate-matching nuspec proves pre
 authoritative absence renders `no`, and malformed or otherwise inconclusive probes remain
 `unknown`. A local sibling must also pass bounded package-archive admission before its strict
 UTF-8 nuspec can prove presence; an existing but empty, corrupt, unreadable, or mismatched sibling
-remains `unknown`. `RidPackageVerifierTests` gates these local and remote distinctions.
+remains `unknown`. An acquired redirect hop likewise proves its mapped package present only when
+its extracted root nuspec matches the acquired coordinate. `RidPackageVerifierTests` and
+`PackageInspectorMetadataSourceTests` gate these local, remote, and acquired distinctions.
 Availability is not retained in the payload index; each explicit request evaluates the current
 source policy and available cache replicas. Redirect and RID package ids must satisfy the canonical
 NuGet id grammar before cache or network use; probe versions compare by normalized NuGet identity,
