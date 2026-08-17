@@ -3549,7 +3549,12 @@ public class PackageCommand
             && !libraryOptions.Count;
         if (tabularOutput
             && libraryOptions.Select?.Any(
-                value => value.StartsWith("@", StringComparison.Ordinal)) == true)
+                value => SelectResolver.TryResolveCategory(
+                    value,
+                    pipeline.GetCategoryMap(),
+                    pipeline.SelectableSectionNames,
+                    out _,
+                    out _)) == true)
         {
             CommandError.Write($"--all-libraries row output requires one concrete section; category selectors such as {SectionCategoryNames.Integrations} produce multi-section documents.");
             CommandError.WriteLine("Use Markdown output for categories, or select a section such as \"Integration: Configuration\" or Library Info.");
