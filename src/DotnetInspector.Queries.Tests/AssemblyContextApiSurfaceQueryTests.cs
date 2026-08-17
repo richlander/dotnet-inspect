@@ -703,6 +703,66 @@ public sealed class AssemblyContextApiSurfaceQueryTests
         Assert.Equal(1, truncation.OmittedParticipants);
     }
 
+    [Fact]
+    public void ExecuteBounded_SpendsRetainedTextAcrossParticipants()
+    {
+        byte[] firstImage = BuildBoundedSurfaceImage(
+            typeCount: 1,
+            assemblyName: "First");
+        byte[] secondImage = BuildBoundedSurfaceImage(
+            typeCount: 1,
+            assemblyName: "Second");
+        int retainedTextCharacters = RetainedTextCharacters(firstImage);
+        Assert.Equal(
+            retainedTextCharacters,
+            RetainedTextCharacters(secondImage));
+        var policy = new TestBindingPolicy();
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.Create(
+                        IdentityOf(firstImage),
+                        path: null,
+                        () => new MemoryStream(firstImage, writable: false),
+                        AssemblyResolutionProvenance.Local("first")),
+                    policy),
+                new AssemblyContextParticipant(
+                    ResolvedAssemblyReference.Create(
+                        IdentityOf(secondImage),
+                        path: null,
+                        () => new MemoryStream(secondImage, writable: false),
+                        AssemblyResolutionProvenance.Local("second")),
+                    policy),
+            ]);
+
+        AssemblyContextApiSurfaceResult bounded =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.Public,
+                new ApiSurfaceProjectionLimits(
+                    64,
+                    2,
+                    1,
+                    0,
+                    0,
+                    int.MaxValue,
+                    retainedTextCharacters));
+
+        ApiSurfaceProjectionTruncation truncation = bounded.Truncation!;
+        Assert.NotNull(truncation);
+        Assert.Equal(
+            ApiSurfaceProjectionLimit.RetainedTextCharacters,
+            truncation.Limit);
+        Assert.Equal(retainedTextCharacters, truncation.Bound);
+        Assert.Equal(
+            retainedTextCharacters,
+            truncation.ProjectedRetainedTextCharacters);
+        Assert.Single(bounded.Assemblies.Assemblies);
+        Assert.Equal(1, truncation.ProjectedParticipants);
+        Assert.Equal(1, truncation.OmittedParticipants);
+    }
+
     // The budget is spent across participants, so a participant that fits the remaining budget is
     // projected whole and the one that would overflow it is omitted — the projected rows stay
     // inside both bounds instead of overshooting by one image's worth of surface.
@@ -923,6 +983,8 @@ public sealed class AssemblyContextApiSurfaceQueryTests
             () => new ApiSurfaceProjectionLimits(1, 1, 1, 1, -1, 1));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new ApiSurfaceProjectionLimits(1, 1, 1, 1, 1, -1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ApiSurfaceProjectionLimits(1, 1, 1, 1, 1, 1, -1));
     }
 
     [Fact]
@@ -1079,7 +1141,7 @@ public sealed class AssemblyContextApiSurfaceQueryTests
                     metadata.GetOrAddString("Contracts"),
                     metadata.GetOrAddString("IMarker"));
             for (int index = 0; index < interfaceCount; index++)
-                    metadata.AddInterfaceImplementation(firstType, interfaceType);
+                metadata.AddInterfaceImplementation(firstType, interfaceType);
         }
 
         var pe = new ManagedPEBuilder(
@@ -1097,6 +1159,23 @@ public sealed class AssemblyContextApiSurfaceQueryTests
         using var reader = new PEReader(new MemoryStream(image, writable: false));
         MetadataReader metadata = reader.GetMetadataReader();
         return Enum.GetValues<TableIndex>().Sum(metadata.GetTableRowCount);
+    }
+
+    static int RetainedTextCharacters(byte[] image)
+    {
+        using var reader = new PEReader(new MemoryStream(image, writable: false));
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                reader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue)));
+        return extracted.RetainedTextCharacters;
     }
 
     static TValue Available<TValue>(AssemblyContextResult<TValue> result)
