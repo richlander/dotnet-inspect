@@ -582,9 +582,11 @@ public sealed class InspectionGraphDocumentTests
         admissions.Clear();
 
         Assert.Equal(2, descriptor.SeedAdmissions.Length);
-        Assert.True(descriptor.AdmitsSeed(
-            InspectionGraphSubjectKind.Member));
-        Assert.False(descriptor.AdmitsSeed(
+        Assert.Equal(
+            descriptor.SeedAdmissions,
+            descriptor.GetSeedAdmissions(
+                InspectionGraphSubjectKind.Member));
+        Assert.Empty(descriptor.GetSeedAdmissions(
             InspectionGraphSubjectKind.Package));
         Assert.Throws<ArgumentException>(
             () => Descriptor([]));
@@ -613,29 +615,6 @@ public sealed class InspectionGraphDocumentTests
                     MemberAdmission(InspectionGraphEndpointRole.Source),
                     MemberAdmission(InspectionGraphEndpointRole.Source),
                 ]));
-    }
-
-    [Fact]
-    public void SeedAdmissionValidator_RejectsUnsupportedRelationshipSet()
-    {
-        InspectionGraphSubject package =
-            InspectionGraphSubject.ForRealizedPackage(
-                new RealizedMemberCoordinate.Package(
-                    "sample.package",
-                    "1.0.0",
-                    "feed",
-                    "net11.0",
-                    null));
-
-        InspectionQueryException exception = Assert.Throws<
-            InspectionQueryException>(
-                () => InspectionGraphSeedAdmissionValidator.Validate(
-                    InspectionGraphModeRequest.SingleSeed(package),
-                    [CallGraphInspectionGraphCatalog.Call]));
-
-        Assert.Contains("package seed", exception.Message);
-        Assert.Contains("call", exception.Message);
-        Assert.Contains("owned subjects", exception.Message);
     }
 
     [Fact]
@@ -719,16 +698,7 @@ public sealed class InspectionGraphDocumentTests
     }
 
     [Fact]
-    public void SeedAdmissionValidator_DoesNotConstrainInducedSets()
-    {
-        InspectionGraphSeedAdmissionValidator.Validate(
-            InspectionGraphModeRequest.InducedSet(
-                InspectionGraphInducedSetRule.WorkspaceParticipants),
-            []);
-    }
-
-    [Fact]
-    public void DirectAdmissionsMatchDeclaredEndpointDomains()
+    public void AdmissionsMatchDeclaredEndpointDomains()
     {
         Assert.Throws<ArgumentException>(
             () => new InspectionGraphRelationshipDescriptor(
@@ -762,6 +732,42 @@ public sealed class InspectionGraphDocumentTests
                         InspectionGraphSubjectKind.Member,
                         InspectionGraphSeedAdmissionKind.EdgeEndpoint,
                         InspectionGraphEndpointRole.Target),
+                ],
+                InspectionGraphEndpointProjection.Exact,
+                new TestOccurrenceIdentityProjection(),
+                [TestEvidence]));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphRelationshipDescriptor(
+                "test.invalid-owned-endpoint",
+                InspectionGraphOwner.Queries,
+                InspectionGraphRelationshipSemantics.Observed,
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [
+                    Admission(
+                        InspectionGraphSubjectKind.Member,
+                        InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                        InspectionGraphEndpointRole.Source),
+                ],
+                InspectionGraphEndpointProjection.Exact,
+                new TestOccurrenceIdentityProjection(),
+                [TestEvidence]));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphRelationshipDescriptor(
+                "test.self-owned-endpoint",
+                InspectionGraphOwner.Queries,
+                InspectionGraphRelationshipSemantics.Observed,
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [
+                    Admission(
+                        InspectionGraphSubjectKind.Assembly,
+                        InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                        InspectionGraphEndpointRole.Source),
                 ],
                 InspectionGraphEndpointProjection.Exact,
                 new TestOccurrenceIdentityProjection(),

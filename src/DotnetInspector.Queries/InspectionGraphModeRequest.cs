@@ -100,54 +100,6 @@ public sealed class InspectionGraphModeRequest
             rule);
 }
 
-internal static class InspectionGraphSeedAdmissionValidator
-{
-    internal static void Validate(
-        InspectionGraphModeRequest request,
-        IEnumerable<InspectionGraphRelationshipDescriptor> relationships)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(relationships);
-        if (request.Mode == InspectionGraphMode.InducedSet)
-            return;
-
-        InspectionGraphRelationshipDescriptor[] selected =
-        [
-            .. relationships,
-        ];
-        if (selected.Any(static relationship => relationship is null))
-        {
-            throw new ArgumentException(
-                "Selected relationships cannot contain null.",
-                nameof(relationships));
-        }
-        if (selected.Length == 0)
-        {
-            throw new InspectionQueryException(
-                "A seeded graph requires at least one selected relationship.");
-        }
-
-        foreach (InspectionGraphSubject seed in request.Seeds)
-        {
-            if (selected.Any(relationship =>
-                relationship.AdmitsSeed(seed.Kind)))
-            {
-                continue;
-            }
-
-            string ids = string.Join(
-                ", ",
-                selected.Select(static relationship =>
-                    relationship.Id));
-            throw new InspectionQueryException(
-                $"No selected relationship admits a "
-                + $"{seed.Kind.ToString().ToLowerInvariant()} seed. "
-                + $"Selected relationships: {ids}. Select a relationship "
-                + "that admits the seed directly or through owned subjects.");
-        }
-    }
-}
-
 internal enum InspectionGraphSeedTargetPreference
 {
     Node,

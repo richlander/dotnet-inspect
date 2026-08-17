@@ -558,6 +558,17 @@ public sealed class InspectionGraphRelationshipDescriptor
                     "A direct seed admission must use a subject kind admitted by that endpoint.",
                     nameof(seedAdmissions));
             }
+            if (admission.Kind
+                    == InspectionGraphSeedAdmissionKind.OwnedSubjects
+                && !OwnedEndpointKinds(admission.Role).Any(
+                    endpointKind => StrictlyOwns(
+                        admission.SubjectKind,
+                        endpointKind)))
+            {
+                throw new ArgumentException(
+                    "An owned-subject seed admission must strictly own a subject kind in that semantic endpoint domain.",
+                    nameof(seedAdmissions));
+            }
         }
         if (EdgeSourceKinds.IsEmpty)
             throw new ArgumentException("At least one edge source subject kind is required.", nameof(edgeSourceKinds));
@@ -626,18 +637,56 @@ public sealed class InspectionGraphRelationshipDescriptor
         InspectionGraphSubject subject) =>
         OccurrenceTargetKinds.Contains(subject.Kind);
 
-    public bool AdmitsSeed(InspectionGraphSubjectKind subjectKind)
+    public ImmutableArray<InspectionGraphSeedAdmission> GetSeedAdmissions(
+        InspectionGraphSubjectKind subjectKind)
     {
         InspectionGraphCollections.RequireDefined(
             subjectKind,
             nameof(subjectKind));
-        return SeedAdmissions.Any(
-            admission => admission.SubjectKind == subjectKind);
+        return
+        [
+            .. SeedAdmissions.Where(
+                admission => admission.SubjectKind == subjectKind),
+        ];
     }
 
     internal bool AdmitsEvidence(
         IInspectionGraphOccurrenceEvidence evidence) =>
         Evidence.Contains(evidence.Descriptor);
+
+    IEnumerable<InspectionGraphSubjectKind> OwnedEndpointKinds(
+        InspectionGraphEndpointRole role) =>
+        role switch
+        {
+            InspectionGraphEndpointRole.Source =>
+                EdgeSourceKinds.Concat(OccurrenceSourceKinds),
+            InspectionGraphEndpointRole.Target =>
+                EdgeTargetKinds.Concat(OccurrenceTargetKinds),
+            _ => throw new ArgumentOutOfRangeException(nameof(role)),
+        };
+
+    static bool StrictlyOwns(
+        InspectionGraphSubjectKind owner,
+        InspectionGraphSubjectKind subject) =>
+        (owner, subject) switch
+        {
+            (
+                InspectionGraphSubjectKind.Type,
+                InspectionGraphSubjectKind.Member) =>
+                true,
+            (
+                InspectionGraphSubjectKind.Assembly,
+                InspectionGraphSubjectKind.Type
+                    or InspectionGraphSubjectKind.Member) =>
+                true,
+            (
+                InspectionGraphSubjectKind.Package,
+                InspectionGraphSubjectKind.Assembly
+                    or InspectionGraphSubjectKind.Type
+                    or InspectionGraphSubjectKind.Member) =>
+                true,
+            _ => false,
+        };
 }
 
 /// <summary>Document-local node classification.</summary>

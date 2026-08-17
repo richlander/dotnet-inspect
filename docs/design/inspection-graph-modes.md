@@ -18,9 +18,9 @@ participants.
 
 The current executable mode slices bind request intent to graph subjects and
 make seed admission a descriptor-owned relationship contract without changing
-producer demand or topology. Request-driven relationship selection and
-neighborhood construction, traversal bounds, induced explicit-subject sets, and
-command/presentation surfaces remain design targets.
+producer demand or topology. Request-driven relationship selection, admission
+validation and neighborhood construction, traversal bounds, induced
+explicit-subject sets, and command/presentation surfaces remain design targets.
 
 `CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap`,
 `PackageSeed_BindsToNodeOrGroupSelectedByLens`,
@@ -30,9 +30,8 @@ command/presentation surfaces remain design targets.
 `Execute_BindsPeerSeedsWithoutChoosingPrimary`, and
 `Execute_DefaultsToWorkspaceInducedSetWithoutSeeds` gate mode binding.
 `RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`,
-`RelationshipCatalogsDeclareCurrentSeedAdmissions`, and
-`SeedAdmissionValidator_RejectsUnsupportedRelationshipSet` gate descriptor
-admission and request validation.
+`AdmissionsMatchDeclaredEndpointDomains`, and
+`RelationshipCatalogsDeclareCurrentSeedAdmissions` gate descriptor admission.
 
 | Mode | Focus | Input | Primary question |
 | --- | --- | --- | --- |
@@ -181,14 +180,16 @@ Mode does not impose one expansion algorithm on every producer:
 
 `EdgeEndpoint` and `OccurrenceEndpoint` admissions must name a subject kind in
 the descriptor's corresponding semantic source or target domain.
-`OwnedSubjects` declares that the seed may expand through subjects it owns; it
-does not fabricate an edge at the owner's subject kind. Unsupported selected
-relationship sets fail before producer execution with guidance. They do not
-drop the seed, relabel it, or substitute a different relationship. Induced-set
-requests have no seeds and therefore do not require seed admission.
+`OwnedSubjects` must name a strict typed owner of at least one subject kind in
+that semantic endpoint domain; it does not fabricate an edge at the owner's
+subject kind.
 
-The current slice declares and validates these capabilities. It does not yet
-use them to select producers or construct a bounded neighborhood.
+The current slice declares and validates these descriptor capabilities. Once
+request-driven relationship selection lands, unsupported combinations must
+fail before producer execution with guidance rather than dropping or relabeling
+the seed. Induced-set requests have no seeds and therefore need no seed
+admission. This slice does not yet use admission to select producers or
+construct a bounded neighborhood.
 
 ## Shared contract
 
@@ -225,9 +226,9 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
    request and document.
 3. **Implemented:** bind type, assembly, and realized-package seeds to existing
    Integration/package graph subjects, declare direct endpoint and
-   owned-subject admission on each relationship descriptor, and reject a
-   selected relationship set that admits none of a request's seeds.
-   Admission-driven producer selection and neighborhood construction remain.
+   strict typed owned-subject admission on each relationship descriptor.
+   Admission-driven request validation, producer selection, and neighborhood
+   construction remain.
 4. **Partially implemented:** bind peer-seed requests without choosing a hero
    node. Connecting-neighborhood construction remains.
 5. **Partially implemented:** declare workspace-participant and

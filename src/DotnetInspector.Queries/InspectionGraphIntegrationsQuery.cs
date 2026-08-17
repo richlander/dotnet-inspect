@@ -167,15 +167,6 @@ public static class InspectionGraphIntegrationsCatalog
             InspectionGraphOwner.Queries,
             [FailureEvidence]);
 
-    public static ImmutableArray<InspectionGraphRelationshipDescriptor>
-        Relationships { get; } =
-        [
-            Extension,
-            IntegrationObserved,
-            MetadataReference,
-            IntegrationOpportunity,
-        ];
-
     sealed class IntegrationOccurrenceIdentityProjection :
         InspectionGraphOccurrenceIdentityProjection
     {
@@ -490,9 +481,6 @@ public static class InspectionGraphIntegrationsQuery
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(modeRequest);
-        InspectionGraphSeedAdmissionValidator.Validate(
-            modeRequest,
-            InspectionGraphIntegrationsCatalog.Relationships);
 
         var registry =
             new InspectionQueryRegistry<AssemblyContextGroup>()
