@@ -418,6 +418,69 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
+    public void LoopCarriedCandidateRhsLoad_StaysUnsplit()
+    {
+        var loopInput = new LoadStackSlot(Slot, Object);
+        var loopPostStoreLoad = Load(String);
+        var conditionalStore = BlockOf(20, Store(1));
+        var loopBody = BlockOf(
+            10,
+            new IfStatement(new LoadArgument(0, "first", Boolean), conditionalStore, null),
+            new StoreStackSlot(Slot, new Coerce(String, loopInput)),
+            loopPostStoreLoad);
+        var entry = BlockOf(
+            0,
+            Store("seed"),
+            new WhileLoop(new LoadArgument(1, "again", Boolean), loopBody),
+            new Return(null));
+
+        Assert.False(Split(Run(entry)));
+        Assert.Equal(Slot, loopInput.Slot);
+        Assert.Equal(Slot, Assert.Single(loopBody.Children.OfType<StoreStackSlot>()).Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(loopPostStoreLoad.Expression).Slot);
+    }
+
+    [Fact]
+    public void RawLoopCarriedCandidateRhsLoad_StaysUnsplit()
+    {
+        var loopInput = new LoadStackSlot(Slot, Object);
+        var loopPostStoreLoad = Load(String);
+        var conditionalStore = BlockOf(20, Store(1));
+        var entry = BlockOf(0, Store("seed"), new Branch(10));
+        var loop = BlockOf(
+            10,
+            new IfStatement(new LoadArgument(0, "first", Boolean), conditionalStore, null),
+            new StoreStackSlot(Slot, new Coerce(String, loopInput)),
+            loopPostStoreLoad,
+            new Branch(10));
+
+        Assert.False(Split(Run(entry, loop)));
+        Assert.Equal(Slot, loopInput.Slot);
+        Assert.Equal(Slot, Assert.Single(loop.Children.OfType<StoreStackSlot>()).Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(loopPostStoreLoad.Expression).Slot);
+    }
+
+    [Fact]
+    public void StraightLineCandidateRhsLoad_AllowsSplit()
+    {
+        var input = new LoadStackSlot(Slot, Object);
+        var postStoreLoad = Load(String);
+        var block = BlockOf(
+            0,
+            Store(1),
+            new StoreStackSlot(Slot, new Coerce(String, input)),
+            postStoreLoad,
+            new Return(null));
+
+        var function = Run(block);
+
+        Assert.Equal(Slot, input.Slot);
+        var rewrittenStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot != Slot);
+        var rewrittenLoad = Assert.Single(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot != Slot);
+        Assert.Equal(rewrittenStore.Slot, rewrittenLoad.Slot);
+    }
+
+    [Fact]
     public void NestedBlockInRawLoopCarriedRange_StaysUnsplit()
     {
         var nested = BlockOf(
@@ -432,6 +495,47 @@ public class StackSlotLiveRangeCrossBlockTests
             new Branch(0));
 
         Assert.False(Split(Run(entry)));
+    }
+
+    [Fact]
+    public void LaterNestedStatementLoadBeforeStore_StaysUnsplit()
+    {
+        var nestedLoad = Load(Int32);
+        var nested = BlockOf(100, nestedLoad, Store("later"));
+        var entry = BlockOf(
+            0,
+            Store("first"),
+            Store(29),
+            Load(Int32),
+            new IfStatement(new LoadArgument(0, "condition", Boolean), nested, null),
+            new Return(null));
+
+        Assert.False(Split(Run(entry)));
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(nestedLoad.Expression).Slot);
+    }
+
+    [Fact]
+    public void LaterNestedStatementStoreWithoutLoad_AllowsSplit()
+    {
+        var directLoad = Load(Int32);
+        var nestedStore = Store("later");
+        var nested = BlockOf(100, nestedStore);
+        var entry = BlockOf(
+            0,
+            Store("first"),
+            Store(29),
+            directLoad,
+            new IfStatement(new LoadArgument(0, "condition", Boolean), nested, null),
+            new Return(null));
+
+        var function = Run(entry);
+
+        var rewrittenStore = Assert.Single(
+            entry.Children.OfType<StoreStackSlot>(),
+            store => store.Slot != Slot);
+        Assert.Equal(rewrittenStore.Slot, Assert.IsType<LoadStackSlot>(directLoad.Expression).Slot);
+        Assert.Equal(Slot, nestedStore.Slot);
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot != Slot);
     }
 
     [Fact]

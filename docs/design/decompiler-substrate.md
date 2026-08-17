@@ -113,13 +113,18 @@ slot number. Reused evaluation-stack positions are allowed to carry unrelated C#
 types across disjoint straight-line live ranges. Earlier passes should consume
 their owned ranges before `StackSlotLiveRangePass`; its cross-block path may
 split only the loads proven to be reached by one definition. The older linear
-path handles block-local loads and, for loads in statements preceding the
-candidate store, declines when a modeled function-body CFG cycle or enclosing
-structured loop can carry the candidate definition back to that load. Loads
-within a later same-slot store statement remain a known limitation (#4300);
+path handles block-local loads. It declines when a modeled function-body CFG
+cycle or enclosing structured loop can carry the candidate definition back to
+a load in an earlier statement or in the candidate store's value. It also
+declines when the next same-slot store's statement contains a same-slot load,
+because the statement-level scan cannot prove whether that load precedes the
+store;
 `StackSlotLiveRangeCrossBlockTests.CrossBlockSplit_DoesNotEnableLoopCarriedBlockLocalSplit`
-plus `StructuredLoopCarriedBlockLocalRange_StaysUnsplit` and
-`NestedBlockInRawLoopCarriedRange_StaysUnsplit` gate those boundaries. For a
+plus `LoopCarriedCandidateRhsLoad_StaysUnsplit`,
+`RawLoopCarriedCandidateRhsLoad_StaysUnsplit`, and
+`LaterNestedStatementLoadBeforeStore_StaysUnsplit` gate those boundaries.
+`StraightLineCandidateRhsLoad_AllowsSplit` and
+`LaterNestedStatementStoreWithoutLoad_AllowsSplit` prevent a broad decline. For a
 multi-block function body with complete modeled CFG edges, a union
 reaching-definition proof may split one top-level store only when every load it
 reaches is reached by that definition alone, no reachable load is
