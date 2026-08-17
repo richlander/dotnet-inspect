@@ -70,6 +70,7 @@ public enum StructuralCloneBlockerKind
     EdgeLimit,
     LocalLimit,
     VerificationStepLimit,
+    NearAlignmentIndexStepLimit,
     NearAlignmentCandidateLimit,
     NearAlignmentVerificationStepLimit,
     NearAlignmentAlternativeLimit,
@@ -151,6 +152,7 @@ public sealed record StructuralCloneAlignmentAlternative(
 
 /// <summary>Bounded candidate and witness-search work for near alignment.</summary>
 public sealed record StructuralCloneAlignmentReceipt(
+    int IndexSteps,
     int Candidates,
     int VerificationSteps,
     bool Exhausted);
@@ -186,6 +188,7 @@ public sealed record StructuralCloneComparisonLimits(
     int MaximumLocals = 256,
     int MaximumVerificationSteps = 100_000,
     int MaximumBodyBytes = 1_000_000,
+    int MaximumNearAlignmentIndexSteps = 1_000_000,
     int MaximumNearAlignmentCandidates = 10_000,
     int MaximumNearAlignmentVerificationSteps = 1_000_000,
     int MaximumNearAlignmentAlternatives = 128,
@@ -2598,6 +2601,9 @@ public static partial class StructuralCloneAnalysis
             1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             limits.MaximumBodyBytes,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            limits.MaximumNearAlignmentIndexSteps,
             1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             limits.MaximumNearAlignmentCandidates,

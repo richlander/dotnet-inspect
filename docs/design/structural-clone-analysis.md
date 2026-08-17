@@ -127,19 +127,22 @@ the verifier. Operation order, entry/exit shape, local types, local-use sites,
 and incoming and outgoing edge-role multisets participate; raw local slots and
 CFG target identities do not. Removing an operation incrementally rewrites the
 use-site keys for locals used in that block; removing an edge rewrites local
-contexts in its source and target blocks. The index uses aggregate hashes. A
+contexts in its source and target blocks. Per-block, per-local profiles derive
+these rewrites from aggregate use counts, sums, and squared sums without
+rescanning the block for each candidate. The index uses aggregate hashes. A
 collision can add exact comparisons but cannot establish or suppress a
 relationship.
 
-Enumeration remains exhaustive within explicit candidate,
-exact-verification-work, alternative, and block-affected-element limits. Each
-attempted exact-restoring candidate and each witness-search step consumes the
-aggregate verification budget. Every distinct restoring alternative is
-returned in deterministic order. Multiple alternatives, or ambiguity in any
-restoring exact correspondence, makes the alignment `Ambiguous`; the comparator
-does not choose a preferred edit by layout or search order. If any limit
-prevents complete enumeration, the result is `LimitReached`, never partial
-`Near` or unproven `Different`.
+Enumeration remains exhaustive within explicit candidate-index-work,
+candidate, exact-verification-work, alternative, and block-affected-element
+limits. Index construction and lookup consume the index budget; each attempted
+exact-restoring candidate and each witness-search step consumes the aggregate
+verification budget. The alignment receipt reports both kinds of work. Every
+distinct restoring alternative is returned in deterministic order. Multiple
+alternatives, or ambiguity in any restoring exact correspondence, makes the
+alignment `Ambiguous`; the comparator does not choose a preferred edit by
+layout or search order. If any limit prevents complete enumeration, the result
+is `LimitReached`, never partial `Near` or unproven `Different`.
 
 Signature shape, `InitLocals`, and the local-type multiset remain hard
 discriminators. Multi-edit contrasts remain `Different`. Exact results do not

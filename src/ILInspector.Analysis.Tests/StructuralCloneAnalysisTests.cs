@@ -1691,6 +1691,7 @@ public class StructuralCloneAnalysisTests
                 comparison.AlignmentReceipt);
         Assert.Equal(0, receipt.Candidates);
         Assert.Equal(0, receipt.VerificationSteps);
+        Assert.True(receipt.IndexSteps > 0);
         Assert.True(receipt.Exhausted);
     }
 
@@ -2186,6 +2187,12 @@ public class StructuralCloneAnalysisTests
                 right,
                 new StructuralCloneComparisonLimits(
                     MaximumNearAlignmentCandidates: 1));
+        StructuralCloneComparison indexLimited =
+            StructuralCloneAnalysis.Compare(
+                left,
+                right,
+                new StructuralCloneComparisonLimits(
+                    MaximumNearAlignmentIndexSteps: 1));
         StructuralCloneComparison alternativeLimited =
             StructuralCloneAnalysis.Compare(
                 Facts(
@@ -2224,6 +2231,9 @@ public class StructuralCloneAnalysisTests
                     MaximumNearBlockElements: 1));
 
         AssertLimit(
+            indexLimited,
+            StructuralCloneBlockerKind.NearAlignmentIndexStepLimit);
+        AssertLimit(
             candidateLimited,
             StructuralCloneBlockerKind.NearAlignmentCandidateLimit);
         AssertLimit(
@@ -2236,6 +2246,8 @@ public class StructuralCloneAnalysisTests
         AssertLimit(
             blockElementLimited,
             StructuralCloneBlockerKind.NearBlockElementLimit);
+        Assert.Equal(1, indexLimited.AlignmentReceipt?.IndexSteps);
+        Assert.False(indexLimited.AlignmentReceipt?.Exhausted);
         Assert.False(candidateLimited.AlignmentReceipt?.Exhausted);
         Assert.False(alternativeLimited.AlignmentReceipt?.Exhausted);
         Assert.False(verificationLimited.AlignmentReceipt?.Exhausted);
