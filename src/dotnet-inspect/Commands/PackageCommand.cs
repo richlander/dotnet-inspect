@@ -4556,9 +4556,13 @@ public class PackageCommand
             }
 
             var packageName =
-                new InertString(TextPolicy.Field, empty.PackageName);
+                new InertString(
+                    TextPolicy.Field,
+                    empty.ManifestPackageName);
             var version =
-                new InertString(TextPolicy.Field, empty.Version);
+                new InertString(
+                    TextPolicy.Field,
+                    empty.ManifestVersion);
             var description =
                 new InertString(TextPolicy.Field, empty.Message);
             var emptyView = new EmptyDepsView
@@ -4577,9 +4581,13 @@ public class PackageCommand
 
         var graph = (PackageDependencyGraphResult.Graph)result;
         var packageText =
-            new InertString(TextPolicy.Field, graph.PackageName);
+            new InertString(
+                TextPolicy.Field,
+                graph.ManifestPackageName);
         var versionText =
-            new InertString(TextPolicy.Field, graph.Version);
+            new InertString(
+                TextPolicy.Field,
+                graph.ManifestVersion);
         var view = new PackageDependenciesView
         {
             Title = InertString.Format(

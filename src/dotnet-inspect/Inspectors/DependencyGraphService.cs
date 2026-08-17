@@ -1,9 +1,11 @@
 using ILInspector.CSharp;
+using DotnetInspector.Core;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using InertText;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 
@@ -146,6 +148,8 @@ internal static class DependencyGraphService
             return new PackageDependencyGraphResult.Empty(
                 resolution.PackageName,
                 resolution.Version,
+                resolution.ManifestPackageName,
+                resolution.ManifestVersion,
                 "No dependencies declared in package.",
                 PackageDependencyGraphResult.EmptyKind.NoDependencyGroups);
         }
@@ -159,6 +163,8 @@ internal static class DependencyGraphService
             return new PackageDependencyGraphResult.Empty(
                 resolution.PackageName,
                 resolution.Version,
+                resolution.ManifestPackageName,
+                resolution.ManifestVersion,
                 "No dependencies declared in package.",
                 PackageDependencyGraphResult.EmptyKind.NoDependencyGroups);
         }
@@ -176,6 +182,8 @@ internal static class DependencyGraphService
             return new PackageDependencyGraphResult.Empty(
                 resolution.PackageName,
                 resolution.Version,
+                resolution.ManifestPackageName,
+                resolution.ManifestVersion,
                 $"No additional dependencies for {tfm}.",
                 PackageDependencyGraphResult.EmptyKind.SelectedGroup);
         }
@@ -192,6 +200,8 @@ internal static class DependencyGraphService
         return new PackageDependencyGraphResult.Graph(
             resolution.PackageName,
             resolution.Version,
+            resolution.ManifestPackageName,
+            resolution.ManifestVersion,
             depNodes);
     }
 
@@ -228,8 +238,12 @@ internal static class DependencyGraphService
                 logger).ConfigureAwait(false);
         }
 
+        using var feedFailureScope = FeedFailureTelemetry.Scope();
         IReadOnlyList<string> cachedVersions = floatingSelector
-            ? GetCachedPackageVersions(packageName, sourceOptions)
+            ? GetCachedPackageVersions(
+                packageName,
+                sourceOptions,
+                includePrerelease)
             : [];
         bool forceLatest = string.Equals(
             version,
@@ -319,8 +333,11 @@ internal static class DependencyGraphService
         {
             return PackageNuspecResolution.Error(
                 packageName,
-                $"Nuspec for package '{packageName}' version "
-                + $"'{coordinate.Version}' could not be resolved.");
+                await DescribeUnavailableNuspecAsync(
+                    httpClient,
+                    packageName,
+                    coordinate.Version,
+                    reportingSources).ConfigureAwait(false));
         }
 
         NuspecData nuspec = NuspecParser.ParseContent(nuspecXml);
@@ -335,6 +352,8 @@ internal static class DependencyGraphService
         }
 
         return new PackageNuspecResolution(
+            packageName,
+            coordinate.Version,
             nuspec.PackageName ?? packageName,
             nuspec.Version ?? coordinate.Version,
             nuspec,
@@ -368,13 +387,19 @@ internal static class DependencyGraphService
         {
             NuspecData? nuspec =
                 NuspecParser.FindAndParse(extracted.ExtractPath);
+            string resolvedPackageName =
+                extracted.PackageName
+                ?? packageName;
+            string resolvedVersion =
+                extracted.Version
+                ?? "";
             return new PackageNuspecResolution(
+                resolvedPackageName,
+                resolvedVersion,
                 nuspec?.PackageName
-                    ?? extracted.PackageName
-                    ?? packageName,
+                    ?? resolvedPackageName,
                 nuspec?.Version
-                    ?? extracted.Version
-                    ?? "",
+                    ?? resolvedVersion,
                 nuspec,
                 ErrorMessage: null);
         }
@@ -386,7 +411,8 @@ internal static class DependencyGraphService
 
     private static IReadOnlyList<string> GetCachedPackageVersions(
         string packageName,
-        NuGetSourceOptions? sourceOptions)
+        NuGetSourceOptions? sourceOptions,
+        bool includePrerelease)
     {
         try
         {
@@ -395,12 +421,61 @@ internal static class DependencyGraphService
                 NuGetSourceResolver.ResolveSourceKeysForPackage(
                     sourceOptions,
                     packageName),
-                includePrerelease: false);
+                includePrerelease);
         }
         catch (PackageSourceMappingException)
         {
             return [];
         }
+    }
+
+    private static async Task<string> DescribeUnavailableNuspecAsync(
+        HttpClient httpClient,
+        string packageName,
+        string version,
+        NuGetSourceOptions sourceOptions)
+    {
+        List<string>? knownVersions =
+            await PackageExtractor.GetVersionsAsync(
+                httpClient,
+                packageName,
+                includePrerelease: true,
+                limit: null,
+                log: null,
+                sourceOptions: sourceOptions).ConfigureAwait(false);
+
+        if (FeedFailureTelemetry.Current
+            is { HasFailures: true } failures)
+        {
+            return (failures.DescribeFailure(packageName)
+                ?? InertString.Format(
+                    TextPolicy.Field,
+                    $"Package '{packageName}' could not be fully resolved from every authorized source."))
+                .ToString();
+        }
+
+        if (knownVersions is not { Count: > 0 })
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Package '{packageName}' not found.")
+                .ToString();
+        }
+
+        if (!knownVersions.Contains(
+                version,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.")
+                .ToString();
+        }
+
+        return InertString.Format(
+            TextPolicy.Field,
+            $"Nuspec for package '{packageName}' version '{version}' could not be resolved.")
+            .ToString();
     }
 
     private static string DescribeCachedVersionFallback(
@@ -449,13 +524,21 @@ internal static class DependencyGraphService
     private sealed record PackageNuspecResolution(
         string PackageName,
         string Version,
+        string ManifestPackageName,
+        string ManifestVersion,
         NuspecData? Nuspec,
         string? ErrorMessage)
     {
         public static PackageNuspecResolution Error(
             string packageName,
             string message) =>
-            new(packageName, "", Nuspec: null, ErrorMessage: message);
+            new(
+                packageName,
+                "",
+                packageName,
+                "",
+                Nuspec: null,
+                ErrorMessage: message);
     }
 }
 
@@ -494,6 +577,8 @@ internal abstract record PackageDependencyGraphResult
     public sealed record Graph(
         string PackageName,
         string Version,
+        string ManifestPackageName,
+        string ManifestVersion,
         List<DependencyNode> Dependencies) : PackageDependencyGraphResult
     {
         public string Title => $"{PackageName} ({Version})";
@@ -502,6 +587,8 @@ internal abstract record PackageDependencyGraphResult
     public sealed record Empty(
         string PackageName,
         string Version,
+        string ManifestPackageName,
+        string ManifestVersion,
         string Message,
         EmptyKind Kind) : PackageDependencyGraphResult;
 

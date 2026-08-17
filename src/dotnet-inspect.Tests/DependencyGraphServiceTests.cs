@@ -132,7 +132,7 @@ public class DependencyGraphServiceTests : IDisposable
                     <?xml version="1.0"?>
                     <package>
                       <metadata>
-                        <id>Depends.Local</id>
+                        <id>Depends.Manifest</id>
                         <version>1.0.0</version>
                       </metadata>
                     </package>
@@ -150,7 +150,12 @@ public class DependencyGraphServiceTests : IDisposable
                     sourceOptions: null,
                     logger);
 
-            Assert.IsType<PackageDependencyGraphResult.Empty>(result);
+            var empty =
+                Assert.IsType<PackageDependencyGraphResult.Empty>(result);
+            Assert.Equal("Depends.Local", empty.PackageName);
+            Assert.Equal(
+                "Depends.Manifest",
+                empty.ManifestPackageName);
         }
         finally
         {
@@ -387,6 +392,119 @@ public class DependencyGraphServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageDependencies_PreviewCacheRetainsTimeoutDiagnostic()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Package.Dependencies.Preview.{suffix}";
+        const string PreviewVersion = "2.0.0-preview.1";
+        string serviceIndex =
+            $"https://feed.example.test/{suffix}/v3/index.json";
+        SeedCachedPackage(packageId, PreviewVersion, serviceIndex);
+        using var httpClient = new HttpClient(
+            new DelayedNotFoundHandler());
+        var logger = new VerboseLogger(enabled: false);
+
+        PackageDependencyGraphResult result =
+            await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                httpClient,
+                packageId,
+                requestedTfm: null,
+                new NuGetSourceOptions { Sources = [serviceIndex] },
+                logger,
+                includePrerelease: true);
+
+        var error =
+            Assert.IsType<PackageDependencyGraphResult.Error>(result);
+        Assert.Contains("lookup timed out", error.Message);
+        Assert.Contains(
+            $"Locally cached versions: {PreviewVersion}",
+            error.Message);
+    }
+
+    [Fact]
+    public async Task PackageDependencies_FeedFailureRetainsSourceDiagnostic()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Package.Dependencies.Auth.{suffix}";
+        string serviceIndex =
+            $"https://feed.example.test/{suffix}/v3/index.json";
+        using var httpClient = new HttpClient(
+            new FixedStatusHandler(HttpStatusCode.Unauthorized));
+
+        var rendered = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                new InspectionOptions
+                {
+                    PackageArgs = [$"{packageId}@1.0.0"],
+                    ShowDependencies = true,
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = [serviceIndex],
+                    },
+                },
+                new CommandContext(
+                    verbose: false,
+                    httpClient)));
+
+        Assert.Equal(1, rendered.ExitCode);
+        Assert.Contains(
+            "could not be resolved because a source requires credentials",
+            rendered.Error);
+        Assert.Contains(serviceIndex, rendered.Error);
+        Assert.DoesNotContain(
+            "Nuspec for package",
+            rendered.Error);
+    }
+
+    [Fact]
+    public async Task PackageDependencies_MissingVersionRetainsVersionsHint()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Package.Dependencies.Missing.{suffix}";
+        string serviceIndex =
+            $"https://feed.example.test/{suffix}/v3/index.json";
+        var handler = new ManifestOnlyHandler(
+            serviceIndex,
+            $"https://content.example.test/{suffix}/flat/",
+            $"https://other.example.test/{suffix}/v3/index.json",
+            $"https://other-content.example.test/{suffix}/flat/",
+            packageId);
+        using var httpClient = new HttpClient(handler);
+
+        var rendered = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                new InspectionOptions
+                {
+                    PackageArgs = [$"{packageId}@9.9.9"],
+                    ShowDependencies = true,
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = [serviceIndex],
+                    },
+                },
+                new CommandContext(
+                    verbose: false,
+                    httpClient)));
+
+        Assert.Equal(1, rendered.ExitCode);
+        Assert.Contains(
+            "Version '9.9.9' of package",
+            rendered.Error);
+        Assert.Contains(
+            packageId,
+            rendered.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "Use --versions to see available versions.",
+            rendered.Error);
+        Assert.DoesNotContain(
+            handler.Requests,
+            uri => uri.AbsolutePath.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task BuildPackageDependencyTreeAsync_ReporterDoesNotReactivateDisabledAlias()
     {
         string suffix = Guid.NewGuid().ToString("N");
@@ -560,6 +678,35 @@ public class DependencyGraphServiceTests : IDisposable
                 cancellationToken);
             throw new InvalidOperationException("Unreachable.");
         }
+    }
+
+    private sealed class DelayedNotFoundHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(1500),
+                cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                RequestMessage = request,
+            };
+        }
+    }
+
+    private sealed class FixedStatusHandler(HttpStatusCode status)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(
+                new HttpResponseMessage(status)
+                {
+                    RequestMessage = request,
+                });
     }
 
     private sealed class ManifestOnlyHandler(
