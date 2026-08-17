@@ -153,14 +153,20 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             Identity,
             Kind,
             PackageSourceCapabilities.PackagePayload,
-            async () => new PackageSourcePayload(
-                coordinate,
-                Identity,
-                Kind,
-                PackageSourcePayloadKind.Package,
-                await GetPayloadAsync(
-                    $"{PackageEndpoint}{fileName}",
-                    cancellationToken).ConfigureAwait(false)),
+            async () =>
+            {
+                (Stream content, long? advertisedLength) =
+                    await GetPayloadAsync(
+                        $"{PackageEndpoint}{fileName}",
+                        cancellationToken).ConfigureAwait(false);
+                return new PackageSourcePayload(
+                    coordinate,
+                    Identity,
+                    Kind,
+                    PackageSourcePayloadKind.Package,
+                    content,
+                    advertisedLength);
+            },
             cancellationToken,
             coordinate).ConfigureAwait(false);
     }
@@ -179,19 +185,25 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             Identity,
             Kind,
             PackageSourceCapabilities.SymbolPayload,
-            async () => new PackageSourcePayload(
-                coordinate,
-                Identity,
-                Kind,
-                PackageSourcePayloadKind.Symbols,
-                await GetPayloadAsync(
-                    $"{SymbolEndpoint}{fileName}",
-                    cancellationToken).ConfigureAwait(false)),
+            async () =>
+            {
+                (Stream content, long? advertisedLength) =
+                    await GetPayloadAsync(
+                        $"{SymbolEndpoint}{fileName}",
+                        cancellationToken).ConfigureAwait(false);
+                return new PackageSourcePayload(
+                    coordinate,
+                    Identity,
+                    Kind,
+                    PackageSourcePayloadKind.Symbols,
+                    content,
+                    advertisedLength);
+            },
             cancellationToken,
             coordinate).ConfigureAwait(false);
     }
 
-    private async Task<Stream> GetPayloadAsync(
+    private async Task<(Stream Content, long? AdvertisedLength)> GetPayloadAsync(
         string url,
         CancellationToken cancellationToken)
     {
@@ -213,7 +225,10 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         Stream stream = await response.Content
                             .ReadAsStreamAsync(requestToken)
                             .ConfigureAwait(false);
-                        return (stream, response);
+                        return (
+                            stream,
+                            response,
+                            response.Content.Headers.ContentLength);
                     }
                     catch
                     {

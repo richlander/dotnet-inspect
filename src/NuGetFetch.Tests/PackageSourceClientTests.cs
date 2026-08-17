@@ -847,6 +847,8 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             PackageSourceKind.NuGetGallery,
             symbolPayload.TransportKind);
+        Assert.Equal("package bytes".Length, packagePayload.AdvertisedLength);
+        Assert.Equal("symbol bytes".Length, symbolPayload.AdvertisedLength);
         Assert.Equal(packagePayload.Coordinate, symbolPayload.Coordinate);
         Assert.Equal(runtime.Identity, packagePayload.Producer);
         Assert.Equal(runtime.Identity, symbolPayload.Producer);
