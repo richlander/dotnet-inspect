@@ -531,6 +531,45 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void CallGraphMermaid_DerivesLoopEdgesFromTypedProjectionState()
+    {
+        TypeRef type = TypeRef.Definition(
+            "Example",
+            "Example",
+            "Worker");
+        TypeRef returnType = TypeRef.CoreLib("System", "Void");
+        var caller = new MemberRef(
+            type,
+            "Run",
+            [],
+            returnType,
+            MemberKind.Method);
+        var callee = new MemberRef(
+            type,
+            "Tick",
+            [],
+            returnType,
+            MemberKind.Method);
+        var calleeNode = new CallTreeNode(
+            callee,
+            null,
+            CallTreeStatus.Leaf,
+            [],
+            new CallTreePerf(0, 0, 1, true, "loop"));
+        var root = new CallTreeNode(
+            caller,
+            null,
+            CallTreeStatus.Expanded,
+            [calleeNode],
+            new CallTreePerf(0, 0, 1, false));
+
+        string mermaid = BrowserInspectionEngine.Mermaid(
+            CallGraphProjection.FromCallees(root));
+
+        Assert.Contains("n0 -- loop --> n1", mermaid);
+    }
+
+    [Fact]
     public void CallGraphTargets_CarryEveryNavigableNodeWithNormalizedKinds()
     {
         TypeRef declaringTypeDefinition = TypeRef.Definition(

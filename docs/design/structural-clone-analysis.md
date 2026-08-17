@@ -1,0 +1,224 @@
+# Structural Clone Analysis
+
+`StructuralCloneAnalysis` is the Analysis-owned comparator for normalized method
+body structure. The first slice answers one bounded question: are two IL method
+bodies in the same retained PE image exactly equal under the documented
+normalization?
+
+This is an internal product API. The second slice adds bounded exact discovery
+over a caller-supplied same-PE population. It does not expose a public CLI
+command.
+
+## Result contract
+
+Execution disposition and measured relationship are separate:
+
+| Disposition | Relation |
+| --- | --- |
+| `Completed` | `Exact`, `Different`, or a future `Near` |
+| `Unsupported` | None |
+| `LimitReached` | None |
+| `Failed` | None |
+
+Every non-completed result carries typed blockers. Every result carries a
+bounded-work receipt. An exact result additionally carries product-owned block
+and local correspondence.
+
+The comparator is A-vs-A: both `MethodDefinitionHandle` values belong to one
+`PEReader`. Metadata, string, and signature operands therefore retain their
+reader-local token identity. Cross-reader A-vs-B matching needs an explicit
+metadata correspondence owner and is not implied by this contract.
+
+## Exact policy
+
+The first slice normalizes:
+
+- short and long encodings of argument and local operations;
+- local slot numbers through a type-compatible bijection;
+- short and long integer constant and branch encodings;
+- basic-block order through graph isomorphism.
+
+It preserves as exact discriminators:
+
+- normalized operation order, constants, and metadata operands;
+- argument positions;
+- local types, including complete recursive metadata resolution scope,
+  class/value-type signature kind, multidimensional array sizes and lower
+  bounds, and `InitLocals` when locals exist;
+- branch roles, switch target order, and duplicate switch targets;
+- method-definition calling convention, instance/static shape, generic arity,
+  argument count, and void/value return shape, including through custom
+  modifiers;
+- `nop` instructions and redundant branches.
+
+Declared parameter and non-void return type identities do not define body
+equality. This is intentional: the comparator can expose structurally repeated
+overload bodies while downstream consumers retain typed method identities.
+Declared `MaxStack` is also outside the body relationship.
+
+Exception-handling bodies, region-leaving or external control flow, unsupported
+local type shapes, non-IL implementations, and methods without IL are
+unsupported. Malformed or incomplete bodies fail visibly, including invalid
+local/argument slots, invalid metadata or user-string operands, non-method
+or incomplete method, local, and `calli` signatures, standalone-only calling
+conventions or sentinels on method definitions, position-invalid `void` types,
+non-method nested function-pointer signatures, invalid array shapes or generic
+parameter indexes, reserved signature-header flags, malformed module identity,
+malformed `#US` terminal flags, and terminal fallthrough. Valid
+standalone unmanaged call sites, function-pointer signatures, `void` returns
+and pointers, pinned locals, and custom-modifier shapes remain supported within
+the guarded decode policy. Body-byte, instruction, block, CFG-edge, local, and
+witness-search limits produce `LimitReached`, not `Different`.
+The body-byte bound applies before instruction/CFG materialization; receipts
+retain every count measured before a comparison stops, including CFG edges,
+refinement rounds, and witness-search steps.
+`Compare_PeLimitsReportMeasurementsAndBoundBodyDecode` gates pre-graph receipt
+counts, including edges.
+`Compare_InstructionLimitPrecedesMetadataOperandValidation` gates that the
+instruction bound applies before per-instruction metadata work.
+`Compare_EdgeLimitPrecedesMetadataOperandValidation` gates that measured edge
+limits stop before metadata-operand validation and graph materialization.
+`Compare_MalformedMetadataDirectoryFailsWithoutThrowing`,
+`Compare_MalformedMetadataRootFailsWithoutThrowing`,
+`Compare_MalformedModuleIdentityFailsWithoutThrowing`,
+`Compare_MalformedUserStringTrailerFails`,
+`Compare_UserStringHintVariantsRemainSupported`,
+`Compare_CompilerProducedNonAsciiUserStringRemainsSupported`,
+`Compare_MethodDefinitionRequiresCompleteMethodSignature`, and
+`Compare_MalformedLocalSignatureFailsAndRetainsMeasuredReceiptCounts` gate the
+corresponding fail-closed metadata boundaries.
+
+`StructuralCloneAnalysisTests` gates this policy with compiler-produced and
+synthetic close-positive/close-negative cases.
+
+## Exact discovery
+
+`StructuralCloneAnalysis.Discover` partitions a caller-supplied set of
+`MethodDefinitionHandle` values from one retained `PEReader`. It does not
+enumerate the PE or widen the population. Duplicate handles and invalid handles
+are caller errors. Method-count admission is atomic: when the population
+exceeds the method limit, no metadata or body work starts.
+
+Discovery has two bounded production passes:
+
+1. Produce each admitted method once, emit its side-free outcome and receipt,
+   calculate a compact retrieval fingerprint, and discard the full body facts.
+2. Re-produce only multi-member candidate buckets, retain one bucket at a time,
+   and partition it by exact comparisons against current group
+   representatives.
+
+The fingerprint contains only necessary exact invariants: normalized method
+signature shape and `InitLocals`; local count and an order-independent local
+type multiset; block, instruction, and edge counts; an order-independent
+multiset of per-block operation/exit fingerprints; and duplicate-preserving
+global incoming and outgoing edge-role multisets. Local slot numbers and CFG
+target identities are excluded. Offsets, body size, `MaxStack`, declared
+parameter and non-void return identities, and block order are also excluded.
+Hash collisions can add comparisons but cannot establish identity. Only the
+existing exact comparator can put two methods in one cluster.
+
+Overall discovery disposition is separate from per-method production:
+
+| Discovery disposition | Meaning |
+| --- | --- |
+| `Completed` | Every admitted candidate bucket was fully partitioned. |
+| `LimitReached` | A method, comparison, or verification budget suppressed work. |
+| `Failed` | Malformed metadata or operational body production failed. |
+
+Unsupported methods remain explicit per-method outcomes and do not downgrade
+an otherwise complete run. Failure takes precedence over a limit when both
+occur. A comparison consumes budget when attempted, so reaching the exact
+budget after the last required comparison is still complete.
+
+Every emitted cluster is complete for its candidate bucket. A cluster carries
+sorted typed method addresses and exact representative comparisons for every
+non-anchor member. If a bucket cannot be fully verified, discovery emits no
+cluster from it; instead it emits the full affected method set and a typed
+suppression reason. Completed clusters from other buckets remain visible, but
+absence from a cluster is negative evidence only when the overall disposition
+is `Completed` and there are no suppressed buckets.
+
+Cluster identity is the module MVID plus the sorted, unique full MethodDef
+tokens of its members. This is deterministic and collision-free within one
+admitted PE/population. It is not a global identity: MVIDs can be duplicated,
+and membership changes when the input population changes.
+
+The discovery receipt reports admitted and suppressed methods, per-disposition
+method counts, candidate/completed/suppressed buckets, exact/different/
+unresolved comparisons, and total body productions.
+
+`Discover_CompilerProducedPopulation_FindsClosedExactFamilies` gates realistic
+retrieval, exact families, the edge-role close negative, and unsupported
+methods. `Discover_ThreeMemberFamily_UsesRepresentativeEvidence` and
+`Discover_InputOrder_DoesNotChangeClusterIdentity` gate representative
+partitioning and deterministic identity.
+`Discover_ExactComparisonBudget_CanComplete`,
+`Discover_MidBucketBudget_EmitsNoPartialCluster`, and
+`Discover_MethodLimitAdmission_IsAtomic` gate bounded completeness and
+suppression. `Discover_DuplicateHandles_AreCallerError`,
+`Discover_InvalidLimits_AreCallerError`, and
+`Discover_MalformedModuleIdentity_ReturnsTypedFailure` gate caller and
+malformed-input boundaries.
+
+## Correspondence and automorphisms
+
+Joint block/local refinement narrows possible correspondence classes until it
+reaches a fixed point, subject to its finite theoretical ceiling. A bounded
+search with indexed edge membership then proves one exact graph-isomorphism
+witness.
+
+If every final left-side class has one right-side member, correspondence is
+`Unique`. Otherwise it is `Ambiguous`. A multi-member class is a conservative
+over-approximation of an automorphism orbit; its members are not independently
+selectable mappings. The comparator does not enumerate all automorphisms.
+
+Symmetric exact and close-negative cases, plus left/right reversal, are gated
+by `StructuralCloneAnalysisTests`.
+
+## Relationship corpus
+
+`tools/AnalysisHarness/corpus/structural-clone-relationships.json` owns
+independent candidate relationships and expected outcomes. Each case records:
+
+- two typed metadata method identities;
+- expected disposition and, separately, expected relation;
+- difficulty, intent, actionability, and tags.
+
+Schema 2 also declares the closed-world discovery population.
+`analysis-harness --clone-corpus` resolves those identities through SRM and
+grades comparison and discovery independently. Expected exact connected
+components derive only from declared expected relations. Complete actual
+clusters must equal them, so both missed families and undeclared
+cross-component merges fail. The harness does not own retrieval,
+normalization, clustering, CFG correspondence, or verification logic.
+`StructuralCloneCorpusTests` gates ledger validity, both fixture inventory
+views, all direct outcomes, and exact closed-world clustering.
+
+The initial corpus includes authored arithmetic and metadata-operand exact
+pairs, a control-flow close negative, exact parameter-type and return-type
+semantic hazards, and the EH unsupported boundary. Exact discovery finds four
+families and rejects the close negative. Fuzzy ranking, precision/recall
+measurement, and CoreLib scale runs are later slices.
+
+Clone detection is intentionally neutral about why two bodies are similar.
+Deduplication, refactoring, provenance investigation, copied-code detection,
+known-insecure-pattern remediation, and CFG stress testing are possible
+downstream scenarios, not conclusions of the comparator. Structural similarity
+does not establish authorship, copying intent, license provenance, or that a
+matched body shares a seed's vulnerability.
+
+## Presentation boundary
+
+The comparator owns CFG/IL relationship truth and correspondence. A future
+Research projection may use that provenance to drive the implementation-diff
+presentation established by #4092. C# rendering must not become a second clone
+verifier, and this first slice introduces no Decompiler dependency.
+
+PR #4048's `body-shape` search is a complementary discovery surface. It finds
+occurrences of one exact stable rendered-C# syntax kind and returns source
+extents; clone comparison measures a whole body's normalized IL/CFG
+relationship. A remediation workflow can use a body-shape result to identify or
+explain a risky construct, then use clone discovery to expand from a confirmed
+seed. Any future user-facing clone search should align with `body-shape` on
+stable member selectors, MethodDef tokens, explicit failures, limits, and
+structured output, while preserving the separate evidence planes.

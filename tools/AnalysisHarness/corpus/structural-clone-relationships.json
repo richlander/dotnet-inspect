@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 2,
+  "cases": [
+    {
+      "id": "banal.authored.exact",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExactPositiveA"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExactPositiveB"
+      },
+      "expectedDisposition": "Completed",
+      "expectedRelation": "Exact",
+      "difficulty": "banal",
+      "intent": "authored-duplicate",
+      "actionability": "actionable",
+      "tags": [
+        "compiler-produced",
+        "local-normalization"
+      ]
+    },
+    {
+      "id": "challenging.edge-role.negative",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "EdgeRoleNegativeA"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "EdgeRoleNegativeB"
+      },
+      "expectedDisposition": "Completed",
+      "expectedRelation": "Different",
+      "difficulty": "challenging",
+      "intent": "control-flow-contrast",
+      "actionability": "diagnostic",
+      "tags": [
+        "compiler-produced",
+        "cfg",
+        "close-negative"
+      ]
+    },
+    {
+      "id": "challenging.signature.semantic-hazard",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardByte"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardUInt"
+      },
+      "expectedDisposition": "Completed",
+      "expectedRelation": "Exact",
+      "difficulty": "challenging",
+      "intent": "semantic-hazard",
+      "actionability": "diagnostic",
+      "tags": [
+        "compiler-produced",
+        "signature-types-excluded"
+      ]
+    },
+    {
+      "id": "challenging.return-type.semantic-hazard",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardString"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardObject"
+      },
+      "expectedDisposition": "Completed",
+      "expectedRelation": "Exact",
+      "difficulty": "challenging",
+      "intent": "semantic-hazard",
+      "actionability": "diagnostic",
+      "tags": [
+        "compiler-produced",
+        "return-type-identity-excluded"
+      ]
+    },
+    {
+      "id": "banal.metadata-operands.exact",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "MetadataOperandsA"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "MetadataOperandsB"
+      },
+      "expectedDisposition": "Completed",
+      "expectedRelation": "Exact",
+      "difficulty": "banal",
+      "intent": "authored-duplicate",
+      "actionability": "diagnostic",
+      "tags": [
+        "compiler-produced",
+        "metadata-token",
+        "user-string-token"
+      ]
+    },
+    {
+      "id": "banal.exception-handling.unsupported",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExceptionHandlingA"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExceptionHandlingB"
+      },
+      "expectedDisposition": "Unsupported",
+      "expectedRelation": null,
+      "difficulty": "banal",
+      "intent": "unsupported-boundary",
+      "actionability": "none",
+      "tags": [
+        "compiler-produced",
+        "exception-handling"
+      ]
+    }
+  ],
+  "discovery": {
+    "population": [
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExactPositiveA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExactPositiveB"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "EdgeRoleNegativeA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "EdgeRoleNegativeB"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardByte"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardUInt"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardString"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardObject"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "MetadataOperandsA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "MetadataOperandsB"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExceptionHandlingA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExceptionHandlingB"
+      }
+    ]
+  }
+}
