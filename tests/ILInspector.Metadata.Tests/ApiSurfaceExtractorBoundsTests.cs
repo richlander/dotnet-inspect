@@ -638,6 +638,25 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void OversizedGenericBaseTypeName_IsStoppedBeforeTypeResolverRematerialization()
+    {
+        // Sol R15: GetGenericInstantiation degraded heads over MaxTypeNameCharacters
+        // without GetString, but ResolveRequiredTypeName still called TypeResolver on
+        // the original TypeSpec and rematerialized the multi-MB TypeRef name.
+        byte[] image = BuildOversizedGenericBaseTypeNameImage(20_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = Extract(image, bounds);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void GiantAttributeTypeName_IsStoppedBeforeGetStringMaterialization()
     {
         // Sol R7: attribute type names were GetString'd during presence checks and
@@ -1567,6 +1586,42 @@ public sealed class ApiSurfaceExtractorBoundsTests
         typeSpec.WriteByte(0x08); // int
         typeSpec.WriteByte(0x08);
         typeSpec.WriteByte(0x08);
+        TypeSpecificationHandle baseType =
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(typeSpec));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Derived"),
+            baseType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        _ = surface;
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildOversizedGenericBaseTypeNameImage(int nameCharacters)
+    {
+        var metadata = CreateMetadata("OversizedGenericBase");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        // Name alone exceeds MaxTypeNameCharacters so GetGenericInstantiation
+        // degrades before GetString; TypeSpec base still hits ResolveRequiredTypeName.
+        TypeReferenceHandle generic = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('G', nameCharacters) + "`1"));
+        var typeSpec = new BlobBuilder();
+        typeSpec.WriteByte(0x15); // ELEMENT_TYPE_GENERICINST
+        typeSpec.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+        typeSpec.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(generic));
+        typeSpec.WriteCompressedInteger(1);
+        typeSpec.WriteByte(0x08); // int
         TypeSpecificationHandle baseType =
             metadata.AddTypeSpecification(metadata.GetOrAddBlob(typeSpec));
         metadata.AddTypeDefinition(

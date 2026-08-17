@@ -3197,6 +3197,10 @@ public static class ApiSurfaceExtractor
         {
             if (handle.Kind == HandleKind.TypeSpecification)
             {
+                // Budgeted TypeSpec path must not fall through to TypeResolver:
+                // GetGenericInstantiation can degrade an over-MaxTypeNameCharacters
+                // head without GetString, but TypeResolver rematerializes the raw
+                // TypeRef name (Sol R15).
                 TypeNode node = GuardedProviderDecode.TypeSpec(
                     reader,
                     (TypeSpecificationHandle)handle,
@@ -3205,8 +3209,10 @@ public static class ApiSurfaceExtractor
                     (TypeNode)new DegradedTypeNode());
                 materialization.EnsureCanMaterialize(
                     node.RenderLength(canonicalTuples: true));
+                return node.Render(canonicalTuples: true);
             }
-            else if (MetadataSafetyPolicy.TryCountTypeNameCharacters(
+
+            if (MetadataSafetyPolicy.TryCountTypeNameCharacters(
                     reader,
                     handle,
                     out long typeNameCharacters))
