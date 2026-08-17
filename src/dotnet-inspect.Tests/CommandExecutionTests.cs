@@ -1425,6 +1425,52 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("type")]
     [InlineData("member")]
+    public async Task PerformanceTriage_SuppressesDiagnosticsOutsideSelectedScope(
+        string command)
+    {
+        const string typeName =
+            "ILInspector.Analysis.AsyncSiblingFriendFixtures."
+            + "FriendProtectedReceiver";
+        string assemblyPath =
+            FixtureCatalog.AnalysisAsyncSiblingFriend
+                .AssemblyPath();
+        string[] sourceArgs = command == "type"
+            ?
+            [
+                command,
+                typeName,
+                "--library",
+                assemblyPath,
+            ]
+            :
+            [
+                command,
+                typeName,
+                "PublicAnalyzeAsync",
+                "--library",
+                assemblyPath,
+            ];
+
+        var result = await RunAppAsync(
+        [
+            .. sourceArgs,
+            "-S",
+            SectionNames.PerformanceTriage,
+            "--tips",
+            "q",
+        ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            "PublicAnalyzeAsync",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
     public async Task PerformanceTriage_DocumentJsonRejectsUnsupportedAnalysis(
         string command)
     {

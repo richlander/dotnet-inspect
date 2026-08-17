@@ -1604,11 +1604,14 @@ internal static class LibraryMetadataService
     }
 
     internal static void ReportOptimizationDiagnostics(
-        Analysis.LibraryBodyIndex index)
+        Analysis.LibraryBodyIndex index,
+        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
     {
         foreach (Analysis.AnalysisDiagnostic diagnostic
             in index.Diagnostics)
         {
+            if (include is not null && !include(diagnostic))
+                continue;
             CommandError.WriteWarning(
                 $"performance analysis incomplete for "
                 + $"{diagnostic.Method}: "

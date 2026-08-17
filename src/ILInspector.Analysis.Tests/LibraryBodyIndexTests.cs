@@ -208,7 +208,7 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_SharedCalleeScansCandidateTypeOnce()
+    public void OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce()
     {
         string path = typeof(OptimizationOpportunityFixtures)
             .Assembly.Location;
@@ -233,11 +233,14 @@ public class LibraryBodyIndexTests
                             .CallsSyncSiblingFromAsync)
                     or nameof(
                         OptimizationOpportunityFixtures
-                            .CallsSameSyncSiblingFromAsync);
+                            .CallsSameSyncSiblingFromAsync)
+                    or nameof(
+                        OptimizationOpportunityFixtures
+                            .CallsOtherSyncSiblingFromAsync);
             })
             .Select(handle => MetadataTokens.GetToken(handle))
             .ToHashSet();
-        Assert.Equal(2, sourceTokens.Count);
+        Assert.Equal(3, sourceTokens.Count);
         int scanned = 0;
         using var builder = new LibraryBodyAnalysisBuilder(
             path,
@@ -261,10 +264,10 @@ public class LibraryBodyIndexTests
                 typeScope: null));
 
         Assert.Equal(
-            2,
+            3,
             result.Optimizations.Opportunities.Count(opportunity =>
                 opportunity.Shape == "sync-call-in-async"));
-        Assert.Equal(methodCount * 2, scanned);
+        Assert.Equal(methodCount, scanned);
     }
 
     [Fact]
@@ -4716,6 +4719,45 @@ public class LibraryBodyIndexTests
         return image.ToArray();
     }
 
+    static byte[] EmitAssemblyIdentity(
+        string name,
+        byte[] publicKey)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(name + ".dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(name),
+            new Version(1, 0, 0, 0),
+            default,
+            publicKey.Length == 0
+                ? default
+                : metadata.GetOrAddBlob(publicKey),
+            publicKey.Length == 0
+                ? default
+                : AssemblyFlags.PublicKey,
+            AssemblyHashAlgorithm.Sha1);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
     static TypeReferenceHandle FindExternalTypeReference(MetadataReader reader, string ns, string name)
     {
         foreach (var handle in reader.TypeReferences)
@@ -6512,6 +6554,35 @@ public class LibraryBodyIndexTests
         // even though MakesSmallArray would otherwise be a small-array row (#1273).
         Assert.DoesNotContain(index.OptimizationOpportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == nameof(SourceGeneratedOptimizationFixtures));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity => opportunity.Shape
+                    == "sync-call-in-async"
+                && opportunity.Method.DeclaringType.Name
+                    .Contains(
+                        nameof(
+                            SourceGeneratedClassicAsyncOuter.Nested),
+                        StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey()
+    {
+        using var strongGrantor = new PEReader(
+            new MemoryStream(
+                EmitAssemblyIdentity(
+                    "StrongGrantor",
+                    [1, 2, 3, 4])));
+        using var unsignedSource = new PEReader(
+            new MemoryStream(
+                EmitAssemblyIdentity("UnsignedFriend", [])));
+
+        Assert.False(
+            LibraryBodyAnalysisBuilder.FriendIdentityGrantsAccess(
+                strongGrantor.GetMetadataReader(),
+                unsignedSource.GetMetadataReader(),
+                new AssemblyName("UnsignedFriend"),
+                "UnsignedFriend"));
     }
 
     [Fact]
@@ -10014,6 +10085,18 @@ public class OptimizationOpportunityFixtures
         return ReadValues(value).Count();
     }
 
+    public static int ReadOtherValue(int value) => value;
+
+    public static Task<int> ReadOtherValueAsync(int value)
+        => Task.FromResult(value);
+
+    public static async Task<int>
+        CallsOtherSyncSiblingFromAsync(int value)
+    {
+        await Task.Yield();
+        return ReadOtherValue(value);
+    }
+
     public static int CallsSyncSiblingFromNonAsync(int value)
         => ReadValues(value).Count();
 
@@ -11803,6 +11886,23 @@ public class SourceGeneratedOptimizationFixtures
 
     public static Func<T, bool> SourceGeneratedTypeLambda<T>(T right)
         => left => left!.Equals(right);
+}
+
+[System.CodeDom.Compiler.GeneratedCode("TestSourceGenerator", "1.0")]
+public class SourceGeneratedClassicAsyncOuter
+{
+    public class Nested
+    {
+        static int Read() => 42;
+
+        static Task<int> ReadAsync() => Task.FromResult(42);
+
+        public static async Task<int> AnalyzeAsync()
+        {
+            await Task.Yield();
+            return Read();
+        }
+    }
 }
 
 public class GeneratedMethodNestingFixtures

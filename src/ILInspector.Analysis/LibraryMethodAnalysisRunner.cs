@@ -76,7 +76,8 @@ internal interface ILibraryMethodAnalysisInfrastructure
             MethodBodyAnalysisContext context,
             ImmutableArray<DirectCall>.Builder calls,
             MethodDefinition methodDefinition,
-            bool typeSourceGenerated);
+            bool typeSourceGenerated,
+            ref MethodIdentity? asyncSource);
 
     bool TryResolveLiftedSourceOwner(
         MethodDefinitionHandle liftedHandle,
@@ -414,6 +415,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                     || hasUnsafeLocals);
             if (includeOpportunities)
             {
+                MethodIdentity? asyncSource = null;
                 try
                 {
                     ImmutableArray<OptimizationOpportunity>
@@ -423,7 +425,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                                     context,
                                     calls,
                                     methodDefinition,
-                                    typeSourceGenerated);
+                                    typeSourceGenerated,
+                                    ref asyncSource);
                     if (!asyncOpportunities.IsDefaultOrEmpty)
                     {
                         result.Opportunities =
@@ -441,7 +444,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                         MethodLabel(
                             typeHandle,
                             methodHandle),
-                        $"{ex.GetType().Name}: {ex.Message}");
+                        $"{ex.GetType().Name}: {ex.Message}",
+                        asyncSource?.MetadataToken,
+                        caller.DeclaringType,
+                        asyncSource?.DeclaringType);
                 }
             }
             if (includeOwnershipFlow)
@@ -460,7 +466,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                 MethodLabel(
                     typeHandle,
                     methodHandle),
-                $"{ex.GetType().Name}: {ex.Message}");
+                $"{ex.GetType().Name}: {ex.Message}",
+                DeclaringType: result.Caller?.DeclaringType);
             if (includeLeakTriage
                 && result.LeakTriage is null)
             {

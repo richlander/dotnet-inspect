@@ -39,6 +39,15 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             string ExactCalleeIdentity,
             int CalleeDefinitionToken),
         AsyncSiblingLookup?> _asyncSiblingLookupCache = [];
+    readonly Dictionary<
+        MetadataReader,
+        Dictionary<
+            TypeDefinitionHandle,
+            IReadOnlyDictionary<
+                string,
+                ImmutableArray<MethodDefinitionHandle>>>>
+        _asyncSiblingMethodsByName =
+            new(ReferenceEqualityComparer.Instance);
     IReadOnlyDictionary<
         MetadataTypeDefinitionName,
         TypeDefinitionHandle>? _localTypeDefinitions;
@@ -284,18 +293,19 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 MethodBodyAnalysisContext context,
                 ImmutableArray<DirectCall>.Builder calls,
                 MethodDefinition methodDefinition,
-                bool typeSourceGenerated)
+                bool typeSourceGenerated,
+                ref MethodIdentity? asyncSource)
     {
-        MethodIdentity? source = AsyncSourceMethod(
+        asyncSource = AsyncSourceMethod(
             context.Method,
             methodDefinition,
             typeSourceGenerated);
-        return source is null
+        return asyncSource is null
             ? []
             : CollectAsyncSiblingOpportunities(
                 context,
                 calls,
-                source);
+                asyncSource);
     }
     bool ILibraryMethodAnalysisInfrastructure.TryResolveLiftedSourceOwner(
         MethodDefinitionHandle liftedHandle,
@@ -964,8 +974,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             {
                 typeDefinition =
                     _reader.GetTypeDefinition(typeHandle);
-                if (HasGeneratedCodeAttribute(
-                        typeDefinition.GetCustomAttributes()))
+                if (IsSourceGeneratedTypeOrEnclosing(typeHandle))
                 {
                     continue;
                 }

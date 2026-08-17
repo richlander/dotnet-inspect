@@ -2304,11 +2304,25 @@ public static class ApiOutputFormatter
         PerformanceTriageOptions? options = null,
         bool restrictToModelMembers = false)
     {
-        LibraryMetadataService.ReportOptimizationDiagnostics(
-            index);
+        HashSet<int> typeMemberTokens = type.Members
+            .Where(member => member.MetadataToken is not null)
+            .Select(member => member.MetadataToken!.Value)
+            .ToHashSet();
         HashSet<int>? memberTokens = restrictToModelMembers
-            ? type.Members.Where(m => m.MetadataToken is not null).Select(m => m.MetadataToken!.Value).ToHashSet()
+            ? typeMemberTokens
             : null;
+        LibraryMetadataService.ReportOptimizationDiagnostics(
+            index,
+            diagnostic =>
+                (diagnostic.SourceDeclaringType
+                    ?? diagnostic.DeclaringType) is { } diagnosticType
+                && ApiAnalysisInspection.SameType(
+                    diagnosticType,
+                    type)
+                && (memberTokens is null
+                    || memberTokens.Contains(
+                        diagnostic.SourceMethodToken
+                            ?? diagnostic.MethodToken)));
         var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
                 LibraryMetadataService.TriageOpportunities(index, options)
                     .Where(opportunity => ApiAnalysisInspection.SameType(

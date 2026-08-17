@@ -241,6 +241,18 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void AsyncSiblingFindingDisplay_AccumulatesNestedArrayRanks()
+    {
+        TypeRef array = TypeRef.CoreLib("System", "Int32");
+        for (int depth = 0; depth < 200; depth++)
+            array = TypeRef.MdArray(array, rank: 60_000);
+
+        Assert.Throws<BadImageFormatException>(
+            () => LibraryBodyAnalysisBuilder
+                .EnsureAsyncSiblingDisplayIsBounded(array));
+    }
+
+    [Fact]
     public void AsyncSiblingTypeSupport_IsLinearForSharedDag()
     {
         TypeRef value = TypeRef.CoreLib("System", "Int32");

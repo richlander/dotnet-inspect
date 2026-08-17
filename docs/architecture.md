@@ -798,8 +798,9 @@ Research overlay bridge, and the application layer:
   body signals. Source-independent synchronous-definition and sibling-candidate
   discovery is cached by exact callee identity, while accessibility and
   dispatch suppression remain source-dependent;
-  `OptimizationOpportunities_SharedCalleeScansCandidateTypeOnce` gates that
-  boundary. Constructed generic type relationships preserve DAG sharing and
+  `OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce` gates the
+  per-type method index that bounds distinct-callee discovery. Constructed
+  generic type relationships preserve DAG sharing and
   bound structural identity, comparison, and finding-display work;
   `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
   `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`, and
@@ -808,7 +809,8 @@ Research overlay bridge, and the application layer:
   while `AsyncSiblingFindingDisplay_RejectsExponentialDagExpansion`,
   `AsyncSiblingFindingDisplay_AcceptsWideFlatSignature`, and
   `AsyncSiblingFindingDisplay_BoundsAggregateMemberText`, and
-  `AsyncSiblingFindingDisplay_RejectsExcessiveArrayRank` gate per-type
+  `AsyncSiblingFindingDisplay_RejectsExcessiveArrayRank`, and
+  `AsyncSiblingFindingDisplay_AccumulatesNestedArrayRanks` gate per-type
   relationship and aggregate-output limits.
   `AsyncSiblingTypeSupport_IsLinearForSharedDag` gates signature
   classification work. Trusted framework-contract identities, exact
@@ -817,13 +819,17 @@ Research overlay bridge, and the application layer:
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
   `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
   `OptimizationOpportunities_FriendAccessHonorsInternalWithoutProvingProtectedReceiver`,
+  `AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey`,
+  `OptimizationOpportunities_SuppressesSourceGeneratedTypes`,
   and
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`.
   Performance command projections report body-index diagnostics independently
   of unsafe scanning, and reject document JSON rather than silently omitting
   requested Performance analysis;
   `PerformanceTriage_ReportsIncompleteAnalysisAcrossScopes` gates library,
-  type, and member disclosure, while
+  type, and member disclosure;
+  `PerformanceTriage_SuppressesDiagnosticsOutsideSelectedScope` gates scoped
+  source/evidence projection, while
   `PerformanceTriage_DocumentJsonRejectsUnsupportedAnalysis` gates the
   unsupported document shape.
   `MethodInstructionFacts` owns the

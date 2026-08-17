@@ -198,6 +198,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 resolved.Definition);
         if (HasConstrainedMatchingMethod(
                 resolved.DefiningReader,
+                resolved.Definition,
                 declaringDefinition,
                 callee))
         {
@@ -207,19 +208,22 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         var candidates =
             ImmutableArray.CreateBuilder<
                 AsyncSiblingCandidate>();
-        foreach (var methodHandle
-            in declaringDefinition.GetMethods())
-        {
-            _asyncSiblingMethodScanned?.Invoke(
+        if (!AsyncSiblingMethodsByName(
                 resolved.DefiningReader,
-                methodHandle);
+                resolved.Definition)
+            .TryGetValue(
+                callee.Name + "Async",
+                out ImmutableArray<MethodDefinitionHandle>
+                    asyncMethods))
+        {
+            asyncMethods = [];
+        }
+        foreach (var methodHandle in asyncMethods)
+        {
             var methodDefinition =
                 resolved.DefiningReader.GetMethodDefinition(
                     methodHandle);
-            if (!resolved.DefiningReader.StringComparer.Equals(
-                    methodDefinition.Name,
-                    callee.Name + "Async")
-                || HasGenericConstraints(
+            if (HasGenericConstraints(
                     resolved.DefiningReader,
                     methodDefinition))
             {
@@ -341,19 +345,19 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             MethodAttributes matchAttributes = default;
             TypeDefinition definition =
                 reader.GetTypeDefinition(declaringType);
-            foreach (var handle in definition.GetMethods())
-            {
-                _asyncSiblingMethodScanned?.Invoke(
+            if (!AsyncSiblingMethodsByName(
                     reader,
-                    handle);
+                    declaringType)
+                .TryGetValue(
+                    callee.Name,
+                    out ImmutableArray<MethodDefinitionHandle>
+                        synchronousMethods))
+            {
+                synchronousMethods = [];
+            }
+            foreach (var handle in synchronousMethods)
+            {
                 var method = reader.GetMethodDefinition(handle);
-                if (!reader.StringComparer.Equals(
-                        method.Name,
-                        callee.Name))
-                {
-                    continue;
-                }
-
                 MemberRef? candidate = DecodeAsyncSibling(
                     reader,
                     definition,
@@ -662,30 +666,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                         _assemblyIdentity.Name,
                         StringComparison.OrdinalIgnoreCase))
                 {
-                    byte[] sourcePublicKey =
-                        _reader.GetBlobBytes(
-                            _reader.GetAssemblyDefinition()
-                                .PublicKey);
-                    byte[] friendPublicKey =
-                        friendIdentity.GetPublicKey()
-                        ?? [];
-                    byte[] friendPublicKeyToken =
-                        friendIdentity.GetPublicKeyToken()
-                        ?? [];
-                    bool supportedIdentity =
-                        friendIdentity.Version is null
-                        && string.IsNullOrEmpty(
-                            friendIdentity.CultureName)
-                        && friendIdentity.ContentType
-                            == AssemblyContentType.Default
-                        && HasSupportedFriendIdentityClauses(
-                            friend)
-                        && (friendPublicKey.Length != 0
-                            || friendPublicKeyToken.Length == 0);
                     return new(
-                        Granted: supportedIdentity
-                            && sourcePublicKey.AsSpan()
-                            .SequenceEqual(friendPublicKey),
+                        Granted: FriendIdentityGrantsAccess(
+                            candidateReader,
+                            _reader,
+                            friendIdentity,
+                            friend),
                         MayApply: true);
                 }
             }
@@ -701,6 +687,46 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         return new(
             Granted: false,
             MayApply: false);
+    }
+
+    internal static bool FriendIdentityGrantsAccess(
+        MetadataReader grantingReader,
+        MetadataReader sourceReader,
+        AssemblyName friendIdentity,
+        string friend)
+    {
+        if (!grantingReader.IsAssembly
+            || !sourceReader.IsAssembly
+            || !string.Equals(
+                friendIdentity.Name,
+                sourceReader.GetString(
+                    sourceReader.GetAssemblyDefinition().Name),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        byte[] sourcePublicKey =
+            sourceReader.GetBlobBytes(
+                sourceReader.GetAssemblyDefinition().PublicKey);
+        byte[] grantingPublicKey =
+            grantingReader.GetBlobBytes(
+                grantingReader.GetAssemblyDefinition().PublicKey);
+        byte[] friendPublicKey =
+            friendIdentity.GetPublicKey() ?? [];
+        byte[] friendPublicKeyToken =
+            friendIdentity.GetPublicKeyToken() ?? [];
+        return friendIdentity.Version is null
+            && string.IsNullOrEmpty(friendIdentity.CultureName)
+            && friendIdentity.ContentType
+                == AssemblyContentType.Default
+            && HasSupportedFriendIdentityClauses(friend)
+            && (friendPublicKey.Length != 0
+                || friendPublicKeyToken.Length == 0)
+            && (grantingPublicKey.Length == 0
+                || friendPublicKey.Length != 0)
+            && sourcePublicKey.AsSpan()
+                .SequenceEqual(friendPublicKey);
     }
 
     static bool HasSupportedFriendIdentityClauses(string friend)
@@ -2187,22 +2213,26 @@ internal sealed partial class LibraryBodyAnalysisBuilder
 
     bool HasConstrainedMatchingMethod(
         MetadataReader reader,
+        TypeDefinitionHandle declaringTypeHandle,
         TypeDefinition declaringType,
         MemberRef callee)
     {
         if (callee.GenericArity == 0)
             return false;
 
-        foreach (var handle in declaringType.GetMethods())
-        {
-            _asyncSiblingMethodScanned?.Invoke(
+        if (!AsyncSiblingMethodsByName(
                 reader,
-                handle);
+                declaringTypeHandle)
+            .TryGetValue(
+                callee.Name,
+                out ImmutableArray<MethodDefinitionHandle> methods))
+        {
+            return false;
+        }
+        foreach (var handle in methods)
+        {
             var method = reader.GetMethodDefinition(handle);
-            if (!reader.StringComparer.Equals(
-                    method.Name,
-                    callee.Name)
-                || !HasGenericConstraints(reader, method))
+            if (!HasGenericConstraints(reader, method))
             {
                 continue;
             }
@@ -3146,11 +3176,66 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             }
             characters += current.Namespace.Length
                 + current.Name.Length
-                + 16;
+                + 16
+                + arrayRankCharacters;
             if (current.ElementType is not null)
                 pending.Push(current.ElementType);
             foreach (TypeRef argument in current.TypeArguments)
                 pending.Push(argument);
         }
+    }
+
+    IReadOnlyDictionary<
+        string,
+        ImmutableArray<MethodDefinitionHandle>>
+        AsyncSiblingMethodsByName(
+            MetadataReader reader,
+            TypeDefinitionHandle typeHandle)
+    {
+        if (!_asyncSiblingMethodsByName.TryGetValue(
+                reader,
+                out Dictionary<
+                    TypeDefinitionHandle,
+                    IReadOnlyDictionary<
+                        string,
+                        ImmutableArray<MethodDefinitionHandle>>>?
+                    byType))
+        {
+            byType = [];
+            _asyncSiblingMethodsByName.Add(reader, byType);
+        }
+        if (byType.TryGetValue(typeHandle, out var methods))
+            return methods;
+
+        var builders = new Dictionary<
+            string,
+            ImmutableArray<MethodDefinitionHandle>.Builder>(
+                StringComparer.Ordinal);
+        foreach (MethodDefinitionHandle methodHandle
+            in reader.GetTypeDefinition(typeHandle).GetMethods())
+        {
+            _asyncSiblingMethodScanned?.Invoke(
+                reader,
+                methodHandle);
+            string name = reader.GetString(
+                reader.GetMethodDefinition(methodHandle).Name);
+            if (!builders.TryGetValue(name, out var named))
+            {
+                named = ImmutableArray.CreateBuilder<
+                    MethodDefinitionHandle>();
+                builders.Add(name, named);
+            }
+            named.Add(methodHandle);
+        }
+
+        var result = new Dictionary<
+            string,
+            ImmutableArray<MethodDefinitionHandle>>(
+                builders.Count,
+                StringComparer.Ordinal);
+        foreach (var pair in builders)
+            result.Add(pair.Key, pair.Value.ToImmutable());
+        byType.Add(typeHandle, result);
+        return result;
     }
 }
