@@ -114,7 +114,7 @@ public class OutputFormatterTests
         var sourceIntegrity = new SourceIntegritySection
         {
             CrlfMismatchText = new InertString(TextPolicy.Field, hostile),
-            MismatchedFilesText = new InertString(TextPolicy.Field, hostile),
+            MismatchedFileTexts = [new InertString(TextPolicy.Field, hostile)],
             StatusText = new InertString(TextPolicy.Field, hostile),
         };
 
@@ -148,7 +148,7 @@ public class OutputFormatterTests
             sourceLink.SourceFilesText,
             sourceLink.StatusText,
             sourceIntegrity.CrlfMismatchText!.Value,
-            sourceIntegrity.MismatchedFilesText!.Value,
+            sourceIntegrity.MismatchedFileTexts![0],
             sourceIntegrity.StatusText,
         ];
 
@@ -159,12 +159,13 @@ public class OutputFormatterTests
     [Fact]
     public void SourceIntegrityTypedText_RendersAcrossMarkdownTsvAndJsonl()
     {
+        const string cleanPath = @"C:\src\Foo.cs";
         const string hostile = "path\u202E\nINJECTED.cs";
         var view = new LibraryInspectionView(new LibraryInspection
         {
             SourceIntegrityChecked = true,
-            SourceIntegrityMismatched = 1,
-            SourceIntegrityMismatches = [hostile],
+            SourceIntegrityMismatched = 2,
+            SourceIntegrityMismatches = [cleanPath, hostile],
         });
         var writerOptions = new MarkoutWriterOptions
         {
@@ -178,12 +179,17 @@ public class OutputFormatterTests
         string tsv = RenderLibraryTable(view, tsv: true, jsonl: false);
         string jsonl = RenderLibraryTable(view, tsv: false, jsonl: true);
 
-        foreach (string output in new[] { markdown, tsv, jsonl })
+        foreach (string output in new[] { markdown, tsv })
         {
+            Assert.Contains(cleanPath, output, StringComparison.Ordinal);
+            Assert.DoesNotContain(@"C:\\src\\Foo.cs", output, StringComparison.Ordinal);
             Assert.DoesNotContain("\u202E", output, StringComparison.Ordinal);
             Assert.Contains(@"\u202E", output, StringComparison.Ordinal);
             Assert.Contains(@"\^J", output, StringComparison.Ordinal);
         }
+        Assert.DoesNotContain("\u202E", jsonl, StringComparison.Ordinal);
+        Assert.Contains(@"\u202E", jsonl, StringComparison.Ordinal);
+        Assert.Contains(@"\^J", jsonl, StringComparison.Ordinal);
 
         string[] jsonlRows =
             jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -200,6 +206,20 @@ public class OutputFormatterTests
             row => row.Contains(
                 "\"field\":\"Mismatched Files\"",
                 StringComparison.Ordinal));
+        string mismatchedFilesRow = Assert.Single(
+            jsonlRows,
+            row => row.Contains(
+                "\"field\":\"Mismatched Files\"",
+                StringComparison.Ordinal));
+        using JsonDocument mismatchedFilesDocument =
+            JsonDocument.Parse(mismatchedFilesRow);
+        string mismatchedFiles =
+            mismatchedFilesDocument.RootElement.GetProperty("value").GetString()!;
+        Assert.Contains(cleanPath, mismatchedFiles, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            @"C:\\src\\Foo.cs",
+            mismatchedFiles,
+            StringComparison.Ordinal);
     }
 
     [Fact]

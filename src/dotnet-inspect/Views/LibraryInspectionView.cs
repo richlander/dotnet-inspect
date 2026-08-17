@@ -730,12 +730,8 @@ public class LibraryInspectionView
                 $"{_data.SourceIntegrityLineEndingNormalized} normalized")
             : null,
         Mismatched = _data.SourceIntegrityMismatched,
-        MismatchedFilesText = _data.SourceIntegrityMismatches is { Count: > 0 } mismatches
-            ? InertString.Join(
-                ", ",
-                TextPolicy.Field,
-                mismatches.Select(path =>
-                    MarkoutInline.CodeText(LibraryViewText.Field(path))))
+        MismatchedFileTexts = _data.SourceIntegrityMismatches is { Count: > 0 } mismatches
+            ? mismatches.Select(LibraryViewText.Field).ToList()
             : null,
         StatusText = LibraryViewText.Field(
             _data.SourceIntegrityMismatched > 0 ? "Mismatch"
@@ -2265,9 +2261,11 @@ public class SourceIntegritySection
     public InertString? CrlfMismatchText { get; init; }
     public int Mismatched { get; init; }
     [MarkoutPropertyName("Mismatched Files")]
-    public string? MismatchedFiles => MismatchedFilesText?.ToString();
+    public string? MismatchedFiles => MismatchedFileTexts is { Count: > 0 } paths
+        ? string.Join(", ", paths.Select(MarkoutInline.Code))
+        : null;
     [MarkoutIgnore, JsonIgnore]
-    public InertString? MismatchedFilesText { get; init; }
+    public IReadOnlyList<InertString>? MismatchedFileTexts { get; init; }
     public string Status => StatusText.ToString();
     [MarkoutIgnore, JsonIgnore]
     public InertString StatusText { get; init; } =
