@@ -252,6 +252,7 @@ public static class SignatureBlobGuard
                     work,
                     depth: 1,
                     allowCdeclSentinel: kind == Kind.StandaloneMethod,
+                    requireMethodKind: false,
                     ref remainingTypeNodes);
 
             default:
@@ -264,9 +265,12 @@ public static class SignatureBlobGuard
         Stack<WorkItem> work,
         int depth,
         bool allowCdeclSentinel,
+        bool requireMethodKind,
         ref int remainingTypeNodes)
     {
         var header = blob.ReadSignatureHeader();
+        if (requireMethodKind && header.Kind != SignatureKind.Method)
+            return true;
         if (header.IsGeneric)
             blob.ReadCompressedInteger(); // generic parameter count
         int paramCount = blob.ReadCompressedInteger();
@@ -381,6 +385,7 @@ public static class SignatureBlobGuard
                     work,
                     depth + 1,
                     allowCdeclSentinel: false,
+                    requireMethodKind: true,
                     ref remainingTypeNodes);
 
             case ElementTypeClass:

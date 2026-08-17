@@ -98,6 +98,31 @@ public class GuardedDecodeTests
         Assert.Equal(TypeRefKind.Unsupported, result.Kind);
     }
 
+    [Theory]
+    [InlineData(0x06)]
+    [InlineData(0x07)]
+    [InlineData(0x0a)]
+    public void TypeSpecification_FunctionPointerWithNonMethodHeader_DegradesToUnsupported(
+        int rawHeader)
+    {
+        byte[] blob =
+        [
+            0x1b, // FNPTR
+            (byte)rawHeader,
+            0x00, // parameter count
+            0x01, // VOID
+        ];
+        var (reader, handle) = BuildTypeSpec(blob);
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(
+            reader,
+            GenericScope.Empty,
+            handle,
+            0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+    }
+
     static (MetadataReader Reader, TypeSpecificationHandle Handle) BuildTypeSpec(byte[] typeBlob)
     {
         var md = NewModule();
