@@ -400,6 +400,83 @@ public class PlatformResolverTests
     }
 
     [Fact]
+    public void LookupTypeAcrossFrameworks_NoCatalogs_ReturnsRejected()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"platform-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+
+            var rejected = Assert.IsType<PlatformTypeLookupOutcome.Rejected>(
+                PlatformResolver.LookupTypeAcrossFrameworks(
+                    "System.String",
+                    tempDir));
+
+            Assert.Equal(
+                PlatformTypeLookupFailureKind.CatalogUnavailable,
+                rejected.Failure.Kind);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LookupTypeAcrossFrameworks_PartialCatalogFailureReturnsRejected()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"platform-test-{Guid.NewGuid():N}");
+        try
+        {
+            var runtimePath = Path.Combine(
+                tempDir,
+                "Microsoft.NETCore.App.Ref",
+                "1.0.0",
+                "ref",
+                "net1.0");
+            var aspNetCorePath = Path.Combine(
+                tempDir,
+                "Microsoft.AspNetCore.App.Ref",
+                "1.0.0",
+                "ref",
+                "net1.0");
+            Directory.CreateDirectory(runtimePath);
+            File.Copy(
+                typeof(string).Assembly.Location,
+                Path.Combine(runtimePath, "System.Private.CoreLib.dll"));
+
+            Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+                PlatformResolver.LookupTypeAcrossFrameworks(
+                    "System.String",
+                    tempDir));
+
+            Directory.CreateDirectory(aspNetCorePath);
+            File.WriteAllText(
+                Path.Combine(aspNetCorePath, "Invalid.dll"),
+                "not an assembly");
+
+            var rejected = Assert.IsType<PlatformTypeLookupOutcome.Rejected>(
+                PlatformResolver.LookupTypeAcrossFrameworks(
+                    "System.String",
+                    tempDir));
+
+            Assert.Equal(
+                PlatformTypeLookupFailureKind.CatalogUnavailable,
+                rejected.Failure.Kind);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void LookupType_EmptyPattern_ReturnsRejected()
     {
         var rejected = Assert.IsType<PlatformTypeLookupOutcome.Rejected>(

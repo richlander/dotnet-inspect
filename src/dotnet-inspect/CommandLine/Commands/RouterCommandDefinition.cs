@@ -239,20 +239,13 @@ public static class RouterCommandDefinition
             }
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
-            if (TryResolveExactGenericPlatformType(target) is not null)
-                return ["type", target, .. tail];
+            if (TryResolveExactGenericPlatformType(target) is { } exactType)
+                return RouteExactGenericPlatformType(exactType, target, tail);
 
             if (TryResolveExactGenericPlatformMember(target)
                 is { } exactMember)
             {
-                return
-                [
-                    "member",
-                    exactMember.TypeTarget,
-                    "-m",
-                    exactMember.MemberSelector,
-                    .. tail
-                ];
+                return RouteExactGenericPlatformMember(exactMember, tail);
             }
 
             string? platformLookupFailure = null;
@@ -406,7 +399,8 @@ public static class RouterCommandDefinition
         }
 
         private static PlatformTypeLookupOutcome.Resolved? TryResolveExactGenericPlatformType(
-            string target)
+            string target,
+            bool allowSimpleName = false)
         {
             if (!target.Contains('`') && !target.Contains('<'))
                 return null;
@@ -425,7 +419,7 @@ public static class RouterCommandDefinition
                 normalizedTarget,
                 StringComparison.OrdinalIgnoreCase);
             var suffixStart = normalizedCandidate.Length - normalizedTarget.Length;
-            var unqualifiedMatch = normalizedTarget.Contains('.')
+            var unqualifiedMatch = (allowSimpleName || normalizedTarget.Contains('.'))
                 && suffixStart > 0
                 && normalizedCandidate[suffixStart - 1] == '.'
                 && normalizedCandidate.EndsWith(
@@ -438,7 +432,9 @@ public static class RouterCommandDefinition
 
         private static (
             string TypeTarget,
-            string MemberSelector)? TryResolveExactGenericPlatformMember(
+            string MemberSelector,
+            PlatformTypeLookupOutcome.Resolved Resolved)?
+            TryResolveExactGenericPlatformMember(
                 string target)
         {
             var lastDot = FqnParser.LastTopLevelDot(target);
@@ -446,9 +442,79 @@ public static class RouterCommandDefinition
                 return null;
 
             var typeTarget = target[..lastDot];
-            return TryResolveExactGenericPlatformType(typeTarget) is not null
-                ? (typeTarget, target[(lastDot + 1)..])
+            return TryResolveExactGenericPlatformType(
+                    typeTarget,
+                    allowSimpleName: true) is { } resolved
+                ? (typeTarget, target[(lastDot + 1)..], resolved)
                 : null;
+        }
+
+        private static string[] RouteExactGenericPlatformType(
+            PlatformTypeLookupOutcome.Resolved resolved,
+            string target,
+            string[] tail) =>
+            !HasExplicitApiSource(tail)
+            && TryGetExplicitPlatformSource(resolved, out var assembly, out var framework)
+                ? ["type", target, "--platform", assembly, "--framework", framework, .. tail]
+                : ["type", target, .. tail];
+
+        private static string[] RouteExactGenericPlatformMember(
+            (
+                string TypeTarget,
+                string MemberSelector,
+                PlatformTypeLookupOutcome.Resolved Resolved) member,
+            string[] tail) =>
+            !HasExplicitApiSource(tail)
+            && TryGetExplicitPlatformSource(
+                member.Resolved,
+                out var assembly,
+                out var framework)
+                ? [
+                    "member",
+                    member.TypeTarget,
+                    "--platform",
+                    assembly,
+                    "--framework",
+                    framework,
+                    "-m",
+                    member.MemberSelector,
+                    .. tail
+                ]
+                : [
+                    "member",
+                    member.TypeTarget,
+                    "-m",
+                    member.MemberSelector,
+                    .. tail
+                ];
+
+        private static bool HasExplicitApiSource(string[] tokens) =>
+            ContainsOption(tokens, "--package")
+            || ContainsOption(tokens, "--library")
+            || ContainsOption(tokens, "--platform")
+            || ContainsOption(tokens, "--project");
+
+        private static bool TryGetExplicitPlatformSource(
+            PlatformTypeLookupOutcome.Resolved resolved,
+            out string assembly,
+            out string framework)
+        {
+            assembly = resolved.Candidate.Assembly.Identity.Name;
+            framework = "";
+            if (resolved.Candidate.Assembly.Provenance
+                is not AssemblyResolutionProvenance.PlatformAsset platform)
+            {
+                return false;
+            }
+
+            framework = platform.Framework;
+
+            // Runtime reference extraction does not currently materialize nested
+            // generic types that are implemented by the core library.
+            return !platform.Framework.Equals(
+                    "runtime",
+                    StringComparison.OrdinalIgnoreCase)
+                || resolved.Candidate.Type.Segments.Length == 1;
         }
     }
 }

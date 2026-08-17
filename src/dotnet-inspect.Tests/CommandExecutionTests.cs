@@ -2594,6 +2594,43 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("System.Collections.Generic.List<T>", "System.Collections")]
+    [InlineData("System.Span<T>", "System.Runtime")]
+    [InlineData("System.Threading.Tasks.Task<TResult>", "System.Runtime")]
+    [InlineData("System.Collections.Generic.IEnumerable<T>", "System.Runtime")]
+    public async Task Router_FullyQualifiedGenericPlatformType_PreservesContractSource(
+        string typeName,
+        string expectedLibrary)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            typeName, "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains($"Library: {expectedLibrary}", output);
+        Assert.DoesNotContain("Library: System.Private.CoreLib", output);
+    }
+
+    [Theory]
+    [InlineData("System.Collections.Generic.List<T>.Add")]
+    [InlineData("List<T>.Add")]
+    public async Task Router_GenericPlatformMember_PreservesContractDocumentation(
+        string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target, "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "Represents a strongly typed list of objects",
+            output);
+        Assert.Contains(
+            "Adds an object to the end of the List.",
+            output);
+    }
+
+    [Theory]
     [InlineData("Dictionary<TKey,TValue>.KeyCollection")]
     [InlineData("Dictionary`2.KeyCollection")]
     public async Task Router_UnqualifiedNestedGenericType_RoutesAsExactType(string typeName)
@@ -3856,6 +3893,44 @@ public partial class CommandExecutionTests
         Assert.Contains("ArrayPoolBufferAdapter&lt;", output);
         Assert.Contains(".PooledBuffer", output);
         Assert.Contains("Library: Microsoft.AspNetCore.Components.Endpoints", output);
+    }
+
+    [Fact]
+    public async Task BareQualifiedGenericAspNetCoreType_PreservesResolvedSource()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.AspNetCore.Http.HttpResults.Results<T1,T2>",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "# Microsoft.AspNetCore.Http.HttpResults.Results&lt;",
+            output);
+        Assert.Contains("Library: Microsoft.AspNetCore.Http.Results", output);
+    }
+
+    [Fact]
+    public async Task BareQualifiedGenericAspNetCoreMember_PreservesDocumentation()
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.AspNetCore.Http.HttpResults.Results<T1,T2>.ExecuteAsync",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "An IResult that could be one of two different IResult types.",
+            output);
+        Assert.Contains("ExecuteAsync", output);
     }
 
     [Fact]

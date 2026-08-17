@@ -963,7 +963,8 @@ public static class PlatformResolver
     /// catalog without choosing a first-enumerated assembly.
     /// </summary>
     public static PlatformTypeLookupOutcome LookupTypeAcrossFrameworks(
-        string typeName)
+        string typeName,
+        string? packsDirectory = null)
     {
         if (PlatformTypeLookupPattern.Create(typeName)
             is PlatformTypeLookupPatternResult.Rejected invalid)
@@ -971,10 +972,19 @@ public static class PlatformResolver
             return new PlatformTypeLookupOutcome.Rejected(invalid.Failure);
         }
 
+        var frameworks = GetInstalledFrameworks(packsDirectory);
+        if (frameworks.Count == 0)
+        {
+            return new PlatformTypeLookupOutcome.Rejected(
+                new PlatformTypeLookupFailure(
+                    PlatformTypeLookupFailureKind.CatalogUnavailable,
+                    "No platform reference catalogs are available."));
+        }
+
         var candidates =
             ImmutableArray.CreateBuilder<PlatformTypeLookupCandidate>();
         PlatformTypeLookupFailure? catalogFailure = null;
-        foreach (var framework in GetInstalledFrameworks())
+        foreach (var framework in frameworks)
         {
             var refPath = GetRefAssemblyPath(
                 framework.Path,
@@ -1005,12 +1015,11 @@ public static class PlatformResolver
             }
         }
 
+        if (catalogFailure is not null)
+            return new PlatformTypeLookupOutcome.Rejected(catalogFailure);
+
         if (candidates.Count == 0)
-        {
-            return catalogFailure is not null
-                ? new PlatformTypeLookupOutcome.Rejected(catalogFailure)
-                : new PlatformTypeLookupOutcome.Missing();
-        }
+            return new PlatformTypeLookupOutcome.Missing();
 
         IEnumerable<PlatformTypeLookupCandidate> selected = candidates;
         var definitions = candidates
