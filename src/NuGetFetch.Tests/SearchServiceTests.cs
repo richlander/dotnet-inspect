@@ -61,6 +61,27 @@ public class SearchServiceTests
     }
 
     [Fact]
+    public async Task SearchAsync_PreservesEncodedSignedQueryBytes()
+    {
+        const string existing =
+            "s%69g=%73ecret&opaque=%7E%41";
+        var handler = new CapturingHandler("""{"data":[]}""");
+        using var client = new HttpClient(handler);
+        var service = new SearchService(
+            client,
+            $"{SearchUrl}?{existing}");
+
+        await service.SearchAsync(
+            "q",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.StartsWith(
+            $"{SearchUrl}?{existing}&",
+            handler.LastRequest!.RequestUri!.AbsoluteUri,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SearchAsync_WithAuth_SendsAuthorizationHeader()
     {
         var handler = new CapturingHandler("""{"data":[]}""");

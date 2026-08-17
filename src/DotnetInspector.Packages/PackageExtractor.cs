@@ -1176,7 +1176,9 @@ public static class PackageExtractor
                         && resourceUri.Scheme is "http" or "https")
                     {
                         result.Add(new ServiceResource(
-                            resourceUri.AbsoluteUri,
+                            IsServiceType(type, "SearchQueryService")
+                                ? id
+                                : resourceUri.AbsoluteUri,
                             type));
                     }
                     else

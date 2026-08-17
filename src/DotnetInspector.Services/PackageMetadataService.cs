@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -519,7 +520,8 @@ public static class PackageMetadataService
         PackageSource source,
         string url,
         NetworkTrafficKind trafficKind,
-        Action<string>? log)
+        Action<string>? log,
+        bool preservePathAndQuery = false)
     {
         HttpClient endpointClient = NuGetCredentialScope.IsSameOrigin(
             source.Url,
@@ -537,7 +539,8 @@ public static class PackageMetadataService
                 log: log,
                 auth: NuGetCredentialScope.AuthFor(source, url, log),
                 trafficKind: trafficKind,
-                maxDownloadSize: HttpRetryHelper.DefaultMaxTextResponseBytes)
+                maxDownloadSize: HttpRetryHelper.DefaultMaxTextResponseBytes,
+                preservePathAndQuery: preservePathAndQuery)
                 .ConfigureAwait(false);
         if (body.Status != HttpRetryHelper.HttpBodyFetchStatus.Success
             || body.Bytes is null)
@@ -624,13 +627,28 @@ public static class PackageMetadataService
 
         while (examined < MaxSearchResults)
         {
-            string searchUrl = AddQuery(
-                searchQueryService.Id,
-                $"q={Uri.EscapeDataString(normalizedName)}"
-                + $"&skip={examined}&take={PageSize}"
-                + "&prerelease=true&semVerLevel=2.0.0");
+            if (!NuGetFetch.SearchRequestUri.TryCompose(
+                    searchQueryService.Id,
+                    [
+                        ("q", normalizedName),
+                        ("skip", examined.ToString(CultureInfo.InvariantCulture)),
+                        ("take", PageSize.ToString(CultureInfo.InvariantCulture)),
+                        ("prerelease", "true"),
+                        ("semVerLevel", "2.0.0"),
+                    ],
+                    out string searchUrl))
+            {
+                log?.Invoke(
+                    $"The search endpoint for {source.Name} is not a usable absolute HTTP or HTTPS URL.");
+                return new SearchFetchResult(
+                    Succeeded: false,
+                    Found: false,
+                    DeprecationMetadataAvailable: false);
+            }
+
             log?.Invoke(
-                $"Fetching search metadata from {source.Name}: {searchUrl}");
+                $"Fetching search metadata from {source.Name}: "
+                + NetworkRequestObservation.RedactSensitiveUrlText(searchUrl));
 
             TextFetchResult searchResult = await FetchTextAsync(
                 client,
@@ -638,7 +656,8 @@ public static class PackageMetadataService
                 source,
                 searchUrl,
                 NetworkTrafficKind.PackageMetadata,
-                log).ConfigureAwait(false);
+                log,
+                preservePathAndQuery: true).ConfigureAwait(false);
             if (!searchResult.IsSuccess)
                 return new SearchFetchResult(
                     Succeeded: false,
@@ -975,16 +994,6 @@ public static class PackageMetadataService
             '/',
             segments.Select(Uri.EscapeDataString));
         builder.Path = $"{builder.Path.TrimEnd('/')}/{suffix}";
-        return builder.Uri.AbsoluteUri;
-    }
-
-    private static string AddQuery(string baseUrl, string query)
-    {
-        var builder = new UriBuilder(baseUrl);
-        string existing = builder.Query.TrimStart('?');
-        builder.Query = string.IsNullOrEmpty(existing)
-            ? query
-            : $"{existing}&{query}";
         return builder.Uri.AbsoluteUri;
     }
 

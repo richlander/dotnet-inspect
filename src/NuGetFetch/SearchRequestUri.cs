@@ -60,12 +60,19 @@ internal static class SearchRequestUri
             parameters.Select(static parameter =>
                 $"{Uri.EscapeDataString(parameter.Name)}={Uri.EscapeDataString(parameter.Value)}"));
 
-        // GetLeftPart(Path) is the already-escaped scheme, authority, and path,
-        // with the query and fragment removed, so the query can be rebuilt
-        // deliberately instead of extended by accident.
-        string root = parsed.GetLeftPart(UriPartial.Path);
-        string existing =
-            parsed.Query.Length == 0 ? "" : parsed.Query[1..];
+        int fragmentDelimiter = endpoint.IndexOf('#', StringComparison.Ordinal);
+        string withoutFragment = fragmentDelimiter < 0
+            ? endpoint
+            : endpoint[..fragmentDelimiter];
+        int queryDelimiter = withoutFragment.IndexOf(
+            '?',
+            StringComparison.Ordinal);
+        string root = queryDelimiter < 0
+            ? withoutFragment
+            : withoutFragment[..queryDelimiter];
+        string existing = queryDelimiter < 0
+            ? ""
+            : withoutFragment[(queryDelimiter + 1)..];
         if (existing.Length > 0 && parameters.Count > 0)
         {
             var ownedNames = new HashSet<string>(
@@ -84,8 +91,9 @@ internal static class SearchRequestUri
                 : $"{existing}&{appended}";
 
         string composed = query.Length == 0 ? root : $"{root}?{query}";
-        if (!Uri.TryCreate(composed, UriKind.Absolute, out Uri? result)
-            || !IsHttpScheme(result))
+        if (!NuGetHttpRequest.TryCreatePreservingPathAndQuery(
+                composed,
+                out _))
         {
             return false;
         }

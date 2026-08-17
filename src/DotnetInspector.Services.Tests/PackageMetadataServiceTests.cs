@@ -228,7 +228,7 @@ public class PackageMetadataServiceTests : IDisposable
                   "version": "3.0.0",
                   "resources": [
                     { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
-                    { "@id": "https://private.example/query", "@type": "SearchQueryService/3.5.0" },
+                    { "@id": "https://private.example/query?s%69g=%73ecret&semVerLevel=1.0.0", "@type": "SearchQueryService/3.5.0" },
                     { "@id": "https://private.example/flat/", "@type": "PackageBaseAddress/3.0.0" },
                     { "@id": "https://private.example/vulnerabilities/index.json", "@type": "VulnerabilityInfo/6.7.0" }
                   ]
@@ -282,12 +282,13 @@ public class PackageMetadataServiceTests : IDisposable
                 when request.Method == HttpMethod.Get => Package(length: 1234),
             _ => new HttpResponseMessage(System.Net.HttpStatusCode.NotFound),
         });
+        var log = new List<string>();
 
         PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
             new HttpClient(handler),
             "Private.Package",
             "1.0.0",
-            log: null,
+            log.Add,
             sourceOptions: new NuGetSourceOptions { ConfigFile = config.Path });
 
         Assert.Equal(
@@ -302,7 +303,7 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Equal("Legacy - Use Private.Package.Next", result.Deprecation!.Summary);
         Assert.Equal("High", Assert.Single(result.Vulnerabilities!).Severity);
         Assert.Equal(
-            "?q=private.package&skip=0&take=20&prerelease=true&semVerLevel=2.0.0",
+            "?s%69g=%73ecret&q=private.package&skip=0&take=20&prerelease=true&semVerLevel=2.0.0",
             Assert.Single(
                 handler.Requests,
                 request => request.Uri.AbsolutePath == "/query").Uri.Query);
@@ -313,6 +314,9 @@ public class PackageMetadataServiceTests : IDisposable
                 request => request.Uri.AbsolutePath.EndsWith(
                     ".nupkg",
                     StringComparison.Ordinal)).Range);
+        Assert.DoesNotContain(
+            log,
+            message => message.Contains("secret", StringComparison.Ordinal));
         Assert.All(handler.Requests, request =>
         {
             Assert.Equal("private.example", request.Uri.Host);

@@ -110,7 +110,7 @@ public partial class SearchService
             async requestToken =>
             {
                 using HttpRequestMessage request =
-                    NuGetHttpRequest.CreateGet(url);
+                    NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
                 if (auth is not null)
                 {
                     request.Headers.Authorization = auth;

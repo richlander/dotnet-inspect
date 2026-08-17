@@ -36,6 +36,14 @@ operation ceiling spans discovery, equivalent-endpoint failover, and all selecte
 Search discovery supports the unversioned,
 `3.0.0-beta`, `3.0.0-rc`, `3.0.0`, and `3.5.0` service types. Unknown future types do not eclipse
 the highest supported capability.
+Feed-declared search endpoints may contain signed query parameters. Unrelated path and query text
+is sent byte-for-byte as declared, including percent escapes, while product-owned `q`, `skip`,
+`take`, `prerelease`, and `semVerLevel` parameters are replaced case-insensitively and appended
+exactly once. Diagnostics redact the declared query. `SearchRequestUriTests`,
+`SearchServiceTests.SearchAsync_PreservesEncodedSignedQueryBytes`,
+`NuGetSearchSourcesTests.GetSearchQueryServiceAsync_PreservesDeclaredQueryBytes`, and
+`PackageMetadataServiceTests.FetchAllMetadataAsync_UsesConfiguredServiceIndexResources` gate this
+contract.
 `NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_IsBounded` and
 `NuGetSearchSourcesTests.SearchAsync_EquivalentEndpointFailover_SharesOperationCeiling` gate those
 bounds; `SearchTimeoutOptions_DeriveFourRequestDeadlines` and

@@ -72,7 +72,8 @@ public class SearchRequestUriTests
     [Fact]
     public void TryCompose_PreservesTheExistingQueryTextExactly()
     {
-        const string existing = "sig=a%2Bb%2Fc%3D&t=x%20y";
+        const string existing =
+            "s%69g=%73ecret&a=a%2Bb%2Fc%3D&t=x%20y&opaque=%7E%41";
 
         Assert.True(
             SearchRequestUri.TryCompose(
@@ -81,6 +82,17 @@ public class SearchRequestUriTests
                 out string url));
 
         Assert.Contains($"?{existing}&q=", url, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TryCompose_RefusesMalformedRawEscapes()
+    {
+        Assert.False(
+            SearchRequestUri.TryCompose(
+                "https://feed.test/v3/query?sig=%zz",
+                SearchParameters,
+                out string url));
+        Assert.Equal(string.Empty, url);
     }
 
     [Theory]

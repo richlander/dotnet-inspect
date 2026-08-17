@@ -57,6 +57,22 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task GetSearchQueryServiceAsync_PreservesDeclaredQueryBytes()
+    {
+        const string declared =
+            "https://feed.example/v3/query?s%69g=%73ecret&opaque=%7E%41";
+        var handler = new RouteHandler { [IndexUrl] = ServiceIndex(declared) };
+        using var client = new HttpClient(handler);
+
+        string? discovered = await PackageExtractor.GetSearchQueryServiceAsync(
+            client,
+            new NuGetSource("contoso", IndexUrl),
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(declared, discovered);
+    }
+
+    [Fact]
     public async Task GetSearchQueryServiceAsync_ServiceIndexRequiresBrowserStreamingResponse()
     {
         var handler = new RouteHandler { [IndexUrl] = ServiceIndex(SearchUrl) };
