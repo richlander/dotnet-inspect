@@ -548,9 +548,7 @@ static bool LooksLikeTriageRow(JsonElement element)
     bool hasKind = GetJsonString(
             element,
             "Shape",
-            "shape",
-            "AllocationKind",
-            "allocationKind") is not null;
+            "shape") is not null;
     bool hasCompactPerformanceSchema =
         GetJsonString(element, "Evidence", "evidence") is not null
         && GetJsonString(element, "Priority", "priority") is not null
@@ -2296,11 +2294,6 @@ sealed class AllocationCandidate(
                 || string.Equals(allocatedType, "System.Text.StringBuilder", StringComparison.Ordinal)
                 || string.Equals(allocatedType, "System.Char[]", StringComparison.Ordinal);
 
-        if (AllocationKind.Contains("delegate", StringComparison.OrdinalIgnoreCase))
-            return allocatedType.Contains("Func`", StringComparison.Ordinal)
-                || allocatedType.Contains("Action`", StringComparison.Ordinal)
-                || allocatedType.EndsWith("Delegate", StringComparison.Ordinal);
-
         return false;
     }
 
@@ -2337,6 +2330,25 @@ sealed class AllocationCandidate(
                          }
 
                          value = value[prefix.Length..].Trim();
+                         stripped = true;
+                         break;
+                     }
+
+                     foreach (string wrapper in new[]
+                              {
+                                  "display class (",
+                                  "state machine ("
+                              })
+                     {
+                         if (!value.StartsWith(
+                                 wrapper,
+                                 StringComparison.OrdinalIgnoreCase)
+                             || !value.EndsWith(')'))
+                         {
+                             continue;
+                         }
+
+                         value = value[wrapper.Length..^1].Trim();
                          stripped = true;
                          break;
                      }

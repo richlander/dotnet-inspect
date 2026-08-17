@@ -104,6 +104,39 @@ public class TypeConfirmationTests
         Assert.NotEqual(a, b);
     }
 
+    [Theory]
+    [InlineData(
+        "System.Func<System.Int32>",
+        "System.Func`1[System.Int32]",
+        true)]
+    [InlineData(
+        "System.Func<System.Int32>",
+        "System.Func`1[System.String]",
+        false)]
+    [InlineData(
+        "display class (N.C+<>c__DisplayClass1_0)",
+        "N.C+<>c__DisplayClass1_0",
+        true)]
+    [InlineData(
+        "state machine (N.C+<M>d__1)",
+        "N.C+<M>d__1",
+        true)]
+    public void AllocationTypeMatch_PreservesExactTypeIdentity(
+        string staticType,
+        string runtimeType,
+        bool expected)
+    {
+        var candidate = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            staticType,
+            detail: "delegate allocation");
+
+        Assert.Equal(
+            expected,
+            candidate.MatchesAllocatedType(runtimeType));
+    }
+
     [Fact]
     public void ApplyTypeConfirmation_MarksUnobservedCandidate_WhenPredictedTypeIsRealizedHot()
     {
@@ -339,7 +372,11 @@ public class TypeConfirmationTests
         Assert.All(result.Candidates, c => Assert.False(c.TypeConfirmed));
     }
 
-    static AllocationCandidate CandidateWithType(int id, string method, string predictedType)
+    static AllocationCandidate CandidateWithType(
+        int id,
+        string method,
+        string predictedType,
+        string? detail = null)
     {
         string methodKey = method[..method.IndexOf('(')];
         int lastDot = methodKey.LastIndexOf('.');
@@ -357,7 +394,7 @@ public class TypeConfirmationTests
             stackKey,
             "Delegate",
             predictedType,
-            null,
+            detail,
             false,
             "Always",
             "Escapes",

@@ -320,6 +320,39 @@ public class E2EFixtureTests
         }
     }
 
+    [Fact]
+    public void Correlate_RejectsAllocationKindAsRootDiscriminator()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"method":"RunFaster.AllocationFixture.Program.AllocateOne()","allocationKind":"Telemetry","assembly":"RunFaster.AllocationFixture","method_token":"0x06000002","il":"IL_0000","allocation":"System.Object"}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "contains no Performance Triage rows",
+                result.Error);
+            Assert.Empty(result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
     [Theory]
     [InlineData("Wrong.Assembly", "System.Object")]
     [InlineData("RunFaster.AllocationFixture", "Other.Namespace.Object")]
