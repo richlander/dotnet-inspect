@@ -51,6 +51,9 @@ public static class NuspecParser
     {
         try
         {
+            if (nuspecXml.Length > 0 && nuspecXml[0] == '\uFEFF')
+                nuspecXml = nuspecXml[1..];
+
             return ParseDocument(HardenedXml.ParseXDocument(nuspecXml));
         }
         catch (System.Xml.XmlException ex)

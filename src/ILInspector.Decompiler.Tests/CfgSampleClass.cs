@@ -699,6 +699,25 @@ public class CfgSampleClass
         return s;
     }
 
+    public static int NestedDoWhileWithBranchingBody(bool branch, bool inner, bool outer)
+    {
+        int value = 0;
+        do
+        {
+            do
+            {
+                if (branch)
+                    value++;
+                else
+                    value += 2;
+            }
+            while (inner);
+            value += 3;
+        }
+        while (outer);
+        return value;
+    }
+
     public static int PartitionStyleNestedSelfLoops(int[] values, int pivot, int lo, int hi)
     {
         int i = lo;

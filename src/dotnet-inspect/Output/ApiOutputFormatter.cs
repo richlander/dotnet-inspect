@@ -2527,7 +2527,7 @@ public static class ApiOutputFormatter
             fact.InLoop ? "Yes" : "No",
             fact.Evidence);
 
-    static string FormatMethod(Analysis.MethodIdentity method)
+    internal static string FormatMethod(Analysis.MethodIdentity method)
         => FormatMember(method.DeclaringType, method.Name, method.ParameterTypes, []);
 
     readonly record struct SafetyFindingCensus(

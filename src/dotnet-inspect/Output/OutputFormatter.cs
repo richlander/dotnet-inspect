@@ -567,7 +567,7 @@ public static class OutputFormatter
     /// *prose*, which has no serializer-model expression. See #3619 (the migration) and #3620
     /// (the prose gap, which blocks it).
     /// </summary>
-    private static string SerializeLibraryMarkdown(
+    internal static string SerializeLibraryMarkdown(
         LibraryInspectionView auditView,
         LibraryInspection inspection,
         MarkoutWriterOptions writerOpts,
