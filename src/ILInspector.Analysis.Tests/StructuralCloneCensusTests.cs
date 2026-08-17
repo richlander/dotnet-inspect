@@ -355,6 +355,21 @@ public class StructuralCloneCensusTests
                 .GetString());
     }
 
+    [Theory]
+    [InlineData("--diff-corpus-baseline")]
+    [InlineData("--emit-corpus-snapshot")]
+    [InlineData("--reference")]
+    public async Task Command_RejectsMissingSharedOptionValues(
+        string option)
+    {
+        (int exitCode, string output, string error) result =
+            await RunHarness(option, "--json");
+
+        Assert.Equal(2, result.exitCode);
+        Assert.Equal("", result.output);
+        Assert.Contains($"{option} requires a file path.", result.error);
+    }
+
     [Fact]
     public async Task Command_RejectsMultipleTopLevelModes()
     {
@@ -422,6 +437,26 @@ public class StructuralCloneCensusTests
         Assert.Equal("", validationOrderConflict.output);
         Assert.Contains("--clone-census", validationOrderConflict.error);
         Assert.Contains("--leak-triage", validationOrderConflict.error);
+
+        foreach (string numericOption in new[]
+                 {
+                     "--max-methods",
+                     "--max-comparisons",
+                     "--max-depth",
+                 })
+        {
+            (int exitCode, string output, string error) numericConflict =
+                await RunHarness(
+                    "--clone-census",
+                    FixturePath,
+                    "--leak-triage",
+                    FixturePath,
+                    numericOption);
+            Assert.Equal(2, numericConflict.exitCode);
+            Assert.Equal("", numericConflict.output);
+            Assert.Contains("--clone-census", numericConflict.error);
+            Assert.Contains("--leak-triage", numericConflict.error);
+        }
     }
 
     static async Task<(int ExitCode, string Output, string Error)> RunHarness(

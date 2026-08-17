@@ -108,12 +108,15 @@ bool fixturesMode = false;
 string? corpusList = null;
 string? diffBaseline = null;
 string? emitSnapshot = null;
+bool diffBaselineSpecified = false;
+bool emitSnapshotSpecified = false;
 bool json = false;
 bool keep = false;
 bool list = false;
 string? recallAssembly = null;
 string? historicalPerformanceReference = null;
 string? referenceFile = null;
+bool referenceFileSpecified = false;
 string? precisionAssembly = null;
 string? cloneCorpusAssembly = null;
 string? relationshipLedger = null;
@@ -145,6 +148,7 @@ int top = 20;
 bool topArgumentValid = true;
 int maxDepth = 4;
 HashSet<string> selectedModes = [];
+string? numericArgumentError = null;
 
 for (int i = 0; i < args.Length; i++)
 {
@@ -161,9 +165,11 @@ for (int i = 0; i < args.Length; i++)
             corpusList = NextValue(args, ref i);
             break;
         case "--diff-corpus-baseline":
+            diffBaselineSpecified = true;
             diffBaseline = NextValue(args, ref i);
             break;
         case "--emit-corpus-snapshot":
+            emitSnapshotSpecified = true;
             emitSnapshot = NextValue(args, ref i);
             break;
         case "--paydirt-recall":
@@ -207,9 +213,8 @@ for (int i = 0; i < args.Length; i++)
                 || !int.TryParse(methodLimit, out cloneMaximumMethods)
                 || cloneMaximumMethods < 1)
             {
-                Console.Error.WriteLine(
-                    "--max-methods requires a positive integer.");
-                return 2;
+                numericArgumentError ??=
+                    "--max-methods requires a positive integer.";
             }
             break;
         case "--max-comparisons":
@@ -220,9 +225,8 @@ for (int i = 0; i < args.Length; i++)
                     out cloneMaximumComparisons)
                 || cloneMaximumComparisons < 1)
             {
-                Console.Error.WriteLine(
-                    "--max-comparisons requires a positive integer.");
-                return 2;
+                numericArgumentError ??=
+                    "--max-comparisons requires a positive integer.";
             }
             break;
         case "--allocation-readout":
@@ -271,6 +275,7 @@ for (int i = 0; i < args.Length; i++)
             jsonl = true;
             break;
         case "--reference":
+            referenceFileSpecified = true;
             referenceFile = NextValue(args, ref i);
             break;
         case "--top":
@@ -289,8 +294,8 @@ for (int i = 0; i < args.Length; i++)
                 || !int.TryParse(depth, out maxDepth)
                 || maxDepth < 1)
             {
-                Console.Error.WriteLine("--max-depth requires a positive integer.");
-                return 2;
+                numericArgumentError ??=
+                    "--max-depth requires a positive integer.";
             }
             break;
         case "list":
@@ -319,6 +324,30 @@ if (selectedModes.Count > 1)
         "Analysis harness modes are mutually exclusive: "
             + string.Join(", ", selectedModes)
             + ".");
+    return 2;
+}
+
+if (numericArgumentError is not null)
+{
+    Console.Error.WriteLine(numericArgumentError);
+    return 2;
+}
+
+if (diffBaselineSpecified && diffBaseline is null)
+{
+    Console.Error.WriteLine(
+        "--diff-corpus-baseline requires a file path.");
+    return 2;
+}
+if (emitSnapshotSpecified && emitSnapshot is null)
+{
+    Console.Error.WriteLine(
+        "--emit-corpus-snapshot requires a file path.");
+    return 2;
+}
+if (referenceFileSpecified && referenceFile is null)
+{
+    Console.Error.WriteLine("--reference requires a file path.");
     return 2;
 }
 
