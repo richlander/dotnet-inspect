@@ -463,20 +463,17 @@ static void AddTriageDocumentCandidates(
                 candidates,
                 ref rows);
         }
-        else
+        foreach (var property in root.EnumerateObject())
         {
-            foreach (var property in root.EnumerateObject())
-            {
-                if (property.Name is not ("performance" or "Performance"))
-                    continue;
+            if (property.Name is not ("performance" or "Performance"))
+                continue;
 
-                AddTriageCandidates(
-                    property.Value,
-                    path,
-                    defaultAssembly,
-                    candidates,
-                    ref rows);
-            }
+            AddTriageCandidates(
+                property.Value,
+                path,
+                defaultAssembly,
+                candidates,
+                ref rows);
         }
         return;
     }
@@ -2372,7 +2369,9 @@ sealed class AllocationCandidate(
         "library",
         path,
         occurrence.Method.AssemblyName,
-        occurrence.Method.ModuleVersionId,
+        occurrence.Method.ModuleVersionId == Guid.Empty
+            ? null
+            : occurrence.Method.ModuleVersionId,
         occurrence.Method.MetadataToken,
         occurrence.ILOffset,
         DisplayHelpers.MethodDisplay(occurrence.Method),

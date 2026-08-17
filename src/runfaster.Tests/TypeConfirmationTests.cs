@@ -745,6 +745,46 @@ public class TypeConfirmationTests
         Assert.All(result.Candidates, c => Assert.False(c.TypeConfirmed));
     }
 
+    [Fact]
+    public void AllocationCandidate_FromOccurrence_TreatsEmptyMvidAsUnknown()
+    {
+        var method = new ILInspector.Analysis.MethodIdentity(
+            "Fixture",
+            Guid.Empty,
+            ILInspector.Analysis.TypeRef.Definition(
+                "Fixture",
+                "Fixture",
+                "A"),
+            "M",
+            [],
+            ILInspector.Analysis.TypeRef.CoreLib(
+                "System",
+                "Void"),
+            MetadataToken: 0x06000001,
+            IsStatic: true);
+        var occurrence = new ILInspector.Analysis.AllocationOccurrence(
+            method,
+            ILOffset: 0x10,
+            OperandToken: null,
+            ILInspector.Analysis.AllocationKind.Object,
+            AllocatedType: ILInspector.Analysis.TypeRef.CoreLib(
+                "System",
+                "Object"),
+            Detail: null,
+            CountsAsHeapAllocation: true,
+            ILInspector.Analysis.AllocationFrequency.Always,
+            InLoop: false,
+            ILInspector.Analysis.AllocationEscape.Escapes,
+            ILInspector.Analysis.AllocationFactSource.Newobj);
+
+        var candidate = AllocationCandidate.FromOccurrence(
+            1,
+            "/tmp/Fixture.dll",
+            occurrence);
+
+        Assert.Null(candidate.ModuleVersionId);
+    }
+
     static AllocationCandidate CandidateWithType(
         int id,
         string method,
