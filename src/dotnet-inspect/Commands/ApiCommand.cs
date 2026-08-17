@@ -1043,40 +1043,42 @@ public class ApiCommand
         if (IsProjectionRequested(options))
             return RejectSurfacePayloadProjection(options);
 
-        bool failureDetailsRendered =
-            !options.Count
-            && (options.JsonOutput
-                || (options.Tabular
-                    ? ApiOutputFormatter
-                        .ShouldRenderSurfaceInspectionFailureTableView(
-                            options)
-                    : ApiOutputFormatter
-                        .RendersInspectionFailures(
-                            api,
-                            options)));
-        bool constraintDetailsRendered =
-            !options.Count
-            && (options.JsonOutput
-                || (options.Tabular
-                    && ApiOutputFormatter
-                        .ShouldRenderSurfaceInspectionFailureTableView(
-                            options)));
-        if (!failureDetailsRendered)
-        {
-            int rejectedRows = CountRejectedMetadataRows(api);
-            if (rejectedRows > 0)
-            {
-                CommandError.WriteWarning(
-                    $"API inspection rejected {rejectedRows} metadata row(s); "
-                    + "use default Markdown verbosity or JSON for failure details.");
-            }
-        }
-        if (!constraintDetailsRendered)
-            WriteConstraintResolutionDiagnostics(api);
-
         bool projectedJson = options.JsonOutput
             && !options.Count
             && IsColumnProjectionRequested(options);
+        if (!projectedJson)
+        {
+            bool failureDetailsRendered =
+                !options.Count
+                && (options.JsonOutput
+                    || (options.Tabular
+                        ? ApiOutputFormatter
+                            .ShouldRenderSurfaceInspectionFailureTableView(
+                                options)
+                        : ApiOutputFormatter
+                            .RendersInspectionFailures(
+                                api,
+                                options)));
+            bool constraintDetailsRendered =
+                !options.Count
+                && (options.JsonOutput
+                    || (options.Tabular
+                        && ApiOutputFormatter
+                            .ShouldRenderSurfaceInspectionFailureTableView(
+                                options)));
+            if (!failureDetailsRendered)
+            {
+                int rejectedRows = CountRejectedMetadataRows(api);
+                if (rejectedRows > 0)
+                {
+                    CommandError.WriteWarning(
+                        $"API inspection rejected {rejectedRows} metadata row(s); "
+                        + "use default Markdown verbosity or JSON for failure details.");
+                }
+            }
+            if (!constraintDetailsRendered)
+                WriteConstraintResolutionDiagnostics(api);
+        }
         if (options.JsonOutput && !options.Count && !projectedJson)
         {
             Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
@@ -1117,6 +1119,19 @@ public class ApiCommand
                 maxRows: options.Rows,
                 writerOptions,
                 promotedApiInfo ? [SectionNames.ApiInfo] : null);
+            if (!document.EmittedSections.Contains(
+                SectionNames.InspectionFailures,
+                StringComparer.OrdinalIgnoreCase))
+            {
+                int rejectedRows = CountRejectedMetadataRows(api);
+                if (rejectedRows > 0)
+                {
+                    CommandError.WriteWarning(
+                        $"API inspection rejected {rejectedRows} metadata row(s); "
+                        + "selected output excludes failure details.");
+                }
+                WriteConstraintResolutionDiagnostics(api);
+            }
             var fieldEvidence = options.Fields is { Length: > 0 }
                 ? OutputFormatter.CorrelateProjectedFields(
                     document,

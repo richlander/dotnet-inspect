@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using InertText;
 
@@ -18,6 +19,24 @@ internal sealed class PackageInspectionJson
     }
 
     public static PackageInspectionJson Create(InspectionResult data) => new(data);
+
+    internal static IReadOnlyDictionary<string, string> ProjectionAliases { get; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Built"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(BuiltDate)),
+            ["Content"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(ContentDirectories)),
+            ["Deprecated Note"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(Deprecation)),
+            ["Framework Dependent"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(IsFrameworkDependent)),
+            ["Highest TFM"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(TargetFrameworks)),
+            ["Libraries"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(AssemblyCount)),
+            ["Readme"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(HasReadme)),
+            ["RID-Specific Pointer"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(IsRidSpecificPointerPackage)),
+            ["Runtime Identifiers"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(SupportedRids)),
+            ["Size"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(PackageSize)),
+            ["TFM Count"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(TargetFrameworks)),
+            ["Type"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(PackageTypes)),
+            ["Verified"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(IsVerified)),
+        };
 
     public string PackageName => _text.PackageName.ToString();
     public string? ManifestVersion => Render(_text.ManifestVersion);

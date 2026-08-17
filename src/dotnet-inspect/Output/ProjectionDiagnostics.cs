@@ -177,11 +177,20 @@ public static class ProjectionDiagnostics
     internal static void DiagnoseJson(
         string[]? fields,
         string[]? columns,
-        string json)
+        string json,
+        IReadOnlyDictionary<string, string>? propertyAliases = null)
     {
         using var document = JsonDocument.Parse(json);
         var emittedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         CollectJsonPropertyNames(document.RootElement, emittedNames);
+        if (propertyAliases is not null)
+        {
+            foreach (var (alias, propertyName) in propertyAliases)
+            {
+                if (emittedNames.Contains(propertyName))
+                    emittedNames.Add(alias);
+            }
+        }
         ReportMissing(UnmatchedRequests(fields, emittedNames), "field");
         ReportMissing(UnmatchedRequests(columns, emittedNames), "column");
     }

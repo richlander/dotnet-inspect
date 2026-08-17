@@ -12705,6 +12705,89 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        TypeListing_ProjectedJsonExcludingRejectedRowsReportsDiagnostic()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"root-adjacency-projected-json-{Guid.NewGuid():N}.dll");
+        WriteMalformedAdjacencyAssembly(
+            path,
+            malformedAssemblyReference: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "--json",
+                "--columns",
+                "Type",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Contains("\"classes\"", result.Output, StringComparison.Ordinal);
+            Assert.Contains(
+                "selected output excludes failure details",
+                result.Error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task
+        TypeListing_ProjectedJsonReportsOnlyExcludedConstraintFailures()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"constraint-projected-json-{Guid.NewGuid():N}.dll");
+        WriteModuleConstraintAssembly(path);
+        try
+        {
+            var excluded = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "--json",
+                "--columns",
+                "Type",
+                "--tips",
+                "q");
+            var included = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "--json",
+                "--columns",
+                "Operation",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, excluded.Exit);
+            Assert.Contains("\"classes\"", excluded.Output, StringComparison.Ordinal);
+            Assert.Contains(
+                "Generic-constraint classification was incomplete",
+                excluded.Error,
+                StringComparison.Ordinal);
+            Assert.Equal(0, included.Exit);
+            Assert.Contains(
+                "\"inspection_failures\"",
+                included.Output,
+                StringComparison.Ordinal);
+            Assert.Empty(included.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Type_SelectWithSelectColumn_ReturnsErrorWhenNotRendered()
     {
         // Select is a historical schema column, but the active table shape has no matching
@@ -17373,6 +17456,66 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_JsonRecognizesDisplayAliasInTypedOutput()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonDisplayAlias",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--json", "--fields", "Built", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("\"built_date\"", output, StringComparison.Ordinal);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task MultiPackage_JsonReportsIgnoredUnknownProjection()
+    {
+        var (firstPackagePath, firstTempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiJsonUnknownProjection.One",
+            "README.md",
+            "# First package");
+        var (secondPackagePath, secondTempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiJsonUnknownProjection.Two",
+            "README.md",
+            "# Second package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                firstPackagePath,
+                secondPackagePath,
+                "--json",
+                "--columns",
+                "Bogus",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(2, document.RootElement.GetArrayLength());
+            Assert.Contains(
+                "1 column has no data: Bogus",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(firstTempDir, recursive: true);
+            Directory.Delete(secondTempDir, recursive: true);
         }
     }
 

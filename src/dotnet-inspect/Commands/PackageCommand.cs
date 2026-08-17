@@ -887,7 +887,8 @@ public class PackageCommand
                     ProjectionDiagnostics.DiagnoseJson(
                         options.Fields,
                         options.Columns,
-                        output);
+                        output,
+                        PackageInspectionJson.ProjectionAliases);
                 }
                 else if (hasProjection)
                 {
@@ -1044,9 +1045,15 @@ public class PackageCommand
 
         if (options.JsonOutput)
         {
-            Console.WriteLine(JsonSerializer.Serialize(
+            var json = JsonSerializer.Serialize(
                 results.Select(PackageInspectionJson.Create).ToArray(),
-                PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
+                PackageInspectionJsonContext.Default.PackageInspectionJsonArray);
+            ProjectionDiagnostics.DiagnoseJson(
+                options.Fields,
+                options.Columns,
+                json,
+                PackageInspectionJson.ProjectionAliases);
+            Console.WriteLine(json);
             return PackageIntegrityExitCode([.. results]);
         }
 
