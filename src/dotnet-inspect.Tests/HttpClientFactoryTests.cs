@@ -236,6 +236,145 @@ public class HttpClientFactoryTests : IDisposable
         Assert.Contains("Blocked request to non-public address", exception.ToString());
     }
 
+    [Theory]
+    [InlineData("8.8.8.8", false)]
+    [InlineData("192.0.0.9", false)]
+    [InlineData("192.0.0.10", false)]
+    [InlineData("0.0.0.1", true)]
+    [InlineData("10.0.0.1", true)]
+    [InlineData("100.64.0.1", true)]
+    [InlineData("127.0.0.1", true)]
+    [InlineData("169.254.0.1", true)]
+    [InlineData("172.16.0.1", true)]
+    [InlineData("192.0.0.8", true)]
+    [InlineData("192.0.2.1", true)]
+    [InlineData("192.88.99.1", true)]
+    [InlineData("192.168.0.1", true)]
+    [InlineData("198.18.0.1", true)]
+    [InlineData("198.19.255.254", true)]
+    [InlineData("198.51.100.1", true)]
+    [InlineData("203.0.113.1", true)]
+    [InlineData("224.0.0.1", true)]
+    [InlineData("240.0.0.1", true)]
+    [InlineData("2606:4700:4700::1111", false)]
+    [InlineData("64:ff9b::808:808", false)]
+    [InlineData("2001:1::1", false)]
+    [InlineData("2001:1::2", false)]
+    [InlineData("2001:1::3", false)]
+    [InlineData("2001:3::1", false)]
+    [InlineData("2001:4:112::1", false)]
+    [InlineData("2001:20::1", false)]
+    [InlineData("2001:30::1", false)]
+    [InlineData("2002:808:808::", false)]
+    [InlineData("2620:4f:8000::1", false)]
+    [InlineData("::", true)]
+    [InlineData("::1", true)]
+    [InlineData("::ffff:127.0.0.1", true)]
+    [InlineData("64:ff9b::7f00:1", true)]
+    [InlineData("64:ff9b:1::1", true)]
+    [InlineData("100::1", true)]
+    [InlineData("100:0:0:1::1", true)]
+    [InlineData("2001::1", true)]
+    [InlineData("2001:1::4", true)]
+    [InlineData("2001:2::1", true)]
+    [InlineData("2001:10::1", true)]
+    [InlineData("2001:db8::1", true)]
+    [InlineData("2002:7f00:1::", true)]
+    [InlineData("3fff::1", true)]
+    [InlineData("4000::1", true)]
+    [InlineData("5f00::1", true)]
+    [InlineData("7fff::1", true)]
+    [InlineData("8000::1", true)]
+    [InlineData("fc00::1", true)]
+    [InlineData("fe80::1", true)]
+    [InlineData("ff00::1", true)]
+    public void UntrustedFetchAddressClassification_MatchesNonPublicContract(
+        string address,
+        bool expected)
+    {
+        var classify = typeof(DotnetInspector.Core.HttpClientFactory).GetMethod(
+            "IsNonPublic",
+            System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(classify);
+        Assert.Equal(
+            expected,
+            classify.Invoke(null, [IPAddress.Parse(address)]));
+    }
+
+    [Fact]
+    public async Task PackageSearch_BlocksPrivateCrossOriginDiscoveredEndpoint()
+    {
+        using var sourceListener = new TcpListener(IPAddress.Loopback, 0);
+        using var targetListener = new TcpListener(IPAddress.Loopback, 0);
+        sourceListener.Start();
+        targetListener.Start();
+        string sourceUrl =
+            $"http://127.0.0.1:{((IPEndPoint)sourceListener.LocalEndpoint).Port}/index.json";
+        string targetUrl =
+            $"http://127.0.0.1:{((IPEndPoint)targetListener.LocalEndpoint).Port}/private";
+        string serviceIndex = $$"""
+            {"resources":[{"@id":"{{targetUrl}}","@type":"SearchQueryService/3.5.0"}]}
+            """;
+
+        Task sourceServer = ServeHttpResponseAsync(
+            sourceListener,
+            serviceIndex,
+            TestContext.Current.CancellationToken);
+        using var targetCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        Task<bool> targetServer = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    await ServeHttpResponseAsync(
+                        targetListener,
+                        """{"data":[{"id":"Private.Package","version":"1.0.0"}]}""",
+                        targetCancellation.Token);
+                    return true;
+                }
+                catch (OperationCanceledException)
+                {
+                    return false;
+                }
+            },
+            CancellationToken.None);
+
+        Exception? error = await Record.ExceptionAsync(
+            () => NuGetSearchService.SearchAsync(
+                HttpClientFactory.Shared,
+                "Private",
+                sourceOptions: new NuGetSourceOptions { Sources = [sourceUrl] }));
+
+        targetCancellation.Cancel();
+        await sourceServer;
+        bool targetReached = await targetServer;
+
+        Assert.IsType<InvalidOperationException>(error);
+        Assert.False(targetReached);
+    }
+
+    private static async Task ServeHttpResponseAsync(
+        TcpListener listener,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        using TcpClient connection =
+            await listener.AcceptTcpClientAsync(cancellationToken);
+        await using NetworkStream stream = connection.GetStream();
+        var request = new byte[4096];
+        _ = await stream.ReadAsync(request, cancellationToken);
+        byte[] content = Encoding.UTF8.GetBytes(body);
+        byte[] headers = Encoding.ASCII.GetBytes(
+            "HTTP/1.1 200 OK\r\n"
+            + "Content-Type: application/json\r\n"
+            + $"Content-Length: {content.Length}\r\n"
+            + "Connection: close\r\n\r\n");
+        await stream.WriteAsync(headers, cancellationToken);
+        await stream.WriteAsync(content, cancellationToken);
+    }
+
     /// <summary>
     /// Initializing with default options has to clear a previously configured timeout. The field is
     /// static, so a leak here would make one test's flag change another test's client.
