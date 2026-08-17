@@ -124,9 +124,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         }
         if (lookup is null)
             return null;
-        if (InheritedReceiverLookupIsUnproven(
-                lookup,
-                asyncSource))
+        if (InheritedReceiverLookupIsUnproven(lookup))
         {
             return null;
         }
@@ -174,13 +172,9 @@ internal sealed partial class LibraryBodyAnalysisBuilder
     }
 
     bool InheritedReceiverLookupIsUnproven(
-        AsyncSiblingLookup lookup,
-        MethodIdentity asyncSource)
+        AsyncSiblingLookup lookup)
     {
-        if ((lookup.SynchronousAttributes & MethodAttributes.Static) != 0
-            || SameTypeDefinition(
-                lookup.Callee.DeclaringType,
-                asyncSource.DeclaringType))
+        if ((lookup.SynchronousAttributes & MethodAttributes.Static) != 0)
         {
             return false;
         }
@@ -189,97 +183,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             lookup.SynchronousReader.GetTypeDefinition(
                     lookup.SynchronousDeclaringType)
                 .Attributes;
-        if ((attributes
-                & (TypeAttributes.Sealed | TypeAttributes.Interface)) != 0)
-        {
-            return false;
-        }
-
-        int separator = asyncSource.Name.LastIndexOf('.');
-        string sourceName = separator < 0
-            ? asyncSource.Name
-            : asyncSource.Name[(separator + 1)..];
-        if (sourceName == lookup.Callee.Name + "Async")
-            return false;
-
-        return SourceDerivesFrom(
-                asyncSource.MetadataToken,
-                lookup.SynchronousReader,
-                lookup.SynchronousDeclaringType)
-                != TypeRelation.Yes
-            || SourceLookupHidesInheritedSibling(
-                asyncSource.MetadataToken,
-                lookup.SynchronousReader,
-                lookup.SynchronousDeclaringType,
-                lookup.Callee.Name + "Async");
-    }
-
-    bool SourceLookupHidesInheritedSibling(
-        int sourceMethodToken,
-        MetadataReader synchronousReader,
-        TypeDefinitionHandle synchronousType,
-        string candidateName)
-    {
-        EntityHandle sourceHandle =
-            MetadataTokens.EntityHandle(sourceMethodToken);
-        if (sourceHandle.Kind != HandleKind.MethodDefinition)
-            return true;
-
-        MetadataReader currentReader = _reader;
-        TypeDefinitionHandle current =
-            _reader.GetMethodDefinition(
-                    (MethodDefinitionHandle)sourceHandle)
-                .GetDeclaringType();
-        var visited =
-            new Dictionary<MetadataReader, HashSet<int>>(
-                ReferenceEqualityComparer.Instance);
-        int visitedCount = 0;
-        while (visitedCount
-            < MetadataSafetyPolicy.MaxRelationshipNodes)
-        {
-            TypeRelation relation = TypeDefinitionRelation(
-                currentReader,
-                current,
-                synchronousReader,
-                synchronousType);
-            if (relation == TypeRelation.Yes)
-                return false;
-            if (relation == TypeRelation.Unknown
-                || !TryVisitTypeDefinition(
-                    visited,
-                    currentReader,
-                    current,
-                    ref visitedCount))
-            {
-                return true;
-            }
-
-            if (AsyncSiblingMethodsByName(
-                    currentReader,
-                    current)
-                .ContainsKey(candidateName))
-            {
-                return true;
-            }
-
-            EntityHandle baseHandle =
-                currentReader.GetTypeDefinition(current).BaseType;
-            if (baseHandle.IsNil)
-                return true;
-            TypeRef baseType = DecodeType(
-                currentReader,
-                baseHandle);
-            if (TryResolveTypeDefinition(
-                    currentReader,
-                    baseType)
-                is not { } resolvedBase)
-            {
-                return true;
-            }
-            currentReader = resolvedBase.DefiningReader;
-            current = resolvedBase.Definition;
-        }
-        return true;
+        return (attributes & TypeAttributes.Sealed) == 0;
     }
 
     AsyncSiblingLookup? PrepareAsyncSiblingLookup(

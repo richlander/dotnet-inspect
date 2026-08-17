@@ -819,8 +819,9 @@ Research overlay bridge, and the application layer:
   accessibility;
   `OptimizationOpportunities_InheritedSynchronousReceiverHidingFailsClosed`
   gates the erased receiver boundary for inherited synchronous definitions:
-  unsealed concrete receiver types fail closed unless the source method itself
-  is the async sibling implementation.
+  instance methods on unsealed classes and interfaces fail closed because IL
+  does not preserve the source receiver lookup type; static methods and methods
+  declared on sealed classes remain eligible.
   Constructed generic type relationships preserve DAG sharing and bound
   structural identity, comparison, and finding-display work;
   `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
@@ -840,7 +841,7 @@ Research overlay bridge, and the application layer:
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
   `OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes`,
   `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
-  `OptimizationOpportunities_FriendAccessHonorsInternalWithoutProvingProtectedReceiver`,
+  `OptimizationOpportunities_ReceiverErasureSuppressesUnsealedFriendCandidates`,
   `AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey`,
   `OptimizationOpportunities_SuppressesSourceGeneratedTypes`,
   and

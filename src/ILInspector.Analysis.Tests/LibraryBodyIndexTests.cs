@@ -146,7 +146,7 @@ public class LibraryBodyIndexTests
                 == nameof(RequiredTokenSiblingFixture
                     .CallsRequiredTokenSiblingAsync));
 
-        var unrelatedVirtual = Assert.Single(
+        Assert.DoesNotContain(
             opportunities,
             opportunity => opportunity.Method.Name
                 == nameof(UnrelatedVirtualSiblingConsumer
@@ -154,12 +154,8 @@ public class LibraryBodyIndexTests
                 && opportunity.Method.DeclaringType.Name
                     == nameof(
                         UnrelatedVirtualSiblingConsumer));
-        Assert.Contains(
-            "UnrelatedVirtualSiblingService::LoadAsync",
-            unrelatedVirtual.Evidence,
-            StringComparison.Ordinal);
 
-        Assert.Single(
+        Assert.DoesNotContain(
             opportunities,
             opportunity => opportunity.Method.Name
                     == nameof(
@@ -169,7 +165,7 @@ public class LibraryBodyIndexTests
                     == nameof(
                         NewSlotVirtualSiblingLeaf));
 
-        Assert.Single(
+        Assert.DoesNotContain(
             opportunities,
             opportunity => opportunity.Method.Name
                     == nameof(
@@ -188,7 +184,7 @@ public class LibraryBodyIndexTests
                     .StartsWith(
                         "GenericNewSlotSiblingLeaf",
                         StringComparison.Ordinal));
-        Assert.Single(
+        Assert.DoesNotContain(
             opportunities,
             opportunity => opportunity.Method.Name
                     == nameof(
@@ -442,6 +438,33 @@ public class LibraryBodyIndexTests
                 && opportunity.Method.DeclaringType.Name
                     == nameof(
                         InheritedSynchronousDerivedReceiverConsumer));
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        InheritedSynchronousNameBypassConsumer
+                            .ReadAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        InheritedSynchronousNameBypassConsumer));
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        InterfaceInheritedSynchronousConsumer
+                            .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        InterfaceInheritedSynchronousConsumer));
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        SameTypeInheritedSynchronousBase
+                            .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        SameTypeInheritedSynchronousBase));
         Assert.Contains(
             opportunities,
             opportunity => opportunity.Method.Name
@@ -1052,7 +1075,7 @@ public class LibraryBodyIndexTests
             collision.Method.DeclaringType
                 .Resolution?.Type.Segments[0]);
 
-        Assert.Contains(
+        Assert.DoesNotContain(
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
@@ -1090,7 +1113,7 @@ public class LibraryBodyIndexTests
                     == nameof(
                         ClassicSelfCacheFixture
                             .AaaAsync));
-        Assert.Contains(
+        Assert.DoesNotContain(
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
@@ -1101,7 +1124,7 @@ public class LibraryBodyIndexTests
                     == nameof(
                         ClassicProtectedSiblingDerivedFixture
                             .AnalyzeAsync));
-        Assert.Contains(
+        Assert.DoesNotContain(
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
@@ -1155,7 +1178,7 @@ public class LibraryBodyIndexTests
                     == nameof(
                         IClassicContravariantDefaultSiblingFixture<
                             object>.ConsumeAsync));
-        Assert.Contains(
+        Assert.DoesNotContain(
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
@@ -1179,7 +1202,7 @@ public class LibraryBodyIndexTests
                     == nameof(
                         ClassicNestedPrivateSiblingFixture.Consumer
                             .AnalyzeAsync));
-        Assert.Contains(
+        Assert.DoesNotContain(
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
@@ -1301,7 +1324,8 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void OptimizationOpportunities_FriendAccessHonorsInternalWithoutProvingProtectedReceiver()
+    public void
+        OptimizationOpportunities_ReceiverErasureSuppressesUnsealedFriendCandidates()
     {
         string path =
             FixtureCatalog.AnalysisAsyncSiblingFriend
@@ -1322,13 +1346,13 @@ public class LibraryBodyIndexTests
                     == "sync-call-in-async"
                 && opportunity.Method.Name
                     == "AnalyzeAsync");
-        Assert.Contains(
+        Assert.DoesNotContain(
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
                 && opportunity.Method.Name
                     == "PublicAnalyzeAsync");
-        Assert.Contains(
+        Assert.DoesNotContain(
             index.OptimizationOpportunities,
             opportunity => opportunity.Shape
                     == "sync-call-in-async"
@@ -1768,7 +1792,7 @@ public class LibraryBodyIndexTests
                         "CoreAsync"));
             var unrelatedOverride =
                 LibraryBodyIndex.Open(path);
-            Assert.Single(
+            Assert.DoesNotContain(
                 unrelatedOverride
                     .OptimizationOpportunities,
                 opportunity => opportunity.Shape
@@ -1788,7 +1812,7 @@ public class LibraryBodyIndexTests
                     unrelatedSourceMethodImpl: true));
             var unrelatedSourceMethodImpl =
                 LibraryBodyIndex.Open(path);
-            Assert.Single(
+            Assert.DoesNotContain(
                 unrelatedSourceMethodImpl
                     .OptimizationOpportunities,
                 opportunity => opportunity.Shape
@@ -1870,7 +1894,7 @@ public class LibraryBodyIndexTests
                     sourceStartsNewSlot: true));
             var inheritedNewSlot =
                 LibraryBodyIndex.Open(path);
-            Assert.Single(
+            Assert.DoesNotContain(
                 inheritedNewSlot
                     .OptimizationOpportunities,
                 opportunity => opportunity.Shape
@@ -1884,7 +1908,7 @@ public class LibraryBodyIndexTests
                 BuildMethodImplAsyncSourceAssembly(
                     includeMethodImpl: false));
             var control = LibraryBodyIndex.Open(path);
-            Assert.Single(
+            Assert.DoesNotContain(
                 control.OptimizationOpportunities,
                 opportunity => opportunity.Shape
                         == "sync-call-in-async"
@@ -1899,7 +1923,7 @@ public class LibraryBodyIndexTests
                         true));
             var tasksContract =
                 LibraryBodyIndex.Open(path);
-            Assert.Single(
+            Assert.DoesNotContain(
                 tasksContract.OptimizationOpportunities,
                 opportunity => opportunity.Shape
                         == "sync-call-in-async"
@@ -11957,6 +11981,61 @@ public static class InheritedSynchronousDerivedReceiverConsumer
         await Task.Yield();
         return value.Read(1);
     }
+}
+
+public static class InheritedSynchronousNameBypassConsumer
+{
+    public static async Task<int> ReadAsync(
+        HiddenInheritedSynchronousSiblingDerived value)
+    {
+        await Task.Yield();
+        return value.Read(1);
+    }
+}
+
+public interface IInterfaceInheritedSynchronousBase
+{
+    int Read(int value);
+
+    Task<int> ReadAsync(int value);
+}
+
+public interface IInterfaceInheritedSynchronousDerived
+    : IInterfaceInheritedSynchronousBase
+{
+    new Task<string> ReadAsync(int value);
+}
+
+public static class InterfaceInheritedSynchronousConsumer
+{
+    public static async Task<int> AnalyzeAsync(
+        IInterfaceInheritedSynchronousDerived value)
+    {
+        await Task.Yield();
+        return value.Read(1);
+    }
+}
+
+public class SameTypeInheritedSynchronousBase
+{
+    public int Read(int value) => value;
+
+    public Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+
+    public async Task<int> AnalyzeAsync(
+        SameTypeInheritedSynchronousDerived value)
+    {
+        await Task.Yield();
+        return value.Read(1);
+    }
+}
+
+public sealed class SameTypeInheritedSynchronousDerived
+    : SameTypeInheritedSynchronousBase
+{
+    public new Task<string> ReadAsync(int value)
+        => Task.FromResult(value.ToString());
 }
 
 public sealed class SealedSynchronousSiblingService
