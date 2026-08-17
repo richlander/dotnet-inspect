@@ -28,7 +28,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// inside an already-raised nested container.
 /// <c>NestedContainerSecondBackEdge_StaysFlat</c> and
 /// <c>NestedContainerNonCanonicalExit_StaysFlat</c> pin outward transfers from
-/// that container.
+/// that container. <c>NestedLeaveToCanonicalDoWhileExit_Raises</c> and
+/// <c>OutsideLeaveLeavingContainer_DoesNotDeclineDoWhile</c> keep unrelated
+/// exception-region transfers from vetoing a legal loop, while their paired
+/// decline tests preserve the candidate's exit boundary.
 /// </summary>
 public sealed class DoWhileLoopPass : IIrPass
 {
@@ -103,8 +106,12 @@ public sealed class DoWhileLoopPass : IIrPass
 
             foreach (var node in blocks[source].DescendantsOutsideNestedFunctions)
             {
-                // EH control flow inside the loop is outside this slice.
-                if (sourceInside && node is Leave or EndFinally or EndFilter)
+                // Raw EH control flow inside the loop is outside this slice.
+                // Transfers nested in an already-raised structure are governed
+                // by the same candidate-relative target rules as other jumps.
+                if (sourceInside
+                    && ReferenceEquals(node.Parent, blocks[source])
+                    && node is Leave or EndFinally or EndFilter)
                     return false;
 
                 foreach (int targetOffset in Targets(node))
@@ -112,7 +119,11 @@ public sealed class DoWhileLoopPass : IIrPass
                     if (InterveningContainerOwnsTarget(node, container, targetOffset))
                         continue;
                     if (!offsetToIndex.TryGetValue(targetOffset, out int target))
-                        return false;   // a branch leaving the container — out of slice
+                    {
+                        if (sourceInside)
+                            return false;   // a candidate exit leaving the container — out of slice
+                        continue;           // cannot be an external entry into this container
+                    }
                     bool targetInside = target >= header && target <= bottom;
 
                     if (sourceInside && !targetInside)

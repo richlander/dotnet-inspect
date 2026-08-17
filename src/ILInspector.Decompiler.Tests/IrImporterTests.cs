@@ -3783,6 +3783,127 @@ public class RaisingPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void NestedLeaveToCanonicalDoWhileExit_Raises()
+    {
+        var function = BottomTestedRegionWithNestedLeave(targetOffset: 30);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedLeaveToNonCanonicalDoWhileExit_StaysFlat()
+    {
+        var function = BottomTestedRegionWithNestedLeave(targetOffset: 40);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedLeaveLeavingContainer_StaysFlat()
+    {
+        var function = BottomTestedRegionWithNestedLeave(targetOffset: 9999);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void OutsideLeaveLeavingContainer_DoesNotDeclineDoWhile()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var body = new BlockContainer();
+        var loop = new Block(10);
+        loop.Add(new ConditionalBranch(
+            new LoadArgument(0, "repeat", boolType),
+            10));
+        body.Add(loop);
+        var exit = new Block(20);
+        exit.Add(new Leave(9999));
+        body.Add(exit);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Loops"),
+            new MethodSignature(
+                intType,
+                [new Parameter("repeat", boolType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void TaskWhenAllPromiseNestedCanonicalLeave_RetainsDoWhile()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            "System.Threading.Tasks.Task.WhenAllPromise",
+            "Invoke");
+        Assert.NotNull(function);
+
+        IrPasses.Run(function);
+
+        Assert.Single(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction BottomTestedRegionWithNestedLeave(int targetOffset)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var nested = new Block(12);
+        nested.Add(new Leave(targetOffset));
+
+        var body = new BlockContainer();
+        var header = new Block(10);
+        header.Add(new IfStatement(
+            new LoadArgument(0, "leave", boolType),
+            nested,
+            null));
+        body.Add(header);
+        var bottom = new Block(20);
+        bottom.Add(new ConditionalBranch(
+            new LoadArgument(1, "repeat", boolType),
+            10));
+        body.Add(bottom);
+        var exit = new Block(30);
+        exit.Add(new Return(new Constant(0, intType)));
+        body.Add(exit);
+        var alternateExit = new Block(40);
+        alternateExit.Add(new Return(new Constant(1, intType)));
+        body.Add(alternateExit);
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Loops"),
+            new MethodSignature(
+                intType,
+                [
+                    new Parameter("leave", boolType),
+                    new Parameter("repeat", boolType),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+    }
+
     static IrFunction BottomTestedRegionWithNestedContainerTransfer(int targetOffset)
     {
         var intType = TypeRef.CoreLib("System", "Int32");
