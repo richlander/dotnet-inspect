@@ -167,6 +167,10 @@ public static class ApiSurfaceExtractor
                         is MetadataTypeDefinitionNameReadResult.Read read
                             ? read.Name
                             : null,
+                    IntroducedTypeParameterCounts =
+                        MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
+                            reader,
+                            typeDefHandle),
                     Kind = "class",
                     Members = []
                 };
@@ -484,6 +488,10 @@ public static class ApiSurfaceExtractor
                 Name = typeName,
                 MetadataName = GetMetadataName(reader, typeDefHandle),
                 DefinitionName = owningTypeDefinition,
+                IntroducedTypeParameterCounts =
+                    MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
+                        reader,
+                        typeDefHandle),
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 MetadataToken = MetadataTokens.GetToken(typeDefHandle),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
@@ -1849,9 +1857,15 @@ public static class ApiSurfaceExtractor
                 }
                 if (ReferenceEquals(targetType, declaringType))
                     continue;
+                string declaringTypeCanonicalName =
+                    ApiMemberIdentity.FormatTypeAnchorName(declaringType);
                 if (targetType.Members.Any(member =>
                     member.Kind == "extension-method"
-                    && string.Equals(member.DeclaringType, declaringType.FullName, StringComparison.Ordinal)
+                    && string.Equals(
+                        member.DeclaringTypeCanonicalName
+                            ?? member.DeclaringType,
+                        declaringTypeCanonicalName,
+                        StringComparison.Ordinal)
                     && string.Equals(member.Name, extension.Name, StringComparison.Ordinal)
                     && string.Equals(member.Signature, extension.Signature, StringComparison.Ordinal)))
                     continue;
@@ -1880,6 +1894,8 @@ public static class ApiSurfaceExtractor
                     IsExtension = true,
                     ExtendedType = extension.ExtendedType,
                     DeclaringType = declaringType.FullName,
+                    DeclaringTypeCanonicalName =
+                        declaringTypeCanonicalName,
                     DeclaringOverloadIndex = declaringOverloadIndex,
                     IsObsolete = extension.IsObsolete,
                     ObsoleteMessage = extension.ObsoleteMessage,

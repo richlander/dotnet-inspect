@@ -154,6 +154,51 @@ public class ApiMemberIdentityTests
     }
 
     [Fact]
+    public void CompleteNestedAnchor_SurvivesJsonRoundTrip()
+    {
+        var definition = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("N", ["Outer", "Inner"])).Name;
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer.Inner",
+            Kind = "class",
+            DefinitionName = definition,
+            IntroducedTypeParameterCounts = [0, 0],
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "M",
+                    Kind = "method",
+                    Signature = "void M()",
+                    SignatureModel = new ApiSignature
+                    {
+                        MemberName = "M",
+                        ReturnType = "void",
+                    },
+                },
+            ],
+        };
+        var surface = new ApiSurface { Types = [type] };
+        ApiMemberIdentity.PopulateCanonicalIdentities(surface);
+        MemberAnchor before =
+            ApiMemberIdentity.GetMemberAnchor(type, type.Members[0]);
+
+        string json = JsonSerializer.Serialize(surface);
+        ApiSurface restored =
+            JsonSerializer.Deserialize<ApiSurface>(json)!;
+        ApiType restoredType = Assert.Single(restored.Types);
+        MemberAnchor after = ApiMemberIdentity.GetMemberAnchor(
+            restoredType,
+            Assert.Single(restoredType.Members));
+
+        Assert.Contains("definitionName", json, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(definition, restoredType.DefinitionName);
+        Assert.Equal(before, after);
+    }
+
+    [Fact]
     public void GetCanonicalSignature_OrdinaryPropertyFormatIsUnchangedByIndexerFix()
     {
         var type = new ApiType { Namespace = "N", Name = "C" };

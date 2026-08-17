@@ -490,13 +490,20 @@ public sealed class CSharpFormatter
             declaredArity += MetadataNameArity.OfSegment(segment);
 
         bool arityMatches = declaredArity == typeParameters.Count;
-        bool unboundDisplay = typeParameters.Count == 0;
+        bool unboundOuterDisplay = typeParameters.Count == 0;
         int parameterIndex = 0;
         var parts = new List<string>(name.Segments.Length);
-        foreach (string segment in name.Segments)
+        for (int segmentIndex = 0;
+            segmentIndex < name.Segments.Length;
+            segmentIndex++)
         {
+            string segment = name.Segments[segmentIndex];
             int arity = MetadataNameArity.OfSegment(segment);
-            string simpleName = arityMatches || unboundDisplay
+            bool stripArity =
+                arityMatches
+                || (unboundOuterDisplay
+                    && segmentIndex < name.Segments.Length - 1);
+            string simpleName = stripArity
                 ? MetadataNameArity.StripFromSegment(segment)
                 : segment;
             simpleName = ContainExactSegment(simpleName);

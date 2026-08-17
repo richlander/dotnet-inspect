@@ -1,3 +1,4 @@
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -46,6 +47,20 @@ public class TypeOfRenderingTests
 
         Assert.Contains("return typeof(Dictionary<,>);", output);
         Assert.DoesNotContain("typeof(Dictionary)", output);
+    }
+
+    [Fact]
+    public void TypeOf_ZeroArityGenericInstance_IsNotFullFidelity()
+    {
+        var malformed = TypeRef.GenericInstance(
+            TypeRef.Definition("Synthetic", "Tests", "Plain"),
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        var result = CSharpPrinter.PrintRaised(
+            Returning(new TypeOf(malformed)));
+
+        Assert.Equal("Plain<int>", malformed.ToDisplayString());
+        Assert.NotEqual(DecompilationFidelity.Full, result.Fidelity);
     }
 
     static IrFunction Returning(IrExpression expression, TypeRef? returnType = null, TypeRef? owner = null)

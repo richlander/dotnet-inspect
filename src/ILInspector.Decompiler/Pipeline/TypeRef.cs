@@ -713,21 +713,29 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return string.Join(".", ElementType.MetadataNameSegments());
         }
 
-        if (scope is not null
-            && ElementType.MetadataNameSegments().Count > 1
-            && !EnclosingInScope(scope, declaredArity)
+        IReadOnlyList<string> segments = ElementType.MetadataNameSegments();
+        bool foreignNestedReference =
+            scope is not null
+            && segments.Count > 1
+            && (appendArgumentsToZeroArityHead
+                ? !EnclosingDefinitionInScope(scope)
+                : !EnclosingInScope(scope, declaredArity));
+        if (foreignNestedReference
             && RenderNestedGenericInstance(
                 scope,
                 completeCompilerGenerated) is { } qualified)
         {
             return qualified;
         }
-        IReadOnlyList<string> segments = ElementType.MetadataNameSegments();
         string innermost = segments[^1];
         int ownArity = ArityOf(innermost);
-        string simpleName = ElementType.DisplayName();
+        string simpleName = foreignNestedReference
+            ? string.Join(".", segments.Select(CSharpNaming.TypeNameSegment))
+            : ElementType.DisplayName();
         if (ownArity == 0)
         {
+            if (!appendArgumentsToZeroArityHead)
+                return simpleName;
             var arguments = TypeArguments
                 .Select(argument => argument.ToDisplayString(scope));
             return $"{simpleName}<{string.Join(", ", arguments)}>";
@@ -752,6 +760,21 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         if (TypeArguments.Length != declaredArity)
             return false;
+        if (!EnclosingDefinitionInScope(scope))
+            return false;
+        int innermostArity = ArityOf(ElementType!.MetadataNameSegments()[^1]);
+        int enclosingArguments = TypeArguments.Length - innermostArity;
+        for (int i = 0; i < enclosingArguments; i++)
+        {
+            var argument = TypeArguments[i];
+            if (argument.Kind != TypeRefKind.GenericParameter || argument.GenericParameterIndex != i)
+                return false;
+        }
+        return true;
+    }
+
+    bool EnclosingDefinitionInScope(TypeRef scope)
+    {
         var scopeDefinition = scope.Kind == TypeRefKind.GenericInstance ? scope.ElementType! : scope;
         IReadOnlyList<string> segments = ElementType!.MetadataNameSegments();
         if (ElementType.Assembly != scopeDefinition.Assembly
@@ -762,14 +785,6 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 segments.Count - 1))
         {
             return false;
-        }
-        int innermostArity = ArityOf(segments[^1]);
-        int enclosingArguments = TypeArguments.Length - innermostArity;
-        for (int i = 0; i < enclosingArguments; i++)
-        {
-            var argument = TypeArguments[i];
-            if (argument.Kind != TypeRefKind.GenericParameter || argument.GenericParameterIndex != i)
-                return false;
         }
         return true;
     }
@@ -837,8 +852,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
             }
 
             long declaredArity = ElementType.DeclaredGenericArity();
-            return declaredArity != 0
-                && declaredArity != TypeArguments.Length
+            return declaredArity != TypeArguments.Length
                 && !(TypeArguments.Length > 0
                     && TypeArguments.Length < declaredArity
                     && declaredArity

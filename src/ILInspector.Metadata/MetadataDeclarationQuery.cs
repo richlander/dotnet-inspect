@@ -87,6 +87,8 @@ public static class MetadataDeclarationQuery
             Namespace = ns,
             Name = name,
             DefinitionName = definitionName,
+            IntroducedTypeParameterCounts =
+                GetIntroducedTypeParameterCounts(reader, typeHandle),
             Accessibility = TypeAccessibility(typeDef),
             IsSealed = (attributes & TypeAttributes.Sealed) != 0,
             IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
@@ -209,6 +211,42 @@ public static class MetadataDeclarationQuery
         }
 
         return type;
+    }
+
+    internal static List<int> GetIntroducedTypeParameterCounts(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
+                reader,
+                typeHandle,
+                chain,
+                out int consumed,
+                out EntityHandle terminal,
+                out RelationshipTraversalRejection? rejection)
+            || consumed == 0
+            || !terminal.IsNil)
+        {
+            throw new BadImageFormatException(
+                rejection?.Detail
+                    ?? "The type has an invalid declaring-type chain.");
+        }
+
+        var counts = new List<int>(consumed);
+        int enclosingCount = 0;
+        for (int index = 0; index < consumed; index++)
+        {
+            int cumulativeCount = reader
+                .GetTypeDefinition(chain[index])
+                .GetGenericParameters()
+                .Count;
+            counts.Add(Math.Max(0, cumulativeCount - enclosingCount));
+            enclosingCount = cumulativeCount;
+        }
+        return counts;
     }
 
     /// <summary>

@@ -1326,6 +1326,9 @@ public static class ApiMemberIdentity
             $"The metadata type name exceeds "
                 + $"{MetadataSafetyPolicy.MaxTypeNameCharacters} characters.");
 
+    internal static string FormatTypeAnchorName(ApiType type) =>
+        FormatApiTypeAnchorName(type);
+
     static string FormatApiTypeAnchorName(ApiType type)
     {
         if (type.DefinitionName is not { } exactName)
@@ -1353,12 +1356,14 @@ public static class ApiMemberIdentity
                 segment,
                 out int declaredArity,
                 out int simpleNameLength);
-            int arityAfter = 0;
-            for (int j = i + 1; j < exactName.Segments.Length; j++)
-                arityAfter += MetadataNameArity.OfSegment(exactName.Segments[j]);
-            int introducedGenericCount = Math.Max(
-                0,
-                type.TypeParameters.Count - parameterIndex - arityAfter);
+            int introducedGenericCount =
+                HasExactTypeParameterCounts(type, exactName)
+                    ? type.IntroducedTypeParameterCounts![i]
+                    : InferIntroducedGenericCount(
+                        type,
+                        exactName,
+                        i,
+                        parameterIndex);
             if (hasDeclaredArity
                 && declaredArity != introducedGenericCount)
             {
@@ -1392,6 +1397,34 @@ public static class ApiMemberIdentity
         }
 
         return builder.ToString();
+    }
+
+    static bool HasExactTypeParameterCounts(
+        ApiType type,
+        MetadataTypeDefinitionName exactName) =>
+        type.IntroducedTypeParameterCounts is { } counts
+        && counts.Count == exactName.Segments.Length
+        && counts.All(static count => count >= 0)
+        && counts.Sum(static count => (long)count)
+            == type.TypeParameters.Count;
+
+    static int InferIntroducedGenericCount(
+        ApiType type,
+        MetadataTypeDefinitionName exactName,
+        int segmentIndex,
+        int parameterIndex)
+    {
+        int arityAfter = 0;
+        for (int index = segmentIndex + 1;
+            index < exactName.Segments.Length;
+            index++)
+        {
+            arityAfter +=
+                MetadataNameArity.OfSegment(exactName.Segments[index]);
+        }
+        return Math.Max(
+            0,
+            type.TypeParameters.Count - parameterIndex - arityAfter);
     }
 
     static void AppendEscapedAnchorName(
@@ -1598,6 +1631,8 @@ public static class ApiMemberIdentity
 
     static string DeclaringTypeAnchorName(ApiType type, ApiMember member)
     {
+        if (!string.IsNullOrWhiteSpace(member.DeclaringTypeCanonicalName))
+            return member.DeclaringTypeCanonicalName;
         if (string.IsNullOrWhiteSpace(member.DeclaringType))
             return FormatApiTypeAnchorName(type);
         if (type.DefinitionName is not null

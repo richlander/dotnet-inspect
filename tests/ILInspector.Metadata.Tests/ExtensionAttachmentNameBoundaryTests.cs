@@ -80,6 +80,37 @@ public sealed class ExtensionAttachmentNameBoundaryTests
     }
 
     [Fact]
+    public void AttachedExtension_PreservesItsExactDeclaringTypeAnchor()
+    {
+        using var peReader = new PEReader(ImmutableArray.Create(BuildImage()));
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+
+        ApiType extensions = Assert.Single(
+            surface.Types,
+            type => type.Name == "Extensions.WithDot");
+        ApiType widget = Assert.Single(
+            surface.Types,
+            type => type.Namespace == "Ns`1" && type.Name == "Widget");
+        ApiMember original = Assert.Single(
+            extensions.Members,
+            member => member.Name == "Extend");
+        ApiMember attached = Assert.Single(
+            widget.Members,
+            member => member.Kind == "extension-method"
+                && member.Name == "Extend");
+
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(
+                extensions,
+                original).CanonicalSignature,
+            ApiMemberIdentity.GetMemberAnchor(
+                widget,
+                attached).CanonicalSignature);
+    }
+
+    [Fact]
     public void ExtensionMethod_OnPrimitiveString_AttachesInsideTheCoreLibrary()
     {
         using var stream = File.OpenRead(typeof(string).Assembly.Location);
@@ -251,7 +282,7 @@ public sealed class ExtensionAttachmentNameBoundaryTests
         TypeDefinitionHandle extensions = metadata.AddTypeDefinition(
             TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
             default,
-            metadata.GetOrAddString("Extensions"),
+            metadata.GetOrAddString("Extensions.WithDot"),
             baseType: default,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: extend);

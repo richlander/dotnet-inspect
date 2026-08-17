@@ -225,7 +225,7 @@ public class TypeRefTests
 
     [Theory]
     [InlineData("Plain", "Plain<int>")]
-    [InlineData("Odd`Literal", "Odd`Literal<int>")]
+    [InlineData("Odd`Literal", "Odd_Literal<int>")]
     public void ZeroArityGenericInstantiation_RetainsSuppliedArguments(
         string name,
         string expected)
@@ -246,7 +246,25 @@ public class TypeRefTests
             [TypeRef.CoreLib("System", "Int32")]);
 
         Assert.Equal(expected, instance.ToDisplayString());
-        Assert.False(instance.HasUnrenderableGenericArity);
+        Assert.True(instance.HasUnrenderableGenericArity);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(
+            new LoadArgument(0, "value", instance)));
+    }
+
+    [Fact]
+    public void NestedZeroArityGenericInstantiation_QualifiesOnlyOutsideItsEnclosingType()
+    {
+        var instance = TypeRef.GenericInstance(
+            TypeRef.Definition("asm", "NS", "Outer+Inner"),
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        Assert.Equal("Inner<int>", instance.ToDisplayString());
+        Assert.Equal(
+            "Inner<int>",
+            instance.ToDisplayString(TypeRef.Definition("asm", "NS", "Outer")));
+        Assert.Equal(
+            "Outer.Inner<int>",
+            instance.ToDisplayString(TypeRef.Definition("other", "Other", "Scope")));
     }
 
     [Fact]

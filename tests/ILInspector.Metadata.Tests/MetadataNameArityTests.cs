@@ -304,6 +304,34 @@ public class MetadataNameArityTests
     }
 
     [Fact]
+    public void NestedMismatchedArity_LiveAndModelAnchorsAgree()
+    {
+        byte[] image = BuildImageWithNestedMismatchedArity();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle innerHandle = reader.TypeDefinitions.Single(
+            handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name) == "Inner`5");
+        TypeDefinition inner = reader.GetTypeDefinition(innerHandle);
+        MethodDefinitionHandle methodHandle = Assert.Single(inner.GetMethods());
+
+        MemberAnchor live = ApiMemberIdentity.CreateMethodAnchor(
+            reader,
+            innerHandle,
+            reader.GetMethodDefinition(methodHandle));
+        ApiType model = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            innerHandle,
+            includeNonPublicMembers: true);
+        MemberAnchor projected = ApiMemberIdentity.GetMemberAnchor(
+            model,
+            Assert.Single(model.Members));
+
+        Assert.Equal([1, 1], model.IntroducedTypeParameterCounts);
+        Assert.Equal(live, projected);
+    }
+
+    [Fact]
     public void MemberAnchor_SeparatesStructuralAndMissingArityBoundaries()
     {
         byte[] image = BuildImageWithAnchorBoundaryCollisions();
@@ -500,6 +528,7 @@ public class MetadataNameArityTests
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: first));
         }
+
         foreach (TypeDefinitionHandle type in types)
         {
             metadata.AddGenericParameter(
@@ -508,6 +537,45 @@ public class MetadataNameArityTests
                 metadata.GetOrAddString("T"),
                 index: 0);
         }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildImageWithNestedMismatchedArity()
+    {
+        var metadata = CreateMetadata("NestedMismatchedArity");
+        BlobHandle signature = AddVoidMethodSignature(metadata);
+        MethodDefinitionHandle method = AddMethod(metadata, signature);
+        TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Outer`1"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: method);
+        TypeDefinitionHandle inner = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic,
+            default,
+            metadata.GetOrAddString("Inner`5"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: method);
+        metadata.AddNestedType(inner, outer);
+        metadata.AddGenericParameter(
+            outer,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        metadata.AddGenericParameter(
+            inner,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        metadata.AddGenericParameter(
+            inner,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("U"),
+            index: 1);
+
         return Serialize(metadata);
     }
 

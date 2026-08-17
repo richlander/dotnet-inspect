@@ -119,6 +119,37 @@ public class ApiDiffAnalyzerTests
     }
 
     [Fact]
+    public void ExactTypeIdentities_DoNotCollapseFlattenedNameCollisions()
+    {
+        static ApiType Exact(
+            string @namespace,
+            params string[] segments) =>
+            new()
+            {
+                Namespace = @namespace,
+                Name = string.Join('.', segments),
+                Kind = "class",
+                DefinitionName = Assert
+                    .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                        MetadataTypeDefinitionName.Create(
+                            @namespace,
+                            [.. segments]))
+                    .Name,
+            };
+
+        ApiType literal = Exact("N.A", "B");
+        ApiType nested = Exact("N", "A", "B");
+        var diff = ApiDiffAnalyzer.Compare(
+            Surface(literal, nested),
+            Surface(nested));
+
+        TypeDiff removed = Assert.Single(diff.TypeDiffs);
+        Assert.True(removed.IsRemoved);
+        Assert.Equal(@"N.A.B", removed.TypeFullName);
+        Assert.Equal(1, diff.TotalBreaking);
+    }
+
+    [Fact]
     public void TypeKindChanged_IsBreaking()
     {
         var oldSurface = Surface(Type("Foo", kind: "class"));

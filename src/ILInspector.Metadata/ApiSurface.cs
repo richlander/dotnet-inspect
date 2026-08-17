@@ -634,12 +634,19 @@ public class ApiType
     public string? MetadataName { get; set; }
 
     /// <summary>
-    /// Exact structured metadata lookup name retained for in-process
-    /// definition resolution. It is omitted from serialized API surfaces,
-    /// which predate the structured resolution model.
+    /// Exact structured metadata lookup name retained for definition
+    /// resolution and durable member identity. Null in older serialized
+    /// surfaces.
     /// </summary>
-    [JsonIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public MetadataTypeDefinitionName? DefinitionName { get; set; }
+
+    /// <summary>
+    /// Number of generic parameters introduced by each root-to-leaf exact
+    /// metadata-name segment. Null or empty in older serialized surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<int>? IntroducedTypeParameterCounts { get; set; }
     
     /// <summary>
     /// Access level for non-public types. Null means public, including for older
@@ -866,6 +873,14 @@ public class ApiMember
     /// extension method projected onto its extended type.
     /// </summary>
     public string? DeclaringType { get; set; }
+
+    /// <summary>
+    /// Exact canonical declaring-type spelling for a member projected onto a
+    /// different type. Null for members declared on their containing
+    /// <see cref="ApiType"/>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DeclaringTypeCanonicalName { get; set; }
 
     /// <summary>
     /// 1-based overload index in <see cref="DeclaringType"/> for projected members.

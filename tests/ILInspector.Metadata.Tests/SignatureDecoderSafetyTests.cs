@@ -358,6 +358,27 @@ public class SignatureDecoderSafetyTests
     }
 
     [Fact]
+    public void SignatureDecoder_AcceptsUtf8ExpansionWithinCharacterBudget()
+    {
+        string name = new('あ', 2000);
+        TypeReferenceHandle handle = default;
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            handle = metadata.AddTypeReference(
+                default,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(name));
+        });
+        var decoder = new SignatureDecoder();
+
+        var decoded = Assert.IsType<SignatureDecodeResult<string>.Decoded>(
+            SignatureDecoder.Decode(
+                () => decoder.GetTypeFromReference(reader, handle, 0)));
+
+        Assert.Equal($"N.{name}", decoded.Value);
+    }
+
+    [Fact]
     public void TypeSpec_AboveCumulativeBudget_IsRejected()
     {
         var reader = BuildTypeSpec(signature =>

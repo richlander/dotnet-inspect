@@ -261,8 +261,11 @@ public static class ApiDiffAnalyzer
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        var oldTypes = BuildTypeLookup(oldSurface);
-        var newTypes = BuildTypeLookup(newSurface);
+        bool useStructuredIdentity =
+            oldSurface.Types.All(static type => type.DefinitionName is not null)
+            && newSurface.Types.All(static type => type.DefinitionName is not null);
+        var oldTypes = BuildTypeLookup(oldSurface, useStructuredIdentity);
+        var newTypes = BuildTypeLookup(newSurface, useStructuredIdentity);
         bool oldIdentityIncomplete =
             HasIncompleteTypeIdentity(oldSurface);
         bool newIdentityIncomplete =
@@ -380,12 +383,21 @@ public static class ApiDiffAnalyzer
                     != ApiSurfaceInspectionFailure
                         .GenericParameterConstraintResolutionOperation);
 
-    private static Dictionary<string, ApiType> BuildTypeLookup(ApiSurface surface)
+    private static Dictionary<string, ApiType> BuildTypeLookup(
+        ApiSurface surface,
+        bool useStructuredIdentity)
     {
         var lookup = new Dictionary<string, ApiType>(StringComparer.Ordinal);
         foreach (var type in surface.Types)
         {
-            lookup[type.FullName] = type;
+            string key = useStructuredIdentity
+                ? type.DefinitionName!.ToEscapedFullName()
+                : type.FullName;
+            if (!lookup.TryAdd(key, type))
+            {
+                throw new InvalidOperationException(
+                    $"The API surface contains duplicate type identity '{key}'.");
+            }
         }
         return lookup;
     }

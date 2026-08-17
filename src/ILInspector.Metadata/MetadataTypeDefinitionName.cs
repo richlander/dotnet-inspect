@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ILInspector.Metadata;
 
@@ -53,6 +55,7 @@ public abstract class MetadataTypeDefinitionNameResult
 /// An exact reader-independent metadata lookup name: namespace plus
 /// root-to-leaf metadata-name segments, including generic arity.
 /// </summary>
+[JsonConverter(typeof(MetadataTypeDefinitionNameJsonConverter))]
 public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefinitionName>
 {
     readonly int hashCode;
@@ -67,6 +70,36 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
         foreach (string segment in segments)
             hash.Add(segment, StringComparer.Ordinal);
         hashCode = hash.ToHashCode();
+    }
+
+    public sealed class MetadataTypeDefinitionNameJsonConverter
+        : JsonConverter<MetadataTypeDefinitionName>
+    {
+        public override MetadataTypeDefinitionName Read(
+            ref Utf8JsonReader reader,
+            Type typeToConvert,
+            JsonSerializerOptions options)
+        {
+            string serializedName = reader.GetString()
+                ?? throw new JsonException(
+                    "A metadata type definition name cannot be null.");
+            return MetadataTypeDefinitionName.ParseSerialized(serializedName) switch
+            {
+                MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+                MetadataTypeDefinitionNameResult.Rejected rejected =>
+                    throw new JsonException(
+                        $"Invalid metadata type definition name: "
+                            + $"{rejected.Rejection.Kind}."),
+                _ => throw new JsonException(
+                    "Unexpected metadata type definition name result."),
+            };
+        }
+
+        public override void Write(
+            Utf8JsonWriter writer,
+            MetadataTypeDefinitionName value,
+            JsonSerializerOptions options) =>
+            writer.WriteStringValue(value.ToEscapedFullName());
     }
 
     public string Namespace { get; }
