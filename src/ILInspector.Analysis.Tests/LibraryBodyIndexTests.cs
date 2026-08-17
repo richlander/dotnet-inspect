@@ -350,6 +350,39 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        OptimizationOpportunities_InheritedSynchronousReceiverHidingFailsClosed()
+    {
+        OptimizationOpportunity[] opportunities =
+            LibraryBodyIndex.Open(
+                    typeof(OptimizationOpportunityFixtures)
+                        .Assembly.Location)
+                .OptimizationOpportunities
+                .Where(opportunity => opportunity.Shape
+                    == "sync-call-in-async")
+                .ToArray();
+
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        HiddenInheritedSynchronousSiblingDerived
+                            .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        HiddenInheritedSynchronousSiblingDerived));
+        Assert.Contains(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        InheritedSynchronousSiblingConsumer
+                            .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        InheritedSynchronousSiblingConsumer));
+    }
+
+    [Fact]
     public void AsyncSiblingTypeMatching_RejectsMixedNonCoreOrigins()
     {
         MetadataTypeDefinitionName typeName =
@@ -1086,6 +1119,60 @@ public class LibraryBodyIndexTests
                     == nameof(
                         IClassicHiddenDerivedSiblingFixture
                             .ReadAsync));
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes()
+    {
+        OptimizationOpportunity[] opportunities =
+            LibraryBodyIndex.Open(
+                    typeof(ClassicAsyncSiblingFixture)
+                        .Assembly.Location)
+                .OptimizationOpportunities
+                .Where(opportunity => opportunity.Shape
+                    == "sync-call-in-async")
+                .ToArray();
+
+        Assert.Contains(
+            opportunities,
+            opportunity => opportunity.Method.DeclaringType.Name
+                    .EndsWith(
+                        "+"
+                        + nameof(
+                            ClassicNestedPrivateSiblingFixture.Consumer),
+                        StringComparison.Ordinal)
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicNestedPrivateSiblingFixture.Consumer
+                            .AnalyzeAsync));
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity => opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ClassicOuterToNestedPrivateSiblingFixture)
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicOuterToNestedPrivateSiblingFixture
+                            .AnalyzeAsync));
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity => opportunity.Method.DeclaringType.Name
+                    .Contains(
+                        nameof(
+                            ClassicSiblingNestedPrivateSiblingFixture),
+                        StringComparison.Ordinal)
+                && opportunity.Method.DeclaringType.Name
+                    .EndsWith(
+                        "+"
+                        + nameof(
+                            ClassicSiblingNestedPrivateSiblingFixture
+                                .Consumer),
+                        StringComparison.Ordinal)
+                && opportunity.Method.Name
+                    == nameof(
+                        ClassicSiblingNestedPrivateSiblingFixture
+                            .Consumer.AnalyzeAsync));
     }
 
     [Fact]
@@ -11757,6 +11844,37 @@ public sealed class InternalInheritedAsyncSiblingDerived
     {
         await Task.Yield();
         return Read(value);
+    }
+}
+
+public class InheritedSynchronousSiblingBase
+{
+    public int Read(int value) => value;
+
+    public Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+}
+
+public sealed class HiddenInheritedSynchronousSiblingDerived
+    : InheritedSynchronousSiblingBase
+{
+    public new Task<string> ReadAsync(int value)
+        => Task.FromResult(value.ToString());
+
+    public async Task<int> AnalyzeAsync(int value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
+}
+
+public static class InheritedSynchronousSiblingConsumer
+{
+    public static async Task<int> AnalyzeAsync(
+        InheritedSynchronousSiblingBase value)
+    {
+        await Task.Yield();
+        return value.Read(1);
     }
 }
 

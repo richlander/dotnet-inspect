@@ -637,6 +637,16 @@ public sealed class TypeResolutionCatalog : IDisposable
             lock (_gate)
             {
                 _disposed = true;
+                _latestCandidates =
+                    ImmutableDictionary<
+                        AssemblyCandidateId,
+                        FrozenCandidate>.Empty;
+                _latestGeneration = null;
+                _declarations.Clear();
+                _bindings.Clear();
+                _resolutions.Clear();
+                _definitionJoinTokens.Clear();
+                _unresolvedBindingKeys.Clear();
             }
 
             _acquisition.Dispose();

@@ -368,6 +368,43 @@ public sealed class ClassicNestedPrivateSiblingFixture
     }
 }
 
+public sealed class ClassicOuterToNestedPrivateSiblingFixture
+{
+    public sealed class Provider
+    {
+        public int Read() => 0;
+
+        private Task<int> ReadAsync()
+            => Task.FromResult(0);
+    }
+
+    public async Task<int> AnalyzeAsync(Provider provider)
+    {
+        await Task.Yield();
+        return provider.Read();
+    }
+}
+
+public sealed class ClassicSiblingNestedPrivateSiblingFixture
+{
+    public sealed class Provider
+    {
+        public int Read() => 0;
+
+        private Task<int> ReadAsync()
+            => Task.FromResult(0);
+    }
+
+    public sealed class Consumer
+    {
+        public async Task<int> AnalyzeAsync(Provider provider)
+        {
+            await Task.Yield();
+            return provider.Read();
+        }
+    }
+}
+
 public interface IClassicHiddenBaseSiblingFixture
 {
     int Read();

@@ -124,6 +124,24 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         }
         if (lookup is null)
             return null;
+        if ((lookup.SynchronousAttributes & MethodAttributes.Static) == 0
+            && SourceDerivesFrom(
+                asyncSource.MetadataToken,
+                lookup.SynchronousReader,
+                lookup.SynchronousDeclaringType)
+                == TypeRelation.Yes
+            && SourceLookupHidesInheritedSibling(
+                asyncSource.MetadataToken,
+                lookup.SynchronousReader,
+                lookup.SynchronousDeclaringType,
+                lookup.Callee.Name + "Async"))
+        {
+            // The IL method token records the defining type, not the C# receiver
+            // lookup type. A nearer derived NameAsync can therefore hide this
+            // candidate, and the erased receiver type cannot be reconstructed
+            // reliably here.
+            return null;
+        }
 
         MemberRef? best = null;
         bool bestIsAmbiguous = false;
@@ -165,6 +183,96 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 ref bestIsAmbiguous);
         }
         return bestIsAmbiguous ? null : best;
+    }
+
+    bool SourceLookupHidesInheritedSibling(
+        int sourceMethodToken,
+        MetadataReader synchronousReader,
+        TypeDefinitionHandle synchronousType,
+        string candidateName)
+    {
+        try
+        {
+            EntityHandle sourceHandle =
+                MetadataTokens.EntityHandle(sourceMethodToken);
+            if (sourceHandle.Kind != HandleKind.MethodDefinition)
+                return true;
+
+            MetadataReader currentReader = _reader;
+            TypeDefinitionHandle current =
+                _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)sourceHandle)
+                    .GetDeclaringType();
+            bool sourceMethodOwnsCandidateName = false;
+            var visited =
+                new Dictionary<MetadataReader, HashSet<int>>(
+                    ReferenceEqualityComparer.Instance);
+            int visitedCount = 0;
+            while (visitedCount
+                < MetadataSafetyPolicy.MaxRelationshipNodes)
+            {
+                TypeRelation relation = TypeDefinitionRelation(
+                    currentReader,
+                    current,
+                    synchronousReader,
+                    synchronousType);
+                if (relation == TypeRelation.Yes)
+                    return false;
+                if (relation == TypeRelation.Unknown
+                    || !TryVisitTypeDefinition(
+                        visited,
+                        currentReader,
+                        current,
+                        ref visitedCount))
+                {
+                    return true;
+                }
+
+                if (AsyncSiblingMethodsByName(
+                        currentReader,
+                        current)
+                    .TryGetValue(
+                        candidateName,
+                        out ImmutableArray<MethodDefinitionHandle>
+                            namedMethods))
+                {
+                    if (ReferenceEquals(currentReader, _reader)
+                        && namedMethods.Contains(
+                            (MethodDefinitionHandle)sourceHandle))
+                    {
+                        // Preserve explicit base calls made by the async
+                        // sibling implementation itself.
+                        sourceMethodOwnsCandidateName = true;
+                    }
+                    else if (!sourceMethodOwnsCandidateName)
+                    {
+                        return true;
+                    }
+                }
+
+                EntityHandle baseHandle =
+                    currentReader.GetTypeDefinition(current).BaseType;
+                if (baseHandle.IsNil)
+                    return true;
+                TypeRef baseType = DecodeType(
+                    currentReader,
+                    baseHandle);
+                if (TryResolveTypeDefinition(
+                        currentReader,
+                        baseType)
+                    is not { } resolvedBase)
+                {
+                    return true;
+                }
+                currentReader = resolvedBase.DefiningReader;
+                current = resolvedBase.Definition;
+            }
+        }
+        catch (Exception ex)
+            when (IsRecoverableMethodFailure(ex))
+        {
+        }
+        return true;
     }
 
     AsyncSiblingLookup? PrepareAsyncSiblingLookup(
@@ -211,6 +319,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         return new(
             callee,
             synchronous.Attributes,
+            resolved.DefiningReader,
+            resolved.Definition,
             candidates);
     }
 
@@ -340,6 +450,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
     sealed record AsyncSiblingLookup(
         MemberRef Callee,
         MethodAttributes SynchronousAttributes,
+        MetadataReader SynchronousReader,
+        TypeDefinitionHandle SynchronousDeclaringType,
         ImmutableArray<AsyncSiblingCandidate> Candidates);
 
     readonly record struct AsyncSiblingCandidate(
@@ -865,15 +977,18 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 _reader.GetMethodDefinition(
                         (MethodDefinitionHandle)sourceHandle)
                     .GetDeclaringType();
-            return TryTopLevelType(
-                    candidateReader,
-                    candidateType,
-                    out TypeDefinitionHandle candidateTopLevel)
-                && TryTopLevelType(
-                    _reader,
-                    sourceType,
-                    out TypeDefinitionHandle sourceTopLevel)
-                && candidateTopLevel == sourceTopLevel;
+            Span<TypeDefinitionHandle> rootToLeaf =
+                stackalloc TypeDefinitionHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            return MetadataRelationshipTraversal
+                    .TryWalkTypeDefinitionDeclaringChain(
+                        _reader,
+                        sourceType,
+                        rootToLeaf,
+                        out int consumedNodes,
+                        out _,
+                        out _)
+                && rootToLeaf[..consumedNodes].Contains(candidateType);
         }
         catch (Exception ex)
             when (IsRecoverableMethodFailure(ex))

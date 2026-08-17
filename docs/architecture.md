@@ -784,7 +784,10 @@ Research overlay bridge, and the application layer:
   resolver nor the catalog may reacquire or copy the root image.
   `RetainedSnapshot_IsRegisteredWithoutReopeningOrCopyingSource` and
   `OptimizationOpportunities_RootImageIsRetainedOnce` gate the metadata and
-  end-to-end sides of that ownership contract.
+  end-to-end sides of that ownership contract;
+  `DisposedCatalog_ReleasesLatestCandidateImages` gates release of frozen
+  generation and correspondence-cache image roots while a disposed catalog
+  remains referenced.
   `CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly` and
   `ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope` gate its
   forwarder and binding-scope behavior.
@@ -802,8 +805,11 @@ Research overlay bridge, and the application layer:
   per-type method index that bounds distinct-callee discovery, and
   `OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel` gates
   constructed base traversal, generic substitution, name hiding, and inherited
-  accessibility. Constructed generic type relationships preserve DAG sharing and
-  bound structural identity, comparison, and finding-display work;
+  accessibility;
+  `OptimizationOpportunities_InheritedSynchronousReceiverHidingFailsClosed`
+  gates the erased receiver boundary for inherited synchronous definitions.
+  Constructed generic type relationships preserve DAG sharing and bound
+  structural identity, comparison, and finding-display work;
   `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
   `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`, and
   `AsyncSiblingIdentityAndMatching_DistinguishArrayShape`, and
@@ -819,6 +825,7 @@ Research overlay bridge, and the application layer:
   interface-slot correspondence, friend-aware protected access, and nested
   private-access domains are gated by
   `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
+  `OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes`,
   `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
   `OptimizationOpportunities_FriendAccessHonorsInternalWithoutProvingProtectedReceiver`,
   `AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey`,
