@@ -71,7 +71,11 @@ once;
 `PdbContextDescriptorTests.DescriptorOpenPrimaryFailure_IsNotMaskedByCleanupFailure`
 and
 `AssemblyContextSourceQueryTests.PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure`
-gate those ownership boundaries.
+gate those ownership boundaries. Filesystem-store readers allow delete-sharing
+so atomic same-key publication can replace a cached PDB while a context still
+owns the prior generation;
+`PdbStoreTests.FileSystemPdbStore_ReplacesContentWhileReaderIsOpen`
+gates that behavior, including Windows file-sharing semantics.
 The compatibility `PdbContext.Dispose` path retains its best-effort cleanup
 behavior. Strict query ownership uses `DisposeWithFailure`, which attempts
 every owned resource and reports the first cleanup failure; source queries
