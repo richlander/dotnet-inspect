@@ -10,6 +10,8 @@ namespace ILInspector.Metadata;
 public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 {
     const string Unresolved = "object";
+    readonly Action<int>? _beforeMaterialize;
+    readonly bool _enforceCharacterBudget;
 
     [ThreadStatic]
     static SignatureDecodeRejection? s_rejection;
@@ -18,6 +20,23 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     /// Shared instance for common use cases.
     /// </summary>
     public static SignatureDecoder Instance { get; } = new();
+
+    public SignatureDecoder()
+        : this(beforeMaterialize: null, enforceCharacterBudget: true)
+    {
+    }
+
+    internal SignatureDecoder(Action<int> beforeMaterialize)
+        : this(beforeMaterialize, enforceCharacterBudget: true)
+    {
+        ArgumentNullException.ThrowIfNull(beforeMaterialize);
+    }
+
+    internal SignatureDecoder(Action<int>? beforeMaterialize, bool enforceCharacterBudget)
+    {
+        _beforeMaterialize = beforeMaterialize;
+        _enforceCharacterBudget = enforceCharacterBudget;
+    }
 
     public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode switch
     {
@@ -43,13 +62,34 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     };
 
     public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-        => TypeResolver.GetTypeNameFromDefinition(reader, handle);
+        => ReadNameOrContinue(
+            TypeResolver.TryGetTypeNameFromDefinition(
+                reader,
+                handle,
+                _beforeMaterialize,
+                out string? name,
+                out var rejection,
+                _enforceCharacterBudget),
+            name,
+            rejection);
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-        => TypeResolver.GetTypeNameFromReference(reader, handle);
+        => ReadNameOrContinue(
+            TypeResolver.TryGetTypeNameFromReference(
+                reader,
+                handle,
+                _beforeMaterialize,
+                out string? name,
+                out var rejection,
+                _enforceCharacterBudget),
+            name,
+            rejection);
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
+        _beforeMaterialize?.Invoke(
+            reader.GetBlobReader(
+                reader.GetTypeSpecification(handle).Signature).Length);
         if (!TypeSpecGuard.TryEnter(
             reader,
             handle,
@@ -90,11 +130,11 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         }
         catch (BadImageFormatException ex)
         {
-            return Malformed<T>(ex);
+            return RecordedOrMalformed<T>(ex);
         }
         catch (ArgumentOutOfRangeException ex)
         {
-            return Malformed<T>(ex);
+            return RecordedOrMalformed<T>(ex);
         }
         finally
         {
@@ -108,6 +148,35 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         s_rejection ??= rejection;
     }
 
+    static string ReadNameOrContinue(
+        bool resolved,
+        string? name,
+        RelationshipTraversalRejection? rejection)
+    {
+        if (resolved)
+            return name!;
+
+        ArgumentNullException.ThrowIfNull(rejection);
+        if (rejection.Kind == RelationshipTraversalRejectionKind.NameBudget)
+        {
+            Reject(
+                new SignatureDecodeRejection(
+                    SignatureDecodeRejectionKind.NameBudget,
+                    rejection.Detail));
+            return Unresolved;
+        }
+
+        throw new BadImageFormatException(
+            $"Metadata relationship traversal rejected ({rejection.Kind}): "
+            + rejection.Detail);
+    }
+
+    static SignatureDecodeResult<T> RecordedOrMalformed<T>(Exception exception)
+        where T : notnull
+        => s_rejection is { } recorded
+            ? new SignatureDecodeResult<T>.Rejected(recorded)
+            : Malformed<T>(exception);
+
     static SignatureDecodeResult<T> Malformed<T>(Exception exception)
         where T : notnull
         => new SignatureDecodeResult<T>.Rejected(
@@ -115,17 +184,38 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
                 SignatureDecodeRejectionKind.MalformedMetadata,
                 exception.Message));
 
-    public string GetSZArrayType(string elementType) => $"{elementType}[]";
+    public string GetSZArrayType(string elementType)
+    {
+        ObserveMaterialization(elementType.Length + 2L);
+        return $"{elementType}[]";
+    }
 
     public string GetArrayType(string elementType, ArrayShape shape)
-        => $"{elementType}[{new string(',', shape.Rank - 1)}]";
+    {
+        ObserveMaterialization(elementType.Length + Math.Max(shape.Rank, 0L) + 1L);
+        return $"{elementType}[{new string(',', shape.Rank - 1)}]";
+    }
 
-    public string GetByReferenceType(string elementType) => $"ref {elementType}";
+    public string GetByReferenceType(string elementType)
+    {
+        ObserveMaterialization(elementType.Length + 4L);
+        return $"ref {elementType}";
+    }
 
-    public string GetPointerType(string elementType) => $"{elementType}*";
+    public string GetPointerType(string elementType)
+    {
+        ObserveMaterialization(elementType.Length + 1L);
+        return $"{elementType}*";
+    }
 
     public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
-        => TypeResolver.ApplyGenericArguments(genericType, typeArguments);
+    {
+        long estimatedLength = genericType.Length * 2L + 16L;
+        foreach (string argument in typeArguments)
+            estimatedLength += argument.Length + 2L;
+        ObserveMaterialization(estimatedLength);
+        return TypeResolver.ApplyGenericArguments(genericType, typeArguments);
+    }
 
     public string GetGenericMethodParameter(GenericContext? context, int index)
     {
@@ -143,6 +233,11 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 
     public string GetFunctionPointerType(MethodSignature<string> signature)
     {
+        long estimatedLength = signature.ReturnType.Length + 32L;
+        foreach (string parameterType in signature.ParameterTypes)
+            estimatedLength += parameterType.Length + 2L;
+        ObserveMaterialization(
+            estimatedLength + 16L + signature.ParameterTypes.Length * 4L);
         var types = signature.ParameterTypes.Add(signature.ReturnType);
         string arguments = string.Join(", ", types);
         string convention = ConventionText(signature.Header.CallingConvention);
@@ -164,4 +259,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
 
     public string GetPinnedType(string elementType) => elementType;
+
+    void ObserveMaterialization(long units)
+        => _beforeMaterialize?.Invoke((int)Math.Min(units, int.MaxValue));
 }

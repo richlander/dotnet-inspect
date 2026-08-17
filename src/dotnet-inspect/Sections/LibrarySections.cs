@@ -20,8 +20,6 @@ public static class LibrarySections
     // Scanner keys identify data collection steps in LibraryMetadataService.
     // Every key here must be registered in CreateScannerRegistry and declared by at least one
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
-    public const string ScannerUnsafeMembers = "UnsafeMembers";
-    public const string ScannerTopLeverage = "TopLeverage";
     public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
     public const string ScannerResourceTriage = "ResourceTriage";
 
@@ -124,8 +122,12 @@ public static class LibrarySections
             .Add<HttpClient>(AssemblyContextIntegrationsQuery.Definition)
             .Add<References>(AssemblyReferencesQuery.Definition, HasReferenceData)
             .Add<ExtensionMethods>(ExtensionMethodsQuery.Definition)
-            .Add<UnsafeMembers>(UnsafeMembersDiscoverable)
-            .Add<TopLeverage>(HasMethodBodies)
+            .Add<UnsafeMembers>(
+                UnsafeEvidenceQuery.Definition,
+                UnsafeMembersDiscoverable)
+            .Add<TopLeverage>(
+                TopLeverageQuery.Definition,
+                HasMethodBodies)
             .Add<PerformanceBoxing>(HasMethodBodies)
             .Add<PerformanceArrays>(HasMethodBodies)
             .Add<PerformanceClosures>(HasMethodBodies)
@@ -191,14 +193,6 @@ public static class LibrarySections
     public static ScannerRegistry CreateScannerRegistry()
     {
         return new ScannerRegistry()
-            .Add(ScannerUnsafeMembers, SectionCost.Unbounded, ctx =>
-                ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger))
-            .Add(ScannerTopLeverage, SectionCost.Unbounded, ctx =>
-                ctx.Model.TopLeverage = LibraryMetadataService.ScanTopLeverage(
-                    ctx.BodyIndex,
-                    ctx.DrillMap,
-                    ctx.AssemblyPath,
-                    ctx.Logger))
             .Add(ScannerOptimizationOpportunities, SectionCost.Unbounded, ctx =>
                 ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
                     ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
@@ -305,7 +299,71 @@ public static class LibrarySections
                 ctx.Query(
                     UnionTypesQuery.Execute,
                     ex => new UnionTypesResult.Failed(ex)))
+            .Add(UnsafeEvidenceQuery.Definition, ctx =>
+                ExecuteUnsafeEvidenceQuery(
+                    ctx.MetadataContext?.HasMetadata != false,
+                    ctx.BodyIndex))
+            .Add(
+                TopLeverageQuery.Definition,
+                ExecuteTopLeverageQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext);
+    }
+
+    internal static UnsafeEvidenceResult ExecuteUnsafeEvidenceQuery(
+        bool hasMetadata,
+        Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex)
+    {
+        ArgumentNullException.ThrowIfNull(acquireIndex);
+
+        if (!hasMetadata)
+            return new UnsafeEvidenceResult.NoMetadata();
+
+        try
+        {
+            return UnsafeEvidenceQuery.Execute(acquireIndex());
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new UnsafeEvidenceResult.Failed(ex);
+        }
+    }
+
+    internal static TopLeverageResult ExecuteTopLeverageQuery(
+        ScannerContext context)
+    {
+        TopLeverageResult result = ExecuteTopLeverageQuery(
+            context.MetadataContext?.HasMetadata != false,
+            context.BodyIndex);
+        if (result is TopLeverageResult.Available)
+            _ = context.DrillMap();
+        return result;
+    }
+
+    internal static TopLeverageResult ExecuteTopLeverageQuery(
+        bool hasMetadata,
+        Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex)
+    {
+        ArgumentNullException.ThrowIfNull(acquireIndex);
+
+        if (!hasMetadata)
+            return new TopLeverageResult.NoMetadata();
+
+        try
+        {
+            return TopLeverageQuery.Execute(acquireIndex());
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new TopLeverageResult.Failed(ex);
+        }
     }
 
     /// <summary>Builds the typed query registry for assembly-context group sections.</summary>
@@ -708,11 +766,11 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
-        public static string? ScannerKey => ScannerUnsafeMembers;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
-            => model.UnsafeMembers is { Count: > 0 }
-                || model.HasUnsafeCode
-                || model.UnsafeSignatureDecodeStatus is not null;
+            => model.UnsafeEvidenceInspection.CanRenderWithPresence(
+                model.HasUnsafeCode
+                || model.UnsafeSignatureDecodeStatus is not null);
     }
 
     public sealed class TopLeverage : ISectionDescriptor<LibraryInspection>
@@ -722,9 +780,10 @@ public static class LibrarySections
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
-        public static string? ScannerKey => ScannerTopLeverage;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
-            => model.TopLeverage is { Count: > 0 };
+            => model.TopLeverageQueryResult is TopLeverageResult.Available
+                { Methods.IsEmpty: false };
     }
 
     // Kind-scoped performance sections. Each shares the holistic optimization-opportunity scan

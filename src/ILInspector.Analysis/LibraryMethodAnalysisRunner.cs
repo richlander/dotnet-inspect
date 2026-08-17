@@ -66,6 +66,19 @@ internal interface ILibraryMethodAnalysisInfrastructure
     bool HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes);
 
+    void ValidateAsyncSource(
+        MethodIdentity method,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated);
+
+    ImmutableArray<OptimizationOpportunity>
+        CollectAsyncSiblingOpportunities(
+            MethodBodyAnalysisContext context,
+            ImmutableArray<DirectCall>.Builder calls,
+            MethodDefinition methodDefinition,
+            bool typeSourceGenerated,
+            ref MethodIdentity? asyncSource);
+
     bool TryResolveLiftedSourceOwner(
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
@@ -78,7 +91,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodDefinition method);
 }
 
-// Method-local output is merged by LibraryBodyAnalysisBuilder in metadata
+// Method-local output is merged by LibraryBodyAnalysisAccumulator in metadata
 // order. BuildCallTree_PreservesRecoverableBodyAnalysisFailure gates the
 // partial call/evidence publication and diagnostic behavior.
 internal sealed class LibraryMethodAnalysisResult
@@ -104,8 +117,8 @@ internal sealed class LibraryMethodAnalysisResult
 
 /// <summary>
 /// Runs the ordered topic producers for one method while the assembly builder
-/// retains scheduling, primary-image lifetime, and result aggregation. The
-/// primary metadata resolver owns metadata-dependent judgments and adapters.
+/// retains scheduling and primary-image lifetime. The primary metadata
+/// resolver owns metadata-dependent judgments and adapters.
 /// </summary>
 internal sealed class LibraryMethodAnalysisRunner(
     ILibraryMethodAnalysisInfrastructure infrastructure)
@@ -184,7 +197,22 @@ internal sealed class LibraryMethodAnalysisRunner(
             if (methodDefinition.RelativeVirtualAddress == 0
                 || !HasManagedIlBody(
                     methodDefinition.ImplAttributes))
+            {
+                if (includeOpportunities
+                    && (bodyScope is null
+                        || bodyScope.Contains(
+                            caller.MetadataToken))
+                    && (bodyTypeScope is null
+                        || bodyTypeScope(
+                            caller.DeclaringType)))
+                {
+                    _infrastructure.ValidateAsyncSource(
+                        caller,
+                        methodDefinition,
+                        typeSourceGenerated);
+                }
                 return result;
+            }
 
             result.HasBody = true;
             // Scoped builds decode only selected method bodies; every other method is still
@@ -196,10 +224,21 @@ internal sealed class LibraryMethodAnalysisRunner(
             {
                 return result;
             }
-            if (bodyTypeScope is not null
-                && !bodyTypeScope(caller.DeclaringType))
+            if (bodyTypeScope is not null)
             {
-                return result;
+                TypeRef? sourceType = null;
+                bool mappedEvidence =
+                    plan.TypeScopeEvidenceSources
+                        ?.TryGetValue(
+                            caller.MetadataToken,
+                            out sourceType)
+                    == true;
+                TypeRef scopedType =
+                    mappedEvidence
+                        ? sourceType!
+                        : caller.DeclaringType;
+                if (!bodyTypeScope(scopedType))
+                    return result;
             }
             leakFailureKind =
                 LeakTriageFailureKind.BodyAcquisition;
@@ -285,10 +324,25 @@ internal sealed class LibraryMethodAnalysisRunner(
                     token => _infrastructure.CalliReturnDetail(
                         token,
                         scope));
-            var methodAttributes =
-                methodDefinition.GetCustomAttributes();
+            var signals = BodySignalAnalysis.Collect(
+                context,
+                token => _infrastructure
+                    .IsAllocatingValueTypeBox(
+                        token,
+                        scope));
+            if (signals.Newarr > 0
+                || signals.Throws > 0
+                || signals.Catches > 0
+                || signals.Finallys > 0
+                || signals.Boxes > 0)
+            {
+                result.Signals = signals;
+                result.HasSignals = true;
+            }
             if (includeOpportunities)
             {
+                var methodAttributes =
+                    methodDefinition.GetCustomAttributes();
                 bool sourceFunction =
                     CompilerGeneratedNames.IsLocalFunctionOrLambda(
                         caller.Name);
@@ -346,21 +400,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                     result.Suppressed = true;
                 }
             }
-            var signals = BodySignalAnalysis.Collect(
-                context,
-                token => _infrastructure
-                    .IsAllocatingValueTypeBox(
-                        token,
-                        scope));
-            if (signals.Newarr > 0
-                || signals.Throws > 0
-                || signals.Catches > 0
-                || signals.Finallys > 0
-                || signals.Boxes > 0)
-            {
-                result.Signals = signals;
-                result.HasSignals = true;
-            }
+
             MethodCallAnalysis.Collect(
                 context,
                 _infrastructure.CreateCallResolver(
@@ -373,6 +413,43 @@ internal sealed class LibraryMethodAnalysisRunner(
                     hasUnsafeApiMember
                     || hasUnsafeSignature
                     || hasUnsafeLocals);
+            if (includeOpportunities)
+            {
+                MethodIdentity? asyncSource = null;
+                try
+                {
+                    ImmutableArray<OptimizationOpportunity>
+                        asyncOpportunities =
+                            _infrastructure
+                                .CollectAsyncSiblingOpportunities(
+                                    context,
+                                    calls,
+                                    methodDefinition,
+                                    typeSourceGenerated,
+                                    ref asyncSource);
+                    if (!asyncOpportunities.IsDefaultOrEmpty)
+                    {
+                        result.Opportunities =
+                            result.Opportunities.IsDefaultOrEmpty
+                                ? asyncOpportunities
+                                : result.Opportunities.AddRange(
+                                    asyncOpportunities);
+                    }
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    result.Diagnostic = new AnalysisDiagnostic(
+                        MetadataTokens.GetToken(methodHandle),
+                        MethodLabel(
+                            typeHandle,
+                            methodHandle),
+                        $"{ex.GetType().Name}: {ex.Message}",
+                        asyncSource?.MetadataToken,
+                        caller.DeclaringType,
+                        asyncSource?.DeclaringType);
+                }
+            }
             if (includeOwnershipFlow)
             {
                 result.OwnershipFlow =
@@ -390,7 +467,8 @@ internal sealed class LibraryMethodAnalysisRunner(
                     typeHandle,
                     methodHandle),
                 $"{ex.GetType().Name}: {ex.Message}",
-                MetadataTokens.GetToken(typeHandle));
+                DeclaringType: result.Caller?.DeclaringType,
+                DeclaringTypeToken: MetadataTokens.GetToken(typeHandle));
             if (includeLeakTriage
                 && result.LeakTriage is null)
             {
@@ -584,7 +662,7 @@ internal sealed class LibraryMethodAnalysisRunner(
 
     // Razor-generated render methods lack generated-code attributes. Trust-gate
     // RenderTreeBuilder identity (#1708) so lookalikes do not suppress findings.
-    static bool IsBlazorRenderMethod(
+    internal static bool IsBlazorRenderMethod(
         MethodIdentity caller)
     {
         foreach (var parameter in caller.ParameterTypes)

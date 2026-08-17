@@ -30,8 +30,7 @@ let loadRuntimePackAssembly;
 let queryMemberDocumentation;
 let queryMemberFacts;
 let searchTypes;
-let listStyleTiers;
-let listStyleOptions;
+let listVocabulary;
 let packageCacheStats;
 let buildIdentity;
 
@@ -70,8 +69,7 @@ export async function initializeEngine(onStatus = () => {}) {
   queryMemberDocumentation = exports.BrowserInspectionEngine.QueryMemberDocumentation;
   queryMemberFacts = exports.BrowserInspectionEngine.QueryMemberFacts;
   searchTypes = exports.BrowserInspectionEngine.SearchTypes;
-  listStyleTiers = exports.BrowserInspectionEngine.ListStyleTiers;
-  listStyleOptions = exports.BrowserInspectionEngine.ListStyleOptions;
+  listVocabulary = exports.BrowserInspectionEngine.ListVocabulary;
   packageCacheStats = exports.BrowserInspectionEngine.PackageCacheStats;
   buildIdentity = exports.BrowserInspectionEngine.BuildIdentity;
   await runtime.runMain();
@@ -307,14 +305,9 @@ export async function inspectTypeSource(request) {
   return JSON.parse(json);
 }
 
-export async function inspectListStyleOptions() {
-  if (!listStyleOptions) throw new Error("The browser inspection engine is not initialized.");
-  return JSON.parse(await listStyleOptions());
-}
-
-export async function inspectListStyleTiers() {
-  if (!listStyleTiers) throw new Error("The browser inspection engine is not initialized.");
-  return JSON.parse(await listStyleTiers());
+export async function inspectVocabulary() {
+  if (!listVocabulary) throw new Error("The browser inspection engine is not initialized.");
+  return JSON.parse(await listVocabulary());
 }
 
 export function inspectPackageCacheStats() {

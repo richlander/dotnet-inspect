@@ -28,6 +28,7 @@ public sealed class ScannerContext : IDisposable
 {
     public required string AssemblyPath { get; init; }
     public ResolvedAssemblyReference? AssemblyReference { get; init; }
+    public IAssemblyReferenceResolver? BodyReferenceResolver { get; init; }
     public required LibraryInspection Model { get; init; }
     public required VerboseLogger Logger { get; init; }
     public PdbContext? MetadataContext { get; init; }
@@ -40,9 +41,10 @@ public sealed class ScannerContext : IDisposable
     public InspectionTrace? Trace { get; init; }
 
     /// <summary>
-    /// Analysis features required by the complete scanner set. The shared body session computes
-    /// their union once, so Array Pool Escapes can share acquisition with leverage/performance scans
-    /// without making a resource-only request pay for unrelated body evidence.
+    /// Analysis features required by the complete scanner and query set. The shared body session
+    /// computes their union once, so Array Pool Escapes can share acquisition with
+    /// leverage/performance producers without making a resource-only request pay for unrelated
+    /// body evidence.
     /// </summary>
     public Analysis.LibraryBodyAnalysisFeatures BodyAnalysisFeatures { get; init; }
         = Analysis.LibraryBodyAnalysisFeatures.Default;
@@ -205,17 +207,18 @@ public sealed class ScannerContext : IDisposable
     }
 
     /// <summary>
-    /// Refuses a shared resource to a scanner that did not declare it could afford one.
+    /// Refuses a shared resource to a scanner or query that did not declare it could afford one.
     ///
-    /// The body index is a whole-assembly IL build: measured at 1.4 s on a 1.7 MB assembly, and the
-    /// two scanners that consume it account for 99% of the time a <c>-v:d</c> run spends scanning.
-    /// The registry cannot see that a scanner touches it, because <see cref="BodyIndex"/> is handed
-    /// over as a lazily-invoked method group — which is exactly how four scanners came to declare
-    /// <see cref="SectionCost.NetworkFree"/> while doing unbounded work.
+    /// The body index is a whole-assembly IL build. The registry cannot see that an executor
+    /// touches it because <see cref="BodyIndex"/> is handed over as a lazily-invoked method group
+    /// — which is exactly how four scanners once declared <see cref="SectionCost.NetworkFree"/>
+    /// while doing unbounded work.
     ///
-    /// So the declaration is enforced where the cost is actually incurred. Adding a body-index call
-    /// to a scanner that still claims to be cheap fails loudly instead of quietly restoring the
-    /// defect. Gate: <c>SectionPipelineTests.Scanner_CannotTakeTheBodyIndexWithoutDeclaringItsCost</c>.
+    /// So the declaration is enforced where the cost is actually incurred. Adding a body-index
+    /// call to a producer that still claims to be cheap fails loudly instead of quietly restoring
+    /// the defect. Gates:
+    /// <c>SectionPipelineTests.Scanner_CannotTakeTheBodyIndexWithoutDeclaringItsCost</c> and
+    /// <c>SectionPipelineTests.Query_CannotTakeTheBodyIndexWithoutDeclaringItsCost</c>.
     /// </summary>
     private void RequireUnboundedDeclaration(string resource)
     {
@@ -260,10 +263,9 @@ public sealed class ScannerContext : IDisposable
 
     /// <summary>
     /// Shared method-body analysis index for <see cref="AssemblyPath"/>, built once on first use.
-    /// The body-index scanners (unsafe members, top leverage, optimization opportunities) share it
-    /// instead of each rebuilding the full <c>LibraryBodyIndex</c>. Scanners run sequentially
-    /// (<see cref="ScannerRegistry.RunScanners"/>), so no synchronization is required. The build is
-    /// narrowed to the phases the requested scanners consume (see
+    /// Body-index queries and scanners share it instead of each rebuilding the full
+    /// <c>LibraryBodyIndex</c>. Work runs sequentially, so no synchronization is required. The
+    /// build is narrowed to the phases the requested work consumes (see
     /// <see cref="BodyAnalysisFeatures"/>).
     /// </summary>
     public Analysis.LibraryBodyIndex BodyIndex()
@@ -279,13 +281,14 @@ public sealed class ScannerContext : IDisposable
                 AssemblyPath,
                 GetMetadataContext(),
                 BodyAnalysisFeatures,
+                BodyReferenceResolver,
                 assembly: AssemblyReference);
         }
         catch (Exception ex)
         {
-            // Scanners swallow a failed index and render an empty section, so without this the
-            // trace would show no body index for a run that tried to build one and failed —
-            // indistinguishable from a run that correctly never needed it.
+            // Residual scanners map a failed index to an empty section while queries retain a
+            // typed failure. Either way the trace must distinguish attempted acquisition from a
+            // run that correctly never needed the index.
             Trace?.RecordResource(
                 "body index",
                 InertString.Format(
@@ -330,7 +333,7 @@ public sealed class ScannerContext : IDisposable
     PdbContext GetMetadataContext()
         => MetadataContext
             ?? throw new InvalidOperationException(
-                "A shared metadata context is required by this scanner.");
+                "A shared metadata context is required by this inspection producer.");
 }
 
 /// <summary>

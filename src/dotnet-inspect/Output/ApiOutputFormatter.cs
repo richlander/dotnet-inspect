@@ -2519,9 +2519,25 @@ public static class ApiOutputFormatter
         PerformanceTriageOptions? options = null,
         bool restrictToModelMembers = false)
     {
+        HashSet<int> typeMemberTokens = type.Members
+            .Where(member => member.MetadataToken is not null)
+            .Select(member => member.MetadataToken!.Value)
+            .ToHashSet();
         HashSet<int>? memberTokens = restrictToModelMembers
-            ? type.Members.Where(m => m.MetadataToken is not null).Select(m => m.MetadataToken!.Value).ToHashSet()
+            ? typeMemberTokens
             : null;
+        LibraryMetadataService.ReportOptimizationDiagnostics(
+            index,
+            diagnostic =>
+                (diagnostic.SourceDeclaringType
+                    ?? diagnostic.DeclaringType) is { } diagnosticType
+                && ApiAnalysisInspection.SameType(
+                    diagnosticType,
+                    type)
+                && (memberTokens is null
+                    || memberTokens.Contains(
+                        diagnostic.SourceMethodToken
+                            ?? diagnostic.MethodToken)));
         var rows = LibraryMetadataService.FilterAndOrderTriageOpportunities(
                 LibraryMetadataService.TriageOpportunities(index, options)
                     .Where(opportunity => ApiAnalysisInspection.SameType(
@@ -2545,6 +2561,9 @@ public static class ApiOutputFormatter
                 opportunity.Shape,
                 opportunity.Operation,
                 opportunity.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null,
+                opportunity.EvidenceMethodToken is { } evidenceMethod
+                    ? MarkoutInline.Code($"0x{evidenceMethod:X8}")
+                    : null,
                 MarkoutInline.Code(opportunity.Evidence),
                 opportunity.SafeFixDirection,
                 LibraryMetadataService.TriagePriority(opportunity),
@@ -2710,7 +2729,7 @@ public static class ApiOutputFormatter
             fact.InLoop ? "Yes" : "No",
             fact.Evidence);
 
-    static string FormatMethod(Analysis.MethodIdentity method)
+    internal static string FormatMethod(Analysis.MethodIdentity method)
         => FormatMember(method.DeclaringType, method.Name, method.ParameterTypes, []);
 
     readonly record struct SafetyFindingCensus(

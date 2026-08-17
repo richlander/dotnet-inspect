@@ -47,33 +47,25 @@ change ready to merge.
   `main`; never detach its HEAD or develop in it.
 - Before starting a change, run `git fetch origin main` from the primary
   checkout, then create a descriptive branch and linked worktree with
-  `git worktree add -b <branch> <path> origin/main`. Make all edits, builds,
-  tests, and commits in the worktree, not the primary checkout. A slice in a
-  stack branches from its parent slice's branch instead — see
-  [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues).
+  `git worktree add -b <branch> <repo>/.worktrees/<slug> origin/main`. Make all
+  edits, builds, tests, and commits in the worktree, not the primary checkout.
+  Do not create worktrees as direct children of the user's home directory. A
+  slice in a stack branches from its parent slice's branch instead. If a GitHub
+  outage prevents the fetch, the outage exception under [Stacked PRs for
+  multi-slice issues](#stacked-prs-for-multi-slice-issues) permits a new slice
+  to use its recorded last-known local base or parent until service recovers.
 - Use one development worktree per PR, plus temporary worktrees for independent
-  reviews. Do not reuse a worktree across unrelated changes.
+  reviews. Development worktrees belong under the primary checkout's
+  `.worktrees/` directory. Reviewer worktrees belong there or under an
+  operating-system temporary directory; they are also prohibited at the root
+  of the user's home directory. Do not reuse a worktree across unrelated
+  changes.
 - Never amend commits; create follow-up commits.
-- **Conflict recovery is the first priority for an open PR.** When GitHub
-  reports a merge conflict, stop tests, reviews, lower-stack restacks, and
-  unrelated follow-up work on that PR. Integrate the effective base, resolve
-  the conflict, re-read these instructions and the task-relevant docs, and push
-  the replacement head immediately so CI starts. Run required local validation
-  against that exact pushed head in parallel with CI. This changes sequencing
-  only, and the PR remains unready until local validation, CI, and required
-  review are clean. Recover a stack bottom-up so every child rests on a
-  conflict-free parent.
-- Form one frozen candidate for each review round. Immediately before focused
-  local validation, fetch and integrate the effective base and record that base
-  tip. Once the smallest local test, lint, or build gate covering the authored
-  behavior passes, commit and push promptly. Keep that head fixed while broader
-  local validation, CI, and review run concurrently.
-- Do not fetch or integrate the base again merely because it advances, because
-  another PR is expected to land, or because later integration would make the
-  branch look newer. Base movement alone does not invalidate a candidate. A
-  conflict, an author change, a review fix, a current-head merge-path failure
-  that requires code changes, or an explicit user direction ends it. Integrate
-  the then-current effective base only when forming that replacement.
+- For an open PR, the candidate, lock, CI, conflict, failed-gate, base-movement,
+  and round-restart rules have one source of truth: [Canonical round
+  flow](#canonical-round-flow). **Conflict recovery remains the first
+  priority**; apply that flow before tests, reviews, restacks, or unrelated
+  follow-up work.
 - Rebase only before the branch's first push. Once a branch is public or under
   review, merge `origin/main`; never amend, rebase, or force-push reviewed
   history. A slice in a stack is the standing exception: restacking rebases and
@@ -84,11 +76,14 @@ change ready to merge.
   task-relevant docs before continuing.
 - Do not mix unrelated changes into one commit or sweep another contributor's
   working-tree changes into your work.
-- Treat worktrees as temporary. Confirm the exact reviewed head is pushed, then
-  `git worktree remove <path>` as soon as every required fixed-head review is
-  clean — or after merge, for a change that needs no adversarial review. Do not
-  retain inactive worktrees in case more work appears; recreate one for the
-  branch if follow-up work is needed.
+- Treat worktrees as temporary. Remove a reviewer worktree after that reviewer
+  has returned or its cancellation is acknowledged and any required
+  reproduction there is complete. Remove the development worktree only after
+  the exact reviewed head is pushed, its head lock has ended with all required
+  concurrent gates successful, and every required fixed-head review at that
+  head is review-clean — or after merge, for a change that needs no adversarial
+  review. Do not retain inactive worktrees in case more work appears; recreate
+  one for the branch if follow-up work is needed.
 
 ## Task-specific guidance
 
@@ -356,8 +351,9 @@ Match evidence to the claim and use the smallest existing check that proves it:
   change crosses boundaries or focused results expose broader risk.
 - Do not serialize independent evidence. After the focused pre-push gate is
   green, start broader local suites, current-head CI, and eligible fixed-head
-  review concurrently. A long suite is not a reason to delay an independent
-  gate.
+  review concurrently. Eligibility includes the per-round CI and conflict
+  rules under [Adversarial review](#adversarial-review). A long suite is not a
+  reason to delay an independent gate.
 - Run broad local suites once per authored head, not once per elapsed base
   update. After a conflict-free base-only merge, inspect the integrated range
   and rerun the focused gates for files, contracts, and behavior that can
@@ -456,24 +452,72 @@ npx markdownlint-cli <file>
 
 ## Adversarial review
 
-### Start a settled round without waiting for CI
+### Canonical round flow
 
-**A review round begins as soon as the candidate head is pushed, settled,
-locally includes the effective base recorded at candidate formation, and has
-passed its focused pre-push gate.** Run review in parallel with broader local
-validation and CI by default. Do not wait for every check to complete before
-using an independent reviewer.
+This section is the sole source of truth for candidate formation, round
+eligibility, head locking, supersession, and recovery. Other sections add
+reviewer, stack, or readiness detail without redefining these transitions.
 
-A known conflict, known failing current-head required check, or known failing
-required local gate blocks the round. Pending CI or GitHub mergeability
-computation does not. If later evidence reveals a conflict or requires an
-author change, the round is superseded; if every check passes without moving
-the head, its clean reviews remain exact-head evidence.
+| Attempt | Required before reviewer dispatch | May remain pending |
+| --- | --- | --- |
+| First attempt at round 1 | Pushed settled head, recorded effective base, focused gate | CI and mergeability |
+| Ordinary subsequent round | First-attempt requirements, zero conflicts, green current-head `ci-required` | Nothing required |
+| Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
+| Failed-gate restart | Required fix pushed, zero conflicts, green current-head `ci-required` | Nothing required |
 
-Documentation-only PRs follow the same sequencing. Their focused pre-push gate
-is Markdown linting, and a clean exact-head review may run concurrently with
-that gate when the candidate is already settled; lint must still pass before
-merge.
+Documentation-only ordinary candidates use Markdown linting as their focused
+gate. A documentation conflict-recovery attempt instead lints after the
+resolution push; it may start review immediately, but cannot reconcile or
+complete until lint succeeds.
+
+Review is a locked-head feedback loop: freeze and push one exact head, review
+that head, reconcile the feedback, make any resulting fixes, and freeze the
+replacement head. Do not edit a head while its head lock is held. The lock ends
+when both reviewers have returned, their feedback has been reconciled for
+action, current-head zero-conflict evidence is confirmed, and every required
+current-head check and local gate allowed to run concurrently has succeeded.
+The fixed replacement is a new candidate and its review is a new round.
+
+A fixed-head review is **review-clean** when its public reconciliation leaves no
+finding unresolved **and the reviewed head did not move in response to that
+round**. A justified dismissal counts as a resolution only when the reason is
+recorded publicly. A round that pushes a fix is complete but is not
+review-clean; only the replacement head can earn that status. The report
+classification `clean` is narrower: use it only when the reviewers returned no
+findings.
+
+Apply one transition when the locked head becomes invalid:
+
+- **Conflict:** supersede the attempt, release the lock, integrate and resolve
+  the effective base, push immediately, and restart the same numbered round
+  without waiting for CI. The six-round approval boundary still applies.
+- **Failure requiring an author change:** supersede the attempt, release the
+  lock, push the fix, satisfy the failed-gate restart row, and restart the same
+  numbered round.
+- **Cancelled or evidenced transient failure:** keep the unchanged head and its
+  lock, re-run the failed check, and continue if it passes. After another
+  failure, repeat only with concrete transient evidence or classify it as
+  requiring an author change. Never continue or complete while a required check
+  remains red.
+
+A superseded attempt consumes no round number and receives no completion
+report. Let its reviewers finish or cancel them explicitly. Before completing
+the restarted round, wait for every superseded reviewer to finish or have its
+cancellation acknowledged, carry forward every returned finding, and
+disposition each one publicly.
+
+Absent an actual conflict, a round that produces no review-driven fix and then
+integrates newer `main` to create another round on the agent's own initiative
+is a failed round: the review produced no change and the integration discarded
+the value of the locked-head result. A review-clean round ends adversarial
+review; do not move the head merely to buy another pass. The sole default
+base-only integration after clean reviews is the explicitly approved
+carry-forward path in
+[Clean reviews are not spent by main
+moving](#clean-reviews-are-not-spent-by-main-moving), which preserves the clean
+reviews and does not open another round. An explicit user workflow adjustment
+may instead authorize interacting-base integration followed by validation and
+a new review round.
 
 Adversarial review is scarce, but serial wall-clock time is also a cost. Spend
 review only on a named frozen head with focused local evidence, then accept the
@@ -484,7 +528,12 @@ am I reviewing?" Form and freeze one candidate before the first round, and do
 so again before every subsequent round:
 
 - **The head is pushed, named, and settled.** Reviewers get an exact base and
-  head, not a branch that moves under them. Finish your own edits first.
+  head, not a branch that moves under them. Finish your own edits first, and do
+  not push again until both reviewers have returned and their feedback has been
+  reconciled. A confirmed merge conflict or failing required gate that requires
+  an author change is the exception: it supersedes the incomplete attempt and
+  releases the lock. Conflict recovery pushes immediately; failed-gate recovery
+  pushes the fix and waits for the ordinary subsequent-round status gate.
 - **The candidate includes its effective base.** Immediately before focused
   validation, fetch and integrate the effective base and record the integrated
   tip. The resulting head is the candidate: keep it fixed through broader
@@ -499,18 +548,23 @@ so again before every subsequent round:
   [Clean reviews are not spent by main
   moving](#clean-reviews-are-not-spent-by-main-moving).
 - **Before merge, the PR is mergeable and green** — two questions, one
-  consolidated status query. Review does not wait for this result, but
-  readiness does. Use a single
+  consolidated status query. The first attempt at round 1 and conflict-recovery
+  rounds do not wait for this result, but a failed-gate restart, an ordinary
+  subsequent round, and merge readiness do. Use a single
   `gh api graphql` request that returns the PR's
-  `headRefOid`, `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and
-  contexts with `pageInfo`, and the query's `rateLimit` cost, remaining quota,
-  and reset time. Request enough contexts for the normal check matrix; if
+  `headRefOid`, `baseRefOid`, `baseRef { target { oid } }`, `isDraft`,
+  `mergeable`, `mergeStateStatus`, `statusCheckRollup` state and contexts with
+  `pageInfo`, and the query's `rateLimit` cost, remaining quota, and reset time.
+  Request enough contexts for the normal check matrix; if
   `pageInfo.hasNextPage` is true and `ci-required` is absent, fetch the
   remaining context pages before concluding that it is missing. Confirm that
-  `headRefOid` is the pushed head, `mergeable` is `MERGEABLE`, and the current
-  head's `ci-required` check run completed successfully. A `CONFLICTING`
-  mergeability result blocks, and `UNKNOWN` means GitHub has not finished
-  computing the merge. When the exact head's `ci-required` is already
+  `headRefOid` is the pushed head, `isDraft` is false, `mergeable` is
+  `MERGEABLE`, and the current head's `ci-required` check run completed
+  successfully. Treat `mergeStateStatus` values `BLOCKED` and `DRAFT` as
+  independent readiness blockers: identify and clear the blocker before
+  posting `Ready to merge`. A `CONFLICTING` mergeability result blocks, and
+  `UNKNOWN` means GitHub has not finished computing the merge. When the exact
+  head's `ci-required` is already
   `SUCCESS` and mergeability is the only unknown, immediately make one REST
   `GET /repos/{owner}/{repo}/pulls/{number}` request for `head.sha`,
   `mergeable`, and `mergeable_state`. That endpoint triggers GitHub's
@@ -534,14 +588,43 @@ so again before every subsequent round:
   a skipped job as validation, and if a change should have triggered a job
   that skipped, the path filter is the bug.
 
-  Status discovery must conserve the shared GitHub API budget. After a push,
-  wait at least 15 minutes before the first status query; use 20 minutes for
-  lanes known to run longer. After pending checks or a missing `ci-required`,
-  wait at least 10 minutes plus small random jitter before querying again.
-  Apply the short REST-backed recovery above when mergeability is the only
-  unknown. Yield the session or schedule a delayed wake-up; do not hold a
-  synchronous shell or agent turn open with `sleep`. Do not use `gh run watch`,
-  `gh pr checks --watch`, or a polling loop for long-running PR checks.
+  Status discovery must conserve the shared GitHub API budget. After every
+  push, schedule one status check for five minutes later; do not hold a
+  synchronous shell or agent turn open with `sleep`. The first check verifies
+  the expected head and detects merge conflicts early:
+
+  - If `mergeable` is `CONFLICTING`, integrate the effective base, resolve the
+    conflict, push the replacement head, start its conflict-recovery review
+    round immediately if its round number is authorized, and schedule a new
+    five-minute check. Do not wait for CI before starting an authorized
+    conflict-recovery round.
+  - If `mergeable` is `UNKNOWN`, it does not satisfy the zero-conflict gate. If
+    current-head `ci-required` is already green, use the REST fallback above;
+    a null result follows its five-minute recovery cadence. If `ci-required` is
+    pending or missing, schedule the documentation-only follow-up for at least
+    10 minutes plus small random jitter after the five-minute check, or the
+    non-documentation follow-up for the expected 35-minute completion point. If
+    both mergeability and CI remain unresolved at that follow-up, continue with
+    at least 10 minutes plus small random jitter between aggregate queries.
+    Switch to the five-minute REST-backed recovery cadence once `ci-required`
+    is green and mergeability is the only unknown.
+  - If `mergeable` is `MERGEABLE` and the PR is documentation-only, use that
+    five-minute result as the expected CI completion check. Do not schedule a
+    longer planned wait; documentation CI should be complete by then. If it is
+    unexpectedly pending or `ci-required` is missing, wait at least 10 minutes
+    plus small random jitter before querying again.
+  - If `mergeable` is `MERGEABLE` and the PR is not documentation-only, expect
+    CI to take about 35 minutes from the push. Schedule the next status check
+    for about 30 minutes after the five-minute conflict check. If CI is still
+    pending or `ci-required` is missing, wait at least 10 minutes plus small
+    random jitter before querying again.
+
+  An ordinary subsequent round cannot start until one of these checks confirms
+  both zero merge conflicts and green current-head `ci-required`. Apply the
+  short REST-backed recovery above when mergeability is the only unknown.
+  Yield the session or schedule a delayed wake-up between checks. Do not use
+  `gh run watch`, `gh pr checks --watch`, or a polling loop for long-running PR
+  checks.
 
   Every status check must re-query the PR aggregate and compare its current
   `headRefOid`; a run or check identifier is pinned to one commit and cannot
@@ -555,8 +638,14 @@ so again before every subsequent round:
   decision depends on an immediate result.
 - **Before merge, every PR in a stack meets the applicable conditions above**,
   not only the slice under review. A known-conflicted or known-red parent blocks
-  review of everything above it; a pending parent does not, provided each layer
-  has a settled pushed head and passed focused local evidence. A slice rebases
+  review of everything above it. A pending parent does not block a slice's
+  first or conflict-recovery round, provided each layer has a settled pushed
+  head and passed focused local evidence. A conflict-recovery round is scoped
+  to the recovered slice and may start while that slice's post-push local
+  validation and affected descendant restacks are pending; do not review an
+  upper slice until its own conflicts are recovered. Before any ordinary
+  subsequent round, a current-head aggregate check for every open stack layer
+  must confirm zero merge conflicts and green `ci-required`. A slice rebases
   onto its parent, never onto `main`: only the stack's bottom open slice takes
   `origin/main` as its base, and rebasing an upper slice onto `main` pulls in
   work its parent has not landed and makes the slice's diff report its parent's
@@ -569,23 +658,37 @@ so again before every subsequent round:
   workflow leaves `ci-required` nothing to block on and displays as MERGEABLE
   and CLEAN (#3706).
 
-Do not fetch or integrate the base after the candidate is formed, including
-while validation or CI runs or while a reviewer is mid-read. When an author
-change, review fix, or conflict requires a replacement candidate, say so on the
-PR and name the base tip and merge commit, so the next review reads as a
-confirmation rather than an unexplained second full pass.
+Do not fetch or integrate the base after the candidate is formed while
+validation, CI, or review is in progress. After a review-clean result, the
+consolidated status query's `baseRef.target.oid` may reveal that the effective
+base moved; `baseRefOid` identifies the base commit recorded for the PR and is
+not the live branch tip. At that point a non-mutating fetch is permitted solely
+to inspect the exact landed range for the carry-forward decision below. Do not
+integrate unless that decision or another candidate-ending trigger authorizes
+it. When an author change, review fix, or conflict requires a replacement
+candidate, say so on the PR and name the base tip and merge commit, so the next
+review reads as a confirmation rather than an unexplained second full pass. Do
+not form a replacement candidate from base movement alone unless the user
+approved the clean-review carry-forward path, explicitly adjusted the workflow
+to integrate and re-review an interacting range, or the slice requires a
+cascading restack onto its moved parent.
 
 ### Clean reviews are not spent by main moving
 
-For a PR that targets `main` — including the bottom slice of a stack — when
-every reviewer the tier requires has come back clean at the current head and
-`origin/main` has since moved, **stop and ask.** Do not integrate main, and do
-not open another round on your own initiative. Evaluate this from the latest
-clean result: an earlier finding that was fixed and then reviewed clean does not
-disqualify it. If a finding remains unresolved, or the head changed after that
-clean result because of an author change, conflict resolution, or restack, the
-exception does not apply: resolve or restack, integrate the effective base, and
-review the new head normally.
+For a PR that targets `main` — including the bottom slice of a stack — when its
+required fixed-head review is review-clean at the current head and `origin/main`
+has since moved, **stop and ask.** Do not integrate main, and do not open
+another round on your own initiative. Evaluate this from the latest
+review-clean result: an earlier finding that was fixed and then reviewed clean
+does not disqualify it. If a finding remains unresolved, or the head changed
+after that review-clean result because of an author change, conflict resolution,
+or restack, the exception does not apply: resolve or restack, integrate the
+effective base, and review the new head normally.
+
+Detect movement by comparing the candidate's recorded base tip with the live
+tip in `baseRef.target.oid` from the consolidated status query. If they differ
+after the review-clean result, record that live tip, fetch the effective base
+without integrating it, and analyze the exact old-to-new range.
 
 Ask with an analysis of what actually landed: which commits touch files this
 change touches, which behavior this change relies on that they alter, and any
@@ -593,18 +696,31 @@ conflict a textual merge would resolve silently but wrongly. Say plainly when
 the answer is that nothing in the range interacts with this change — that is the
 common case and it is the most useful thing you can report.
 
-The user decides which continuation the evidence warrants:
+If the range is non-interacting, the user may direct you to integrate the
+approved base tip, re-run the claimed validation and current-head CI, and carry
+the clean reviews forward without another round. Integrate that exact analyzed
+tip by SHA, not a moving branch ref. If the live base tip changes before
+integration, analyze the additional range and obtain renewed approval before
+carrying the reviews forward. Record the reviewed head, old and approved new
+main tips, the non-interaction analysis, and the user's decision on the PR.
 
-- If the range is non-interacting, the user may direct you to integrate main,
-  re-run the claimed validation and current-head CI, and carry the clean reviews
-  forward without another round. Record the reviewed head, old and new main
-  tips, the non-interaction analysis, and the user's decision on the PR.
-- If the range can affect the change, integrate main and run a new round at the
-  resulting head.
+If the range can affect the change, report that the carry-forward path is not
+available and keep the reviewed head. The PR is not merge-ready in that state:
+do not post `Ready to merge`. Do not integrate merely because the base moved,
+and do not open another round unless an actual conflict, review-driven fix,
+author change, or explicit user workflow adjustment creates a replacement
+candidate. Ask the user whether to make a workflow adjustment that integrates
+the base and re-validates and re-reviews the replacement head, or to leave the
+PR blocked.
 
-The first continuation is the sole exception to the fixed-head review rule; it
-does not authorize carrying reviews across author changes, conflict-resolution
-changes, or a restack that occurred after the recorded reviewed head.
+The carry-forward continuation is the sole exception that carries clean reviews
+across a base integration without opening another round. It does not authorize
+carrying reviews across author changes, conflict-resolution changes, or a
+restack that occurred after the recorded reviewed head. It is also the sole
+default path that permits integrating the base when no actual conflict,
+review-driven fix, author change, current-head merge-path failure, or explicit
+user workflow adjustment has ended the candidate and no required cascading
+restack has moved its effective base.
 
 This is the one place the settled-branch rule yields, and it has to, or the
 budget is unbounded: on a busy `main`, a round takes longer than the interval
@@ -663,21 +779,66 @@ every missing seat from the user. An out-of-roster model may provide a quick
 read but does not fill a seat.
 
 A **round** evaluates one settled head with every reviewer its tier requires.
-Two reviewers in the same round count as one round, not two.
+Two reviewers in the same round count as one round, not two. The round remains
+locked until both reviewers return and their feedback is reconciled.
 
 ### Running the round
 
 Give each reviewer the same self-contained prompt: exact base and head, design
 intent, relevant diff, concrete attack points, and required real-run evidence.
-Isolate every reviewer in a separate linked review worktree; never detach the
-primary checkout for review. Require scratch work under `/tmp/` and prohibit
-`git reset`, `git add`, and commits in review trees. Before acting on a blocking
+Isolate every reviewer in a separate linked review worktree under the primary
+checkout's `.worktrees/` directory or an operating-system temporary directory;
+never place it at the root of the user's home directory or detach the primary
+checkout for review. Require scratch work under `/tmp/` and prohibit `git
+reset`, `git add`, and commits in review trees. Before acting on a blocking
 finding, reproduce it on a clean exact-head review worktree.
 
-After addressing findings, re-review the fixed exact head. Reconcile the reviews
-publicly on the PR: attribute findings, state what was verified or dismissed, and
-link resolution commits or explain explicit non-actions. Do not mark the PR ready
-until every required fixed-head review is clean.
+Reconcile the reviews publicly on the PR: attribute findings, state what was
+verified or dismissed, and link resolution commits or explain explicit
+non-actions. Address actionable findings only after the locked-head reviews
+finish. If fixes move the head, push the replacement candidate, wait for its
+zero-conflict and green-CI gate, and re-review it as the next numbered round.
+Do not mark the PR ready until every required fixed-head review at the current
+head is review-clean.
+
+A round starts when its reviewers are dispatched. It ends when all current and
+carried feedback is publicly reconciled, every resulting fix is committed and
+pushed, current-head zero-conflict evidence is confirmed, and every required
+current-head check and post-push local gate for that round has completed
+successfully. A no-fix round with publicly justified dismissals can therefore
+end review-clean; a round that pushes fixes is complete but not review-clean,
+and its replacement head still requires the next numbered review.
+
+Superseded attempts follow [Canonical round flow](#canonical-round-flow);
+supersession never retires a finding.
+
+After every completed round and before starting the next one, emit this report
+as the assistant's visible user-facing response in the terminal, filling every
+field and choosing exactly one feedback classification. Do not emit it through
+a shell command such as `printf`, leave it only in tool output, collapse it
+behind a tool-call summary, or replace it with a shorter completion summary:
+
+```text
+Round <n> is complete for PR <number>.
+- Review models <model-a> and <model-b> were used for adversarial review.
+- Review feedback is: [converging, diverging, neutral, clean].
+- Round start: <datetime>.
+- Round end: <datetime>.
+- Round duration: <hours:minutes>
+
+Fix description: <prose description of changes made in response to the round>.
+```
+
+Use `Fix description` to state the concrete review-driven changes. For a clean
+classification, say that no findings or fixes were produced and that the locked
+head remained unchanged. For a no-fix round with dismissed findings, use
+`converging`, `diverging`, or `neutral` and explain the dismissals in the public
+reconciliation. Do not integrate the base after a review-clean result except
+through the approved carry-forward path or when a conflict, author change,
+current-head merge-path failure, required cascading restack, or explicit user
+workflow adjustment ends the candidate. The same report may also be posted on
+the PR; the public reconciliation may include more detail when the findings or
+fixes warrant it.
 
 ### Keep review proportional to the contract
 
@@ -703,13 +864,22 @@ contract or threat model requires it.
 
 ### Stop after six rounds
 
-Do not begin a seventh review round without explicit user approval, and get
-fresh approval for every additional round. Before requesting approval, present
-an analysis of why six rounds did not converge. In particular, determine
-whether the repeated findings expose an architectural problem, missing test
-coverage, or reviewers expanding the contract beyond the intended threat
-model. State the proposed architectural or test remedy, or explain why the
-remaining concern should be dismissed, before spending another round.
+Do not begin a seventh review round without explicit user approval. Each
+approval authorizes one new block of up to six rounds: rounds 7-12, then 13-18,
+and so on. Stop as soon as review converges; approval is a ceiling, not a
+requirement to spend the full block.
+
+Conflict recovery does not waive this approval boundary. Resolve and push a
+conflict immediately so CI starts, but if its review would begin a new
+unauthorized block, request approval before dispatching reviewers. Once
+approved, start that conflict-recovery round without waiting for CI.
+
+Before requesting each six-round block, present an analysis of why the prior
+six rounds did not converge. In particular, determine whether the repeated
+findings expose an architectural problem, missing test coverage, or reviewers
+expanding the contract beyond the intended threat model. State the proposed
+architectural or test remedy, or explain why the remaining concern should be
+dismissed, before spending another block.
 
 ## PR and CI discipline
 
@@ -720,7 +890,8 @@ remaining concern should be dismissed, before spending another round.
 - Keep concurrent agents modest and avoid unnecessary churn in central files.
 - Treat CI as confirmation, not discovery: run the smallest relevant local gate
   first, then push the frozen candidate promptly. Run broader local validation,
-  CI, and fixed-head review concurrently.
+  CI, and eligible fixed-head review concurrently, subject to the per-round CI
+  and conflict gates above.
 - A settled candidate should spend wall-clock time in parallel. If an hour
   passes without an authored change while an eligible independent gate has not
   started, stop and correct the sequencing or record the concrete blocker. Do
@@ -738,6 +909,10 @@ remaining concern should be dismissed, before spending another round.
 - Keep PR summaries conclusion-first. Include the behavioral claim, evidence,
   compatibility or non-action boundary, and exact validation appropriate to
   the change.
+- Agents are not authorized to merge pull requests unless the user explicitly
+  directs them to merge that specific PR. A clean review, green CI, mergeable
+  state, `Ready to merge` comment, or general request to prepare or finish a PR
+  is not merge authorization.
 - When all merge-blocking validation, CI, and required review are complete, post
   a PR comment that says `Ready to merge`. Label later work as non-blocking
   follow-up so readiness remains unambiguous.
@@ -758,6 +933,14 @@ until it is unreviewable, and over parallel PRs that race in the same files.
   `ci.yml` applies no base-branch filter, so a PR runs CI whatever it targets.
 - **One branch and one worktree per slice**, branched from the parent slice, and
   targeted at the parent branch (`gh pr create --base <parent-branch>`).
+- **During a GitHub outage, use stacked branches for new coherent slices** so
+  local work can continue without pretending remote evidence exists. Branch
+  each new slice from its recorded last-known local base or parent slice, create
+  its worktree under `.worktrees/`, record that base SHA, and keep its commits
+  isolated. When GitHub recovers, fetch the effective base, update the bottom
+  slice, cascade required restacks and focused validation through the stack,
+  then push and open it bottom-up. Run each slice's required CI, status, and
+  review gates before treating it as ready.
 - **Merge bottom-up, one at a time**, then confirm the next PR retargeted and
   still shows only its own slice.
 - **Restacking rebases and force-pushes a public branch by design** — the
@@ -765,12 +948,14 @@ until it is unreviewable, and over parallel PRs that race in the same files.
   slice above. Use `--force-with-lease`, restack only your own slices, and post
   a `range-diff` proving the restack changed the base and nothing else.
 - **Review depth is per-slice, by that slice's own risk**, not the stack's size.
-- **Review-start readiness is checked stack-wide before any slice's round.**
-  Every layer must have a settled pushed head, focused local evidence, and no
-  known failure or conflict; pending CI is allowed. Merge readiness still
-  requires every layer to be green and mergeable — see
-  [Adversarial review](#adversarial-review).
-- **A moved head — including one moved by a restack — needs a clean round at
-  the new head**, and a restack never retires an open finding.
+- **Apply the canonical eligibility table stack-wide.** Before an ordinary
+  subsequent round, every open layer must have a settled pushed head, focused
+  evidence, zero conflicts, and green current-head `ci-required`. A first
+  attempt may retain pending CI. A conflict-recovery attempt is scoped to the
+  recovered slice and may retain the pending work allowed by its table row;
+  upper-slice review remains blocked until that slice is conflict-free. Merge
+  readiness still requires every layer to be green and mergeable.
+- **A moved head — including one moved by a restack — needs a review-clean round
+  at the new head**, and a restack never retires an open finding.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost
   is per PR; three coherent slices beat ten mechanical ones.

@@ -72,10 +72,10 @@ The library catalog calls `WithoutComputedPoles`; it does not expose computed
 
 ```csharp
 registry.Add(
-    ScannerUnsafeMembers,
+    ScannerOptimizationOpportunities,
     SectionCost.Unbounded,
-    ctx => ctx.Model.UnsafeMembers =
-        LibraryMetadataService.ScanUnsafeMembers(
+    ctx => ctx.Model.OptimizationOpportunities =
+        LibraryMetadataService.ScanOptimizationOpportunities(
             ctx.BodyIndex,
             ctx.AssemblyPath,
             ctx.Logger));
@@ -92,10 +92,16 @@ Methods, and Signals; one demand set executes it once against the command-owned
 `AssemblyInspectionSession`. `Signals` also binds `AuditMetadataQuery` and
 `AssemblyReferencesQuery`; the host applies all three typed results before
 CLI-owned signal composition, then recomposes only model-derived rows after
-later source evidence lands.
+later source evidence lands. `Unsafe Members` binds the unbounded
+`UnsafeEvidenceQuery`, which consumes the command's shared Analysis body index
+and retains raw unsafe evidence through the Finding and presentation boundary.
+`Top Leverage` binds `TopLeverageQuery`, which retains ranked
+`MethodLeverage`, generated-framework evidence, and Analysis diagnostics until
+the presentation boundary. The CLI joins its API-surface drill map for legacy
+JSON and row selectors; the query does not own visibility or selector policy.
 
 The residual `ScannerRegistry` now contains only the unbounded Analysis-backed
-Unsafe Members, Top Leverage, Performance, and Resource Triage producers.
+Performance and Resource Triage producers.
 
 The registry rejects:
 
@@ -146,9 +152,9 @@ another registry performs the work.
 Whole-assembly body analysis is acquired through `ScannerContext.BodyIndex()`.
 Member drill data is acquired through `ScannerContext.DrillMap()`.
 
-Only a scanner declared `Unbounded` may acquire either resource. A cheaper
-scanner that calls one throws at the acquisition boundary. The production
-scanner catch boundary does not convert that declaration violation into a
+Only a scanner or query declared `Unbounded` may acquire either resource. A
+cheaper producer that calls one throws at the acquisition boundary. Production
+catch boundaries do not convert that declaration violation into a
 success-shaped result.
 
 Typed queries use the same host-side resource guard. The query registry enters

@@ -9,13 +9,29 @@ namespace ILInspector.Decompiler.Pipeline;
 /// raises. Runs before <see cref="StructuringPass"/>, which leaves any
 /// container holding a back edge flat.
 ///
-/// Transactional and conservative: the loop is raised only when it is a clean
-/// single-entry region with one back edge, no EH leave inside, and exits only
-/// to its single canonical exit block — those exits raise to <c>break;</c> (an
-/// unconditional branch) or <c>if (cond) break;</c> (a conditional one). A
-/// second back edge (nested or irreducible) or a second distinct exit target
-/// (which would need a labeled break) keeps it flat. Innermost loops wrap
-/// first, so nested do-whiles compose across the fixpoint.
+/// Transactional and conservative: the loop is raised only when every external
+/// entry targets its header, it has one back edge, no EH leave inside, and exits
+/// only to its single canonical exit block — those exits raise to
+/// <c>break;</c> (an unconditional branch) or <c>if (cond) break;</c> (a
+/// conditional one). A structured transfer owned outside the region, a second
+/// back edge (nested or irreducible), or a second distinct exit target (which
+/// would need a labeled break) keeps it flat. Innermost loops wrap first, so
+/// nested do-whiles compose across the fixpoint. The entry and transfer
+/// boundaries are gated by <c>ExternalEntryToMultiBlockDoWhileHeader_Raises</c>,
+/// <c>ExternalEntryIntoMultiBlockDoWhileBody_StaysFlat</c>,
+/// <c>NestedExternalEntryToMultiBlockDoWhileHeader_Raises</c>,
+/// <c>NestedExternalEntryIntoMultiBlockDoWhileBody_StaysFlat</c>, and
+/// <c>SwitchOwnedBreakExitingLateDoWhileCandidate_StaysOwnedBySwitch</c>;
+/// <c>NestedSwitchBreakInsideDoWhileCandidate_KeepsOwnerAndRaises</c> pins the
+/// accepted locally owned boundary, while
+/// <c>NestedDoWhileWithBranchingBody_RaisesBothLoops</c> pins local transfers
+/// inside an already-raised nested container.
+/// <c>NestedContainerSecondBackEdge_StaysFlat</c> and
+/// <c>NestedContainerNonCanonicalExit_StaysFlat</c> pin outward transfers from
+/// that container. <c>NestedLeaveToCanonicalDoWhileExit_Raises</c> and
+/// <c>OutsideLeaveLeavingContainer_DoesNotDeclineDoWhile</c> keep unrelated
+/// exception-region transfers from vetoing a legal loop, while their paired
+/// decline tests preserve the candidate's exit boundary.
 /// </summary>
 public sealed class DoWhileLoopPass : IIrPass
 {
@@ -53,7 +69,7 @@ public sealed class DoWhileLoopPass : IIrPass
             }
 
             if (best is { } loop
-                && Validate(blocks, offsetToIndex, loop.Header, loop.Bottom, loop.Edge))
+                && Validate(container, blocks, offsetToIndex, loop.Header, loop.Bottom, loop.Edge))
             {
                 Wrap(container, loop.Header, loop.Bottom, loop.Edge, stepper);
                 return true;
@@ -66,13 +82,14 @@ public sealed class DoWhileLoopPass : IIrPass
     /// Pure shape check: the region [header, bottom] is a reducible loop whose
     /// only back edge is <paramref name="backEdge"/> and whose only exits are
     /// breaks to the single canonical exit block (the block right after the
-    /// loop, where the back edge's false path also lands). The ordinary shape is
-    /// single-entry; a single-block self-loop also permits external branches to
-    /// its header, because that is the loop's only entry and appears in csc's
-    /// partition-style nested scan loops.
+    /// loop, where the back edge's false path also lands). Every external entry
+    /// must target the header, and every existing structured transfer must keep
+    /// an owner inside the region after it moves.
     /// </summary>
     static bool Validate(
-        IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex,
+        BlockContainer container,
+        IReadOnlyList<Block> blocks,
+        Dictionary<int, int> offsetToIndex,
         int header, int bottom, ConditionalBranch backEdge)
     {
         // The loop exits, normally, by falling through past the bottom test to
@@ -83,16 +100,30 @@ public sealed class DoWhileLoopPass : IIrPass
         for (int source = 0; source < blocks.Count; source++)
         {
             bool sourceInside = source >= header && source <= bottom;
-            foreach (var node in blocks[source].Children)
+            if (sourceInside
+                && StructuredTransferOwnership.ContainsBreakOrContinueTargetingOutside(blocks[source]))
+                return false;
+
+            foreach (var node in blocks[source].DescendantsOutsideNestedFunctions)
             {
-                // EH control flow inside the loop is outside this slice.
-                if (sourceInside && node is Leave or EndFinally or EndFilter)
+                // Raw EH control flow inside the loop is outside this slice.
+                // Transfers nested in an already-raised structure are governed
+                // by the same candidate-relative target rules as other jumps.
+                if (sourceInside
+                    && ReferenceEquals(node.Parent, blocks[source])
+                    && node is Leave or EndFinally or EndFilter)
                     return false;
 
                 foreach (int targetOffset in Targets(node))
                 {
+                    if (InterveningContainerOwnsTarget(node, container, targetOffset))
+                        continue;
                     if (!offsetToIndex.TryGetValue(targetOffset, out int target))
-                        return false;   // a branch leaving the container — out of slice
+                    {
+                        if (sourceInside)
+                            return false;   // a candidate exit leaving the container — out of slice
+                        continue;           // cannot be an external entry into this container
+                    }
                     bool targetInside = target >= header && target <= bottom;
 
                     if (sourceInside && !targetInside)
@@ -103,8 +134,8 @@ public sealed class DoWhileLoopPass : IIrPass
                     }
                     if (!sourceInside && targetInside)
                     {
-                        if (header == bottom && target == header)
-                            continue;   // external branch to a single-block loop header
+                        if (target == header)
+                            continue;   // every entry still reaches the loop header
                         return false;   // an external jump into the loop body
                     }
                     if (sourceInside && !ReferenceEquals(node, backEdge) && target <= source)
@@ -115,11 +146,30 @@ public sealed class DoWhileLoopPass : IIrPass
         return true;
     }
 
+    static bool InterveningContainerOwnsTarget(
+        IrNode transfer,
+        BlockContainer candidateContainer,
+        int targetOffset)
+    {
+        for (var ancestor = transfer.Parent;
+            ancestor is not null && !ReferenceEquals(ancestor, candidateContainer);
+            ancestor = ancestor.Parent)
+        {
+            if (ancestor is BlockContainer nested
+                && nested.Blocks.Any(block => block.StartOffset == targetOffset))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static IEnumerable<int> Targets(IrNode node) => node switch
     {
         Branch branch => [branch.TargetOffset],
         ConditionalBranch conditional => [conditional.TargetOffset],
         SwitchBranch sw => sw.TargetOffsets,
+        Leave leave => [leave.TargetOffset],
         _ => [],
     };
 

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -10,16 +11,21 @@ using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 
+using MethodReferenceKey =
+    ILInspector.Analysis.LibraryBodyMethodReferenceResolver.MethodReferenceKey;
+using MethodReferenceKeyComparer =
+    ILInspector.Analysis.LibraryBodyMethodReferenceResolver.MethodReferenceKeyComparer;
+
 namespace ILInspector.Analysis;
 
 /// <summary>
-/// Schedules one assembly's method analyses and aggregates them into a
-/// <see cref="LibraryBodyAnalysisResult"/> bundle. It consumes one caller-owned
+/// Schedules one assembly's method analyses and composes the acquisition-scoped
+/// services that support them. It consumes one caller-owned
 /// <see cref="MetadataReader"/>/<see cref="PEReader"/> pair and owns the
 /// primary-image infrastructure and cross-assembly reference-resolution
 /// service lifetimes for that acquisition.
 /// </summary>
-internal sealed class LibraryBodyAnalysisBuilder :
+internal sealed partial class LibraryBodyAnalysisBuilder :
     IDisposable,
     ILibraryMethodAnalysisInfrastructure
 {
@@ -28,16 +34,47 @@ internal sealed class LibraryBodyAnalysisBuilder :
     readonly PEReader _peReader;
     readonly LibraryBodyPrimaryMetadataResolver
         _primaryMetadataResolver;
+    readonly LibraryBodyMethodReferenceResolver
+        _methodReferenceResolver;
     readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
+    readonly AssemblyReferenceIdentity _assemblyIdentity;
+    readonly object _asyncSiblingLookupCacheGate = new();
+    readonly object _asyncSiblingMethodsByNameGate = new();
+    readonly object _externalAsyncSiblingResolutionGate = new();
+    readonly Dictionary<
+        (
+            MemberRef Callee,
+            string ExactCalleeIdentity,
+            int CalleeDefinitionToken),
+        AsyncSiblingLookup?> _asyncSiblingLookupCache = [];
+    readonly Dictionary<
+        MetadataReader,
+        Dictionary<
+            TypeDefinitionHandle,
+            IReadOnlyDictionary<
+                string,
+                ImmutableArray<MethodDefinitionHandle>>>>
+        _asyncSiblingMethodsByName =
+            new(ReferenceEqualityComparer.Instance);
+    IReadOnlyDictionary<
+        MetadataTypeDefinitionName,
+        TypeDefinitionHandle>? _localTypeDefinitions;
+    IReadOnlyDictionary<
+        int,
+        MethodIdentity>? _asyncStateMachineSourceMethods;
+    IReadOnlySet<int>? _classicAsyncSourceMethodTokens;
+    IReadOnlySet<MetadataTypeDefinitionName>?
+        _ambiguousAsyncStateMachineTypes;
     readonly string _assemblyName;
     readonly Guid _mvid;
     readonly bool _memorySafetyRulesEnabled;
     readonly Action<MethodDefinitionHandle>? _methodBodyReferenceIndexed;
     readonly Action<MethodDefinitionHandle>? _stableReceiverGetterClassified;
-    readonly Action<MethodDefinitionHandle, int>? _methodReferenceResolved;
     readonly Action<TypeDefinitionHandle>? _sourceGeneratedTypeClassified;
     readonly Action? _typeDefinitionIndexBuilt;
     readonly Action? _parallelBuildStarting;
+    readonly Action<MetadataReader, MethodDefinitionHandle>?
+        _asyncSiblingMethodScanned;
     readonly ConcurrentDictionary<
         TypeDefinitionHandle,
         Lazy<IReadOnlyDictionary<string, ImmutableArray<MethodDefinitionHandle>>>>
@@ -54,34 +91,6 @@ internal sealed class LibraryBodyAnalysisBuilder :
         LiftedOwnerGroupKey,
         Lazy<LiftedOwnerGroupEvidence>>
         _liftedOwnerGroups = new();
-    readonly ConcurrentDictionary<BlobHandle, Lazy<SignatureIdentity>>
-        _methodReferenceSignatures = new();
-    readonly ConcurrentDictionary<SignatureIdentity, SignatureIdentity>
-        _canonicalMethodReferenceSignatures =
-            new(SignatureIdentityComparer.Instance);
-    readonly ConcurrentDictionary<
-        MethodDefinitionHandle,
-        Lazy<MemberRef>>
-        _resolvedMethodDefinitions = new();
-    // These assembly-owned caches are gated by
-    // OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce and
-    // OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies.
-    readonly ConcurrentDictionary<
-        MemberReferenceMetadataKey,
-        Lazy<MemberRef>>
-        _resolvedMemberReferences = new();
-    readonly ConcurrentDictionary<
-        MethodSpecificationResolutionKey,
-        Lazy<MemberRef>>
-        _resolvedMethodSpecifications = new();
-    readonly ConcurrentDictionary<
-        MemberReferenceParentKey,
-        Lazy<TypeRef>>
-        _memberReferenceDeclaringTypes = new();
-    readonly ConcurrentDictionary<
-        GenericScope,
-        GenericScopeIdentity>
-        _genericScopeIdentities = new();
     readonly ConcurrentDictionary<
         MethodDefinitionHandle,
         Lazy<bool>>
@@ -94,45 +103,62 @@ internal sealed class LibraryBodyAnalysisBuilder :
     readonly Lazy<MetadataTypeDefinitionIndex> _typeDefinitionIndex;
     readonly Dictionary<TypeDefinitionHandle, bool>
         _sourceGeneratedTypes = new();
-    long _methodReferenceSignatureWork;
-    long _methodReferenceDecodeWork;
 
     internal LibraryBodyAnalysisBuilder(
         string path,
         MetadataReader reader,
         PEReader peReader,
         IAssemblyReferenceResolver? resolver = null,
+        LibraryBodyRootSnapshot? rootSnapshot = null,
         Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
         Action<MethodDefinitionHandle>? stableReceiverGetterClassified = null,
         Action<MethodDefinitionHandle, int>? methodReferenceResolved = null,
         Action<TypeDefinitionHandle>? sourceGeneratedTypeClassified = null,
         Action? typeDefinitionIndexBuilt = null,
         Action? asyncStateMachineTypesBuilt = null,
-        Action? parallelBuildStarting = null)
+        Action? parallelBuildStarting = null,
+        Action<MetadataReader, MethodDefinitionHandle>?
+            asyncSiblingMethodScanned = null)
     {
         _path = path;
         _reader = reader;
         _peReader = peReader;
-        _assemblyName = reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : System.IO.Path.GetFileNameWithoutExtension(path);
-        _mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        _assemblyName = reader.IsAssembly
+            ? reader.GetString(
+                reader.GetAssemblyDefinition().Name)
+            : System.IO.Path.GetFileNameWithoutExtension(path);
+        _mvid = reader.GetGuid(
+            reader.GetModuleDefinition().Mvid);
+        _assemblyIdentity = reader.IsAssembly
+            ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
+            : new AssemblyReferenceIdentity(
+                _assemblyName,
+                null,
+                null,
+                null);
         _memorySafetyRulesEnabled = DetectMemorySafetyRules();
         _methodBodyReferenceIndexed = methodBodyReferenceIndexed;
         _stableReceiverGetterClassified =
             stableReceiverGetterClassified;
-        _methodReferenceResolved = methodReferenceResolved;
         _sourceGeneratedTypeClassified =
             sourceGeneratedTypeClassified;
         _typeDefinitionIndexBuilt = typeDefinitionIndexBuilt;
         _parallelBuildStarting = parallelBuildStarting;
+        _asyncSiblingMethodScanned =
+            asyncSiblingMethodScanned;
         _typeDefinitionIndex = new(
             BuildTypeDefinitionIndex,
             LazyThreadSafetyMode.ExecutionAndPublication);
+        _methodReferenceResolver =
+            new LibraryBodyMethodReferenceResolver(
+                reader,
+                methodReferenceResolved);
         _primaryMetadataResolver =
             new LibraryBodyPrimaryMetadataResolver(
                 reader,
                 _assemblyName,
                 _mvid,
-                ResolveMethod,
+                _methodReferenceResolver.ResolveMethod,
                 GenericParameterCanBeValueType,
                 IsStableReceiverGetter,
                 asyncStateMachineTypesBuilt);
@@ -141,7 +167,8 @@ internal sealed class LibraryBodyAnalysisBuilder :
                 new LibraryBodyReferenceMetadataResolver(
                     path,
                     reader,
-                    resolver);
+                    resolver,
+                    rootSnapshot);
     }
 
     public void Dispose() =>
@@ -231,6 +258,35 @@ internal sealed class LibraryBodyAnalysisBuilder :
         _primaryMetadataResolver.HasCompilerGeneratedAttribute(
             attributes);
 
+    void ILibraryMethodAnalysisInfrastructure.ValidateAsyncSource(
+        MethodIdentity method,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated) =>
+        _ = AsyncSourceMethod(
+            method,
+            methodDefinition,
+            typeSourceGenerated);
+
+    ImmutableArray<OptimizationOpportunity>
+        ILibraryMethodAnalysisInfrastructure
+            .CollectAsyncSiblingOpportunities(
+                MethodBodyAnalysisContext context,
+                ImmutableArray<DirectCall>.Builder calls,
+                MethodDefinition methodDefinition,
+                bool typeSourceGenerated,
+                ref MethodIdentity? asyncSource)
+    {
+        asyncSource = AsyncSourceMethod(
+            context.Method,
+            methodDefinition,
+            typeSourceGenerated);
+        return asyncSource is null
+            ? []
+            : CollectAsyncSiblingOpportunities(
+                context,
+                calls,
+                asyncSource);
+    }
     bool ILibraryMethodAnalysisInfrastructure.TryResolveLiftedSourceOwner(
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,
@@ -256,6 +312,26 @@ internal sealed class LibraryBodyAnalysisBuilder :
         _referenceMetadataResolver?.TryResolveExternalTypeDefinition(
             handle);
 
+    (MetadataReader DefiningReader, TypeDefinitionHandle Definition)?
+        TryResolveExternalTypeDefinition(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope,
+            MetadataTypeDefinitionName type) =>
+        _referenceMetadataResolver?.TryResolveExternalTypeDefinition(
+            identity,
+            scope,
+            type);
+
+    AssemblyResolutionScope ScopeForReference(
+        AssemblyReferenceHandle handle) =>
+        FrameworkAssemblyKeys.IsFrameworkReference(_reader, handle)
+            ? AssemblyResolutionScope.Platform
+            : AssemblyResolutionScope.Any;
+
+    static bool IsRecoverableMethodFailure(Exception exception) =>
+        LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(
+            exception);
+
     // Roslyn's ModuleSymbol.UseUpdatedMemorySafetyRules: the module opted in
     // when MemorySafetyRulesAttribute is applied (emitted [module:], like
     // RefSafetyRulesAttribute). Check the module and assembly scopes.
@@ -270,46 +346,116 @@ internal sealed class LibraryBodyAnalysisBuilder :
             && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
     }
 
+    static bool IsBlazorRenderMethod(MethodIdentity method) =>
+        LibraryMethodAnalysisRunner.IsBlazorRenderMethod(method);
+
+    internal bool ScopeMayRequireStateMachineBody(
+        IReadOnlySet<int> bodyScope)
+    {
+        foreach (int token in bodyScope)
+        {
+            EntityHandle handle =
+                MetadataTokens.EntityHandle(token);
+            if (handle.Kind
+                != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+            try
+            {
+                MethodDefinition method =
+                    _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)handle);
+                if (MethodClassificationScanner
+                        .ClassifyAsyncMethod(
+                            _reader,
+                            method)
+                    == MethodClassification.RuntimeAsync)
+                {
+                    continue;
+                }
+
+                AsyncStateMachineAttributeInfo attribute =
+                    AsyncStateMachineAttribute(
+                        method.GetCustomAttributes());
+                if (attribute.SerializedType is { } serializedType
+                    && StateMachineTypeDefinitionName(
+                        serializedType) is not null)
+                {
+                    return true;
+                }
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                continue;
+            }
+        }
+        return false;
+    }
+
     public LibraryBodyAnalysisResult Build(
         LibraryBodyAnalysisPlan plan)
     {
         bool includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
-        bool includeAllocations = plan.Includes(
-            LibraryBodyAnalysisFeatures.Allocations);
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
-        bool includeLeakTriage = plan.Includes(
-            LibraryBodyAnalysisFeatures.LeakTriage);
-        bool includeOwnershipFlow = plan.Includes(
-            LibraryBodyAnalysisFeatures.OwnershipFlow);
+        IReadOnlySet<int>? bodyScope = plan.MethodScope;
+        IReadOnlyDictionary<int, TypeRef>?
+            typeScopeEvidenceSources = null;
+        if (includeOpportunities
+            && (bodyScope is not null
+                || plan.TypeScope is not null))
+        {
+            bool mapRequired =
+                plan.TypeScope is not null
+                || bodyScope is not null
+                    && ScopeMayRequireStateMachineBody(
+                        bodyScope);
+            if (mapRequired)
+            {
+                var expandedScope =
+                    bodyScope is null
+                        ? new HashSet<int>()
+                        : new HashSet<int>(bodyScope);
+                var evidenceSources =
+                    new Dictionary<int, TypeRef>();
+                foreach ((
+                    int moveNextToken,
+                    MethodIdentity source)
+                    in AsyncStateMachineSourceMethods())
+                {
+                    evidenceSources.Add(
+                        moveNextToken,
+                        source.DeclaringType);
+                    if (bodyScope?.Contains(
+                            source.MetadataToken)
+                        == true)
+                    {
+                        expandedScope.Add(moveNextToken);
+                    }
+                }
+                if (bodyScope is not null)
+                    bodyScope = expandedScope;
+                typeScopeEvidenceSources =
+                    evidenceSources;
+            }
+        }
+        plan = plan with
+        {
+            MethodScope = bodyScope,
+            TypeScopeEvidenceSources =
+                typeScopeEvidenceSources,
+        };
         var methodRunner =
             new LibraryMethodAnalysisRunner(this);
-        IReadOnlySet<int>? bodyScope = plan.MethodScope;
+        var accumulator =
+            new LibraryBodyAnalysisAccumulator(
+                _reader,
+                _primaryMetadataResolver,
+                plan);
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
-        var declaredMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
-        var methods = ImmutableArray.CreateBuilder<MethodIdentity>();
-        var unsafeLeverageMethods = ImmutableArray.CreateBuilder<MethodIdentity>();
-        var calls = ImmutableArray.CreateBuilder<DirectCall>();
-        var unsafeEvidence = ImmutableArray.CreateBuilder<UnsafeEvidence>();
-        var diagnostics = ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
-        var optimizationOpportunities = ImmutableArray.CreateBuilder<OptimizationOpportunity>();
-        var bodySignals = new Dictionary<int, BodySignals>();
-        var allocationOccurrences = new Dictionary<int, ImmutableArray<AllocationOccurrence>>();
-        var unsafetyOccurrences = new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>();
-        var suppressedOpportunityTokens = new HashSet<int>();
-        var leakFindings = ImmutableArray.CreateBuilder<LeakTriageFinding>();
-        var leakCandidates = ImmutableArray.CreateBuilder<LeakTriageCandidate>();
-        var exceptionPathCandidates =
-            ImmutableArray.CreateBuilder<ArrayPoolExceptionPathCandidate>();
-        var leakFailures =
-            ImmutableArray.CreateBuilder<LeakTriageFailure>();
-        var ownershipFlow =
-            ImmutableArray.CreateBuilder<ArrayPoolOwnershipMethodEvidence>();
-        var exceptionTypeNames = includeMethodEvidence
-            ? ComputeExceptionTypeNames()
-            : new HashSet<string>(StringComparer.Ordinal);
-        int none = 0, impl = 0, expl = 0;
 
         // Flatten types->methods into a work list (cheap, reader-bound), then analyze each
         // method body. For a full (unscoped) build the analysis runs in parallel across cores;
@@ -338,6 +484,16 @@ internal sealed class LibraryBodyAnalysisBuilder :
         bool parallel = bodyScope is null && bodyTypeScope is null && workItems.Count >= ParallelBuildMethodThreshold;
         if (parallel)
         {
+            // Prewarm the reader-bound lookup maps so the parallel pass only
+            // reads their completed snapshots.
+            if (includeMethodEvidence)
+                _ = _primaryMetadataResolver
+                    .AsyncStateMachineTypes();
+            if (includeOpportunities)
+            {
+                _ = AsyncStateMachineSourceMethods();
+                _ = LocalTypeDefinitions();
+            }
             // Prewarm the async-state-machine set so it is fully computed before the parallel
             // pass reads it read-only.
             if (includeMethodEvidence || includeOpportunities)
@@ -368,160 +524,12 @@ internal sealed class LibraryBodyAnalysisBuilder :
             }
         }
 
-        // Merge per-method results in metadata order, reproducing the exact sequence of appends
-        // the original sequential loop performed. A method that hit a recoverable failure carries
-        // its partial contributions (accumulated before the throw) alongside its diagnostic, so
-        // even the failure path is byte-identical to the sequential build.
-        foreach (var r in results)
-        {
-            if (r.LeakTriage is { } leakTriage)
-            {
-                leakFindings.AddRange(leakTriage.Findings);
-                leakCandidates.AddRange(leakTriage.Candidates);
-                exceptionPathCandidates.AddRange(
-                    leakTriage.ExceptionPathCandidates);
-                leakFailures.AddRange(leakTriage.Failures);
-            }
-            if (r.OwnershipFlow is { } methodOwnership
-                && (!methodOwnership.Rents.IsEmpty
-                    || !methodOwnership.Parameters.IsEmpty
-                    || !methodOwnership.IsComplete))
-            {
-                ownershipFlow.Add(methodOwnership);
-            }
-            if (!r.HasCaller)
-            {
-                if (r.Diagnostic is not null)
-                    diagnostics.Add(r.Diagnostic);
-                continue;
-            }
-            switch (r.Mode)
-            {
-                case CallerUnsafeMode.Explicit: expl++; break;
-                case CallerUnsafeMode.Implicit: impl++; break;
-                default: none++; break;
-            }
-            declaredMethods.Add(r.Caller!);
-            if (!r.UnsafeEvidence.IsDefaultOrEmpty)
-                unsafeEvidence.AddRange(r.UnsafeEvidence);
-            if (r.IsLeverage)
-                unsafeLeverageMethods.Add(r.Caller!);
-            if (r.HasBody)
-                methods.Add(r.Caller!);
-            if (!r.Calls.IsDefaultOrEmpty)
-                calls.AddRange(r.Calls);
-            if (!r.Allocations.IsDefaultOrEmpty)
-                allocationOccurrences[r.Token] = r.Allocations;
-            if (!r.Unsafety.IsDefaultOrEmpty)
-                unsafetyOccurrences[r.Token] = r.Unsafety;
-            if (!r.Opportunities.IsDefaultOrEmpty)
-                optimizationOpportunities.AddRange(r.Opportunities);
-            if (r.Suppressed)
-                suppressedOpportunityTokens.Add(r.Token);
-            if (r.HasSignals)
-                bodySignals[r.Token] = r.Signals;
-            if (r.Diagnostic is not null)
-                diagnostics.Add(r.Diagnostic);
-        }
-
-        var methodArray = methods.ToImmutable();
-        var directCalls = calls.ToImmutable();
-        var nonHeapNewObjOperandTokens = includeMethodEvidence
-            ? ComputeNonHeapNewObjOperandTokens(directCalls)
-            : new HashSet<int>();
-        LeakTriageResult? leakTriageResult = includeLeakTriage
-            ? new LeakTriageResult(
-                leakFindings.ToImmutable(),
-                leakCandidates.ToImmutable())
-            {
-                ExceptionPathCandidates =
-                    exceptionPathCandidates.ToImmutable(),
-                Failures = leakFailures.ToImmutable(),
-            }
-            : null;
-        return new(
-            Methods: new(
-                DeclaredMethods: declaredMethods.ToImmutable(),
-                Methods: methodArray,
-                DirectCalls: directCalls,
-                BodySignals: bodySignals,
-                InAssemblyTypeIsException: includeMethodEvidence
-                    ? BuildInAssemblyExceptionMap()
-                    : new Dictionary<
-                        (string Namespace, string Name),
-                        bool>(),
-                NonHeapNewObjOperandTokens:
-                    nonHeapNewObjOperandTokens),
-            Safety: new(
-                Evidence: unsafeEvidence.ToImmutable(),
-                LeverageMethods: unsafeLeverageMethods.ToImmutable(),
-                UpdatedRulesEnabled: MemorySafetyRulesEnabled,
-                Modes: new UnsafeModeBreakdown(none, impl, expl),
-                Occurrences: unsafetyOccurrences),
-            Allocations: new(allocationOccurrences),
-            Optimizations: new(
-                Opportunities: optimizationOpportunities.ToImmutable(),
-                SuppressedMethodTokens: suppressedOpportunityTokens,
-                ExceptionTypeNames: exceptionTypeNames),
-            OwnershipFlow: new(ownershipFlow.ToImmutable()),
-            Resources: new(leakTriageResult),
-            Diagnostics: diagnostics.ToImmutable());
+        return accumulator.Build(results);
     }
 
     // Assemblies with at least this many methods use the parallel per-method analysis path.
     // Below it (and for all scoped member/type builds) the sequential path avoids thread overhead.
     const int ParallelBuildMethodThreshold = 200;
-
-    // (struct/enum) and therefore do not allocate on the heap (#1804). Classified here,
-    // during Build, where the metadata reader is available — the lazy signal and
-    // allocation-density paths run after the reader is released, so they consult this set
-    // by operand token. Resolves: framework/in-assembly value types by name, in-assembly
-    // value-type definitions, and cross-assembly GENERIC structs via the TypeSpec
-    // signature blob (the same authority box detection uses). A cross-assembly NON-generic
-    // user struct is a bare TypeRef whose value-type-ness is unresolvable from this
-    // assembly alone, so it is intentionally excluded (an owned false positive at the
-    // no-referenced-assembly-loading boundary, like the rung-2 `*Exception` suffix).
-    HashSet<int> ComputeNonHeapNewObjOperandTokens(ImmutableArray<DirectCall> directCalls)
-    {
-        var set = new HashSet<int>();
-        foreach (var call in directCalls)
-        {
-            if (call.Kind != CallKind.NewObject || set.Contains(call.OperandToken))
-                continue;
-            if (IsNonHeapNewObj(call.OperandToken, call.Callee.DeclaringType))
-                set.Add(call.OperandToken);
-        }
-        return set;
-    }
-
-    // True when a `newobj` of this operand constructs a value type. Combines a name-based
-    // FRAMEWORK fast path with an authoritative metadata resolution of the constructor's
-    // declaring type (TypeDef base chain, or TypeSpec signature blob for constructed
-    // generics) — the latter is what classifies in-assembly and cross-assembly structs.
-    bool IsNonHeapNewObj(int operandToken, TypeRef declaringType)
-    {
-        if (IsNonHeapConstructionByName(declaringType))
-            return true;
-        try
-        {
-            var handle = MetadataTokens.EntityHandle(operandToken);
-            EntityHandle typeHandle = handle.Kind switch
-            {
-                HandleKind.MethodDefinition => _reader.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType(),
-                HandleKind.MemberReference => _reader.GetMemberReference((MemberReferenceHandle)handle).Parent,
-                _ => default,
-            };
-            if (typeHandle.Kind == HandleKind.TypeDefinition)
-                return IsValueTypeDefinition((TypeDefinitionHandle)typeHandle);
-            if (typeHandle.Kind == HandleKind.TypeSpecification)
-                return IsValueTypeSpec((TypeSpecificationHandle)typeHandle);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
-        {
-            return false;
-        }
-        return false;
-    }
 
     // Name-based recognition of FRAMEWORK value types whose `newobj` resolves to a bare
     // TypeRef the token dispatch cannot follow (a non-generic framework struct like DateTime
@@ -545,106 +553,347 @@ internal sealed class LibraryBodyAnalysisBuilder :
         return IsWellKnownValueType(definition.Namespace, definition.Name);
     }
 
-    // Classifies in-assembly types by whether they derive from System.Exception,
-    // keyed by the same (namespace, name) the call index produces for a constructed
-    // type (TypeRefDecoder, so nested types key as "Outer+Inner" and generic types
-    // keep their arity-backtick name). MethodSignalAnalysis consults this so a
-    // constructed in-assembly `*Exception` lookalike that does not actually derive
-    // from System.Exception is not counted (#1572). Only types we can resolve
-    // authoritatively (the base chain reaches System.Exception or a known root such
-    // as System.Object) are recorded; a type whose chain hits an unresolvable
-    // external/generic base is omitted, so it falls back to the conservative
-    // name-suffix heuristic on its own name rather than on an unresolved base.
-    Dictionary<(string Namespace, string Name), bool> BuildInAssemblyExceptionMap()
+    MethodIdentity? AsyncSourceMethod(
+        MethodIdentity physicalMethod,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated)
     {
-        var map = new Dictionary<(string, string), bool>();
-        foreach (var handle in _reader.TypeDefinitions)
+        MethodClassification? classification =
+            MethodClassificationScanner.ClassifyAsyncMethod(
+                _reader,
+                methodDefinition);
+        if (classification
+            == MethodClassification.RuntimeAsync)
         {
-            if (ClassifyException(handle) is bool derives)
+            if (!HasAnalyzableIlBody(methodDefinition))
             {
-                var typeRef = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, handle, 0);
-                map[(typeRef.Namespace, typeRef.Name)] = derives;
+                throw new BadImageFormatException(
+                    "The async source method does not have an analyzable managed IL body.");
             }
+            return !typeSourceGenerated
+                && !HasGeneratedCodeAttribute(
+                    methodDefinition.GetCustomAttributes())
+                && !HasCompilerGeneratedAttribute(
+                    methodDefinition.GetCustomAttributes())
+                && !IsBlazorRenderMethod(physicalMethod)
+                    ? physicalMethod
+                    : null;
         }
-        return map;
 
-        // Tri-state base-chain walk: true = derives from System.Exception; false =
-        // definitely does not (the chain reaches System.Object/ValueType/Enum); null
-        // = cannot be determined here (an unresolved external base or a generic
-        // TypeSpecification base), so the caller defers to the name-suffix heuristic.
-        // In-assembly bases are followed; only a definitive framework anchor resolves
-        // the chain. The earlier "external base name ends with Exception" shortcut is
-        // intentionally gone: it produced both false positives (a non-exception
-        // external `*Exception` base) and authoritative false negatives (a real
-        // exception whose external base does not end in "Exception").
-        bool? ClassifyException(TypeDefinitionHandle start)
+        AsyncStateMachineAttributeInfo stateMachineAttribute =
+            AsyncStateMachineAttribute(
+                methodDefinition.GetCustomAttributes());
+        if (stateMachineAttribute.Rejected)
         {
-            var visited = new HashSet<TypeDefinitionHandle>();
-            var current = start;
-            while (visited.Add(current))
-            {
-                var baseHandle = _reader.GetTypeDefinition(current).BaseType;
-                if (baseHandle.IsNil)
-                    return false;
-                switch (baseHandle.Kind)
-                {
-                    case HandleKind.TypeReference:
-                        var baseRef = _reader.GetTypeReference((TypeReferenceHandle)baseHandle);
-                        var ns = _reader.GetString(baseRef.Namespace);
-                        var name = _reader.GetString(baseRef.Name);
-                        if (ns == "System" && name == "Exception")
-                            return true;
-                        if (ns == "System" && name is "Object" or "ValueType" or "Enum")
-                            return false;
-                        return null;
-                    case HandleKind.TypeDefinition:
-                        current = (TypeDefinitionHandle)baseHandle;
-                        continue;
-                    default:
-                        return null;
-                }
-            }
-            return false;
+            throw new BadImageFormatException(
+                "The async state-machine attribute is malformed or ambiguous.");
         }
+        if (stateMachineAttribute.Ignored)
+            return null;
+
+        if (methodDefinition.RelativeVirtualAddress == 0
+            && (stateMachineAttribute.Present
+                    && classification
+                        == MethodClassification.StateMachineAsync))
+        {
+            throw new BadImageFormatException(
+                "The async source method does not have an executable body.");
+        }
+
+        if (stateMachineAttribute.Present
+            && classification
+                == MethodClassification.StateMachineAsync)
+        {
+            if (typeSourceGenerated
+                || HasGeneratedCodeAttribute(
+                    methodDefinition.GetCustomAttributes())
+                || HasCompilerGeneratedAttribute(
+                    methodDefinition.GetCustomAttributes())
+                || IsBlazorRenderMethod(physicalMethod))
+            {
+                return null;
+            }
+
+            _ = AsyncStateMachineSourceMethods();
+            if (_classicAsyncSourceMethodTokens!.Contains(
+                    physicalMethod.MetadataToken))
+            {
+                return null;
+            }
+            throw new BadImageFormatException(
+                "The classic async source does not map to a unique valid state-machine body.");
+        }
+
+        if (physicalMethod.DeclaringType.Resolution?.Type
+                is not { } stateMachineType)
+        {
+            return null;
+        }
+        EntityHandle physicalHandle =
+            MetadataTokens.EntityHandle(
+                physicalMethod.MetadataToken);
+        if (physicalHandle.Kind
+                != HandleKind.MethodDefinition
+            || !ImplementsAsyncStateMachine(
+                _reader.GetTypeDefinition(
+                    methodDefinition.GetDeclaringType()))
+            || !IsMoveNextBody(
+                (MethodDefinitionHandle)physicalHandle))
+        {
+            return null;
+        }
+
+        IReadOnlyDictionary<
+            int,
+            MethodIdentity> sources =
+                AsyncStateMachineSourceMethods();
+        if (sources.TryGetValue(
+                physicalMethod.MetadataToken,
+                out MethodIdentity? source))
+        {
+            return source;
+        }
+        if (_ambiguousAsyncStateMachineTypes?.Contains(
+                stateMachineType) == true)
+        {
+            throw new BadImageFormatException(
+                "Multiple async source methods name this state-machine type.");
+        }
+        return null;
     }
 
-    IReadOnlySet<string> ComputeExceptionTypeNames()
+    IReadOnlyDictionary<
+        int,
+        MethodIdentity> AsyncStateMachineSourceMethods()
     {
-        var cache = new Dictionary<TypeDefinitionHandle, bool>();
-        var names = new HashSet<string>(StringComparer.Ordinal);
+        if (_asyncStateMachineSourceMethods is not null)
+            return _asyncStateMachineSourceMethods;
+
+        var methodsByType = new Dictionary<
+            MetadataTypeDefinitionName,
+            MethodIdentity>();
+        var ambiguous = new HashSet<MetadataTypeDefinitionName>();
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
-            if (IsExceptionTypeDefinition(typeHandle, cache))
-                names.Add(TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0).ToQualifiedDisplayString());
+            TypeDefinition typeDefinition;
+            try
+            {
+                typeDefinition =
+                    _reader.GetTypeDefinition(typeHandle);
+                if (IsSourceGeneratedTypeOrEnclosing(typeHandle))
+                {
+                    continue;
+                }
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                continue;
+            }
+
+            foreach (var methodHandle in typeDefinition.GetMethods())
+            {
+                try
+                {
+                    var methodDefinition =
+                        _reader.GetMethodDefinition(methodHandle);
+                    if (HasGeneratedCodeAttribute(
+                            methodDefinition.GetCustomAttributes())
+                        || HasCompilerGeneratedAttribute(
+                            methodDefinition.GetCustomAttributes()))
+                    {
+                        continue;
+                    }
+
+                    AsyncStateMachineAttributeInfo attribute =
+                        AsyncStateMachineAttribute(
+                            methodDefinition.GetCustomAttributes());
+                    if (attribute.Rejected
+                        || MethodClassificationScanner
+                            .ClassifyAsyncMethod(
+                                _reader,
+                                methodDefinition)
+                            == MethodClassification.RuntimeAsync
+                        || methodDefinition.RelativeVirtualAddress
+                            == 0
+                        || attribute.SerializedType is not
+                            { } serializedType
+                        || StateMachineTypeDefinitionName(serializedType)
+                            is not { } stateMachineType
+                        || ambiguous.Contains(stateMachineType))
+                    {
+                        continue;
+                    }
+
+                    var scope = CreateScope(
+                        typeDefinition,
+                        methodDefinition);
+                    MethodIdentity method = CreateMethodIdentity(
+                        typeHandle,
+                        methodHandle,
+                        methodDefinition,
+                        scope);
+                    if (IsBlazorRenderMethod(method))
+                        continue;
+
+                    if (!methodsByType.TryAdd(
+                            stateMachineType,
+                            method))
+                    {
+                        methodsByType.Remove(stateMachineType);
+                        ambiguous.Add(stateMachineType);
+                    }
+                }
+                catch (Exception ex)
+                    when (IsRecoverableMethodFailure(ex))
+                {
+                    // The normal per-method pass retains the malformed method's
+                    // diagnostic; source-map prewarming must not abort the index.
+                }
+            }
         }
-        return names;
+
+        var methods = new Dictionary<
+            int,
+            MethodIdentity>();
+        foreach ((
+            MetadataTypeDefinitionName stateMachineType,
+            MethodIdentity source) in methodsByType)
+        {
+            try
+            {
+                if (!LocalTypeDefinitions().TryGetValue(
+                        stateMachineType,
+                        out TypeDefinitionHandle typeHandle)
+                    || typeHandle.IsNil
+                    || !TryGetAsyncStateMachineMoveNext(
+                        typeHandle,
+                        out MethodDefinitionHandle moveNext))
+                {
+                    ambiguous.Add(stateMachineType);
+                    continue;
+                }
+
+                if (!methods.TryAdd(
+                        MetadataTokens.GetToken(moveNext),
+                        source))
+                {
+                    ambiguous.Add(stateMachineType);
+                    methods.Remove(
+                        MetadataTokens.GetToken(moveNext));
+                }
+            }
+            catch (Exception ex)
+                when (IsRecoverableMethodFailure(ex))
+            {
+                ambiguous.Add(stateMachineType);
+            }
+        }
+
+        _ambiguousAsyncStateMachineTypes = ambiguous;
+        _classicAsyncSourceMethodTokens =
+            new HashSet<int>(
+                methods.Values.Select(
+                    source => source.MetadataToken));
+        _asyncStateMachineSourceMethods = methods;
+        return methods;
     }
 
-    bool IsExceptionTypeDefinition(TypeDefinitionHandle typeHandle, Dictionary<TypeDefinitionHandle, bool> cache)
+    bool TryGetAsyncStateMachineMoveNext(
+        TypeDefinitionHandle typeHandle,
+        out MethodDefinitionHandle moveNext)
     {
-        if (cache.TryGetValue(typeHandle, out bool cached))
-            return cached;
-
-        var baseHandle = _reader.GetTypeDefinition(typeHandle).BaseType;
-        if (baseHandle.IsNil)
-        {
-            cache[typeHandle] = false;
+        moveNext = default;
+        var type = _reader.GetTypeDefinition(typeHandle);
+        if (!ImplementsAsyncStateMachine(type))
             return false;
-        }
-        bool result = baseHandle.Kind switch
+
+        foreach (var handle
+            in type.GetMethodImplementations())
         {
-            HandleKind.TypeReference => IsExceptionReference(MetadataTokens.TypeReferenceHandle(MetadataTokens.GetRowNumber(baseHandle))),
-            HandleKind.TypeDefinition => IsExceptionTypeDefinition(MetadataTokens.TypeDefinitionHandle(MetadataTokens.GetRowNumber(baseHandle)), cache),
-            _ => false,
-        };
-        cache[typeHandle] = result;
-        return result;
+            var implementation =
+                _reader.GetMethodImplementation(handle);
+            MemberRef declaration =
+                MemberResolver.ResolveMethod(
+                    _reader,
+                    implementation.MethodDeclaration,
+                    GenericScope.Empty);
+            if (!IsAsyncStateMachineMoveNextDeclaration(
+                    declaration))
+            {
+                continue;
+            }
+            if (!moveNext.IsNil
+                || implementation.MethodBody.Kind
+                    != HandleKind.MethodDefinition)
+            {
+                return false;
+            }
+
+            var body = (MethodDefinitionHandle)
+                implementation.MethodBody;
+            MethodDefinition bodyDefinition =
+                _reader.GetMethodDefinition(body);
+            if (bodyDefinition.GetDeclaringType()
+                    != typeHandle
+                || !HasAnalyzableIlBody(bodyDefinition)
+                || !IsMoveNextBody(body))
+            {
+                return false;
+            }
+            moveNext = body;
+        }
+        if (!moveNext.IsNil)
+            return true;
+
+        foreach (var handle in type.GetMethods())
+        {
+            if (!HasAnalyzableIlBody(
+                    _reader.GetMethodDefinition(handle))
+                || !IsMoveNextBody(handle)
+                || !_reader.StringComparer.Equals(
+                    _reader.GetMethodDefinition(handle).Name,
+                    "MoveNext"))
+            {
+                continue;
+            }
+            if (!moveNext.IsNil)
+                return false;
+            moveNext = handle;
+        }
+        return !moveNext.IsNil;
     }
 
-    bool IsExceptionReference(TypeReferenceHandle handle)
+    static bool HasAnalyzableIlBody(
+        MethodDefinition method)
+        => method.RelativeVirtualAddress != 0
+            && (method.Attributes
+                    & MethodAttributes.PinvokeImpl) == 0
+            && (method.ImplAttributes
+                    & (MethodImplAttributes.CodeTypeMask
+                        | MethodImplAttributes.ManagedMask
+                        | MethodImplAttributes.InternalCall))
+                == MethodImplAttributes.IL;
+
+    bool ImplementsAsyncStateMachine(
+        TypeDefinition type)
     {
-        var type = TypeRefDecoder.Instance.GetTypeFromReference(_reader, handle, 0);
-        return type.Name.EndsWith("Exception", StringComparison.Ordinal);
+        foreach (var handle
+            in type.GetInterfaceImplementations())
+        {
+            TypeRef interfaceType = TypeFromEntity(
+                _reader.GetInterfaceImplementation(
+                    handle).Interface);
+            if (FrameworkIdentity.IsKnownFrameworkType(
+                    DefinitionType(interfaceType),
+                    "System.Threading.Tasks",
+                    "System.Runtime.CompilerServices",
+                    "IAsyncStateMachine"))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
@@ -759,6 +1008,268 @@ internal sealed class LibraryBodyAnalysisBuilder :
         return false;
     }
 
+    bool IsMoveNextBody(
+        MethodDefinitionHandle handle)
+    {
+        MemberRef method = MemberResolver.ResolveMethod(
+            _reader,
+            handle,
+            GenericScope.Empty);
+        return method.HasThis
+            && method.GenericArity == 0
+            && method.ParameterTypes.Length == 0
+            && method.SignatureHeader == 0x20
+            && method.RequiredParameterCount == 0
+            && FrameworkIdentity.IsCoreLibraryType(
+                method.ReturnType,
+                "System",
+                "Void");
+    }
+
+    static bool IsAsyncStateMachineMoveNextDeclaration(
+        MemberRef declaration)
+        => declaration.Name == "MoveNext"
+            && declaration.HasThis
+            && declaration.GenericArity == 0
+            && declaration.ParameterTypes.Length == 0
+            && declaration.SignatureHeader == 0x20
+            && declaration.RequiredParameterCount == 0
+            && FrameworkIdentity.IsKnownFrameworkType(
+                DefinitionType(
+                    declaration.DeclaringType),
+                "System.Threading.Tasks",
+                "System.Runtime.CompilerServices",
+                "IAsyncStateMachine")
+            && FrameworkIdentity.IsCoreLibraryType(
+                declaration.ReturnType,
+                "System",
+                "Void");
+
+    readonly record struct AsyncStateMachineAttributeInfo(
+        bool Present,
+        bool Rejected,
+        bool Ignored,
+        string? SerializedType);
+
+    AsyncStateMachineAttributeInfo AsyncStateMachineAttribute(
+        CustomAttributeHandleCollection attributes)
+    {
+        bool sawAttribute = false;
+        string? serializedType = null;
+        foreach (var handle in attributes)
+        {
+            var attribute = _reader.GetCustomAttribute(handle);
+            string? name = AttributeDecoder.GetAttributeTypeName(
+                _reader,
+                attribute.Constructor);
+            if (name is not (
+                    KnownAttributeNames.AsyncStateMachineAttribute
+                    or KnownAttributeNames.AsyncIteratorStateMachineAttribute))
+            {
+                continue;
+            }
+            if (!TryGetTrustedAsyncStateMachineAttribute(
+                    _reader,
+                    attribute.Constructor,
+                    name,
+                    out MemberRef constructor))
+            {
+                continue;
+            }
+            if (!HasAsyncStateMachineConstructorShape(
+                    constructor))
+            {
+                return new(
+                    Present: true,
+                    Rejected: true,
+                    Ignored: false,
+                    SerializedType: null);
+            }
+
+            if (sawAttribute)
+            {
+                return new(
+                    Present: true,
+                    Rejected: true,
+                    Ignored: false,
+                    SerializedType: null);
+            }
+            sawAttribute = true;
+
+            if (TryReadSerializedStateMachineType(
+                    attribute,
+                    out string? typeName))
+            {
+                if (IsCurrentAssemblyStateMachineType(typeName))
+                    serializedType = typeName;
+                continue;
+            }
+
+            return new(
+                Present: true,
+                Rejected: true,
+                Ignored: false,
+                SerializedType: null);
+        }
+        return new(
+            Present: sawAttribute,
+            Rejected: false,
+            Ignored: sawAttribute
+                && serializedType is null,
+            serializedType);
+    }
+
+    internal static bool IsTrustedAsyncStateMachineAttribute(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string attributeName)
+        => TryGetTrustedAsyncStateMachineAttribute(
+                reader,
+                constructor,
+                attributeName,
+                out MemberRef member)
+            && HasAsyncStateMachineConstructorShape(member);
+
+    static bool TryGetTrustedAsyncStateMachineAttribute(
+        MetadataReader reader,
+        EntityHandle constructor,
+        string attributeName,
+        out MemberRef member)
+    {
+        member = MemberResolver.ResolveMethod(
+            reader,
+            constructor,
+            GenericScope.Empty);
+        int separator = attributeName.LastIndexOf('.');
+        string ns = separator < 0
+            ? ""
+            : attributeName[..separator];
+        string name = separator < 0
+            ? attributeName
+            : attributeName[(separator + 1)..];
+        return FrameworkIdentity.IsCoreLibraryType(
+                DefinitionType(member.DeclaringType),
+                ns,
+                name);
+    }
+
+    static bool HasAsyncStateMachineConstructorShape(
+        MemberRef member)
+        => member.Name == ".ctor"
+            && member.Kind == MemberKind.Constructor
+            && member.HasThis
+            && member.GenericArity == 0
+            && member.SignatureHeader == 0x20
+            && member.RequiredParameterCount == 1
+            && member.ParameterTypes.Length == 1
+            && FrameworkIdentity.IsCoreLibraryType(
+                member.ParameterTypes[0],
+                "System",
+                "Type")
+            && FrameworkIdentity.IsCoreLibraryType(
+                member.ReturnType,
+                "System",
+                "Void");
+
+    bool TryReadSerializedStateMachineType(
+        CustomAttribute attribute,
+        [NotNullWhen(true)] out string? serializedType)
+    {
+        serializedType = null;
+        try
+        {
+            BlobReader value = _reader.GetBlobReader(
+                attribute.Value);
+            if (value.ReadUInt16() != 0x0001)
+                return false;
+            serializedType = value.ReadSerializedString();
+            return serializedType is not null
+                && value.ReadUInt16() == 0
+                && value.RemainingBytes == 0;
+        }
+        catch (Exception ex)
+            when (IsRecoverableMethodFailure(ex))
+        {
+            serializedType = null;
+            return false;
+        }
+    }
+
+    bool IsCurrentAssemblyStateMachineType(
+        string serializedType)
+    {
+        int separator = serializedType.IndexOf(',');
+        if (separator < 0)
+            return true;
+
+        string[] assemblyParts =
+            serializedType[(separator + 1)..].Split(',');
+        if (assemblyParts.Length == 0
+            || !string.Equals(
+                assemblyParts[0].Trim(),
+                _assemblyIdentity.Name,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        foreach (string part in assemblyParts.Skip(1))
+        {
+            int equals = part.IndexOf('=');
+            if (equals < 0)
+                return false;
+            string key = part[..equals].Trim();
+            string value = part[(equals + 1)..].Trim();
+            if (key.Equals(
+                    "Version",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Version.TryParse(
+                        value,
+                        out Version? version)
+                    || version != _assemblyIdentity.Version)
+                {
+                    return false;
+                }
+            }
+            else if (key.Equals(
+                    "Culture",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                string? culture = value.Equals(
+                    "neutral",
+                    StringComparison.OrdinalIgnoreCase)
+                        ? null
+                        : value;
+                if (!string.Equals(
+                        culture,
+                        _assemblyIdentity.Culture,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+            else if (key.Equals(
+                    "PublicKeyToken",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                string? token = value.Equals(
+                    "null",
+                    StringComparison.OrdinalIgnoreCase)
+                        ? null
+                        : value;
+                if (!string.Equals(
+                        token,
+                        _assemblyIdentity.PublicKeyToken,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     // True when the member/type is marked [System.CodeDom.Compiler.GeneratedCode] —
     // the universal source-generator signal (System.Text.Json, regex, etc.). Such code
     // has ordinary names (so the compiler-generated name heuristics miss it) but is not
@@ -844,179 +1355,49 @@ internal sealed class LibraryBodyAnalysisBuilder :
         TypeDefinitionHandle Type,
         MethodDefinitionHandle Method);
 
-    sealed record SignatureIdentity(byte[] Bytes, int HashCode);
-
-    // TypeRef shape equality deliberately excludes resolution provenance. Lifted-owner
-    // authentication cannot: LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope
-    // gates this narrower identity.
-    sealed class ScopeAwareTypeIdentity : IEquatable<ScopeAwareTypeIdentity>
+    static MetadataTypeDefinitionName?
+        StateMachineTypeDefinitionName(string serializedName)
     {
-        readonly int _hashCode;
-
-        public ScopeAwareTypeIdentity(TypeRef type)
-        {
-            Type = type;
-            _hashCode = ScopeAwareTypeHashCode(type);
-        }
-
-        public TypeRef Type { get; }
-
-        public bool Equals(ScopeAwareTypeIdentity? other) =>
-            other is not null
-            && ScopeAwareTypeEquals(Type, other.Type);
-
-        public override bool Equals(object? obj) =>
-            Equals(obj as ScopeAwareTypeIdentity);
-
-        public override int GetHashCode() => _hashCode;
+        int assemblySeparator = serializedName.IndexOf(',');
+        ReadOnlySpan<char> typeName = (
+            assemblySeparator < 0
+                ? serializedName.AsSpan()
+                : serializedName.AsSpan(0, assemblySeparator)).Trim();
+        if (typeName.IsEmpty || typeName.IndexOf('[') >= 0)
+            return null;
+        int nestedSeparator = typeName.IndexOf('+');
+        int rootEnd = nestedSeparator < 0
+            ? typeName.Length
+            : nestedSeparator;
+        int namespaceEnd = typeName[..rootEnd].LastIndexOf('.');
+        string ns = namespaceEnd < 0
+            ? ""
+            : typeName[..namespaceEnd].ToString();
+        string segments = typeName[(namespaceEnd + 1)..].ToString();
+        return MetadataTypeDefinitionName.Create(
+            ns,
+            [.. segments.Split('+')])
+            is MetadataTypeDefinitionNameResult.Valid valid
+                ? valid.Name
+                : null;
     }
 
-    sealed class GenericScopeIdentity : IEquatable<GenericScopeIdentity>
+    static bool HasGenericConstraints(
+        MetadataReader reader,
+        MethodDefinition method)
     {
-        readonly int _hashCode;
-
-        public GenericScopeIdentity(GenericScope scope)
+        foreach (var handle in method.GetGenericParameters())
         {
-            TypeParameters = scope.TypeParameters;
-            MethodParameters = scope.MethodParameters;
-            var hash = new HashCode();
-            foreach (string parameter in TypeParameters)
-                hash.Add(parameter, StringComparer.Ordinal);
-            hash.Add(TypeParameters.Length);
-            foreach (string parameter in MethodParameters)
-                hash.Add(parameter, StringComparer.Ordinal);
-            hash.Add(MethodParameters.Length);
-            _hashCode = hash.ToHashCode();
-        }
-
-        public ImmutableArray<string> TypeParameters { get; }
-        public ImmutableArray<string> MethodParameters { get; }
-
-        public bool Equals(GenericScopeIdentity? other) =>
-            ReferenceEquals(this, other)
-            || other is not null
-            && _hashCode == other._hashCode
-            && TypeParameters.SequenceEqual(
-                other.TypeParameters,
-                StringComparer.Ordinal)
-            && MethodParameters.SequenceEqual(
-                other.MethodParameters,
-                StringComparer.Ordinal);
-
-        public override bool Equals(object? obj) =>
-            Equals(obj as GenericScopeIdentity);
-
-        public override int GetHashCode() => _hashCode;
-    }
-
-    readonly record struct MethodReferenceKey(
-        string Name,
-        ScopeAwareTypeIdentity DeclaringType,
-        SignatureIdentity Signature);
-
-    readonly record struct MemberReferenceMetadataKey(
-        ScopeAwareTypeIdentity DeclaringType,
-        string Name,
-        SignatureIdentity Signature,
-        GenericScopeIdentity Scope);
-
-    readonly record struct MemberReferenceParentKey(
-        EntityHandle Parent,
-        GenericScopeIdentity Scope);
-
-    readonly record struct MethodTargetIdentity(
-        int MethodDefinitionToken,
-        MemberReferenceMetadataKey? MemberReference);
-
-    readonly record struct MethodSpecificationResolutionKey(
-        MethodTargetIdentity Target,
-        SignatureIdentity Signature,
-        GenericScopeIdentity Scope);
-
-    sealed class SignatureIdentityComparer
-        : IEqualityComparer<SignatureIdentity>
-    {
-        public static SignatureIdentityComparer Instance { get; } =
-            new();
-
-        public bool Equals(
-            SignatureIdentity? x,
-            SignatureIdentity? y) =>
-            x is not null
-            && y is not null
-            && SignatureIdentityEquals(x, y);
-
-        public int GetHashCode(SignatureIdentity obj) =>
-            obj.HashCode;
-    }
-
-    sealed class MethodReferenceKeyComparer
-        : IEqualityComparer<MethodReferenceKey>
-    {
-        public static MethodReferenceKeyComparer Instance { get; } = new();
-
-        public bool Equals(MethodReferenceKey x, MethodReferenceKey y)
-            => x.Name == y.Name
-                && x.DeclaringType.Equals(y.DeclaringType)
-                && SignatureIdentityEquals(x.Signature, y.Signature);
-
-        public int GetHashCode(MethodReferenceKey obj)
-            => HashCode.Combine(
-                StringComparer.Ordinal.GetHashCode(obj.Name),
-                obj.DeclaringType,
-                obj.Signature.HashCode);
-    }
-
-    static bool ScopeAwareTypeEquals(TypeRef left, TypeRef right)
-    {
-        if (!left.Equals(right)
-            || !Equals(left.Resolution, right.Resolution))
-        {
-            return false;
-        }
-        if (left.ElementType is { } leftElement)
-        {
-            if (right.ElementType is not { } rightElement
-                || !ScopeAwareTypeEquals(leftElement, rightElement))
+            var parameter = reader.GetGenericParameter(handle);
+            if (parameter.Attributes
+                    != GenericParameterAttributes.None
+                || parameter.GetConstraints().Count > 0)
             {
-                return false;
+                return true;
             }
         }
-        for (int i = 0; i < left.TypeArguments.Length; i++)
-        {
-            if (!ScopeAwareTypeEquals(
-                    left.TypeArguments[i],
-                    right.TypeArguments[i]))
-            {
-                return false;
-            }
-        }
-        return true;
+        return false;
     }
-
-    static int ScopeAwareTypeHashCode(TypeRef type)
-    {
-        var hash = new HashCode();
-        hash.Add(type);
-        hash.Add(type.Resolution);
-        if (type.ElementType is { } element)
-            hash.Add(ScopeAwareTypeHashCode(element));
-        foreach (TypeRef argument in type.TypeArguments)
-            hash.Add(ScopeAwareTypeHashCode(argument));
-        return hash.ToHashCode();
-    }
-
-    internal static bool SameMethodReferenceDeclaringType(
-        TypeRef left,
-        TypeRef right) =>
-        ScopeAwareTypeEquals(left, right);
-
-    static bool SignatureIdentityEquals(
-        SignatureIdentity x,
-        SignatureIdentity y) =>
-        ReferenceEquals(x, y)
-        || (x.HashCode == y.HashCode
-            && x.Bytes.AsSpan().SequenceEqual(y.Bytes));
 
     sealed record MethodBodyReferenceEvidence(
         IReadOnlySet<int> CalledDefinitions,
@@ -1163,11 +1544,11 @@ internal sealed class LibraryBodyAnalysisBuilder :
         TypeDefinitionHandle ownerType = chain[ownerIndex];
         TypeDefinition ownerDefinition = _reader.GetTypeDefinition(ownerType);
         string ownerName = liftedName[1..close];
-        var member = new MethodReferenceKey(
-            liftedIdentity.Name,
-            new ScopeAwareTypeIdentity(
-                liftedIdentity.DeclaringType),
-            Signature(liftedMethod.Signature));
+        MethodReferenceKey member =
+            _methodReferenceResolver.CreateIdentity(
+                liftedIdentity.Name,
+                liftedIdentity.DeclaringType,
+                liftedMethod.Signature);
         LiftedOwnerGroupEvidence ownerGroup =
             LiftedOwnerGroup(ownerType, ownerName);
         if (!ownerGroup.TryResolve(
@@ -1436,7 +1817,7 @@ internal sealed class LibraryBodyAnalysisBuilder :
                     if (operand.Kind
                         == HandleKind.MethodSpecification)
                     {
-                        _ = ResolveMethod(
+                        _ = _methodReferenceResolver.ResolveMethod(
                             operand,
                             scope,
                             methodHandle);
@@ -1472,24 +1853,11 @@ internal sealed class LibraryBodyAnalysisBuilder :
                 if (handle.Kind != HandleKind.MemberReference)
                     continue;
 
-                MemberReferenceHandle memberHandle =
-                    (MemberReferenceHandle)handle;
-                MemberReferenceMetadataKey referenceIdentity =
-                    MemberReferenceIdentity(
-                        memberHandle,
-                        scope);
-                MemberRef target = ResolveMethod(
-                    memberHandle,
-                    scope,
-                    methodHandle);
-                TypeRef targetDefinition =
-                    target.DeclaringType.Kind == TypeRefKind.GenericInstance
-                        ? target.DeclaringType.ElementType!
-                        : target.DeclaringType;
-                referencedMembers.Add(new MethodReferenceKey(
-                    target.Name,
-                    new ScopeAwareTypeIdentity(targetDefinition),
-                    referenceIdentity.Signature));
+                referencedMembers.Add(
+                    _methodReferenceResolver.ResolveIdentity(
+                        (MemberReferenceHandle)handle,
+                        scope,
+                        methodHandle));
             }
             catch (Exception ex)
                 when (LibraryMethodAnalysisRunner
@@ -1504,336 +1872,6 @@ internal sealed class LibraryBodyAnalysisBuilder :
             referencedMembers,
             callFailure,
             referenceFailure);
-    }
-
-    SignatureIdentity Signature(BlobHandle handle)
-        => _methodReferenceSignatures.GetOrAdd(
-            handle,
-            blob => new Lazy<SignatureIdentity>(
-                () => BuildSignature(blob),
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
-
-    SignatureIdentity BuildSignature(BlobHandle handle)
-    {
-        int length = _reader.GetBlobReader(handle).Length;
-        ReserveMethodReferenceSignatureWork(Math.Max(length, 1));
-        byte[] bytes = _reader.GetBlobBytes(handle);
-        var hash = new HashCode();
-        foreach (byte value in bytes)
-            hash.Add(value);
-        var identity = new SignatureIdentity(
-            bytes,
-            hash.ToHashCode());
-        return _canonicalMethodReferenceSignatures.GetOrAdd(
-            identity,
-            identity);
-    }
-
-    MemberReferenceMetadataKey MemberReferenceIdentity(
-        MemberReferenceHandle handle,
-        GenericScope scope)
-    {
-        MemberReference reference =
-            _reader.GetMemberReference(handle);
-        TypeRef declaringType =
-            ResolveMemberReferenceDeclaringType(
-                reference.Parent,
-                scope);
-        return new(
-            new ScopeAwareTypeIdentity(declaringType),
-            _reader.GetString(reference.Name),
-            Signature(reference.Signature),
-            MemberReferenceScope(
-                reference.Parent,
-                scope));
-    }
-
-    TypeRef ResolveMemberReferenceDeclaringType(
-        EntityHandle parent,
-        GenericScope scope)
-        => _memberReferenceDeclaringTypes.GetOrAdd(
-            new(
-                parent,
-                MemberReferenceScope(
-                    parent,
-                    scope)),
-            key => new Lazy<TypeRef>(
-                () => key.Parent.Kind switch
-                {
-                    HandleKind.TypeDefinition =>
-                        TypeRefDecoder.Instance.GetTypeFromDefinition(
-                            _reader,
-                            (TypeDefinitionHandle)key.Parent,
-                            0),
-                    HandleKind.TypeReference =>
-                        TypeRefDecoder.Instance.GetTypeFromReference(
-                            _reader,
-                            (TypeReferenceHandle)key.Parent,
-                            0),
-                    HandleKind.TypeSpecification =>
-                        TypeRefDecoder.Instance.GetTypeFromSpecification(
-                            _reader,
-                            scope,
-                            (TypeSpecificationHandle)key.Parent,
-                            0),
-                    _ => TypeRef.Unsupported(
-                        $"member parent kind {key.Parent.Kind}"),
-                },
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
-
-    GenericScopeIdentity MemberReferenceScope(
-        EntityHandle parent,
-        GenericScope scope) =>
-        ScopeIdentity(
-            parent.Kind == HandleKind.TypeSpecification
-                ? scope
-                : GenericScope.Empty);
-
-    GenericScopeIdentity ScopeIdentity(GenericScope scope) =>
-        _genericScopeIdentities.GetOrAdd(
-            scope,
-            static value => new(value));
-
-    MemberRef ResolveMethod(
-        EntityHandle handle,
-        GenericScope scope,
-        MethodDefinitionHandle caller)
-    {
-        return handle.Kind switch
-        {
-            HandleKind.MethodDefinition =>
-                _resolvedMethodDefinitions.GetOrAdd(
-                    (MethodDefinitionHandle)handle,
-                    method => new Lazy<MemberRef>(
-                        () => MemberResolver.ResolveMethod(
-                            _reader,
-                            method,
-                            scope),
-                        LazyThreadSafetyMode.ExecutionAndPublication)).Value,
-            HandleKind.MemberReference =>
-                ResolveMemberReference(
-                    (MemberReferenceHandle)handle,
-                    scope,
-                    caller),
-            HandleKind.MethodSpecification =>
-                ResolveMethodSpecification(
-                    (MethodSpecificationHandle)handle,
-                    scope,
-                    caller),
-            _ => MemberRef.Unsupported(
-                $"callee handle kind {handle.Kind}"),
-        };
-    }
-
-    MemberRef ResolveMemberReference(
-        MemberReferenceHandle handle,
-        GenericScope scope,
-        MethodDefinitionHandle caller)
-    {
-        MemberReferenceMetadataKey identity =
-            MemberReferenceIdentity(handle, scope);
-        return _resolvedMemberReferences.GetOrAdd(
-            identity,
-            _ => new Lazy<MemberRef>(
-                () =>
-                {
-                    ReserveMethodReferenceDecodeWork(
-                        identity.Signature.Bytes.Length);
-                    _methodReferenceResolved?.Invoke(
-                        caller,
-                        MetadataTokens.GetToken(handle));
-                    return MemberResolver.ResolveMethod(
-                        _reader,
-                        handle,
-                        scope);
-                },
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
-    }
-
-    MemberRef ResolveMethodSpecification(
-        MethodSpecificationHandle handle,
-        GenericScope scope,
-        MethodDefinitionHandle caller)
-    {
-        MethodSpecification specification =
-            _reader.GetMethodSpecification(handle);
-        MemberRef target = ResolveMethod(
-            specification.Method,
-            scope,
-            caller);
-        MethodTargetIdentity targetIdentity =
-            specification.Method.Kind switch
-            {
-                HandleKind.MethodDefinition => new(
-                    MetadataTokens.GetToken(specification.Method),
-                    null),
-                HandleKind.MemberReference => new(
-                    0,
-                    MemberReferenceIdentity(
-                        (MemberReferenceHandle)specification.Method,
-                        scope)),
-                _ => throw new BadImageFormatException(
-                    "The MethodSpec target is not a method definition or reference."),
-            };
-        var key = new MethodSpecificationResolutionKey(
-            targetIdentity,
-            Signature(specification.Signature),
-            ScopeIdentity(scope));
-        return _resolvedMethodSpecifications.GetOrAdd(
-            key,
-            _ => new Lazy<MemberRef>(
-                () =>
-                {
-                    ReserveMethodReferenceDecodeWork(
-                        key.Signature.Bytes.Length);
-                    return DecodeMethodSpecification(
-                        specification,
-                        target,
-                        scope);
-                },
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
-    }
-
-    MemberRef DecodeMethodSpecification(
-        MethodSpecification specification,
-        MemberRef target,
-        GenericScope scope)
-    {
-        if (!SignatureBlobGuard.IsSafeToDecode(
-                _reader,
-                specification.Signature,
-                SignatureBlobGuard.Kind.MethodSpecification))
-        {
-            throw new BadImageFormatException(
-                "The MethodSpec signature exceeds its structural limits.");
-        }
-
-        ImmutableArray<TypeRef> arguments =
-            specification.DecodeSignature(
-                TypeRefDecoder.Instance,
-                scope);
-        if (target.Kind == MemberKind.Unsupported
-            || target.GenericArity == 0
-            || arguments.Length != target.GenericArity
-            || arguments.Any(argument =>
-                ContainsMalformedMethodSpecificationType(
-                    argument,
-                    scope)))
-        {
-            throw new BadImageFormatException(
-                "The MethodSpec signature is invalid for its target and caller scope.");
-        }
-
-        return target with
-        {
-            TypeArguments = arguments,
-            ReturnType = target.ReturnType.Instantiate(
-                [],
-                arguments),
-            ParameterTypes =
-            [
-                .. target.ParameterTypes.Select(
-                    parameter => parameter.Instantiate(
-                        [],
-                        arguments)),
-            ],
-        };
-    }
-
-    void ReserveMethodReferenceSignatureWork(int charge)
-        => ReserveMethodReferenceWork(
-            ref _methodReferenceSignatureWork,
-            charge,
-            "Method-reference signature identity work exceeds the assembly budget.");
-
-    void ReserveMethodReferenceDecodeWork(int charge)
-        => ReserveMethodReferenceWork(
-            ref _methodReferenceDecodeWork,
-            Math.Max(charge, 1),
-            "Method-reference decoding work exceeds the assembly budget.");
-
-    static void ReserveMethodReferenceWork(
-        ref long work,
-        int charge,
-        string failure)
-    {
-        while (true)
-        {
-            long current = Volatile.Read(
-                ref work);
-            if (current < 0
-                || charge
-                    > MetadataSafetyPolicy.MaxStructuralSignatureWorkChars
-                        - current)
-            {
-                Interlocked.Exchange(
-                    ref work,
-                    -1);
-                throw new BadImageFormatException(
-                    failure);
-            }
-            if (Interlocked.CompareExchange(
-                    ref work,
-                    current + charge,
-                    current)
-                == current)
-            {
-                return;
-            }
-        }
-    }
-
-    static bool ContainsMalformedMethodSpecificationType(
-        TypeRef type,
-        GenericScope scope)
-    {
-        if (type.Kind == TypeRefKind.GenericParameter
-            && (type.GenericParameterIndex < 0
-                || type.GenericParameterIndex
-                    >= scope.TypeParameters.Length)
-            || type.Kind == TypeRefKind.MethodGenericParameter
-                && (type.GenericParameterIndex < 0
-                    || type.GenericParameterIndex
-                        >= scope.MethodParameters.Length))
-        {
-            return true;
-        }
-        if (type.Kind == TypeRefKind.Unsupported)
-        {
-            if (type.UnmodifiedType is { } unmodified)
-            {
-                return ContainsMalformedMethodSpecificationType(
-                        unmodified,
-                        scope)
-                    || (type.ModifierType is { } modifier
-                        && ContainsMalformedMethodSpecificationType(
-                            modifier,
-                            scope));
-            }
-            if (type.FunctionPointerSignature is { } function)
-            {
-                return ContainsMalformedMethodSpecificationType(
-                        function.ReturnType,
-                        scope)
-                    || function.ParameterTypes.Any(
-                        parameter =>
-                            ContainsMalformedMethodSpecificationType(
-                                parameter,
-                                scope));
-            }
-            return true;
-        }
-        if (type.ElementType is { } element
-            && ContainsMalformedMethodSpecificationType(
-                element,
-                scope))
-        {
-            return true;
-        }
-        return type.TypeArguments.Any(
-            argument => ContainsMalformedMethodSpecificationType(
-                argument,
-                scope));
     }
 
     bool TryGetAsyncStateMachineType(
@@ -2340,6 +2378,24 @@ internal sealed class LibraryBodyAnalysisBuilder :
            || (ns == "System.Numerics" && name is "BigInteger" or "Complex")
            || (ns == "System" && name.StartsWith("ValueTuple", StringComparison.Ordinal))
            || (ns == "System.Collections.Generic" && name == "KeyValuePair`2");
+
+    TypeRef TypeFromEntity(EntityHandle handle)
+    {
+        try
+        {
+            return handle.Kind switch
+            {
+                HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, (TypeDefinitionHandle)handle, 0),
+                HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(_reader, (TypeReferenceHandle)handle, 0),
+                HandleKind.TypeSpecification => TypeRefDecoder.Instance.GetTypeFromSpecification(_reader, new GenericScope([], []), (TypeSpecificationHandle)handle, 0),
+                _ => TypeRef.Unsupported("interface implementation"),
+            };
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException)
+        {
+            return TypeRef.Unsupported("interface implementation");
+        }
+    }
 
     // Resolves a metadata type token (TypeDef/TypeRef/TypeSpec) to a TypeRef, used to
     // inspect a newarr element type. Returns Unsupported on any malformed/unknown token.

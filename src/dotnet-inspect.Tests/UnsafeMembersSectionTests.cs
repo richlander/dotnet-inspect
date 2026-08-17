@@ -365,12 +365,12 @@ public class UnsafeMembersSectionTests
                     0x0600FFFE,
                     "MalformedIdentity",
                     "BadImageFormatException: malformed signature",
-                    type.MetadataToken),
+                    DeclaringTypeToken: type.MetadataToken),
                 new AnalysisDiagnostic(
                     otherTypeMethod.MetadataToken,
                     otherTypeMethod.Name,
                     "BadImageFormatException: unrelated body",
-                    0x0200FFFF)
+                    DeclaringTypeToken: 0x0200FFFF)
             ]);
 
         var row = Assert.Single(

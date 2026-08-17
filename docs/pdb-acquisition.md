@@ -49,14 +49,45 @@ content id (GUID plus stamp), not the symbol-server GUID alone. The
 explicit-capability descriptor overload requires both its `IPdbStore` and
 `IPackageSourceAuthorization`; the legacy desktop descriptor overload remains
 path-bound and cannot make a pathless participant silently select the desktop
-filesystem or ambient NuGet policy. This is the content-shaped symbol
-capability for assembly-context participants; a group-scoped source query
-remains separate.
+filesystem or ambient NuGet policy. `AssemblyContextSourceQuery` consumes this
+content-shaped symbol capability for a selected group participant. Its query
+context requires the store and source authorization explicitly; an in-memory
+store lets browser/Wasm hosts acquire and validate the same PDB bytes without a
+path. `AssemblyContextSourceQueryTests.PathlessMember_AcquiresVerifiedAuthoredSource`
+gates the end-to-end query path.
 `PdbIdentityTests.LoadPdbFromStream_RejectsMatchingGuidWithDifferentStamp`,
 `PdbIdentityTests.PortablePdbIdentity_WindowsCodeViewCannotAuthorizePortablePdb`,
 and
 `PdbAcquisitionServiceTests.PathlessParticipant_AcquiresMatchingPdbThroughInMemoryStore`
 gate those claims.
+
+Descriptor-backed PDB contexts own the stream they open. If debug-directory or
+embedded-PDB inspection fails during construction, the incomplete context
+releases that stream before propagating the failure.
+`AssemblyContextSourceQueryTests.PdbContextOpenFailure_DisposesAuthoritativeStream`
+gates that construction boundary. PE and portable-PDB readers leave their
+streams open so `PdbContext` remains the sole owner. A fully prefetched portable
+PDB releases its store stream immediately; any release failure is retained for
+the strict query-disposal boundary rather than masked or ignored.
+`PdbIdentityTests.LoadPdbFromStream_AcceptsMatchingContentWithoutAPath`
+gates immediate release and continued prefetched-metadata access.
+`PdbContextDescriptorTests.DescriptorOpenPrimaryFailure_IsNotMaskedByCleanupFailure`
+and
+`AssemblyContextSourceQueryTests.PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure`
+gate those ownership boundaries.
+The compatibility `PdbContext.Dispose` path retains its best-effort cleanup
+behavior. Strict query ownership uses `DisposeWithFailure`, which attempts
+every owned resource and reports the first cleanup failure; source queries
+therefore cannot publish authored success after PDB disposal failed.
+`AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsAuthoredSuccess`
+gates cancellation and operational failure for member and type queries;
+`AssemblyContextSourceQueryTests.NonStandardPdbDisposalFailure_IsTyped`
+gates host-specific non-fatal exceptions outside the common I/O types. A
+cleanup failure while an acquisition failure is already propagating does not
+replace that primary failure;
+`AssemblyContextSourceQueryTests.PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure`
+gates the member and type cancellation and fatal-exception paths both before
+and during portable-PDB provider construction.
 
 ### 1. Embedded PDB
 
@@ -126,6 +157,33 @@ CodeView Entry 2: System.Text.Json.pdb    (MinorVersion: 0x504d, Portable PDB) â
 exposing `PEReader` or `MetadataReader`. `ILInspector.SourceLink` uses those
 typed APIs for map extraction, URL decoration, and provenance.
 
+### Document identity is not declaration provenance
+
+A Portable PDB document names content but does not identify the physical syntax
+tree that produced a MethodDef. Its document row contains a name and may carry
+language and checksum metadata; sequence points contain mapped destination
+documents and positions. When a recognized checksum algorithm and checksum are
+present, they can validate candidate bytes against the recorded value. Neither
+record preserves the pre-mapping source document or identifies a `#line`
+transition.
+
+This distinction prevents PDB method spans from authorizing a local C# body. A
+`#line` directive in one compilation input can map its MethodDef into another
+input's document row, reusing that document's real checksum. `#pragma checksum`
+can similarly give a mapped external document a caller-selected checksum. The
+originating file need not be among the source paths supplied to an inspector,
+and embedded source or a compiler-reported source-file count does not associate
+an individual MethodDef with its physical syntax tree.
+
+ReturnToSender has no PDB-authoritative local-source path. Its raw source
+indexes remain non-authoritative, and
+`TryIsolateRecompileFailure_DeclinesRawSourceIndex` gates that raw-index
+behavior. No dedicated gate asserts the broader absence of a PDB attribution
+path; it is an architectural non-action boundary. #3835 remains blocked on an
+independent build manifest that certifies the complete physical source set and
+permits an assembly-wide line-mapping check, or on a stronger per-method
+provenance contract outside the Portable PDB format.
+
 ## Microsoft vs third-party libraries
 
 ### Microsoft platform libraries
@@ -189,7 +247,11 @@ gate the descriptor API shape and compatibility overload. Store read/write
 failures remain visible rather than being reported as symbol unavailability;
 `SymbolPackageDownloaderTests.AcquirePdbAsync_StoreFailureIsVisible` and
 `PdbAcquisitionServiceTests.PathlessParticipant_StoreReadFailureIsVisible` gate
-the write and post-acquisition read paths. Cached and downloaded Portable PDBs
+the write and post-acquisition read paths. Local-path projection occurs before
+the caller-owned PDB stream is opened, so a projection failure cannot leak that
+stream;
+`PdbAcquisitionServiceTests.PathlessParticipant_LocalPathFailurePrecedesOwnedStreamOpen`
+gates that ownership boundary. Cached and downloaded Portable PDBs
 are parsed and identity-checked before an acquired result is returned, so an
 invalid entry cannot suppress later providers;
 `SymbolPackageDownloaderTests.AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider`
