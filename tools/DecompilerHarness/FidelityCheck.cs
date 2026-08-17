@@ -2996,6 +2996,7 @@ static class FidelityCheck
             return "";
 
         var interfaces = new List<string>();
+        var includedInterfaces = new HashSet<EntityHandle>();
         foreach (var target in SingleMethodExplicitInterfaceTargets(
             reader,
             typeDef,
@@ -3012,20 +3013,25 @@ static class FidelityCheck
                     interfaceMethod)))
             {
                 interfaces.Add($"global::{Clean(target.InterfaceName)}");
+                includedInterfaces.Add(target.Interface);
             }
         }
         foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
         {
             var implementation = reader.GetInterfaceImplementation(implementationHandle);
+            if (includedInterfaces.Contains(implementation.Interface))
+                continue;
             if (SameAssemblyNonGenericInterfaceName(reader, implementation.Interface) is { } name
                 && IsSafeClassInterfaceName(name)
                 && InterfaceMembersSatisfied(reader, typeDef, implementation.Interface, accessibility))
             {
                 interfaces.Add(Clean(name));
+                includedInterfaces.Add(implementation.Interface);
                 continue;
             }
 
-            if (ProtobufSelfMessageInterfaceName(reader, typeDef, implementation.Interface) is { } protobufName)
+            if (ProtobufSelfMessageInterfaceName(reader, typeDef, implementation.Interface) is { } protobufName
+                && includedInterfaces.Add(implementation.Interface))
                 interfaces.Add(Clean(protobufName));
         }
 
@@ -3084,6 +3090,7 @@ static class FidelityCheck
                 || interfaceDef.GetMethods().Single() != declarationHandle
                 || reader.GetString(body.Name) != expectedBodyName
                 || HasQualifiedInterfaceRootCollision(reader, typeDef, interfaceName)
+                || HasUnsupportedExplicitInterfaceSignature(reader, interfaceDef, declaration)
                 || body.Attributes.HasFlag(MethodAttributes.Static)
                 || declaration.Attributes.HasFlag(MethodAttributes.Static)
                 || declaration.Attributes.HasFlag(MethodAttributes.SpecialName)
@@ -3101,6 +3108,40 @@ static class FidelityCheck
         }
 
         return targets;
+    }
+
+    static bool HasUnsupportedExplicitInterfaceSignature(
+        MetadataReader reader,
+        TypeDefinition interfaceDef,
+        MethodDefinition method)
+    {
+        if (!MetadataDeclarationQuery.TryHasReadOnlyByRefSignature(
+                reader,
+                interfaceDef,
+                method,
+                out bool hasReadonlyByRef)
+            || hasReadonlyByRef)
+        {
+            return true;
+        }
+
+        foreach (var parameterHandle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            if (parameter.SequenceNumber == 0)
+                continue;
+            var attributes = parameter.GetCustomAttributes();
+            if (AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
+                || AttributeReader.HasAttribute(
+                    reader,
+                    attributes,
+                    KnownAttributeNames.ParamCollectionAttribute))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     static bool HasQualifiedInterfaceRootCollision(
@@ -3130,6 +3171,50 @@ static class FidelityCheck
             var parameter = reader.GetGenericParameter(parameterHandle);
             if (reader.GetString(parameter.Name) == root)
                 return true;
+        }
+
+        for (var current = typeDef; ; )
+        {
+            foreach (var nestedHandle in current.GetNestedTypes())
+                if (StripArity(reader.GetString(reader.GetTypeDefinition(nestedHandle).Name)) == root)
+                    return true;
+
+            if (current.BaseType.IsNil
+                || current.BaseType.Kind != HandleKind.TypeDefinition)
+            {
+                if (current.BaseType.Kind is HandleKind.TypeSpecification
+                    || current.BaseType.Kind == HandleKind.TypeReference
+                        && BaseTypeName(reader, current.BaseType) != "System.Object")
+                {
+                    return true;
+                }
+                break;
+            }
+            current = reader.GetTypeDefinition((TypeDefinitionHandle)current.BaseType);
+        }
+
+        return false;
+    }
+
+    static bool HasImportedInterfaceRootCollision(
+        MetadataReader reader,
+        string interfaceName,
+        IReadOnlyCollection<string> namespaces)
+    {
+        int separator = interfaceName.IndexOf('.');
+        if (separator < 0)
+            return false;
+
+        string root = interfaceName[..separator];
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var candidate = reader.GetTypeDefinition(handle);
+            if (candidate.GetDeclaringType().IsNil
+                && namespaces.Contains(reader.GetString(candidate.Namespace))
+                && StripArity(reader.GetString(candidate.Name)) == root)
+            {
+                return true;
+            }
         }
 
         return false;
@@ -4178,6 +4263,20 @@ static class FidelityCheck
             : RenderTypeMemberBatch(pe, entry.Type, entry.Member, source);
         if (result is null || !result.IsComplete || result.Text is null)
             return null;
+        if (entry.Member.Kind == "explicit-interface-implementation")
+        {
+            var reader = pe.GetMetadataReader();
+            var typeDef = reader.GetTypeDefinition(reader.GetMethodDefinition(mh).GetDeclaringType());
+            var target = SingleMethodExplicitInterfaceTargets(reader, typeDef, body => body == mh)
+                .Single(candidate => candidate.Body == mh);
+            if (HasImportedInterfaceRootCollision(
+                reader,
+                target.InterfaceName,
+                result.Namespaces))
+            {
+                return null;
+            }
+        }
         if (entry.Member.Kind == "constructor"
             && SyntaxFactory.ParseMemberDeclaration(result.Text)
                 is not ConstructorDeclarationSyntax)

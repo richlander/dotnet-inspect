@@ -588,6 +588,159 @@ public class FidelityCheckGeneratedFilterTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesNestedAndImportedInterfaceRootCollisions()
+    {
+        var assemblyPath = CompileFixture("""
+            using NI = N.I;
+
+            namespace N
+            {
+                public interface I
+                {
+                    void M(T.I first, X.N second);
+                }
+            }
+
+            namespace T
+            {
+                public sealed class I { }
+
+                public sealed class NestedCollision : NI
+                {
+                    public sealed class N { }
+                    void NI.M(I first, X.N second) { }
+                }
+
+                public sealed class ImportedCollision : NI
+                {
+                    void NI.M(I first, X.N second) { }
+                }
+            }
+
+            namespace X
+            {
+                public sealed class N { }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+
+            foreach (string typeName in new[] { "NestedCollision", "ImportedCollision" })
+            {
+                var type = reader.GetTypeDefinition(Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == typeName));
+                var method = Assert.Single(
+                    type.GetMethods(),
+                    handle => reader.GetString(reader.GetMethodDefinition(handle).Name) == "N.I.M");
+
+                Assert.Null(FidelityCheck.TryRenderTargetMember(
+                    pe,
+                    source,
+                    method,
+                    targeted: true,
+                    isPrimaryConstructor: false));
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Evaluate_DeduplicatesProductAndLegacyInterfaceClauses()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IResource
+            {
+                void M();
+            }
+
+            public sealed class DuplicateInterfaceFixture : IResource
+            {
+                public void M() { }
+                void IResource.M() { }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "DuplicateInterfaceFixture",
+                    candidate => candidate.Method == "IResource.M"));
+            Assert.True(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesUnsupportedInterfaceParameterModifiers()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IReadonlyRef
+            {
+                void M(ref readonly int value);
+            }
+
+            public sealed class ReadonlyRefFixture : IReadonlyRef
+            {
+                void IReadonlyRef.M(ref readonly int value) { }
+            }
+
+            public interface IParams
+            {
+                void M(params int[] values);
+            }
+
+            public sealed class ParamsFixture : IParams
+            {
+                void IParams.M(params int[] values) { }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+
+            foreach (string typeName in new[] { "ReadonlyRefFixture", "ParamsFixture" })
+            {
+                var type = reader.GetTypeDefinition(Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name) == typeName));
+                var method = Assert.Single(
+                    type.GetMethods(),
+                    handle => reader.GetString(reader.GetMethodDefinition(handle).Name).EndsWith(
+                        ".M",
+                        StringComparison.Ordinal));
+
+                Assert.Null(FidelityCheck.TryRenderTargetMember(
+                    pe,
+                    source,
+                    method,
+                    targeted: true,
+                    isPrimaryConstructor: false));
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void Evaluate_DeclinesProductWholeMemberForMultiMethodExplicitInterface()
     {
         var assemblyPath = CompileFixture("""
