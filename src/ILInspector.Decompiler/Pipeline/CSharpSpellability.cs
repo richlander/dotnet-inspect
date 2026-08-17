@@ -33,8 +33,12 @@ internal static class CSharpSpellability
     public static bool HasUnrepresentableMetadataName(IrNode node)
         => InspectUnrepresentableMetadataName(node) is not null;
 
-    public static bool CanSpellExplicitParameterType(TypeRef type, IrFunction host)
+    public static bool CanSpellExplicitParameterType(
+        TypeRef type,
+        IrFunction host,
+        ArgumentRefKind refKind)
         => !type.ContainsUnsupported
+            && type.ExplicitParameterModifiersAreExact(refKind)
             && HasExplicitParameterTypeShape(type, ExplicitTypeContext.Parameter, host)
             && TypeIssue(type) is null;
 
@@ -516,7 +520,8 @@ internal static class CSharpSpellability
             case TypeRefKind.GenericParameter:
                 return GenericParameterIsInScope(
                     type,
-                    host.DeclaringTypeGenericParameterNames);
+                    host.DeclaringTypeGenericParameterNames,
+                    host.Signature.GenericParameterNames);
 
             case TypeRefKind.MethodGenericParameter:
                 return GenericParameterIsInScope(
@@ -570,10 +575,19 @@ internal static class CSharpSpellability
 
     static bool GenericParameterIsInScope(
         TypeRef type,
-        ImmutableArray<string> names)
+        ImmutableArray<string> names,
+        ImmutableArray<string> shadowingNames = default)
         => type.GenericParameterIndex >= 0
             && type.GenericParameterIndex < names.Length
             && type.GenericParameterName.Length > 0
+            && names.Count(name => string.Equals(
+                name,
+                type.GenericParameterName,
+                StringComparison.Ordinal)) == 1
+            && (shadowingNames.IsDefault
+                || !shadowingNames.Contains(
+                    type.GenericParameterName,
+                    StringComparer.Ordinal))
             && string.Equals(
                 type.GenericParameterName,
                 names[type.GenericParameterIndex],

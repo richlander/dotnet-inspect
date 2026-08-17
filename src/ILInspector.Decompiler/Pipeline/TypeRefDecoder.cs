@@ -15,9 +15,10 @@ internal sealed record GenericScope(ImmutableArray<string> TypeParameters, Immut
 /// Decodes metadata signatures into <see cref="TypeRef"/>s. Primitives and
 /// corelib-resolved types canonicalize to <see cref="TypeRef.CoreLibrary"/>
 /// so identity does not depend on which facade spelled the reference.
-/// Shapes outside the supported core (function pointers, custom modifiers)
-/// decode to <see cref="TypeRefKind.Unsupported"/> — honest, fidelity-lowering,
-/// never a guess.
+/// Function pointers and custom modifiers retain the evidence needed to detect
+/// lossy C# spellings; shapes outside the supported core decode to
+/// <see cref="TypeRefKind.Unsupported"/> — honest, fidelity-lowering, never a
+/// guess.
 /// </summary>
 internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericScope>
 {
@@ -310,7 +311,14 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             signature.ReturnType,
             signature.ParameterTypes,
             ConventionText(signature.Header.CallingConvention),
-            IsExactFunctionPointerConvention(signature.Header.CallingConvention));
+            IsExactFunctionPointerSignature(signature));
+
+    static bool IsExactFunctionPointerSignature(MethodSignature<TypeRef> signature)
+        => IsExactFunctionPointerConvention(signature.Header.CallingConvention)
+            && !signature.Header.IsInstance
+            && !signature.Header.HasExplicitThis
+            && !signature.Header.IsGeneric
+            && signature.GenericParameterCount == 0;
 
     /// <summary>The C# calling-convention spelling for a function pointer: empty for a managed pointer, the <c>unmanaged</c> keyword (with the specific convention in brackets) otherwise.</summary>
     public static string ConventionText(SignatureCallingConvention convention) => convention switch

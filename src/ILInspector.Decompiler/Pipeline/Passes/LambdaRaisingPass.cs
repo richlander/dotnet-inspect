@@ -368,8 +368,7 @@ public sealed class LambdaRaisingPass : IIrPass
             && (creation.Method.HasRefReadOnlyParameters
                 || creation.Method.ParameterRefKindsFacts != ParameterRefKindFacts.Known
                 || creation.Method.ParameterRefKinds.Length != body.Signature.Parameters.Length
-                || body.Signature.Parameters.Any(
-                    parameter => !CSharpSpellability.CanSpellExplicitParameterType(parameter.Type, host))))
+                || !CanSpellExplicitParameterTypes(body, creation, host)))
         {
             return null;
         }
@@ -410,6 +409,24 @@ public sealed class LambdaRaisingPass : IIrPass
         };
         lambda.InheritSourceOffset(provenance);
         return lambda;
+    }
+
+    static bool CanSpellExplicitParameterTypes(
+        IrFunction body,
+        DelegateCreation creation,
+        IrFunction host)
+    {
+        for (int i = 0; i < body.Signature.Parameters.Length; i++)
+        {
+            if (!CSharpSpellability.CanSpellExplicitParameterType(
+                    body.Signature.Parameters[i].Type,
+                    host,
+                    creation.Method.ParameterRefKinds[i]))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     static IEnumerable<IrNode> Self(IrNode node)

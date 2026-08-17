@@ -23,7 +23,7 @@ public enum TypeRefKind
     MethodGenericParameter,
     /// <summary>A function pointer: <see cref="TypeRef.ElementType"/> is the return type, <see cref="TypeRef.TypeArguments"/> the parameters, rendered <c>delegate*&lt;...&gt;</c>.</summary>
     FunctionPointer,
-    /// <summary>A shape outside the supported core (function pointers, custom modifiers). Carries a reason; lowers fidelity, never lies.</summary>
+    /// <summary>A shape outside the supported core. Carries a reason; lowers fidelity, never lies.</summary>
     Unsupported,
 }
 
@@ -45,7 +45,11 @@ public enum ValueTypeHint
     ReferenceType,
 }
 
-readonly record struct TypeRefCustomModifier(bool IsRequired, string Namespace, string Name);
+readonly record struct TypeRefCustomModifier(
+    bool IsRequired,
+    string Assembly,
+    string Namespace,
+    string Name);
 
 /// <summary>
 /// Symbolic type identity for the pipeline (docs/decompiler-ir.md):
@@ -258,6 +262,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 EnclosingType,
                 DefinitionName,
                 ResolutionAssembly)
+                .Copy(customModifiers: CustomModifiers)
             : this;
 
     public TypeRef WithInlineArrayFact(MetadataFactState fact)
@@ -271,6 +276,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 EnclosingType,
                 DefinitionName,
                 ResolutionAssembly)
+                .Copy(customModifiers: CustomModifiers)
             : this;
 
     public static TypeRef CoreLib(string ns, string name)
@@ -367,12 +373,16 @@ public sealed class TypeRef : IEquatable<TypeRef>
         TypeRef returnType,
         ImmutableArray<TypeRef> parameters)
     {
-        if (returnType.CustomModifiers.Any(modifier => !IsOptionalCallConvModifier(modifier)))
+        if (HasNestedCustomModifiers(returnType)
+            || returnType.CustomModifiers.Any(modifier => !IsOptionalCallConvModifier(modifier)))
             return false;
 
         foreach (var parameter in parameters)
         {
-            if (parameter.CustomModifiers.Any(modifier =>
+            if (HasNestedCustomModifiers(parameter)
+                || parameter.CustomModifiers.Distinct().Count()
+                    != parameter.CustomModifiers.Length
+                || parameter.CustomModifiers.Any(modifier =>
                     !IsExactFunctionPointerParameterModifier(modifier)))
             {
                 return false;
@@ -407,13 +417,19 @@ public sealed class TypeRef : IEquatable<TypeRef>
         return true;
     }
 
+    static bool HasNestedCustomModifiers(TypeRef type)
+        => (type.ElementType?.ContainsCustomModifiers ?? false)
+            || type.TypeArguments.Any(argument => argument.ContainsCustomModifiers);
+
     static bool IsOptionalCallConvModifier(TypeRefCustomModifier modifier)
         => !modifier.IsRequired
+            && modifier.Assembly == CoreLibrary
             && modifier.Namespace == "System.Runtime.CompilerServices"
             && modifier.Name.StartsWith("CallConv", StringComparison.Ordinal);
 
     static bool IsExactFunctionPointerParameterModifier(TypeRefCustomModifier modifier)
         => modifier.IsRequired
+            && modifier.Assembly == CoreLibrary
             && ((modifier.Namespace == "System.Runtime.InteropServices"
                     && modifier.Name is "InAttribute" or "OutAttribute")
                 || (modifier.Namespace == "System.Runtime.CompilerServices"
@@ -493,9 +509,56 @@ public sealed class TypeRef : IEquatable<TypeRef>
     }
 
     internal TypeRef WithCustomModifier(TypeRef modifier, bool isRequired)
-        => modifier is { Kind: TypeRefKind.Definition }
-            ? Copy(customModifiers: CustomModifiers.Add(new TypeRefCustomModifier(isRequired, modifier.Namespace, modifier.Name)))
-            : this;
+        => Copy(
+            customModifiers: CustomModifiers.Add(
+                modifier is { Kind: TypeRefKind.Definition }
+                    ? new TypeRefCustomModifier(
+                        isRequired,
+                        modifier.Assembly,
+                        modifier.Namespace,
+                        modifier.Name)
+                    : new TypeRefCustomModifier(
+                        isRequired,
+                        "",
+                        "",
+                        "<unsupported>")));
+
+    internal bool ExplicitParameterModifiersAreExact(ArgumentRefKind refKind)
+    {
+        bool isByRef = Kind == TypeRefKind.ByRef;
+        if (isByRef != (refKind != ArgumentRefKind.Value))
+            return false;
+        if (!isByRef)
+            return !ContainsCustomModifiers;
+        if (ElementType is null || ElementType.ContainsCustomModifiers)
+            return false;
+        return CustomModifiers.Distinct().Count() == CustomModifiers.Length
+            && CustomModifiers.All(modifier =>
+                IsExactExplicitParameterModifier(modifier, refKind));
+    }
+
+    bool ContainsCustomModifiers
+        => !CustomModifiers.IsDefaultOrEmpty
+            || (ElementType?.ContainsCustomModifiers ?? false)
+            || TypeArguments.Any(argument => argument.ContainsCustomModifiers);
+
+    static bool IsExactExplicitParameterModifier(
+        TypeRefCustomModifier modifier,
+        ArgumentRefKind refKind)
+        => modifier.IsRequired
+            && modifier.Assembly == CoreLibrary
+            && refKind switch
+            {
+                ArgumentRefKind.In =>
+                    (modifier.Namespace == "System.Runtime.InteropServices"
+                        && modifier.Name == "InAttribute")
+                    || (modifier.Namespace == "System.Runtime.CompilerServices"
+                        && modifier.Name == "IsReadOnlyAttribute"),
+                ArgumentRefKind.Out =>
+                    modifier.Namespace == "System.Runtime.InteropServices"
+                    && modifier.Name == "OutAttribute",
+                _ => false,
+            };
 
     TypeRef WithoutCustomModifiers()
     {
@@ -519,12 +582,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
     static bool HasCustomModifier(TypeRef type, bool isRequired, string ns, string name)
         => type.CustomModifiers.Any(modifier =>
             modifier.IsRequired == isRequired
+            && modifier.Assembly == CoreLibrary
             && modifier.Namespace == ns
             && modifier.Name == name);
 
     static bool HasCustomModifier(TypeRef type, string ns, string name)
         => type.CustomModifiers.Any(modifier =>
-            modifier.Namespace == ns
+            modifier.Assembly == CoreLibrary
+            && modifier.Namespace == ns
             && modifier.Name == name);
 
     TypeRef Copy(
@@ -566,9 +631,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
         switch (Kind)
         {
             case TypeRefKind.GenericParameter when GenericParameterIndex >= 0 && GenericParameterIndex < typeArguments.Length:
-                return typeArguments[GenericParameterIndex];
+                return ApplyCustomModifiersTo(typeArguments[GenericParameterIndex]);
             case TypeRefKind.MethodGenericParameter when GenericParameterIndex >= 0 && GenericParameterIndex < methodArguments.Length:
-                return methodArguments[GenericParameterIndex];
+                return ApplyCustomModifiersTo(methodArguments[GenericParameterIndex]);
             case TypeRefKind.SzArray or TypeRefKind.Array or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
             {
                 var element = ElementType!.Instantiate(typeArguments, methodArguments);
@@ -614,6 +679,12 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 return this;
         }
     }
+
+    TypeRef ApplyCustomModifiersTo(TypeRef type)
+        => CustomModifiers.IsDefaultOrEmpty
+            ? type
+            : type.Copy(
+                customModifiers: type.CustomModifiers.AddRange(CustomModifiers));
 
     /// <summary>True if this type or any constituent shape cannot be represented as valid C# (feeds the fidelity computation).</summary>
     public bool ContainsUnsupported =>
