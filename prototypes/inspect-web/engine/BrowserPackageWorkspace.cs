@@ -47,6 +47,12 @@ namespace InspectWeb.Engine;
 /// gates the final monotonic check before cache publication, and
 /// <c>BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout</c>
 /// gates timeout classification after synchronous work overruns the deadline.
+/// <c>BrowserEngineBoundaryTests.PackageAcquisition_ExactPinUsesGalleryCdnWithoutServiceIndex</c>
+/// and
+/// <c>BrowserEngineBoundaryTests.PackageAcquisition_FloatingRootUsesGallerySearchAndCdn</c>
+/// gate the service-index-free Gallery routes, while
+/// <c>BrowserEngineBoundaryTests.PackageAcquisition_RejectedReservationDisposesGalleryPayload</c>
+/// gates response ownership when Browser capacity policy rejects a transfer.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]

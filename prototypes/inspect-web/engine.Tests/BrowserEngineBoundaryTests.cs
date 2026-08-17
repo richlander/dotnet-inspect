@@ -1076,6 +1076,32 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageAcquisition_RejectedReservationDisposesGalleryPayload()
+    {
+        string packageId = $"gallery.no-length.{Guid.NewGuid():N}";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            "1.0.0",
+            PackageDocuments(1),
+            omitContentLength: true);
+        using IPackageSourceClient source = Gallery(handler);
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.AcquireAsync(
+                    packageId,
+                    "1.0.0",
+                    source,
+                    TimeSpan.FromSeconds(5)));
+
+        Assert.Contains(
+            "did not declare its byte length",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.True(handler.PayloadDisposed);
+    }
+
+    [Fact]
     public async Task PackageAcquisition_FloatingRootUsesGallerySearchAndCdn()
     {
         string packageId = $"gallery.floating.{Guid.NewGuid():N}";
@@ -1632,13 +1658,15 @@ public sealed class BrowserEngineBoundaryTests
         byte[] archive,
         bool provideSearchResult = false,
         System.Net.HttpStatusCode packageStatus =
-            System.Net.HttpStatusCode.OK)
+            System.Net.HttpStatusCode.OK,
+        bool omitContentLength = false)
         : HttpMessageHandler
     {
         readonly string _packageUrl =
             $"https://globalcdn.nuget.org/packages/{packageId.ToLowerInvariant()}.{version}.nupkg";
 
         public List<string> Requested { get; } = [];
+        public bool PayloadDisposed { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -1660,16 +1688,44 @@ public sealed class BrowserEngineBoundaryTests
                     });
             }
 
-            return Task.FromResult(
-                url.Equals(_packageUrl, StringComparison.Ordinal)
-                    ? new HttpResponseMessage(packageStatus)
-                    {
-                        Content = packageStatus == System.Net.HttpStatusCode.OK
-                            ? new ByteArrayContent(archive)
-                            : null,
-                    }
-                    : new HttpResponseMessage(
+            if (!url.Equals(_packageUrl, StringComparison.Ordinal))
+            {
+                return Task.FromResult(
+                    new HttpResponseMessage(
                         System.Net.HttpStatusCode.NotFound));
+            }
+
+            var response = new HttpResponseMessage(packageStatus);
+            if (packageStatus == System.Net.HttpStatusCode.OK)
+            {
+                response.Content = omitContentLength
+                    ? new StreamContent(
+                        new TrackingPayloadStream(
+                            archive,
+                            () => PayloadDisposed = true))
+                    : new ByteArrayContent(archive);
+            }
+
+            return Task.FromResult(response);
+        }
+    }
+
+    sealed class TrackingPayloadStream(byte[] bytes, Action onDispose)
+        : MemoryStream(bytes, writable: false)
+    {
+        public override bool CanSeek => false;
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                onDispose();
+            base.Dispose(disposing);
+        }
+
+        public override ValueTask DisposeAsync()
+        {
+            onDispose();
+            return base.DisposeAsync();
         }
     }
 
