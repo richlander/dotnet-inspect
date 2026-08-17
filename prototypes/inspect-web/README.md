@@ -447,8 +447,11 @@ not answer report the engine's failure rather than fixture results.
 uploads the prebuilt `wwwroot` to an Azure Static Web App with Azure's own app
 build disabled. It runs on every push to `main`; `workflow_dispatch` remains
 available, but the deploy job itself requires `refs/heads/main`, so a manual run
-cannot publish another ref. Its deployment credential is the
-`AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB` GitHub Actions secret.
+cannot publish another ref. The `inspect-web-production` GitHub environment
+restricts deployments to `main` and requires approval before the job can access
+its environment-scoped
+`AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB` deployment credential. The Azure
+deployment action is pinned to an exact commit.
 The publish step embeds the CLI's authoritative `VersionPrefix`, the exact
 `GITHUB_SHA`, and a UTC build timestamp in the engine. The home and workspace
 status bars show that version, link the short commit to GitHub, and disclose the
@@ -456,11 +459,11 @@ binary build time. `BuildIdentity_UsesVersionedRepositoryProvenance` and
 `ready status shows versioned linked build provenance` gate the engine and UI
 halves.
 
-Two prerequisites live outside this repository and are **not** verified by
-anything in it: the secret must be present, and the Static Web App resource's
-production Branch setting must name the branch being deployed. Neither has been
-confirmed from this branch, so treat a green workflow run — not this file — as
-the evidence that a deployed site is current.
+Three prerequisites live outside this repository and are **not** verified by
+anything in it: the environment must retain its `main` branch restriction and
+required reviewer, its secret must be present, and the Static Web App resource's
+production Branch setting must name the branch being deployed. Treat a green
+workflow run — not this file — as the evidence that a deployed site is current.
 
 See [architecture-spike.md](architecture-spike.md) for the proposed .NET 11
 browser engine and the NativeAOT decision.
