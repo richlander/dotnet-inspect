@@ -117,12 +117,13 @@ producer in structured JSON:
 `Provenance=exact`,
 `Assembly`, `MethodToken`, `Operation`, `Token`, `EvidenceMethod`, and `IL`.
 `MethodToken` identifies the source-facing member, while `EvidenceMethod`
-identifies the MethodDef containing the instruction; for an async source member,
-it can name the generated `MoveNext` body whose offset appears in `IL`.
-`Assembly` + `EvidenceMethod` + `IL` form the exact body coordinate, and `Token`
-is the operand of `Operation`. Use these fields for runtime/static joins or to
-carry one triage row into the matching `diff`/`timeline` confirmation workflow
-without parsing `Evidence` text:
+is present when the instruction is mapped to a separate MethodDef; for an async
+source member, it can name the generated `MoveNext` body whose offset appears in
+`IL`. The exact body coordinate is `Assembly` + (`EvidenceMethod` when present,
+otherwise `MethodToken`) + `IL`, and `Token` is the operand of `Operation`. Use
+these fields for runtime/static joins or to carry one triage row into the
+matching `diff`/`timeline` confirmation workflow without parsing `Evidence`
+text:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
