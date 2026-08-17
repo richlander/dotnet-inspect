@@ -17,10 +17,14 @@ request-free workspace projection as an induced set over workspace
 participants.
 
 The current executable mode slices bind request intent to graph subjects and
-make seed admission a descriptor-owned relationship contract without changing
-producer demand or topology. Request-driven relationship selection, admission
-validation and neighborhood construction, traversal bounds, induced
-explicit-subject sets, and command/presentation surfaces remain design targets.
+make seed admission a descriptor-owned relationship contract. An
+`InspectionGraphNeighborhoodRequest` now composes one seed with an explicit
+relationship set, semantic traversal direction, and finite edge-depth bound.
+The Integration query validates that relationship set before execution,
+requests only its required producers and prerequisites, and projects the
+bounded neighborhood without reversing stored edges or changing occurrence
+identity. Peer connecting neighborhoods, induced explicit-subject sets, and
+command/presentation surfaces remain design targets.
 
 `CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap`,
 `PackageSeed_BindsToNodeOrGroupSelectedByLens`,
@@ -32,6 +36,11 @@ explicit-subject sets, and command/presentation surfaces remain design targets.
 `RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`,
 `AdmissionsMatchDeclaredEndpointDomains`, and
 `RelationshipCatalogsDeclareCurrentSeedAdmissions` gate descriptor admission.
+`Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
+`Execute_PackageSeedExpandsThroughOwnedSourceSubjects`,
+`Execute_OpportunitySourceTypeUsesOccurrenceAdmission`, and
+`Execute_SelectedRelationshipsControlProducerDemand` gate the first
+load-bearing neighborhood.
 
 | Mode | Focus | Input | Primary question |
 | --- | --- | --- | --- |
@@ -90,6 +99,13 @@ lens, characteristic selection, and bounds.
 **Output:** one focus subject plus the bounded, evidence-backed neighborhood
 admitted by the request. Walking an incoming edge never reverses its semantic
 direction.
+
+The current Integration implementation accepts an explicit relationship set,
+`Outgoing`, `Incoming`, or `Both`, and a non-negative maximum edge depth.
+Depth zero retains the bound seed and failures from requested producers and
+their required composition prerequisites without traversing an edge, including
+when those producers emit no relationship for the seed. Every result carries
+the request and a typed depth-bound limit.
 
 ### Member seed
 
@@ -184,12 +200,13 @@ the descriptor's corresponding semantic source or target domain.
 that semantic endpoint domain; it does not fabricate an edge at the owner's
 subject kind.
 
-The current slice declares and validates these descriptor capabilities. Once
-request-driven relationship selection lands, unsupported combinations must
-fail before producer execution with guidance rather than dropping or relabeling
-the seed. Induced-set requests have no seeds and therefore need no seed
-admission. This slice does not yet use admission to select producers or
-construct a bounded neighborhood.
+The Integration neighborhood consumes these capabilities. Unsupported
+seed/direction/relationship combinations fail while constructing the request;
+relationships outside the Integration catalog fail before any producer runs.
+Selected relationships determine registry demand, including declared
+prerequisites. Opportunity demand includes extension and Integration evidence
+because fulfillment suppression composes both before projection. Induced-set
+requests have no seeds and therefore need no seed admission.
 
 ## Shared contract
 
@@ -226,9 +243,10 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
    request and document.
 3. **Implemented:** bind type, assembly, and realized-package seeds to existing
    Integration/package graph subjects, declare direct endpoint and
-   strict typed owned-subject admission on each relationship descriptor.
-   Admission-driven request validation, producer selection, and neighborhood
-   construction remain.
+   strict typed owned-subject admission on each relationship descriptor, and
+   construct finite single-seed Integration neighborhoods from explicit
+   relationship, direction, and depth axes. Selected relationships drive
+   deterministic producer demand.
 4. **Partially implemented:** bind peer-seed requests without choosing a hero
    node. Connecting-neighborhood construction remains.
 5. **Partially implemented:** declare workspace-participant and
