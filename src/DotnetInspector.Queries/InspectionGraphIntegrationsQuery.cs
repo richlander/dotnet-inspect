@@ -358,6 +358,9 @@ public static class InspectionGraphIntegrationsQuery
             AssemblyAcquisitionRegistration,
             AssemblyContextParticipant> _participants;
         readonly List<InspectionGraphOccurrence> _occurrences = [];
+        readonly Dictionary<
+            InspectionGraphRelationshipDescriptor,
+            HashSet<object>> _occurrenceIdentities = [];
         readonly List<EdgeBuilder> _edges = [];
         readonly Dictionary<EdgeKey, EdgeBuilder> _edgeByKey = [];
         readonly List<FailureBuilder> _failures = [];
@@ -841,21 +844,37 @@ public static class InspectionGraphIntegrationsQuery
             InspectionGraphRelationshipDescriptor relationship,
             IInspectionGraphOccurrenceEvidence evidence)
         {
+            var occurrence = new InspectionGraphOccurrence(
+                _occurrences.Count,
+                relationship,
+                occurrenceSource,
+                occurrenceTarget,
+                evidence,
+                []);
+            object identity =
+                relationship.OccurrenceIdentity.Project(occurrence)
+                ?? throw new InspectionQueryException(
+                    "An Integration occurrence identity cannot be null.");
+            if (!_occurrenceIdentities.TryGetValue(
+                    relationship,
+                    out HashSet<object>? identities))
+            {
+                identities = [];
+                _occurrenceIdentities.Add(
+                    relationship,
+                    identities);
+            }
+            if (!identities.Add(identity))
+                return;
+
             int sourceNodeId = AddNode(
                 edgeSource,
                 Registration(edgeSource));
             int targetNodeId = AddNode(
                 edgeTarget,
                 Registration(edgeTarget));
-            int occurrenceId = _occurrences.Count;
-            _occurrences.Add(
-                new InspectionGraphOccurrence(
-                    occurrenceId,
-                    relationship,
-                    occurrenceSource,
-                    occurrenceTarget,
-                    evidence,
-                    []));
+            int occurrenceId = occurrence.Id;
+            _occurrences.Add(occurrence);
             var key = new EdgeKey(
                 sourceNodeId,
                 targetNodeId,

@@ -353,6 +353,40 @@ public sealed class InspectionGraphIntegrationsQueryTests
                                 .BindingUnavailable));
     }
 
+    [Fact]
+    public void Execute_DeduplicatesEquivalentExtensionMethodRows()
+    {
+        using var fixture = IntegrationFixture.Create(
+            duplicateExtensionMethodRows: true);
+        var extensions = AssemblyContextExtensionMethodsQuery.Execute(
+            fixture.Context.Group);
+        var duplicateExtensions = Assert.IsType<
+            AssemblyContextEntry<
+                System.Collections.Immutable.ImmutableArray<
+                    ExtensionMethodInfo>>.Available>(
+            Assert.Single(
+                extensions.Assemblies,
+                entry => entry.Subject.Identity.Name == "Dup.Ext"));
+        Assert.Equal(2, duplicateExtensions.Value.Length);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+
+        InspectionGraphOccurrence occurrence = Assert.Single(
+            document.Occurrences,
+            occurrence =>
+                occurrence.Relationship
+                    == InspectionGraphIntegrationsCatalog.Extension
+                && Assert.IsType<InspectionGraphExtensionEvidence>(
+                    occurrence.Evidence).Registration
+                    is { } registration
+                && ReferenceEquals(
+                    registration,
+                    duplicateExtensions.Subject.Registration));
+        Assert.IsType<InspectionGraphExtensionEvidence>(
+            occurrence.Evidence);
+    }
+
     static InspectionGraphNode Node(
         InspectionGraphDocument document,
         InspectionGraphSubject subject) =>
@@ -460,7 +494,8 @@ public sealed class InspectionGraphIntegrationsQueryTests
             bool openAiAdapterReturnsDifferentAiType = false,
             bool includeRejectedParticipant = false,
             bool equivalentReferenceVariants = false,
-            bool unavailableOpenAiBinding = false)
+            bool unavailableOpenAiBinding = false,
+            bool duplicateExtensionMethodRows = false)
         {
             (
                 PersistedAssemblyBuilder abstractions,
@@ -580,6 +615,11 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 packageIds.Add("foo");
                 assemblies.Add(EquivalentReferencesAssembly());
                 packageIds.Add("reference.variants");
+            }
+            if (duplicateExtensionMethodRows)
+            {
+                assemblies.Add(DuplicateExtensionsAssembly());
+                packageIds.Add("dup.ext");
             }
             var policy = new FixtureBindingPolicy(
                 assemblies,
@@ -780,6 +820,137 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 () => new MemoryStream(bytes, writable: false),
                 AssemblyResolutionProvenance.Package(
                     "reference.variants",
+                    "1.0.0",
+                    "net11.0",
+                    null));
+        }
+
+        static ResolvedAssemblyReference DuplicateExtensionsAssembly()
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("Dup.Ext.dll"),
+                metadata.GetOrAddGuid(
+                    new Guid(
+                        "2c6f7d38-6b1e-4a1f-9f0e-6f8a1a2b3c4d")),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("Dup.Ext"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            AssemblyReferenceHandle coreLibrary =
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("System.Runtime"),
+                    new Version(11, 0, 0, 0),
+                    default,
+                    default,
+                    default,
+                    default);
+            TypeReferenceHandle extensionAttribute =
+                metadata.AddTypeReference(
+                    coreLibrary,
+                    metadata.GetOrAddString(
+                        "System.Runtime.CompilerServices"),
+                    metadata.GetOrAddString("ExtensionAttribute"));
+            var constructorSignature = new BlobBuilder();
+            constructorSignature.WriteByte(0x20);
+            constructorSignature.WriteCompressedInteger(0);
+            constructorSignature.WriteByte(0x01);
+            MemberReferenceHandle extensionConstructor =
+                metadata.AddMemberReference(
+                    extensionAttribute,
+                    metadata.GetOrAddString(".ctor"),
+                    metadata.GetOrAddBlob(constructorSignature));
+            int serviceCollectionIndex = (2 << 2) | 0;
+            var methodSignature = new BlobBuilder();
+            methodSignature.WriteByte(0x00);
+            methodSignature.WriteCompressedInteger(1);
+            methodSignature.WriteByte(0x12);
+            methodSignature.WriteCompressedInteger(
+                serviceCollectionIndex);
+            methodSignature.WriteByte(0x12);
+            methodSignature.WriteCompressedInteger(
+                serviceCollectionIndex);
+            BlobHandle sharedSignature =
+                metadata.GetOrAddBlob(methodSignature);
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString(
+                    "Microsoft.Extensions.DependencyInjection"),
+                metadata.GetOrAddString("IServiceCollection"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            TypeDefinitionHandle extensionType =
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public
+                        | TypeAttributes.Sealed
+                        | TypeAttributes.Abstract,
+                    metadata.GetOrAddString(
+                        "Microsoft.Extensions.DependencyInjection"),
+                    metadata.GetOrAddString("ProbeExtensions"),
+                    default,
+                    MetadataTokens.FieldDefinitionHandle(1),
+                    MetadataTokens.MethodDefinitionHandle(1));
+            var attributeValue = new BlobBuilder();
+            attributeValue.WriteUInt16(1);
+            attributeValue.WriteUInt16(0);
+            BlobHandle attributeBlob =
+                metadata.GetOrAddBlob(attributeValue);
+            metadata.AddCustomAttribute(
+                extensionType,
+                extensionConstructor,
+                attributeBlob);
+            for (int index = 0; index < 2; index++)
+            {
+                MethodDefinitionHandle method =
+                    metadata.AddMethodDefinition(
+                        MethodAttributes.Public
+                            | MethodAttributes.Static,
+                        MethodImplAttributes.IL,
+                        metadata.GetOrAddString("AddProbeThing"),
+                        sharedSignature,
+                        bodyOffset: -1,
+                        MetadataTokens.ParameterHandle(1));
+                metadata.AddCustomAttribute(
+                    method,
+                    extensionConstructor,
+                    attributeBlob);
+            }
+            var pe = new ManagedPEBuilder(
+                new PEHeaderBuilder(
+                    imageCharacteristics:
+                        Characteristics.Dll
+                        | Characteristics.ExecutableImage),
+                new MetadataRootBuilder(metadata),
+                new BlobBuilder());
+            var output = new BlobBuilder();
+            pe.Serialize(output);
+            byte[] bytes = output.ToArray();
+            return ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "Dup.Ext",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(bytes, writable: false),
+                AssemblyResolutionProvenance.Package(
+                    "dup.ext",
                     "1.0.0",
                     "net11.0",
                     null));
