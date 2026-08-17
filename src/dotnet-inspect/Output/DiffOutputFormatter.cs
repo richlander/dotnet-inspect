@@ -111,7 +111,8 @@ public static class DiffOutputFormatter
         DiffDetailedChangesView? changes,
         AnalysisDiffView? analysisDiff,
         ImplementationDiffView? implementationDiff,
-        FindingTransitionsView? findingTransitions)
+        FindingTransitionsView? findingTransitions,
+        IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures)
         => new()
         {
             Title = $"Diff: {name}",
@@ -122,10 +123,18 @@ public static class DiffOutputFormatter
             ImplementationDiffSummary = implementationDiff?.Summary,
             ImplementationDiffNote = DistinctStatusMessage(implementationDiff),
             FindingTransitionsSummary = findingTransitions?.Status.Message,
+            InspectionFailuresSummary =
+                inspectionFailures.Count == 0
+                    ? null
+                    : "API comparison is incomplete because metadata "
+                        + $"inspection reported {inspectionFailures.Count} "
+                        + "failure(s).",
             Changes = changes?.Rows,
             AnalysisDiff = analysisDiff?.Rows,
             ImplementationDiff = implementationDiff?.Rows,
-            FindingTransitions = findingTransitions?.Rows
+            FindingTransitions = findingTransitions?.Rows,
+            InspectionFailures =
+                BuildInspectionFailureRows(inspectionFailures),
         };
 
     public static string RenderDocumentView(DiffDocumentView view, MarkoutWriterOptions? options = null)
@@ -197,6 +206,46 @@ public static class DiffOutputFormatter
                 }));
         }
 
+        if (view.InspectionFailuresSummary is not null)
+        {
+            WriteDocumentSection(
+                writer,
+                "Inspection Failures",
+                view.InspectionFailuresSummary,
+                null,
+                [
+                    "Side",
+                    "Assembly",
+                    "Operation",
+                    "Subject",
+                    "Mechanism",
+                    "Kind",
+                    "Detail",
+                    "Dependency Assembly",
+                ],
+                [
+                    "side",
+                    "assembly",
+                    "operation",
+                    "subject",
+                    "mechanism",
+                    "kind",
+                    "detail",
+                    "dependency_assembly",
+                ],
+                view.InspectionFailures?.Select(row => new[]
+                {
+                    row.Side,
+                    row.Assembly,
+                    row.Operation,
+                    row.Subject,
+                    row.Mechanism,
+                    row.Kind,
+                    row.Detail,
+                    row.DependencyAssembly ?? "",
+                }));
+        }
+
         return writer.ToString().TrimEnd();
     }
 
@@ -249,17 +298,40 @@ public static class DiffOutputFormatter
         return writer.ToString().TrimEnd();
     }
 
-    public static DiffFullView BuildFullView(string name, IReadOnlyList<TypeDiff> typeDiffs, string fromVersion, string toVersion)
+    public static DiffFullView BuildFullView(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        string fromVersion,
+        string toVersion) =>
+        BuildFullView(
+            name,
+            typeDiffs,
+            [],
+            fromVersion,
+            toVersion);
+
+    static DiffFullView BuildFullView(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures,
+        string fromVersion,
+        string toVersion)
     {
         var view = new DiffFullView
         {
             Title = $"API Diff: {name}",
             Versions = $"**{fromVersion}** → **{toVersion}**",
+            InspectionFailures =
+                BuildInspectionFailureRows(inspectionFailures),
         };
 
         if (typeDiffs.Count == 0)
         {
-            view.Status = new Callout(CalloutSeverity.Note, "No API changes detected.");
+            view.Status = new Callout(
+                CalloutSeverity.Note,
+                inspectionFailures.Count == 0
+                    ? "No API changes detected."
+                    : "API comparison is incomplete because metadata inspection failed.");
             return view;
         }
 
@@ -276,6 +348,12 @@ public static class DiffOutputFormatter
         view.BreakingChanges = BuildChangeRows(ChangeClassification.Breaking, typeDiffs);
         view.PotentiallyBreakingChanges = BuildChangeRows(ChangeClassification.PotentiallyBreaking, typeDiffs);
         view.AdditiveChanges = BuildChangeRows(ChangeClassification.Additive, typeDiffs);
+        if (inspectionFailures.Count > 0)
+        {
+            view.Status = new Callout(
+                CalloutSeverity.Note,
+                "API comparison is incomplete because metadata inspection failed.");
+        }
 
         return view;
     }
@@ -287,6 +365,55 @@ public static class DiffOutputFormatter
         DiffViewContext.Default.Serialize(view, writer);
         return writer.ToString().TrimEnd();
     }
+
+    public static string RenderFullMarkdown(
+        string name,
+        IReadOnlyList<TypeDiff> typeDiffs,
+        IReadOnlyList<ApiDiffInspectionFailure> inspectionFailures,
+        string fromVersion,
+        string toVersion,
+        MarkoutWriterOptions? options = null)
+    {
+        var view = BuildFullView(
+            name,
+            typeDiffs,
+            inspectionFailures,
+            fromVersion,
+            toVersion);
+        var writer =
+            new MarkoutWriter(
+                new MarkdownFormatter(),
+                options);
+        DiffViewContext.Default.Serialize(view, writer);
+        return writer.ToString().TrimEnd();
+    }
+
+    static List<DiffInspectionFailureRow>? BuildInspectionFailureRows(
+        IReadOnlyList<ApiDiffInspectionFailure> failures) =>
+        failures.Count == 0
+            ? null
+            :
+            [
+                .. failures.Select(
+                    static failure =>
+                        new DiffInspectionFailureRow(
+                            failure.Side,
+                            failure.SubjectAssembly is null
+                                ? Path.GetFileName(
+                                    failure.SourceAssemblyPath ?? "")
+                                : AssemblyIdentityFormatter.Format(
+                                    failure.SubjectAssembly),
+                            failure.Operation,
+                            $"0x{failure.SubjectToken:X8}",
+                            failure.Mechanism.ToString(),
+                            failure.Kind,
+                            CSharpIdentifier.ContainRenderedText(
+                                failure.Detail),
+                            failure.DependencyAssembly is null
+                                ? null
+                                : AssemblyIdentityFormatter.Format(
+                                    failure.DependencyAssembly))),
+            ];
 
     /// <summary>
     /// Builds the Analysis Diff view with a caller-supplied summary line.

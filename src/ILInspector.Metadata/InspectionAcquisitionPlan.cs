@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
 
 namespace ILInspector.Metadata;
 
@@ -9,11 +10,15 @@ internal sealed record InspectionAcquisitionPlanOptions
     internal const int DefaultMaxCandidates = 4_096;
     internal const long DefaultMaxRetainedImageBytes =
         AssemblyImageSnapshot.DefaultMaxRetainedImageBytes;
+    internal const long DefaultMaxInventoryImageBytes =
+        AssemblyImageSnapshot.DefaultMaxRetainedImageBytes;
     internal const int DefaultMaxConcurrentSourceOpens = 8;
 
     internal int MaxCandidates { get; init; } = DefaultMaxCandidates;
     internal long MaxRetainedImageBytes { get; init; } =
         DefaultMaxRetainedImageBytes;
+    internal long MaxInventoryImageBytes { get; init; } =
+        DefaultMaxInventoryImageBytes;
     internal int MaxConcurrentSourceOpens { get; init; } =
         DefaultMaxConcurrentSourceOpens;
 
@@ -21,6 +26,7 @@ internal sealed record InspectionAcquisitionPlanOptions
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxCandidates);
         ArgumentOutOfRangeException.ThrowIfNegative(MaxRetainedImageBytes);
+        ArgumentOutOfRangeException.ThrowIfNegative(MaxInventoryImageBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             MaxConcurrentSourceOpens);
     }
@@ -36,14 +42,17 @@ internal abstract class CandidateRegistrationResult
     {
         internal Ready(
             ResolvedAssemblyCandidate candidate,
-            AssemblyInventorySnapshot inventory)
+            AssemblyInventorySnapshot inventory,
+            CandidateOpenFailure? inventoryFailure = null)
         {
             Candidate = candidate;
             Inventory = inventory;
+            InventoryFailure = inventoryFailure;
         }
 
         internal ResolvedAssemblyCandidate Candidate { get; }
         internal AssemblyInventorySnapshot Inventory { get; }
+        internal CandidateOpenFailure? InventoryFailure { get; }
     }
 
     internal sealed class Rejected : CandidateRegistrationResult
@@ -97,7 +106,16 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
     readonly Dictionary<AssemblyAcquisitionRegistration, CandidateEntry>
         _entriesByRegistration =
             new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<AssemblyAcquisitionRegistration, CandidateEntry>
+        _rootEntriesByRegistration =
+            new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<AssemblyAcquisitionRegistration, CandidateEntry>
+        _sharedEntriesByRegistration =
+            new(ReferenceEqualityComparer.Instance);
+    readonly HashSet<AssemblyAcquisitionRegistration> _registrations =
+        new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<AssemblyCandidateId, CandidateEntry> _entriesById = [];
+    long _inventoryImageBytes;
     long _retainedImageBytes;
     int _activeOperations;
     bool _disposed;
@@ -118,7 +136,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         get
         {
             lock (_gate)
-                return _entriesByRegistration.Count;
+                return _registrations.Count;
         }
     }
 
@@ -132,7 +150,16 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
     }
 
     internal CandidateRegistrationResult Register(
-        ResolvedAssemblyReference assembly)
+        ResolvedAssemblyReference assembly) =>
+        Register(assembly, allowRootAdjacencyDegradation: false);
+
+    internal CandidateRegistrationResult RegisterRoot(
+        ResolvedAssemblyReference assembly) =>
+        Register(assembly, allowRootAdjacencyDegradation: true);
+
+    CandidateRegistrationResult Register(
+        ResolvedAssemblyReference assembly,
+        bool allowRootAdjacencyDegradation)
     {
         ArgumentNullException.ThrowIfNull(assembly);
 
@@ -140,13 +167,20 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_entriesByRegistration.TryGetValue(
+            Dictionary<AssemblyAcquisitionRegistration, CandidateEntry>
+                entries =
+                    allowRootAdjacencyDegradation
+                        ? _rootEntriesByRegistration
+                        : _entriesByRegistration;
+            if (entries.TryGetValue(
                     assembly.Registration,
                     out entry!))
             {
                 // The single-flight value is evaluated after releasing the map lock.
             }
-            else if (_entriesByRegistration.Count >= _options.MaxCandidates)
+            else if (!_registrations.Contains(
+                         assembly.Registration)
+                && _registrations.Count >= _options.MaxCandidates)
             {
                 return new CandidateRegistrationResult.Rejected(
                     assembly,
@@ -154,14 +188,23 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             }
             else
             {
-                var id = new AssemblyCandidateId(Guid.NewGuid());
-                var candidate = new ResolvedAssemblyCandidate(
-                    CatalogId,
-                    id,
-                    assembly);
-                entry = new CandidateEntry(this, candidate);
-                _entriesByRegistration.Add(assembly.Registration, entry);
-                _entriesById.Add(id, entry);
+                if (!_sharedEntriesByRegistration.TryGetValue(
+                        assembly.Registration,
+                        out entry!))
+                {
+                    var id = new AssemblyCandidateId(Guid.NewGuid());
+                    var candidate = new ResolvedAssemblyCandidate(
+                        CatalogId,
+                        id,
+                        assembly);
+                    entry = new CandidateEntry(this, candidate);
+                    _sharedEntriesByRegistration.Add(
+                        assembly.Registration,
+                        entry);
+                    _registrations.Add(assembly.Registration);
+                    _entriesById.Add(id, entry);
+                }
+                entries.Add(assembly.Registration, entry);
             }
 
             _activeOperations++;
@@ -169,7 +212,18 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
 
         try
         {
-            return entry.Inventory.Value;
+            CandidateRegistrationResult result = entry.Inventory.Value;
+            if (!allowRootAdjacencyDegradation
+                && result is CandidateRegistrationResult.Ready
+                {
+                    InventoryFailure: { } failure,
+                } ready)
+            {
+                return new CandidateRegistrationResult.Rejected(
+                    ready.Candidate.Assembly,
+                    failure);
+            }
+            return result;
         }
         finally
         {
@@ -189,7 +243,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_entriesByRegistration.TryGetValue(
+            if (_sharedEntriesByRegistration.TryGetValue(
                     assembly.Registration,
                     out CandidateEntry? existing))
             {
@@ -197,13 +251,16 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                         existing.RetainedSnapshot,
                         snapshot))
                 {
+                    _entriesByRegistration.TryAdd(
+                        assembly.Registration,
+                        existing);
                     return;
                 }
 
                 throw new InvalidOperationException(
                     "The acquisition registration already owns a different image source.");
             }
-            if (_entriesByRegistration.Count >= _options.MaxCandidates)
+            if (_registrations.Count >= _options.MaxCandidates)
             {
                 throw new InvalidOperationException(
                     "The inspection candidate budget was exhausted.");
@@ -222,6 +279,10 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 retained);
             var entry = new CandidateEntry(this, candidate, snapshot);
             _entriesByRegistration.Add(assembly.Registration, entry);
+            _sharedEntriesByRegistration.Add(
+                assembly.Registration,
+                entry);
+            _registrations.Add(assembly.Registration);
             _entriesById.Add(id, entry);
             _retainedImageBytes += snapshot.Length;
         }
@@ -269,30 +330,33 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
     CandidateRegistrationResult ReadInventory(CandidateEntry entry)
     {
         _sourceOpenGate.Enter();
+        long reservedBytes = 0;
         try
         {
-            using Stream stream =
-                AssemblyImageSnapshot.OpenSource(
-                    entry.Candidate.Assembly);
-            long imageSize =
-                AssemblyImageSnapshot.ReadRemainingLength(stream);
-            using var peReader = new PEReader(
-                stream,
-                PEStreamOptions.LeaveOpen | PEStreamOptions.PrefetchMetadata);
-            if (!peReader.HasMetadata)
-                return RejectInvalid(entry, "The selected image has no managed metadata.");
+            AssemblyImageSnapshotResult snapshotResult =
+                AssemblyImageSnapshot.Open(
+                    entry.Candidate.Assembly,
+                    TryReserveInventoryImage,
+                    ReleaseInventoryImage);
+            if (snapshotResult
+                is AssemblyImageSnapshotResult.Rejected rejected)
+            {
+                return new CandidateRegistrationResult.Rejected(
+                    entry.Candidate.Assembly,
+                    rejected.Failure);
+            }
+
+            AssemblyImageSnapshot snapshot =
+                ((AssemblyImageSnapshotResult.Ready)snapshotResult)
+                    .Snapshot;
+            reservedBytes = snapshot.Length;
+            ImmutableArray<byte> contentDigest =
+                ImmutableArray.CreateRange(
+                    SHA256.HashData(snapshot.Content.AsSpan()));
+            using var peReader =
+                new PEReader(snapshot.Content);
 
             MetadataReader reader = peReader.GetMetadataReader();
-            AssemblyReferenceIdentity actual =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-            if (!AssemblyImageSnapshot.IdentityMatches(
-                    entry.Candidate.Assembly.Identity,
-                    actual))
-            {
-                return RejectInvalid(
-                    entry,
-                    "The selected image identity does not match its descriptor.");
-            }
 
             var references =
                 ImmutableArray.CreateBuilder<AssemblyReferenceIdentity>();
@@ -301,13 +365,27 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                 new Dictionary<
                     AssemblyReferenceHandle,
                     AssemblyReferenceIdentity>();
+            var referenceProjection =
+                new AssemblyReferenceProjectionCache(reader);
             foreach (AssemblyReferenceHandle handle in reader.AssemblyReferences)
             {
-                AssemblyReferenceIdentity reference =
-                    AssemblyReferenceIdentity.From(reader, handle);
-                referencesByHandle.Add(handle, reference);
-                if (seenReferences.Add(reference))
-                    references.Add(reference);
+                try
+                {
+                    AssemblyReferenceIdentity reference =
+                        AssemblyReferenceIdentity.From(
+                            handle,
+                            referenceProjection);
+                    referencesByHandle.Add(handle, reference);
+                    if (seenReferences.Add(reference))
+                        references.Add(reference);
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException)
+                {
+                    entry.RecordRootAdjacencyFailure(
+                        "The selected image has an invalid AssemblyRef row.");
+                }
             }
 
             var forwarderTargets =
@@ -319,68 +397,79 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
                     MetadataSafetyPolicy.MaxRelationshipNodes];
             foreach (ExportedTypeHandle handle in reader.ExportedTypes)
             {
-                if (!MetadataRelationshipTraversal
-                        .TryWalkExportedTypeImplementationChain(
-                            reader,
-                            handle,
-                            rootToLeaf,
-                            out _,
-                            out EntityHandle terminal,
-                            out _))
+                try
                 {
-                    return RejectInvalid(
-                        entry,
-                        "The selected image has an invalid ExportedType relationship.");
+                    if (!MetadataRelationshipTraversal
+                            .TryWalkExportedTypeImplementationChain(
+                                reader,
+                                handle,
+                                rootToLeaf,
+                                out _,
+                                out EntityHandle terminal,
+                                out _))
+                    {
+                        // Root extraction diagnoses this ExportedType row from
+                        // the retained session; only adjacency discovery skips it.
+                        entry.RecordRootAdjacencyFailure(
+                            "The selected image has an invalid ExportedType relationship.");
+                        continue;
+                    }
+
+                    if (terminal.Kind == HandleKind.AssemblyReference)
+                    {
+                        if (!reader.GetExportedType(rootToLeaf[0]).IsForwarder)
+                        {
+                            entry.RecordRootAdjacencyFailure(
+                                "The selected image has an AssemblyRef-terminated "
+                                    + "ExportedType chain that is not a forwarder.");
+                            continue;
+                        }
+
+                        var targetHandle = (AssemblyReferenceHandle)terminal;
+                        if (!referencesByHandle.TryGetValue(
+                                targetHandle,
+                                out AssemblyReferenceIdentity? target))
+                        {
+                            target = AssemblyReferenceIdentity.From(
+                                targetHandle,
+                                referenceProjection);
+                            referencesByHandle.Add(targetHandle, target);
+                            if (seenReferences.Add(target))
+                                references.Add(target);
+                        }
+
+                        if (seenForwarderTargets.Add(target))
+                            forwarderTargets.Add(target);
+                    }
+                    else if (terminal.Kind != HandleKind.AssemblyFile)
+                    {
+                        // Root extraction diagnoses this ExportedType row from
+                        // the retained session; only adjacency discovery skips it.
+                        entry.RecordRootAdjacencyFailure(
+                            "The selected image has an unsupported ExportedType terminal.");
+                    }
                 }
-
-                if (terminal.Kind == HandleKind.AssemblyReference)
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentOutOfRangeException)
                 {
-                    if (!reader.GetExportedType(rootToLeaf[0]).IsForwarder)
-                    {
-                        return RejectInvalid(
-                            entry,
-                            "An AssemblyRef-terminated ExportedType chain is not a forwarder.");
-                    }
-
-                    var targetHandle = (AssemblyReferenceHandle)terminal;
-                    if (!referencesByHandle.TryGetValue(
-                            targetHandle,
-                            out AssemblyReferenceIdentity? target))
-                    {
-                        target = AssemblyReferenceIdentity.From(
-                            reader,
-                            targetHandle);
-                        referencesByHandle.Add(targetHandle, target);
-                        if (seenReferences.Add(target))
-                            references.Add(target);
-                    }
-
-                    if (target is null)
-                    {
-                        return RejectInvalid(
-                            entry,
-                            "The selected image has an invalid AssemblyRef target.");
-                    }
-
-                    if (seenForwarderTargets.Add(target))
-                        forwarderTargets.Add(target);
-                }
-                else if (terminal.Kind != HandleKind.AssemblyFile)
-                {
-                    return RejectInvalid(
-                        entry,
-                        "The selected image has an unsupported ExportedType terminal.");
+                    // Root extraction diagnoses this ExportedType row from the
+                    // retained session; only adjacency discovery skips it.
+                    entry.RecordRootAdjacencyFailure(
+                        "The selected image has an invalid ExportedType row.");
                 }
             }
 
             return new CandidateRegistrationResult.Ready(
                 entry.Candidate,
                 new AssemblyInventorySnapshot(
-                    actual,
-                    reader.GetGuid(reader.GetModuleDefinition().Mvid),
+                    snapshot.Identity,
+                    snapshot.ModuleVersionId,
+                    contentDigest,
                     references.ToImmutable(),
                     forwarderTargets.ToImmutable(),
-                    imageSize));
+                    snapshot.Length),
+                entry.RootAdjacencyFailure);
         }
         catch (Exception ex) when (
             ex is IOException
@@ -404,6 +493,7 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         }
         finally
         {
+            ReleaseInventoryImage(reservedBytes);
             _sourceOpenGate.Exit();
         }
     }
@@ -419,53 +509,44 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
         bool retainReservation = false;
         try
         {
-            AssemblyInspectionSession? session = null;
-            try
+            AssemblyImageSnapshotResult snapshotResult =
+                AssemblyImageSnapshot.Open(
+                    entry.Candidate.Assembly,
+                    TryReserveImage,
+                    ReleaseImage);
+            if (snapshotResult
+                is AssemblyImageSnapshotResult.Rejected snapshotRejected)
             {
-                AssemblyImageSnapshotResult snapshotResult =
-                    AssemblyImageSnapshot.Open(
-                        entry.Candidate.Assembly,
-                        TryReserveImage,
-                        ReleaseImage);
-                if (snapshotResult
-                    is AssemblyImageSnapshotResult.Rejected
-                        snapshotRejected)
-                {
-                    return new CandidateSessionResult.Rejected(
-                        snapshotRejected.Failure);
-                }
+                return new CandidateSessionResult.Rejected(
+                    snapshotRejected.Failure);
+            }
 
-                AssemblyImageSnapshot snapshot =
-                    ((AssemblyImageSnapshotResult.Ready)snapshotResult)
+            AssemblyImageSnapshot snapshot =
+                ((AssemblyImageSnapshotResult.Ready)snapshotResult)
                     .Snapshot;
-                reservedBytes = snapshot.Length;
-                session = AssemblyInspectionSession.Open(snapshot);
-                var inventory =
-                    (CandidateRegistrationResult.Ready)entry.Inventory.Value;
-                if (!session.HasMetadata
-                    || !AssemblyImageSnapshot.IdentityMatches(
-                        entry.Candidate.Assembly.Identity,
-                        session.AssemblyIdentity())
-                    || session.ModuleVersionId()
-                        != inventory.Inventory.ModuleVersionId)
-                {
-                    return new CandidateSessionResult.Rejected(
-                        new CandidateOpenFailure(
-                            CandidateOpenFailureKind.InvalidImage,
-                            "The opened image does not match the inventoried candidate."));
-                }
-
-                var ready = new CandidateSessionResult.Ready(
-                    session,
-                    snapshot);
-                session = null;
-                retainReservation = true;
-                return ready;
-            }
-            finally
+            reservedBytes = snapshot.Length;
+            var inventory =
+                (CandidateRegistrationResult.Ready)entry.Inventory.Value;
+            byte[] contentDigest =
+                SHA256.HashData(snapshot.Content.AsSpan());
+            if (snapshot.ModuleVersionId
+                    != inventory.Inventory.ModuleVersionId
+                || !CryptographicOperations.FixedTimeEquals(
+                    contentDigest,
+                    inventory.Inventory.ContentDigest.AsSpan()))
             {
-                session?.Dispose();
+                return new CandidateSessionResult.Rejected(
+                    new CandidateOpenFailure(
+                        CandidateOpenFailureKind.InvalidImage,
+                        "The opened image does not match the inventoried candidate."));
             }
+
+            AssemblyInspectionSession session =
+                AssemblyInspectionSession.Open(snapshot);
+            retainReservation = true;
+            return new CandidateSessionResult.Ready(
+                session,
+                snapshot);
         }
         catch (Exception ex) when (
             ex is IOException
@@ -510,12 +591,17 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             session = AssemblyInspectionSession.Open(snapshot);
             var inventory =
                 (CandidateRegistrationResult.Ready)inventoryResult;
+            byte[] contentDigest =
+                SHA256.HashData(snapshot.Content.AsSpan());
             if (!session.HasMetadata
                 || !AssemblyImageSnapshot.IdentityMatches(
                     entry.Candidate.Assembly.Identity,
                     session.AssemblyIdentity())
                 || session.ModuleVersionId()
-                    != inventory.Inventory.ModuleVersionId)
+                    != inventory.Inventory.ModuleVersionId
+                || !CryptographicOperations.FixedTimeEquals(
+                    contentDigest,
+                    inventory.Inventory.ContentDigest.AsSpan()))
             {
                 return new CandidateSessionResult.Rejected(
                     new CandidateOpenFailure(
@@ -539,11 +625,40 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
     {
         lock (_gate)
         {
-            if (imageSize > _options.MaxRetainedImageBytes - _retainedImageBytes)
+            if (imageSize
+                > _options.MaxRetainedImageBytes
+                    - _retainedImageBytes)
+            {
                 return false;
+            }
+
             _retainedImageBytes += imageSize;
             return true;
         }
+    }
+
+    bool TryReserveInventoryImage(long imageSize)
+    {
+        lock (_gate)
+        {
+            if (imageSize
+                > _options.MaxInventoryImageBytes
+                    - _inventoryImageBytes)
+            {
+                return false;
+            }
+
+            _inventoryImageBytes += imageSize;
+            return true;
+        }
+    }
+
+    void ReleaseInventoryImage(long imageSize)
+    {
+        if (imageSize == 0)
+            return;
+        lock (_gate)
+            _inventoryImageBytes -= imageSize;
     }
 
     void ReleaseImage(long imageSize)
@@ -587,15 +702,20 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
             while (_activeOperations != 0)
                 Monitor.Wait(_gate);
 
-            foreach (CandidateEntry entry in _entriesByRegistration.Values)
+            foreach (CandidateEntry entry
+                in _sharedEntriesByRegistration.Values)
             {
                 if (entry.Session.IsValueCreated
-                    && entry.Session.Value is CandidateSessionResult.Ready ready)
+                    && entry.Session.Value
+                        is CandidateSessionResult.Ready ready)
                 {
                     sessions.Add(ready.Session);
                 }
             }
             _entriesByRegistration.Clear();
+            _rootEntriesByRegistration.Clear();
+            _sharedEntriesByRegistration.Clear();
+            _registrations.Clear();
             _entriesById.Clear();
             _retainedImageBytes = 0;
         }
@@ -636,7 +756,15 @@ internal sealed class InspectionAcquisitionPlan : IDisposable
 
         internal ResolvedAssemblyCandidate Candidate { get; }
         internal AssemblyImageSnapshot? RetainedSnapshot { get; }
+        internal CandidateOpenFailure? RootAdjacencyFailure { get; private set; }
         internal Lazy<CandidateRegistrationResult> Inventory { get; }
         internal Lazy<CandidateSessionResult> Session { get; }
+
+        internal void RecordRootAdjacencyFailure(string detail)
+        {
+            RootAdjacencyFailure ??= new CandidateOpenFailure(
+                CandidateOpenFailureKind.InvalidImage,
+                detail);
+        }
     }
 }

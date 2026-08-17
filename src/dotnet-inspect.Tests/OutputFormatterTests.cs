@@ -2582,7 +2582,9 @@ public class OutputFormatterTests
         inspection.SourceIntegrityVerified = 2;
         inspection.SourceIntegrityLineEndingNormalized = 2;
 
-        AuditSignalBuilder.PopulateLibraryAudit(typeof(OutputFormatterTests).Assembly.Location, inspection, new VerboseLogger(false));
+        using var session =
+            AssemblyInspectionSession.Open(typeof(OutputFormatterTests).Assembly.Location);
+        AuditSignalBuilder.ApplyLibraryAudit(inspection, session.AuditMetadata());
         var output = Serialize(inspection);
 
         Assert.Contains("## Signals", output);
@@ -2601,7 +2603,9 @@ public class OutputFormatterTests
         inspection.PdbLocation = "standalone";
         inspection.SourceLinkUnavailableReason = "PDB checked; no SourceLink data";
 
-        AuditSignalBuilder.PopulateLibraryAudit(typeof(OutputFormatterTests).Assembly.Location, inspection, new VerboseLogger(false));
+        using var session =
+            AssemblyInspectionSession.Open(typeof(OutputFormatterTests).Assembly.Location);
+        AuditSignalBuilder.ApplyLibraryAudit(inspection, session.AuditMetadata());
 
         var sourceLink = Assert.Single(inspection.AuditSignals!, s => s.Signal == "SourceLink");
         Assert.Equal("Not found", sourceLink.Value);
@@ -2621,10 +2625,9 @@ public class OutputFormatterTests
             [],
             []);
 
-        AuditSignalBuilder.PopulateLibraryAudit(
-            typeof(OutputFormatterTests).Assembly.Location,
-            inspection,
-            new VerboseLogger(false));
+        using var session =
+            AssemblyInspectionSession.Open(typeof(OutputFormatterTests).Assembly.Location);
+        AuditSignalBuilder.ApplyLibraryAudit(inspection, session.AuditMetadata());
 
         var sourceLink = Assert.Single(
             inspection.AuditSignals!,
