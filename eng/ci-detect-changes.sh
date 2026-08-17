@@ -310,6 +310,8 @@ while IFS= read -r -d '' file; do
     # `ci-required` passes on a `skipped`.
     eng/restore-iltools.sh) CODE=true ;;
     eng/activate-iltools.sh) CODE=true ;;
+    eng/validate-inspect-web-promotion.cs) WEB=true ;;
+    eng/validate-inspect-web-promotion.sh) WEB=true ;;
     # Global analyzer input consumed by every product and Browser build.
     eng/BannedSymbols.txt) CODE=true; WEB=true ;;
     # Controls checkout line endings on Windows, including the raw
@@ -324,6 +326,7 @@ while IFS= read -r -d '' file; do
     *.props|*.targets|*.sln|*.slnx) CODE=true; WEB=true ;;
     .github/workflows/ci.yml) CODE=true; WEB=true ;;
     .github/workflows/deploy-inspect-web.yml) WEB=true ;;
+    .github/workflows/promote-inspect-web.yml) WEB=true ;;
     .github/workflows/*) CODE=true ;;
   esac
   # C# Diff smoke coverage is separate from the full test lane for the

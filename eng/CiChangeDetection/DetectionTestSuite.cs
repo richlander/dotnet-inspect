@@ -340,6 +340,26 @@ internal static class DetectionTestSuite
             throw new InvalidOperationException(
                 $"Web canary did not select only web: {FormatValues(web)}");
         }
+        foreach (string promotionInput in new[]
+        {
+            ".github/workflows/promote-inspect-web.yml",
+            "eng/validate-inspect-web-promotion.cs",
+            "eng/validate-inspect-web-promotion.sh",
+        })
+        {
+            Dictionary<string, string> promotion = RunDetection(
+                repository,
+                body,
+                "pull_request",
+                promotionInput,
+                outputs);
+            if (promotion["code"] != "false" || promotion["web"] != "true")
+            {
+                throw new InvalidOperationException(
+                    $"Promotion input {promotionInput} did not select only web: " +
+                    FormatValues(promotion));
+            }
+        }
         AssertRouting(
             source,
             selected: "shipped",

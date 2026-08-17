@@ -1,4 +1,4 @@
-name: Deploy inspect-web
+name: Deploy inspect-web staging
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-inspect-web
+  group: deploy-inspect-web-staging
   cancel-in-progress: true
 
 env:
@@ -21,9 +21,11 @@ env:
 
 jobs:
   deploy:
-    name: Publish and deploy
+    name: Publish staging
     if: github.ref == 'refs/heads/main'
-    environment: inspect-web-production
+    environment:
+      name: inspect-web-staging
+      url: https://dotnet-inspect.ca
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
@@ -49,11 +51,19 @@ jobs:
             -p:SourceRevisionId="$GITHUB_SHA" \
             -p:BuildTimestampUtc="$built_at"
 
-      - name: Deploy to Azure Static Web Apps
+      - name: Upload staged site artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: inspect-web-site
+          path: artifacts/inspect-web-publish/wwwroot
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Deploy to staging
         id: deploy
         uses: Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1 # v1
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB }}
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_STAGING }}
           action: upload
           app_location: artifacts/inspect-web-publish/wwwroot
           output_location: ''
