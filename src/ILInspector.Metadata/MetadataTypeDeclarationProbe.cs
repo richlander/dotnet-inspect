@@ -782,7 +782,10 @@ public static class MetadataTypeDeclarationProbe
                 if ((method.Attributes & MethodAttributes.Static) != 0
                     || (method.Attributes & constructorFlags)
                         != constructorFlags
-                    || reader.GetString(method.Name) != ".ctor")
+                    || reader.GetBlobReader(method.Name).Length != 5
+                    || !reader.StringComparer.Equals(
+                        method.Name,
+                        ".ctor"))
                 {
                     continue;
                 }

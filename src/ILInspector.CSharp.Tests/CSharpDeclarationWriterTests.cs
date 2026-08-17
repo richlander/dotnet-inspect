@@ -1160,6 +1160,39 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ExplicitInterfaceProperty_UsesTypedQualifierForUndottedName()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Counter",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "Count",
+            Kind = "property",
+            ExplicitInterfaceProvenance =
+                SameImageProvenance("Samples", "ICounter"),
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Count",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+
+        var declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                member);
+
+        Assert.Equal(
+            "int Samples.ICounter.Count { get; }",
+            declaration);
+    }
+
+    [Fact]
     public void OrdinaryOperator_WithMethodImplProvenance_RetainsPublicModifier()
     {
         var type = new ApiType
@@ -1719,10 +1752,25 @@ public sealed class CSharpDeclarationWriterTests
             ]
         };
 
-    static ApiExplicitInterfaceProvenance SameImageProvenance()
-        => new(
+    static ApiExplicitInterfaceProvenance SameImageProvenance(
+        string? @namespace = null,
+        string? name = null)
+    {
+        MetadataTypeDefinitionName? definitionName = null;
+        if (@namespace is not null && name is not null)
+        {
+            definitionName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        @namespace,
+                        [name]))
+                .Name;
+        }
+        return new ApiExplicitInterfaceProvenance(
             [
                 new ApiExplicitInterfaceDeclarationContext(
-                    ApiExplicitInterfaceDeclarationKind.SameImage)
+                    ApiExplicitInterfaceDeclarationKind.SameImage,
+                    definitionName)
             ]);
+    }
 }

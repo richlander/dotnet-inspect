@@ -327,6 +327,51 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void ExplicitInterfaceProvenanceContributesItsRetainedText()
+    {
+        MetadataTypeDefinitionName definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contracts",
+                    ["IValue"]))
+            .Name;
+        var withoutProvenance = new ApiMember
+        {
+            Name = "Contracts.IValue.Value",
+            Kind = "property",
+            SignatureModel = new ApiSignature(),
+        };
+        var withProvenance = new ApiMember
+        {
+            Name = withoutProvenance.Name,
+            Kind = withoutProvenance.Kind,
+            SignatureModel = new ApiSignature(),
+            ExplicitInterfaceProvenance =
+                new ApiExplicitInterfaceProvenance(
+                    [
+                        new ApiExplicitInterfaceDeclarationContext(
+                            ApiExplicitInterfaceDeclarationKind.External,
+                            definitionName,
+                            new AssemblyReferenceIdentity(
+                                "Dependency",
+                                new Version(1, 0, 0, 0),
+                                "fr",
+                                "0011223344556677"))
+                    ]),
+        };
+
+        Assert.Equal(
+            "Contracts".Length
+                + "IValue".Length
+                + "Dependency".Length
+                + "fr".Length
+                + "0011223344556677".Length,
+            ApiSurfaceExtractor.CountRetainedText(withProvenance)
+                - ApiSurfaceExtractor.CountRetainedText(
+                    withoutProvenance));
+    }
+
+    [Fact]
     public void RepeatedLongMemberName_StopsBeforeLargeAllocationAmplification()
     {
         byte[] image = BuildRepeatedLongMethodNameImage(
@@ -365,6 +410,69 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 methodCount: 10_000,
                 nameLength: 4_000,
                 prefix: "get_"));
+    }
+
+    [Fact]
+    public void UndottedMethodImplAccessor_IsRetained()
+    {
+        byte[] image = BuildUndottedExplicitAccessorImage();
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        Assert.Equal(
+            "explicit-interface-implementation",
+            member.Kind);
+        Assert.Equal("get_Value", member.Name);
+        Assert.Equal(
+            ApiExplicitInterfaceProvenanceKind.External,
+            Assert.IsType<ApiExplicitInterfaceProvenance>(
+                member.ExplicitInterfaceProvenance)
+            .Kind);
+    }
+
+    [Fact]
+    public void ExplicitMethodImplProvenance_StopsDecodeAmplification()
+    {
+        byte[] image = BuildUndottedExplicitAccessorImage(
+            declarationCount: 1_000,
+            interfaceNameLength: 3_900);
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result =
+            ApiSurfaceExtractor.ExtractBounded(
+                peReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 10,
+                    maxMembers: 10,
+                    maxInspectionFailures: 10,
+                    maxTypeForwarders: 10,
+                    maxMetadataRows: 10_000,
+                    maxRetainedTextCharacters: 8_000_000));
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        var exceeded =
+            Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+                result);
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharacters,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 32L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
     }
 
     [Fact]
@@ -1267,6 +1375,87 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 signatureHandle);
         }
         AddModuleAndPublicType(metadata, "Amplifier");
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildUndottedExplicitAccessorImage(
+        int declarationCount = 1,
+        int interfaceNameLength = 6)
+    {
+        var metadata = Metadata("ExplicitAccessor");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ExplicitAccessor");
+        var accessorSignature = new BlobBuilder();
+        new BlobEncoder(accessorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        BlobHandle signature =
+            metadata.GetOrAddBlob(accessorSignature);
+        MethodDefinitionHandle accessor =
+            metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.Abstract,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("get_Value"),
+                signature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+        var propertySignature = new BlobBuilder();
+        new BlobEncoder(propertySignature).PropertySignature(
+            isInstanceProperty: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        PropertyDefinitionHandle property =
+            metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("Value"),
+                metadata.GetOrAddBlob(propertySignature));
+        metadata.AddPropertyMap(type, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            accessor);
+        for (int index = 0; index < declarationCount; index++)
+        {
+            string interfaceName = declarationCount == 1
+                ? "IValue"
+                : new string(
+                    'I',
+                    interfaceNameLength - 8)
+                    + index.ToString("D8");
+            TypeReferenceHandle contract =
+                metadata.AddTypeReference(
+                    contracts,
+                    metadata.GetOrAddString("Contracts"),
+                    metadata.GetOrAddString(interfaceName));
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    contract,
+                    metadata.GetOrAddString("get_Value"),
+                    signature);
+            metadata.AddMethodImplementation(
+                type,
+                accessor,
+                declaration);
+        }
         return Serialize(metadata);
     }
 

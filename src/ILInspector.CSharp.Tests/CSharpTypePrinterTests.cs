@@ -3164,7 +3164,9 @@ public sealed class CSharpTypePrinterTests
         var indexer = new ApiMember
         {
             Name = "Samples.IValues.Item",
-            Kind = "explicit-interface-implementation",
+            Kind = "property",
+            ExplicitInterfaceProvenance =
+                SameImageProvenance("Samples", "IValues"),
             SignatureModel = new ApiSignature
             {
                 ReturnType = "int",
@@ -3214,7 +3216,9 @@ public sealed class CSharpTypePrinterTests
         var property = new ApiMember
         {
             Name = "Samples.IValue.Value",
-            Kind = "explicit-interface-implementation",
+            Kind = "property",
+            ExplicitInterfaceProvenance =
+                SameImageProvenance("Samples", "IValue"),
             SignatureModel = new ApiSignature
             {
                 ReturnType = "int",
@@ -4493,6 +4497,23 @@ public sealed class CSharpTypePrinterTests
                 MemberName = name
             }
         };
+
+    static ApiExplicitInterfaceProvenance SameImageProvenance(
+        string @namespace,
+        string name)
+    {
+        var valid =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    @namespace,
+                    [name]));
+        return new ApiExplicitInterfaceProvenance(
+            [
+                new ApiExplicitInterfaceDeclarationContext(
+                    ApiExplicitInterfaceDeclarationKind.SameImage,
+                    valid.Name)
+            ]);
+    }
 
     sealed class DifferentEachEnumerationList<T>(T first, T later) : IReadOnlyList<T>
     {

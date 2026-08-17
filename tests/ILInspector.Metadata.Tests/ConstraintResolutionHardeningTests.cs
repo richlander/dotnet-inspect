@@ -1225,6 +1225,73 @@ public class ConstraintResolutionHardeningTests
     }
 
     [Fact]
+    public void ExternalBaseKindFailurePreservesTerminalAssemblyIdentity()
+    {
+        byte[] consumerImage =
+            BuildDirectBaseConsumer(
+                "Consumer",
+                "Outer",
+                "Outer");
+        byte[] outerImage =
+            BuildTypeWithExternalConstructedBase(
+                "Outer",
+                "Outer",
+                genericDefinition: false,
+                "Facade",
+                "Type`1");
+        byte[] facadeImage =
+            BuildForwarder(
+                "Facade",
+                "Middle",
+                "Type`1");
+        byte[] middleImage =
+            BuildForwarder(
+                "Middle",
+                "Target",
+                "Type`1");
+        byte[] targetImage =
+            BuildModuleExportTarget(
+                "Target",
+                "Part.netmodule",
+                "Type`1");
+        ResolvedAssemblyReference source =
+            Descriptor(consumerImage);
+        ResolvedAssemblyReference outer =
+            Descriptor(outerImage);
+        ResolvedAssemblyReference facade =
+            Descriptor(facadeImage);
+        ResolvedAssemblyReference middle =
+            Descriptor(middleImage);
+        ResolvedAssemblyReference target =
+            Descriptor(targetImage);
+        using var pe = Reader(consumerImage);
+        using var catalog = new TypeResolutionCatalog();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            pe,
+            source,
+            catalog,
+            new MappingPolicy(
+                outer,
+                facade,
+                middle,
+                target),
+            includeAll: true,
+            resolveBaseTypes: true);
+
+        ApiSurfaceInspectionFailure failure =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Equal(
+            "resolve external base type",
+            failure.Operation);
+        Assert.Equal(
+            "Target",
+            Assert.IsType<AssemblyReferenceIdentity>(
+                failure.DependencyAssembly)
+            .Name);
+    }
+
+    [Fact]
     public void SameImageConstructedBaseHopPreservesTerminalKindDependency()
     {
         byte[] dependencyImage =

@@ -452,10 +452,9 @@ internal static class TypeParameterKindClassifier
                 outcome,
                 subject.IsNil ? handle : subject,
                 purpose);
-            if (outcome is TypeResolutionOutcome.Resolved
-                {
-                    Definition.KindResolutionFailure: { } kindFailure
-                })
+            if (outcome is TypeResolutionOutcome.Resolved resolved
+                && resolved.Definition.KindResolutionFailure
+                    is { } kindFailure)
             {
                 EntityHandle failureSubject =
                     subject.IsNil ? handle : subject;
@@ -473,7 +472,10 @@ internal static class TypeParameterKindClassifier
                         failureSubject,
                         kindFailure,
                         request,
-                        purpose: purpose);
+                        purpose: purpose,
+                        dependencyAssembly:
+                            resolved.Definition
+                                .KindResolutionDependencyAssembly);
                 }
             }
             return outcome;

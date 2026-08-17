@@ -1273,13 +1273,12 @@ internal static class CSharpDeclarationWriter
 
     static IEnumerable<string> CollectExplicitInterfaceTypeReferences(ApiMember member)
     {
-        if (member.Kind != "explicit-interface-implementation")
+        if (!IsExplicitInterfaceMember(member))
             yield break;
 
-        int memberSeparator = member.Name.LastIndexOf('.');
-        if (memberSeparator > 0)
+        if (ExplicitInterfaceQualifier(member) is { } qualifier)
         {
-            foreach (var reference in ExtractTypeNames(member.Name[..memberSeparator]))
+            foreach (var reference in ExtractTypeNames(qualifier))
                 yield return reference;
         }
     }
@@ -1835,15 +1834,25 @@ internal static class CSharpDeclarationWriter
         if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))
             && model.ReturnType is { Length: > 0 } propertyType
             && model.Accessors.Count > 0
-            && (member.Kind == "explicit-interface-implementation"
+            && (IsExplicitInterfaceProperty(member)
                 || IsOrdinaryPropertyName(member.Name)
                     && IsOrdinaryPropertyName(model.MemberName)))
         {
+            bool isExplicitProperty =
+                IsExplicitInterfaceProperty(member);
+            string? explicitQualifier = isExplicitProperty
+                ? ExplicitInterfaceQualifier(member)
+                : null;
+            if (isExplicitProperty && explicitQualifier is null)
+                return false;
+
             var head = model.IsRequired ? $"required {propertyType}" : propertyType;
             var propertyMemberName = model.MemberName == "this[]"
-                ? IsExplicitInterfaceProperty(member)
-                    ? $"{member.Name[..(member.Name.LastIndexOf('.') + 1)]}this[{parameters}]"
+                ? isExplicitProperty
+                    ? $"{explicitQualifier}.this[{parameters}]"
                     : $"this[{parameters}]"
+                : isExplicitProperty
+                    ? $"{explicitQualifier}.{ExplicitInterfaceMemberLeaf(model.MemberName, member.Name)}"
                 : string.IsNullOrWhiteSpace(model.MemberName)
                     ? member.Name
                     : model.MemberName!;
@@ -1858,9 +1867,17 @@ internal static class CSharpDeclarationWriter
                 || IsOrdinaryPropertyName(member.Name)
                     && IsOrdinaryPropertyName(model.MemberName)))
         {
-            var eventMemberName = string.IsNullOrWhiteSpace(model.MemberName)
-                ? member.Name
-                : model.MemberName!;
+            bool isExplicitEvent = IsExplicitInterfaceEvent(member);
+            string? explicitQualifier = isExplicitEvent
+                ? ExplicitInterfaceQualifier(member)
+                : null;
+            if (isExplicitEvent && explicitQualifier is null)
+                return false;
+            var eventMemberName = isExplicitEvent
+                ? $"{explicitQualifier}.{ExplicitInterfaceMemberLeaf(model.MemberName, member.Name)}"
+                : string.IsNullOrWhiteSpace(model.MemberName)
+                    ? member.Name
+                    : model.MemberName!;
             signature = $"{eventType} {eventMemberName}";
             return true;
         }
@@ -1916,10 +1933,95 @@ internal static class CSharpDeclarationWriter
         => member.Kind == "explicit-interface-implementation"
             || member.ExplicitInterfaceProvenance is not null
                 // MethodImpl provenance also appears on ordinary operators and
-                // finalizers; qualified property/event names are the shapes whose
-                // ordinary kind needs provenance to recover explicit C# syntax.
-                && member.Kind is ("property" or "event")
-                && member.Name.Contains('.', StringComparison.Ordinal);
+                // finalizers; property/event kinds are the shapes whose ordinary
+                // metadata kind needs provenance to recover explicit C# syntax.
+                && member.Kind is ("property" or "event");
+
+    static string? ExplicitInterfaceQualifier(ApiMember member)
+    {
+        if (member.ExplicitInterfaceProvenance is { } provenance)
+        {
+            MetadataTypeDefinitionName? definitionName = null;
+            foreach (ApiExplicitInterfaceDeclarationContext declaration
+                in provenance.Declarations)
+            {
+                if (declaration.DefinitionName is not { } candidate
+                    || definitionName is not null
+                        && definitionName != candidate)
+                {
+                    return null;
+                }
+                definitionName = candidate;
+            }
+
+            if (definitionName is not null)
+            {
+                return TryFormatDefinitionName(
+                    definitionName,
+                    out string? qualifier)
+                    ? qualifier
+                    : null;
+            }
+        }
+
+        int memberSeparator = member.Name.LastIndexOf('.');
+        return memberSeparator > 0
+            ? member.Name[..memberSeparator]
+            : null;
+    }
+
+    static string ExplicitInterfaceMemberLeaf(
+        string? modelName,
+        string fallback)
+    {
+        string name = string.IsNullOrWhiteSpace(modelName)
+            ? fallback
+            : modelName;
+        int separator = name.LastIndexOf('.');
+        return separator >= 0
+            ? name[(separator + 1)..]
+            : name;
+    }
+
+    static bool TryFormatDefinitionName(
+        MetadataTypeDefinitionName definitionName,
+        out string? formatted)
+    {
+        var parts = new List<string>();
+        if (definitionName.Namespace.Length > 0)
+        {
+            foreach (string part in definitionName.Namespace.Split('.'))
+            {
+                if (!IsIdentitySafeIdentifier(part))
+                {
+                    formatted = null;
+                    return false;
+                }
+                parts.Add(EscapeIdentifier(part));
+            }
+        }
+
+        foreach (string segment in definitionName.Segments)
+        {
+            if (segment.IndexOf('`') >= 0
+                || !IsIdentitySafeIdentifier(segment))
+            {
+                formatted = null;
+                return false;
+            }
+            parts.Add(EscapeIdentifier(segment));
+        }
+
+        formatted = string.Join(".", parts);
+        return formatted.Length > 0;
+    }
+
+    static bool IsIdentitySafeIdentifier(string value)
+        => CSharpIdentifier.IsIdentifierLike(value)
+            && !value.EnumerateRunes().Any(
+                static rune =>
+                    Rune.GetUnicodeCategory(rune)
+                        == System.Globalization.UnicodeCategory.Format);
 
     static bool IsEvent(ApiMember member)
         => member.Kind == "event" || IsExplicitInterfaceEvent(member);
