@@ -9,7 +9,7 @@ namespace ILInspector.Decompiler.Tests;
 /// This controls only the implicit restore that happens before the script runs.
 /// The sweep's runtime package-source boundary remains
 /// <c>DOTNET_INSPECT_SWEEP_NUGET_CONFIG</c>. The exact build arguments are gated
-/// by <c>EvilPoolSweepGateTests.SweepLauncherOverridesAmbientNuGetSourcesAndAudit</c>.
+/// by <c>EvilPoolSweepGateTests.SweepLauncherSuppressesAmbientSourceAndAuditDiagnostics</c>.
 /// </remarks>
 internal static class EvilPoolSweepProcess
 {
@@ -28,8 +28,9 @@ internal static class EvilPoolSweepProcess
             RedirectStandardError = true,
         };
         startInfo.ArgumentList.Add("run");
-        startInfo.ArgumentList.Add(
-            "-p:RestoreSources=https://api.nuget.org/v3/index.json");
+        // Keep the machine's usable sources, including corporate proxies. The
+        // sweep's own package acquisition is isolated separately at runtime.
+        startInfo.ArgumentList.Add("-p:NoWarn=NU1507");
         startInfo.ArgumentList.Add("-p:NuGetAudit=false");
         startInfo.ArgumentList.Add(Path.Combine(
             repositoryRoot,

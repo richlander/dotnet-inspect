@@ -150,14 +150,14 @@ public class EvilPoolSweepGateTests
     }
 
     [Fact]
-    public void SweepLauncherOverridesAmbientNuGetSourcesAndAudit()
+    public void SweepLauncherSuppressesAmbientSourceAndAuditDiagnostics()
     {
         var startInfo = EvilPoolSweepProcess.Create("/repository", "/working");
 
         Assert.Equal(
             [
                 "run",
-                "-p:RestoreSources=https://api.nuget.org/v3/index.json",
+                "-p:NoWarn=NU1507",
                 "-p:NuGetAudit=false",
                 Path.Combine(
                     "/repository",
