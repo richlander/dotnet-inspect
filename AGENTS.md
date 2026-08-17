@@ -61,53 +61,11 @@ change ready to merge.
   of the user's home directory. Do not reuse a worktree across unrelated
   changes.
 - Never amend commits; create follow-up commits.
-- **Conflict recovery is the first priority for an open PR.** When GitHub
-  reports a merge conflict, stop tests, reviews, lower-stack restacks, and
-  unrelated follow-up work on that PR. Integrate the effective base, resolve
-  the conflict, re-read these instructions and the task-relevant docs, and push
-  the replacement head immediately so CI starts. Subject to the six-round approval
-  boundary below, a review round formed by that conflict resolution starts at
-  once on the pushed head; do not wait for CI before sending it to reviewers.
-  Run required local validation against that exact pushed head in parallel with
-  CI, and schedule the post-push status check described below. A confirmed
-  conflict supersedes any review attempt already in progress and releases its
-  head lock. That incomplete attempt does not consume a round number or require
-  a completion report; restart the same numbered round on the
-  conflict-resolution head. This changes sequencing only, and the PR remains
-  unready until local validation, CI, and required review are clean. Recover a
-  stack bottom-up so every child rests on a conflict-free parent.
-- A confirmed failing current-head required check or required local gate that
-  requires an author change also supersedes an attempt while its head lock is
-  held and releases that lock. The incomplete attempt does not consume a round
-  number or require a completion report. Make and push the required fix, wait
-  for the replacement head's zero-conflict and green-CI gate, and restart the
-  same numbered round. Unlike conflict recovery, failed-gate recovery does not
-  start review while CI is pending.
-- A confirmed failing current-head required check that needs no author change
-  does not supersede the attempt or release its head lock. For a cancelled job
-  or evidenced transient infrastructure failure, re-run the failed check on the
-  unchanged head. If it passes, continue the same attempt. If it fails again,
-  inspect the current-head failure and either repeat only with concrete
-  transient evidence or classify the failure as requiring an author change,
-  which hands the attempt to failed-gate recovery above and releases the lock.
-  Absent that classification, never continue or complete the attempt while a
-  required check remains red.
-- Form one frozen candidate for each review round. Immediately before focused
-  local validation, fetch and integrate the effective base and record that base
-  tip. Once the smallest local test, lint, or build gate covering the authored
-  behavior passes, commit and push promptly. Keep that head fixed while broader
-  local validation, CI, and eligible fixed-head review run concurrently,
-  subject to the per-round CI and conflict gates under
-  [Adversarial review](#adversarial-review). Conflict recovery is the exception:
-  push its resolution head immediately, then run required local validation in
-  parallel with review and CI as described above.
-- Do not fetch or integrate the base again merely because it advances, because
-  another PR is expected to land, or because later integration would make the
-  branch look newer. Base movement alone does not invalidate a candidate. A
-  conflict, an author change, a review fix, a current-head merge-path failure
-  that requires code changes, a required restack onto a moved parent slice, or
-  an explicit user direction ends it. Integrate the then-current effective base
-  only when forming that replacement.
+- For an open PR, the candidate, lock, CI, conflict, failed-gate, base-movement,
+  and round-restart rules have one source of truth: [Canonical round
+  flow](#canonical-round-flow). **Conflict recovery remains the first
+  priority**; apply that flow before tests, reviews, restacks, or unrelated
+  follow-up work.
 - Rebase only before the branch's first push. Once a branch is public or under
   review, merge `origin/main`; never amend, rebase, or force-push reviewed
   history. A slice in a stack is the standing exception: restacking rebases and
@@ -119,13 +77,13 @@ change ready to merge.
 - Do not mix unrelated changes into one commit or sweep another contributor's
   working-tree changes into your work.
 - Treat worktrees as temporary. Remove a reviewer worktree after that reviewer
-  has returned and any required reproduction there is complete. Remove the
-  development worktree only after the exact reviewed head is pushed, its head
-  lock has ended with all required concurrent gates successful, and every
-  required fixed-head review at that head is review-clean — or after merge, for
-  a change that needs no adversarial review. Do not retain inactive worktrees
-  in case more work appears; recreate one for the branch if follow-up work is
-  needed.
+  has returned or its cancellation is acknowledged and any required
+  reproduction there is complete. Remove the development worktree only after
+  the exact reviewed head is pushed, its head lock has ended with all required
+  concurrent gates successful, and every required fixed-head review at that
+  head is review-clean — or after merge, for a change that needs no adversarial
+  review. Do not retain inactive worktrees in case more work appears; recreate
+  one for the branch if follow-up work is needed.
 
 ## Task-specific guidance
 
@@ -494,17 +452,23 @@ npx markdownlint-cli <file>
 
 ## Adversarial review
 
-### Lock the head, review it, then fix it
+### Canonical round flow
 
-An ordinary review round may begin only after the candidate head is pushed,
-settled, locally includes the effective base recorded at candidate formation,
-and has passed its focused pre-push gate. The first attempt at round 1 starts
-without waiting for CI. A conflict-recovery round starts immediately after its
-resolution head is pushed while required post-push local validation runs,
-provided its round number is authorized under [Stop after six
-rounds](#stop-after-six-rounds). A round restarted after failed-gate recovery
-and every ordinary subsequent round additionally require zero merge conflicts
-and green current-head `ci-required`.
+This section is the sole source of truth for candidate formation, round
+eligibility, head locking, supersession, and recovery. Other sections add
+reviewer, stack, or readiness detail without redefining these transitions.
+
+| Attempt | Required before reviewer dispatch | May remain pending |
+| --- | --- | --- |
+| First attempt at round 1 | Pushed settled head, recorded effective base, focused gate | CI and mergeability |
+| Ordinary subsequent round | First-attempt requirements, zero conflicts, green current-head `ci-required` | Nothing required |
+| Conflict-recovery attempt | Resolution head pushed, round number authorized | Post-push local gates, CI, mergeability |
+| Failed-gate restart | Required fix pushed, zero conflicts, green current-head `ci-required` | Nothing required |
+
+Documentation-only ordinary candidates use Markdown linting as their focused
+gate. A documentation conflict-recovery attempt instead lints after the
+resolution push; it may start review immediately, but cannot reconcile or
+complete until lint succeeds.
 
 Review is a locked-head feedback loop: freeze and push one exact head, review
 that head, reconcile the feedback, make any resulting fixes, and freeze the
@@ -522,15 +486,25 @@ review-clean; only the replacement head can earn that status. The report
 classification `clean` is narrower: use it only when the reviewers returned no
 findings.
 
-A known conflict, known failing current-head required check, or known failing
-required local gate blocks an ordinary round. Resolve an actual conflict first,
-push the resolution, and then start its conflict-recovery round immediately.
-Pending CI or GitHub mergeability computation does not block the first attempt
-at round 1 or that conflict-recovery round. If a required check or local gate
-fails while the head lock is held and requires an author change, end the
-incomplete attempt, push the fix, satisfy the ordinary subsequent-round status
-gate, and restart the same numbered round. If the failure needs no author
-change, keep the lock and follow the unchanged-head re-run path above.
+Apply one transition when the locked head becomes invalid:
+
+- **Conflict:** supersede the attempt, release the lock, integrate and resolve
+  the effective base, push immediately, and restart the same numbered round
+  without waiting for CI. The six-round approval boundary still applies.
+- **Failure requiring an author change:** supersede the attempt, release the
+  lock, push the fix, satisfy the failed-gate restart row, and restart the same
+  numbered round.
+- **Cancelled or evidenced transient failure:** keep the unchanged head and its
+  lock, re-run the failed check, and continue if it passes. After another
+  failure, repeat only with concrete transient evidence or classify it as
+  requiring an author change. Never continue or complete while a required check
+  remains red.
+
+A superseded attempt consumes no round number and receives no completion
+report. Let its reviewers finish or cancel them explicitly. Before completing
+the restarted round, wait for every superseded reviewer to finish or have its
+cancellation acknowledged, carry forward every returned finding, and
+disposition each one publicly.
 
 Absent an actual conflict, a round that produces no review-driven fix and then
 integrates newer `main` to create another round on the agent's own initiative
@@ -544,17 +518,6 @@ moving](#clean-reviews-are-not-spent-by-main-moving), which preserves the clean
 reviews and does not open another round. An explicit user workflow adjustment
 may instead authorize interacting-base integration followed by validation and
 a new review round.
-
-Documentation-only PRs follow the same sequencing. Their focused pre-push gate
-is Markdown linting, which must pass before an ordinary candidate is committed,
-pushed, or sent to reviewers. Conflict recovery is the exception: push the
-resolution head and start its authorized round immediately, then run Markdown
-linting in parallel with review and CI. A lint failure follows failed-gate
-recovery and supersedes that attempt. Do not reconcile or complete the
-conflict-recovery round until lint finishes successfully. The first attempt at
-round 1 does not wait for CI after its push. An ordinary subsequent round
-requires a current-head status check confirming zero merge conflicts and green
-`ci-required`.
 
 Adversarial review is scarce, but serial wall-clock time is also a cost. Spend
 review only on a named frozen head with focused local evidence, then accept the
@@ -846,14 +809,8 @@ dismissals can therefore end review-clean; a round that pushes fixes is
 complete but not review-clean, and its replacement head still requires the next
 numbered review.
 
-A conflict- or failed-gate-superseded attempt is incomplete: it does not consume
-a round number, does not receive a completion report, and restarts with the
-same number after its applicable recovery gate. Let in-flight reviewers finish
-or cancel them explicitly. Do not reconcile or complete the restarted round
-until every superseded reviewer has finished or its cancellation is
-acknowledged. Record every finding returned by the superseded attempt whenever
-it arrives, carry it into the restarted round, and disposition it in that
-round's public reconciliation; supersession never retires a finding.
+Superseded attempts follow [Canonical round flow](#canonical-round-flow);
+supersession never retires a finding.
 
 After every completed round and before starting the next one, emit this report
 as the assistant's visible user-facing response in the terminal, filling every
@@ -991,17 +948,13 @@ until it is unreviewable, and over parallel PRs that race in the same files.
   slice above. Use `--force-with-lease`, restack only your own slices, and post
   a `range-diff` proving the restack changed the base and nothing else.
 - **Review depth is per-slice, by that slice's own risk**, not the stack's size.
-- **Review-start readiness is checked stack-wide before any slice's round.**
-  Every layer must have a settled pushed head, focused local evidence, and no
-  known failure or conflict. A slice's first attempt at round 1 may start with
-  pending CI. An authorized conflict-recovery round may start while the
-  recovered slice's required post-push local validation, CI, and affected
-  descendant restacks are pending; upper-slice review remains blocked until
-  that slice is conflict-free. Before any ordinary subsequent round, a
-  current-head aggregate check for every open stack layer must confirm zero
-  merge conflicts and green `ci-required`. Merge readiness still requires every
-  layer to be green and mergeable — see [Adversarial
-  review](#adversarial-review).
+- **Apply the canonical eligibility table stack-wide.** Before an ordinary
+  subsequent round, every open layer must have a settled pushed head, focused
+  evidence, zero conflicts, and green current-head `ci-required`. A first
+  attempt may retain pending CI. A conflict-recovery attempt is scoped to the
+  recovered slice and may retain the pending work allowed by its table row;
+  upper-slice review remains blocked until that slice is conflict-free. Merge
+  readiness still requires every layer to be green and mergeable.
 - **A moved head — including one moved by a restack — needs a review-clean round
   at the new head**, and a restack never retires an open finding.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost
