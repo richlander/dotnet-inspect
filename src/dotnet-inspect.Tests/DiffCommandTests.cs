@@ -240,7 +240,7 @@ public class DiffCommandTests
 
         string jsonlRow = Assert.Single(
             jsonl.Split(
-                Environment.NewLine,
+                '\n',
                 StringSplitOptions.RemoveEmptyEntries),
             line => line.Contains("\"type\"", StringComparison.Ordinal));
         using var jsonlDocument = JsonDocument.Parse(jsonlRow);
