@@ -32,6 +32,7 @@ public class SearchServiceTests
         Assert.Contains("q=json%20serializer", url);
         Assert.Contains("take=5", url);
         Assert.Contains("prerelease=true", url);
+        Assert.Contains("semVerLevel=2.0.0", url);
     }
 
     [Fact]

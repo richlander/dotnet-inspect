@@ -95,6 +95,7 @@ public partial class SearchService
                     ("skip", skip.ToString(CultureInfo.InvariantCulture)),
                     ("take", take.ToString(CultureInfo.InvariantCulture)),
                     ("prerelease", pre),
+                    ("semVerLevel", "2.0.0"),
                 ],
                 out string url))
         {
