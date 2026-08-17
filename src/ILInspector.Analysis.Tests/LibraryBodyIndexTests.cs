@@ -39,10 +39,10 @@ public class LibraryBodyIndexTests
 
         var local = Assert.Single(opportunities, opportunity =>
             opportunity.Method.Name
-                == nameof(OptimizationOpportunityFixtures
+                == nameof(OptimizationOpportunityAsyncSiblingFixtures
                     .CallsSyncSiblingFromAsync));
         Assert.Equal(
-            nameof(OptimizationOpportunityFixtures
+            nameof(OptimizationOpportunityAsyncSiblingFixtures
                 .CallsSyncSiblingFromAsync),
             local.Method.Name);
         Assert.Contains(
@@ -209,7 +209,8 @@ public class LibraryBodyIndexTests
     [Fact]
     public void OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce()
     {
-        string path = typeof(OptimizationOpportunityFixtures)
+        string path =
+            typeof(OptimizationOpportunityAsyncSiblingFixtures)
             .Assembly.Location;
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
@@ -217,7 +218,8 @@ public class LibraryBodyIndexTests
         TypeDefinitionHandle fixtureType = reader.TypeDefinitions.Single(
             handle => reader.StringComparer.Equals(
                 reader.GetTypeDefinition(handle).Name,
-                nameof(OptimizationOpportunityFixtures)));
+                nameof(
+                    OptimizationOpportunityAsyncSiblingFixtures)));
         int methodCount = reader.GetTypeDefinition(fixtureType)
             .GetMethods()
             .Count;
@@ -228,13 +230,13 @@ public class LibraryBodyIndexTests
                 string name = reader.GetString(
                     reader.GetMethodDefinition(handle).Name);
                 return name is nameof(
-                        OptimizationOpportunityFixtures
+                    OptimizationOpportunityAsyncSiblingFixtures
                             .CallsSyncSiblingFromAsync)
                     or nameof(
-                        OptimizationOpportunityFixtures
+                    OptimizationOpportunityAsyncSiblingFixtures
                             .CallsSameSyncSiblingFromAsync)
                     or nameof(
-                        OptimizationOpportunityFixtures
+                    OptimizationOpportunityAsyncSiblingFixtures
                             .CallsOtherSyncSiblingFromAsync);
             })
             .Select(handle => MetadataTokens.GetToken(handle))
@@ -474,15 +476,6 @@ public class LibraryBodyIndexTests
                 && opportunity.Method.DeclaringType.Name
                     == nameof(
                         StaticInheritedSynchronousConsumer));
-        Assert.Contains(
-            opportunities,
-            opportunity => opportunity.Method.Name
-                    == nameof(
-                        PrivateStaticSynchronousSiblingService
-                            .AnalyzeAsync)
-                && opportunity.Method.DeclaringType.Name
-                    == nameof(
-                        PrivateStaticSynchronousSiblingService));
         Assert.Contains(
             opportunities,
             opportunity => opportunity.Method.Name
@@ -10304,6 +10297,48 @@ public class LibraryBodyIndexTests
 
 public class GenericConstraintBase;
 
+public static class OptimizationOpportunityAsyncSiblingFixtures
+{
+    public static IEnumerable<int> ReadValues(int value)
+    {
+        yield return value;
+    }
+
+    public static async IAsyncEnumerable<int> ReadValuesAsync(
+        int value,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
+        yield return value;
+    }
+
+    public static async Task<int> CallsSyncSiblingFromAsync(int value)
+    {
+        await Task.Yield();
+        return ReadValues(value).Count();
+    }
+
+    public static async Task<int>
+        CallsSameSyncSiblingFromAsync(int value)
+    {
+        await Task.Yield();
+        return ReadValues(value).Count();
+    }
+
+    public static int ReadOtherValue(int value) => value;
+
+    public static Task<int> ReadOtherValueAsync(int value)
+        => Task.FromResult(value);
+
+    public static async Task<int>
+        CallsOtherSyncSiblingFromAsync(int value)
+    {
+        await Task.Yield();
+        return ReadOtherValue(value);
+    }
+}
+
 public class OptimizationOpportunityFixtures
 {
     private readonly int _field = 3;
@@ -10338,46 +10373,10 @@ public class OptimizationOpportunityFixtures
         return value + 1;
     }
 
-    private static IEnumerable<int> ReadValues(int value)
-    {
-        yield return value;
-    }
-
-    private static async IAsyncEnumerable<int> ReadValuesAsync(
-        int value,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        await Task.Yield();
-        cancellationToken.ThrowIfCancellationRequested();
-        yield return value;
-    }
-
-    public static async Task<int> CallsSyncSiblingFromAsync(int value)
-    {
-        await Task.Yield();
-        return ReadValues(value).Count();
-    }
-
-    public static async Task<int> CallsSameSyncSiblingFromAsync(int value)
-    {
-        await Task.Yield();
-        return ReadValues(value).Count();
-    }
-
-    private static int ReadOtherValue(int value) => value;
-
-    private static Task<int> ReadOtherValueAsync(int value)
-        => Task.FromResult(value);
-
-    public static async Task<int>
-        CallsOtherSyncSiblingFromAsync(int value)
-    {
-        await Task.Yield();
-        return ReadOtherValue(value);
-    }
-
     public static int CallsSyncSiblingFromNonAsync(int value)
-        => ReadValues(value).Count();
+        => OptimizationOpportunityAsyncSiblingFixtures
+            .ReadValues(value)
+            .Count();
 
     public static int ReadWithoutCompatibleAsyncSibling(int value)
         => value;
@@ -12077,20 +12076,6 @@ public static class StaticInheritedSynchronousConsumer
     {
         await Task.Yield();
         return StaticInheritedSynchronousDerived.Read(value);
-    }
-}
-
-public class PrivateStaticSynchronousSiblingService
-{
-    private static int Read(int value) => value;
-
-    private static Task<int> ReadAsync(int value)
-        => Task.FromResult(value);
-
-    public static async Task<int> AnalyzeAsync(int value)
-    {
-        await Task.Yield();
-        return Read(value);
     }
 }
 

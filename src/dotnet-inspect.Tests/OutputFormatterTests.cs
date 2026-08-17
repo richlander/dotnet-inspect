@@ -276,8 +276,9 @@ public class OutputFormatterTests
     {
         var type = new ApiType
         {
-            Namespace = typeof(OutputFormatterTests).Namespace,
-            Name = nameof(OutputFormatterTests),
+            Namespace =
+                typeof(OutputFormatterAsyncSiblingFixture).Namespace,
+            Name = nameof(OutputFormatterAsyncSiblingFixture),
             Kind = "class"
         };
         var view = new TypeView();
@@ -300,10 +301,14 @@ public class OutputFormatterTests
             Assert.IsType<List<OptimizationOpportunityRow>>(
                 view.OptimizationOpportunityRows),
             row => row.Member.Contains(
-                nameof(CallsSyncSiblingFromAsync),
+                nameof(
+                    OutputFormatterAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync),
                 StringComparison.Ordinal));
         Assert.Contains(
-            nameof(ReadValueAsync),
+            nameof(
+                OutputFormatterAsyncSiblingFixture
+                    .ReadValueAsync),
             row.Evidence,
             StringComparison.Ordinal);
         Assert.Equal("analysis.call-site", row.Finding);
@@ -472,22 +477,6 @@ public class OutputFormatterTests
     ];
 
     private static object CreateFanoutLeaf() => new();
-
-    private static int ReadValue(int value) => value;
-
-    private static Task<int> ReadValueAsync(
-        int value,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(value);
-    }
-
-    private static async Task<int> CallsSyncSiblingFromAsync(int value)
-    {
-        await Task.Yield();
-        return ReadValue(value);
-    }
 
     private static async Task<int> CallsFileReadLinesFromAsync(
         string path)
@@ -3377,5 +3366,25 @@ public class OutputFormatterTests
         Assert.Contains(expectedSpelling, rendered, StringComparison.Ordinal);
         Assert.DoesNotContain("&#124;", rendered, StringComparison.Ordinal);
         Assert.DoesNotContain("\\`", rendered, StringComparison.Ordinal);
+    }
+}
+
+internal static class OutputFormatterAsyncSiblingFixture
+{
+    public static int ReadValue(int value) => value;
+
+    public static Task<int> ReadValueAsync(
+        int value,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(value);
+    }
+
+    public static async Task<int> CallsSyncSiblingFromAsync(
+        int value)
+    {
+        await Task.Yield();
+        return ReadValue(value);
     }
 }

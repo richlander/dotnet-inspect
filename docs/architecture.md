@@ -821,8 +821,7 @@ Research overlay bridge, and the application layer:
   gates the erased receiver boundary for inherited synchronous definitions:
   methods on unsealed classes and interfaces fail closed because IL does not
   preserve the source receiver lookup type or static type qualifier; methods
-  declared on sealed classes and private static methods that cannot be selected
-  through a derived qualifier remain eligible.
+  declared on sealed classes remain eligible.
   Constructed generic type relationships preserve DAG sharing and bound
   structural identity, comparison, and finding-display work;
   `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
