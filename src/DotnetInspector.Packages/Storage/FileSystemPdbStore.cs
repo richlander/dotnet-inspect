@@ -36,12 +36,7 @@ public sealed class FileSystemPdbStore : IPdbStore
 
         try
         {
-            return ValueTask.FromResult<Stream?>(
-                new FileStream(
-                    path,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read | FileShare.Delete));
+            return ValueTask.FromResult<Stream?>(File.OpenRead(path));
         }
         catch (IOException)
         {

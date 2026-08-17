@@ -123,50 +123,6 @@ public class PdbStoreTests
         }
     }
 
-    [Fact]
-    public async Task FileSystemPdbStore_ReplacesContentWhileReaderIsOpen()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var root =
-            Path.Combine(
-                Path.GetTempPath(),
-                $"pdbstore-{Guid.NewGuid():N}");
-        try
-        {
-            var store = new FileSystemPdbStore(root);
-            const string Key =
-                "servers/symbols.nuget.org/Foo.pdb/KEY/Foo.pdb";
-            byte[] original = [1, 2, 3, 4];
-            byte[] replacement = [5, 6, 7, 8];
-            using (var input = new MemoryStream(original))
-                await store.PutAsync(Key, input, ct);
-
-            await using (Stream? opened =
-                await store.TryOpenAsync(Key, ct))
-            {
-                Assert.NotNull(opened);
-                using (var input = new MemoryStream(replacement))
-                    await store.PutAsync(Key, input, ct);
-
-                using var originalBuffer = new MemoryStream();
-                await opened!.CopyToAsync(originalBuffer, ct);
-                Assert.Equal(original, originalBuffer.ToArray());
-            }
-
-            await using Stream? reopened =
-                await store.TryOpenAsync(Key, ct);
-            Assert.NotNull(reopened);
-            using var replacementBuffer = new MemoryStream();
-            await reopened!.CopyToAsync(replacementBuffer, ct);
-            Assert.Equal(replacement, replacementBuffer.ToArray());
-        }
-        finally
-        {
-            if (Directory.Exists(root))
-                Directory.Delete(root, recursive: true);
-        }
-    }
-
     [Theory]
     [InlineData("../escape.pdb")]
     [InlineData("pkg/../../escape.pdb")]

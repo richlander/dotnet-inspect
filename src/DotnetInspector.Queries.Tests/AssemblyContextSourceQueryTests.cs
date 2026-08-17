@@ -1541,7 +1541,7 @@ public sealed class AssemblyContextSourceQueryTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public async Task AuthoredSuccessStateChangeDuringPdbDisposal_IsObserved(
+    public async Task StateChangeDuringPdbStreamRelease_IsObserved(
         bool memberQuery,
         bool rotatePolicy)
     {
@@ -1648,7 +1648,7 @@ public sealed class AssemblyContextSourceQueryTests
             Assert.IsType<BlockingDisposeStream>(
                     pdbStore.AuthoritativeStream)
                 .DisposeCount);
-        Assert.Single(host.SourceRequests);
+        Assert.Empty(host.SourceRequests);
         Assert.Equal(0, assembly.Policy.SelectionCount);
     }
 
