@@ -279,20 +279,70 @@ internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : Typ
 }
 
 /// <summary>Non-generic named types (JsonSerializer, Stream, etc.).</summary>
-internal sealed class NamedTypeNode(string name, bool isReferenceType) : TypeNode
+/// <remarks>
+/// Bounded API-surface extraction may construct these with a deferred metadata
+/// handle so signature decode does not <c>GetString</c> TypeDef/TypeRef names
+/// before retained-budget <see cref="RenderLength"/> preflight. Erased custom
+/// modifiers never render, so deferral also keeps giant <c>modopt</c>/<c>modreq</c>
+/// names off the retained budget (Sol R10/R11).
+/// </remarks>
+internal sealed class NamedTypeNode : TypeNode
 {
-    public string Name => name;
-    public override bool IsReferenceType => isReferenceType;
+    string? _name;
+    readonly MetadataReader? _reader;
+    readonly EntityHandle _handle;
+    readonly Action<long>? _beforeMaterializeName;
+    readonly Dictionary<EntityHandle, string>? _sharedNames;
+    long _countedCharacters = -1;
+
+    public NamedTypeNode(string name, bool isReferenceType)
+    {
+        _name = name;
+        IsReferenceType = isReferenceType;
+    }
+
+    public NamedTypeNode(
+        MetadataReader reader,
+        EntityHandle handle,
+        bool isReferenceType,
+        Action<long>? beforeMaterializeName,
+        Dictionary<EntityHandle, string> sharedNames)
+    {
+        _reader = reader;
+        _handle = handle;
+        _beforeMaterializeName = beforeMaterializeName;
+        _sharedNames = sharedNames;
+        IsReferenceType = isReferenceType;
+        if (sharedNames.TryGetValue(handle, out string? cached))
+            _name = cached;
+    }
+
+    public string Name => EnsureMaterialized();
+    public override bool IsReferenceType { get; }
 
     public override string Render(bool canonicalTuples)
     {
-        string effective = IsDynamic ? "dynamic" : name;
+        string effective = IsDynamic ? "dynamic" : Name;
         return IsReferenceType && IsNullableAnnotated ? $"{effective}?" : effective;
     }
 
     public override long RenderLength(bool canonicalTuples) =>
-        (IsDynamic ? "dynamic".Length : name.Length)
+        (IsDynamic ? "dynamic".Length : CountedCharacters())
         + (IsReferenceType && IsNullableAnnotated ? 1 : 0);
+
+    /// <summary>
+    /// Compares against a fully-qualified expected name without materializing a
+    /// differently-sized deferred metadata name (custom-modifier identity).
+    /// </summary>
+    public bool EqualsResolvedName(string expected)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        if (_name is not null)
+            return _name == expected;
+        if (CountedCharacters() != expected.Length)
+            return false;
+        return Name == expected;
+    }
 
     public override void ApplyNullability(byte[]? bytes, ref int position, byte defaultByte)
     {
@@ -301,7 +351,71 @@ internal sealed class NamedTypeNode(string name, bool isReferenceType) : TypeNod
     }
 
     public override void ApplyDynamic(byte[]? flags, ref int position)
-        => ConsumeDynamicFlag(flags, ref position, canBeDynamic: IsObjectName(name));
+        => ConsumeDynamicFlag(flags, ref position, canBeDynamic: CouldBeObjectName());
+
+    long CountedCharacters()
+    {
+        if (_name is not null)
+            return _name.Length;
+        if (_countedCharacters >= 0)
+            return _countedCharacters;
+        if (_reader is not null
+            && MetadataSafetyPolicy.TryCountTypeNameCharacters(
+                _reader,
+                _handle,
+                out long characters))
+        {
+            return _countedCharacters = characters;
+        }
+
+        return EnsureMaterialized().Length;
+    }
+
+    bool CouldBeObjectName()
+    {
+        if (_name is not null)
+            return IsObjectName(_name);
+
+        // Only materialize when the counted spelling could be object/System.Object.
+        long characters = CountedCharacters();
+        if (characters != "object".Length
+            && characters != "System.Object".Length)
+        {
+            return false;
+        }
+
+        return IsObjectName(EnsureMaterialized());
+    }
+
+    string EnsureMaterialized()
+    {
+        if (_name is not null)
+            return _name;
+        if (_sharedNames is not null
+            && _sharedNames.TryGetValue(_handle, out string? cached))
+        {
+            return _name = cached;
+        }
+
+        long characters = CountedCharacters();
+        _beforeMaterializeName?.Invoke(characters);
+        _name = _handle.Kind switch
+        {
+            HandleKind.TypeDefinition => SignatureDecoder.Instance.GetTypeFromDefinition(
+                _reader!,
+                (TypeDefinitionHandle)_handle,
+                rawTypeKind: 0),
+            HandleKind.TypeReference => SignatureDecoder.Instance.GetTypeFromReference(
+                _reader!,
+                (TypeReferenceHandle)_handle,
+                rawTypeKind: 0),
+            _ => throw new InvalidOperationException(
+                "Deferred named types require a TypeDef or TypeRef handle."),
+        };
+        _sharedNames?.Add(_handle, _name);
+        _countedCharacters = _name.Length;
+        return _name;
+    }
 }
 
 /// <summary>Generic instantiations (Dictionary&lt;K,V&gt;, Task&lt;T&gt;, etc.).</summary>
@@ -733,6 +847,11 @@ internal sealed class ModifiedTypeNode(TypeNode modifier, TypeNode inner, bool i
         // always carry their namespace, so a real modreq renders fully qualified; a bare
         // render is the global namespace — a different type. No suffix or bare-name fallback:
         // Foo.IsVolatile and (global) IsVolatile are not System.Runtime.CompilerServices.IsVolatile.
-        return modifier.Render() == (string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}");
+        string expected = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+        // Deferred NamedTypeNode: length-mismatch rejects without GetString so a giant
+        // erased modopt cannot allocate or false-trip retained budgets (Sol R11).
+        if (modifier is NamedTypeNode named)
+            return named.EqualsResolvedName(expected);
+        return modifier.Render() == expected;
     }
 }

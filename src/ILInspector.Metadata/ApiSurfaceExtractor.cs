@@ -4010,8 +4010,10 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// Bounded extraction count-firsts signature TypeDef/TypeRef names before
-    /// <c>GetString</c> inside <see cref="TypeNodeProvider"/> (Sol R10).
+    /// Bounded extraction defers signature TypeDef/TypeRef <c>GetString</c> until
+    /// render/name use, with retained <see cref="TextMaterializationBudget.EnsureCanMaterialize"/>
+    /// on forced materialization only. Erased modifiers never render, so they neither
+    /// allocate nor false-trip the retained accept-set (Sol R10/R11).
     /// </summary>
     static TypeNodeProvider CreateTypeNodeProvider(
         TextMaterializationBudget? materialization)

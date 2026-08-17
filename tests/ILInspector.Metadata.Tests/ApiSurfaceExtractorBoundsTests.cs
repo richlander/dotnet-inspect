@@ -520,6 +520,32 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void GiantErasedModoptTypeRef_DoesNotConsumeRetainedBudget()
+    {
+        // Sol R11: budgeted TypeNodeProvider EnsureCanMaterialize'd every TypeRef
+        // during decode, including erased modopt/modreq names that ModifiedTypeNode
+        // never renders. A CMOD_OPT giant + int return must still accept under the
+        // exact retained spelling budget ("int") without multi-MB GetString.
+        byte[] image = BuildGiantErasedModoptReturnImage(5_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Contains(
+            extracted.Surface.Types.SelectMany(type => type.Members),
+            member => member.Name == "M"
+                && member.Signature is not null
+                && member.Signature.Contains("int", StringComparison.Ordinal));
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void GiantAttributeTypeName_IsStoppedBeforeGetStringMaterialization()
     {
         // Sol R7: attribute type names were GetString'd during presence checks and
@@ -1320,6 +1346,37 @@ public sealed class ApiSurfaceExtractorBoundsTests
         signature.WriteCompressedInteger(0); // param count
         signature.WriteByte(0x12); // ELEMENT_TYPE_CLASS
         signature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(giantReturn));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGiantErasedModoptReturnImage(int nameCharacters)
+    {
+        var metadata = CreateMetadata("GiantModopt");
+        AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle giantModopt = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('M', nameCharacters)));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00); // default calling convention
+        signature.WriteCompressedInteger(0); // param count
+        signature.WriteByte(0x20); // ELEMENT_TYPE_CMOD_OPT
+        signature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(giantModopt));
+        signature.WriteByte(0x08); // ELEMENT_TYPE_I4 → int
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
