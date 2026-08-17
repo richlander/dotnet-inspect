@@ -408,6 +408,9 @@ public class LambdaRaisingPassTests
         var lossy = TypeRefDecoder.Instance.GetArrayType(
             s_int,
             new ArrayShape(2, [], [1, 0]));
+        var excess = TypeRefDecoder.Instance.GetArrayType(
+            s_int,
+            new ArrayShape(2, [], [0, 0, 0]));
         var host = RunSyntheticSiblingLambdaRaise(s_int);
 
         Assert.True(exact.ArrayShapeIsExact);
@@ -418,6 +421,11 @@ public class LambdaRaisingPassTests
         Assert.False(lossy.ArrayShapeIsExact);
         Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
             lossy,
+            host,
+            ArgumentRefKind.Value));
+        Assert.False(excess.ArrayShapeIsExact);
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            excess,
             host,
             ArgumentRefKind.Value));
     }
@@ -635,6 +643,54 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void ReservedFunctionPointerHeader_StaysLowered()
+    {
+        var signature = new System.Reflection.Metadata.MethodSignature<TypeRef>(
+            new SignatureHeader(0x80),
+            TypeRef.CoreLib("System", "Void"),
+            requiredParameterCount: 0,
+            genericParameterCount: 0,
+            []);
+        var functionPointer = TypeRefDecoder.Instance.GetFunctionPointerType(signature);
+        var host = RunSyntheticSiblingLambdaRaise(functionPointer);
+
+        Assert.False(functionPointer.FunctionPointerSignatureIsExact);
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            functionPointer,
+            host,
+            ArgumentRefKind.Value));
+    }
+
+    [Fact]
+    public void ConstituentTypeMapping_PreservesSignatureFidelityFacts()
+    {
+        var modifier = TypeRef.Definition(
+            TypeRef.CoreLibrary,
+            "System.Runtime.InteropServices",
+            "InAttribute");
+        var parameter = TypeRef.ByRef(
+                TypeRef.Definition("Original", "Samples", "Value"))
+            .WithCustomModifier(modifier, isRequired: true);
+        var functionPointer = TypeRef.FunctionPointer(
+            TypeRef.CoreLib("System", "Void"),
+            [parameter],
+            "");
+        var array = TypeRef.MdArray(
+            TypeRef.Definition("Original", "Samples", "Value"),
+            2,
+            arrayShapeIsExact: false);
+
+        var mappedFunctionPointer = MapDefinitionsToInt(functionPointer);
+        var mappedArray = MapDefinitionsToInt(array);
+
+        Assert.True(mappedFunctionPointer.FunctionPointerSignatureIsExact);
+        Assert.Equal(
+            [ArgumentRefKind.In],
+            mappedFunctionPointer.FunctionPointerParameterRefKinds);
+        Assert.False(mappedArray.ArrayShapeIsExact);
+    }
+
+    [Fact]
     public void RefReadonlyLambda_StaysLoweredUntilDeclarationKindIsRepresentable()
     {
         using var source = MetadataSource.Open(typeof(VoidLambdaRaisingSamples).Assembly.Location);
@@ -720,6 +776,12 @@ public class LambdaRaisingPassTests
         { "void", TypeRef.CoreLib("System", "Void") },
         { "open generic definition", TypeRef.Definition("Synthetic", "Samples", "Pair`2") },
         { "malformed generic arity", TypeRef.Definition("Synthetic", "Samples", "Pair`many") },
+        { "space-prefixed generic arity",
+            TypeRef.GenericInstance(TypeRef.Definition("Synthetic", "Samples", "Pair` 1"), [s_int]) },
+        { "sign-prefixed generic arity",
+            TypeRef.GenericInstance(TypeRef.Definition("Synthetic", "Samples", "Pair`+1"), [s_int]) },
+        { "zero-prefixed generic arity",
+            TypeRef.GenericInstance(TypeRef.Definition("Synthetic", "Samples", "Pair`01"), [s_int]) },
         { "too few generic arguments",
             TypeRef.GenericInstance(TypeRef.Definition("Synthetic", "Samples", "Pair`2"), [s_int]) },
         { "too many generic arguments",
@@ -754,6 +816,25 @@ public class LambdaRaisingPassTests
         { "instantiated unknown required modifier",
             ModifiedType(
                     TypeRef.GenericParameter(0, "T"),
+                    "Adversarial",
+                    "Synthetic",
+                    "UnknownModifier")
+                .Instantiate([s_int], []) },
+        { "instantiated outer generic-instance modifier",
+            ModifiedType(
+                    TypeRef.GenericInstance(
+                        TypeRef.Definition("Synthetic", "Samples", "Box`1"),
+                        [TypeRef.GenericParameter(0, "T")]),
+                    "Adversarial",
+                    "Synthetic",
+                    "UnknownModifier")
+                .Instantiate([s_int], []) },
+        { "instantiated outer function-pointer modifier",
+            ModifiedType(
+                    TypeRef.FunctionPointer(
+                        TypeRef.CoreLib("System", "Void"),
+                        [TypeRef.GenericParameter(0, "T")],
+                        ""),
                     "Adversarial",
                     "Synthetic",
                     "UnknownModifier")
@@ -928,6 +1009,11 @@ public class LambdaRaisingPassTests
             [parameter],
             "");
     }
+
+    static TypeRef MapDefinitionsToInt(TypeRef type)
+        => type.Kind == TypeRefKind.Definition
+            ? s_int
+            : type.MapConstituentTypes(MapDefinitionsToInt);
 
     static TypeRef FunctionPointerWithConventionModifier(
         string name,

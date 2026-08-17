@@ -647,14 +647,35 @@ internal static class CSharpSpellability
                 continue;
             if (tick == segment.Length - 1
                 || segment.IndexOf('`', tick + 1) >= 0
-                || !int.TryParse(segment[(tick + 1)..], out int arity)
-                || arity <= 0
+                || !TryParseCanonicalArity(
+                    segment.AsSpan(tick + 1),
+                    out int arity)
                 || total > int.MaxValue - arity)
             {
                 total = 0;
                 return false;
             }
             total += arity;
+        }
+        return true;
+    }
+
+    static bool TryParseCanonicalArity(
+        ReadOnlySpan<char> text,
+        out int arity)
+    {
+        arity = 0;
+        if (text.IsEmpty || text[0] is < '1' or > '9')
+            return false;
+        foreach (char character in text)
+        {
+            if (character is < '0' or > '9'
+                || arity > (int.MaxValue - (character - '0')) / 10)
+            {
+                arity = 0;
+                return false;
+            }
+            arity = arity * 10 + character - '0';
         }
         return true;
     }

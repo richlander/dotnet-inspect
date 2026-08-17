@@ -188,18 +188,14 @@ internal sealed class CrossAssemblyTypeResolver
     TypeRef UpgradeTypeReference(TypeRef type) => type.Kind switch
     {
         TypeRefKind.Definition => Upgrade(type),
-        TypeRefKind.GenericInstance => TypeRef.GenericInstance(
-            UpgradeTypeReference(type.ElementType!),
-            [.. type.TypeArguments.Select(UpgradeTypeReference)]),
-        TypeRefKind.SzArray => TypeRef.SzArray(UpgradeTypeReference(type.ElementType!)),
-        TypeRefKind.Array => TypeRef.MdArray(UpgradeTypeReference(type.ElementType!), type.Rank),
-        TypeRefKind.ByRef => TypeRef.ByRef(UpgradeTypeReference(type.ElementType!)),
-        TypeRefKind.Pointer => TypeRef.Pointer(UpgradeTypeReference(type.ElementType!)),
-        TypeRefKind.Pinned => TypeRef.Pinned(UpgradeTypeReference(type.ElementType!)),
-        TypeRefKind.FunctionPointer => TypeRef.FunctionPointer(
-            UpgradeTypeReference(type.ElementType!),
-            [.. type.TypeArguments.Select(UpgradeTypeReference)],
-            type.CallingConvention),
+        TypeRefKind.GenericInstance
+            or TypeRefKind.SzArray
+            or TypeRefKind.Array
+            or TypeRefKind.ByRef
+            or TypeRefKind.Pointer
+            or TypeRefKind.Pinned
+            or TypeRefKind.FunctionPointer =>
+            type.MapConstituentTypes(UpgradeTypeReference),
         _ => type,
     };
 

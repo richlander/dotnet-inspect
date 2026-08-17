@@ -654,7 +654,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
                     changed |= !ReferenceEquals(substituted, argument);
                     builder.Add(substituted);
                 }
-                return changed ? GenericInstance(definition, builder.MoveToImmutable()) : this;
+                return changed
+                    ? Copy(
+                        elementType: definition,
+                        typeArguments: builder.MoveToImmutable())
+                    : this;
             }
             case TypeRefKind.FunctionPointer:
             {
@@ -668,18 +672,35 @@ public sealed class TypeRef : IEquatable<TypeRef>
                     builder.Add(substituted);
                 }
                 return changed
-                    ? FunctionPointer(
-                        returnType,
-                        builder.MoveToImmutable(),
-                        CallingConvention,
-                        FunctionPointerParameterRefKinds,
-                        FunctionPointerSignatureIsExact)
+                    ? Copy(
+                        elementType: returnType,
+                        typeArguments: builder.MoveToImmutable())
                     : this;
             }
             default:
                 return this;
         }
     }
+
+    /// <summary>
+    /// Maps child types while preserving this wrapper's signature facts. Gated by
+    /// <c>LambdaRaisingPassTests.ConstituentTypeMapping_PreservesSignatureFidelityFacts</c>.
+    /// </summary>
+    internal TypeRef MapConstituentTypes(Func<TypeRef, TypeRef> map)
+        => Kind switch
+        {
+            TypeRefKind.GenericInstance or TypeRefKind.FunctionPointer =>
+                Copy(
+                    elementType: map(ElementType!),
+                    typeArguments: [.. TypeArguments.Select(map)]),
+            TypeRefKind.SzArray
+                or TypeRefKind.Array
+                or TypeRefKind.ByRef
+                or TypeRefKind.Pointer
+                or TypeRefKind.Pinned =>
+                Copy(elementType: map(ElementType!)),
+            _ => this,
+        };
 
     TypeRef ApplyCustomModifiersTo(TypeRef type)
         => CustomModifiers.IsDefaultOrEmpty

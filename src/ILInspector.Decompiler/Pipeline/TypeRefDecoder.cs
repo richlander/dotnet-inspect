@@ -290,6 +290,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             elementType,
             shape.Rank,
             arrayShapeIsExact: shape.Sizes.IsDefaultOrEmpty
+                && shape.LowerBounds.Length <= shape.Rank
                 && (shape.LowerBounds.IsDefaultOrEmpty
                     || shape.LowerBounds.All(bound => bound == 0)));
 
@@ -317,9 +318,9 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
     static bool IsExactFunctionPointerSignature(MethodSignature<TypeRef> signature)
         => IsExactFunctionPointerConvention(signature.Header.CallingConvention)
-            && !signature.Header.IsInstance
-            && !signature.Header.HasExplicitThis
-            && !signature.Header.IsGeneric
+            && signature.Header.Kind == SignatureKind.Method
+            && signature.Header.RawValue
+                == (byte)signature.Header.CallingConvention
             && signature.GenericParameterCount == 0;
 
     /// <summary>The C# calling-convention spelling for a function pointer: empty for a managed pointer, the <c>unmanaged</c> keyword (with the specific convention in brackets) otherwise.</summary>
