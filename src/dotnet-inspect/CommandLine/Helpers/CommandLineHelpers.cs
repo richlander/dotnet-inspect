@@ -3,6 +3,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Text.Json;
 using DotnetInspector.Packages;
+using NuGetFetch;
 
 namespace DotnetInspector.CommandLine;
 
@@ -105,7 +106,9 @@ public static class CommandLineHelpers
                 client,
                 prefix,
                 log: log,
-                sourceOptions: sourceOptions);
+                sourceOptions: sourceOptions,
+                fetchOptions: NuGetFetchOptions.FromRequestTimeout(
+                    client.Timeout));
         }
         catch (Exception ex) when (IsPrefixResolutionFailure(ex))
         {
