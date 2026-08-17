@@ -285,6 +285,7 @@ while IFS= read -r -d '' file; do
     # classifier gate and its pinned prerequisites. Editing either must run
     # the product test lane as well as executing the gate here in `changes`.
     eng/test-ci-change-detection.cs) CODE=true ;;
+    eng/CiChangeDetection/PromotionWorkflowContract.cs) CODE=true; WEB=true ;;
     eng/CiChangeDetection/*) CODE=true ;;
     eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-corpus.sh) CODE=true ;;

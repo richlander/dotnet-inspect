@@ -470,7 +470,9 @@ nonempty `inspect-web-site` artifact. After production approval it revalidates
 the run attempt, commit, artifact identity, and digest, downloads the exact
 artifact ID with digest mismatch configured as an error, and deploys the
 archived staging files. `validate-inspect-web-promotion.cs --self-test`, run
-by inspect-web CI, gates the evidence discriminator and close negative cases.
+by inspect-web CI, gates the evidence discriminator and close negative cases;
+the CI change-detection workflow contract gate keeps production revalidation
+on the trusted dispatch revision and ahead of candidate artifact download.
 Manual staging runs remain useful for recovery but are deliberately not
 promotable.
 

@@ -360,6 +360,19 @@ internal static class DetectionTestSuite
                     FormatValues(promotion));
             }
         }
+        Dictionary<string, string> promotionContract = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "eng/CiChangeDetection/PromotionWorkflowContract.cs",
+            outputs);
+        if (promotionContract["code"] != "true" ||
+            promotionContract["web"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Promotion workflow contract did not select code and web: " +
+                FormatValues(promotionContract));
+        }
         AssertRouting(
             source,
             selected: "shipped",

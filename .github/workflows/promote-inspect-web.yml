@@ -72,8 +72,6 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
