@@ -57,13 +57,16 @@ labels, and display order never establish identity. Other nodes remain explicit
 unsupported and ambiguous rows appear under **Correspondence gaps** rather than
 being guessed as additions or removals.
 
-The legacy one-file `CSharpStructuralComparisonInput` form remains accepted for
-existing artifacts. It carries two C#-only documents, explicit selected node
-ids, and owner-issued one-to-one correspondence. Node ids remain local to the
-document that minted them; the comparison never matches by coordinates,
-selected text, or display labels. Its optional `fidelity` retains independently
-measured `OpcodeDiff -> Exact`-style evidence; correspondence does not infer
-fidelity.
+Add `--json` to emit a `CSharpStructuralDiffDocument`. That product-issued
+artifact carries schema and methodology versions, both exact documents and
+revision identities, matches, unmatched nodes, generated structural rows, and
+optional independently measured fidelity. Strict reading reissues
+correspondence from the embedded mixed documents, derives the C#-only
+Before/After projections that own the row ids and spans, and requires exact
+agreement with those projections and the serialized rows. Pass one diff
+document instead of two source documents to validate and render a previously
+emitted artifact. The retired `CSharpStructuralComparisonInput` wire format is
+not accepted.
 
 Both forms reject missing required fields, duplicate and unknown properties,
 numeric, composite, case-variant, or otherwise undeclared enum tokens,
@@ -76,6 +79,13 @@ assembly/package input with it.
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --structural-review /tmp/before.json /tmp/after.json
+
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --structural-review /tmp/before.json /tmp/after.json --json \
+  > /tmp/structural-diff.json
+
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --structural-review /tmp/structural-diff.json
 ```
 
 **Inverse ledger regeneration** (`--emit-inverse-ledger <path>`): evaluates `[InverseOf]` and `[NotInverted]` attributes on the decompiler's node schema and renders the Markdown representation to the specified path. Use this command to update the single-source-of-truth document at `docs/design/inverse-ledger.generated.md` after adding or changing inverse annotations in the IR types. A drift-gate test enforces that the committed file matches this command's output.
