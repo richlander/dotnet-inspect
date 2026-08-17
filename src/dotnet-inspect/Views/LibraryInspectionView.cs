@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
@@ -839,28 +841,53 @@ public class LibraryInspectionView
                 m.Token is null ? null : MarkoutInline.Code(m.Token)));
     }
 
-    public bool HasTopLeverage => _data.TopLeverage is { Count: > 0 };
+    public bool HasTopLeverage =>
+        _data.TopLeverageQueryResult is TopLeverageResult.Available
+            { Methods.IsEmpty: false };
 
-    // Rows arrive pre-ranked from the scanner; preserve that order (most leveraged first).
+    // Rows arrive pre-ranked from Analysis; preserve that order (most leveraged first).
     [MarkoutSection(Name = "Top Leverage", ShowWhenProperty = nameof(HasTopLeverage))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageVisibilityEmpty), nameof(TopLeverageRow.Visibility))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageGeneratedEmpty), nameof(TopLeverageRow.Generated))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageStableEmpty), nameof(TopLeverageRow.Stable))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageSelectorEmpty), nameof(TopLeverageRow.Selector))]
-    public List<TopLeverageRow>? TopLeverageSection =>
-        _data.TopLeverage?
-            .Select(m => new TopLeverageRow(
-                MarkoutInline.Code(m.Member),
-                m.Callers.ToString(),
-                m.RootReach.ToString(),
-                m.Fanout.ToString(),
-                m.Depth.ToString(),
-                m.LoopCalls.ToString(),
-                m.Visibility,
-                Generated: m.Generated ? "generated" : null,
-                Stable: m.Stable is { } stable ? MarkoutInline.Code(stable) : null,
-                Selector: m.Selector is { } selector ? MarkoutInline.Code(selector) : null))
-            .ToList();
+    public List<TopLeverageRow>? TopLeverageSection
+    {
+        get
+        {
+            if (_data.TopLeverageQueryResult is not TopLeverageResult.Available available)
+                return null;
+
+            var drillByToken = _data.TopLeverageDrillMap;
+            var rows = available.Methods
+                .Select(entry =>
+                {
+                    (string? Stable, string Visibility, string Selector) drill = default;
+                    drillByToken?.TryGetValue(entry.Method.MetadataToken, out drill);
+                    return new TopLeverageRow(
+                        MarkoutInline.Code(ApiOutputFormatter.FormatMethod(entry.Method)),
+                        entry.DirectCallerCount.ToString(),
+                        entry.RootReach.ToString(),
+                        entry.Fanout.ToString(),
+                        entry.MaxDepth.ToString(),
+                        entry.LoopCallCount.ToString(),
+                        drill.Visibility,
+                        Generated: LibraryMetadataService.IsGeneratedMethod(
+                            entry.Method,
+                            available.GeneratedFrameworkTypeNames)
+                                ? "generated"
+                                : null,
+                        Stable: drill.Stable is { } stable
+                            ? MarkoutInline.Code(stable)
+                            : null,
+                        Selector: drill.Selector is { } selector
+                            ? MarkoutInline.Code(selector)
+                            : null);
+                })
+                .ToList();
+            return rows.Count > 0 ? rows : null;
+        }
+    }
 
     // Kind-scoped performance sections. The optimization-opportunity scan is holistic; each
     // section renders the subset whose shape maps to it (see PerformanceKinds) with a tight,

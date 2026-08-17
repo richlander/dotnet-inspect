@@ -65,7 +65,16 @@ Descriptor-backed PDB contexts own the stream they open. If debug-directory or
 embedded-PDB inspection fails during construction, the incomplete context
 releases that stream before propagating the failure.
 `AssemblyContextSourceQueryTests.PdbContextOpenFailure_DisposesAuthoritativeStream`
-gates that construction boundary.
+gates that construction boundary. PE and portable-PDB readers leave their
+streams open so `PdbContext` remains the sole owner. A fully prefetched portable
+PDB releases its store stream immediately; any release failure is retained for
+the strict query-disposal boundary rather than masked or ignored.
+`PdbIdentityTests.LoadPdbFromStream_AcceptsMatchingContentWithoutAPath`
+gates immediate release and continued prefetched-metadata access.
+`PdbContextDescriptorTests.DescriptorOpenPrimaryFailure_IsNotMaskedByCleanupFailure`
+and
+`AssemblyContextSourceQueryTests.PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure`
+gate those ownership boundaries.
 The compatibility `PdbContext.Dispose` path retains its best-effort cleanup
 behavior. Strict query ownership uses `DisposeWithFailure`, which attempts
 every owned resource and reports the first cleanup failure; source queries
@@ -77,7 +86,8 @@ gates host-specific non-fatal exceptions outside the common I/O types. A
 cleanup failure while an acquisition failure is already propagating does not
 replace that primary failure;
 `AssemblyContextSourceQueryTests.PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure`
-gates the member and type cancellation and fatal-exception paths.
+gates the member and type cancellation and fatal-exception paths both before
+and during portable-PDB provider construction.
 
 ### 1. Embedded PDB
 

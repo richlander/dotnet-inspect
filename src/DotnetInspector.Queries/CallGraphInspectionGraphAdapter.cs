@@ -25,6 +25,16 @@ public static class CallGraphInspectionGraphCatalog
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Member],
+            [
+                new(
+                    InspectionGraphSubjectKind.Member,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Member,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+            ],
             InspectionGraphEndpointProjection.Exact,
             CallOccurrenceIdentity,
             [CallSiteEvidence, LogicalEdgeEvidence]);
