@@ -15,6 +15,12 @@ public enum RelationshipTraversalRejectionKind
 
     /// <summary>SRM rejected a row or relationship handle.</summary>
     MalformedMetadata,
+
+    /// <summary>
+    /// The namespace and root-to-leaf segments exceed
+    /// <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>.
+    /// </summary>
+    NameBudget,
 }
 
 /// <summary>Inspectable evidence for a rejected metadata relationship walk.</summary>
