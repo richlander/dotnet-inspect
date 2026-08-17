@@ -206,6 +206,68 @@ public class E2EFixtureTests
         }
     }
 
+    [Theory]
+    [InlineData("performance")]
+    [InlineData("Performance")]
+    public void Correlate_ValidatesEveryPerformanceSection(
+        string secondSectionName)
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$"""
+                {
+                  "performance": {
+                    "objects": [
+                      {
+                        "member": "RunFaster.AllocationFixture.Program.AllocateOne()",
+                        "assembly": "RunFaster.AllocationFixture",
+                        "method_token": "0x06000002",
+                        "shape": "object-allocation",
+                        "il": "IL_0000",
+                        "allocation": "System.Object"
+                      }
+                    ]
+                  },
+                  "{{secondSectionName}}": {
+                    "objects": [
+                      {
+                        "member": "RunFaster.AllocationFixture.Program.AllocateOne()",
+                        "assembly": "RunFaster.AllocationFixture",
+                        "module_version_id": null,
+                        "method_token": "0x06000002",
+                        "shape": "object-allocation",
+                        "il": "IL_0000",
+                        "allocation": "System.Object"
+                      }
+                    ]
+                  }
+                }
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "Invalid module version ID in 'module_version_id'",
+                result.Error);
+            Assert.Empty(result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
     [Fact]
     public void Correlate_RejectsConflictingTriageModuleVersionIds()
     {
@@ -634,6 +696,75 @@ public class E2EFixtureTests
             Assert.DoesNotContain(
                 "2 static candidate row(s) were not observed",
                 markdown.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_KnownMvidMismatch_DoesNotCollapseLibrarySite()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var allocateOne =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "AllocateOne",
+                BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(allocateOne);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[allocateOne.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"arrays":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","module_version_id":"99999999-9999-9999-9999-999999999999","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","shape":"fixture-object","operation":"newobj","token":"0x0A000001","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object","provenance":"exact"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output = JsonDocument.Parse(result.Output);
+            var sameMethod = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .Where(candidate => candidate
+                    .GetProperty("method")
+                    .GetString()!
+                    .EndsWith(
+                        ".AllocateOne()",
+                        StringComparison.Ordinal))
+                .ToArray();
+            Assert.Equal(2, sameMethod.Length);
+            Assert.All(
+                sameMethod,
+                candidate =>
+                {
+                    Assert.NotEqual(
+                        "superseded-by-triage",
+                        candidate.GetProperty("status").GetString());
+                    Assert.True(
+                        candidate.GetProperty(
+                            "ambiguousIlOffsetJoin").GetBoolean());
+                    Assert.True(
+                        candidate.GetProperty(
+                            "allocationBytes").GetInt64() > 0);
+                });
         }
         finally
         {
