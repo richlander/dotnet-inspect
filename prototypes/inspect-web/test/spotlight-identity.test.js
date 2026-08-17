@@ -409,6 +409,36 @@ test("member request identity distinguishes colliding type queries", () => {
     memberRequestKey([...request, "Example.Outer\\.Inner", "M:Run"]));
 });
 
+test("annotated source request identity includes the selected body", () => {
+  const annotatedLoader =
+    appSource.match(
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+    ?? "";
+  assert.match(
+    annotatedLoader,
+    /const signature = memberRequestSignature\(type, overload, true, true\)/);
+  assert.equal(
+    [...annotatedLoader.matchAll(
+      /memberRequestIsCurrent\(signature, true, true\)/g)].length,
+    2);
+  assert.match(
+    annotatedLoader,
+    /selectorKey: state\.selectedBodyTarget\?\.selectorKey[\s\S]*?metadataToken: state\.selectedBodyTarget\?\.metadataToken/);
+
+  const request = [
+    "Example.Package",
+    "1.0.0",
+    "net8.0",
+    "Example.dll",
+    "Example.Outer.Inner",
+    "Example.Outer+Inner",
+    "M:Run"
+  ];
+  assert.notEqual(
+    memberRequestKey([...request, 0x06000001, "M:Run"]),
+    memberRequestKey([...request, 0x06000002, "M:<Run>b__0_0"]));
+});
+
 test("type source identity includes decompiler taste", () => {
   const typeSignature =
     appSource.match(/function typeSourceSignature\(item\)[\s\S]*?\n}/)?.[0]

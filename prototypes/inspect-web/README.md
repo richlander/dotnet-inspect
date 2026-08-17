@@ -289,9 +289,9 @@ groups do not offer a Source section.
 `SymbolPackageDownloaderTests.AcquirePdbAsync_LimitedHostRejectsOversizedMsdlBeforeStore`,
 `AssemblyContextSourceQueryTests.DecompilerFallback_AppliesRequestPrinterOptions`,
 and the JavaScript `source requests carry exact type and member identities`,
-`member request identity distinguishes colliding type queries`, and `call graph
-source identity prefers the structured type definition` cases gate these
-boundaries.
+`member request identity distinguishes colliding type queries`, `annotated
+source request identity includes the selected body`, and `call graph source
+identity prefers the structured type definition` cases gate these boundaries.
 
 [#3964]: https://github.com/richlander/dotnet-inspect/pull/3964
 

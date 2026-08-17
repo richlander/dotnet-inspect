@@ -6143,7 +6143,7 @@ async function loadSelectedMemberAnnotatedSource() {
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload, false, true);
+  const signature = memberRequestSignature(type, overload, true, true);
   if (!sourceRequestNeedsLoad(
       state.memberAnnotatedKey === signature,
       state.memberAnnotatedLoading,
@@ -6177,12 +6177,12 @@ async function loadSelectedMemberAnnotatedSource() {
       metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (memberRequestIsCurrent(signature, false, true)
+    if (memberRequestIsCurrent(signature, true, true)
       && state.memberAnnotatedKey === signature) {
       state.memberAnnotated = result;
     }
   } catch (error) {
-    if (memberRequestIsCurrent(signature, false, true)
+    if (memberRequestIsCurrent(signature, true, true)
       && state.memberAnnotatedKey === signature) {
       state.memberAnnotatedError = String(error?.message || error);
     }
