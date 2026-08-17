@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Security.Cryptography;
 using NuGet.Versioning;
 
 namespace NuGetFetch;
@@ -85,7 +86,9 @@ public sealed record PackageSourceIdentity
                 ? absolutePath[..^1]
                 : absolutePath);
         return new PackageSourceIdentity(
-            $"{origin}{path}{NormalizeEscapes(endpoint.Query)}{NormalizeEscapes(endpoint.Fragment)}");
+            $"{origin}{path}"
+            + SensitiveComponentKey("query", endpoint.Query)
+            + SensitiveComponentKey("fragment", endpoint.Fragment));
     }
 
     /// <inheritdoc/>
@@ -116,6 +119,18 @@ public sealed record PackageSourceIdentity
         }
 
         return builder.ToString();
+    }
+
+    private static string SensitiveComponentKey(
+        string label,
+        string value)
+    {
+        if (value.Length == 0)
+            return "";
+
+        byte[] digest = SHA256.HashData(
+            Encoding.UTF8.GetBytes(NormalizeEscapes(value)));
+        return $"|{label}-sha256:{Convert.ToHexString(digest)}";
     }
 }
 
@@ -449,10 +464,6 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                         _endpoint.AbsoluteUri,
                         _credential,
                         cancellationToken).ConfigureAwait(false);
-                PackageListingState listingState =
-                    Identity == PackageSourceIdentity.NuGetOrg
-                        ? PackageListingState.Unknown
-                        : PackageListingState.NotApplicable;
                 var candidates =
                     new PackageCandidateObservation[versions.Count];
                 for (int i = 0; i < versions.Count; i++)
@@ -468,7 +479,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                         PackageSourceCoordinate.Create(packageId, versions[i]),
                         Identity,
                         PackageDiscoveryContract.CompleteVersionEnumeration,
-                        listingState);
+                        PackageListingState.Unknown);
                 }
 
                 return new PackageVersionResult(candidates);

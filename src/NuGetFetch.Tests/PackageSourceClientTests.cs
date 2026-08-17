@@ -209,9 +209,9 @@ public sealed class PackageSourceClientTests
             PackageDiscoveryContract.CompleteVersionEnumeration,
             candidate.DiscoveryContract);
         Assert.Equal(
-            PackageListingState.NotApplicable,
+            PackageListingState.Unknown,
             candidate.ListingState);
-        Assert.True(versions.HasAuthoritativeListingState);
+        Assert.False(versions.HasAuthoritativeListingState);
         PackageSourcePayload packagePayload = Succeeded(
             await runtime.GetPackageAsync(
                 "contoso",
@@ -270,6 +270,15 @@ public sealed class PackageSourceClientTests
                     TestContext.Current.CancellationToken))
                 .Candidates);
         Assert.Equal("1.0.0", candidate.Coordinate.Version);
+        Assert.Equal(runtime.Identity, candidate.Producer);
+        Assert.DoesNotContain(
+            "secret",
+            runtime.Identity.Value,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual(
+            runtime.Identity,
+            PackageSourceIdentity.ForHttpEndpoint(
+                new Uri(ServiceIndex + "?sig=other")));
         Assert.Equal(
             [signedServiceIndex, Versions],
             handler.Requested);
@@ -335,6 +344,129 @@ public sealed class PackageSourceClientTests
             PackageSourceFailureKind.InvalidResponse,
             failure.Kind);
         Assert.Equal(runtime.Identity, failure.Producer);
+    }
+
+    [Fact]
+    public async Task V3ServiceIndexNotFoundIsInvalidResponse()
+    {
+        var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            failure.Kind);
+        Assert.Null(failure.Coordinate);
+        Assert.Equal([ServiceIndex], handler.Requested);
+    }
+
+    [Theory]
+    [InlineData("not a url")]
+    [InlineData("file:///tmp/feed/")]
+    [InlineData("https://user:secret@flat.example/")]
+    [InlineData("https://flat.example/#fragment")]
+    public async Task V3UnusablePackageBaseAddressIsInvalidResponse(
+        string baseAddress)
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{baseAddress}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+        };
+        using var client = new HttpClient(handler);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            failure.Kind);
+        Assert.Equal([ServiceIndex], handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3PostHeaderIoFailureIsTransportFailure()
+    {
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+        };
+        handler.SetResponse(
+            Versions,
+            request => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new ImmediateIoFailureStream()),
+                RequestMessage = request,
+            });
+        using var client = new HttpClient(handler);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                client);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.Transport,
+            failure.Kind);
+        Assert.Equal(
+            [ServiceIndex, Versions],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task GallerySearchNotFoundIsInvalidResponse()
+    {
+        var handler = new RecordingHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        PackageSourceFailure failure = Failed(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            failure.Kind);
+        Assert.Null(failure.Coordinate);
     }
 
     [Theory]
@@ -911,11 +1043,20 @@ public sealed class PackageSourceClientTests
             new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, HttpStatusCode> _statuses =
             new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<
+            string,
+            Func<HttpRequestMessage, HttpResponseMessage>> _responses =
+            new(StringComparer.OrdinalIgnoreCase);
 
         public string this[string url] { set => _routes[url] = value; }
 
         public void SetStatus(string url, HttpStatusCode statusCode) =>
             _statuses[url] = statusCode;
+
+        public void SetResponse(
+            string url,
+            Func<HttpRequestMessage, HttpResponseMessage> response) =>
+            _responses[url] = response;
 
         public List<string> Requested { get; } = [];
         public List<string?> Authentication { get; } = [];
@@ -936,6 +1077,13 @@ public sealed class PackageSourceClientTests
                     header => header.Key,
                     header => header.Value.ToArray(),
                     StringComparer.OrdinalIgnoreCase));
+            if (_responses.TryGetValue(
+                    url,
+                    out Func<HttpRequestMessage, HttpResponseMessage>? response))
+            {
+                return Task.FromResult(response(request));
+            }
+
             string? route = _routes.Keys.FirstOrDefault(
                 candidate => url.Equals(
                         candidate,
@@ -976,5 +1124,45 @@ public sealed class PackageSourceClientTests
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("Unreachable.");
         }
+    }
+
+    private sealed class ImmediateIoFailureStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new IOException("The response body ended.");
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(
+                new IOException("The response body ended."));
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 }

@@ -456,8 +456,11 @@ carry normalized coordinates, producer identity, discovery contract, and
 results retain their coordinate, producer, transport profile, payload kind,
 and caller-owned stream. Expected source failures retain the source transport
 and exact coordinate when applicable, and are classified without retaining
-source URLs or response text. These transport results do not yet perform
-multi-source aggregation and are not environment availability observations.
+source URLs or response text. A payload stream remains deadline-bound after it
+is returned, but a later consumption failure remains an exception because the
+operation result has already completed. These transport results do not yet
+perform multi-source aggregation and are not environment availability
+observations.
 
 The current implementation source-scopes downloaded package content and
 candidate metadata, aggregates versions across sources while retaining the

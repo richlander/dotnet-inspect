@@ -118,6 +118,8 @@ public enum PackageSourcePayloadKind
 
 /// <summary>
 /// One source-owned payload stream. The caller owns <see cref="Content"/>.
+/// Failures while consuming an already-returned stream remain bounded transport
+/// or timeout exceptions because a result has already been returned.
 /// </summary>
 public sealed record PackageSourcePayload(
     PackageSourceCoordinate Coordinate,
@@ -201,7 +203,11 @@ internal static class PackageSourceOperation
             throw;
         }
         catch (Exception exception)
-            when (TryClassify(exception, out PackageSourceFailureKind kind))
+            when (TryClassify(
+                exception,
+                capability,
+                coordinate,
+                out PackageSourceFailureKind kind))
         {
             cancellationToken.ThrowIfCancellationRequested();
             return new PackageSourceOperationResult<T>.Failed(
@@ -231,6 +237,8 @@ internal static class PackageSourceOperation
 
     private static bool TryClassify(
         Exception exception,
+        PackageSourceCapabilities capability,
+        PackageSourceCoordinate? coordinate,
         out PackageSourceFailureKind kind)
     {
         kind = exception switch
@@ -246,17 +254,27 @@ internal static class PackageSourceOperation
                 PackageSourceFailureKind.InvalidResponse,
             HttpRequestException
                 {
+                    StatusCode: HttpStatusCode.NotFound,
+                } when coordinate is not null
+                    && capability is
+                        PackageSourceCapabilities.PackagePayload
+                        or PackageSourceCapabilities.SymbolPayload =>
+                PackageSourceFailureKind.NotFound,
+            HttpRequestException
+                {
+                    StatusCode: HttpStatusCode.NotFound,
+                } =>
+                PackageSourceFailureKind.InvalidResponse,
+            HttpRequestException
+                {
                     StatusCode:
                         HttpStatusCode.Unauthorized
                         or HttpStatusCode.Forbidden,
                 } =>
                 PackageSourceFailureKind.AuthenticationRequired,
-            HttpRequestException
-                {
-                    StatusCode: HttpStatusCode.NotFound,
-                } =>
-                PackageSourceFailureKind.NotFound,
             HttpRequestException =>
+                PackageSourceFailureKind.Transport,
+            IOException =>
                 PackageSourceFailureKind.Transport,
             _ => default,
         };
@@ -268,7 +286,8 @@ internal static class PackageSourceOperation
             or NuGetMetadataResponseTooLargeException
             or NuGetSourceResponseException
             or JsonException
-            or HttpRequestException;
+            or HttpRequestException
+            or IOException;
     }
 
     private static string MessageFor(PackageSourceFailureKind kind) =>
@@ -301,7 +320,7 @@ internal sealed class NuGetSourceResponseException : InvalidOperationException
 
     internal NuGetSourceResponseException(
         string message,
-        InvalidOperationException innerException)
+        Exception innerException)
         : base(message, innerException)
     {
     }

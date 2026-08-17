@@ -581,21 +581,25 @@ Source operations now return typed outcomes. Search and version results carry
 normalized package coordinates, producer identity, discovery contract, and
 source-relative listing state. Payload results carry the exact coordinate,
 producer, transport profile, payload kind, and caller-owned stream. Expected
-source failures retain the producer, transport profile, capability, and exact
-coordinate when applicable, and distinguish unsupported capability, exact
-payload absence, authentication, timeout, malformed metadata,
-bounded-response rejection, and transport failure. Their retained messages are
-source-safe summaries rather than transport URLs or response text. Invalid
-caller coordinates and caller cancellation remain exceptions rather than
-being misreported as source failures.
+source failures before a payload stream is returned retain the producer,
+transport profile, capability, and exact coordinate when applicable, and
+distinguish unsupported capability, exact payload absence, authentication,
+timeout, malformed metadata, bounded-response rejection, and transport
+failure. Their retained messages are source-safe summaries rather than
+transport URLs or response text. A returned payload stream remains deadline
+bound, but timeout or transport failure during its later consumption is an
+exception because the operation result has already been returned. Invalid
+caller coordinates and caller cancellation likewise remain exceptions rather
+than being misreported as source failures.
 
 The Gallery version-enumeration result is still the complete raw flat-container
 list, so every candidate currently carries `unknown` listing state. Canonical
-NuGet.org v3 enumeration also reports `unknown`; a custom v3 source reports
-`not-applicable` because standard v3 flat-container enumeration has no listing
-contract. Gallery search reports `listed`, because unlisted coordinates do not
-appear in that search surface. `PackageVersionResult` exposes whether all
-listing states are authoritative, so the current raw Gallery and canonical-v3
+NuGet.org and custom v3 enumeration also report `unknown`, because a raw
+flat-container list can include unlisted versions without carrying their
+state. `not-applicable` remains available for source kinds that genuinely have
+no listing concept. Gallery search reports `listed`, because unlisted
+coordinates do not appear in that search surface. `PackageVersionResult`
+exposes whether all listing states are authoritative, so raw Gallery and v3
 results cannot be admitted into a listing-aware cache. Registration joining
 remains follow-up work. No existing package-resolution consumer has moved to
 this client yet.

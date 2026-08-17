@@ -237,25 +237,37 @@ public class NuGetClient(HttpClient client)
         PackageSourceCredential? credential,
         NuGetOperationDeadline operation)
     {
-        ServiceIndex? index = await operation.RunRequestAsync(
-            async requestToken =>
-            {
-                using HttpRequestMessage request =
-                    NuGetHttpRequest.CreateGet(serviceIndexUrl);
-                ApplyCredential(request, credential);
-                using HttpResponseMessage response = await client.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    requestToken).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
+        ServiceIndex? index;
+        try
+        {
+            index = await operation.RunRequestAsync(
+                async requestToken =>
+                {
+                    using HttpRequestMessage request =
+                        NuGetHttpRequest.CreateGet(serviceIndexUrl);
+                    ApplyCredential(request, credential);
+                    using HttpResponseMessage response = await client.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        requestToken).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
 
-                return await NuGetMetadataReader.ReadResponseAsync(
-                    response,
-                    NuGetApi.DeserializeServiceIndexAsync,
-                    _options,
-                    client.Timeout,
-                    requestToken).ConfigureAwait(false);
-            }).ConfigureAwait(false);
+                    return await NuGetMetadataReader.ReadResponseAsync(
+                        response,
+                        NuGetApi.DeserializeServiceIndexAsync,
+                        _options,
+                        client.Timeout,
+                        requestToken).ConfigureAwait(false);
+                }).ConfigureAwait(false);
+        }
+        catch (HttpRequestException exception)
+            when (exception.StatusCode
+                == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new NuGetSourceResponseException(
+                "The package source service index was not found.",
+                exception);
+        }
 
         string? baseAddress = index?.Resources
             .Where(r => r.Type.StartsWith("PackageBaseAddress", StringComparison.OrdinalIgnoreCase))
@@ -267,7 +279,7 @@ public class NuGetClient(HttpClient client)
             return null;
         }
 
-        return baseAddress.EndsWith('/') ? baseAddress : baseAddress + "/";
+        return NormalizeBaseAddress(baseAddress);
     }
 
     /// <summary>
@@ -343,6 +355,30 @@ public class NuGetClient(HttpClient client)
 
         _baseAddressCache.TryAdd(sourceUrl, baseAddress);
         return baseAddress;
+    }
+
+    private static string NormalizeBaseAddress(string baseAddress)
+    {
+        if (!Uri.TryCreate(baseAddress, UriKind.Absolute, out Uri? endpoint)
+            || (endpoint.Scheme != Uri.UriSchemeHttp
+                && endpoint.Scheme != Uri.UriSchemeHttps)
+            || endpoint.UserInfo.Length > 0
+            || endpoint.Fragment.Length > 0)
+        {
+            throw new NuGetSourceResponseException(
+                "The source service index advertised an unusable PackageBaseAddress.");
+        }
+
+        int queryStart = baseAddress.IndexOf('?', StringComparison.Ordinal);
+        string path = queryStart >= 0
+            ? baseAddress[..queryStart]
+            : baseAddress;
+        if (path.EndsWith("/", StringComparison.Ordinal))
+            return baseAddress;
+
+        return queryStart >= 0
+            ? $"{path}/{baseAddress[queryStart..]}"
+            : baseAddress + "/";
     }
 
     private NuGetOperationDeadline CreateOperation(
