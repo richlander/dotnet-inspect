@@ -155,6 +155,8 @@ public partial class CommandExecutionTests
             {
                 Assert.IsType<DotnetInspector.Queries.MetadataImageResult.NoMetadata>(
                     DotnetInspector.Queries.MetadataImageQuery.Execute(session));
+                Assert.IsType<DotnetInspector.Queries.AuditMetadataResult.NoMetadata>(
+                    DotnetInspector.Queries.AuditMetadataQuery.Execute(session));
             }
 
             var (exit, output, error) = await RunAppAsync(

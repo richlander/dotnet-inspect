@@ -894,6 +894,293 @@ public class ApiOutputFormatterTests
         Assert.Contains(signature, typeSource, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(
+        nameof(CrossAssemblyConstraintRestatementFixture.ClassConstraint),
+        TypeParameterTypeKind.ReferenceType)]
+    [InlineData(
+        nameof(CrossAssemblyConstraintRestatementFixture.InterfaceConstraint),
+        TypeParameterTypeKind.NeitherReferenceNorValue)]
+    [InlineData(
+        nameof(
+            CrossAssemblyConstraintRestatementFixture
+                .GenericBaseConstraint),
+        TypeParameterTypeKind.ReferenceType)]
+    public void ConstraintRestatement_ResolvesCrossAssemblyNamedConstraint(
+        string memberName,
+        TypeParameterTypeKind expected)
+    {
+        string path =
+            typeof(CrossAssemblyConstraintRestatementFixture)
+                .Assembly.Location;
+        using (var pe = new PEReader(File.OpenRead(path)))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            TypeDefinition type = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(candidate =>
+                    reader.GetString(candidate.Name)
+                        == nameof(
+                            CrossAssemblyConstraintRestatementFixture));
+            MethodDefinition method = type.GetMethods()
+                .Select(reader.GetMethodDefinition)
+                .Single(candidate =>
+                    reader.GetString(candidate.Name) == memberName);
+            GenericParameter parameter = reader.GetGenericParameter(
+                Assert.Single(method.GetGenericParameters()));
+            GenericParameterConstraint constraint =
+                reader.GetGenericParameterConstraint(
+                    Assert.Single(parameter.GetConstraints()));
+
+            Assert.Equal(
+                HandleKind.TypeReference,
+                constraint.Type.Kind);
+
+            ApiSurface unresolved = ApiSurfaceExtractor.Extract(pe);
+            ApiMember unresolvedMember = Assert.Single(
+                Assert.Single(
+                    unresolved.Types,
+                    candidate =>
+                        candidate.Name
+                            == nameof(
+                                CrossAssemblyConstraintRestatementFixture))
+                    .Members,
+                candidate => candidate.Name == memberName);
+            Assert.Equal(
+                TypeParameterTypeKind.Undetermined,
+                Assert.Single(
+                    unresolvedMember.SignatureModel!.TypeParameters)
+                    .TypeKind);
+        }
+
+        using var resolution =
+            new TypeDefinitionResolutionSession(
+                path,
+                isPlatformAssembly: false);
+        ApiSurface surface = Assert.IsType<ApiSurface>(
+            resolution.ExtractApiSurface());
+        ApiMember member = Assert.Single(
+            Assert.Single(
+                surface.Types,
+                candidate =>
+                    candidate.Name
+                        == nameof(
+                            CrossAssemblyConstraintRestatementFixture))
+                .Members,
+            candidate => candidate.Name == memberName);
+
+        Assert.Equal(
+            expected,
+            Assert.Single(member.SignatureModel!.TypeParameters).TypeKind);
+    }
+
+    [Fact]
+    public void ConstraintRestatement_ClassifiesClassWithConstructedGenericBase()
+    {
+        string path =
+            typeof(DotnetInspector.Fixtures.CrossAssemblyConstraintBase)
+                .Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(path));
+        ApiSurface surface = ApiSurfaceExtractor.Extract(pe);
+        ApiMember member = Assert.Single(
+            Assert.Single(
+                surface.Types,
+                candidate =>
+                    candidate.Name
+                        == nameof(
+                            DotnetInspector.Fixtures
+                                .CrossAssemblyConstraintBase))
+                .Members,
+            candidate =>
+                candidate.Name
+                    == nameof(
+                        DotnetInspector.Fixtures
+                            .CrossAssemblyConstraintBase
+                            .GenericBaseConstraint));
+
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            Assert.Single(
+                member.SignatureModel!.TypeParameters)
+                .TypeKind);
+    }
+
+    [Fact]
+    public void ConstraintRestatement_UnavailableOrAmbiguousBindingStaysUndetermined()
+    {
+        string path =
+            typeof(CrossAssemblyConstraintRestatementFixture)
+                .Assembly.Location;
+        string dependencyPath =
+            typeof(DotnetInspector.Fixtures.ExternalConstraintClass)
+                .Assembly.Location;
+        ResolvedAssemblyReference source =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        ConstraintRestatement_UnavailableOrAmbiguousBindingStaysUndetermined)));
+        ResolvedAssemblyReference first =
+            ResolvedAssemblyReference.CreateFromPath(
+                dependencyPath,
+                AssemblyResolutionProvenance.Local("first"));
+        ResolvedAssemblyReference second =
+            ResolvedAssemblyReference.CreateFromPath(
+                dependencyPath,
+                AssemblyResolutionProvenance.Local("second"));
+
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            ClassConstraintKind(new MissingBindingPolicy()));
+        Assert.Equal(
+            TypeParameterTypeKind.Undetermined,
+            ClassConstraintKind(
+                new AmbiguousBindingPolicy(first, second)));
+
+        TypeParameterTypeKind ClassConstraintKind(
+            IAssemblyBindingPolicy policy)
+        {
+            using var pe = new PEReader(File.OpenRead(path));
+            using var catalog = new TypeResolutionCatalog();
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                pe,
+                source,
+                catalog,
+                policy);
+            ApiMember member = Assert.Single(
+                Assert.Single(
+                    surface.Types,
+                    candidate =>
+                        candidate.Name
+                            == nameof(
+                                CrossAssemblyConstraintRestatementFixture))
+                    .Members,
+                candidate =>
+                    candidate.Name
+                        == nameof(
+                            CrossAssemblyConstraintRestatementFixture
+                                .ClassConstraint));
+            return Assert.Single(
+                member.SignatureModel!.TypeParameters).TypeKind;
+        }
+    }
+
+    [Fact]
+    public void ConstraintRestatement_ExternalValueTypesStayUndetermined()
+    {
+        var (consumerPath, dependencyPath) =
+            EmitExternalValueTypeConstraintSample();
+        try
+        {
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    consumerPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_ExternalValueTypesStayUndetermined)));
+            ResolvedAssemblyReference dependency =
+                ResolvedAssemblyReference.CreateFromPath(
+                    dependencyPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_ExternalValueTypesStayUndetermined)));
+            using var pe =
+                new PEReader(File.OpenRead(consumerPath));
+            using var catalog = new TypeResolutionCatalog();
+            ApiSurface surface = ApiSurfaceExtractor.Extract(
+                pe,
+                source,
+                catalog,
+                new ExactBindingPolicy(dependency));
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate => candidate.Name == "ValueTypeSample");
+
+            Assert.All(
+                type.Members.Where(
+                    candidate =>
+                        candidate.Name
+                            is "DirectValueType"
+                                or "ConstructedValueType"),
+                member => Assert.Equal(
+                    TypeParameterTypeKind.Undetermined,
+                    Assert.Single(
+                        member.SignatureModel!.TypeParameters)
+                        .TypeKind));
+        }
+        finally
+        {
+            File.Delete(consumerPath);
+            File.Delete(dependencyPath);
+        }
+    }
+
+    [Fact]
+    public void ConstraintRestatement_CachesLargeCoreSpelledAssemblyReferenceIdentity()
+    {
+        var (consumerPath, dependencyPath) =
+            EmitRepeatedExternalConstraintSample(
+                methodCount: 64,
+                publicKeyBytes: 1024 * 1024);
+        try
+        {
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    consumerPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_CachesLargeCoreSpelledAssemblyReferenceIdentity)));
+            ResolvedAssemblyReference dependency =
+                ResolvedAssemblyReference.CreateFromPath(
+                    dependencyPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_CachesLargeCoreSpelledAssemblyReferenceIdentity)));
+
+            Extract();
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            ApiSurface surface = Extract();
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+
+            List<ApiMember> members = Assert.Single(
+                    surface.Types,
+                    candidate =>
+                        candidate.Name == "RepeatedConstraintSample")
+                    .Members
+                    .Where(member => member.Name.StartsWith(
+                        "Pick",
+                        StringComparison.Ordinal))
+                    .ToList();
+            Assert.Equal(64, members.Count);
+            Assert.All(
+                members,
+                member => Assert.Equal(
+                    TypeParameterTypeKind.ReferenceType,
+                    Assert.Single(
+                        member.SignatureModel!.TypeParameters)
+                        .TypeKind));
+            Assert.InRange(allocated, 0, 32 * 1024 * 1024);
+
+            ApiSurface Extract()
+            {
+                using var pe =
+                    new PEReader(File.OpenRead(consumerPath));
+                using var catalog = new TypeResolutionCatalog();
+                return ApiSurfaceExtractor.Extract(
+                    pe,
+                    source,
+                    catalog,
+                    new ExactBindingPolicy(dependency));
+            }
+        }
+        finally
+        {
+            File.Delete(consumerPath);
+            File.Delete(dependencyPath);
+        }
+    }
+
     /// <summary>
     /// The three core types that prove nothing about a type parameter are recognized by
     /// typed identity, never by display name. An assembly may declare its own
@@ -912,7 +1199,8 @@ public class ApiOutputFormatterTests
     [Fact]
     public void ConstraintRestatement_RejectsACoreLibraryLookalike()
     {
-        string dllPath = EmitCoreLibraryLookalikeSample();
+        var (dllPath, fakeCorePath) =
+            EmitCoreLibraryLookalikeSample();
         try
         {
             using var pe = new PEReader(File.OpenRead(dllPath));
@@ -928,10 +1216,41 @@ public class ApiOutputFormatterTests
                 constraint => constraint.Value.Contains("Enum", StringComparison.Ordinal));
 
             Assert.Equal(TypeParameterTypeKind.Undetermined, typeParameter.TypeKind);
+
+            ResolvedAssemblyReference source =
+                ResolvedAssemblyReference.CreateFromPath(
+                    dllPath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_RejectsACoreLibraryLookalike)));
+            ResolvedAssemblyReference fakeCore =
+                ResolvedAssemblyReference.CreateFromPath(
+                    fakeCorePath,
+                    AssemblyResolutionProvenance.Local(
+                        nameof(
+                            ConstraintRestatement_RejectsACoreLibraryLookalike)));
+            using var catalog = new TypeResolutionCatalog();
+            ApiSurface resolved = ApiSurfaceExtractor.Extract(
+                pe,
+                source,
+                catalog,
+                new ExactBindingPolicy(fakeCore));
+            ApiMember resolvedMember = Assert.Single(
+                Assert.Single(
+                    resolved.Types,
+                    candidate => candidate.Name == "LookalikeSample")
+                    .Members,
+                candidate => candidate.Name == "Pick");
+            Assert.Equal(
+                TypeParameterTypeKind.ReferenceType,
+                Assert.Single(
+                    resolvedMember.SignatureModel!.TypeParameters)
+                    .TypeKind);
         }
         finally
         {
             File.Delete(dllPath);
+            File.Delete(fakeCorePath);
         }
     }
 
@@ -1386,8 +1705,8 @@ public class ApiOutputFormatterTests
     /// <summary>
     /// Many declarations, each with its own cyclic parameter list. Resolution is per
     /// declaration, so a module pays for each one; this pins that the per-declaration
-    /// cost stays proportional to that declaration rather than to a fixed allowance that
-    /// each list is free to spend in full.
+    /// allocation stays proportional to that declaration rather than rescanning and
+    /// allocating a sibling-number map for every constraint edge.
     /// </summary>
     /// <remarks>
     /// The gate uses current-thread allocation rather than elapsed time so scheduler
@@ -1503,21 +1822,20 @@ public class ApiOutputFormatterTests
     /// library's, and one whose generic virtual method is constrained to it. Returns the
     /// path of the second.
     /// </summary>
-    static string EmitCoreLibraryLookalikeSample()
+    static (string ConsumerPath, string FakeCorePath)
+        EmitCoreLibraryLookalikeSample()
     {
         var fakeCore = new System.Reflection.Emit.PersistedAssemblyBuilder(
             new System.Reflection.AssemblyName($"FakeCoreLib{Guid.NewGuid():N}"), typeof(object).Assembly);
         var fakeModule = fakeCore.DefineDynamicModule("FakeCoreLib");
-        fakeModule.DefineType(
+        Type impostor = fakeModule.DefineType(
             "System.Enum",
             System.Reflection.TypeAttributes.Public
                 | System.Reflection.TypeAttributes.Abstract
                 | System.Reflection.TypeAttributes.Class)
-            .CreateType();
+            .CreateType()!;
         string fakePath = Path.Combine(Path.GetTempPath(), $"fake-corelib-{Guid.NewGuid():N}.dll");
         fakeCore.Save(fakePath);
-
-        var impostor = System.Reflection.Assembly.LoadFrom(fakePath).GetType("System.Enum")!;
 
         var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
             new System.Reflection.AssemblyName("LookalikeEmit"), typeof(object).Assembly);
@@ -1539,7 +1857,136 @@ public class ApiOutputFormatterTests
 
         string path = Path.Combine(Path.GetTempPath(), $"lookalike-{Guid.NewGuid():N}.dll");
         ab.Save(path);
-        return path;
+        return (path, fakePath);
+    }
+
+    static (string ConsumerPath, string DependencyPath)
+        EmitExternalValueTypeConstraintSample()
+    {
+        var dependency =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"ExternalValueTypes{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var dependencyModule =
+            dependency.DefineDynamicModule("ExternalValueTypes");
+        Type direct = dependencyModule
+            .DefineType(
+                "Fixtures.ExternalStruct",
+                System.Reflection.TypeAttributes.Public
+                    | System.Reflection.TypeAttributes.Sealed
+                    | System.Reflection.TypeAttributes.SequentialLayout,
+                typeof(ValueType))
+            .CreateType()!;
+        var genericBuilder = dependencyModule.DefineType(
+            "Fixtures.ExternalStruct`1",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Sealed
+                | System.Reflection.TypeAttributes.SequentialLayout,
+            typeof(ValueType));
+        genericBuilder.DefineGenericParameters("T");
+        Type generic = genericBuilder.CreateType()!;
+        string dependencyPath = Path.Combine(
+            Path.GetTempPath(),
+            $"external-value-types-{Guid.NewGuid():N}.dll");
+        dependency.Save(dependencyPath);
+
+        var consumer =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"ExternalValueTypeConsumer{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var module =
+            consumer.DefineDynamicModule("ExternalValueTypeConsumer");
+        var sample = module.DefineType(
+            "ValueTypeSample",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Class);
+        AddMethod("DirectValueType", direct);
+        AddMethod(
+            "ConstructedValueType",
+            generic.MakeGenericType(typeof(int)));
+        sample.CreateType();
+        string consumerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"external-value-type-consumer-{Guid.NewGuid():N}.dll");
+        consumer.Save(consumerPath);
+        return (consumerPath, dependencyPath);
+
+        void AddMethod(string name, Type constraint)
+        {
+            var method = sample.DefineMethod(
+                name,
+                System.Reflection.MethodAttributes.Public
+                    | System.Reflection.MethodAttributes.Static);
+            var parameter =
+                method.DefineGenericParameters("T")[0];
+            parameter.SetBaseTypeConstraint(constraint);
+            method.SetReturnType(parameter);
+            method.SetParameters(parameter);
+            var il = method.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+    }
+
+    static (string ConsumerPath, string DependencyPath)
+        EmitRepeatedExternalConstraintSample(
+            int methodCount,
+            int publicKeyBytes)
+    {
+        var dependencyName = new System.Reflection.AssemblyName(
+            $"LargeKeyConstraint{Guid.NewGuid():N}");
+        dependencyName.SetPublicKey(new byte[publicKeyBytes]);
+        var dependency =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                dependencyName,
+                typeof(object).Assembly);
+        var dependencyModule =
+            dependency.DefineDynamicModule("LargeKeyConstraint");
+        Type externalClass = dependencyModule
+            .DefineType(
+                "System.Enum",
+                System.Reflection.TypeAttributes.Public
+                    | System.Reflection.TypeAttributes.Class)
+            .CreateType()!;
+        string dependencyPath = Path.Combine(
+            Path.GetTempPath(),
+            $"large-key-constraint-{Guid.NewGuid():N}.dll");
+        dependency.Save(dependencyPath);
+
+        var consumer =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"RepeatedConstraint{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var module =
+            consumer.DefineDynamicModule("RepeatedConstraint");
+        var sample = module.DefineType(
+            "RepeatedConstraintSample",
+            System.Reflection.TypeAttributes.Public
+                | System.Reflection.TypeAttributes.Class);
+        for (int i = 0; i < methodCount; i++)
+        {
+            var method = sample.DefineMethod(
+                $"Pick{i}",
+                System.Reflection.MethodAttributes.Public
+                    | System.Reflection.MethodAttributes.Static);
+            var parameter =
+                method.DefineGenericParameters("T")[0];
+            parameter.SetBaseTypeConstraint(externalClass);
+            method.SetReturnType(parameter);
+            method.SetParameters(parameter);
+            var il = method.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+        sample.CreateType();
+        string consumerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"repeated-constraint-{Guid.NewGuid():N}.dll");
+        consumer.Save(consumerPath);
+        return (consumerPath, dependencyPath);
     }
 
     /// <summary>
@@ -1831,12 +2278,172 @@ public class ApiOutputFormatterTests
         // session (which calls SameType). If the projection dropped MetadataName,
         // SameType would fall back to the lossy '+'→'.' compare and re-drop rows
         // for a literal-'+' type — the exact #2238 bug, reintroduced downstream.
-        var type = new ApiType { Namespace = null, Name = "A+B", MetadataName = "A+B", Members = [] };
+        var type = new ApiType
+        {
+            Namespace = null,
+            Name = "A+B",
+            MetadataName = "A+B",
+            MetadataToken = 0x02000002,
+            Members = [],
+        };
 
         var filtered = ApiCommand.BuildFilteredTypeForSections(type, new ApiOptions());
 
         Assert.Equal("A+B", filtered.MetadataName);
+        Assert.Equal(0x02000002, filtered.MetadataToken);
         Assert.True(ApiAnalysisInspection.SameType(TypeRef.Definition(Asm, "", "A+B"), filtered));
+    }
+
+    [Fact]
+    public void ApplySurfaceFilters_ProjectsConstraintFailuresToRetainedTypes()
+    {
+        const string Path = "/inputs/Filtered.dll";
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                Type("Keep", 0x02000002),
+                Type("Drop", 0x02000003),
+            ],
+        };
+        AddFailure(0x02000002, "KEEP");
+        AddFailure(0x02000003, "DROP");
+
+        ApiCommand.ApplySurfaceFilters(
+            surface,
+            new TypeOptions(),
+            "N.Keep");
+
+        Assert.Equal(
+            2,
+            surface.ConstraintResolutionFailuresBySubject.Count);
+        ApiSurfaceInspectionFailure visible =
+            Assert.Single(surface.InspectionFailures);
+        Assert.Contains("KEEP", visible.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            surface.InspectionFailures,
+            failure => failure.Detail.Contains(
+                "DROP",
+                StringComparison.Ordinal));
+
+        static ApiType Type(string name, int token) =>
+            new()
+            {
+                Namespace = "N",
+                Name = name,
+                Kind = "class",
+                MetadataToken = token,
+                SourceAssemblyPath = Path,
+                Members = [],
+            };
+
+        void AddFailure(int token, string marker)
+        {
+            var failure =
+                new ApiSurfaceInspectionFailure(
+                    ApiSurface.ConstraintResolutionOperation,
+                    token,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "MalformedMetadata",
+                    $"{marker} dependency failed.")
+                {
+                    SourceAssemblyPath = Path,
+                };
+            surface.AddConstraintResolutionFailure(
+                new ApiSurfaceInspectionSubject(Path, token),
+                failure);
+        }
+    }
+
+    [Fact]
+    public void BuildFullApiView_ContainsInspectionFailureDetail()
+    {
+        const string Marker = "INJECTEDDETAIL";
+        const string DependencyMarker = "INJECTEDDEPENDENCY";
+        var surface = new ApiSurface();
+        surface.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "resolve\n" + Marker,
+                0x02000002,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "MalformedMetadata",
+                "prefix " + Marker + "\n\u202E\u001B[31m",
+                DependencyAssembly:
+                    new AssemblyReferenceIdentity(
+                        DependencyMarker + "\n\u202E",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)));
+
+        var (view, _) = ApiOutputFormatter.BuildFullApiView(
+            surface,
+            new ApiOptions
+            {
+                Verbosity = Verbosity.Normal,
+            });
+
+        ApiInspectionFailureRow row =
+            Assert.Single(view.InspectionFailures!);
+        HostileOutputAssert.MarkersRendered(
+            row.Detail,
+            "inspection failure detail",
+            Marker);
+        HostileOutputAssert.NoRenderingHazard(
+            row.Detail,
+            "inspection failure detail");
+        HostileOutputAssert.NoLineSplit(
+            row.Detail,
+            [Marker]);
+        HostileOutputAssert.MarkersRendered(
+            row.DependencyAssembly!,
+            "inspection failure dependency assembly",
+            DependencyMarker);
+        HostileOutputAssert.NoRenderingHazard(
+            row.DependencyAssembly!,
+            "inspection failure dependency assembly");
+    }
+
+    [Fact]
+    public void BuildFullApiView_PreservesCompleteDependencyIdentity()
+    {
+        var surface = new ApiSurface();
+        surface.InspectionFailures.Add(
+            CreateFailure(new Version(1, 0, 0, 0)));
+        surface.InspectionFailures.Add(
+            CreateFailure(new Version(2, 0, 0, 0)));
+
+        var (view, _) = ApiOutputFormatter.BuildFullApiView(
+            surface,
+            new ApiOptions
+            {
+                Verbosity = Verbosity.Normal,
+            });
+
+        Assert.Equal(
+            [
+                "Dependency, Version=1.0.0.0, "
+                    + "Culture=neutral, PublicKeyToken=null",
+                "Dependency, Version=2.0.0.0, "
+                    + "Culture=neutral, PublicKeyToken=null",
+            ],
+            view.InspectionFailures!
+                .Select(static row => row.DependencyAssembly)
+                .ToList());
+
+        static ApiSurfaceInspectionFailure CreateFailure(
+            Version version) =>
+            new(
+                ApiSurface.ConstraintResolutionOperation,
+                0x02000002,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "Unavailable",
+                "Dependency resolution failed.",
+                DependencyAssembly:
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        version,
+                        null,
+                        null));
     }
 
     // --- Extraction: non-nested type with a literal '+' (requires ilasm) ---
@@ -1938,6 +2545,46 @@ public class ApiOutputFormatterTests
             // ilasm not found on PATH.
             return false;
         }
+    }
+
+    sealed class ExactBindingPolicy(
+        ResolvedAssemblyReference assembly)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            request.Target
+                is AssemblyBindingTarget.AssemblyReference reference
+                && reference.Identity == assembly.Identity
+                ? AssemblyBindingSelection.Found(assembly)
+                : AssemblyBindingSelection.NotFound();
+    }
+
+    sealed class MissingBindingPolicy : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            AssemblyBindingSelection.NotFound();
+    }
+
+    sealed class AmbiguousBindingPolicy(
+        ResolvedAssemblyReference first,
+        ResolvedAssemblyReference second)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            request.Target
+                is AssemblyBindingTarget.AssemblyReference reference
+                && reference.Identity == first.Identity
+                ? AssemblyBindingSelection.Multiple([first, second])
+                : AssemblyBindingSelection.NotFound();
     }
 }
 

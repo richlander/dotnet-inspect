@@ -285,9 +285,209 @@ assembly-level inspection without a selector.
 for that fan-out. It returns an owned `AssemblySet`: entries retain source, version, source kind,
 and selected TFM, while the set owns package-extraction directories until disposal.
 `AssemblySetSurfaceBuilder` composes an acquired set into one deterministic `ApiSurface` when a
-consumer, such as `diff`, needs package-level API comparison. The CLI still owns endpoint-range
-parsing, compatibility filtering, ranking, and rendering; it does not select package TFMs, merge
-assembly surfaces, or manage extraction directories.
+consumer, such as `diff`, needs package-level API comparison. Its disposable
+`AssemblySetResolutionSession` owns one Metadata resolution catalog and one source-relative
+binding policy for the set. Diff creates a separate session for each endpoint, so old and new
+versions never share resolution currency; wide platform type browse uses the same
+resolution-aware builder. Direct Research path acquisition likewise creates one Metadata
+catalog per side and binds exact identities within the supplied assembly group, without
+introducing an engine-to-tool dependency. The acquired `AssemblySet` remains alive while
+the session reads package files, and acquisition or extraction failures become typed surface
+failures instead of log-only omissions. A successful read remains successful when its surface
+has no public API, and a managed netmodule uses the existing resolution-unaware module
+extraction path rather than being reported as an assembly acquisition failure
+(`BuildApiSurface_ValidEmptyAssemblyIsRetained` and
+`BuildApiSurface_NetmoduleUsesModuleExtraction`, plus
+`CompareAssemblies_Api_ComparesManagedNetmodules` for the direct Research path).
+`BuildApiSurface_ClassifiesConstraintAcrossAssemblySet` gates cross-library classification
+through this path. The CLI still owns endpoint-range parsing, compatibility filtering,
+ranking, and rendering; it does not select package TFMs, merge assembly surfaces, or manage
+extraction directories.
+
+**Cross-assembly constraint bridge.** Type/member extraction, assembly-set diff endpoints,
+wide platform type browse, and direct Research API comparison use the Metadata-owned
+type-resolution catalog when API extraction encounters a named generic
+constraint outside the selected image. Extraction records requests only for surfaced
+generic-parameter groups, freezes one resolution generation, and then materializes the
+reference/value/neither classification onto the API model while the source reader remains
+alive. The catalog-owned retained candidate supplies both the API rows and resolution facts,
+so a replaced path cannot mix image generations. Each retained session indexes declaration
+leaf names once, and same-module definition kinds are memoized across a parameter group;
+`Session_DistinctDeclarationRequestsDoNotRescanTypeTable` and
+`Classify_ReusesSameModuleDefinitionKindAcrossConstraints` gate those bounded-work
+properties. External constructed-base markers are not trusted: the catalog resolves the
+copied base identity and accepts `Class` only from the defining image when the constructed
+argument count exactly matches a contiguous definition generic-parameter set. The same
+arity check applies when a constructed constraint or base names a TypeDef in its own image;
+`ConstructedConstraintRequiresMatchingExternalArity` and
+`ConstructedConstraintRequiresMatchingSameImageArity` gate both paths. Invalid generic
+parameter numbering cannot reopen kind authentication after the arity check fails;
+`InvalidGenericParameterNumberingCannotAuthenticateKind` gates that fail-closed boundary.
+Constructed TypeRefs without a resolution context remain unclassified
+(`ConstructedCoreConstraintWithoutResolutionStaysUndetermined`).
+Authentication walks both external dependency graphs and same-image TypeSpec base chains
+with explicit bounded worklists rather than process recursion.
+When a same-image constraint TypeDef reaches an external constructed base through that
+bounded local chain, it carries the typed external dependency into the same frozen
+authentication context rather than treating the local definition as silently unknown.
+`CompilerProducedSameImageConstraintAuthenticatesExternalConstructedBase` gates the
+compiler-produced shape, and
+`SameImageConstraintAuthenticatesExternalConstructedBase` gates immediate and multi-hop
+synthetic shapes. An external interface cannot authenticate the enclosing TypeDef as a class;
+`SameImageConstraintRejectsExternalConstructedInterfaceBase` gates that close negative.
+`Extract_RejectsForgedClassMarkerForExternalValueTypeBase` gates the fail-closed path;
+`Extract_CyclicExternalConstructedBasesStayUndetermined` gates dependency cycles: the kind
+stays undetermined and the cycle is retained as a typed inspection failure, so an otherwise
+identical API diff cannot report a clean result;
+`DeepConstructedBaseAuthenticationUsesBoundedStack` and
+`SameImageTypeSpecificationBaseAuthenticationUsesBoundedStack` gate bounded native-stack
+use across TypeSpec handles, while
+`NestedTypeSpecificationDepthBoundaryUsesBoundedStack` gates both sides of the structural
+depth limit for one signature blob before SRM's recursive decoder runs.
+When a same-image constructed-base walk terminates at an external base, the terminal
+definition owns the dependency evidence; both successful authentication and a selected
+dependency failure survive the intermediate TypeDef hops
+(`SameImageConstructedBaseHopPreservesTerminalKindDependency` and
+`SameImageConstructedBaseHopPreservesTerminalFailure`), including when the
+constraint and intermediate definitions share the source image
+(`SameImageConstraintPreservesTerminalKindDependency` and
+`SameImageConstraintPreservesTerminalFailure`).
+Cross-handle TypeSpec traversal distinguishes active nodes from completed nodes, so cycles
+fail closed while shared acyclic dependencies remain valid;
+`CyclicTypeSpecificationBaseFailsClosed` and
+`SharedAcyclicTypeSpecificationDependencyIsAccepted` gate both outcomes. AssemblyRef
+identity projection is shared by the retained declaration index, and an unflagged token
+must contain exactly eight bytes before it is converted to hex;
+`DeclarationIndexReusesAssemblyReferenceProjection` and
+`InvalidAssemblyReferenceTokenLengthIsRejected` gate the retained-allocation bound. A root
+image is different from a dependency candidate: after PE identity validation, malformed
+AssemblyRef or ExportedType adjacency degrades only the root inventory so healthy TypeDef rows
+still extract, while the same image remains rejected when selected as a dependency.
+`CatalogExtraction_DegradesRootAdjacencyAndKeepsHealthyTypes` and
+`ResolutionCandidate_RejectsMalformedAdjacency` gate that role boundary. Root and strict roles
+share one registration-scoped candidate and retained image rather than reopening independent
+generations, as gated by `RootAndStrictRegistration_ShareOneImmutableImage`; strict selection
+revalidates an already-degraded root, including cached binding replay, as gated by
+`CatalogExtraction_WhenRootIsSelectedAsDependency_UsesStrictAdjacency`;
+`MalformedRootAdjacency_KeepsHealthySelectedTypeAndIsFatal` gates the CLI result and exit
+status. Finally,
+`ConstructedAuthenticCoreValueTypeDoesNotAuthenticateAsClass` gates arity authentication.
+Authentic `System.ValueType` and `System.Enum` roots never confer class identity even when
+hostile metadata labels them `CLASS`; `AuthenticCoreValueTypeRootsDoNotAuthenticateAsClass`
+gates external roots, while
+`SameImageCoreRootsDoNotAuthenticateForgedClassMarkers` gates TypeDef-rooted spellings in
+the defining image.
+Resolution-aware classification does not infer core-type semantics from a platform-looking
+reference: the reference must bind through policy, as gated by
+`MissingCoreBindingDoesNotProveConstraintKind`.
+A per-generation type-request budget bounds both discovery
+(`ResolutionPlan_BoundsCollectedTypeRequests`) and authentication dependencies
+(`TypeRequestBudget_RejectsExcessManifestRequests`). Row rollback also releases provisional
+TypeRef projections while retaining projections accepted before the checkpoint, so rejected
+rows cannot accumulate request state outside that budget
+(`ResolutionPlan_RollbackReleasesProvisionalProjections`). Discovery exhaustion is exposed
+through `ApiSurface.InspectionFailures` rather than silently returning a partial classification
+(`DiscoveryBudgetExhaustionIsVisibleOnApiSurface`), authentication exhaustion is reported
+after the frozen context is applied
+(`AuthenticationBudgetExhaustionIsVisibleOnApiSurface`), and dependency exhaustion remains a
+non-cacheable rejection across catalog generations
+(`BudgetExhaustionIsNotPromotedAcrossGenerations`). A selected dependency that cannot be
+opened or decoded also remains unclassified, but its typed resolution rejection is projected
+as a bounded representative `ApiSurface.InspectionFailures` entry rather than disappearing
+behind `Undetermined`
+(`DependencyOpenFailureIsVisibleOnApiSurface`). The same rule applies when the failure occurs
+while authenticating a dependency's own base
+(`TransitiveDependencyOpenFailureIsVisibleOnApiSurface`). The outer type's identity remains a
+resolved definition with unknown kind and typed kind-failure evidence, rather than becoming a
+failed type lookup (`TransitiveDependencyOpenFailurePreservesResolvedIdentity`), and that
+evidence survives multiple kind-authentication hops
+(`MultiHopKindFailureRemainsVisibleAndPreservesResolvedIdentity`). The builder defensively
+withholds kind-incomplete resolutions from catalog promotion. The reproduced transitive
+missing-binding outcome retains typed kind-failure evidence rather than becoming a
+success-shaped unknown kind; `TransitiveUnboundDependencyIsVisibleOnApiSurface` gates that
+case. The equivalent unavailable arm is gated end-to-end by
+`ResolutionSession_PreservesUnavailableConstraintDependency`; the missing-type and ambiguity
+arms are typed but remain unverified. A failed binding or rejected terminal declaration after
+one or more forwarding hops retains the
+terminal assembly identity rather than being attributed to the initial facade
+(`ForwardedUnboundDependencyPreservesTerminalAssemblyIdentity` and
+`ForwardedModuleExportRejectionPreservesTerminalAssemblyIdentity`). An
+API surface that copies a resolved forwarded type also carries that target surface's bounded,
+deduplicated generic-constraint failure instead of presenting `Undetermined` without its
+cause. The failure retains its owning assembly identity, so its metadata token remains scoped
+to the target image rather than appearing to address a row in the facade
+(`ApiServices_PreservesForwardedConstraintFailures`). Rejected target rows retain an internal
+owning-TypeDef token independently of the offending metadata token, so forwarding copies
+non-constraint failures for requested types even when no API type survived, without copying a
+failure from an unrelated target type
+(`ApiServices_PreservesMalformedForwardedTypeFailureEndToEnd` and
+`ApiServices_ExcludesMalformedUnrelatedForwardedTargetType`). A whole-target extraction
+rejection likewise preserves its typed cause, and focused platform type projection retains
+only failures scoped to selected forwarded types
+(`ResolutionSession_PreservesTargetSurfaceRejectionCause`,
+`ApiServices_ScopesTargetWideFailureToRequestedForwardedType`,
+`TypeCommand_PreservesOnlyFailuresForSelectedForwardedTypes`, and
+`TypeCommand_PreservesFailureForRejectedSelectedForwardedType`). A forwarding lookup that ends
+without a resolved definition becomes a scoped inspection failure instead of a verbose-only
+omission, without interpreting a hostile assembly identity as a path
+(`ApiServices_UnresolvedForwarderIsVisibleWithoutOpeningTraversalTarget`). Explicitly selecting
+`Inspection Failures` under table or JSONL output serializes those failure rows rather than
+unrelated type rows, and rendered constraint failures are not duplicated on stderr
+(`TypeListing_TabularInspectionFailuresSelectionRendersFailures` and
+`TypeListing_TabularConstraintFailuresDoNotDuplicateDiagnostics`). Research change identities
+retain the subject assembly when available and otherwise the source-image identity, so equal
+side/token pairs from different inputs do not collapse
+(`FromApiDiff_ScopesInspectionFailureToSubjectAssembly` and
+`FromApiDiff_ScopesInspectionFailureToSourceImage`). Dependency assembly identity also survives
+API, diff, Research, and CLI projection rather than being inferred from display text
+(`FromApiDiff_ScopesInspectionFailureToDependencyAssembly`,
+`BuildFullApiView_PreservesCompleteDependencyIdentity`, and
+`BuildDocumentView_ProjectsInspectionFailuresToJson`). Research's exact assembly-group policy
+uses the same ECMA identity equivalence as Metadata binding, including case-insensitive names
+and neutral-culture normalization
+(`Compare_AssemblyGroupUsesMetadataIdentityEquivalence`). Diff member filtering preserves the
+failure set, document JSON/Markdown renders contained failure rows, and single-shape output
+reports an explicit incomplete-comparison diagnostic; every incomplete comparison exits
+nonzero (`FilterApiDiffByMemberTargets_PreservesInspectionFailures`,
+`BuildDocumentView_ProjectsInspectionFailuresToJson`, and
+`Diff_InspectionFailures_AreNeverReportedAsCleanAcrossOutputModes`). Assembly-set extraction
+uses implementation assets and platform-version roll-forward so valid package and framework
+constraints do not become false incomplete-comparison failures
+(`BuildApiSurface_RollsForwardPlatformConstraintReferences`). Type listings render failure
+rows at raised verbosity rather than suppressing their only diagnostic
+(`TypeListing_RendersInspectionFailuresAtRaisedVerbosity`), and failure-only focused platform
+results remain renderable
+(`TypeCommand_PreservesFailureForRejectedSelectedForwardedType`). Type listings, selected types, and
+selected members present these failures consistently as nonfatal constraint-classification
+diagnostics rather than rejected metadata rows
+(`ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands`). True rejected-row
+failures remain visible and fatal even when a selected type or member is successfully rendered
+(`RejectedMetadataRow_IsVisibleAndFatalAcrossSelectedTypeCommands`). Distinct resolution
+failures on one subject remain distinct, including same-named failures from different dependency
+assemblies. Type filtering reprojects the bounded visible failure set to retained subjects
+(`DistinctResolutionFailuresOnOneSubjectArePreserved`,
+`SameNamedResolutionFailuresFromDistinctAssembliesArePreserved`, and
+`ApplySurfaceFilters_ProjectsConstraintFailuresToRetainedTypes`). An extraction lease keeps retained
+sessions alive through the full API read
+while allowing nested context creation; `Dispose_WaitsForActiveApiExtraction` gates that
+lifetime. Each inventory or retained-session open
+first copies one image within its inventory or retained-image size bound, then hashes and
+parses only that immutable copy; `Session_ParsesTheBytesCopiedBeforeSourceMutation`,
+`Register_ImageBudgetRejectsBeforeReadingSource`, and
+`CatalogExtraction_RejectsImageChangedAfterInventory` gate these properties. Unavailable
+and ambiguous bindings remain unclassified. Catalog keys and definition handles do not
+escape with the `ApiSurface`.
+
+TypeSpec root evidence is accepted only after the complete bounded signature has been
+consumed; a valid prefix followed by trailing bytes or a signature whose structural nesting
+exceeds the constrained-stack decode limit remains unreadable.
+`ConstructedConstraintRejectsTrailingSignatureBytes` and
+`NestedTypeSpecificationDepthBoundaryUsesBoundedStack` gate those boundaries.
+
+This is a transitional host for a context-group-scoped query, not a second workspace model.
+The workspace must eventually lend its retained image generation to the Metadata catalog
+before it owns this path; constructing an independent catalog over the same path would create
+separate image lifetimes and budgets.
 
 ### 3. `AssemblyInspectionSession` — one PE-lifetime owner, composing `PdbContext`
 

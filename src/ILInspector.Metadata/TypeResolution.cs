@@ -316,6 +316,43 @@ public abstract class TypeResolutionFailure
     {
     }
 
+    internal AssemblyReferenceIdentity? AssemblyIdentity =>
+        this switch
+        {
+            CandidateOpenFailed open =>
+                open.Assembly.Identity,
+            KindDependencyUnbound
+            {
+                Target:
+                    AssemblyBindingTarget.AssemblyReference target,
+            } => target.Identity,
+            KindDependencyUnavailable
+            {
+                Target:
+                    AssemblyBindingTarget.AssemblyReference target,
+            } => target.Identity,
+            KindDependencyCycle
+            {
+                Target:
+                    AssemblyBindingTarget.AssemblyReference target,
+            } => target.Identity,
+            KindDependencyTypeNotFound notFound =>
+                notFound.Assembly.Assembly.Identity,
+            KindDependencyAmbiguous
+            {
+                Ambiguity:
+                    TypeResolutionAmbiguity.AssemblyBinding ambiguity,
+            } when ambiguity.Target
+                is AssemblyBindingTarget.AssemblyReference target =>
+                    target.Identity,
+            KindDependencyAmbiguous
+            {
+                Ambiguity:
+                    TypeResolutionAmbiguity.TypeDeclaration ambiguity,
+            } => ambiguity.Assembly.Assembly.Identity,
+            _ => null,
+        };
+
     /// <summary>The single-image declaration probe rejected the type name.</summary>
     public sealed class DeclarationRejected : TypeResolutionFailure
     {
@@ -332,6 +369,15 @@ public abstract class TypeResolutionFailure
     public sealed class HopBudgetExceeded : TypeResolutionFailure
     {
         internal HopBudgetExceeded(int budget) => Budget = budget;
+        public int Budget { get; }
+    }
+
+    /// <summary>
+    /// Resolution exceeded the configured number of distinct type requests.
+    /// </summary>
+    public sealed class RequestBudgetExceeded : TypeResolutionFailure
+    {
+        internal RequestBudgetExceeded(int budget) => Budget = budget;
         public int Budget { get; }
     }
 
@@ -393,6 +439,105 @@ public abstract class TypeResolutionFailure
 
         public ResolvedAssemblyReference Assembly { get; }
         public CandidateOpenFailure Failure { get; }
+    }
+
+    /// <summary>
+    /// A dependency needed to authenticate a declaration kind had no binding.
+    /// </summary>
+    public sealed class KindDependencyUnbound : TypeResolutionFailure
+    {
+        internal KindDependencyUnbound(
+            AssemblyBindingTarget target,
+            AssemblyBindingOrigin origin,
+            AssemblyResolutionScope scope)
+        {
+            Target = target;
+            Origin = origin;
+            Scope = scope;
+        }
+
+        public AssemblyBindingTarget Target { get; }
+        public AssemblyBindingOrigin Origin { get; }
+        public AssemblyResolutionScope Scope { get; }
+    }
+
+    /// <summary>
+    /// A dependency needed to authenticate a declaration kind was unavailable.
+    /// </summary>
+    public sealed class KindDependencyUnavailable : TypeResolutionFailure
+    {
+        internal KindDependencyUnavailable(
+            AssemblyBindingTarget target,
+            AssemblyBindingOrigin origin,
+            AssemblyResolutionScope scope,
+            AssemblyBindingFailure failure)
+        {
+            Target = target;
+            Origin = origin;
+            Scope = scope;
+            Failure = failure;
+        }
+
+        public AssemblyBindingTarget Target { get; }
+        public AssemblyBindingOrigin Origin { get; }
+        public AssemblyResolutionScope Scope { get; }
+        public AssemblyBindingFailure Failure { get; }
+    }
+
+    /// <summary>
+    /// A dependency needed to authenticate a declaration kind re-entered an
+    /// active kind-authentication request.
+    /// </summary>
+    public sealed class KindDependencyCycle : TypeResolutionFailure
+    {
+        internal KindDependencyCycle(
+            AssemblyBindingTarget target,
+            AssemblyBindingOrigin origin,
+            AssemblyResolutionScope scope)
+        {
+            Target = target;
+            Origin = origin;
+            Scope = scope;
+        }
+
+        public AssemblyBindingTarget Target { get; }
+        public AssemblyBindingOrigin Origin { get; }
+        public AssemblyResolutionScope Scope { get; }
+    }
+
+    /// <summary>
+    /// A dependency needed to authenticate a declaration kind had no matching
+    /// type definition.
+    /// </summary>
+    public sealed class KindDependencyTypeNotFound : TypeResolutionFailure
+    {
+        internal KindDependencyTypeNotFound(
+            ResolvedAssemblyCandidate assembly,
+            MetadataTypeDefinitionName type)
+        {
+            Assembly = assembly;
+            Type = type;
+        }
+
+        public ResolvedAssemblyCandidate Assembly { get; }
+        public MetadataTypeDefinitionName Type { get; }
+    }
+
+    /// <summary>
+    /// A dependency needed to authenticate a declaration kind was ambiguous.
+    /// </summary>
+    public sealed class KindDependencyAmbiguous : TypeResolutionFailure
+    {
+        internal KindDependencyAmbiguous(
+            TypeResolutionAmbiguity ambiguity,
+            MetadataTypeDefinitionName type)
+        {
+            Ambiguity = ambiguity;
+            Type = type;
+        }
+
+        public TypeResolutionAmbiguity Ambiguity { get; }
+        public MetadataTypeDefinitionName Type { get; }
     }
 
     /// <summary>Discovery exceeded the configured candidate budget.</summary>
@@ -800,18 +945,41 @@ public sealed class ResolvedTypeDefinition
         ResolvedTypeDefinitionKey key,
         MetadataTypeDefinitionAddress address,
         ResolvedAssemblyCandidate assembly,
-        MetadataTypeDefinitionName type)
+        MetadataTypeDefinitionName type,
+        MetadataTypeDefinitionKind kind,
+        bool declaringAssemblyDefinesCoreLibraryRoot,
+        int genericParameterCount,
+        TypeResolutionFailure? kindResolutionFailure = null,
+        AssemblyReferenceIdentity? kindResolutionDependencyAssembly =
+            null)
     {
         Key = key;
         Address = address;
         Assembly = assembly;
         Type = type;
+        Kind = kind;
+        DeclaringAssemblyDefinesCoreLibraryRoot =
+            declaringAssemblyDefinesCoreLibraryRoot;
+        GenericParameterCount = genericParameterCount;
+        KindResolutionFailure = kindResolutionFailure;
+        KindResolutionDependencyAssembly =
+            kindResolutionDependencyAssembly;
     }
 
     public ResolvedTypeDefinitionKey Key { get; }
     public MetadataTypeDefinitionAddress Address { get; }
     public ResolvedAssemblyCandidate Assembly { get; }
     public MetadataTypeDefinitionName Type { get; }
+    public MetadataTypeDefinitionKind Kind { get; }
+    internal int GenericParameterCount { get; }
+    internal TypeResolutionFailure? KindResolutionFailure { get; }
+    internal AssemblyReferenceIdentity?
+        KindResolutionDependencyAssembly { get; }
+    public bool IsInterface =>
+        Kind == MetadataTypeDefinitionKind.Interface;
+    public bool IsValueType =>
+        Kind == MetadataTypeDefinitionKind.ValueType;
+    public bool DeclaringAssemblyDefinesCoreLibraryRoot { get; }
 }
 
 /// <summary>
@@ -900,6 +1068,56 @@ public abstract class TypeResolutionOutcome
         Hops = hops;
 
     public ImmutableArray<TypeForwardingHop> Hops { get; }
+
+    /// <summary>
+    /// Exact identity of the terminal assembly named by the outcome. Rejected
+    /// forwarding chains use failure evidence first and otherwise retain the
+    /// final forwarding target.
+    /// </summary>
+    /// <remarks>
+    /// <c>ForwardedModuleExportRejectionPreservesTerminalAssemblyIdentity</c>
+    /// gates the rejected-chain fallback.
+    /// </remarks>
+    public AssemblyReferenceIdentity? TerminalAssemblyIdentity =>
+        this switch
+        {
+            Resolved resolved =>
+                resolved.Definition.Assembly.Assembly.Identity,
+            NotFound notFound =>
+                notFound.LastAssembly.Assembly.Identity,
+            UnboundBinding
+            {
+                Target:
+                    AssemblyBindingTarget.AssemblyReference target,
+            } => target.Identity,
+            Unavailable
+            {
+                Target:
+                    AssemblyBindingTarget.AssemblyReference target,
+            } => target.Identity,
+            Ambiguous
+            {
+                Ambiguity:
+                    TypeResolutionAmbiguity.AssemblyBinding ambiguity,
+            } when ambiguity.Target
+                is AssemblyBindingTarget.AssemblyReference target =>
+                    target.Identity,
+            Ambiguous
+            {
+                Ambiguity:
+                    TypeResolutionAmbiguity.TypeDeclaration ambiguity,
+            } => ambiguity.Assembly.Assembly.Identity,
+            Rejected rejected =>
+                rejected.Failure.AssemblyIdentity
+                    ?? LastForwardingTarget(rejected.Hops),
+            _ => null,
+        };
+
+    static AssemblyReferenceIdentity? LastForwardingTarget(
+        ImmutableArray<TypeForwardingHop> hops) =>
+        hops.IsDefaultOrEmpty
+            ? null
+            : hops[^1].TargetReference;
 
     /// <summary>An exact type definition was resolved.</summary>
     public sealed class Resolved : TypeResolutionOutcome

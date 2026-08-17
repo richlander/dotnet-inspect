@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Text.Json;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
@@ -169,6 +170,179 @@ public class DiffCommandTests
 
         Assert.Contains("**1.0.0** → **2.0.0**", markdown);
         Assert.DoesNotContain("**1.0.0** -> **2.0.0**", markdown);
+    }
+
+    [Fact]
+    public void RenderDiff_FailureOnlyComparisonIsNotClean()
+    {
+        var diff = new ApiDiff
+        {
+            InspectionFailures =
+            [
+                new ApiDiffInspectionFailure(
+                    "new",
+                    "resolve generic parameter constraints",
+                    0x02000002,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "MalformedMetadata",
+                    "Dependency resolution failed.",
+                    new AssemblyReferenceIdentity(
+                        "Subject",
+                        new Version(1, 2, 3, 4),
+                        null,
+                        "0011223344556677"),
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        new Version(4, 3, 2, 1),
+                        null,
+                        null)),
+            ],
+        };
+
+        string markdown = DiffCommand.RenderDiff(
+            "Sample",
+            diff,
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions());
+
+        Assert.Contains(
+            "API comparison is incomplete",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "## Inspection Failures",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Subject, Version=1.2.3.4",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Dependency, Version=4.3.2.1",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Dependency resolution failed.",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "No API changes detected.",
+            markdown,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FilterApiDiffByMemberTargets_PreservesInspectionFailures()
+    {
+        ApiType oldType =
+            DiffType(
+                "Sample",
+                "Widget",
+                DiffMember("Echo"));
+        ApiType newType =
+            DiffType(
+                "Sample",
+                "Widget",
+                DiffMember("Echo"));
+        var failure = new ApiDiffInspectionFailure(
+            "old",
+            "resolve generic parameter constraints",
+            0x02000002,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MissingAssembly",
+            "Dependency was not found.");
+        var diff = new ApiDiff
+        {
+            InspectionFailures = [failure],
+        };
+
+        ApiDiff filtered =
+            DiffCommand.FilterApiDiffByMemberTargets(
+                diff,
+                DiffSurface(oldType),
+                DiffSurface(newType),
+                new DiffOptions
+                {
+                    TypeFilter = ["Sample.Widget"],
+                    MemberFilter = ["Echo"],
+                });
+
+        Assert.Same(
+            failure,
+            Assert.Single(filtered.InspectionFailures));
+    }
+
+    [Fact]
+    public void BuildDocumentView_ProjectsInspectionFailuresToJson()
+    {
+        var failure = new ApiDiffInspectionFailure(
+            "new",
+            "inventory assembly adjacency",
+            0,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "InvalidImage",
+            "Adjacency inventory failed.\n| injected",
+            DependencyAssembly:
+                new AssemblyReferenceIdentity(
+                    "Dependency",
+                    new Version(2, 0, 0, 0),
+                    null,
+                    null))
+        {
+            SourceAssemblyPath =
+                "/private/cache/NewImage.dll",
+        };
+        DiffDocumentView view =
+            DiffOutputFormatter.BuildDocumentView(
+                "Sample",
+                "1.0.0",
+                "2.0.0",
+                changes: null,
+                analysisDiff: null,
+                implementationDiff: null,
+                findingTransitions: null,
+                inspectionFailures: [failure]);
+
+        Assert.Contains(
+            "incomplete",
+            view.InspectionFailuresSummary!,
+            StringComparison.Ordinal);
+        DiffInspectionFailureRow row =
+            Assert.Single(view.InspectionFailures!);
+        Assert.Equal("NewImage.dll", row.Assembly);
+        Assert.Equal(
+            "Dependency, Version=2.0.0.0, "
+                + "Culture=neutral, PublicKeyToken=null",
+            row.DependencyAssembly);
+        Assert.DoesNotContain('\n', row.Detail);
+        Assert.Contains("injected", row.Detail, StringComparison.Ordinal);
+        string json = JsonSerializer.Serialize(
+            view,
+            DiffJsonContext.Default.DiffDocumentView);
+        Assert.Contains(
+            "Adjacency inventory failed.",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NewImage.dll",
+            json,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "/private/cache",
+            json,
+            StringComparison.Ordinal);
+        string markdown =
+            DiffOutputFormatter.RenderDocumentView(view);
+        Assert.Contains(
+            "| Dependency Assembly |",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Dependency, Version=2.0.0.0, "
+                + "Culture=neutral, PublicKeyToken=null",
+            markdown,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1840,7 +2014,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_InvalidLibraryReportsSurfaceFailure()
+    public async Task ExecuteAsync_InvalidLibraryReportsTypedSurfaceFailure()
     {
         var directory = Directory.CreateTempSubdirectory("diff-invalid-library-test").FullName;
         var invalidAssembly = Path.Combine(directory, "Invalid.dll");
@@ -1855,12 +2029,19 @@ public class DiffCommandTests
                 }));
 
             Assert.Equal(1, exitCode);
-            Assert.Empty(output);
+            Assert.Empty(error);
             Assert.Contains(
-                "Failed to extract API surface from one or both libraries",
-                error,
+                "API comparison is incomplete",
+                output,
                 StringComparison.Ordinal);
-            Assert.DoesNotContain("File not found", error, StringComparison.Ordinal);
+            Assert.Contains(
+                "## Inspection Failures",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Invalid.dll",
+                output,
+                StringComparison.Ordinal);
         }
         finally
         {
