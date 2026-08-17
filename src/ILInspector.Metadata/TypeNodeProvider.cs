@@ -34,25 +34,49 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     }
 
     public TypeNode GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-    {
-        string name = TypeResolver.GetTypeNameFromDefinition(
-            reader,
-            handle,
-            _beforeMaterialize);
-        _beforeRetain?.Invoke(name);
-        bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
-        return new NamedTypeNode(name, isRef);
-    }
+        => ReadNamedType(
+            TypeResolver.TryGetTypeNameFromDefinition(
+                reader,
+                handle,
+                _beforeMaterialize,
+                out string? name,
+                out var rejection),
+            name,
+            rejection,
+            rawTypeKind);
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+        => ReadNamedType(
+            TypeResolver.TryGetTypeNameFromReference(
+                reader,
+                handle,
+                _beforeMaterialize,
+                out string? name,
+                out var rejection),
+            name,
+            rejection,
+            rawTypeKind);
+
+    TypeNode ReadNamedType(
+        bool resolved,
+        string? name,
+        RelationshipTraversalRejection? rejection,
+        byte rawTypeKind)
     {
-        string name = TypeResolver.GetTypeNameFromReference(
-            reader,
-            handle,
-            _beforeMaterialize);
-        _beforeRetain?.Invoke(name);
-        bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
-        return new NamedTypeNode(name, isRef);
+        if (resolved)
+        {
+            _beforeRetain?.Invoke(name!);
+            bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
+            return new NamedTypeNode(name!, isRef);
+        }
+
+        ArgumentNullException.ThrowIfNull(rejection);
+        if (rejection.Kind == RelationshipTraversalRejectionKind.NameBudget)
+            return new DegradedTypeNode();
+
+        throw new BadImageFormatException(
+            $"Metadata relationship traversal rejected ({rejection.Kind}): "
+            + rejection.Detail);
     }
 
     public TypeNode GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
