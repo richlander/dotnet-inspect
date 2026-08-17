@@ -73,7 +73,11 @@ therefore cannot publish authored success after PDB disposal failed.
 `AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsAuthoredSuccess`
 gates cancellation and operational failure for member and type queries;
 `AssemblyContextSourceQueryTests.NonStandardPdbDisposalFailure_IsTyped`
-gates host-specific non-fatal exceptions outside the common I/O types.
+gates host-specific non-fatal exceptions outside the common I/O types. A
+cleanup failure while an acquisition failure is already propagating does not
+replace that primary failure;
+`AssemblyContextSourceQueryTests.PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure`
+gates the member and type cancellation and fatal-exception paths.
 
 ### 1. Embedded PDB
 

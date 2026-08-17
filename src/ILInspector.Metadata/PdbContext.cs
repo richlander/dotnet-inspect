@@ -502,74 +502,102 @@ public class PdbContext : IDisposable
 
         MetadataReaderProvider? provider = null;
         bool retained = false;
+        Exception? primaryFailure = null;
         try
         {
-            if (!pdbStream.CanRead || !pdbStream.CanSeek)
+            try
             {
-                throw new IOException(
-                    "Portable PDB content must be readable and seekable.");
-            }
-
-            // Check for Portable PDB magic header (BSJB)
-            byte[] header = new byte[4];
-            pdbStream.ReadExactly(header, 0, 4);
-            pdbStream.Position = 0;
-
-            if (header[0] != 'B' || header[1] != 'S' || header[2] != 'J' || header[3] != 'B')
-            {
-                bool isWindowsPdb = header[0] == 'M' && header[1] == 'i' && header[2] == 'c' && header[3] == 'r';
-                if (isWindowsPdb)
+                if (!pdbStream.CanRead || !pdbStream.CanSeek)
                 {
-                    WindowsPdbDetected = true;
-                    PdbFormat = "Windows";
-                    _log?.Invoke("Windows PDB detected (not supported)");
+                    throw new IOException(
+                        "Portable PDB content must be readable and seekable.");
                 }
-                return;
-            }
 
-            provider = MetadataReaderProvider.FromPortablePdbStream(
-                pdbStream,
-                MetadataStreamOptions.PrefetchMetadata);
-            var reader = provider.GetMetadataReader();
-            if (!PdbMatchesAssembly(reader))
+                // Check for Portable PDB magic header (BSJB)
+                byte[] header = new byte[4];
+                pdbStream.ReadExactly(header, 0, 4);
+                pdbStream.Position = 0;
+
+                if (header[0] != 'B' || header[1] != 'S' || header[2] != 'J' || header[3] != 'B')
+                {
+                    bool isWindowsPdb = header[0] == 'M' && header[1] == 'i' && header[2] == 'c' && header[3] == 'r';
+                    if (isWindowsPdb)
+                    {
+                        WindowsPdbDetected = true;
+                        PdbFormat = "Windows";
+                        _log?.Invoke("Windows PDB detected (not supported)");
+                    }
+                    return;
+                }
+
+                provider = MetadataReaderProvider.FromPortablePdbStream(
+                    pdbStream,
+                    MetadataStreamOptions.PrefetchMetadata);
+                var reader = provider.GetMetadataReader();
+                if (!PdbMatchesAssembly(reader))
+                {
+                    string suppliedName = portablePdbPath is null
+                        ? "supplied content"
+                        : Path.GetFileName(portablePdbPath);
+                    _log?.Invoke(
+                        $"Portable PDB identity mismatch: {suppliedName} does not match {_assemblyDisplayName}");
+                    return;
+                }
+
+                _disposables.Add(pdbStream);
+                _disposables.Add(provider);
+                _pdbProvider = provider;
+                _pdbReader = reader;
+                retained = true;
+
+                HasPdb = true;
+                PdbVersion++;
+                PdbFormat = "Portable";
+                PdbLocation = pdbLocation ?? "Standalone";
+                PortablePdbPath = portablePdbPath;
+                SymbolServer = symbolServer;
+
+                _log?.Invoke($"Loaded PDB: {PdbFormat}, {PdbLocation}");
+            }
+            catch (Exception ex)
+                when ((!throwOnReadFailure && ex is IOException)
+                    || ex is BadImageFormatException
+                    || ex is InvalidOperationException
+                    || ex is ArgumentException)
             {
-                string suppliedName = portablePdbPath is null
-                    ? "supplied content"
-                    : Path.GetFileName(portablePdbPath);
-                _log?.Invoke(
-                    $"Portable PDB identity mismatch: {suppliedName} does not match {_assemblyDisplayName}");
-                return;
+                _log?.Invoke($"Error loading PDB: {ex.Message}");
             }
-
-            _disposables.Add(pdbStream);
-            _disposables.Add(provider);
-            _pdbProvider = provider;
-            _pdbReader = reader;
-            retained = true;
-
-            HasPdb = true;
-            PdbVersion++;
-            PdbFormat = "Portable";
-            PdbLocation = pdbLocation ?? "Standalone";
-            PortablePdbPath = portablePdbPath;
-            SymbolServer = symbolServer;
-
-            _log?.Invoke($"Loaded PDB: {PdbFormat}, {PdbLocation}");
         }
         catch (Exception ex)
-            when ((!throwOnReadFailure && ex is IOException)
-                || ex is BadImageFormatException
-                || ex is InvalidOperationException
-                || ex is ArgumentException)
         {
-            _log?.Invoke($"Error loading PDB: {ex.Message}");
+            primaryFailure = ex;
+            throw;
         }
         finally
         {
             if (!retained)
             {
-                provider?.Dispose();
-                pdbStream.Dispose();
+                if (primaryFailure is null)
+                {
+                    provider?.Dispose();
+                    pdbStream.Dispose();
+                }
+                else
+                {
+                    DisposeSuppressingFailure(provider);
+                    DisposeSuppressingFailure(pdbStream);
+                }
+            }
+        }
+
+        static void DisposeSuppressingFailure(IDisposable? disposable)
+        {
+            try
+            {
+                disposable?.Dispose();
+            }
+            catch
+            {
             }
         }
     }

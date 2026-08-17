@@ -1748,6 +1748,75 @@ public sealed class AssemblyContextSourceQueryTests
         Assert.Equal(0, assembly.Policy.SelectionCount);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure(
+        bool memberQuery,
+        bool fatalFailure)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        Exception primaryFailure =
+            fatalFailure
+                ? new OutOfMemoryException(
+                    "Synthetic fatal PDB-load failure.")
+                : new OperationCanceledException(
+                    "Synthetic PDB-load cancellation.");
+        var pdbStore =
+            new StateChangingPdbStore(
+                afterLocalPath: null,
+                disposeFailure:
+                    new HttpRequestException(
+                        "Synthetic PDB cleanup failure."),
+                positionResetFailure: primaryFailure,
+                disposeFailureAt: 1);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        Func<Task> operation =
+            memberQuery
+                ? () => AssemblyContextSourceQuery
+                        .ExecuteMemberAsync(
+                            group,
+                            assembly.Participant,
+                            assembly.MemberRequest(
+                                nameof(SourceFixture.Describe)),
+                            host.Context,
+                            TestContext.Current.CancellationToken)
+                : () => AssemblyContextSourceQuery
+                        .ExecuteTypeAsync(
+                            group,
+                            assembly.Participant,
+                            assembly.TypeRequest(
+                                typeof(SourceFixture).Name),
+                            host.Context,
+                            TestContext.Current.CancellationToken);
+
+        Exception error =
+            fatalFailure
+                ? await Assert.ThrowsAsync<OutOfMemoryException>(
+                    operation)
+                : await Assert.ThrowsAsync<OperationCanceledException>(
+                    operation);
+
+        Assert.Same(primaryFailure, error);
+        Assert.Equal(
+            1,
+            Assert.IsType<BlockingDisposeStream>(
+                    pdbStore.AuthoritativeStream)
+                .DisposeCount);
+        Assert.Empty(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+    }
+
     [Fact]
     public async Task MalformedPdbDocument_PreservesAuthoredFailureAndFallsBackForType()
     {
@@ -2965,7 +3034,9 @@ public sealed class AssemblyContextSourceQueryTests
         Action? afterLocalPath,
         ManualResetEventSlim? disposeEntered = null,
         ManualResetEventSlim? disposeRelease = null,
-        Exception? disposeFailure = null)
+        Exception? disposeFailure = null,
+        Exception? positionResetFailure = null,
+        int disposeFailureAt = 2)
         : IPdbStore
     {
         readonly InMemoryPdbStore _inner = new();
@@ -2990,7 +3061,9 @@ public sealed class AssemblyContextSourceQueryTests
                     stream,
                     disposeEntered,
                     disposeRelease,
-                    disposeFailure);
+                    disposeFailure,
+                    positionResetFailure,
+                    disposeFailureAt);
             return AuthoritativeStream;
         }
 
@@ -3015,7 +3088,9 @@ public sealed class AssemblyContextSourceQueryTests
         Stream inner,
         ManualResetEventSlim? entered,
         ManualResetEventSlim? release,
-        Exception? disposeFailure)
+        Exception? disposeFailure,
+        Exception? positionResetFailure = null,
+        int disposeFailureAt = 2)
         : Stream
     {
         internal int DisposeCount { get; private set; }
@@ -3027,7 +3102,16 @@ public sealed class AssemblyContextSourceQueryTests
         public override long Position
         {
             get => inner.Position;
-            set => inner.Position = value;
+            set
+            {
+                if (value == 0
+                    && inner.Position != 0
+                    && positionResetFailure is not null)
+                {
+                    throw positionResetFailure;
+                }
+                inner.Position = value;
+            }
         }
 
         public override void Flush() =>
@@ -3058,7 +3142,8 @@ public sealed class AssemblyContextSourceQueryTests
             if (disposing)
             {
                 DisposeCount++;
-                if (DisposeCount == 2 && entered is not null)
+                if (DisposeCount == disposeFailureAt
+                    && entered is not null)
                 {
                     entered.Set();
                     Assert.True(
@@ -3066,7 +3151,8 @@ public sealed class AssemblyContextSourceQueryTests
                             TimeSpan.FromSeconds(10)),
                         "Timed out waiting for PDB disposal release.");
                 }
-                if (DisposeCount == 2 && disposeFailure is not null)
+                if (DisposeCount == disposeFailureAt
+                    && disposeFailure is not null)
                     throw disposeFailure;
                 inner.Dispose();
             }

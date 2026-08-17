@@ -222,7 +222,9 @@ into a typed policy failure. Cancellation and the binding-policy snapshot are
 rechecked again after that service is disposed and before authored success is
 published;
 `AssemblyContextSourceQueryTests.PdbAcquisitionCancellation_PrecedesConcurrentBindingPolicyChange`
-gates the failure path, while
+and
+`AssemblyContextSourceQueryTests.PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure`
+gate the failure path, while
 `AssemblyContextSourceQueryTests.PostPdbCancellation_DisposesOpenedSourceLinkService`
 and
 `AssemblyContextSourceQueryTests.AuthoredSuccessStateChangeDuringPdbDisposal_IsObserved`
