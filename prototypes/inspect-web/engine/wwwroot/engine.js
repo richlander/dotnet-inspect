@@ -103,9 +103,10 @@ export async function inspectMemberSource(request) {
     request.version,
     request.framework,
     request.assembly,
-    request.type,
+    request.typeIdentity ?? request.type,
     request.member,
-    request.signature,
+    request.selectorKey ?? "",
+    request.metadataToken ?? 0,
     request.styleOptionsJson ?? "[]");
   return JSON.parse(json);
 }
@@ -302,7 +303,7 @@ export async function inspectTypeSource(request) {
     request.version,
     request.framework,
     request.assembly,
-    request.type,
+    request.typeIdentity ?? request.type,
     request.styleOptionsJson ?? "[]");
   return JSON.parse(json);
 }

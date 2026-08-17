@@ -115,6 +115,7 @@ body selector even when the graph has no `MethodDef` token.
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
 | `engine/BrowserInspectionEngine.cs` | the supported `[JSExport]` operations |
+| `engine/BrowserSourceOperations.cs` | pathless authored-or-decompiled type/member source and Browser source capabilities |
 | `engine/BrowserUnsupportedOperations.cs` | the `[JSExport]` operations this engine refuses |
 
 Inspected assemblies are read with System.Reflection.Metadata only, are never
@@ -188,6 +189,7 @@ the full budget.
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
+| `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
 | `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
 | `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
@@ -242,6 +244,23 @@ whole-assembly fact context could not be built, a visible `contextLimitation` so
 a short fact list is never read as an honest absence of facts. Printer options
 are resolved from `StyleOptionCatalog`; an id the catalog does not know is a
 visible failure, not a silently ignored selection.
+
+The three source exports resolve the exact structured type identity and opaque
+member body selector against the implementation participant before calling
+`AssemblyContextSourceQuery`. The query tries checksum-verified authored source
+through Browser HTTP and explicit nuget.org authorization, then falls back to
+pathless decompilation under the workspace binding policy. Each operation uses
+fresh in-memory PDB and source stores, so source lookup adds no ambient
+filesystem dependency or unbounded retained cache. Typed rejection and
+unavailable outcomes become visible failures; only an `Available` result crosses
+the bridge. Printer options apply to decompiled fallback and never rewrite
+authored source. Whole-member source remains MethodDef-scoped: a call-graph
+accessor body reports that limitation rather than returning its owner property
+or the whole type as a success-shaped substitute.
+`BrowserEngineBoundaryTests.SourceContexts_UseFreshMemoryOnlyPdbStores`,
+`AssemblyContextSourceQueryTests.DecompilerFallback_AppliesRequestPrinterOptions`,
+and the JavaScript `source requests carry exact type and member identities`
+case gate these boundaries.
 
 [#3964]: https://github.com/richlander/dotnet-inspect/pull/3964
 
@@ -311,15 +330,13 @@ ambiguity and diagnostic cases gate these host behaviors.
 
 ## Unsupported
 
-Each remaining gap is either a missing public query that owns its own group
-session or missing Browser host capability and adapter wiring around such a
-query. Each export keeps the signature the browser bridge binds and throws a
-`NotSupportedException` naming the gap, so the site reports the engine's
-refusal rather than fixture results or success-shaped empty output.
+Each remaining gap is a missing public query that owns its own group session.
+Each export keeps the signature the browser bridge binds and throws a
+`NotSupportedException` naming the gap, so the site reports the engine's refusal
+rather than fixture results or success-shaped empty output.
 
-| Unsupported export | Missing product or host wiring |
+| Unsupported export | Missing product query |
 | --- | --- |
-| `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | `AssemblyContextSourceQuery` now owns pathless SourceLink and decompiled source; the Browser host still needs symbol/source clients, authorization, in-memory stores, and typed-result adaptation |
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |

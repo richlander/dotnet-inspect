@@ -63,6 +63,10 @@ internal static class BrowserPackageWorkspace
     static readonly HashSet<string> Downloaded = new(StringComparer.Ordinal);
     static long _clock;
 
+    internal static HttpClient NetworkClient => Http;
+    internal static IPackageSourceAuthorization PackageSourceAuthorization =>
+        SourceAuthorization;
+
     sealed record CacheEntry(byte[] Bytes, string ProducerKey, long LastAccess);
 
     sealed record ScopeEntry(

@@ -380,6 +380,20 @@ test("member source request identity includes decompiler taste", () => {
     memberRequestKey(request, ["prefer-explicit-types"]));
 });
 
+test("source requests carry exact type and member identities", () => {
+  const memberBridge =
+    engineSource.match(/export async function inspectMemberSource\(request\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    memberBridge,
+    /request\.typeIdentity \?\? request\.type/);
+  assert.match(memberBridge, /request\.selectorKey \?\? ""/);
+  assert.match(memberBridge, /request\.metadataToken \?\? 0/);
+  assert.match(
+    appSource,
+    /typeIdentity: type\.definitionId \?\? type\.id,\s+member:[\s\S]*?selectorKey:[\s\S]*?metadataToken:/);
+});
+
 test("history never applies a selection to another coordinate", () => {
   const oldPackage = packageAt("1.0.0", "net8.0");
   const newVersion = packageAt("2.0.0", "net8.0");

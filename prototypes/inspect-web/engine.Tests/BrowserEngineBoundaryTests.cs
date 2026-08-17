@@ -17,6 +17,44 @@ public sealed class BrowserEngineBoundaryTests
     const int MiB = 1024 * 1024;
 
     [Fact]
+    public void SourceContexts_UseFreshMemoryOnlyPdbStores()
+    {
+        AssemblyContextSourceQueryContext first =
+            BrowserInspectionEngine.CreateSourceContext();
+        AssemblyContextSourceQueryContext second =
+            BrowserInspectionEngine.CreateSourceContext();
+
+        Assert.IsType<InMemoryPdbStore>(first.PdbStore);
+        Assert.IsType<InMemoryPdbStore>(second.PdbStore);
+        Assert.NotSame(first.PdbStore, second.PdbStore);
+        Assert.False(first.AllowLocalSourceReads);
+        Assert.Null(first.RepositoryPaths);
+    }
+
+    [Fact]
+    public void SourceFailures_PreserveTypedDetailAndCause()
+    {
+        var cause = new IOException("symbol service failed");
+        var failure = new AssemblySourceFailure(
+            AssemblySourceFailureKind.InspectionFailed,
+            "Source inspection failed.",
+            cause);
+
+        InvalidOperationException adapted =
+            BrowserInspectionEngine.SourceUnavailable(failure);
+
+        Assert.Contains(
+            nameof(AssemblySourceFailureKind.InspectionFailed),
+            adapted.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            failure.Detail,
+            adapted.Message,
+            StringComparison.Ordinal);
+        Assert.Same(cause, adapted.InnerException);
+    }
+
+    [Fact]
     public void WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures()
     {
         byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);

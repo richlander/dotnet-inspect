@@ -279,6 +279,12 @@ public sealed record BrowserAnnotatedSource(
     string Provenance,
     string? ContextLimitation);
 
+public sealed record BrowserSource(
+    string Provider,
+    string Provenance,
+    string? Url,
+    string Text);
+
 public sealed record BrowserStyleOption(
     string Id,
     string Title,
@@ -420,6 +426,7 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserAnnotatedSource))]
+[JsonSerializable(typeof(BrowserSource))]
 [JsonSerializable(typeof(BrowserCallGraph))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]

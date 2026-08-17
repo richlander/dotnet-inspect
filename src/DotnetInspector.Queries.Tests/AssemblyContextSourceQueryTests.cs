@@ -12,6 +12,7 @@ using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Services;
 using ILInspector.Findings;
 using ILInspector.Metadata;
+using Pipeline = ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -299,6 +300,57 @@ public sealed class AssemblyContextSourceQueryTests
         Assert.True(decompiled.Decompilation.Succeeded);
         Assert.IsType<FindingInspection<string>.Absent>(
             decompiled.AuthoredAttempt.Lines.Value);
+    }
+
+    [Fact]
+    public async Task DecompilerFallback_AppliesRequestPrinterOptions()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        var options = new Pipeline.PrinterOptions
+        {
+            WrapExpressionBodyArrow = true,
+        };
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceEntry memberResult =
+            await AssemblyContextSourceQuery.ExecuteMemberAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe),
+                    printerOptions: options),
+                host.Context,
+                TestContext.Current.CancellationToken);
+        AssemblyTypeSourceEntry typeResult =
+            await AssemblyContextSourceQuery.ExecuteTypeAsync(
+                group,
+                assembly.Participant,
+                assembly.TypeRequest(
+                    typeof(SourceFixture).Name,
+                    options),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        Assert.Contains(
+            "\n        =>",
+            Assert.IsType<AssemblyMemberSource.Decompiled>(
+                Assert.IsType<AssemblyMemberSourceEntry.Available>(
+                    memberResult)
+                    .Source)
+                .Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\n        =>",
+            Assert.IsType<AssemblyTypeSource.Decompiled>(
+                Assert.IsType<AssemblyTypeSourceEntry.Available>(
+                    typeResult)
+                    .Source)
+                .Text,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -2631,19 +2683,23 @@ public sealed class AssemblyContextSourceQueryTests
         }
 
         internal AssemblyTypeSourceRequest TypeRequest(
-            string typeName)
+            string typeName,
+            Pipeline.PrinterOptions? printerOptions = null)
         {
             ApiType type = Assert.Single(
                 _surface.Types,
                 candidate =>
                     candidate.DefinitionName?.Segments[^1]
                     == typeName);
-            return AssemblyTypeSourceRequest.From(type);
+            return AssemblyTypeSourceRequest.From(
+                type,
+                printerOptions);
         }
 
         internal AssemblyMemberSourceRequest MemberRequest(
             string memberName,
-            string? typeName = null)
+            string? typeName = null,
+            Pipeline.PrinterOptions? printerOptions = null)
         {
             ApiType type = Assert.Single(
                 _surface.Types,
@@ -2656,7 +2712,8 @@ public sealed class AssemblyContextSourceQueryTests
                 candidate => candidate.Name == memberName);
             return AssemblyMemberSourceRequest.From(
                 type,
-                member);
+                member,
+                printerOptions);
         }
 
         static AssemblyReferenceIdentity ReadIdentity(

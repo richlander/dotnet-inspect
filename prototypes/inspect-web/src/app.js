@@ -3761,25 +3761,25 @@ function splitSignalName(fullName) {
 }
 
 function typeSourceSignature(item) {
-  return `${state.package.id}@${state.package.version}/${state.package.activeFramework}/${item.assembly}/${item.id}`;
+  return `${state.package.id}@${state.package.version}/${state.package.activeFramework}/${item.assembly}/${item.definitionId ?? item.id}`;
 }
 
 function renderTypeSource(item) {
   const current = typeSourceSignature(item);
   const fresh = state.typeSourceKey === current;
   if (state.typeSourceLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Decompiling type…</h2><p>Reconstructing the whole type as C# with dotnet-inspect.</p></section>`;
+    return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
   }
   if (fresh && state.typeSource) {
     return `<section class="document-section source-result">
-        <div class="source-provenance"><strong>Decompiled source</strong><span>${escapeHtml(state.typeSource.provenance)}</span><button id="copy-type-source" type="button">copy</button></div>
+        <div class="source-provenance"><strong>${state.typeSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.typeSource.provenance)}</span>${state.typeSource.url ? `<a href="${escapeHtml(state.typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-type-source" type="button">copy</button></div>
         <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.typeSource.text)}</code></pre>
       </section>`;
   }
   if (fresh && state.typeSourceError) {
     return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(state.typeSourceError)}</p></section>`;
   }
-  return `<section class="document-section source-progress"><span class="loader"></span><h2>Decompiling type…</h2><p>Reconstructing the whole type as C# with dotnet-inspect.</p></section>`;
+  return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
 }
 
 function kindIcon(kind) {
@@ -6049,8 +6049,10 @@ async function loadSelectedMemberSource() {
       framework: state.package.activeFramework,
       assembly: type.assembly,
       type: type.queryId ?? type.id,
+      typeIdentity: type.definitionId ?? type.id,
       member: state.selectedBodyTarget?.memberName ?? overload.name,
-      signature: overload.signature,
+      selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+      metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
       styleOptionsJson: JSON.stringify(state.taste)
     });
     if (memberRequestIsCurrent(signature, false, true)
@@ -6181,6 +6183,7 @@ async function loadSelectedTypeSource() {
       framework: state.package.activeFramework,
       assembly: type.assembly,
       type: type.queryId ?? type.id,
+      typeIdentity: type.definitionId ?? type.id,
       styleOptionsJson: JSON.stringify(state.taste)
     });
     if (state.typeSourceKey === signature) state.typeSource = result;
@@ -7630,14 +7633,14 @@ function bindSettingsEvents() {
 
 function renderGraphSource() {
   const body = state.graphSourceLoading
-    ? `<div class="graph-source-status">Decompiling ${escapeHtml(state.graphSourceTitle)}…</div>`
+    ? `<div class="graph-source-status">Resolving source for ${escapeHtml(state.graphSourceTitle)}…</div>`
     : state.graphSource
-      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span></div>
+      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span>${state.graphSource.url ? `<a href="${escapeHtml(state.graphSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}</div>
          <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.graphSource.text)}</code></pre>`
       : `<div class="graph-source-status error">${escapeHtml(state.graphSourceError || "No source was returned.")}</div>`;
   return `
     <div class="graph-source-backdrop" id="graph-source-backdrop">
-      <div class="graph-source" role="dialog" aria-modal="true" aria-label="Decompiled member source">
+      <div class="graph-source" role="dialog" aria-modal="true" aria-label="Member source">
         <div class="graph-source-head">
           <span class="graph-source-title">${escapeHtml(state.graphSourceTitle)}</span>
           <button id="graph-source-close" type="button" aria-label="Close">esc</button>

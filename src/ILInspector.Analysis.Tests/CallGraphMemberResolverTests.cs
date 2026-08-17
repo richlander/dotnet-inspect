@@ -84,13 +84,13 @@ public sealed class CallGraphMemberResolverTests
         Assert.Equal(
             CallGraphMemberResolver.CreateSelector(type, staticMember).Key,
             staticSelector.Key);
-        Assert.Same(
-            instanceMember,
+        CallGraphMemberResolution instanceResolution =
             CallGraphMemberResolver.Resolve(
                 type,
                 instanceSelector.Name,
-                instanceSelector.Key)!
-                .Member);
+                instanceSelector.Key)!;
+        Assert.Same(type, instanceResolution.Type);
+        Assert.Same(instanceMember, instanceResolution.Member);
         Assert.Same(
             staticMember,
             CallGraphMemberResolver.Resolve(
