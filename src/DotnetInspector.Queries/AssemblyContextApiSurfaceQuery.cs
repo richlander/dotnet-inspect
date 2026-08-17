@@ -73,6 +73,13 @@ public static class ApiAccessibility
     static readonly ApiAccessibilityBucket PrivateBucket =
         new("private", "private", 3, IsDefault: false, Count: 0);
 
+    /// <summary>
+    /// Every product-owned accessibility value in query and presentation order, without
+    /// target-specific counts.
+    /// </summary>
+    public static ImmutableArray<ApiAccessibilityBucket> Values { get; } =
+        [PublicBucket, ProtectedBucket, InternalBucket, PrivateBucket];
+
     /// <summary>The bucket one accessibility spelling belongs to, with a zero count.</summary>
     public static ApiAccessibilityBucket Classify(string? accessibility)
     {
@@ -106,7 +113,7 @@ public static class ApiAccessibility
 
         return
         [
-            .. new[] { PublicBucket, ProtectedBucket, InternalBucket, PrivateBucket }
+            .. Values
                 .Where(bucket => bucket.IsDefault || counts.ContainsKey(bucket.Id))
                 .Select(bucket => bucket with
                 {

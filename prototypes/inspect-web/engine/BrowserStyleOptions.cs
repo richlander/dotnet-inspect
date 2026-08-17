@@ -9,10 +9,10 @@ namespace InspectWeb.Engine;
 /// the library-owned <see cref="Pipeline.StyleOptionCatalog"/>.
 /// </summary>
 /// <remarks>
-/// The ids are exactly the product-owned <see cref="Pipeline.StyleOptionCatalog.Choices"/> that
-/// <c>ListStyleOptions</c> handed the client. The host only decodes the transport; identity,
-/// defaults, conflicts, and selection semantics remain in the product catalog. An id the catalog
-/// does not know is a visible failure rather than a silently ignored selection.
+/// The ids are exactly the product-owned <see cref="Pipeline.StyleOptionCatalog.Choices"/> exposed
+/// in the <c>csharp.style-choices</c> vocabulary section. The host only decodes the transport;
+/// identity, defaults, conflicts, and selection semantics remain in the product catalog. An id
+/// the catalog does not know is a visible failure rather than a silently ignored selection.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserStyleOptions

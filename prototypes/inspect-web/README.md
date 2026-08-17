@@ -252,8 +252,8 @@ beside a product-selected compile asset).
 
 Three exports touch **no artifact at all** and say so in place: `SearchTypes`
 (ranking names the client already holds, through `TypeMatcher`),
-`PackageCacheStats`, and `ListStyleTiers`/`ListStyleOptions` (the
-`StyleOptionCatalog`).
+`PackageCacheStats`, and `ListVocabulary` (the shared product-owned vocabulary
+catalog).
 
 `QueryPackageIntegrations` groups the query's own
 `EcosystemIntegrationSignalInfo` values by the integration name the scanner
@@ -437,8 +437,9 @@ not answer report the engine's failure rather than fixture results.
 - Arrow keys or `j`/`k` navigate the type index.
 - Number keys switch the active scope's lenses when an input is not focused.
 - `share` copies the package, version, framework, type, and lens selection.
-- The Taste popover and Settings page render their groups, summaries, and
-  ordering from `StyleOptionCatalog`; the browser does not restate that taxonomy.
+- The Taste popover and Settings page consume the same `C# Style Tiers` and
+  `C# Style Choices` vocabulary sections as the CLI; the browser does not
+  restate their taxonomy.
 
 ## Deploy
 
