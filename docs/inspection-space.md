@@ -317,6 +317,18 @@ all-group cleanup after an owned-resource failure, and
 `InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
 gates preservation of an in-flight callback failure when deferred cleanup also
 fails.
+`WorkspaceContextLoader` now realizes package, platform, and embedded
+coordinates without requiring a filesystem. A platform coordinate maps the
+`runtime` or `aspnetcore` family to its product-owned implementation-pack
+coordinate, selects the latest authorized version on the target framework's
+major/minor release line unless exactly pinned, and mints pathless participants
+with `PlatformAsset` provenance. The implementation-pack RID is `linux-x64`
+because the assemblies are inspected as representative CoreCLR IL and never
+executed; the workspace target RID remains the caller's independent binding
+constraint. `WorkspaceContextLoaderTests.PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants`
+gates version selection, pathless platform provenance, and in-group platform
+binding; `RealizedPlatformCoordinate_ReacquiresRecordedProducer` gates exact
+producer-bound transport.
 Portable-PDB acquisition now follows the same content-shaped boundary:
 `AcquiredPortablePdb` opens repeatable content from a host-supplied `IPdbStore`,
 and `PdbAcquisitionService` can load it for a pathless

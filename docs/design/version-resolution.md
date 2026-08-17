@@ -56,6 +56,15 @@ projected into dotnet-inspect's `packs-v2` cache is different: it is a
 source-derived payload. Its version comes from an eligible feed or candidate
 cache, and the projected payload must retain that producer's authorization.
 
+Filesystem-free workspace platform members use the source-derived path without
+projecting a pack directory. `runtime` and `aspnetcore` map to the representative
+`linux-x64` implementation-pack packages because their managed assemblies are
+inspected, never executed. A floating member lists authorized versions and
+selects the latest admitted version whose major and minor match the target
+framework; an exact pin must match that same release line. Payload acquisition
+then uses the ordinary host-supplied package store, and the realized platform
+coordinate retains the serving producer for exact re-acquisition.
+
 Package metadata (publish date, downloads, deprecation, vulnerabilities) is
 also cached with a 1-hour TTL.
 

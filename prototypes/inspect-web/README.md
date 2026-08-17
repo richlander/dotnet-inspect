@@ -323,13 +323,10 @@ refusal rather than fixture results or success-shaped empty output.
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
-| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | runtime-pack acquisition that produces participants from content |
+| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | `WorkspaceContextLoader` now produces runtime-pack participants from content; the Browser host still needs platform scope caching, typed-result adaptation, and the missing group-scoped metadata/performance queries named above |
 
-One further gap is about acquisition rather than inspection:
-
-- `ResolvedAssemblyReference.CreateFromPathIfManaged` has **no content-shaped
-  sibling**, so a filesystem-free acquisition owner must decode assembly identity
-  itself before it can mint a participant the group will accept.
+`ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
+decoding, so Browser acquisition does not reconstruct assembly identity.
 
 Each gap has a tracking issue; the pull request that introduced this rebuild
 lists them.

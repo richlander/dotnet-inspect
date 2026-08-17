@@ -860,11 +860,15 @@ otherwise falling under this note's blanket unverified marking.
 
 ### What exists today
 
-The coordinate-realization slice implements the `package` and `embedded` member
-coordinates (`DotnetInspector.Queries.WorkspaceMemberCoordinate`) and one
+The coordinate-realization slice implements the `package`, `platform`, and
+`embedded` member coordinates
+(`DotnetInspector.Queries.WorkspaceMemberCoordinate`) and one
 loader (`WorkspaceContextLoader`) that realizes one already-selected context
 into exactly one `AssemblyContextGroup`, through the product's package
-resolution, acquisition, and asset-selection owners. It supplies:
+resolution, acquisition, and asset-selection owners. The content-shaped
+platform slice currently realizes the `runtime` and `aspnetcore`
+implementation-pack families; the schema's `netstandard` reference-pack family
+is not part of runtime-pack acquisition. It supplies:
 
 - the context-scoped half of the target-consistency gate —
   `WorkspaceContextLoaderTests.ConflictingTargets_CreateNoGroup` and
@@ -880,6 +884,15 @@ resolution, acquisition, and asset-selection owners. It supplies:
   and `Group_BindsAnInContextReferenceToItsOwnDescriptor`, with the embedded
   digest, declared-name, absence, and malformed-image cases proving a rejected
   member creates no partial group;
+- a content-shaped platform gate —
+  `WorkspaceContextLoaderTests.PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants`
+  for target-line version selection, pathless platform provenance, and
+  binding, `PlatformFamilies_FormOneBindingConsistentGroup` for composition,
+  `PlatformMember_MismatchedExactVersionFailsBeforeHostCapabilities` for early
+  target-line rejection, `PlatformMember_AssemblyFilterUsesMetadataIdentity`
+  for identity-owned filtering, and
+  `RealizedPlatformCoordinate_ReacquiresRecordedProducer` for exact
+  producer-bound transport;
 - a package-specific authorization gate —
   `WorkspaceContextLoaderTests.PerPackageAuthorization_KeepsEachPackageOnItsOwnProducer`,
   `PerPackageAuthorization_RefusesAProducerAuthorizedForAnotherPackage`, and

@@ -31,15 +31,14 @@ public sealed record WorkspaceContextLoadOptions
     /// The host's decision about which producers may serve each package id.
     /// </summary>
     /// <remarks>
-    /// It is consulted once per package member, with that member's own id,
-    /// before any discovery, cache read, or download for that member. A single
-    /// union of every source the context might use would be the wrong shape:
-    /// NuGet authorizes producers per package id, so a union would let one
-    /// member's private feed answer for another member's package. The loader
-    /// neither discovers nor widens what this returns, and an authorization
-    /// naming no producer is a typed
-    /// <see cref="WorkspaceContextLoadFailureKind.PackageUnavailable"/> rather
-    /// than a fallback to a default feed.
+    /// It is consulted once per package id, including product-owned
+    /// implementation-pack ids, before any discovery, cache read, or download
+    /// for that member. A single union of every source the context might use
+    /// would be the wrong shape: NuGet authorizes producers per package id, so
+    /// a union would let one member's private feed answer for another member's
+    /// package. The loader neither discovers nor widens what this returns, and
+    /// an authorization naming no producer is a typed unavailable outcome
+    /// rather than a fallback to a default feed.
     /// </remarks>
     public required IPackageSourceAuthorization SourceAuthorization { get; init; }
 
@@ -99,7 +98,10 @@ public sealed record WorkspaceContextLoadOptions
 /// package store, and selects one asset universe per package. A package
 /// coordinate names no assembly, so it realizes every managed non-resource
 /// assembly in that universe, matching how the existing package workspaces
-/// treat a package.
+/// treat a package. A platform coordinate maps a product-owned family to a
+/// representative implementation-pack package, restricts floating versions
+/// to the target framework's release line, and realizes pathless descriptors
+/// with platform provenance.
 /// </para>
 /// <para>
 /// Expected failures — an unauthorized or unavailable source, a package
@@ -132,6 +134,9 @@ public sealed record WorkspaceContextLoadOptions
 /// for package-specific authorization,
 /// <c>RealizedCoordinate_NamesTheProducerThatServedTheBytes</c> for
 /// producer-bound realized identity,
+/// <c>PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants</c>
+/// and <c>PlatformFamilies_FormOneBindingConsistentGroup</c> for
+/// content-shaped implementation-pack realization,
 /// <c>RealizedLoad_ReacquiresFromTheRecordedProducer</c> and
 /// <c>RealizedLoad_WithAnUnauthorizedProducer_FailsTyped</c> for
 /// producer-pinned re-acquisition,
@@ -143,6 +148,13 @@ public sealed record WorkspaceContextLoadOptions
 /// </remarks>
 public static class WorkspaceContextLoader
 {
+    const string RepresentativeRuntimeIdentifier = "linux-x64";
+    const string RuntimePackPackageId =
+        "microsoft.netcore.app.runtime.linux-x64";
+    const string AspNetCorePackPackageId =
+        "microsoft.aspnetcore.app.runtime.linux-x64";
+    const string PlatformResolverSource = "NuGet implementation pack";
+
     /// <summary>
     /// Realizes <paramref name="context"/> into one group owned by
     /// <paramref name="workspace"/>, or returns the typed reasons it could not
@@ -193,6 +205,12 @@ public static class WorkspaceContextLoader
                         package,
                         framework!,
                         rid,
+                        options,
+                        cancellationToken).ConfigureAwait(false),
+                WorkspaceMemberCoordinate.PlatformMember platform =>
+                    await RealizePlatformAsync(
+                        platform,
+                        framework!,
                         options,
                         cancellationToken).ConfigureAwait(false),
                 WorkspaceMemberCoordinate.EmbeddedMember embedded =>
@@ -307,6 +325,12 @@ public static class WorkspaceContextLoader
                     await RealizePinnedPackageAsync(
                         package,
                         declared,
+                        options,
+                        cancellationToken).ConfigureAwait(false),
+                RealizedMemberCoordinate.Platform platform =>
+                    await RealizePinnedPlatformAsync(
+                        platform,
+                        (WorkspaceMemberCoordinate.PlatformMember)declared,
                         options,
                         cancellationToken).ConfigureAwait(false),
                 RealizedMemberCoordinate.Embedded =>
@@ -441,6 +465,20 @@ public static class WorkspaceContextLoader
                     $"package:{id}",
                     $"package:{id}|{version}|{effectiveFramework}|{effectiveRid}");
 
+            case WorkspaceMemberCoordinate.PlatformMember platform:
+                string family = platform.Family.ToLowerInvariant();
+                string platformVersion = platform.Version is { } pinned
+                    ? CanonicalVersion(pinned)
+                    : "*";
+                string platformFramework =
+                    (platform.Framework ?? framework ?? string.Empty)
+                        .ToLowerInvariant();
+                string assembly =
+                    platform.Assembly?.ToLowerInvariant() ?? "*";
+                return new AcquisitionKey(
+                    $"platform:{family}:{assembly}",
+                    $"platform:{family}|{assembly}|{platformVersion}|{platformFramework}");
+
             case WorkspaceMemberCoordinate.EmbeddedMember embedded:
                 return new AcquisitionKey(
                     $"embedded:{embedded.ContentRef}",
@@ -469,6 +507,10 @@ public static class WorkspaceContextLoader
                 $"package:{package.PackageId}",
                 $"package:{package.PackageId}|{package.Version}|{package.Framework}"
                     + $"|{package.RuntimeIdentifier}|{package.Producer}"),
+            RealizedMemberCoordinate.Platform platform => new AcquisitionKey(
+                $"platform:{platform.Family}:{platform.Assembly?.ToLowerInvariant() ?? "*"}",
+                $"platform:{platform.Family}|{platform.Assembly?.ToLowerInvariant() ?? "*"}"
+                    + $"|{platform.Version}|{platform.Framework}|{platform.Producer}"),
             RealizedMemberCoordinate.Embedded embedded => new AcquisitionKey(
                 $"embedded:{embedded.ContentRef}",
                 $"embedded:{embedded.ContentRef}|{embedded.Digest}|{embedded.DeclaredName}"),
@@ -505,6 +547,12 @@ public static class WorkspaceContextLoader
                     package.Version,
                     package.Framework,
                     package.RuntimeIdentifier),
+            RealizedMemberCoordinate.Platform platform =>
+                WorkspaceMemberCoordinate.Platform(
+                    platform.Family,
+                    platform.Assembly,
+                    platform.Version,
+                    platform.Framework),
             RealizedMemberCoordinate.Embedded embedded =>
                 WorkspaceMemberCoordinate.Embedded(
                     embedded.ContentRef,
@@ -546,11 +594,25 @@ public static class WorkspaceContextLoader
                 continue;
             }
 
-            if (coordinate is not RealizedMemberCoordinate.Package package)
-                continue;
-
-            AddTarget(frameworks, package.Framework, lowercase: true);
-            AddTarget(rids, package.RuntimeIdentifier, lowercase: false);
+            switch (coordinate)
+            {
+                case RealizedMemberCoordinate.Package package:
+                    AddTarget(
+                        frameworks,
+                        package.Framework,
+                        lowercase: true);
+                    AddTarget(
+                        rids,
+                        package.RuntimeIdentifier,
+                        lowercase: false);
+                    break;
+                case RealizedMemberCoordinate.Platform platform:
+                    AddTarget(
+                        frameworks,
+                        platform.Framework,
+                        lowercase: true);
+                    break;
+            }
         }
 
         if (frameworks.Count > 1 || rids.Count > 1)
@@ -734,7 +796,7 @@ public static class WorkspaceContextLoader
         List<string> rids = [];
         AddTarget(frameworks, context.Framework, lowercase: true);
         AddTarget(rids, context.RuntimeIdentifier, lowercase: false);
-        bool hasPackageMember = false;
+        bool hasTargetedMember = false;
 
         foreach (WorkspaceMemberCoordinate member in context.Members)
         {
@@ -751,7 +813,7 @@ public static class WorkspaceContextLoader
             switch (member)
             {
                 case WorkspaceMemberCoordinate.PackageMember package:
-                    hasPackageMember = true;
+                    hasTargetedMember = true;
                     if (PackageCoordinateResolver.Validate(
                             new PackageCoordinate(
                                 package.PackageId,
@@ -771,6 +833,55 @@ public static class WorkspaceContextLoader
 
                     AddTarget(frameworks, package.Framework, lowercase: true);
                     AddTarget(rids, package.RuntimeIdentifier, lowercase: false);
+                    break;
+
+                case WorkspaceMemberCoordinate.PlatformMember platform:
+                    hasTargetedMember = true;
+                    bool knownFamily =
+                        RealizedMemberCoordinate.IsCanonicalPlatformFamily(
+                            platform.Family);
+                    if (!knownFamily)
+                    {
+                        failures.Add(
+                            Failure(
+                                WorkspaceContextLoadFailureKind
+                                    .InvalidCoordinate,
+                                member,
+                                "A platform member family must be 'runtime' or 'aspnetcore'."));
+                    }
+
+                    if (platform.Assembly is not null
+                        && !RealizedMemberCoordinate.IsAssemblySimpleName(
+                            platform.Assembly))
+                    {
+                        failures.Add(
+                            Failure(
+                                WorkspaceContextLoadFailureKind
+                                    .InvalidCoordinate,
+                                member,
+                                "A platform member assembly must be an assembly simple name."));
+                    }
+
+                    if (knownFamily
+                        && PackageCoordinateResolver.Validate(
+                            new PackageCoordinate(
+                                PlatformPackageId(platform.Family),
+                                platform.Version,
+                                platform.Framework))
+                        is { } platformInvalid)
+                    {
+                        failures.Add(
+                            Failure(
+                                WorkspaceContextLoadFailureKind
+                                    .InvalidCoordinate,
+                                member,
+                                platformInvalid.Message));
+                    }
+
+                    AddTarget(
+                        frameworks,
+                        platform.Framework,
+                        lowercase: true);
                     break;
 
                 case WorkspaceMemberCoordinate.EmbeddedMember embedded:
@@ -808,13 +919,13 @@ public static class WorkspaceContextLoader
                     "A workspace context lowers to one acquisition runtime identifier, and its declarations disagree."));
         }
 
-        if (hasPackageMember && frameworks.Count == 0)
+        if (hasTargetedMember && frameworks.Count == 0)
         {
             failures.Add(
                 Failure(
                     WorkspaceContextLoadFailureKind.MissingAcquisitionTarget,
                     member: null,
-                    "A package member requires the context to state an acquisition framework."));
+                    "A package or platform member requires the context to state an acquisition framework."));
         }
 
         if (failures.Count == 0)
@@ -857,6 +968,402 @@ public static class WorkspaceContextLoader
 
         return null;
     }
+
+    static async Task<MemberRealization> RealizePlatformAsync(
+        WorkspaceMemberCoordinate.PlatformMember member,
+        string framework,
+        WorkspaceContextLoadOptions options,
+        CancellationToken cancellationToken)
+    {
+        string family = member.Family.ToLowerInvariant();
+        string packageId = PlatformPackageId(family);
+        if (!TryGetPlatformTarget(framework, out Version target))
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    member,
+                    $"Platform family '{family}' requires a modern .NET or .NET Core target framework."));
+        }
+
+        string? pinnedVersion = member.Version is { } declaredVersion
+            ? CanonicalVersion(declaredVersion)
+            : null;
+        if (pinnedVersion is not null
+            && !MatchesTarget(NuGetVersion.Parse(pinnedVersion), target))
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                    member,
+                    $"Platform family '{family}' version '{member.Version}' does not match target framework '{framework}'."));
+        }
+
+        PackageSourceAuthorization authorization =
+            options.SourceAuthorization.AuthorizeSourcesFor(packageId);
+        if (authorization.Sources.Count == 0)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                    member,
+                    authorization.DenialReason
+                    ?? $"No source is authorized to provide the '{family}' platform family."));
+        }
+
+        string version;
+        if (pinnedVersion is not null)
+        {
+            version = pinnedVersion;
+        }
+        else
+        {
+            PackageVersionListingResult listing =
+                await PackageCoordinateResolver.ListVersionsAsync(
+                    options.HttpClient,
+                    packageId,
+                    authorization.Sources,
+                    options.Log,
+                    options.IncludePrerelease,
+                    options.UseVersionCache,
+                    cancellationToken).ConfigureAwait(false);
+            if (listing is not PackageVersionListingResult.Available available)
+            {
+                string message = listing switch
+                {
+                    PackageVersionListingResult.Invalid invalid =>
+                        invalid.Message,
+                    PackageVersionListingResult.Unavailable unavailable =>
+                        unavailable.Message,
+                    _ => $"No version listing is available for the '{family}' platform family.",
+                };
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                        member,
+                        message));
+            }
+
+            NuGetVersion? selectedVersion = available.Versions
+                .Select(NuGetVersion.Parse)
+                .Where(candidate => MatchesTarget(candidate, target))
+                .OrderBy(static candidate => candidate)
+                .LastOrDefault();
+            if (selectedVersion is null)
+            {
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                        member,
+                        $"No published version of platform family '{family}' matches target framework '{framework}'."));
+            }
+
+            version = selectedVersion.ToNormalizedString().ToLowerInvariant();
+        }
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                options.HttpClient,
+                new PackageCoordinate(
+                    packageId,
+                    version,
+                    framework,
+                    RepresentativeRuntimeIdentifier),
+                authorization.Sources,
+                options.Log,
+                options.IncludePrerelease,
+                options.UseVersionCache,
+                requireStableFloating: true,
+                cancellationToken).ConfigureAwait(false);
+        if (resolution is not PackageCoordinateResolution.Resolved resolved)
+        {
+            string message = resolution switch
+            {
+                PackageCoordinateResolution.Invalid invalid => invalid.Message,
+                PackageCoordinateResolution.Unavailable unavailable =>
+                    unavailable.Message,
+                _ => $"Platform family '{family}' could not be resolved.",
+            };
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                    member,
+                    message));
+        }
+
+        PackagePayloadResult payload =
+            await PackagePayloadAcquisition.AcquireAsync(
+                options.HttpClient,
+                resolved.Coordinate,
+                options.PackageStore,
+                options.Log,
+                options.PayloadLimits,
+                cancellationToken).ConfigureAwait(false);
+        if (payload is PackagePayloadResult.Unavailable payloadFailure)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                    member,
+                    payloadFailure.Message));
+        }
+
+        return RealizeAcquiredPlatform(
+            member,
+            ((PackagePayloadResult.Acquired)payload).Payload,
+            framework,
+            cancellationToken);
+    }
+
+    static async Task<MemberRealization> RealizePinnedPlatformAsync(
+        RealizedMemberCoordinate.Platform pinned,
+        WorkspaceMemberCoordinate.PlatformMember declared,
+        WorkspaceContextLoadOptions options,
+        CancellationToken cancellationToken)
+    {
+        string packageId = PlatformPackageId(pinned.Family);
+        PackageSourceAuthorization authorization =
+            options.SourceAuthorization.AuthorizeSourcesFor(packageId);
+        PackageSource? producer = authorization.Sources.FirstOrDefault(
+            source => string.Equals(
+                NuGetCache.GetSourceKey(source.Url),
+                pinned.Producer,
+                StringComparison.Ordinal));
+        if (producer is null)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind
+                        .PlatformProducerUnavailable,
+                    declared,
+                    authorization.DenialReason
+                    ?? $"The producer recorded for platform family '{pinned.Family}' is not authorized by this host."));
+        }
+
+        PackageCoordinateResolution resolution =
+            await PackageCoordinateResolver.ResolveAsync(
+                options.HttpClient,
+                new PackageCoordinate(
+                    packageId,
+                    pinned.Version,
+                    pinned.Framework,
+                    RepresentativeRuntimeIdentifier),
+                [producer],
+                options.Log,
+                options.IncludePrerelease,
+                options.UseVersionCache,
+                requireStableFloating: true,
+                cancellationToken).ConfigureAwait(false);
+        if (resolution is not PackageCoordinateResolution.Resolved resolved)
+        {
+            string message = resolution switch
+            {
+                PackageCoordinateResolution.Invalid invalid => invalid.Message,
+                PackageCoordinateResolution.Unavailable unavailable =>
+                    unavailable.Message,
+                _ => $"Platform family '{pinned.Family}' could not be resolved.",
+            };
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind
+                        .PlatformProducerUnavailable,
+                    declared,
+                    message));
+        }
+
+        PackagePayloadResult payload =
+            await PackagePayloadAcquisition.AcquireAsync(
+                options.HttpClient,
+                resolved.Coordinate,
+                options.PackageStore,
+                options.Log,
+                options.PayloadLimits,
+                cancellationToken).ConfigureAwait(false);
+        if (payload is PackagePayloadResult.Unavailable payloadFailure)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind
+                        .PlatformProducerUnavailable,
+                    declared,
+                    payloadFailure.Message));
+        }
+
+        AcquiredPackagePayload acquired =
+            ((PackagePayloadResult.Acquired)payload).Payload;
+        if (!string.Equals(
+                acquired.ProducerKey,
+                pinned.Producer,
+                StringComparison.Ordinal))
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind
+                        .PlatformProducerUnavailable,
+                    declared,
+                    $"Platform family '{pinned.Family}' was served by a producer other than the one its realized coordinate names."));
+        }
+
+        MemberRealization realization = RealizeAcquiredPlatform(
+            declared,
+            acquired,
+            pinned.Framework,
+            cancellationToken);
+        return realization.Failure is null
+            ? new MemberRealization(pinned, realization.Assemblies)
+            : realization;
+    }
+
+    static MemberRealization RealizeAcquiredPlatform(
+        WorkspaceMemberCoordinate.PlatformMember member,
+        AcquiredPackagePayload acquired,
+        string framework,
+        CancellationToken cancellationToken)
+    {
+        PackageAssetSelection selection = PackageAssetSelector.Select(
+            acquired.Content,
+            framework,
+            RepresentativeRuntimeIdentifier);
+        if (selection is not PackageAssetSelection.Selected selected)
+        {
+            string message = selection switch
+            {
+                PackageAssetSelection.Ambiguous ambiguous =>
+                    ambiguous.Message,
+                PackageAssetSelection.NoMatch noMatch => noMatch.Message,
+                PackageAssetSelection.Invalid invalid => invalid.Message,
+                _ => "The platform pack assets could not be selected.",
+            };
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+                    member,
+                    message));
+        }
+
+        string family = member.Family.ToLowerInvariant();
+        AssemblyResolutionProvenance provenance =
+            AssemblyResolutionProvenance.Platform(
+                family,
+                acquired.Coordinate.Version,
+                PlatformResolverSource);
+        var assemblies =
+            ImmutableArray.CreateBuilder<ResolvedAssemblyReference>();
+        foreach (PackageAssetEntry asset in selected.Universe.Assets)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                ResolvedAssemblyReference? assembly =
+                    ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                        () => OpenPackageEntry(
+                            acquired.Content,
+                            asset.EntryPath),
+                        provenance);
+                if (assembly is not null
+                    && (member.Assembly is null
+                        || string.Equals(
+                            member.Assembly,
+                            assembly.Identity.Name,
+                            StringComparison.OrdinalIgnoreCase)))
+                {
+                    assemblies.Add(assembly);
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException
+                    or OverflowException)
+            {
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind.InvalidImage,
+                        member,
+                        $"A selected assembly asset in platform family '{family}' contains invalid metadata."));
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                    or UnauthorizedAccessException
+                    or NotSupportedException
+                    or ObjectDisposedException)
+            {
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind.InvalidImage,
+                        member,
+                        $"A selected assembly asset in platform family '{family}' could not be read."));
+            }
+        }
+
+        if (assemblies.Count == 0)
+        {
+            return new MemberRealization(
+                Failure(
+                    member.Assembly is null
+                        ? WorkspaceContextLoadFailureKind
+                            .PlatformPackUnavailable
+                        : WorkspaceContextLoadFailureKind
+                            .PlatformAssemblyUnavailable,
+                    member,
+                    member.Assembly is null
+                        ? $"Platform family '{family}' carries no managed assembly for target framework '{framework}'."
+                        : $"Platform family '{family}' does not carry assembly '{member.Assembly}' for target framework '{framework}'."));
+        }
+
+        string? realizedAssembly = member.Assembly is null
+            ? null
+            : assemblies[0].Identity.Name;
+        if (!RealizedMemberCoordinate.Platform.TryCreate(
+                family,
+                acquired.Coordinate.Version,
+                acquired.ProducerKey,
+                framework,
+                realizedAssembly,
+                out RealizedMemberCoordinate.Platform? coordinate,
+                out string? problem))
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    member,
+                    $"The acquired platform family could not be named by a canonical realized coordinate: {problem}."));
+        }
+
+        return new MemberRealization(
+            coordinate,
+            assemblies.ToImmutable());
+    }
+
+    static bool TryGetPlatformTarget(
+        string framework,
+        out Version version)
+    {
+        version = default!;
+        if (!TfmResolver.TryGetFrameworkIdentity(
+                framework,
+                out TfmResolver.FrameworkIdentity identity)
+            || identity.Family
+                is not TfmFamily.NetModern
+                    and not TfmFamily.NetCore)
+        {
+            return false;
+        }
+
+        version = identity.Version;
+        return true;
+    }
+
+    static bool MatchesTarget(NuGetVersion package, Version target) =>
+        package.Major == target.Major
+        && package.Minor == target.Minor;
+
+    static string PlatformPackageId(string family) =>
+        family.ToLowerInvariant() switch
+        {
+            "runtime" => RuntimePackPackageId,
+            "aspnetcore" => AspNetCorePackPackageId,
+            _ => throw new ArgumentOutOfRangeException(nameof(family)),
+        };
 
     static async Task<MemberRealization> RealizePackageAsync(
         WorkspaceMemberCoordinate.PackageMember member,
