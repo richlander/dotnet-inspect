@@ -1705,7 +1705,10 @@ public static class ApiOutputFormatter
                     projection,
                     FormatCallee,
                     GetRequestedCallGraphFields(options),
-                    renderedRows);
+                    renderedRows,
+                    BuildCallGraphOpportunityAnnotations(
+                        projection,
+                        analysisInspection.BodyIndex));
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph)
@@ -2206,6 +2209,46 @@ public static class ApiOutputFormatter
             : options?.Columns is { Length: > 0 } columns
                 ? columns
                 : [];
+
+    static IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>
+        BuildCallGraphOpportunityAnnotations(
+            ILInspector.CallGraph.CallGraphProjection projection,
+            Analysis.LibraryBodyIndex index)
+    {
+        var candidatesByNode =
+            new Dictionary<int, HashSet<string>>();
+        foreach (Analysis.OptimizationOpportunity opportunity in
+            index.OptimizationOpportunities.Where(opportunity =>
+                opportunity.Shape == "sync-call-in-async"))
+        {
+            if (projection.FindNode(
+                    opportunity.Method,
+                    out ILInspector.CallGraph.CallGraphNode node)
+                != ILInspector.CallGraph.CallGraphNodeMatch.Found)
+            {
+                continue;
+            }
+
+            string candidate = opportunity.CandidateId
+                ?? $"{opportunity.Method.ModuleVersionId:N}:"
+                    + $"{opportunity.Method.MetadataToken:X8}:"
+                    + $"{opportunity.EvidenceMethodToken:X8}:"
+                    + $"{opportunity.ILOffset:X4}:"
+                    + $"{opportunity.OperandToken:X8}";
+            if (!candidatesByNode.TryGetValue(
+                node.Id,
+                out HashSet<string>? candidates))
+            {
+                candidates = new HashSet<string>(StringComparer.Ordinal);
+                candidatesByNode.Add(node.Id, candidates);
+            }
+            candidates.Add(candidate);
+        }
+        return candidatesByNode.ToDictionary(
+            pair => pair.Key,
+            pair => new CallGraphOpportunityAnnotations(
+                pair.Value.Count));
+    }
 
     internal static void PopulateUnsafeMembers(TypeView view, ApiType type, Analysis.LibraryBodyIndex index)
     {

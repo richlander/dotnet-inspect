@@ -855,7 +855,8 @@ public class ApiCommand
             "Exceptions", "ExceptionTypes", "ConstructedExceptions",
             "Catch", "Catches",
             "Finally", "Finallys",
-            "EvidenceIL", "Evidence", "IL");
+            "EvidenceIL", "Evidence", "IL",
+            "Async", "AsyncAlternative", "AsyncAlternatives");
         return detailSchema;
     }
 

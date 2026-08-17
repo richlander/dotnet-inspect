@@ -1,8 +1,12 @@
 using System.Text;
+using DotnetInspector.Options;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 
 namespace DotnetInspector.Output;
+
+internal readonly record struct CallGraphOpportunityAnnotations(
+    int AsyncAlternatives);
 
 /// <summary>
 /// Turns the format-neutral <see cref="CallGraphProjection"/> into the generic
@@ -41,7 +45,9 @@ internal static class CallGraphSectionAdapter
         CallGraphProjection projection,
         Func<MemberRef, string> spellMember,
         IReadOnlyList<string>? requestedFields = null,
-        IReadOnlyList<CallGraphRow>? rows = null)
+        IReadOnlyList<CallGraphRow>? rows = null,
+        IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
+            opportunityAnnotations = null)
     {
         ArgumentNullException.ThrowIfNull(projection);
         ArgumentNullException.ThrowIfNull(spellMember);
@@ -65,7 +71,13 @@ internal static class CallGraphSectionAdapter
             if (selectedNodeIds is not null && !selectedNodeIds.Contains(node.Id))
                 continue;
 
-            nodes.Add(new Markout.GraphNode(Key(node.Id), Label(node, spellMember, requestedFields))
+            nodes.Add(new Markout.GraphNode(
+                Key(node.Id),
+                Label(
+                    node,
+                    spellMember,
+                    requestedFields,
+                    opportunityAnnotations))
             {
                 Group = Group(node),
                 // The selected member is what the reader asked about; every sink that can
@@ -114,7 +126,12 @@ internal static class CallGraphSectionAdapter
         _ => null,
     };
 
-    private static string Label(CallGraphNode node, Func<MemberRef, string> spellMember, IReadOnlyList<string>? requestedFields)
+    private static string Label(
+        CallGraphNode node,
+        Func<MemberRef, string> spellMember,
+        IReadOnlyList<string>? requestedFields,
+        IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
+            opportunityAnnotations)
     {
         var member = spellMember(node.Member);
         var suffixes = new List<string>();
@@ -139,6 +156,16 @@ internal static class CallGraphSectionAdapter
             {
                 if (Annotation(node.Perf, field) is { } annotation)
                     suffixes.Add(annotation);
+                if (opportunityAnnotations is not null
+                    && opportunityAnnotations.TryGetValue(
+                        node.Id,
+                        out CallGraphOpportunityAnnotations opportunities)
+                    && OpportunityAnnotation(
+                        opportunities,
+                        field) is { } opportunityAnnotation)
+                {
+                    suffixes.Add(opportunityAnnotation);
+                }
             }
         }
         else if (node.Perf is { } perf)
@@ -157,6 +184,14 @@ internal static class CallGraphSectionAdapter
 
         return suffixes.Count > 0 ? $"{member} ({string.Join(", ", suffixes)})" : member;
     }
+
+    static string? OpportunityAnnotation(
+        CallGraphOpportunityAnnotations opportunities,
+        string fieldName) =>
+        CallGraphFieldSelection.IsAsyncAlternatives(fieldName)
+            && opportunities.AsyncAlternatives > 0
+                ? $"async alternatives {opportunities.AsyncAlternatives}"
+                : null;
 
     private static string? RootAnnotation(CallTreePerf perf)
     {

@@ -69,6 +69,23 @@ regions) are folded in from the body scan during index build.
 A node renders a signal only when its count is non-zero (or, for `EvidenceIL`, when
 offsets exist), so requesting `--fields Alloc` annotates only the allocating nodes.
 
+### Performance opportunities
+
+`Async` / `AsyncAlternatives` is an opt-in node cue for the number of
+`sync-call-in-async` opportunities attributed to a method. Unlike the objective
+body signals above, this is a Performance Triage judgment. The graph therefore
+shows only `async alternatives N`; `Performance Triage` remains the canonical
+surface for the candidate, exact Finding provenance, physical evidence
+MethodDef/IL coordinate, and proposed replacement.
+
+The cue joins the opportunity's source `MethodIdentity` through
+`CallGraphProjection.FindNode`, which prefers retained definition evidence and
+then uses the projection's typed structural fallback. This matters for classic
+async methods: their physical evidence can live in generated `MoveNext`. The
+source node receives the cue without inventing a logical edge that is absent
+from the source method's IL. `CallGraphSection_ProjectsAsyncAlternativeOpportunities`
+gates that end-to-end behavior.
+
 With the exception fields projected, the caller half of `Call Graph` answers
 exception-reachability questions directly:
 

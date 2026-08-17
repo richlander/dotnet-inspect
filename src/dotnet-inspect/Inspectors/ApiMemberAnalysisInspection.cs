@@ -57,6 +57,12 @@ internal sealed class ApiMemberAnalysisInspection
                 || options?.Columns is { Length: > 0 }))
         {
             _includeAllocations = true;
+            IReadOnlyList<string> fields =
+                options?.Fields is { Length: > 0 } requestedFields
+                    ? requestedFields
+                    : options?.Columns ?? [];
+            if (fields.Any(CallGraphFieldSelection.IsAsyncAlternatives))
+                _includeOpportunities = true;
         }
 
         bool needsWholeAssemblyBody =

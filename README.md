@@ -337,7 +337,10 @@ kinds. `-n N`
 remains a renderer cap and is applied afterward if both are supplied. Drill
 candidates with `Call Graph` (a bounded bidirectional graph: inbound callers up
 to entry points and outbound calls in one view), and project per-node cost with
-`--fields`. Its row unit is a call edge, so `--count` reports relationships and
+`--fields`; `AsyncAlternatives` carries the count of
+`sync-call-in-async` opportunities on each method while Performance Triage
+retains the exact call-site evidence and replacement. Its row unit is a call
+edge, so `--count` reports relationships and
 `--rows` selects the same ordered relationships in every rendering. Markdown
 defaults to an edge table; add `--tree` for a standalone tree, `--mermaid` for a
 standalone diagram, or `--markdown --mermaid` for an embedded diagram.
@@ -403,6 +406,7 @@ dotnet-inspect library MyLib.dll --where "Finding=analysis.call-site" --jsonl
 dotnet-inspect library MyLib.dll --where "CallerLoop=direct" --order-by "CallerLoopDepth desc" --jsonl
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Throw,Catch,Finally"
+dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Fanin,Loop,AsyncAlternatives"
 dotnet-inspect member MyType Value:1 --library MyLib.dll -S "Call Graph"
 dotnet-inspect member MyType Value:2 --library MyLib.dll -S "Call Graph"
 ```

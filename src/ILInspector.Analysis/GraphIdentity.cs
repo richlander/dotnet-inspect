@@ -170,6 +170,15 @@ public sealed class GraphNodeIdentity : IEquatable<GraphNodeIdentity>
             GraphStructuralMemberKey.Create(member));
     }
 
+    /// <summary>
+    /// Creates the structural graph identity of a method definition.
+    /// </summary>
+    public static GraphNodeIdentity FromMethod(MethodIdentity method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        return FromMember(CallTreeMember.FromDefinition(method));
+    }
+
     public bool Equals(GraphNodeIdentity? other) =>
         other is not null
         && Kind == other.Kind

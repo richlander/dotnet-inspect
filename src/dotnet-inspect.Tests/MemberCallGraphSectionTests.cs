@@ -392,6 +392,61 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_ProjectsAsyncAlternativeOpportunities()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.CallsSyncSiblingFromAsync)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["AsyncAlternatives"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("async alternatives 1", result.Output);
+        Assert.DoesNotContain("fanout", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_DoesNotProjectAsyncAlternativesByDefault()
+    {
+        var result = await RunCallGraphAsync(
+            typeof(MemberCallGraphFixture).FullName!,
+            nameof(MemberCallGraphFixture.CallsSyncSiblingFromAsync));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("async alternatives", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_ProjectsAsyncAlternativesInJsonl()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.CallsSyncSiblingFromAsync)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["Async"],
+            Tabular = true,
+            Jsonl = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("async alternatives 1", result.Output);
+        Assert.StartsWith("{\"from\":", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CallGraphSection_UsesRequestedFieldsWhenRenderingNodeLabels()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -700,6 +755,22 @@ public static class MemberCallGraphFixture
         {
             System.GC.KeepAlive(x);
         }
+    }
+
+    public static int ReadValue(int value) => value;
+
+    public static Task<int> ReadValueAsync(
+        int value,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(value);
+    }
+
+    public static async Task<int> CallsSyncSiblingFromAsync(int value)
+    {
+        await Task.Yield();
+        return ReadValue(value);
     }
 }
 
