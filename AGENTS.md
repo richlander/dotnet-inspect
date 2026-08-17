@@ -765,9 +765,11 @@ the public reconciliation is posted. A conflict-superseded attempt is
 incomplete: it does not consume a round number, does not receive a completion
 report, and restarts with the same number after conflict recovery.
 
-After every completed round and before starting the next one, print this report
-in the terminal, filling every field and choosing exactly one feedback
-classification:
+After every completed round and before starting the next one, emit this report
+as the assistant's visible user-facing response in the terminal, filling every
+field and choosing exactly one feedback classification. Do not emit it through
+a shell command such as `printf`, leave it only in tool output, collapse it
+behind a tool-call summary, or replace it with a shorter completion summary:
 
 ```text
 Round <n> is complete for PR <number>.
