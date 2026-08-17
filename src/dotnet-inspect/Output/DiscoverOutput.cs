@@ -72,7 +72,7 @@ public static class DiscoverOutput
             tree = true;
 
         // Auto-promote bare -D to tree at Detailed verbosity (sections → items)
-        if (!tree && !hasTabularProjection && rows is null
+        if (!tree && !structuredOutput && !hasTabularProjection && rows is null
             && discover is null or { Length: 0 } && verbosity >= 3)
             tree = true;
 

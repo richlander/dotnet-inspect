@@ -20830,6 +20830,62 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("Skills", "skills/locked/SKILL.md")]
+    [InlineData("Agent Guidance", "AGENTS.md")]
+    public async Task Project_UnreadableBoundedDocument_PreservesRowIdentity(
+        string section,
+        string relativePath)
+    {
+        const string id = "Test.Project.Metadata.Unreadable";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                id,
+                "1.0.0",
+                "README.md",
+                "readme",
+                "guidance",
+                [new ProjectSkillDoc(
+                    "skills/locked/SKILL.md",
+                    "skill")]));
+        string lockedPath = Path.Combine(
+            tempDir,
+            "packages",
+            id.ToLowerInvariant(),
+            "1.0.0",
+            relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+        try
+        {
+            using var locked = new FileStream(
+                lockedPath,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None);
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", section,
+                "--jsonl");
+
+            Assert.Equal(1, exit);
+            using JsonDocument document = JsonDocument.Parse(
+                Assert.Single(output.Split(
+                    '\n',
+                    StringSplitOptions.RemoveEmptyEntries)));
+            Assert.Equal(
+                relativePath,
+                document.RootElement.GetProperty("path").GetString());
+            Assert.Equal(
+                "",
+                document.RootElement.GetProperty("name").GetString());
+            Assert.Contains("Could not read", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Project_EffectiveDiscovery_DoesNotReadBoundedDocumentContent()
     {
@@ -21442,6 +21498,55 @@ public partial class CommandExecutionTests
                     JsonValueKind.Number,
                     properties[2].Value.ValueKind);
             }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_MarkdownOutput_UsesLfTermination()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Markdown.Termination",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills:
+                [
+                    new ProjectSkillDoc(
+                        "skills/termination/SKILL.md",
+                        "skill"),
+                ]));
+        string outputPath = Path.Combine(tempDir, "project.md");
+
+        try
+        {
+            var direct = await RunProjectFixtureAsync(projectPath);
+            var artifact = await RunProjectFixtureAsync(
+                projectPath,
+                "--out", outputPath);
+
+            Assert.Equal(0, direct.Exit);
+            Assert.EndsWith(
+                "\n",
+                direct.Output,
+                StringComparison.Ordinal);
+            Assert.False(
+                direct.Output.EndsWith("\r\n", StringComparison.Ordinal));
+            Assert.False(
+                direct.Output.EndsWith("\n\n", StringComparison.Ordinal));
+            Assert.Empty(direct.Error);
+
+            Assert.Equal(0, artifact.Exit);
+            Assert.Empty(artifact.Output);
+            Assert.Empty(artifact.Error);
+            string file = File.ReadAllText(outputPath);
+            Assert.EndsWith("\n", file, StringComparison.Ordinal);
+            Assert.False(file.EndsWith("\r\n", StringComparison.Ordinal));
+            Assert.False(file.EndsWith("\n\n", StringComparison.Ordinal));
         }
         finally
         {
@@ -22555,6 +22660,22 @@ public partial class CommandExecutionTests
         {
             Assert.Equal("@Project\tcategory", firstLine);
         }
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Project_Discover_DetailedJsonDoesNotPromoteToTree()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "project",
+            "missing-project",
+            "-D",
+            "-v:d",
+            "--json");
+
+        Assert.Equal(0, exit);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(JsonValueKind.Array, document.RootElement.ValueKind);
         Assert.Empty(error);
     }
 

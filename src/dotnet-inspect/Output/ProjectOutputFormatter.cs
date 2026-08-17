@@ -94,10 +94,13 @@ internal static class ProjectOutputFormatter
                 MergeProjectionNames(options.Columns, options.Fields)),
             RowWindow = RowWindow.ToMarkout(options.Rows),
         };
-        return MarkoutSerializer.Serialize(
+        string markdown = MarkoutSerializer.Serialize(
             view,
             ProjectViewContext.Default,
             markdownOptions);
+        return markdown.EndsWith('\n')
+            ? markdown
+            : markdown + '\n';
     }
 
     static string RenderJsonl(

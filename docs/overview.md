@@ -11,7 +11,7 @@ core: workspace contexts, typed query planning, acquisition and caching, shared
 identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. Typed query-planning slices are implemented for project guidance,
 library metadata-image, direct-reference, assembly-context reference, package
-package dependency-group, loaded dependency-coordinate match,
+dependency-group, loaded dependency-coordinate match,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
 union-type, classified-method, audit-metadata, switch, SourceLink, Integrations,
 implementation relationships, type/member search,

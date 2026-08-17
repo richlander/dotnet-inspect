@@ -757,9 +757,11 @@ public class ProjectCommand
                 continue;
             }
 
+            long? size = null;
             try
             {
-                long size = new FileInfo(file.FullPath).Length;
+                long knownSize = new FileInfo(file.FullPath).Length;
+                size = knownSize;
                 if (deferContent)
                 {
                     contentStore.Add(
@@ -771,7 +773,7 @@ public class ProjectCommand
                         file.PackageName,
                         file.Version,
                         file.Path,
-                        size,
+                        knownSize,
                         "",
                         "",
                         ""));
@@ -792,7 +794,7 @@ public class ProjectCommand
                     file.PackageName,
                     file.Version,
                     file.Path,
-                    size,
+                    knownSize,
                     skillName ?? "",
                     description ?? "",
                     ""));
@@ -803,6 +805,17 @@ public class ProjectCommand
                     file.PackageName,
                     file.Path,
                     ex.Message));
+                if (size is long knownSize)
+                {
+                    skills.Add(new ProjectSkillData(
+                        file.PackageName,
+                        file.Version,
+                        file.Path,
+                        knownSize,
+                        "",
+                        "",
+                        ""));
+                }
             }
         }
 
@@ -880,10 +893,10 @@ public class ProjectCommand
                 guidance.Add(new ProjectAgentGuidanceData(
                     dependency.PackageName,
                     dependency.Version,
+                    relativePath,
                     "",
                     "",
-                    "",
-                    null));
+                    ""));
             }
         }
 

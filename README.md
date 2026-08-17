@@ -605,7 +605,8 @@ use the default `-v:m` Skills view or select an explicit section with `-S`.
 
 `package X -D` reports effective package sections and fields. `library X -D`
 is a cheap target-aware catalog; add `--effective` for full probes. `project
-X -D` reports effective restored-project sections. On these commands,
+X -D` reports the structural restored-project catalog; add `--effective` to
+probe bounded sections and omit those without documents. On these commands,
 `-D --schema` reports the complete static graph without inspecting the target.
 Bare `project [path]` renders `Skills`. Bare `-S` returns high-value,
 fixed-length, network-free base sections. A single `type Type` uses `Type Info`,
