@@ -722,7 +722,8 @@ public static class InspectionGraphIntegrationsQuery
             builder.AddReferences(references);
         if (opportunities is not null)
             builder.AddOpportunities(opportunities);
-        builder.EnsureSeed(request.Seed);
+        foreach (InspectionGraphSubject seed in request.Seeds)
+            builder.EnsureSeed(seed);
 
         InspectionGraphDocument source =
             builder.Build(request.ModeRequest);
