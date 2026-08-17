@@ -45,7 +45,8 @@ internal static class CSharpSpellability
             && HasExplicitParameterTypeShape(type, ExplicitTypeContext.Parameter, host)
             && TypeIssue(type) is null
             && !AnyConstituentLeadingSegmentShadowed(type, host, [type])
-            && !AnyPrintedAliasInTypeShadowed(type, isDynamic, host, [type]);
+            && !AnyPrintedAliasInTypeShadowed(type, isDynamic, host, [type])
+            && !AnyBareNameInTypeShadowed(type, host, [type]);
 
     internal static NameIssue? InspectUnrepresentableMetadataName(IrNode node)
     {
@@ -828,6 +829,100 @@ internal static class CSharpSpellability
         return false;
     }
 
+    internal static bool AnyBareNameShadowedByKnownTypes(
+        IReadOnlyList<TypeRef> parameterTypes,
+        IrFunction host)
+    {
+        for (int i = 0; i < parameterTypes.Count; i++)
+        {
+            if (AnyBareNameInTypeShadowed(parameterTypes[i], host, parameterTypes))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool AnyBareNameInTypeShadowed(
+        TypeRef type,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        if (BarePrintedNameShadowed(type, host, knownTypes))
+            return true;
+
+        switch (type.Kind)
+        {
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is { } definition
+                    && AnyBareNameInTypeShadowed(definition, host, knownTypes))
+                {
+                    return true;
+                }
+
+                return AnyBareNameListShadowed(type.TypeArguments, host, knownTypes);
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && AnyBareNameInTypeShadowed(element, host, knownTypes);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && AnyBareNameInTypeShadowed(returnType, host, knownTypes))
+                {
+                    return true;
+                }
+
+                return AnyBareNameListShadowed(type.TypeArguments, host, knownTypes);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool AnyBareNameListShadowed(
+        IReadOnlyList<TypeRef> types,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        for (int i = 0; i < types.Count; i++)
+        {
+            if (AnyBareNameInTypeShadowed(types[i], host, knownTypes))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool BarePrintedNameShadowed(
+        TypeRef type,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is not { Kind: TypeRefKind.Definition } || IsCoreLibPrimitive(definition))
+            return false;
+        if (definition.Name.Contains('+') && type.PrintsAsQualifiedNestedName(host.DeclaringType))
+            return false;
+
+        var hostDefinition = HostDefinition(host);
+        if (hostDefinition is null)
+            return false;
+
+        string last = definition.Name.Contains('+')
+            ? definition.Name[(definition.Name.LastIndexOf('+') + 1)..]
+            : definition.Name;
+        return KnownTypesProveVisibleNestedName(
+            knownTypes,
+            hostDefinition,
+            StripArity(last),
+            ArityOf(last),
+            excludeExact: definition);
+    }
+
     static bool CollidesWithDeclaringTypeSimpleName(
         TypeRef definition,
         IrFunction host,
@@ -1094,12 +1189,22 @@ internal static class CSharpSpellability
         IReadOnlyList<TypeRef> knownTypes,
         TypeRef hostDefinition,
         string simpleName,
-        int arity)
+        int arity,
+        TypeRef? excludeLeading = null,
+        TypeRef? excludeExact = null)
     {
         for (int i = 0; i < knownTypes.Count; i++)
         {
-            if (TypeTreeProvesVisibleNestedName(knownTypes[i], hostDefinition, simpleName, arity))
+            if (TypeTreeProvesVisibleNestedName(
+                    knownTypes[i],
+                    hostDefinition,
+                    simpleName,
+                    arity,
+                    excludeLeading,
+                    excludeExact))
+            {
                 return true;
+            }
         }
 
         return false;
@@ -1130,7 +1235,7 @@ internal static class CSharpSpellability
                     hostDefinition,
                     firstSimple,
                     firstArity,
-                    definition))
+                    excludeLeading: definition))
             {
                 return true;
             }
@@ -1144,11 +1249,17 @@ internal static class CSharpSpellability
         TypeRef hostDefinition,
         string simpleName,
         int arity,
-        TypeRef? excludeLeading = null)
+        TypeRef? excludeLeading = null,
+        TypeRef? excludeExact = null)
     {
         switch (type.Kind)
         {
             case TypeRefKind.Definition:
+                if (excludeExact is { } exact
+                    && (IsExactType(type, exact) || IsChildOfTopLevel(type, exact)))
+                {
+                    return false;
+                }
                 if (excludeLeading is { } candidate && IsOwnLeadingType(type, candidate))
                     return false;
                 return TopLevelProvesVisibleName(type, hostDefinition, simpleName, arity)
@@ -1161,7 +1272,8 @@ internal static class CSharpSpellability
                         hostDefinition,
                         simpleName,
                         arity,
-                        excludeLeading))
+                        excludeLeading,
+                        excludeExact))
                 {
                     return true;
                 }
@@ -1173,7 +1285,8 @@ internal static class CSharpSpellability
                             hostDefinition,
                             simpleName,
                             arity,
-                            excludeLeading))
+                            excludeLeading,
+                            excludeExact))
                     {
                         return true;
                     }
@@ -1192,7 +1305,8 @@ internal static class CSharpSpellability
                         hostDefinition,
                         simpleName,
                         arity,
-                        excludeLeading);
+                        excludeLeading,
+                        excludeExact);
 
             case TypeRefKind.FunctionPointer:
                 if (type.ElementType is { } returnType
@@ -1201,7 +1315,8 @@ internal static class CSharpSpellability
                         hostDefinition,
                         simpleName,
                         arity,
-                        excludeLeading))
+                        excludeLeading,
+                        excludeExact))
                 {
                     return true;
                 }
@@ -1213,7 +1328,8 @@ internal static class CSharpSpellability
                             hostDefinition,
                             simpleName,
                             arity,
-                            excludeLeading))
+                            excludeLeading,
+                            excludeExact))
                     {
                         return true;
                     }
@@ -1231,19 +1347,36 @@ internal static class CSharpSpellability
         TypeRef hostDefinition,
         string simpleName,
         int arity)
-        => named.Kind == TypeRefKind.Definition
-            && !named.Name.Contains('+')
-            && named.Assembly == hostDefinition.Assembly
-            && named.Namespace == hostDefinition.Namespace
-            && StripArity(named.Name) == simpleName
-            && ArityOf(named.Name) == arity;
+    {
+        if (named.Kind != TypeRefKind.Definition
+            || named.Namespace != hostDefinition.Namespace)
+        {
+            return false;
+        }
+
+        string first = named.Name.Split('+')[0];
+        return StripArity(first) == simpleName && ArityOf(first) == arity;
+    }
 
     static bool IsOwnLeadingType(TypeRef named, TypeRef candidate)
         => named.Kind == TypeRefKind.Definition
-            && !named.Name.Contains('+')
             && named.Assembly == candidate.Assembly
             && named.Namespace == candidate.Namespace
-            && named.Name == candidate.Name.Split('+')[0];
+            && named.Name.Split('+')[0] == candidate.Name.Split('+')[0];
+
+    static bool IsExactType(TypeRef named, TypeRef candidate)
+        => named.Kind == TypeRefKind.Definition
+            && named.Assembly == candidate.Assembly
+            && named.Namespace == candidate.Namespace
+            && named.Name == candidate.Name;
+
+    static bool IsChildOfTopLevel(TypeRef named, TypeRef topLevel)
+        => named.Kind == TypeRefKind.Definition
+            && topLevel.Kind == TypeRefKind.Definition
+            && !topLevel.Name.Contains('+')
+            && named.Assembly == topLevel.Assembly
+            && named.Namespace == topLevel.Namespace
+            && named.Name.StartsWith(topLevel.Name + "+", StringComparison.Ordinal);
 
     static bool ChainProvesVisibleNestedName(
         TypeRef named,

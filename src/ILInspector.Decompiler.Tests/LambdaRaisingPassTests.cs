@@ -1303,6 +1303,91 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void NintKeywordShadowedByNestedTypesOutermostSegment_StaysLowered()
+    {
+        var nint = TypeRef.CoreLib("System", "IntPtr");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nint,
+            additionalSiblings: [TypeRef.Definition("Synthetic", "Samples", "nint+Child")]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void TopLevelTypeShadowedByHostNestedSibling_StaysLowered()
+    {
+        var topLevel = TypeRef.Definition("Synthetic", "Samples", "Widget");
+        var host = RunSyntheticSiblingLambdaRaise(
+            topLevel,
+            additionalSiblings: [TypeRef.Definition("Synthetic", "Samples", "Outer+Widget")]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void TopLevelTypeShadowedByHostAncestorNestedSibling_StaysLowered()
+    {
+        var topLevel = TypeRef.Definition("Synthetic", "Samples", "Widget");
+        var host = RunSyntheticSiblingLambdaRaise(
+            topLevel,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer+Mid"),
+            additionalSiblings: [TypeRef.Definition("Synthetic", "Samples", "Outer+Widget")]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void HostNestedTypePrintingBareNameAlone_StillRaises()
+    {
+        var nested = TypeRef.Definition("Synthetic", "Samples", "Outer+Widget");
+        var host = RunSyntheticSiblingLambdaRaise(nested);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void ForeignNestedTypeShadowedByOtherAssemblyTopLevel_StaysLowered()
+    {
+        var nested = TypeRef.Definition("Other", "Other", "Foo+Bar");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            additionalSiblings: [TypeRef.Definition("OtherAsm", "Samples", "Foo")]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NintKeywordShadowedByOtherAssemblyTopLevel_StaysLowered()
+    {
+        var nint = TypeRef.CoreLib("System", "IntPtr");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nint,
+            additionalSiblings: [TypeRef.Definition("OtherAsm", "Samples", "nint")]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NintKeywordWithArityOneNestedChild_StillRaises()
+    {
+        var nint = TypeRef.CoreLib("System", "IntPtr");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nint,
+            additionalSiblings:
+            [
+                TypeRef.GenericInstance(
+                    TypeRef.Definition("Synthetic", "Samples", "nint`1+Child"),
+                    [s_int]),
+            ]);
+
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
     public void DynamicObjectSiblingCollidingWithHostGenericParameter_StaysLowered()
     {
         var objectType = TypeRef.CoreLib("System", "Object");

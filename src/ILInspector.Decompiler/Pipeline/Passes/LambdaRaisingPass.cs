@@ -433,7 +433,8 @@ public sealed class LambdaRaisingPass : IIrPass
         }
 
         return !CSharpSpellability.AnyLeadingSegmentShadowedByKnownTypes(parameterTypes, host)
-            && !CSharpSpellability.AnyPrintedAliasShadowedByKnownTypes(parameterTypes, isDynamic, host);
+            && !CSharpSpellability.AnyPrintedAliasShadowedByKnownTypes(parameterTypes, isDynamic, host)
+            && !CSharpSpellability.AnyBareNameShadowedByKnownTypes(parameterTypes, host);
     }
 
     static IEnumerable<IrNode> Self(IrNode node)
