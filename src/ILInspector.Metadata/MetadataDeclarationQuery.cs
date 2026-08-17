@@ -451,9 +451,18 @@ public static class MetadataDeclarationQuery
     {
         try
         {
-            var signature = method.DecodeSignature(
+            var decoded = GuardedProviderDecode.MethodResult(
+                reader,
+                method,
                 TypeNodeProvider.Instance,
-                GenericContext.ForMethod(reader, typeDef, method));
+                GenericContext.ForMethod(reader, typeDef, method),
+                (TypeNode)new NamedTypeNode("object", isReferenceType: true));
+            if (decoded.IsDegraded)
+            {
+                hasReadonlyByRef = false;
+                return false;
+            }
+            var signature = decoded.Value;
             hasReadonlyByRef = HasReadonlyByRefModifier(signature.ReturnType)
                 || signature.ParameterTypes.Any(HasReadonlyByRefModifier);
             return true;
