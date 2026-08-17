@@ -81,6 +81,27 @@ public class LibraryCommand
         }
     }
 
+    /// <summary>
+    /// Converts bare <c>-S</c> into the library pipeline's fixed, network-free overview while
+    /// preserving explicit selectors and higher user-selected verbosity.
+    /// </summary>
+    internal static LibraryOptions NormalizeBareSelect(
+        LibraryOptions options)
+    {
+        if (options.Discover != null || !options.SelectDefault)
+            return options;
+
+        options = options with { SelectDefault = false };
+        return options.Select is null
+            && options.Verbosity == Verbosity.Minimal
+                ? options with
+                {
+                    Verbosity = Verbosity.Normal,
+                    FixedOverview = true,
+                }
+                : options;
+    }
+
     private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
     {
         var assemblyPath = options.AssemblyName;
@@ -162,12 +183,7 @@ public class LibraryCommand
         // the user asked for, in which case the normal curated ladder applies instead of the fixed
         // overview). Combined with an explicit selector the explicit selection wins and the marker
         // is dropped. See #3547.
-        if (options.Discover == null && options.SelectDefault)
-        {
-            options = options with { SelectDefault = false };
-            if (options.Select is null && options.Verbosity == Verbosity.Minimal)
-                options = options with { Verbosity = Verbosity.Normal, FixedOverview = true };
-        }
+        options = NormalizeBareSelect(options);
 
         bool discoveryInspection = options.Discover != null && !options.Schema && hasInputSource;
         bool fullEffectiveDiscovery = discoveryInspection && options.Effective;

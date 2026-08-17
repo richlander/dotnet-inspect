@@ -16960,6 +16960,53 @@ public partial class CommandExecutionTests
         }
     }
 
+    /// <summary>
+    /// Bare <c>-S</c> must remain the fixed overview after package inspection delegates to the
+    /// all-libraries path. The count map names the complete request, while the rendered headings
+    /// prove that the same preset reached effective-section selection and data collection.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_BareSelectCount_MapDescribesBareSelectRender()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage("System.Text.Json");
+        try
+        {
+            var (renderExit, renderOutput, renderError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "--tips", "q");
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "--count", "--tips", "q");
+
+            Assert.Equal(0, renderExit);
+            Assert.Equal(0, countExit);
+            Assert.DoesNotContain("Tip:", renderError);
+            Assert.DoesNotContain("Tip:", countError);
+
+            var rendered = renderOutput.ReplaceLineEndings("\n").Split('\n')
+                .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+                .Select(line =>
+                {
+                    var heading = line[3..].Trim();
+                    var provenance = heading.IndexOf(" (", StringComparison.Ordinal);
+                    return provenance >= 0 ? heading[..provenance] : heading;
+                })
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var mapped = countOutput.ReplaceLineEndings("\n").Split('\n')
+                .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+                .Select(line => line.Split('|')[1].Trim())
+                .Where(name => name.Length > 0 && name != "Section" && !name.StartsWith('-'))
+                .ToList();
+
+            var expected = LibrarySections.CreatePipeline().BareSelectSectionNames;
+            Assert.Equal(expected.Order(), rendered.Order());
+            Assert.Equal(expected.Order(), mapped.Order());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task PackageCommand_AllLibraries_RendersLibraryInfoPerHighestTfmLibrary()
     {

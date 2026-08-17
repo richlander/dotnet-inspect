@@ -3349,14 +3349,26 @@ public class PackageCommand
         var queryRegistry = catalog.QueryRegistry;
         var libraryOptions = CreateLibraryOptions(assemblyName: null, packageReference, options);
 
+        libraryOptions = LibraryCommand.NormalizeBareSelect(libraryOptions);
+        libraryOptions = libraryOptions with
+        {
+            UserVerbosityOverride = libraryOptions.Verbosity,
+        };
+
         var selectResult = SelectResolver.ResolveSelectAsSections(
-            options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap(),
-            selectDefault: options.SelectDefault);
+            libraryOptions.Select,
+            pipeline.SelectableSectionNames,
+            pipeline.InfoSectionNames,
+            pipeline.GetCategoryMap(),
+            selectDefault: libraryOptions.SelectDefault);
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
             libraryOptions = libraryOptions with { IncludeSections = selectResult.Sections };
 
-        if (libraryOptions.Count && !CountOutput.ValidateSingleSection(libraryOptions.IncludeSections))
+        if (libraryOptions.Count
+            && !libraryOptions.FixedOverview
+            && !CountOutput.ValidateSingleSection(
+                libraryOptions.IncludeSections))
             return 1;
 
         var requiredVerbosity = pipeline.GetRequiredVerbosity(libraryOptions.IncludeSections);
@@ -3373,13 +3385,17 @@ public class PackageCommand
                 candidates.Contains(SectionNames.IdentifierConfusion),
         };
 
-        var scanners = pipeline.GetRequiredScanners(libraryOptions.Verbosity, libraryOptions.IncludeSections);
+        var scanners = pipeline.GetRequiredScanners(
+            libraryOptions.Verbosity,
+            libraryOptions.IncludeSections,
+            libraryOptions.FixedOverview);
         List<(string Reason, InspectionQueryDefinition Query)> commandQueryDemand = [];
         if (libraryOptions.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
         var queries = pipeline.GetRequiredQueries(
             libraryOptions.Verbosity,
             libraryOptions.IncludeSections,
+            libraryOptions.FixedOverview,
             commandDemand: commandQueryDemand);
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
@@ -3527,7 +3543,25 @@ public class PackageCommand
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
         if (libraryOptions.Count)
-            CountOutput.WriteCountFromMarkdown(markdown, options.OutputPath);
+        {
+            var ordered = OutputFormatter.ResolveCountMapSections(
+                pipeline,
+                libraryOptions.IncludeSections,
+                libraryOptions.FixedOverview);
+            if (ordered != null)
+            {
+                CountOutput.WriteCountMapFromMarkdown(
+                    markdown,
+                    ordered,
+                    options.OutputPath);
+            }
+            else
+            {
+                CountOutput.WriteCountFromMarkdown(
+                    markdown,
+                    options.OutputPath);
+            }
+        }
         else
             OutputFormatter.WriteLfLine(Console.Out, markdown);
         return completionExitCode;
@@ -3717,6 +3751,7 @@ public class PackageCommand
                 : OutputFormat.Markdown,
             Verbose = options.Verbose,
             Verbosity = options.Verbosity,
+            FixedOverview = options.FixedOverview,
             IncludeSections = options.IncludeSections,
             Discover = options.Discover,
             Tree = options.Tree,
@@ -3814,7 +3849,11 @@ public class PackageCommand
         {
             var sections = selectAll
                 ? pipeline.GetAllSelectorSections(inspection)
-                : pipeline.GetEffectiveSections(inspection, options.Verbosity, options.IncludeSections);
+                : pipeline.GetEffectiveSections(
+                    inspection,
+                    options.Verbosity,
+                    options.IncludeSections,
+                    options.FixedOverview);
             foreach (var section in sections)
             {
                 if (!union.Contains(section, StringComparer.OrdinalIgnoreCase))
@@ -4200,7 +4239,12 @@ public class PackageCommand
     {
         foreach (var inspection in inspections)
         {
-            if (!pipeline.GetEffectiveSections(inspection, options.Verbosity, options.IncludeSections).Contains(section, StringComparer.OrdinalIgnoreCase))
+            if (!pipeline.GetEffectiveSections(
+                    inspection,
+                    options.Verbosity,
+                    options.IncludeSections,
+                    options.FixedOverview)
+                .Contains(section, StringComparer.OrdinalIgnoreCase))
                 continue;
 
             var rendered = RenderLibrarySection(inspection, section, options);
