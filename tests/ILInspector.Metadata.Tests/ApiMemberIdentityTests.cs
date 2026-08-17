@@ -154,6 +154,66 @@ public class ApiMemberIdentityTests
     }
 
     [Fact]
+    public void AccessorFacts_PreserveExactMethodIdentity_AfterJsonRoundTrip()
+    {
+        var surface = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "N",
+                    Name = "C",
+                    Members =
+                    [
+                        new ApiMember
+                        {
+                            Name = "Value",
+                            Kind = "property",
+                            GetterToken = 0x06000001,
+                            SetterToken = 0x06000002,
+                            AccessorFacts =
+                            [
+                                new ApiAccessor
+                                {
+                                    Kind = "get",
+                                    MethodName = "Read",
+                                    HasMethodBody = true,
+                                    IsAbstract = false,
+                                    ReturnAttributes = ["[return: A]"],
+                                },
+                                new ApiAccessor
+                                {
+                                    Kind = "set",
+                                    MethodName = "Write",
+                                    Accessibility = "private",
+                                    HasMethodBody = false,
+                                    IsAbstract = true,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        var json = JsonSerializer.Serialize(surface);
+        var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var facts = Assert.Single(roundTripped.Types).Members.Single().AccessorFacts;
+        var getter = Assert.Single(facts, accessor => accessor.Kind == "get");
+        var setter = Assert.Single(facts, accessor => accessor.Kind == "set");
+
+        Assert.Equal("Read", getter.MethodName);
+        Assert.True(getter.HasMethodBody);
+        Assert.False(getter.IsAbstract);
+        Assert.Equal(["[return: A]"], getter.ReturnAttributes);
+        Assert.Equal("Write", setter.MethodName);
+        Assert.Equal("private", setter.Accessibility);
+        Assert.False(setter.HasMethodBody);
+        Assert.True(setter.IsAbstract);
+    }
+
+    [Fact]
     public void GetCanonicalSignature_OrdinaryPropertyFormatIsUnchangedByIndexerFix()
     {
         var type = new ApiType { Namespace = "N", Name = "C" };

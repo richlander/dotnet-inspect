@@ -77,6 +77,7 @@ public static class MetadataDeclarationQuery
         {
             Namespace = ns,
             Name = name,
+            MetadataToken = MetadataTokens.GetToken(typeHandle),
             Accessibility = TypeAccessibility(typeDef),
             IsSealed = (attributes & TypeAttributes.Sealed) != 0,
             IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
@@ -994,7 +995,11 @@ public static class MetadataDeclarationQuery
         => access == bestAccess ? null : NonPublicAccessibility(access);
 
     static string AccessibilityKeyword(MethodAttributes access)
-        => NonPublicAccessibility(access) ?? "public";
+        => access == MethodAttributes.Public
+            ? "public"
+            : NonPublicAccessibility(access)
+                ?? throw new BadImageFormatException(
+                    $"Invalid method accessibility value 0x{(int)access:X}.");
 
     static string AccessibilityKeyword(FieldAttributes access)
         => NonPublicAccessibility(access) ?? "public";
@@ -1007,7 +1012,9 @@ public static class MetadataDeclarationQuery
         MethodAttributes.Assembly => "internal",
         MethodAttributes.Family => "protected",
         MethodAttributes.FamORAssem => "protected internal",
-        _ => null,
+        MethodAttributes.Public => null,
+        _ => throw new BadImageFormatException(
+            $"Invalid method accessibility value 0x{(int)access:X}."),
     };
 
     static string? NonPublicAccessibility(FieldAttributes access) => access switch

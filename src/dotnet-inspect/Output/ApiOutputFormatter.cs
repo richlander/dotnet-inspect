@@ -1487,6 +1487,14 @@ public static class ApiOutputFormatter
             sections.Add(SectionNames.CustomAttributes);
         if (requestedSections.Contains(SectionNames.UnsafeOperations))
             sections.Add(SectionNames.UnsafeOperations);
+        if (requestedSections.Contains(SectionNames.OriginalSource))
+            sections.Add(SectionNames.OriginalSource);
+        if (requestedSections.Contains(SectionNames.SourceDiff))
+            sections.Add(SectionNames.SourceDiff);
+        if (requestedSections.Contains(SectionNames.AnnotatedSource))
+            sections.Add(SectionNames.AnnotatedSource);
+        if (requestedSections.Contains(SectionNames.Facts))
+            sections.Add(SectionNames.Facts);
         if (!accessor.IsAbstract)
         {
             if (requestedSections.Contains(SectionNames.DecompiledSource))
@@ -2362,7 +2370,9 @@ public static class ApiOutputFormatter
                 }))
             .Concat((diagnostics ?? index.Diagnostics)
                 .Where(diagnostic =>
-                    diagnostic.DeclaringTypeToken == type.MetadataToken
+                    (diagnostic.DeclaringTypeToken is not null
+                        && type.MetadataToken is not null
+                        && diagnostic.DeclaringTypeToken == type.MetadataToken)
                     || (diagnostic.DeclaringTypeToken is null
                         && declaredMethodTokens.Contains(diagnostic.MethodToken)))
                 .Select(diagnostic =>

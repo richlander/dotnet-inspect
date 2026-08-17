@@ -308,12 +308,17 @@ public static class MemberCommand
                 var sourceMetadataToken = string.Equals(pdbLookupPath, tokenOriginAssembly, StringComparison.Ordinal)
                     ? (sourceMember?.MetadataToken ?? 0)
                     : 0;
-                var resolved = await ApiCommand.ResolveMethodSourceAsync(
-                    pdbLookupPath, sourceTypeName,
-                    sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
-                    sourceOverloadIndex,
-                    effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
-                    sourceMetadataToken);
+                var resolved = sourceAccessor is { HasMethodBody: false }
+                    ? new ApiCommand.ResolvedMethodSource(
+                        Source: null,
+                        PdbPath: effectiveOptions.PdbPath,
+                        MemberHasNoBody: true)
+                    : await ApiCommand.ResolveMethodSourceAsync(
+                        pdbLookupPath, sourceTypeName,
+                        sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
+                        sourceOverloadIndex,
+                        effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
+                        sourceMetadataToken);
 
                 effectiveOptions = effectiveOptions with
                 {

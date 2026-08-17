@@ -611,17 +611,16 @@ public class ApiAccessor
     public string? Accessibility { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];
 
-    [JsonIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? MethodName { get; set; }
 
     /// <summary>
-    /// Body facts for the accessor MethodDef. These remain in-process because the serialized
-    /// API shape predates accessor-level body inspection.
+    /// Body facts for the accessor MethodDef.
     /// </summary>
-    [JsonIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? HasMethodBody { get; set; }
 
-    [JsonIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? IsAbstract { get; set; }
 }
 
@@ -805,6 +804,14 @@ public class ApiMember
     /// </summary>
     [JsonIgnore]
     public List<ApiAccessor> AccessorFacts { get; set; } = [];
+
+    [JsonPropertyName("accessor_facts")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ApiAccessor>? SerializedAccessorFacts
+    {
+        get => AccessorFacts.Count == 0 ? null : AccessorFacts;
+        set => AccessorFacts = value ?? [];
+    }
 
     /// <summary>
     /// Set when guarded metadata decoding substituted part of this member's signature.

@@ -60,6 +60,28 @@ public sealed record MetadataNamedTypeReference
 
 internal static class MetadataNamedTypeSignatureDecoder
 {
+    internal static MetadataNamedTypeReference? DecodeType(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericContext? context) =>
+        handle.Kind switch
+        {
+            HandleKind.TypeDefinition => MetadataNamedTypeProvider.Instance.GetTypeFromDefinition(
+                reader,
+                (TypeDefinitionHandle)handle,
+                rawTypeKind: 0),
+            HandleKind.TypeReference => MetadataNamedTypeProvider.Instance.GetTypeFromReference(
+                reader,
+                (TypeReferenceHandle)handle,
+                rawTypeKind: 0),
+            HandleKind.TypeSpecification => MetadataNamedTypeProvider.Instance.GetTypeFromSpecification(
+                reader,
+                context,
+                (TypeSpecificationHandle)handle,
+                rawTypeKind: 0),
+            _ => null,
+        };
+
     internal static MethodSignature<MetadataNamedTypeReference?>? DecodeMethod(
         MetadataReader reader,
         MethodDefinition method,

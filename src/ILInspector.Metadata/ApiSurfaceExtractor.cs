@@ -921,17 +921,20 @@ public static class ApiSurfaceExtractor
                 var evt = reader.GetEventDefinition(eventHandle);
                 var accessors = evt.GetAccessors();
 
-                // Check if adder exists
-                if (accessors.Adder.IsNil)
+                if (accessors.Adder.IsNil && accessors.Remover.IsNil)
                     continue;
 
-                var adder = reader.GetMethodDefinition(accessors.Adder);
-                var adderAccess = adder.Attributes & MethodAttributes.MemberAccessMask;
-                var bestAccess = adderAccess;
+                var primaryAccessorHandle = !accessors.Adder.IsNil
+                    ? accessors.Adder
+                    : accessors.Remover;
+                var primaryAccessor = reader.GetMethodDefinition(primaryAccessorHandle);
+                var bestAccess = primaryAccessor.Attributes & MethodAttributes.MemberAccessMask;
+                _ = GetAccessibility(bestAccess);
                 if (!accessors.Remover.IsNil)
                 {
                     var remover = reader.GetMethodDefinition(accessors.Remover);
                     var removerAccess = remover.Attributes & MethodAttributes.MemberAccessMask;
+                    _ = GetAccessibility(removerAccess);
                     if (removerAccess > bestAccess)
                         bestAccess = removerAccess;
                 }
@@ -948,7 +951,10 @@ public static class ApiSurfaceExtractor
                     evt.Type,
                     GenericContext.ForType(reader, typeDef));
                 var eventNullableBytes = NullabilityReader.GetNullableBytes(reader, evt.GetCustomAttributes());
-                eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
+                eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(
+                    reader,
+                    primaryAccessor.GetParameters(),
+                    1);
                 if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
                     eventType += "?";
                 // A `dynamic` event handler (e.g. EventHandler<dynamic>) or a
@@ -981,19 +987,22 @@ public static class ApiSurfaceExtractor
                         eventType = eventNode.Render();
                     }
                 }
-                var adderAttributes = adder.Attributes;
-                var isVirtualEvent = (adderAttributes & MethodAttributes.Virtual) != 0;
-                var isOverrideEvent = isVirtualEvent && (adderAttributes & MethodAttributes.NewSlot) == 0;
-                var accessorModels = new List<ApiAccessor>
+                var primaryAccessorAttributes = primaryAccessor.Attributes;
+                var isVirtualEvent = (primaryAccessorAttributes & MethodAttributes.Virtual) != 0;
+                var isOverrideEvent = isVirtualEvent
+                    && (primaryAccessorAttributes & MethodAttributes.NewSlot) == 0;
+                var accessorModels = new List<ApiAccessor>();
+                if (!accessors.Adder.IsNil)
                 {
-                    new()
+                    var adder = reader.GetMethodDefinition(accessors.Adder);
+                    accessorModels.Add(new ApiAccessor
                     {
                         Kind = "add",
                         ReturnAttributes = ReturnParameterAttributes(reader, adder.GetParameters()),
                         HasMethodBody = adder.RelativeVirtualAddress != 0,
                         IsAbstract = (adder.Attributes & MethodAttributes.Abstract) != 0
-                    }
-                };
+                    });
+                }
                 if (!accessors.Remover.IsNil)
                 {
                     var remover = reader.GetMethodDefinition(accessors.Remover);
@@ -1025,11 +1034,12 @@ public static class ApiSurfaceExtractor
                         Accessors = accessorModels
                     },
                     AccessorFacts = accessorFacts,
-                    IsStatic = (adderAttributes & MethodAttributes.Static) != 0,
+                    IsStatic = (primaryAccessorAttributes & MethodAttributes.Static) != 0,
                     IsVirtual = isVirtualEvent,
-                    IsAbstract = (adderAttributes & MethodAttributes.Abstract) != 0,
+                    IsAbstract = (primaryAccessorAttributes & MethodAttributes.Abstract) != 0,
                     IsOverride = isOverrideEvent,
-                    IsSealed = isOverrideEvent && (adderAttributes & MethodAttributes.Final) != 0,
+                    IsSealed = isOverrideEvent
+                        && (primaryAccessorAttributes & MethodAttributes.Final) != 0,
                     IsUnsafe = HasUnsafeSignature(reader, evt)
                         || AttributeReader.HasRequiresUnsafeAttribute(reader, evt.GetCustomAttributes()),
                     Accessibility = GetAccessibility(bestAccess),
@@ -1498,13 +1508,16 @@ public static class ApiSurfaceExtractor
         MetadataReader reader, TypeDefinition typeDef)
     {
         var context = GenericContext.ForType(reader, typeDef);
-        HashSet<string> implementedInterfaces = [];
+        HashSet<MetadataNamedTypeReference> implementedInterfaces = [];
         foreach (var interfaceHandle in typeDef.GetInterfaceImplementations())
         {
             var interfaceType = reader.GetInterfaceImplementation(interfaceHandle).Interface;
-            var interfaceName = TypeResolver.GetTypeName(reader, interfaceType, context);
-            if (interfaceName is not null)
-                implementedInterfaces.Add(interfaceName);
+            var interfaceIdentity = MetadataNamedTypeSignatureDecoder.DecodeType(
+                reader,
+                interfaceType,
+                context);
+            if (interfaceIdentity is not null)
+                implementedInterfaces.Add(interfaceIdentity);
         }
 
         HashSet<MethodDefinitionHandle> handles = [];
@@ -1528,7 +1541,7 @@ public static class ApiSurfaceExtractor
     private static bool IsInterfaceMethodDeclaration(
         MetadataReader reader,
         EntityHandle declaration,
-        IReadOnlySet<string> implementedInterfaces,
+        IReadOnlySet<MetadataNamedTypeReference> implementedInterfaces,
         GenericContext context)
     {
         EntityHandle declaringType = declaration.Kind switch
@@ -1546,8 +1559,12 @@ public static class ApiSurfaceExtractor
                 & TypeAttributes.Interface) != 0;
         }
 
-        var declaringTypeName = TypeResolver.GetTypeName(reader, declaringType, context);
-        return declaringTypeName is not null && implementedInterfaces.Contains(declaringTypeName);
+        var declaringTypeIdentity = MetadataNamedTypeSignatureDecoder.DecodeType(
+            reader,
+            declaringType,
+            context);
+        return declaringTypeIdentity is not null
+            && implementedInterfaces.Contains(declaringTypeIdentity);
     }
 
     /// <summary>
@@ -3457,7 +3474,9 @@ public static class ApiSurfaceExtractor
         MethodAttributes.Assembly => "internal",
         MethodAttributes.Family => "protected",
         MethodAttributes.FamORAssem => "protected internal",
-        _ => null // Public
+        MethodAttributes.Public => null,
+        _ => throw new BadImageFormatException(
+            $"Invalid method accessibility value 0x{(int)access:X}.")
     };
 
     /// <summary>

@@ -258,6 +258,34 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_PreservesRemoveOnlyEvents()
+    {
+        string path = EmitRemoveOnlyEvent();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = GetTypeDefinitionHandle(reader, "RemoveOnlyEventSample");
+            var queried = MetadataDeclarationQuery.GetTypeSurface(reader, typeHandle);
+            var extracted = Assert.Single(
+                ApiSurfaceExtractor.Extract(peReader).Types,
+                type => type.FullName == "RemoveOnlyEventSample");
+
+            foreach (var surface in new[] { queried, extracted })
+            {
+                var evt = Assert.Single(surface.Members, member => member.Name == "Changed");
+                Assert.Null(evt.AdderToken);
+                Assert.NotNull(evt.RemoverToken);
+                Assert.Single(evt.AccessorFacts, accessor => accessor.Kind == "remove");
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void TypeSurface_PreservesUnassociatedAccessorLikeMethods()
     {
         var queried = MetadataDeclarationQuery.GetTypeSurface(
@@ -409,6 +437,33 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void ExplicitInterfaceBodies_KeepAssemblyScopeInDeclarationIdentity()
+    {
+        string path = EmitSameNamedBaseAndInterfaceMethodImpl();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = GetTypeDefinitionHandle(reader, "Derived");
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+
+            var bodies = ApiSurfaceExtractor.GetExplicitInterfaceImplementationBodies(
+                reader,
+                typeDef);
+            var names = bodies
+                .Select(handle => reader.GetString(reader.GetMethodDefinition(handle).Name))
+                .ToList();
+
+            Assert.Contains("ImplementInterface", names);
+            Assert.DoesNotContain("OverrideBase", names);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void TypeSurface_AccessorFactsPreserveReturnAttributes()
     {
         var surface = MetadataDeclarationQuery.GetTypeSurface(
@@ -444,6 +499,19 @@ public sealed class MetadataDeclarationQueryTests
 
         Assert.Equal("private", methodAccessibility!.Invoke(null, [MethodAttributes.PrivateScope]));
         Assert.Equal("private", fieldAccessibility!.Invoke(null, [FieldAttributes.PrivateScope]));
+    }
+
+    [Fact]
+    public void ReservedMethodAccessibility_IsRejected()
+    {
+        var methodAccessibility = typeof(MetadataDeclarationQuery).GetMethod(
+            "AccessibilityKeyword",
+            BindingFlags.Static | BindingFlags.NonPublic,
+            [typeof(MethodAttributes)]);
+
+        var exception = Assert.Throws<TargetInvocationException>(
+            () => methodAccessibility!.Invoke(null, [(MethodAttributes)0x7]));
+        Assert.IsType<BadImageFormatException>(exception.InnerException);
     }
 
     [Fact]
@@ -660,6 +728,31 @@ public sealed class MetadataDeclarationQueryTests
         return path;
     }
 
+    static string EmitRemoveOnlyEvent()
+    {
+        var assemblyName = new AssemblyName("RemoveOnlyEvent");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("RemoveOnlyEventSample", TypeAttributes.Public);
+        const MethodAttributes attributes =
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+        var remove = type.DefineMethod(
+            "remove_Changed",
+            attributes,
+            typeof(void),
+            [typeof(EventHandler)]);
+        remove.GetILGenerator().Emit(OpCodes.Ret);
+        type.DefineEvent("Changed", EventAttributes.None, typeof(EventHandler))
+            .SetRemoveOnMethod(remove);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"RemoveOnlyEvent-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
     static string EmitUnqualifiedMethodImplAccessor(bool isPublic)
     {
         var assemblyName = new AssemblyName("UnqualifiedMethodImplAccessor");
@@ -706,6 +799,78 @@ public sealed class MetadataDeclarationQueryTests
         string path = Path.Combine(
             Path.GetTempPath(),
             $"UnqualifiedMethodImplAccessor-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitSameNamedBaseAndInterfaceMethodImpl()
+    {
+        var baseAssembly = new PersistedAssemblyBuilder(
+            new AssemblyName("SameNameBase"),
+            typeof(object).Assembly);
+        var baseModule = baseAssembly.DefineDynamicModule("SameNameBase");
+        var baseBuilder = baseModule.DefineType("N.Slot", TypeAttributes.Public);
+        var baseMethod = baseBuilder.DefineMethod(
+            "BaseSlot",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot,
+            typeof(int),
+            Type.EmptyTypes);
+        baseMethod.GetILGenerator().Emit(OpCodes.Ldc_I4_1);
+        baseMethod.GetILGenerator().Emit(OpCodes.Ret);
+        var baseType = baseBuilder.CreateType();
+
+        var interfaceAssembly = new PersistedAssemblyBuilder(
+            new AssemblyName("SameNameInterface"),
+            typeof(object).Assembly);
+        var interfaceModule = interfaceAssembly.DefineDynamicModule("SameNameInterface");
+        var interfaceBuilder = interfaceModule.DefineType(
+            "N.Slot",
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+        var interfaceMethod = interfaceBuilder.DefineMethod(
+            "InterfaceSlot",
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            typeof(int),
+            Type.EmptyTypes);
+        var interfaceType = interfaceBuilder.CreateType();
+
+        var assembly = new PersistedAssemblyBuilder(
+            new AssemblyName("SameNameConsumer"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("SameNameConsumer");
+        var type = module.DefineType("Derived", TypeAttributes.Public, baseType);
+        type.AddInterfaceImplementation(interfaceType);
+
+        var interfaceBody = type.DefineMethod(
+            "ImplementInterface",
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot,
+            typeof(int),
+            Type.EmptyTypes);
+        interfaceBody.GetILGenerator().Emit(OpCodes.Ldc_I4_2);
+        interfaceBody.GetILGenerator().Emit(OpCodes.Ret);
+        type.DefineMethodOverride(interfaceBody, interfaceMethod);
+
+        var baseBody = type.DefineMethod(
+            "OverrideBase",
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot,
+            typeof(int),
+            Type.EmptyTypes);
+        baseBody.GetILGenerator().Emit(OpCodes.Ldc_I4_3);
+        baseBody.GetILGenerator().Emit(OpCodes.Ret);
+        type.DefineMethodOverride(baseBody, baseMethod);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"SameNameConsumer-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
     }

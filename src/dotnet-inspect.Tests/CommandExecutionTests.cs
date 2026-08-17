@@ -6596,6 +6596,90 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_OriginalSource_BodylessAccessor_ExplainsWhyThereIsNoSource()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Original Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Original Source", output);
+        Assert.Contains("has no IL body", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_BodylessAccessor_ReportsOriginalSourceUnavailable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Source Diff",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Diff", output);
+        Assert.Contains("Original Source unavailable", output);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_BodylessAccessor_PreservesDecompilationDiagnostic()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Annotated Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Annotated Source", output);
+        Assert.Contains("DEC0001", output);
+        Assert.Contains("has no IL body", output);
+    }
+
+    [Fact]
+    public async Task Member_Facts_BodylessAccessor_FailsVisibly()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Facts",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("has no IL body", error);
+    }
+
+    [Fact]
     public async Task Member_OriginalSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
     {
         // Close negative: a member that does have a body still renders its authored source, so

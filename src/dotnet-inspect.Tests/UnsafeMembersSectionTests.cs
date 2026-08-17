@@ -384,6 +384,50 @@ public class UnsafeMembersSectionTests
     }
 
     [Fact]
+    public void TypeUnsafeMembers_NullTypeTokensUseDeclaredMethodFallback()
+    {
+        var index = LibraryBodyIndex.Open(typeof(SampleUnsafeClass).Assembly.Location);
+        var matchingMethod = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name == nameof(SampleUnsafeClass.UnsafePointerMethod));
+        var unrelatedMethod = Assert.Single(
+            index.DeclaredMethods,
+            method => method.Name == nameof(SamplePInvokeClass.GetCurrentProcessId));
+        var type = new ApiType
+        {
+            Namespace = typeof(SampleUnsafeClass).Namespace,
+            Name = nameof(SampleUnsafeClass),
+            Kind = "class",
+        };
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateUnsafeMembers(
+            view,
+            type,
+            index,
+            [
+                new AnalysisDiagnostic(
+                    matchingMethod.MetadataToken,
+                    matchingMethod.Name,
+                    "BadImageFormatException: matching legacy diagnostic"),
+                new AnalysisDiagnostic(
+                    unrelatedMethod.MetadataToken,
+                    unrelatedMethod.Name,
+                    "BadImageFormatException: unrelated legacy diagnostic"),
+            ]);
+
+        var row = Assert.Single(
+            view.UnsafeMemberRows!,
+            candidate => candidate.Kind == "diagnostic");
+        Assert.Contains("matching legacy diagnostic", row.Detail);
+        Assert.DoesNotContain(
+            view.UnsafeMemberRows!,
+            candidate => candidate.Detail.Contains(
+                "unrelated legacy diagnostic",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void TypeUnsafeMembers_FieldFallbackPreservesPointerType()
     {
         var type = new ApiType
