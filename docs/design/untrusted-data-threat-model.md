@@ -402,10 +402,16 @@ before the remaining chain is materialized. Tuple-name, nullability, and dynamic
 transform arrays charge their encoded blob before allocating arrays, and one
 type generic context is reused across all of that type's members.
 Visibility probes use bounded blob readers rather than copying skipped
-attribute values. Every bounded member-name decode and every namespace/name
+attribute values. Declared custom-attribute SZArray and named-argument counts
+are checked against remaining value-blob bytes before SRM allocates builders
+from those counts, and each declared slot is charged as decode work so a
+hostile four-byte count cannot become a gigabyte-scale argument array or a
+swallowed OOM. Every bounded member-name decode and every namespace/name
 segment used to resolve an attribute type is also charged before SRM
 materializes it, including names inspected only to skip an accessor,
-compiler-generated field, or hidden member. This includes every enclosing
+compiler-generated field, or hidden member. Property-accessor nullable-context
+probes use the same observer as method attributes, so a TypeSpec constructor
+parent on a getter is charged before its rank string is rendered. This includes every enclosing
 TypeDef or TypeRef segment reached from a signature, skipped enum names scanned
 while formatting defaults, forwarded type and target-assembly names, and
 strong-name blobs read while proving a finalizer slot reaches the core library.
@@ -443,6 +449,10 @@ pre-decoding rejection.
 `OneWideFieldSignature_StopsBeforeLargeAllocationAmplification`,
 `OneWideTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneLargeCustomAttribute_StopsBeforeLargeAllocationAmplification`,
+`OneHugeCustomAttributeArrayCount_StopsBeforeLargeAllocationAmplification`,
+`RepeatedNamedArgumentCount_StopsBeforeLargeAllocationAmplification`,
+`PropertyAccessorNullableContextTypeSpec_StopsBeforeLargeAllocationAmplification`,
+`LegalNamedAttribute_HasBoundedUnboundedParity`,
 `RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
 `SeparateEnumAttributes_ReuseTheChargedTypeNameIndex`,
 `FailedEnumAttributeIndexBuild_IsCachedAndVisible`,

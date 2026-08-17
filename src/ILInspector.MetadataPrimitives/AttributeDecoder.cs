@@ -159,6 +159,20 @@ public static class AttributeDecoder
     {
         try
         {
+            if (!CustomAttributeValueGuard.IsSafeToDecode(
+                    reader,
+                    attribute,
+                    beforeMaterialize))
+                return null;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+
+        try
+        {
             return attribute.DecodeValue(
                 new ArgTypeProvider(
                     reader,

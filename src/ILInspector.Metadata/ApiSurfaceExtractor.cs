@@ -3830,7 +3830,8 @@ public static class ApiSurfaceExtractor
             ? typeNullableContext
             : NullabilityReader.GetNullableContext(
                     reader,
-                    parameterAccessorMethod.GetCustomAttributes())
+                    parameterAccessorMethod.GetCustomAttributes(),
+                    beforeDecodeWork)
                 ?? typeNullableContext;
         var paramTypes = treeSignature.ParameterTypes;
         List<string> indexerParameters = [];
