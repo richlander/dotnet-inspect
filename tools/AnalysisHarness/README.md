@@ -39,9 +39,10 @@ dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll --json
 The text demo reports direct comparison and discovery independently:
 
 ```text
-Structural clone relationship corpus: 9/9 passed
+Structural clone relationship corpus: 10/10 passed
 PASS banal.authored.exact: expected Completed/Exact, actual Completed/Exact (Unique correspondence)
-PASS banal.constant.near: expected Completed/Near, actual Completed/Near (Unique correspondence)
+PASS banal.constant.near: expected Completed/Near, actual Completed/Near (Unique alignment): edits blocks +0/-0/~1, operations +0/-0/~1, edges +0/-0/~0
+PASS challenging.operation-reordering.negative: expected Completed/Different, actual Completed/Different
 ...
 PASS closed-world exact discovery: expected 4 clusters, actual 4 clusters, disposition Completed
   ...::ExactPositiveA = ...::ExactPositiveB

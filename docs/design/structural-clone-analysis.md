@@ -106,15 +106,19 @@ The bounded edit families are:
 - one inserted or removed non-entry block, including its operations and
   incident edges.
 
-A changed operation or edge is tested by removing one candidate from each
-side. An insertion or removal is tested by removing one candidate from the
-larger side. A block edit removes one non-entry block and translates the exact
+A changed operation is tested at the same ordinal in potentially corresponding
+blocks, and the removed normalized values must differ under the restoring local
+correspondence. A changed edge retains its role and changes its target. An
+insertion or removal is tested by removing one candidate from the larger side.
+A block edit removes one non-entry block and translates the exact
 correspondence back to the original block coordinates. Typed evidence retains
 the affected blocks and normalized operation or edge values. Those coordinates
 are same-comparison locations, not global identities.
 
-Candidate enumeration is exhaustive within explicit candidate,
-exact-verification-step, alternative, and block-affected-element limits. Every
+Candidate enumeration uses only necessary block/sequence invariants and remains
+exhaustive within explicit candidate, exact-verification-work, alternative, and
+block-affected-element limits. Each attempted exact-restoring candidate and
+each witness-search step consumes the aggregate verification budget. Every
 distinct restoring alternative is returned in deterministic order. Multiple
 alternatives, or ambiguity in any restoring exact correspondence, makes the
 alignment `Ambiguous`; the comparator does not choose a preferred edit by
@@ -239,11 +243,12 @@ verification logic.
 views, all direct outcomes, and exact closed-world clustering.
 
 The corpus includes authored arithmetic and metadata-operand exact pairs,
-constant and call-target near pairs, control-flow and two-operation hard
-negatives, exact parameter-type and return-type semantic hazards, and the EH
-unsupported boundary. Exact discovery still finds four families and does not
-cluster near pairs. Fuzzy retrieval/ranking and precision/recall measurement
-remain later slices; whole-assembly exact scale runs belong to the census.
+constant and call-target near pairs, control-flow, operation-reordering, and
+two-operation hard negatives, exact parameter-type and return-type semantic
+hazards, and the EH unsupported boundary. Exact discovery still finds four
+families and does not cluster near pairs. Fuzzy retrieval/ranking and
+precision/recall measurement remain later slices; whole-assembly exact scale
+runs belong to the census.
 
 ## Census and demo projection
 

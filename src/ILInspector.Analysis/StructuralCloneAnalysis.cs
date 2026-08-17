@@ -149,7 +149,7 @@ public sealed record StructuralCloneAlignmentAlternative(
     ImmutableArray<StructuralCloneOperationEdit> Operations,
     ImmutableArray<StructuralCloneEdgeEdit> Edges);
 
-/// <summary>Bounded-work receipt for near-clone alignment.</summary>
+/// <summary>Bounded candidate and witness-search work for near alignment.</summary>
 public sealed record StructuralCloneAlignmentReceipt(
     int Candidates,
     int VerificationSteps,

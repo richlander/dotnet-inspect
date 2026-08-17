@@ -190,6 +190,27 @@
       ]
     },
     {
+      "id": "challenging.operation-reordering.negative",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearReorderedA"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearReorderedB"
+      },
+      "expectedDisposition": "Completed",
+      "expectedRelation": "Different",
+      "difficulty": "challenging",
+      "intent": "authored-hard-negative",
+      "actionability": "diagnostic",
+      "tags": [
+        "compiler-produced",
+        "operation-order",
+        "hard-negative"
+      ]
+    },
+    {
       "id": "banal.exception-handling.unsupported",
       "left": {
         "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
@@ -275,6 +296,14 @@
       {
         "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
         "method": "NearHardNegativeB"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearReorderedA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearReorderedB"
       },
       {
         "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",

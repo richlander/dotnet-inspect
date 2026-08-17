@@ -1596,6 +1596,60 @@ public class StructuralCloneAnalysisTests
             comparison.Relation);
         Assert.Null(comparison.Alignment);
         Assert.True(comparison.AlignmentReceipt?.Exhausted);
+        Assert.True(
+            comparison.AlignmentReceipt!.VerificationSteps
+                >= comparison.AlignmentReceipt.Candidates);
+    }
+
+    [Fact]
+    public void Compare_OperationReordering_IsNotOneChange()
+    {
+        StructuralCloneBodyFacts left = Facts(
+            token: 1,
+            il: [0x02, 0x17, 0x58, 0x2A]);
+        StructuralCloneBodyFacts right = Facts(
+            token: 2,
+            il: [0x17, 0x02, 0x58, 0x2A]);
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(left, right);
+
+        Assert.Equal(
+            StructuralCloneRelation.Different,
+            comparison.Relation);
+        Assert.Null(comparison.Alignment);
+        Assert.True(comparison.AlignmentReceipt?.Exhausted);
+    }
+
+    [Fact]
+    public void Compare_LargeSingleBlockDifferencePrunesNonRestoringPositions()
+    {
+        List<byte> leftIl = [];
+        for (int index = 0; index < 50; index++)
+        {
+            leftIl.Add(0x17);
+            leftIl.Add(0x26);
+        }
+        leftIl.Add(0x02);
+        leftIl.Add(0x2A);
+        byte[] rightIl = [.. leftIl];
+        rightIl[0] = 0x18;
+        rightIl[2] = 0x19;
+
+        StructuralCloneComparison comparison =
+            StructuralCloneAnalysis.Compare(
+                Facts(token: 1, il: [.. leftIl]),
+                Facts(token: 2, il: rightIl));
+
+        Assert.Equal(
+            StructuralCloneRelation.Different,
+            comparison.Relation);
+        StructuralCloneAlignmentReceipt receipt =
+            Assert.IsType<StructuralCloneAlignmentReceipt>(
+                comparison.AlignmentReceipt);
+        Assert.Equal(0, receipt.Candidates);
+        Assert.Equal(0, receipt.VerificationSteps);
+        Assert.True(receipt.Exhausted);
     }
 
     [Fact]
@@ -2039,10 +2093,12 @@ public class StructuralCloneAnalysisTests
     {
         StructuralCloneBodyFacts left = Facts(
             token: 1,
-            il: [0x02, 0x17, 0x58, 0x2A]);
+            il: [0x2A, 0x17, 0x2A, 0x17, 0x2A],
+            signature: new(0, 0, 0, 0, ReturnsVoid: true));
         StructuralCloneBodyFacts right = Facts(
             token: 2,
-            il: [0x02, 0x18, 0x58, 0x2A]);
+            il: [0x2A, 0x17, 0x2A, 0x18, 0x2A],
+            signature: new(0, 0, 0, 0, ReturnsVoid: true));
 
         StructuralCloneComparison candidateLimited =
             StructuralCloneAnalysis.Compare(

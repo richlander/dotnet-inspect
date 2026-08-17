@@ -24,7 +24,7 @@ public class StructuralCloneCorpusTests
         Assert.True(
             report.Success,
             StructuralCloneCorpus.Format(report));
-        Assert.Equal(9, report.Total);
+        Assert.Equal(10, report.Total);
         Assert.True(report.Discovery.Passed);
         Assert.Equal(
             StructuralCloneDiscoveryDisposition.Completed,

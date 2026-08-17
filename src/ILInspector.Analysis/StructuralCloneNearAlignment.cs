@@ -49,7 +49,7 @@ public static partial class StructuralCloneAnalysis
             int remaining =
                 limits.MaximumNearAlignmentVerificationSteps
                 - verificationSteps;
-            if (remaining < 1)
+            if (remaining < 2)
             {
                 return NearLimit(
                     left,
@@ -74,10 +74,10 @@ public static partial class StructuralCloneAnalysis
                 {
                     MaximumVerificationSteps = Math.Min(
                         limits.MaximumVerificationSteps,
-                        remaining),
+                        remaining - 1),
                 });
             verificationSteps = checked(
-                verificationSteps + exact.Receipt.SearchSteps);
+                verificationSteps + 1 + exact.Receipt.SearchSteps);
             if (exact.Disposition
                 == StructuralCloneDisposition.LimitReached)
             {
@@ -275,23 +275,34 @@ public static partial class StructuralCloneAnalysis
             leftOperations.Length - rightOperations.Length;
         if (operationDelta == 0)
         {
-            foreach ((int leftBlock, int leftOrdinal) in leftOperations)
+            foreach (StructuralCloneBlock leftBlock in left.Graph.Blocks)
             {
-                foreach ((int rightBlock, int rightOrdinal)
-                    in rightOperations)
+                foreach (StructuralCloneBlock rightBlock
+                    in right.Graph.Blocks)
                 {
-                    Add(new NearCandidate(
-                        NearCandidateKind.ChangeOperation,
-                        leftBlock,
-                        leftOrdinal,
-                        rightBlock,
-                        rightOrdinal));
-                    if (candidateLimitReached)
+                    if (!MayAlignOperationBlocks(
+                            leftBlock,
+                            rightBlock))
                     {
-                        limitReached =
-                            StructuralCloneBlockerKind
-                                .NearAlignmentCandidateLimit;
-                        return candidates;
+                        continue;
+                    }
+                    foreach (int ordinal in OperationChangeOrdinals(
+                        leftBlock,
+                        rightBlock))
+                    {
+                        Add(new NearCandidate(
+                            NearCandidateKind.ChangeOperation,
+                            leftBlock.Index,
+                            ordinal,
+                            rightBlock.Index,
+                            ordinal));
+                        if (candidateLimitReached)
+                        {
+                            limitReached =
+                                StructuralCloneBlockerKind
+                                    .NearAlignmentCandidateLimit;
+                            return candidates;
+                        }
                     }
                 }
             }
@@ -346,6 +357,13 @@ public static partial class StructuralCloneAnalysis
             {
                 foreach ((int rightBlock, int rightOrdinal) in rightEdges)
                 {
+                    if (left.Graph.Blocks[leftBlock]
+                            .Outgoing[leftOrdinal].Role
+                        != right.Graph.Blocks[rightBlock]
+                            .Outgoing[rightOrdinal].Role)
+                    {
+                        continue;
+                    }
                     Add(new NearCandidate(
                         NearCandidateKind.ChangeEdge,
                         leftBlock,
@@ -406,6 +424,63 @@ public static partial class StructuralCloneAnalysis
             : null;
         return candidates;
     }
+
+    static bool MayAlignOperationBlocks(
+        StructuralCloneBlock left,
+        StructuralCloneBlock right)
+    {
+        return (left.Index == 0) == (right.Index == 0)
+            && left.ExitsMethod == right.ExitsMethod
+            && left.Operations.Length == right.Operations.Length
+            && SameEdgeRoles(left.Outgoing, right.Outgoing)
+            && SameEdgeRoles(left.Incoming, right.Incoming);
+    }
+
+    static ImmutableArray<int> OperationChangeOrdinals(
+        StructuralCloneBlock left,
+        StructuralCloneBlock right)
+    {
+        int knownDifference = -1;
+        ImmutableArray<int>.Builder localCandidates =
+            ImmutableArray.CreateBuilder<int>();
+        for (int index = 0; index < left.Operations.Length; index++)
+        {
+            StructuralCloneOperation leftOperation =
+                left.Operations[index];
+            StructuralCloneOperation rightOperation =
+                right.Operations[index];
+            if (leftOperation.OpCode != rightOperation.OpCode
+                || leftOperation.OperandKind != rightOperation.OperandKind
+                || (leftOperation.OperandKind
+                        != StructuralCloneOperandKind.Local
+                    && leftOperation.Value != rightOperation.Value))
+            {
+                if (knownDifference >= 0)
+                    return [];
+                knownDifference = index;
+                continue;
+            }
+            if (leftOperation.OperandKind
+                == StructuralCloneOperandKind.Local)
+            {
+                localCandidates.Add(index);
+            }
+        }
+        return knownDifference >= 0
+            ? [knownDifference]
+            : localCandidates.ToImmutable();
+    }
+
+    static bool SameEdgeRoles(
+        ImmutableArray<StructuralCloneEdge> left,
+        ImmutableArray<StructuralCloneEdge> right)
+        => left.Select(static edge => edge.Role)
+            .OrderBy(static role => role.Kind)
+            .ThenBy(static role => role.Ordinal)
+            .SequenceEqual(
+                right.Select(static edge => edge.Role)
+                    .OrderBy(static role => role.Kind)
+                    .ThenBy(static role => role.Ordinal));
 
     static int BlockAffectedElements(
         StructuralCloneBodyFacts body,
@@ -653,10 +728,28 @@ public static partial class StructuralCloneAnalysis
         switch (candidate.Kind)
         {
             case NearCandidateKind.ChangeOperation:
-                if (!BlocksCorrespond(
+                if (candidate.LeftOrdinal != candidate.RightOrdinal
+                    || !BlocksCorrespond(
                         correspondence,
                         candidate.LeftBlock,
                         candidate.RightBlock))
+                {
+                    return null;
+                }
+                StructuralCloneOperationReference leftOperation =
+                    OperationReference(
+                        left,
+                        candidate.LeftBlock,
+                        candidate.LeftOrdinal);
+                StructuralCloneOperationReference rightOperation =
+                    OperationReference(
+                        right,
+                        candidate.RightBlock,
+                        candidate.RightOrdinal);
+                if (OperationsCorrespond(
+                        leftOperation,
+                        rightOperation,
+                        correspondence))
                 {
                     return null;
                 }
@@ -667,14 +760,8 @@ public static partial class StructuralCloneAnalysis
                 [
                     new StructuralCloneOperationEdit(
                         StructuralCloneEditKind.Changed,
-                        OperationReference(
-                            left,
-                            candidate.LeftBlock,
-                            candidate.LeftOrdinal),
-                        OperationReference(
-                            right,
-                            candidate.RightBlock,
-                            candidate.RightOrdinal)),
+                        leftOperation,
+                        rightOperation),
                 ];
                 break;
             case NearCandidateKind.RemoveLeftOperation:
@@ -715,6 +802,19 @@ public static partial class StructuralCloneAnalysis
                 {
                     return null;
                 }
+                StructuralCloneEdgeReference leftEdge = EdgeReference(
+                    left,
+                    candidate.LeftBlock,
+                    candidate.LeftOrdinal);
+                StructuralCloneEdgeReference rightEdge = EdgeReference(
+                    right,
+                    candidate.RightBlock,
+                    candidate.RightOrdinal);
+                if (leftEdge.Kind != rightEdge.Kind
+                    || leftEdge.Ordinal != rightEdge.Ordinal)
+                {
+                    return null;
+                }
                 blockEdit = ChangedBlock(
                     correspondence,
                     candidate.LeftBlock);
@@ -722,14 +822,8 @@ public static partial class StructuralCloneAnalysis
                 [
                     new StructuralCloneEdgeEdit(
                         StructuralCloneEditKind.Changed,
-                        EdgeReference(
-                            left,
-                            candidate.LeftBlock,
-                            candidate.LeftOrdinal),
-                        EdgeReference(
-                            right,
-                            candidate.RightBlock,
-                            candidate.RightOrdinal)),
+                        leftEdge,
+                        rightEdge),
                 ];
                 break;
             case NearCandidateKind.RemoveLeftEdge:
@@ -918,6 +1012,25 @@ public static partial class StructuralCloneAnalysis
             operation.OpCode,
             operation.OperandKind,
             operation.Value);
+    }
+
+    static bool OperationsCorrespond(
+        StructuralCloneOperationReference left,
+        StructuralCloneOperationReference right,
+        StructuralCloneCorrespondence correspondence)
+    {
+        if (left.OpCode != right.OpCode
+            || left.OperandKind != right.OperandKind)
+        {
+            return false;
+        }
+        if (left.OperandKind != StructuralCloneOperandKind.Local)
+            return left.Value == right.Value;
+        int leftLocal = checked((int)left.Value);
+        int rightLocal = checked((int)right.Value);
+        return correspondence.Locals
+            .Single(item => item.LeftLocal == leftLocal)
+            .RightLocals.Contains(rightLocal);
     }
 
     static StructuralCloneEdgeReference EdgeReference(

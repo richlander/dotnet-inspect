@@ -54,6 +54,12 @@ public static class StructuralCloneFixture
 
     public static int NearHardNegativeB(int value) => value / 2 - 2;
 
+    public static int NearReorderedA(int value)
+        => value + ReorderedOperand();
+
+    public static int NearReorderedB(int value)
+        => ReorderedOperand() + value;
+
     public static int ExceptionHandlingA(int value)
     {
         try
@@ -81,6 +87,8 @@ public static class StructuralCloneFixture
     static int CallTargetA(int value) => value;
 
     static int CallTargetB(int value) => value;
+
+    static int ReorderedOperand() => 1;
 }
 
 public static class StructuralCloneUserStringFixture
