@@ -614,6 +614,77 @@ public class MetadataTypeNameBudgetTests
     }
 
     [Fact]
+    public void EmptyNamespaceNestedResolveFullName_AgreesWithCreate()
+    {
+        string outer = new string('O', 2_047);
+        string acceptedLeaf = new string('I', 2_047);
+        string rejectedLeaf = new string('I', 2_048);
+        TypeDefinitionHandle accepted = default;
+        TypeDefinitionHandle rejected = default;
+        using var image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle acceptedOuter = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "",
+                outer);
+            accepted = AddTypeDefinition(
+                metadata,
+                TypeAttributes.NestedPublic,
+                "",
+                acceptedLeaf);
+            metadata.AddNestedType(accepted, acceptedOuter);
+            TypeDefinitionHandle rejectedOuter = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "",
+                outer);
+            rejected = AddTypeDefinition(
+                metadata,
+                TypeAttributes.NestedPublic,
+                "",
+                rejectedLeaf);
+            metadata.AddNestedType(rejected, rejectedOuter);
+        });
+
+        Assert.Equal(
+            outer + "." + acceptedLeaf,
+            TypeResolver.ResolveFullName(
+                    image.Reader,
+                    image.Reader.GetTypeDefinition(accepted))
+                .GetValueOrThrow());
+        AssertNameBudget(
+            TypeResolver.ResolveTypeNameFromDefinition(image.Reader, rejected));
+        AssertNameBudget(
+            TypeResolver.ResolveFullName(
+                image.Reader,
+                image.Reader.GetTypeDefinition(rejected)));
+        Assert.Equal(
+            MetadataTypeNameRejectionKind.SegmentsTooLong,
+            Assert.IsType<MetadataTypeDefinitionNameResult.Rejected>(
+                    MetadataTypeDefinitionName.Create("", [outer, rejectedLeaf]))
+                .Rejection.Kind);
+    }
+
+    [Fact]
+    public void NilNameAfterEncodedCap_IsRejectedOnDisplayPath()
+    {
+        string ns = new string(
+            'N',
+            MetadataSafetyPolicy.MaxTypeNameCharacters * 3);
+        TypeDefinitionHandle handle = default;
+        using var image = BuildMetadata(metadata =>
+        {
+            handle = AddTypeDefinition(metadata, TypeAttributes.Public, ns, "");
+        });
+
+        Assert.Throws<BadImageFormatException>(
+            () => TypeResolver.GetTypeNameFromDefinition(image.Reader, handle));
+        AssertNameBudget(
+            TypeResolver.ResolveTypeNameFromDefinition(image.Reader, handle));
+    }
+
+    [Fact]
     public void ExactBudgetNameFromMetadata_IsAccepted()
     {
         string name = new string(

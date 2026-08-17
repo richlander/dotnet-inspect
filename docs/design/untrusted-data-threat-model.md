@@ -419,8 +419,10 @@ preservation, and the display/structured split are gated by
 `DisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`,
 `NestedDisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`,
 `TypeSpecDisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`,
-`EmptyLeadingNameSegment_DoesNotCollideWithTopLevelName`, and
-`EmptyNamespaceExactCharacterBudget_AgreesWithCreate`. Tuple-name, nullability, and dynamic
+`EmptyLeadingNameSegment_DoesNotCollideWithTopLevelName`,
+`EmptyNamespaceExactCharacterBudget_AgreesWithCreate`,
+`EmptyNamespaceNestedResolveFullName_AgreesWithCreate`, and
+`NilNameAfterEncodedCap_IsRejectedOnDisplayPath`. Tuple-name, nullability, and dynamic
 transform arrays charge their encoded blob before allocating arrays, and one
 type generic context is reused across all of that type's members.
 Visibility probes use bounded blob readers rather than copying skipped

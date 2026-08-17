@@ -116,7 +116,8 @@ public static class TypeResolver
                     typeRef.Name,
                     handle,
                     consumedNodes: 1,
-                    enforceCharacterBudget).TryComplete(out name, out rejection);
+                    enforceCharacterBudget,
+                    out _).TryComplete(out name, out rejection);
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -138,6 +139,17 @@ public static class TypeResolver
         MetadataReader reader,
         TypeReferenceHandle handle,
         bool enforceCharacterBudget = true)
+        => ResolveTypeNameFromReference(
+            reader,
+            handle,
+            enforceCharacterBudget,
+            out _);
+
+    static RelationshipTraversalResult<string> ResolveTypeNameFromReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        bool enforceCharacterBudget,
+        out MetadataTypeNameBudget budget)
     {
         try
         {
@@ -150,15 +162,18 @@ public static class TypeResolver
                     typeRef.Name,
                     handle,
                     consumedNodes: 1,
-                    enforceCharacterBudget);
+                    enforceCharacterBudget,
+                    out budget);
             }
         }
         catch (BadImageFormatException ex)
         {
+            budget = default;
             return Malformed<string>(ex, handle, consumedNodes: 1);
         }
         catch (ArgumentOutOfRangeException ex)
         {
+            budget = default;
             return Malformed<string>(ex, handle, consumedNodes: 1);
         }
 
@@ -171,7 +186,8 @@ public static class TypeResolver
                 return (typeRef.Namespace, typeRef.Name);
             },
             static current => current,
-            enforceCharacterBudget);
+            enforceCharacterBudget,
+            out budget);
     }
 
     /// <summary>
@@ -214,7 +230,8 @@ public static class TypeResolver
                     typeDef.Name,
                     handle,
                     consumedNodes: 1,
-                    enforceCharacterBudget).TryComplete(out name, out rejection);
+                    enforceCharacterBudget,
+                    out _).TryComplete(out name, out rejection);
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -290,6 +307,17 @@ public static class TypeResolver
         MetadataReader reader,
         TypeDefinitionHandle handle,
         bool enforceCharacterBudget = true)
+        => ResolveTypeNameFromDefinition(
+            reader,
+            handle,
+            enforceCharacterBudget,
+            out _);
+
+    static RelationshipTraversalResult<string> ResolveTypeNameFromDefinition(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        bool enforceCharacterBudget,
+        out MetadataTypeNameBudget budget)
     {
         try
         {
@@ -302,15 +330,18 @@ public static class TypeResolver
                     typeDef.Name,
                     handle,
                     consumedNodes: 1,
-                    enforceCharacterBudget);
+                    enforceCharacterBudget,
+                    out budget);
             }
         }
         catch (BadImageFormatException ex)
         {
+            budget = default;
             return Malformed<string>(ex, handle, consumedNodes: 1);
         }
         catch (ArgumentOutOfRangeException ex)
         {
+            budget = default;
             return Malformed<string>(ex, handle, consumedNodes: 1);
         }
 
@@ -323,7 +354,8 @@ public static class TypeResolver
                 return (typeDef.Namespace, typeDef.Name);
             },
             static current => current,
-            enforceCharacterBudget);
+            enforceCharacterBudget,
+            out budget);
     }
 
     /// <summary>
@@ -334,6 +366,17 @@ public static class TypeResolver
         MetadataReader reader,
         ExportedTypeHandle handle,
         bool enforceCharacterBudget = true)
+        => ResolveTypeNameFromExportedType(
+            reader,
+            handle,
+            enforceCharacterBudget,
+            out _);
+
+    static RelationshipTraversalResult<string> ResolveTypeNameFromExportedType(
+        MetadataReader reader,
+        ExportedTypeHandle handle,
+        bool enforceCharacterBudget,
+        out MetadataTypeNameBudget budget)
     {
         try
         {
@@ -346,15 +389,18 @@ public static class TypeResolver
                     exportedType.Name,
                     handle,
                     consumedNodes: 1,
-                    enforceCharacterBudget);
+                    enforceCharacterBudget,
+                    out budget);
             }
         }
         catch (BadImageFormatException ex)
         {
+            budget = default;
             return Malformed<string>(ex, handle, consumedNodes: 1);
         }
         catch (ArgumentOutOfRangeException ex)
         {
+            budget = default;
             return Malformed<string>(ex, handle, consumedNodes: 1);
         }
 
@@ -367,7 +413,8 @@ public static class TypeResolver
                 return (exportedType.Namespace, exportedType.Name);
             },
             static current => current,
-            enforceCharacterBudget);
+            enforceCharacterBudget,
+            out budget);
     }
 
     /// <summary>
@@ -388,7 +435,8 @@ public static class TypeResolver
                     exportedType.Name,
                     handle,
                     consumedNodes: 1,
-                    enforceCharacterBudget: false).GetValueOrThrow();
+                    enforceCharacterBudget: false,
+                    out _).GetValueOrThrow();
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -450,7 +498,8 @@ public static class TypeResolver
                     typeDef.Name,
                     default,
                     consumedNodes: 1,
-                    enforceCharacterBudget: false).GetValueOrThrow();
+                    enforceCharacterBudget: false,
+                    out _).GetValueOrThrow();
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -458,14 +507,17 @@ public static class TypeResolver
             return ThrowMalformed(ex, default, consumedNodes: 0);
         }
 
+        var declaringName = ResolveTypeNameFromDefinition(
+            reader,
+            declaringType,
+            enforceCharacterBudget: false,
+            out var declaringBudget);
         return AppendLeaf(
             reader,
-            ResolveTypeNameFromDefinition(
-                reader,
-                declaringType,
-                enforceCharacterBudget: false),
+            declaringName,
             typeDef.Name,
             declaringType,
+            declaringBudget,
             enforceCharacterBudget: false).GetValueOrThrow();
     }
 
@@ -487,14 +539,22 @@ public static class TypeResolver
                     typeDef.Namespace,
                     typeDef.Name,
                     default,
-                    consumedNodes: 1);
+                    consumedNodes: 1,
+                    enforceCharacterBudget: true,
+                    out _);
             }
 
+            var declaringName = ResolveTypeNameFromDefinition(
+                reader,
+                declaringType,
+                enforceCharacterBudget: true,
+                out var declaringBudget);
             return AppendLeaf(
                 reader,
-                ResolveTypeNameFromDefinition(reader, declaringType),
+                declaringName,
                 typeDef.Name,
-                declaringType);
+                declaringType,
+                declaringBudget);
         }
         catch (BadImageFormatException ex)
         {
@@ -532,7 +592,8 @@ public static class TypeResolver
                     typeRef.Name,
                     default,
                     consumedNodes: 1,
-                    enforceCharacterBudget: false).GetValueOrThrow();
+                    enforceCharacterBudget: false,
+                    out _).GetValueOrThrow();
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -540,14 +601,17 @@ public static class TypeResolver
             return ThrowMalformed(ex, default, consumedNodes: 0);
         }
 
+        var declaringName = ResolveTypeNameFromReference(
+            reader,
+            (TypeReferenceHandle)resolutionScope,
+            enforceCharacterBudget: false,
+            out var declaringBudget);
         return AppendLeaf(
             reader,
-            ResolveTypeNameFromReference(
-                reader,
-                (TypeReferenceHandle)resolutionScope,
-                enforceCharacterBudget: false),
+            declaringName,
             typeRef.Name,
             resolutionScope,
+            declaringBudget,
             enforceCharacterBudget: false).GetValueOrThrow();
     }
 
@@ -569,14 +633,22 @@ public static class TypeResolver
                     typeRef.Namespace,
                     typeRef.Name,
                     resolutionScope,
-                    consumedNodes: 1);
+                    consumedNodes: 1,
+                    enforceCharacterBudget: true,
+                    out _);
             }
 
+            var declaringName = ResolveTypeNameFromReference(
+                reader,
+                (TypeReferenceHandle)resolutionScope,
+                enforceCharacterBudget: true,
+                out var declaringBudget);
             return AppendLeaf(
                 reader,
-                ResolveTypeNameFromReference(reader, (TypeReferenceHandle)resolutionScope),
+                declaringName,
                 typeRef.Name,
-                resolutionScope);
+                resolutionScope,
+                declaringBudget);
         }
         catch (BadImageFormatException ex)
         {
@@ -606,14 +678,22 @@ public static class TypeResolver
                     exportedType.Namespace,
                     exportedType.Name,
                     implementation,
-                    consumedNodes: 1);
+                    consumedNodes: 1,
+                    enforceCharacterBudget: true,
+                    out _);
             }
 
+            var declaringName = ResolveTypeNameFromExportedType(
+                reader,
+                (ExportedTypeHandle)implementation,
+                enforceCharacterBudget: true,
+                out var declaringBudget);
             return AppendLeaf(
                 reader,
-                ResolveTypeNameFromExportedType(reader, (ExportedTypeHandle)implementation),
+                declaringName,
                 exportedType.Name,
-                implementation);
+                implementation,
+                declaringBudget);
         }
         catch (BadImageFormatException ex)
         {
@@ -643,7 +723,8 @@ public static class TypeResolver
                     exportedType.Name,
                     default,
                     consumedNodes: 1,
-                    enforceCharacterBudget: false).GetValueOrThrow();
+                    enforceCharacterBudget: false,
+                    out _).GetValueOrThrow();
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
@@ -651,14 +732,17 @@ public static class TypeResolver
             return ThrowMalformed(ex, default, consumedNodes: 0);
         }
 
+        var declaringName = ResolveTypeNameFromExportedType(
+            reader,
+            (ExportedTypeHandle)implementation,
+            enforceCharacterBudget: false,
+            out var declaringBudget);
         return AppendLeaf(
             reader,
-            ResolveTypeNameFromExportedType(
-                reader,
-                (ExportedTypeHandle)implementation,
-                enforceCharacterBudget: false),
+            declaringName,
             exportedType.Name,
             implementation,
+            declaringBudget,
             enforceCharacterBudget: false).GetValueOrThrow();
     }
 
@@ -768,14 +852,16 @@ public static class TypeResolver
         RelationshipTraversalResult<RelationshipChain<THandle>> traversal,
         Func<THandle, (StringHandle Namespace, StringHandle Name)> getName,
         Func<THandle, EntityHandle> getSubject,
-        bool enforceCharacterBudget)
+        bool enforceCharacterBudget,
+        out MetadataTypeNameBudget budget)
         where THandle : struct
     {
+        budget = default;
         if (traversal is RelationshipTraversalResult<RelationshipChain<THandle>>.Rejected rejected)
             return Reject<string>(rejected.Rejection);
 
         var chain = ((RelationshipTraversalResult<RelationshipChain<THandle>>.Completed)traversal).Value;
-        var budget = new MetadataTypeNameBudget();
+        var accumulated = new MetadataTypeNameBudget();
         var builder = new StringBuilder();
         for (int i = 0; i < chain.Handles.Length; i++)
         {
@@ -786,7 +872,7 @@ public static class TypeResolver
                 if (i == 0
                     && !TryAppendNamePart(
                         reader,
-                        ref budget,
+                        ref accumulated,
                         namespaceHandle,
                         chargeDelimiterChars: 0,
                         renderDelimiterChars: 0,
@@ -801,7 +887,7 @@ public static class TypeResolver
 
                 if (!TryAppendNamePart(
                         reader,
-                        ref budget,
+                        ref accumulated,
                         nameHandle,
                         chargeDelimiterChars: 1,
                         renderDelimiterChars: i > 0 || builder.Length > 0 ? 1 : 0,
@@ -824,6 +910,7 @@ public static class TypeResolver
             }
         }
 
+        budget = accumulated;
         return new RelationshipTraversalResult<string>.Completed(
             builder.ToString(),
             chain.Handles.Length);
@@ -834,6 +921,7 @@ public static class TypeResolver
         RelationshipTraversalResult<string> declaringName,
         StringHandle leafName,
         EntityHandle subject,
+        in MetadataTypeNameBudget declaringBudget,
         bool enforceCharacterBudget = true)
     {
         if (declaringName is RelationshipTraversalResult<string>.Rejected rejected)
@@ -854,7 +942,7 @@ public static class TypeResolver
         try
         {
             var budget = new MetadataTypeNameBudget();
-            budget.SeedMaterialized(completed.Value);
+            budget.CopyFrom(declaringBudget);
             var builder = new StringBuilder(completed.Value);
             if (!TryAppendNamePart(
                     reader,
@@ -891,15 +979,17 @@ public static class TypeResolver
         StringHandle nameHandle,
         EntityHandle subject,
         int consumedNodes,
-        bool enforceCharacterBudget = true)
+        bool enforceCharacterBudget,
+        out MetadataTypeNameBudget budget)
     {
+        budget = default;
         try
         {
-            var budget = new MetadataTypeNameBudget();
+            var accumulated = new MetadataTypeNameBudget();
             var builder = new StringBuilder();
             if (!TryAppendNamePart(
                     reader,
-                    ref budget,
+                    ref accumulated,
                     namespaceHandle,
                     chargeDelimiterChars: 0,
                     renderDelimiterChars: 0,
@@ -914,7 +1004,7 @@ public static class TypeResolver
 
             if (!TryAppendNamePart(
                     reader,
-                    ref budget,
+                    ref accumulated,
                     nameHandle,
                     chargeDelimiterChars: 1,
                     renderDelimiterChars: builder.Length > 0 ? 1 : 0,
@@ -927,6 +1017,7 @@ public static class TypeResolver
                 return nameRejection;
             }
 
+            budget = accumulated;
             return new RelationshipTraversalResult<string>.Completed(
                 builder.ToString(),
                 consumedNodes);

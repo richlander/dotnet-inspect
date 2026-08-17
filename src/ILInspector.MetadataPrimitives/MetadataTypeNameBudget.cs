@@ -1,5 +1,4 @@
 using System.Reflection.Metadata;
-using System.Text;
 
 namespace ILInspector.Metadata;
 
@@ -32,10 +31,10 @@ internal struct MetadataTypeNameBudget
     long encoded;
     long characters;
 
-    public void SeedMaterialized(string value)
+    public void CopyFrom(in MetadataTypeNameBudget other)
     {
-        encoded += Encoding.UTF8.GetByteCount(value);
-        characters += value.Length;
+        encoded = other.encoded;
+        characters = other.characters;
     }
 
     public bool TryRead(
@@ -51,8 +50,9 @@ internal struct MetadataTypeNameBudget
             value = string.Empty;
             encoded += delimiterChars;
             characters += delimiterChars;
-            return !enforceCharacterBudget
-                || characters <= MetadataSafetyPolicy.MaxTypeNameCharacters;
+            return encoded <= MaxEncodedBytes
+                && (!enforceCharacterBudget
+                    || characters <= MetadataSafetyPolicy.MaxTypeNameCharacters);
         }
 
         int utf8Length = reader.GetBlobReader(handle).Length;
