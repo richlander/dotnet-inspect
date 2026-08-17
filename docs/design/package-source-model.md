@@ -85,7 +85,9 @@ of setting unsupported handler properties. Source credentials travel through
 the typed credential parameter so the library can enforce the origin boundary.
 Desktop redirects are followed by a bounded source-owned handler that reapplies
 authorization only to the credential's original origin. Exceeding five
-redirects is rejected as a source-response safety-bound failure.
+redirects is rejected as a source-response safety-bound failure. Malformed raw
+targets, unusable IDNA hosts, and embedded user information are rejected before
+another request is formed.
 This is gated by
 `RuntimeFactoriesDoNotAcceptSharedHttpClient` and
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`,
@@ -93,7 +95,9 @@ This is gated by
 `BrowserNuGetRequestsOmitAmbientCredentials`,
 `DesktopRedirectsScopeAuthorizationToOriginalOrigin`,
 `DesktopRedirectLimitAllowsFiveAndRejectsSix`,
-`RedirectLimitIsResponseRejected`, and the `NuGetFetch` `browser-wasm` build.
+`RedirectLimitIsResponseRejected`,
+`MalformedRedirectTargetIsInvalidResponse`, and the `NuGetFetch`
+`browser-wasm` build.
 
 The typed source-client compatibility adapter therefore derives producer
 identity from a query-bearing legacy service index's origin and path while

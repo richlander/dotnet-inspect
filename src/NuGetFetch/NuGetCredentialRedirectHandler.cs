@@ -117,19 +117,46 @@ internal sealed class NuGetCredentialRedirectHandler(
         Uri current,
         HttpResponseMessage response)
     {
-        Uri? location = response.Headers.Location;
-        if (location is null)
+        if (!response.Headers.NonValidated.TryGetValues(
+                "Location",
+                out HeaderStringValues locationValues))
         {
             throw new NuGetSourceResponseException(
                 "The package source returned a redirect without a target.");
         }
 
+        if (locationValues.Count != 1)
+        {
+            throw new NuGetSourceResponseException(
+                "The package source returned an unusable redirect target.");
+        }
+
+        string rawLocation = locationValues.ToString();
+        if (!NuGetHttpRequest.HasValidRawText(
+                rawLocation,
+                allowNonAscii: true))
+        {
+            throw new NuGetSourceResponseException(
+                "The package source returned an unusable redirect target.");
+        }
+
         Uri target;
         try
         {
+            if (!Uri.TryCreate(
+                    rawLocation,
+                    UriKind.RelativeOrAbsolute,
+                    out Uri? parsedLocation)
+                || parsedLocation is null)
+            {
+                throw new UriFormatException();
+            }
+
+            Uri location = parsedLocation;
             target = location.IsAbsoluteUri
                 ? location
                 : new Uri(current, location);
+            _ = target.IdnHost;
         }
         catch (UriFormatException exception)
         {
@@ -139,7 +166,8 @@ internal sealed class NuGetCredentialRedirectHandler(
         }
 
         if (target.Scheme is not ("http" or "https")
-            || string.IsNullOrEmpty(target.Host))
+            || string.IsNullOrEmpty(target.Host)
+            || !string.IsNullOrEmpty(target.UserInfo))
         {
             throw new NuGetSourceResponseException(
                 "The package source returned an unusable redirect target.");

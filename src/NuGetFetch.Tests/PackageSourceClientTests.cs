@@ -1200,6 +1200,42 @@ public sealed class PackageSourceClientTests
             failure.Kind);
     }
 
+    [Theory]
+    [InlineData("https://feed.example/path%")]
+    [InlineData("https://\u200D.example/next")]
+    [InlineData("https://user:secret@feed.example/next")]
+    public async Task MalformedRedirectTargetIsInvalidResponse(
+        string redirectTarget)
+    {
+        var transport = new RawRedirectHandler(
+            redirectTarget);
+        using var client = new HttpClient(
+            new NuGetCredentialRedirectHandler(transport));
+
+        PackageSourceFailure failure = Failed(
+            await PackageSourceOperation.CaptureAsync(
+                PackageSourceIdentity.NuGetOrg,
+                PackageSourceKind.NuGetV3,
+                PackageSourceCapabilities.VersionEnumeration,
+                async () =>
+                {
+                    using var request = new HttpRequestMessage(
+                        HttpMethod.Get,
+                        ServiceIndex);
+                    using HttpResponseMessage response =
+                        await client.SendAsync(
+                            request,
+                            TestContext.Current.CancellationToken);
+                    return response.StatusCode;
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            failure.Kind);
+        Assert.Equal(1, transport.Requests);
+    }
+
     [Fact]
     public void V3OwnedTransportIsDisposedWithClient()
     {
@@ -1528,6 +1564,26 @@ public sealed class PackageSourceClientTests
 
             return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.OK));
+        }
+    }
+
+    private sealed class RawRedirectHandler(string location)
+        : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Requests++;
+            var redirect = new HttpResponseMessage(
+                HttpStatusCode.Found);
+            redirect.Headers.TryAddWithoutValidation(
+                "Location",
+                location);
+            return Task.FromResult(redirect);
         }
     }
 

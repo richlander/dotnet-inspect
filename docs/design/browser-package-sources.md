@@ -591,7 +591,9 @@ separately and are adopted only for same-origin resources.
 Desktop automatic redirects are disabled. A bounded source-owned redirect
 handler reapplies explicit authorization only when the target remains on the
 credential's original origin and strips it from cross-origin hops. Exceeding
-the five-redirect ceiling is a typed `response-rejected` failure.
+the five-redirect ceiling is a typed `response-rejected` failure. Redirect
+targets with malformed raw text, unusable IDNA hosts, or embedded user
+information are typed invalid responses rather than normalized requests.
 `RuntimeFactoriesDoNotAcceptSharedHttpClient`,
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`, and
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate transport
@@ -600,6 +602,7 @@ credential option, and
 `DesktopRedirectsScopeAuthorizationToOriginalOrigin` gates redirect authority.
 `DesktopRedirectLimitAllowsFiveAndRejectsSix` and
 `RedirectLimitIsResponseRejected` gate the redirect safety bound.
+`MalformedRedirectTargetIsInvalidResponse` gates redirect-target admission.
 The `NuGetFetch` `browser-wasm` build is the browser-target compilation gate.
 Candidate projection remains inside the same operation deadline as the metadata
 request.
