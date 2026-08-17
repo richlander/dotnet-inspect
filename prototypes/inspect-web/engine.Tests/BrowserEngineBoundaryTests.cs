@@ -1325,6 +1325,28 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageOperation_LateCallerCancellationRemainsCancellation()
+    {
+        using var callerCancellation = new CancellationTokenSource();
+        Task<int> operation =
+            BrowserPackageWorkspace.RunPackageOperationAsync<int>(
+                async _ =>
+                {
+                    callerCancellation.Cancel();
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(50),
+                        TestContext.Current.CancellationToken);
+                    throw new OperationCanceledException(
+                        callerCancellation.Token);
+                },
+                TimeSpan.FromMilliseconds(10),
+                callerCancellation.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => operation);
+    }
+
+    [Fact]
     public async Task PackageVersionIndex_ValidatesTheIdBeforeRequestingIt()
     {
         InvalidOperationException failure =

@@ -117,21 +117,21 @@ internal static class BrowserPackageWorkspace
                 Http,
                 deadline,
                 cancellationToken),
-            PackageOperationTimeout);
+            PackageOperationTimeout,
+            cancellationToken);
 
     internal static Task<BrowserPackage> AcquireAsync(
         string packageId,
         string? version,
         HttpClient client,
-        TimeSpan operationTimeout,
-        CancellationToken cancellationToken = default) =>
+        TimeSpan operationTimeout) =>
         RunPackageOperationAsync(
             deadline => AcquireCoreAsync(
                 packageId,
                 version,
                 client,
                 deadline,
-                cancellationToken),
+                CancellationToken.None),
             operationTimeout);
 
     static async Task<BrowserPackage> AcquireCoreAsync(
@@ -571,7 +571,8 @@ internal static class BrowserPackageWorkspace
 
     internal static async Task<T> RunPackageOperationAsync<T>(
         Func<BrowserPackageOperationDeadline, Task<T>> operation,
-        TimeSpan timeout)
+        TimeSpan timeout,
+        CancellationToken callerCancellation = default)
     {
         ArgumentNullException.ThrowIfNull(operation);
         if (timeout <= TimeSpan.Zero)
@@ -582,17 +583,20 @@ internal static class BrowserPackageWorkspace
                 "The Browser package-operation timeout must be positive.");
         }
 
-        using var deadline = new BrowserPackageOperationDeadline(timeout);
+        using var deadline =
+            new BrowserPackageOperationDeadline(
+                timeout,
+                callerCancellation);
         try
         {
             T result = await operation(deadline).ConfigureAwait(false);
             deadline.ThrowIfExpired();
             return result;
         }
-        catch (OperationCanceledException exception)
-            when (deadline.HasExpired)
+        catch (OperationCanceledException)
         {
-            throw deadline.Timeout(exception);
+            deadline.ThrowIfExpired();
+            throw;
         }
         catch (TimeoutException)
         {
@@ -607,20 +611,29 @@ internal static class BrowserPackageWorkspace
 
     internal sealed class BrowserPackageOperationDeadline : IDisposable
     {
-        readonly CancellationTokenSource _cancellation;
+        readonly CancellationToken _callerCancellation;
+        readonly CancellationTokenSource _deadlineCancellation;
+        readonly CancellationTokenSource _operationCancellation;
         readonly long _started = Stopwatch.GetTimestamp();
         readonly TimeSpan _timeout;
 
-        internal BrowserPackageOperationDeadline(TimeSpan timeout)
+        internal BrowserPackageOperationDeadline(
+            TimeSpan timeout,
+            CancellationToken callerCancellation = default)
         {
             _timeout = timeout;
-            _cancellation = new CancellationTokenSource(timeout);
+            _callerCancellation = callerCancellation;
+            _deadlineCancellation = new CancellationTokenSource(timeout);
+            _operationCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    callerCancellation,
+                    _deadlineCancellation.Token);
         }
 
-        internal CancellationToken Token => _cancellation.Token;
+        internal CancellationToken Token => _operationCancellation.Token;
 
         internal bool HasExpired =>
-            _cancellation.IsCancellationRequested
+            _deadlineCancellation.IsCancellationRequested
             || Stopwatch.GetElapsedTime(_started) >= _timeout;
 
         internal TimeSpan Remaining
@@ -637,6 +650,13 @@ internal static class BrowserPackageWorkspace
 
         internal void ThrowIfExpired()
         {
+            if (_callerCancellation.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(
+                    "Browser package operation was canceled by the caller.",
+                    _callerCancellation);
+            }
+
             if (HasExpired)
             {
                 throw Timeout(
@@ -651,7 +671,11 @@ internal static class BrowserPackageWorkspace
                 $"The Browser package operation exceeded its {_timeout.TotalSeconds:g}-second deadline.",
                 exception);
 
-        public void Dispose() => _cancellation.Dispose();
+        public void Dispose()
+        {
+            _operationCancellation.Dispose();
+            _deadlineCancellation.Dispose();
+        }
     }
 
     internal sealed class BrowserPackageOperationTransferPolicy(
