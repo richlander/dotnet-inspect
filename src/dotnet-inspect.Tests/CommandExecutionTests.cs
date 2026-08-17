@@ -16993,13 +16993,77 @@ public partial class CommandExecutionTests
                 .ToList();
             var mapped = countOutput.ReplaceLineEndings("\n").Split('\n')
                 .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
-                .Select(line => line.Split('|')[1].Trim())
-                .Where(name => name.Length > 0 && name != "Section" && !name.StartsWith('-'))
-                .ToList();
+                .Select(line => line.Split('|'))
+                .Where(cells => cells.Length > 2)
+                .Select(cells => (
+                    Section: cells[1].Trim(),
+                    Count: cells[2].Trim()))
+                .Where(row => row.Section.Length > 0
+                    && row.Section != "Section"
+                    && !row.Section.StartsWith('-'))
+                .ToDictionary(
+                    row => row.Section,
+                    row => int.Parse(
+                        row.Count,
+                        CultureInfo.InvariantCulture),
+                    StringComparer.OrdinalIgnoreCase);
+            var renderedCounts = CountOutput
+                .CountMarkdownTableRowsBySection(renderOutput)
+                .GroupBy(
+                    row =>
+                    {
+                        var provenance = row.Key.IndexOf(
+                            " (",
+                            StringComparison.Ordinal);
+                        return provenance >= 0
+                            ? row.Key[..provenance]
+                            : row.Key;
+                    },
+                    StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Sum(row => row.Value),
+                    StringComparer.OrdinalIgnoreCase);
 
             var expected = LibrarySections.CreatePipeline().BareSelectSectionNames;
             Assert.Equal(expected.Order(), rendered.Order());
-            Assert.Equal(expected.Order(), mapped.Order());
+            Assert.Equal(expected.Order(), mapped.Keys.Order());
+            foreach (var section in expected)
+            {
+                Assert.True(
+                    renderedCounts[section] > 0,
+                    $"{section} must render rows in this fixture.");
+                Assert.Equal(
+                    renderedCounts[section],
+                    mapped[section]);
+            }
+
+            foreach (var format in new[]
+                     {
+                         "--json",
+                         "--table",
+                         "--tsv",
+                         "--jsonl",
+                     })
+            {
+                var (formattedExit, formattedOutput, formattedError) =
+                    await RunAppAsync(
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "-S",
+                        "--count",
+                        format,
+                        "--tips",
+                        "q");
+
+                Assert.Equal(0, formattedExit);
+                Assert.Equal(countOutput, formattedOutput);
+                Assert.DoesNotContain(
+                    "unprojected output",
+                    formattedError,
+                    StringComparison.OrdinalIgnoreCase);
+            }
         }
         finally
         {

@@ -3517,7 +3517,7 @@ public class PackageCommand
             return 1;
         }
 
-        if (libraryOptions.JsonOutput)
+        if (libraryOptions.JsonOutput && !libraryOptions.Count)
         {
             Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
             return completionExitCode;
@@ -3530,18 +3530,42 @@ public class PackageCommand
             // An empty match is still an answer to --count, and returning without projecting
             // would report the absence as unprojected output.
             if (libraryOptions.Count)
-                CountOutput.WriteCount(0, options.OutputPath);
+            {
+                var ordered = OutputFormatter.ResolveCountMapSections(
+                    pipeline,
+                    libraryOptions.IncludeSections,
+                    libraryOptions.FixedOverview);
+                if (ordered != null)
+                {
+                    CountOutput.WriteCountMap(
+                        new Dictionary<string, int>(
+                            StringComparer.OrdinalIgnoreCase),
+                        ordered,
+                        options.OutputPath);
+                }
+                else
+                {
+                    CountOutput.WriteCount(0, options.OutputPath);
+                }
+            }
             return completionExitCode;
         }
 
-        if (libraryOptions.TabularExplicitlySet)
+        if (libraryOptions.TabularExplicitlySet && !libraryOptions.Count)
         {
             if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))
                 return 1;
             return completionExitCode;
         }
 
-        var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
+        var markdown = RenderAllLibrariesMarkdown(
+            packageName,
+            version,
+            inspections,
+            sections,
+            libraryOptions,
+            pipeline,
+            out var sectionCounts);
         if (libraryOptions.Count)
         {
             var ordered = OutputFormatter.ResolveCountMapSections(
@@ -3550,8 +3574,8 @@ public class PackageCommand
                 libraryOptions.FixedOverview);
             if (ordered != null)
             {
-                CountOutput.WriteCountMapFromMarkdown(
-                    markdown,
+                CountOutput.WriteCountMap(
+                    sectionCounts,
                     ordered,
                     options.OutputPath);
             }
@@ -4069,18 +4093,24 @@ public class PackageCommand
         List<LibraryInspection> inspections,
         List<string> sections,
         LibraryOptions options,
-        SectionPipeline<LibraryInspection> pipeline)
+        SectionPipeline<LibraryInspection> pipeline,
+        out Dictionary<string, int> sectionCounts)
     {
         var sb = new StringBuilder();
+        sectionCounts = new Dictionary<string, int>(
+            StringComparer.OrdinalIgnoreCase);
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
         AppendBlock(sb, $"# {title}");
 
         foreach (var section in sections)
         {
+            var sectionStart = sb.Length;
             if (IsAggregatedAllLibrariesSection(section))
                 AppendAggregatedSection(sb, section, inspections, options.Rows);
             else
                 AppendPerLibrarySections(sb, section, inspections, options, pipeline);
+            sectionCounts[section] = CountOutput.CountMarkdownTableRows(
+                sb.ToString(sectionStart, sb.Length - sectionStart));
         }
 
         return sb.ToString().TrimEnd();
