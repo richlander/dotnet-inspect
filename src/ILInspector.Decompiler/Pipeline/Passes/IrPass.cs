@@ -175,6 +175,11 @@ public static class IrPasses
         // becomes a pure single condition that structuring can nest and boolean
         // folding can recompose into one && return (issue #3051).
         new StructReceiverInliningPass(),
+        // Pre-structuring normalizers above can remove diamonds that made a
+        // bottom-tested region ineligible during the early do-while run. Give
+        // those regions one final chance before general structuring consumes
+        // the flat container (#4064).
+        new DoWhileLoopPass(),
         new StructuringPass(),
         // Second, spill-anchored object-initializer run. The default run above
         // (early, before diamond collapsing) cannot fold a member whose value

@@ -80,6 +80,15 @@ public sealed class SourceLinkService : IDisposable
         Action<string>? log = null)
         => new(PdbContext.OpenMetadataOnly(assembly, log), DefaultCache, log);
 
+    public static SourceLinkService OpenMetadataOnly(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log,
+        ISourceLinkIndexCache? cache)
+        => new(
+            PdbContext.OpenMetadataOnly(assembly, log),
+            cache,
+            log);
+
     public static SourceLinkService Open(
         ResolvedAssemblyReference assembly,
         Action<string>? log = null,
@@ -211,6 +220,14 @@ public sealed class SourceLinkService : IDisposable
         return _resolver?.ResolveTypeSource(typeName);
     }
 
+    public SourceLinkResolver.TypeSourceInfo? ResolveTypeSource(
+        MetadataTypeDefinitionName type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        EnsureCurrentPdbState();
+        return _resolver?.ResolveTypeSource(type);
+    }
+
     public SourceLinkResolver.MethodSourceInfo? ResolveMethodSource(
         string typeName,
         string methodName,
@@ -333,6 +350,7 @@ public sealed class SourceLinkService : IDisposable
         }
         finally
         {
+            _resolver = new SourceLinkResolver(_context, _map);
             _observedPdbVersion = _context.PdbVersion;
         }
     }
@@ -439,4 +457,11 @@ public sealed class SourceLinkService : IDisposable
             or DecoderFallbackException;
 
     public void Dispose() => _context.Dispose();
+
+    /// <summary>
+    /// Disposes the service and returns the first owned-resource disposal
+    /// failure after all cleanup has been attempted.
+    /// </summary>
+    public Exception? DisposeWithFailure() =>
+        _context.DisposeWithFailure();
 }

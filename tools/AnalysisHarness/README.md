@@ -28,8 +28,8 @@ Top-level harness modes are mutually exclusive. Supplying more than one names
 the conflicting flags and exits 2 instead of silently running the first
 dispatch branch.
 
-The structural clone corpus is a separate product/harness boundary and the
-first exact-discovery demo:
+The structural clone corpus is a separate product/harness boundary for
+pairwise exact/near grading and exact-discovery:
 
 ```bash
 dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll
@@ -39,8 +39,10 @@ dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll --json
 The text demo reports direct comparison and discovery independently:
 
 ```text
-Structural clone relationship corpus: 6/6 passed
+Structural clone relationship corpus: 10/10 passed
 PASS banal.authored.exact: expected Completed/Exact, actual Completed/Exact (Unique correspondence)
+PASS banal.constant.near: expected Completed/Near, actual Completed/Near (Unique alignment): edits blocks +0/-0/~1, operations +0/-0/~1, edges +0/-0/~0
+PASS challenging.operation-reordering.negative: expected Completed/Different, actual Completed/Different
 ...
 PASS closed-world exact discovery: expected 4 clusters, actual 4 clusters, disposition Completed
   ...::ExactPositiveA = ...::ExactPositiveB
@@ -51,18 +53,21 @@ PASS closed-world exact discovery: expected 4 clusters, actual 4 clusters, dispo
 
 The committed
 `corpus/structural-clone-relationships.json` ledger supplies candidate pairs,
-separate expected disposition/relation, and an explicit closed-world discovery
-population. It also records orthogonal difficulty, intent, actionability, and
-tag axes. The harness derives expected exact connected components only from
-the ledger's expected relations. It then resolves the declared identities to
-SRM handles, grades `StructuralCloneAnalysis.Compare`, runs
-`StructuralCloneAnalysis.Discover`, and requires the complete discovered
-clusters to equal those components. A missed family or an undeclared
-cross-component merge fails the discovery card.
+separate expected disposition/relation, expected edit-count summaries for near
+cases, and an explicit closed-world discovery population. It also records
+orthogonal difficulty, intent, actionability, and tag axes. The harness derives
+expected exact connected components only from the ledger's expected relations.
+It then resolves the declared identities to SRM handles, grades
+`StructuralCloneAnalysis.Compare` and every returned near-alignment
+alternative, runs `StructuralCloneAnalysis.Discover`, and requires the complete
+discovered clusters to equal those components. A missed family or an
+undeclared cross-component merge fails the discovery card.
 
 The harness owns no candidate fingerprint, clone normalization,
-correspondence, clustering, or verification logic. Negative cluster membership
-is graded only after discovery reports `Completed` with no suppressed buckets.
+correspondence, near alignment, clustering, or verification logic. Near
+expectations describe only edit categories and counts; the harness never
+reconstructs product block mappings or edits. Negative cluster membership is
+graded only after discovery reports `Completed` with no suppressed buckets.
 Unsupported direct-comparison cases remain visible direct gates and do not
 downgrade an otherwise complete discovery pass.
 
@@ -75,6 +80,11 @@ a file; it never falls back to the committed corpus.
 `StructuralCloneCorpusTests` also requires every public method in the dedicated
 fixture type to appear in both ledger views, preventing fixture, relationship,
 or discovery-population drift.
+
+Near alignment remains pairwise and bounded. Exact discovery deliberately uses
+the exact-only comparator path, so near cases in the population remain outside
+exact clusters. The harness performs no fuzzy retrieval, ranking, or
+precision/recall measurement.
 
 The whole-assembly census is the scale and seed-to-family demo:
 

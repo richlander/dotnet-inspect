@@ -57,7 +57,21 @@ For multi-document methods, the portable PDB's
 `MethodDebugInformation.Document` is primary when it has a visible point
 relationship. Otherwise the first visible sequence point is primary.
 Presentation consumers prefer that relationship and use document-row order
-only as a deterministic fallback.
+only as a deterministic fallback. Type-to-document correlation retains every
+visible sequence-point document even when the method's root document is nil;
+`MetadataSourceFindingsTests.TypeDocumentCorrelation_UsesVisibleDocumentsWhenRootIsOmitted`
+gates that compiler-produced shape. The type inventory is atomic rather than
+best-effort: malformed target document names or sequence-point blobs fail the
+census instead of being omitted from an absent or apparently complete mapping.
+`AssemblyContextSourceQueryTests.MalformedTargetPdbDocument_ProducesFailedAuthoredEvidenceBeforeTypeFallback`
+and
+`AssemblyContextSourceQueryTests.MalformedTargetSequencePoints_ProduceFailedAuthoredEvidenceBeforeTypeFallback`
+gate those two decode boundaries with real portable PDBs. SRM-readable but
+invalid census values fail the same boundary rather than becoming absence:
+`AssemblyContextSourceQueryTests.EmptyTargetPdbDocument_ProducesFailedAuthoredEvidenceBeforeTypeFallback`
+gates an empty correlated document path, and
+`AssemblyContextSourceQueryTests.RejectedUnrelatedTypeName_ProducesFailedAuthoredEvidenceBeforeTypeFallback`
+gates a rejected unrelated structured TypeDef name.
 
 Member-source comparison treats the exact point-line set as a changeable
 payload facet. Its occurrence sort key includes every compared identity and
@@ -114,16 +128,129 @@ folds, not additional Findings.
 token. `AuthoredSourceAcquisition` consumes the same token-scoped mapping and
 document census, fetches exact bytes through the SSRF-hardened Services path,
 verifies the portable-PDB checksum, extracts the member body, and returns a
-`FindingInspection<string>`. Conditional branch liveness is composed only at
-that slicing boundary: Metadata reports point lines, CSharpText reports lexical
-branch ranges, and the body slicer selects a branch only when exactly one range
-contains point evidence. It validates both the PDB range endpoints and every
-point line against the verified physical source. Because output remains a slice
-of the original authored text rather than projected text, a selected group
-wholly inside that slice is omitted from a second, boundary-only projection.
-The resulting declaration must remain sliceable with identical boundaries;
+`FindingInspection<string>`. Its type operation resolves only the exact
+`MetadataTypeDefinitionName`, verifies the primary document through the same
+path, and returns the complete authored document with its typed mapping,
+document, and checksum verdict. The PDB correlation retains that structured
+name rather than indexing its non-injective dotted projection, and duplicate
+exact identities are rejected instead of selecting the first row. It does not
+use SourceLink's simple-name compatibility fallback or case-insensitive
+document inference.
+`MetadataSourceFindingsTests.ExactTypeSourceResolution_IsOrdinalAndDoesNotInferDocuments`
+and
+`MetadataSourceFindingsTests.ExactTypeIndexes_PreserveStructuredSegmentsAndRejectDuplicateIdentity`
+gate that boundary. Request conversion uses `ApiType.DefinitionName` when
+available; an older surface's string `MetadataName` is accepted only for an
+unambiguous top-level name, because `+` cannot distinguish nesting from a
+literal metadata character. This is gated by
+`AssemblyContextSourceQueryTests.RequestFromLegacyApiType_RequiresUnambiguousMetadataName`.
+
+Whole-document type output refuses more than 500,000 logical lines before
+materializing the Finding census; the verified text then remains a failed
+authored attempt so Decompiler fallback can run.
+`AuthoredSourceAcquisitionTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
+gates that bound. A host source-content store that reports a read or write
+failure produces typed evidence and does not publish the fetched bytes to the
+process-local memory cache, so an identical retry cannot silently change from
+failure to authored success. The compatibility `CoreCache` adapter retains its
+pre-existing best-effort persistence semantics.
+`AssemblyContextSourceQueryTests.SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry`
+gates both repeatability and fallback. Store-specific non-cancellation,
+non-fatal exceptions are also typed as storage failures rather than suppressing
+Decompiler fallback; cancellation remains exceptional.
+`AssemblyContextSourceQueryTests.SourceStoreOperationalFailure_PreservesAuthoredFailureAndFallback`
+and `AssemblyContextSourceQueryTests.SourceStoreCancellation_Propagates` gate
+those boundaries.
+Portable-PDB acquisition and validation failures follow the same composition:
+the failed authored attempt remains visible while member or type decompilation
+continues, and cancellation still propagates. Host PDB-store implementations
+may report operational failures with implementation-appropriate exception
+types; the query classifies every non-cancellation, non-fatal failure at the
+PDB-acquisition boundary.
+`AssemblyContextSourceQueryTests.PdbStoreFailure_PreservesAuthoredFailureAndFallsBackForMemberAndType`
+gates external-store failure, and
+`AssemblyContextSourceQueryTests.CorruptEmbeddedPdb_PreservesAuthoredFailureAndFallsBackForMemberAndType`
+gates malformed embedded symbols before external acquisition begins. A PDB
+that opens successfully but fails while resolving an exact type mapping follows
+the same typed fallback path;
+`AssemblyContextSourceQueryTests.MalformedPdbDocument_PreservesAuthoredFailureAndFallsBackForType`
+gates that lazy-inspection boundary with a real PDB whose unrelated document
+name is malformed. Cancellation remains exceptional but disposes an already
+opened SourceLink service before it propagates;
+`AssemblyContextSourceQueryTests.PdbAcquisitionCancellation_DisposesOpenedSourceLinkService`
+gates that ownership boundary.
+A query with cancellation already requested still validates that the selected
+participant belongs to the group, then stops before snapshot acquisition.
+`AssemblyContextSourceQueryTests.PreCanceledQueries_StopBeforeSnapshotAndDecompilerFallback`
+gates the pre-entry member and type boundary. Participant membership includes
+the binding-policy snapshot rather than assembly-descriptor identity alone,
+and a policy that rotates its snapshot after group creation is rejected before
+snapshot acquisition or cancellation. Cancellation and the snapshot are
+revalidated immediately after workspace acquisition, before rejected or
+missing-target results can return;
+`AssemblyContextSourceQueryTests.SnapshotAcquisitionStateChange_PrecedesEarlyTargetNotFound`
+gates that member and type boundary. The snapshot is also revalidated after
+authored-source awaits and before publication, and around every binding-policy
+selection during fallback;
+`AssemblyContextSourceQueryTests.SameDescriptorForeignParticipant_IsRejectedBeforeCancellation`
+and
+`AssemblyContextSourceQueryTests.ChangedBindingPolicySnapshot_IsRejectedBeforeCancellation`
+gate the entry identity boundaries, while
+`AssemblyContextSourceQueryTests.BindingPolicyVersionChangeDuringPdbAcquisition_IsRejected`
+and
+`AssemblyContextSourceQueryTests.BindingPolicyVersionChangeDuringFallback_IsRejected`
+gate the in-flight boundaries. Cancellation raised by the binding policy or a
+selected dependency descriptor while opening, validating, or reading its
+content during decompiler fallback remains exceptional, as does cancellation
+requested through the query token while selection returns normally;
+`AssemblyContextSourceQueryTests.BindingPolicyCancellation_PropagatesFromDecompilerFallback`
+`AssemblyContextSourceQueryTests.SelectedDescriptorCancellation_PropagatesFromFallback`,
+and
+`AssemblyContextSourceQueryTests.BindingPolicyRequestedTokenCancellation_StopsFallback`
+gate the member and type paths. Fallback removes the retained descriptor's
+filesystem path before invoking the Decompiler, so ambient sidecar PDBs cannot
+bypass explicit PDB-store capabilities or change content-shaped output;
+`AssemblyContextSourceQueryTests.DecompilerFallback_IgnoresAmbientSidecarPath`
+gates the member and type paths. Cancellation observed after a successful
+source-store read or write remains exceptional rather than returning authored
+success or publishing the bytes to the process-local cache;
+`AssemblyContextSourceQueryTests.SourceStoreSuccessfulCancellation_PropagatesBeforeAuthoredSuccess`
+gates member and type acquisition at both store stages.
+Cancellation is also rechecked under SourceLink-service ownership immediately
+after PDB acquisition, before a concurrent binding-policy rotation can turn it
+into a typed policy failure. Cancellation and the binding-policy snapshot are
+rechecked again after that service is disposed and before authored success is
+published;
+`AssemblyContextSourceQueryTests.PdbAcquisitionCancellation_PrecedesConcurrentBindingPolicyChange`
+and
+`AssemblyContextSourceQueryTests.PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure`
+gate the failure path, while
+`AssemblyContextSourceQueryTests.PostPdbCancellation_DisposesOpenedSourceLinkService`
+and
+`AssemblyContextSourceQueryTests.AuthoredSuccessStateChangeDuringPdbDisposal_IsObserved`
+gate ownership and the member/type success paths. Disposal cancellation remains
+exceptional and another disposal failure becomes typed inspection failure
+instead of authored success;
+`AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsAuthoredSuccess`
+gates both outcomes, and
+`AssemblyContextSourceQueryTests.NonStandardPdbDisposalFailure_IsTyped`
+gates host-specific non-fatal exception types.
+
+Conditional branch liveness is composed only at the member slicing boundary:
+Metadata reports point lines, CSharpText reports lexical branch ranges, and the
+body slicer selects a branch only when exactly one range contains point
+evidence. It validates both the PDB range endpoints and every point line
+against the verified physical source. Because output remains a slice of the
+original authored text rather than projected text, a selected group wholly
+inside that slice is omitted from a second, boundary-only projection. The
+resulting declaration must remain sliceable with identical boundaries;
 otherwise the slicer refuses the result rather than include a sibling from an
 inactive branch.
+
+`SourceFetcher` delegates reusable verified bytes to an
+`ISourceContentStore`. Its compatibility constructor retains the desktop
+`CoreCache`; content-only hosts supply `InMemorySourceContentStore`, so source
+acquisition has no ambient filesystem requirement.
 
 The same checksum evidence is carried through type, member-location, and
 IL-offset projections when those views can print or derive output from source
@@ -141,4 +268,18 @@ The authored rebuild harness reports `Recorded`, `Incomplete`, `Drift`, or
 Product `ImplementationDiff` consumes acquired line envelopes for its `Source`
 mechanism; Research remains network-free. Decompiled `CSharp` and authored
 `Source` are peers, so Source absence never changes or suppresses decompiler
-evidence.
+evidence. `AssemblyContextSourceQuery` applies that rule to a selected
+workspace participant: verified authored text is the preferred result;
+otherwise Decompiler receives the retained assembly content and the same
+binding policy as the group. A failed authored integrity attempt remains typed
+beside a successful decompiled result, and neither producer succeeding yields
+`AuthoredAndDecompiledUnavailable`, not empty output. The pathless authored,
+fallback, integrity-failure, and neither-available cases are gated by
+`AssemblyContextSourceQueryTests`.
+
+Portable-PDB type and member correlation is independent of SourceLink URL
+decoration. When a PDB has no SourceLink map, an explicitly enabled local-source
+read may still use its exact document path and checksum; repository and network
+acquisition remain unavailable without a mapped URL.
+`AssemblyContextSourceQueryTests.LocalPdbSource_DoesNotRequireSourceLinkMap`
+gates both member and type acquisition at that boundary.

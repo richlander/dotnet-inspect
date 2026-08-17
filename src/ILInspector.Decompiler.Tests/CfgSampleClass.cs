@@ -705,6 +705,25 @@ public class CfgSampleClass
         return s;
     }
 
+    public static int NestedDoWhileWithBranchingBody(bool branch, bool inner, bool outer)
+    {
+        int value = 0;
+        do
+        {
+            do
+            {
+                if (branch)
+                    value++;
+                else
+                    value += 2;
+            }
+            while (inner);
+            value += 3;
+        }
+        while (outer);
+        return value;
+    }
+
     public static int PartitionStyleNestedSelfLoops(int[] values, int pivot, int lo, int hi)
     {
         int i = lo;
@@ -5477,54 +5496,4 @@ public sealed class CounterIndexer
         get => _counts[index];
         set => _counts[index] = value;
     }
-}
-
-/// <summary>Base type for constructor-chain fixtures (base(...) targets).</summary>
-public class CtorChainBase
-{
-    public CtorChainBase() { }
-
-    public CtorChainBase(string? message) => Message = message;
-
-    public string? Message { get; }
-}
-
-/// <summary>
-/// Constructor shapes the chain pass must render: a plain base call, a base
-/// call whose argument carries control flow (the spilled-this <c>??</c>
-/// shape), a <c>this(...)</c> delegation, and an implicit parameterless base.
-/// </summary>
-public sealed class CtorChainSamples : CtorChainBase
-{
-    public CtorChainSamples() { }                       // implicit base()
-
-    public CtorChainSamples(string message) : base(message) { }
-
-    public CtorChainSamples(int code) : base(code > 0 ? "positive" : null) { }
-
-    public CtorChainSamples(string message, bool _) : base(message ?? "default") { }
-
-    public CtorChainSamples(long value) : this(value.ToString()) { }
-}
-
-public class NamedCtorArgumentOrderBase
-{
-    protected NamedCtorArgumentOrderBase(int before, int after)
-    {
-        Before = before;
-        After = after;
-    }
-
-    public int Before { get; }
-    public int After { get; }
-}
-
-public sealed class NamedCtorArgumentOrder : NamedCtorArgumentOrderBase
-{
-    public NamedCtorArgumentOrder(int value)
-        : base(after: Mutate(ref value), before: value)
-    {
-    }
-
-    static int Mutate(ref int value) => value++;
 }
