@@ -15,7 +15,8 @@ public class NuGetClient(HttpClient client)
     internal const string NuGetOrgSearchUrl = "https://azuresearch-usnc.nuget.org/query";
 
     private readonly NuGetFetchOptions _options = new();
-    private readonly ConcurrentDictionary<string, string> _baseAddressCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _baseAddressCache =
+        new(StringComparer.Ordinal);
 
     /// <summary>
     /// Creates a NuGet client with configured resource limits and deadlines.
@@ -40,7 +41,7 @@ public class NuGetClient(HttpClient client)
             operation).ConfigureAwait(false);
     }
 
-    private async Task<IReadOnlyList<string>> GetVersionsAsync(
+    internal async Task<IReadOnlyList<string>> GetVersionsAsync(
         string packageId,
         string? sourceUrl,
         PackageSourceCredential? credential,
@@ -50,7 +51,10 @@ public class NuGetClient(HttpClient client)
             sourceUrl,
             credential,
             operation).ConfigureAwait(false);
-        string url = $"{baseAddress}{packageId.ToLowerInvariant()}/index.json";
+        string normalizedId = packageId.ToLowerInvariant();
+        string url = AppendBaseAddressPath(
+            baseAddress,
+            $"{Uri.EscapeDataString(normalizedId)}/index.json");
         PackageSourceCredential? endpointCredential =
             CredentialForEndpoint(sourceUrl, url, credential);
 
@@ -60,7 +64,7 @@ public class NuGetClient(HttpClient client)
                 async requestToken =>
                 {
                     using HttpRequestMessage request =
-                        NuGetHttpRequest.CreateGet(url);
+                        NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
                     ApplyCredential(request, endpointCredential);
                     using HttpResponseMessage response = await client.SendAsync(
                         request,
@@ -78,7 +82,9 @@ public class NuGetClient(HttpClient client)
                             _options,
                             client.Timeout,
                             requestToken).ConfigureAwait(false);
-                    return (IReadOnlyList<string>?)index?.Versions ?? [];
+                    return (IReadOnlyList<string>?)index?.Versions
+                        ?? throw new NuGetSourceResponseException(
+                            "The package version response was not a valid version document.");
                 }).ConfigureAwait(false);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -148,7 +154,10 @@ public class NuGetClient(HttpClient client)
                     return version;
                 }
             }
-            catch (Exception ex) when (ex is HttpRequestException or JsonException)
+            catch (Exception ex) when (ex is
+                HttpRequestException
+                or JsonException
+                or NuGetSourceResponseException)
             {
                 // Try next source
             }
@@ -172,7 +181,10 @@ public class NuGetClient(HttpClient client)
                 operation).ConfigureAwait(false);
             string id = packageId.ToLowerInvariant();
             string ver = NormalizeVersion(version);
-            string url = $"{baseAddress}{id}/{ver}/{id}.{ver}.nupkg";
+            string url = AppendBaseAddressPath(
+                baseAddress,
+                $"{Uri.EscapeDataString(id)}/{Uri.EscapeDataString(ver)}/"
+                + $"{Uri.EscapeDataString($"{id}.{ver}.nupkg")}");
             PackageSourceCredential? endpointCredential =
                 CredentialForEndpoint(sourceUrl, url, credential);
 
@@ -180,7 +192,7 @@ public class NuGetClient(HttpClient client)
                 async requestToken =>
                 {
                     using HttpRequestMessage request =
-                        NuGetHttpRequest.CreateGet(url);
+                        NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
                     ApplyCredential(request, endpointCredential);
                     HttpResponseMessage response = await client.SendAsync(
                         request,
@@ -235,25 +247,37 @@ public class NuGetClient(HttpClient client)
         PackageSourceCredential? credential,
         NuGetOperationDeadline operation)
     {
-        ServiceIndex? index = await operation.RunRequestAsync(
-            async requestToken =>
-            {
-                using HttpRequestMessage request =
-                    NuGetHttpRequest.CreateGet(serviceIndexUrl);
-                ApplyCredential(request, credential);
-                using HttpResponseMessage response = await client.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    requestToken).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
+        ServiceIndex? index;
+        try
+        {
+            index = await operation.RunRequestAsync(
+                async requestToken =>
+                {
+                    using HttpRequestMessage request =
+                        NuGetHttpRequest.CreateGet(serviceIndexUrl);
+                    ApplyCredential(request, credential);
+                    using HttpResponseMessage response = await client.SendAsync(
+                        request,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        requestToken).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
 
-                return await NuGetMetadataReader.ReadResponseAsync(
-                    response,
-                    NuGetApi.DeserializeServiceIndexAsync,
-                    _options,
-                    client.Timeout,
-                    requestToken).ConfigureAwait(false);
-            }).ConfigureAwait(false);
+                    return await NuGetMetadataReader.ReadResponseAsync(
+                        response,
+                        NuGetApi.DeserializeServiceIndexAsync,
+                        _options,
+                        client.Timeout,
+                        requestToken).ConfigureAwait(false);
+                }).ConfigureAwait(false);
+        }
+        catch (HttpRequestException exception)
+            when (exception.StatusCode
+                == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new NuGetSourceResponseException(
+                "The package source service index was not found.",
+                exception);
+        }
 
         string? baseAddress = index?.Resources
             .Where(r => r.Type.StartsWith("PackageBaseAddress", StringComparison.OrdinalIgnoreCase))
@@ -265,7 +289,7 @@ public class NuGetClient(HttpClient client)
             return null;
         }
 
-        return baseAddress.EndsWith('/') ? baseAddress : baseAddress + "/";
+        return NormalizeBaseAddress(baseAddress);
     }
 
     /// <summary>
@@ -327,7 +351,13 @@ public class NuGetClient(HttpClient client)
             return NuGetOrgFlatContainer;
         }
 
-        if (_baseAddressCache.TryGetValue(sourceUrl, out string? cached))
+        bool cacheableSource =
+            credential is null
+            && Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? source)
+            && source.Query.Length == 0
+            && source.Fragment.Length == 0;
+        if (cacheableSource
+            && _baseAddressCache.TryGetValue(sourceUrl, out string? cached))
         {
             return cached;
         }
@@ -336,10 +366,105 @@ public class NuGetClient(HttpClient client)
             sourceUrl,
             credential,
             operation).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Could not resolve PackageBaseAddress from {sourceUrl}");
+            ?? throw new NuGetSourceResponseException(
+                "The source service index did not advertise PackageBaseAddress.");
 
-        _baseAddressCache.TryAdd(sourceUrl, baseAddress);
+        if (cacheableSource
+            && Uri.TryCreate(baseAddress, UriKind.Absolute, out Uri? resource)
+            && resource.Query.Length == 0
+            && resource.Fragment.Length == 0)
+        {
+            _baseAddressCache.TryAdd(sourceUrl, baseAddress);
+        }
+
         return baseAddress;
+    }
+
+    private static string NormalizeBaseAddress(string baseAddress)
+    {
+        if (!NuGetHttpRequest.HasValidRawText(
+                baseAddress,
+                allowNonAscii: true)
+            || !Uri.TryCreate(baseAddress, UriKind.Absolute, out Uri? endpoint)
+            || (endpoint.Scheme != Uri.UriSchemeHttp
+                && endpoint.Scheme != Uri.UriSchemeHttps)
+            || endpoint.UserInfo.Length > 0
+            || endpoint.Fragment.Length > 0)
+        {
+            throw new NuGetSourceResponseException(
+                "The source service index advertised an unusable PackageBaseAddress.");
+        }
+
+        int queryStart = baseAddress.IndexOf('?', StringComparison.Ordinal);
+        string pathAndOrigin = queryStart >= 0
+            ? baseAddress[..queryStart]
+            : baseAddress;
+        string query = queryStart >= 0
+            ? baseAddress[queryStart..]
+            : "";
+        if (pathAndOrigin.Any(character => character > 0x7F))
+        {
+            string escapedPath = endpoint.GetComponents(
+                UriComponents.Path,
+                UriFormat.UriEscaped);
+            string idnHost;
+            try
+            {
+                idnHost = endpoint.IdnHost;
+            }
+            catch (UriFormatException exception)
+            {
+                throw new NuGetSourceResponseException(
+                    "The source service index advertised an unusable PackageBaseAddress.",
+                    exception);
+            }
+
+            string host = endpoint.HostNameType == UriHostNameType.IPv6
+                ? $"[{idnHost}]"
+                : idnHost;
+            string origin =
+                $"{endpoint.Scheme}://{host}"
+                + (endpoint.IsDefaultPort
+                    ? ""
+                    : $":{endpoint.Port}");
+            pathAndOrigin =
+                origin
+                + (escapedPath.StartsWith("/", StringComparison.Ordinal)
+                    ? escapedPath
+                    : "/" + escapedPath);
+        }
+
+        if (query.Any(character => character > 0x7F))
+        {
+            query = endpoint.Query.Length == 0
+                ? ""
+                : "?" + endpoint.GetComponents(
+                    UriComponents.Query,
+                    UriFormat.UriEscaped);
+        }
+
+        string normalized = pathAndOrigin.EndsWith("/", StringComparison.Ordinal)
+            ? pathAndOrigin + query
+            : $"{pathAndOrigin}/{query}";
+        if (!NuGetHttpRequest.TryCreatePreservingPathAndQuery(
+                normalized,
+                out _))
+        {
+            throw new NuGetSourceResponseException(
+                "The source service index advertised an unusable PackageBaseAddress.");
+        }
+
+        return normalized;
+    }
+
+    private static string AppendBaseAddressPath(
+        string baseAddress,
+        string relativePath)
+    {
+        int queryStart = baseAddress.IndexOf('?', StringComparison.Ordinal);
+        return queryStart >= 0
+            ? $"{baseAddress[..queryStart]}{relativePath}{baseAddress[queryStart..]}"
+            : baseAddress + relativePath;
     }
 
     private NuGetOperationDeadline CreateOperation(
@@ -364,17 +489,28 @@ public class NuGetClient(HttpClient client)
         if (credential is null || sourceUrl is null)
             return credential;
 
-        return Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? source)
-            && Uri.TryCreate(endpointUrl, UriKind.Absolute, out Uri? endpoint)
-            && source.Scheme.Equals(
-                endpoint.Scheme,
-                StringComparison.OrdinalIgnoreCase)
-            && source.IdnHost.Equals(
-                endpoint.IdnHost,
-                StringComparison.OrdinalIgnoreCase)
-            && source.Port == endpoint.Port
-                ? credential
-                : null;
+        if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? source)
+            || !Uri.TryCreate(endpointUrl, UriKind.Absolute, out Uri? endpoint))
+        {
+            return null;
+        }
+
+        try
+        {
+            return source.Scheme.Equals(
+                    endpoint.Scheme,
+                    StringComparison.OrdinalIgnoreCase)
+                && source.IdnHost.Equals(
+                    endpoint.IdnHost,
+                    StringComparison.OrdinalIgnoreCase)
+                && source.Port == endpoint.Port
+                    ? credential
+                    : null;
+        }
+        catch (UriFormatException)
+        {
+            return null;
+        }
     }
 
     internal static string? FindLatestVersion(IReadOnlyList<string> versions, bool includePrerelease)

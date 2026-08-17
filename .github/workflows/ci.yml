@@ -411,7 +411,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
     runs-on: windows-latest
-    timeout-minutes: 40
+    # Raised from 40 after #4350 measured a 29-minute CLI run followed by the
+    # expected six remaining suites. The lane needed about 42 minutes to report
+    # every result; 55 preserves that evidence with measured runner variance.
+    timeout-minutes: 55
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
