@@ -137,6 +137,8 @@ public class ImplicitFinalizerDetectionTests
             new TypeSpec("Object", BaseKind.Nil, new MethodSpec("Finalize", NewSlot, VoidNullary), Namespace: "System"),
             new TypeSpec("Derived", BaseKind.Def("Object"), new MethodSpec("Finalize", ReuseSlot, VoidNullary)));
 
+        using (var pe = new PEReader(new MemoryStream(image)))
+            Assert.Empty(pe.GetMetadataReader().AssemblyReferences);
         Assert.True(ExtractMember(image, "Derived", "Finalize").IsFinalizer);
     }
 
@@ -180,24 +182,31 @@ public class ImplicitFinalizerDetectionTests
             flags: default,
             hashAlgorithm: default);
 
-        // System.Private.CoreLib reference carrying its real strong-name token so
-        // the classifier's IsSystemObjectType accepts the cross-assembly object ref.
-        var coreLib = metadata.AddAssemblyReference(
-            metadata.GetOrAddString("System.Private.CoreLib"),
-            new Version(11, 0, 0, 0),
-            culture: default,
-            publicKeyOrToken: metadata.GetOrAddBlob(
-                new byte[] { 0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e }),
-            flags: default,
-            hashValue: default);
-        var objectRef = metadata.AddTypeReference(
-            coreLib,
-            metadata.GetOrAddString("System"),
-            metadata.GetOrAddString("Object"));
-        var exceptionRef = metadata.AddTypeReference(
-            coreLib,
-            metadata.GetOrAddString("System"),
-            metadata.GetOrAddString("Exception"));
+        EntityHandle objectRef = default;
+        EntityHandle exceptionRef = default;
+        if (Array.Exists(
+                types,
+                static type => type.Base.Tag is BaseTag.Object or BaseTag.Exception))
+        {
+            // Cross-assembly fixtures use the real core-library identity. The
+            // in-assembly System.Object fixture stays reference-free like a corelib.
+            var coreLib = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Private.CoreLib"),
+                new Version(11, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: metadata.GetOrAddBlob(
+                    new byte[] { 0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e }),
+                flags: default,
+                hashValue: default);
+            objectRef = metadata.AddTypeReference(
+                coreLib,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+            exceptionRef = metadata.AddTypeReference(
+                coreLib,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Exception"));
+        }
 
         // Shared trivial `ret` body; the extractor never reads method bodies.
         var instructions = new BlobBuilder();
