@@ -764,7 +764,13 @@ public static class ApiSurfaceExtractor
                 if (isExtensionClass && member.IsStatic && AttributeReader.HasExtensionAttribute(reader, method.GetCustomAttributes()))
                 {
                     member.IsExtension = true;
-                    member.ExtendedType = GetFirstParameterType(reader, typeDef, method);
+                    // Reuse the already-budgeted signature decode. A second
+                    // GuardedSignatureText pass would rematerialize oversized
+                    // generic heads via SignatureDecoder (Sol R16).
+                    member.ExtendedType = signature.Model is
+                        { Parameters: { Count: > 0 } extensionParameters }
+                            ? extensionParameters[0].Type
+                            : null;
                     member.DeclaringType = apiType.FullName;
                 }
 
@@ -882,7 +888,11 @@ public static class ApiSurfaceExtractor
             // pre-scan and the per-field fold below are factored into shared helpers so
             // API-surface extraction and compile-back reconstruction agree on the fold.
             var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(reader, typeDef);
-            var autoPropertyBackingFields = AutoPropertyBackingFieldDescriptors(reader, typeDef, typeContext);
+            var autoPropertyBackingFields = AutoPropertyBackingFieldDescriptors(
+                reader,
+                typeDef,
+                typeContext,
+                typeMaterialization);
 
             foreach (var fieldHandle in typeDef.GetFields())
             {
@@ -900,7 +910,13 @@ public static class ApiSurfaceExtractor
                 if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
                     continue; // Skip compiler-generated (<...>) fields unless opted in
 
-                if (IsAutoPropertyBackingField(reader, field, fieldName, autoPropertyBackingFields, typeContext))
+                if (IsAutoPropertyBackingField(
+                        reader,
+                        field,
+                        fieldName,
+                        autoPropertyBackingFields,
+                        typeContext,
+                        materialization))
                     continue; // Skip a synthesized auto-property backing field (re-synthesized on reconstruction)
 
                 if (IsFieldLikeEventBackingField(reader, field, fieldName, fieldLikeEventBackingFieldNames))
@@ -2237,7 +2253,8 @@ public static class ApiSurfaceExtractor
     static Dictionary<string, AutoPropertyBackingField>? AutoPropertyBackingFieldDescriptors(
         MetadataReader reader,
         TypeDefinition typeDef,
-        GenericContext context)
+        GenericContext context,
+        TextMaterializationBudget? materialization = null)
     {
         Dictionary<string, AutoPropertyBackingField>? descriptors = null;
         foreach (var propertyHandle in typeDef.GetProperties())
@@ -2253,15 +2270,26 @@ public static class ApiSurfaceExtractor
             if (!TryGetAutoPropertyAccessorStaticness(reader, property.GetAccessors(), out bool isStatic))
                 continue; // Not an auto-property: no [CompilerGenerated] accessor.
 
-            if (!GuardedSignatureText.PropertyText(reader, property, context)
-                    .TryGetValue(out var propertySignature))
-            {
-                continue; // Undecodable property signature: cannot prove a type match.
-            }
+            // Budgeted TypeNode path — GuardedSignatureText rematerializes via
+            // SignatureDecoder and bypasses MaxTypeNameCharacters degrade (Sol R16).
+            var propertySignature = GuardedProviderDecode.Property(
+                reader,
+                property,
+                CreateTypeNodeProvider(materialization),
+                context,
+                (TypeNode)new DegradedTypeNode());
+            if (propertySignature.ReturnType.IsDegraded)
+                continue; // Undecodable / over-cap: cannot prove a type match.
+
+            string propertyType = materialization is null
+                ? propertySignature.ReturnType.Render(canonicalTuples: false)
+                : materialization.RenderTemporary(
+                    propertySignature.ReturnType,
+                    canonicalTuples: false);
 
             (descriptors ??= new Dictionary<string, AutoPropertyBackingField>(StringComparer.Ordinal))
                 [$"<{propertyName}>k__BackingField"]
-                    = new AutoPropertyBackingField(propertySignature.ReturnType, isStatic);
+                    = new AutoPropertyBackingField(propertyType, isStatic);
         }
 
         return descriptors;
@@ -2315,7 +2343,8 @@ public static class ApiSurfaceExtractor
         FieldDefinition field,
         string fieldName,
         Dictionary<string, AutoPropertyBackingField>? autoPropertyBackingFields,
-        GenericContext context)
+        GenericContext context,
+        TextMaterializationBudget? materialization = null)
     {
         if (autoPropertyBackingFields is null
             || !autoPropertyBackingFields.TryGetValue(fieldName, out var descriptor))
@@ -2329,8 +2358,19 @@ public static class ApiSurfaceExtractor
         if (((field.Attributes & FieldAttributes.Static) != 0) != descriptor.IsStatic)
             return false;
 
-        return GuardedSignatureText.FieldText(reader, field, context).TryGetValue(out var fieldType)
-            && fieldType == descriptor.PropertyType;
+        var fieldNode = GuardedProviderDecode.Field(
+            reader,
+            field,
+            CreateTypeNodeProvider(materialization),
+            context,
+            (TypeNode)new DegradedTypeNode());
+        if (fieldNode.IsDegraded)
+            return false;
+
+        string fieldType = materialization is null
+            ? fieldNode.Render(canonicalTuples: false)
+            : materialization.RenderTemporary(fieldNode, canonicalTuples: false);
+        return fieldType == descriptor.PropertyType;
     }
 
     /// <summary>
@@ -3200,13 +3240,25 @@ public static class ApiSurfaceExtractor
                 // Budgeted TypeSpec path must not fall through to TypeResolver:
                 // GetGenericInstantiation can degrade an over-MaxTypeNameCharacters
                 // head without GetString, but TypeResolver rematerializes the raw
-                // TypeRef name (Sol R15).
+                // TypeRef name (Sol R15). Degraded nodes (guard reject, over-cap
+                // head, nested unsafe) must not silently retain "object" as a
+                // base/interface/event/constraint (Sol R16).
                 TypeNode node = GuardedProviderDecode.TypeSpec(
                     reader,
                     (TypeSpecificationHandle)handle,
                     CreateTypeNodeProvider(materialization),
                     context,
                     (TypeNode)new DegradedTypeNode());
+                if (node.IsDegraded)
+                {
+                    throw new MetadataRowRejectedException(
+                        "type name",
+                        MetadataTypeNameFailure.ForMechanism(
+                            MetadataTypeNameFailureMechanism.TypeSpecification,
+                            handle,
+                            "The type specification could not be decoded within safety bounds."));
+                }
+
                 materialization.EnsureCanMaterialize(
                     node.RenderLength(canonicalTuples: true));
                 return node.Render(canonicalTuples: true);

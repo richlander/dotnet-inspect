@@ -132,7 +132,15 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         }
         else
         {
-            rawName = genericType.Render();
+            // Nested TypeSpec heads are already trees. Preflight RenderLength before
+            // expanding so a repeated under-cap TypeRef cannot allocate a multi-MB
+            // rawName before the caller consults aggregate retained length (Sol R16).
+            if (genericType.IsDegraded)
+                return new DegradedTypeNode();
+            long headLength = genericType.RenderLength(canonicalTuples: true);
+            if (headLength > MetadataSafetyPolicy.MaxTypeNameCharacters)
+                return new DegradedTypeNode();
+            rawName = genericType.Render(canonicalTuples: true);
         }
 
         var backtickIndex = rawName.IndexOf('`');

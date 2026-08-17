@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 using ILInspector.Metadata;
 
@@ -643,7 +644,64 @@ public sealed class ApiSurfaceExtractorBoundsTests
         // Sol R15: GetGenericInstantiation degraded heads over MaxTypeNameCharacters
         // without GetString, but ResolveRequiredTypeName still called TypeResolver on
         // the original TypeSpec and rematerialized the multi-MB TypeRef name.
+        // Sol R16: degraded TypeSpec must reject rather than retain "object".
         byte[] image = BuildOversizedGenericBaseTypeNameImage(20_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = Extract(image, bounds);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void OversizedGenericExtensionParameter_DoesNotRematerializeViaSignatureDecoder()
+    {
+        // Sol R16: extension ExtendedType re-decoded the method via GuardedSignatureText
+        // after the budgeted TypeNode path had already degraded the oversized head.
+        byte[] image = BuildOversizedGenericExtensionParameterImage(20_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = Extract(image, bounds);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void OversizedGenericAutoPropertyType_DoesNotRematerializeViaSignatureDecoder()
+    {
+        // Sol R16: auto-property backing-field matching used GuardedSignatureText and
+        // rematerialized oversized generic property/field types under budget.
+        byte[] image = BuildOversizedGenericAutoPropertyImage(20_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = Extract(image, bounds);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void InvalidUtf8GiantBaseTypeName_IsStoppedBeforeGetStringMaterialization()
+    {
+        // Opus R16: strict GetStringCharacterCount threw on invalid UTF-8, so
+        // TryCount failed and ResolveRequiredTypeName fell through to GetString.
+        byte[] image = CorruptAsciiNameHeapToInvalidUtf8(
+            BuildGiantBaseTypeNameImage(5_000_000),
+            new string('B', 5_000_000));
         var bounds = BrowserTextBounds();
 
         _ = Extract(image, bounds);
@@ -1635,6 +1693,189 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildOversizedGenericExtensionParameterImage(int nameCharacters)
+    {
+        var metadata = CreateMetadata("OversizedExt");
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(10, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle extensionAttribute = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("ExtensionAttribute"));
+        var extensionCtorSignature = new BlobBuilder();
+        extensionCtorSignature.WriteByte(0x20); // HASTHIS
+        extensionCtorSignature.WriteCompressedInteger(0);
+        extensionCtorSignature.WriteByte(0x01); // void
+        MemberReferenceHandle extensionCtor = metadata.AddMemberReference(
+            extensionAttribute,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(extensionCtorSignature));
+        var emptyAttribute = new BlobBuilder();
+        emptyAttribute.WriteUInt16(1);
+        emptyAttribute.WriteUInt16(0);
+        BlobHandle emptyAttributeBlob = metadata.GetOrAddBlob(emptyAttribute);
+
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle generic = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('G', nameCharacters) + "`1"));
+        var typeSpecBlob = new BlobBuilder();
+        typeSpecBlob.WriteByte(0x15); // ELEMENT_TYPE_GENERICINST
+        typeSpecBlob.WriteByte(0x12); // ELEMENT_TYPE_CLASS
+        typeSpecBlob.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(generic));
+        typeSpecBlob.WriteCompressedInteger(1);
+        typeSpecBlob.WriteByte(0x08); // int
+        TypeSpecificationHandle extendedType =
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(typeSpecBlob));
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x00); // default calling convention (static)
+        methodSignature.WriteCompressedInteger(1);
+        methodSignature.WriteByte(0x01); // void
+        methodSignature.WriteByte(0x15); // GENERICINST
+        methodSignature.WriteByte(0x12); // CLASS
+        methodSignature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(generic));
+        methodSignature.WriteCompressedInteger(1);
+        methodSignature.WriteByte(0x08); // int
+
+        ParameterHandle parameter = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("value"),
+            1);
+        MethodDefinitionHandle method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(methodSignature),
+            bodyOffset: 0,
+            parameterList: parameter);
+        metadata.AddCustomAttribute(method, extensionCtor, emptyAttributeBlob);
+
+        TypeDefinitionHandle extensionClass = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Ext"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        metadata.AddCustomAttribute(extensionClass, extensionCtor, emptyAttributeBlob);
+        _ = extendedType;
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildOversizedGenericAutoPropertyImage(int nameCharacters)
+    {
+        var metadata = CreateMetadata("OversizedAutoProp");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(10, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle compilerGenerated = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("CompilerGeneratedAttribute"));
+        var cgCtorSignature = new BlobBuilder();
+        cgCtorSignature.WriteByte(0x20);
+        cgCtorSignature.WriteCompressedInteger(0);
+        cgCtorSignature.WriteByte(0x01);
+        MemberReferenceHandle cgCtor = metadata.AddMemberReference(
+            compilerGenerated,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(cgCtorSignature));
+        var emptyAttribute = new BlobBuilder();
+        emptyAttribute.WriteUInt16(1);
+        emptyAttribute.WriteUInt16(0);
+        BlobHandle emptyAttributeBlob = metadata.GetOrAddBlob(emptyAttribute);
+
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle generic = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('G', nameCharacters) + "`1"));
+
+        var propertyTypeSignature = new BlobBuilder();
+        propertyTypeSignature.WriteByte(0x28); // PROPERTY
+        propertyTypeSignature.WriteCompressedInteger(0); // param count
+        propertyTypeSignature.WriteByte(0x15); // GENERICINST
+        propertyTypeSignature.WriteByte(0x12); // CLASS
+        propertyTypeSignature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(generic));
+        propertyTypeSignature.WriteCompressedInteger(1);
+        propertyTypeSignature.WriteByte(0x08); // int
+
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06); // FIELD
+        fieldSignature.WriteByte(0x15); // GENERICINST
+        fieldSignature.WriteByte(0x12); // CLASS
+        fieldSignature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(generic));
+        fieldSignature.WriteCompressedInteger(1);
+        fieldSignature.WriteByte(0x08); // int
+
+        var getterSignature = new BlobBuilder();
+        getterSignature.WriteByte(0x20); // HASTHIS
+        getterSignature.WriteCompressedInteger(0);
+        getterSignature.WriteByte(0x15);
+        getterSignature.WriteByte(0x12);
+        getterSignature.WriteCompressedInteger(CodedIndex.TypeDefOrRefOrSpec(generic));
+        getterSignature.WriteCompressedInteger(1);
+        getterSignature.WriteByte(0x08);
+
+        MethodDefinitionHandle getter = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_P"),
+            metadata.GetOrAddBlob(getterSignature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        metadata.AddCustomAttribute(getter, cgCtor, emptyAttributeBlob);
+
+        FieldDefinitionHandle backingField = metadata.AddFieldDefinition(
+            FieldAttributes.Private,
+            metadata.GetOrAddString("<P>k__BackingField"),
+            metadata.GetOrAddBlob(fieldSignature));
+        metadata.AddCustomAttribute(backingField, cgCtor, emptyAttributeBlob);
+
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("P"),
+            metadata.GetOrAddBlob(propertyTypeSignature));
+        metadata.AddPropertyMap(surface, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            getter);
+        return Serialize(metadata);
+    }
+
     static byte[] BuildGiantAttributeTypeNameImage(int nameCharacters)
     {
         var metadata = CreateMetadata("GiantAttrType");
@@ -2171,5 +2412,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] CorruptAsciiNameHeapToInvalidUtf8(byte[] image, string asciiMarker)
+    {
+        byte[] needle = Encoding.UTF8.GetBytes(asciiMarker);
+        int index = image.AsSpan().IndexOf(needle);
+        Assert.True(index >= 0, "ASCII marker not found in image");
+        byte[] corrupted = (byte[])image.Clone();
+        corrupted.AsSpan(index, needle.Length).Fill(0xFF);
+        return corrupted;
     }
 }

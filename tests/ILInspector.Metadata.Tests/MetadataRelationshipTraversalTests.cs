@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Text;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -479,6 +480,69 @@ public class MetadataRelationshipTraversalTests
         Assert.Equal(
             nameCharacters,
             MetadataSafetyPolicy.GetStringCharacterCount(image.Reader, nameHandle));
+    }
+
+    [Fact]
+    public void GetStringCharacterCount_InvalidUtf8_MatchesGetStringLength()
+    {
+        // SRM GetString is lenient (U+FFFD). A strict counter threw and made the name
+        // uncountable, forcing multi-MB GetString before budget (Opus R16).
+        const int nameBytes = 8192;
+        string marker = new('V', nameBytes);
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Synthetic.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AddTypeDefinition(metadata, default, "", "<Module>");
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(marker),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var rootBuilder = new MetadataRootBuilder(metadata, suppressValidation: true);
+        var serialized = new BlobBuilder();
+        rootBuilder.Serialize(serialized, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
+        byte[] bytes = serialized.ToArray();
+        byte[] needle = Encoding.UTF8.GetBytes(marker);
+        int index = bytes.AsSpan().IndexOf(needle);
+        Assert.True(index >= 0, "marker string heap bytes not found");
+        bytes.AsSpan(index, needle.Length).Fill(0xFF);
+
+        using var provider = MetadataReaderProvider.FromMetadataImage(
+            ImmutableArray.Create(bytes));
+        MetadataReader reader = provider.GetMetadataReader();
+        TypeDefinitionHandle handle = default;
+        foreach (var candidate in reader.TypeDefinitions)
+        {
+            var definition = reader.GetTypeDefinition(candidate);
+            if (reader.GetString(definition.Namespace) == "N"
+                && reader.GetString(definition.Name).Length == nameBytes)
+            {
+                handle = candidate;
+                break;
+            }
+        }
+
+        Assert.False(handle.IsNil);
+        StringHandle nameHandle = reader.GetTypeDefinition(handle).Name;
+        string materialized = reader.GetString(nameHandle);
+        Assert.Equal(
+            materialized.Length,
+            MetadataSafetyPolicy.GetStringCharacterCount(reader, nameHandle));
+        Assert.Equal(nameBytes, materialized.Length);
+        Assert.All(materialized, ch => Assert.Equal('\uFFFD', ch));
     }
 
     static void AssertRejected<T>(

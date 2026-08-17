@@ -368,8 +368,12 @@ public static class MetadataSafetyPolicy
     /// Streams UTF-8 through <see cref="Decoder.Convert"/>. <c>GetCharCount</c> does
     /// not retain incomplete multi-byte sequences across calls, so a 3-byte name that
     /// straddles the 4 KiB window (for example U+202E) would false-reject as invalid
-    /// UTF-8 and skip the retained-text budget. Gated by
-    /// <c>GetStringCharacterCount_MultiByteUtf8AcrossWindow_MatchesGetString</c> and
+    /// UTF-8 and skip the retained-text budget. The decoder is lenient (replacement
+    /// fallback), matching SRM <c>MetadataReader.GetString</c>: a strict counter that
+    /// threw on invalid bytes returned uncountable and forced multi-MB
+    /// <c>GetString</c> before any budget gate (Opus R16). Gated by
+    /// <c>GetStringCharacterCount_MultiByteUtf8AcrossWindow_MatchesGetString</c>,
+    /// <c>GetStringCharacterCount_InvalidUtf8_MatchesGetStringLength</c>, and
     /// <c>ExpandingMethodName_IsStoppedBeforeContainedSpellingMaterialization</c>.
     /// </remarks>
     public static long GetStringCharacterCount(
@@ -386,9 +390,9 @@ public static class MetadataSafetyPolicy
         char[] charBuffer = ArrayPool<char>.Shared.Rent(Window);
         try
         {
-            Decoder decoder = new UTF8Encoding(
-                encoderShouldEmitUTF8Identifier: false,
-                throwOnInvalidBytes: true).GetDecoder();
+            // Lenient: match MetadataReader.GetString (U+FFFD substitution), not
+            // throwOnInvalidBytes, so invalid #Strings still count-first.
+            Decoder decoder = Encoding.UTF8.GetDecoder();
             long characters = 0;
             while (blob.RemainingBytes > 0)
             {
@@ -416,12 +420,6 @@ public static class MetadataSafetyPolicy
                 while (!completed);
             }
             return characters;
-        }
-        catch (DecoderFallbackException ex)
-        {
-            throw new BadImageFormatException(
-                "The metadata string contains invalid UTF-8.",
-                ex);
         }
         finally
         {
