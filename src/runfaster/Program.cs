@@ -462,6 +462,7 @@ static void AddTriageDocumentCandidates(
                 defaultAssembly,
                 candidates,
                 ref rows);
+            return;
         }
         foreach (var property in root.EnumerateObject())
         {
@@ -509,6 +510,19 @@ static void AddTriageCandidates(
                     out var candidate))
             {
                 candidates.Add(candidate);
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.Name is not ("performance" or "Performance"))
+                    continue;
+
+                AddTriageCandidates(
+                    property.Value,
+                    path,
+                    defaultAssembly,
+                    candidates,
+                    ref rows);
             }
             return;
         }
