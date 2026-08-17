@@ -9,6 +9,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
@@ -661,13 +662,42 @@ public class FidelityCheckGeneratedFilterTests
                     []));
             paramsType.DefineMethodOverride(paramsBody, paramsInterface.Method);
 
+            var refInterface = DefineInterface(
+                module,
+                "IRefKind",
+                "M",
+                typeof(void),
+                [typeof(int).MakeByRefType()]);
+            refInterface.Method.DefineParameter(
+                1,
+                ParameterAttributes.None,
+                "value");
+            var outType = module.DefineType(
+                "OutBody",
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                typeof(object),
+                [refInterface.Type]);
+            outType.DefineDefaultConstructor(MethodAttributes.Public);
+            var outBody = DefineBody(
+                outType,
+                "IRefKind.M",
+                typeof(void),
+                [typeof(int).MakeByRefType()]);
+            outBody.DefineParameter(
+                1,
+                ParameterAttributes.Out,
+                "value");
+            outType.DefineMethodOverride(outBody, refInterface.Method);
+
             firstInterface.Type.CreateType();
             secondInterface.Type.CreateType();
             mismatchInterface.Type.CreateType();
             paramsInterface.Type.CreateType();
+            refInterface.Type.CreateType();
             ambiguousType.CreateType();
             mismatchType.CreateType();
             paramsType.CreateType();
+            outType.CreateType();
             assemblyBuilder.Save(assemblyPath);
 
             using var pe = new PEReader(File.OpenRead(assemblyPath));
@@ -678,6 +708,7 @@ public class FidelityCheckGeneratedFilterTests
                     ("Ambiguous", "A.B.C"),
                     ("Mismatch", "IMismatch.M"),
                     ("BodyParams", "IBodyParams.M"),
+                    ("OutBody", "IRefKind.M"),
                 })
             {
                 var type = reader.GetTypeDefinition(Assert.Single(
@@ -740,6 +771,64 @@ public class FidelityCheckGeneratedFilterTests
             method.GetILGenerator().Emit(OpCodes.Ret);
             return method;
         }
+    }
+
+    [Fact]
+    public void ExplicitInterfaceCollisionWalk_RejectsCyclicBaseGraph()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("CyclicBases.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("CyclicBases"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("A"),
+            MetadataTokens.TypeDefinitionHandle(3),
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("B"),
+            MetadataTokens.TypeDefinitionHandle(2),
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var target = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("C"),
+            MetadataTokens.TypeDefinitionHandle(2),
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var image = new BlobBuilder();
+        new MetadataRootBuilder(metadata, suppressValidation: true)
+            .Serialize(image, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
+        using var provider = MetadataReaderProvider.FromMetadataImage(
+            System.Collections.Immutable.ImmutableArray.Create(image.ToArray()));
+
+        Assert.True(FidelityCheck.HasNestedOrBaseInterfaceRootCollision(
+            provider.GetMetadataReader(),
+            target,
+            "N"));
     }
 
     [Fact]
@@ -840,11 +929,34 @@ public class FidelityCheckGeneratedFilterTests
                 (int A, string B) ITuple.Get() => (1, "x");
             }
 
+            public interface IStreamConstraint
+            {
+                T Create<T>() where T : System.IO.Stream;
+            }
+
+            public sealed class StreamConstraintFixture : IStreamConstraint
+            {
+                T IStreamConstraint.Create<T>() => throw null;
+            }
+
             namespace N
             {
                 public interface I
                 {
                     void M(A.I value);
+                }
+            }
+
+            namespace Q
+            {
+                public interface I
+                {
+                    void M<Q>();
+                }
+
+                public sealed class MethodGenericShadow : I
+                {
+                    void I.M<Q>() { }
                 }
             }
 
@@ -873,6 +985,8 @@ public class FidelityCheckGeneratedFilterTests
                     "GenericShadow`1",
                     "NestedShadow",
                     "TupleFixture",
+                    "StreamConstraintFixture",
+                    "MethodGenericShadow",
                     "ParentNamespaceShadow",
                 })
             {
@@ -1034,6 +1148,75 @@ public class FidelityCheckGeneratedFilterTests
                     typeName => typeName == "HiddenImplementation",
                     candidate => candidate.Method == "IHidden.Use"));
             Assert.False(result.UsedProductWholeMember);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesImportedExternalTypeCollision()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string libraryPath = Path.Combine(directory, "ExternalTypes.dll");
+        string assemblyPath = Path.Combine(directory, "fixture.dll");
+        try
+        {
+            CompileAssembly(
+                libraryPath,
+                """
+                namespace X;
+
+                public sealed class N { }
+                """);
+            CompileAssembly(
+                assemblyPath,
+                """
+                using NI = N.I;
+
+                namespace N
+                {
+                    public interface I
+                    {
+                        void M(T.I first, X.N second);
+                    }
+                }
+
+                namespace T
+                {
+                    public sealed class I { }
+
+                    public sealed class ImportedExternalCollision : NI
+                    {
+                        void NI.M(I first, X.N second) { }
+                    }
+                }
+                """,
+                [MetadataReference.CreateFromFile(libraryPath)]);
+
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "ImportedExternalCollision"));
+            var method = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "N.I.M");
+            using var source = MetadataSource.Open(assemblyPath);
+
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: true,
+                isPrimaryConstructor: false));
         }
         finally
         {

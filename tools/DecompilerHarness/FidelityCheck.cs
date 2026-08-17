@@ -3153,13 +3153,17 @@ static class FidelityCheck
                 || interfaceDef.GetMethods().Count != 1
                 || interfaceDef.GetMethods().Single() != declarationHandle
                 || reader.GetString(body.Name) != expectedBodyName
-                || !reader.GetBlobBytes(body.Signature).AsSpan()
-                    .SequenceEqual(reader.GetBlobBytes(declaration.Signature))
+                || !MethodImplSignaturesMatch(
+                    reader,
+                    body,
+                    declaration)
                 || HasInterfaceQualifierCollision(
                     reader,
                     typeDef,
                     interfaceHandle,
-                    interfaceName)
+                    interfaceName,
+                    body,
+                    declaration)
                 || HasUnsupportedExplicitInterfaceSignature(
                     reader,
                     interfaceDef,
@@ -3186,6 +3190,103 @@ static class FidelityCheck
         }
 
         return targets;
+    }
+
+    static bool MethodImplSignaturesMatch(
+        MetadataReader reader,
+        MethodDefinition body,
+        MethodDefinition declaration)
+    {
+        if (!reader.GetBlobBytes(body.Signature).AsSpan()
+                .SequenceEqual(reader.GetBlobBytes(declaration.Signature)))
+        {
+            return false;
+        }
+
+        var bodyParameters = body.GetParameters()
+            .Select(reader.GetParameter)
+            .ToDictionary(parameter => parameter.SequenceNumber);
+        var declarationParameters = declaration.GetParameters()
+            .Select(reader.GetParameter)
+            .ToDictionary(parameter => parameter.SequenceNumber);
+        if (bodyParameters.Keys.Union(declarationParameters.Keys).Any(sequence =>
+            ParameterAttributesAt(bodyParameters, sequence)
+                != ParameterAttributesAt(declarationParameters, sequence)))
+        {
+            return false;
+        }
+
+        var bodyGenericParameters = body.GetGenericParameters()
+            .Select(reader.GetGenericParameter)
+            .OrderBy(parameter => parameter.Index)
+            .ToList();
+        var declarationGenericParameters = declaration.GetGenericParameters()
+            .Select(reader.GetGenericParameter)
+            .OrderBy(parameter => parameter.Index)
+            .ToList();
+        if (bodyGenericParameters.Count != declarationGenericParameters.Count)
+            return false;
+
+        for (int index = 0; index < bodyGenericParameters.Count; index++)
+        {
+            var bodyParameter = bodyGenericParameters[index];
+            var declarationParameter = declarationGenericParameters[index];
+            if (bodyParameter.Index != declarationParameter.Index
+                || bodyParameter.Attributes != declarationParameter.Attributes)
+            {
+                return false;
+            }
+
+            var bodyConstraints = bodyParameter.GetConstraints()
+                .Select(handle => reader.GetGenericParameterConstraint(handle).Type)
+                .ToList();
+            var declarationConstraints = declarationParameter.GetConstraints()
+                .Select(handle => reader.GetGenericParameterConstraint(handle).Type)
+                .ToList();
+            if (!bodyConstraints.SequenceEqual(declarationConstraints)
+                || bodyConstraints.Any(constraint =>
+                    !IsSystemValueTypeConstraint(reader, constraint)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+
+        static ParameterAttributes ParameterAttributesAt(
+            IReadOnlyDictionary<int, System.Reflection.Metadata.Parameter> parameters,
+            int sequence)
+            => parameters.TryGetValue(sequence, out var parameter)
+                ? parameter.Attributes
+                : 0;
+    }
+
+    static bool IsSystemValueTypeConstraint(
+        MetadataReader reader,
+        EntityHandle constraint)
+    {
+        StringHandle @namespace;
+        StringHandle name;
+        switch (constraint.Kind)
+        {
+            case HandleKind.TypeDefinition:
+                var definition = reader.GetTypeDefinition(
+                    (TypeDefinitionHandle)constraint);
+                @namespace = definition.Namespace;
+                name = definition.Name;
+                break;
+            case HandleKind.TypeReference:
+                var reference = reader.GetTypeReference(
+                    (TypeReferenceHandle)constraint);
+                @namespace = reference.Namespace;
+                name = reference.Name;
+                break;
+            default:
+                return false;
+        }
+
+        return reader.StringComparer.Equals(@namespace, "System")
+            && reader.StringComparer.Equals(name, "ValueType");
     }
 
     static bool HasUnsupportedExplicitInterfaceSignature(
@@ -3238,7 +3339,9 @@ static class FidelityCheck
         MetadataReader reader,
         TypeDefinition typeDef,
         TypeDefinitionHandle interfaceHandle,
-        string interfaceName)
+        string interfaceName,
+        MethodDefinition body,
+        MethodDefinition declaration)
     {
         int separator = interfaceName.IndexOf('.');
         string root = separator < 0 ? interfaceName : interfaceName[..separator];
@@ -3275,9 +3378,35 @@ static class FidelityCheck
             if (reader.GetString(parameter.Name) == root)
                 return true;
         }
-
-        for (var current = typeDef; ; )
+        foreach (var method in new[] { body, declaration })
         {
+            foreach (var parameterHandle in method.GetGenericParameters())
+            {
+                var parameter = reader.GetGenericParameter(parameterHandle);
+                if (reader.GetString(parameter.Name) == root)
+                    return true;
+            }
+        }
+
+        return HasNestedOrBaseInterfaceRootCollision(
+            reader,
+            body.GetDeclaringType(),
+            root);
+    }
+
+    internal static bool HasNestedOrBaseInterfaceRootCollision(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        string root)
+    {
+        var visited = new HashSet<TypeDefinitionHandle>();
+        var currentHandle = typeHandle;
+        for (;;)
+        {
+            if (currentHandle.IsNil || !visited.Add(currentHandle))
+                return true;
+
+            var current = reader.GetTypeDefinition(currentHandle);
             foreach (var nestedHandle in current.GetNestedTypes())
                 if (StripArity(reader.GetString(reader.GetTypeDefinition(nestedHandle).Name)) == root)
                     return true;
@@ -3293,7 +3422,7 @@ static class FidelityCheck
                 }
                 break;
             }
-            current = reader.GetTypeDefinition((TypeDefinitionHandle)current.BaseType);
+            currentHandle = (TypeDefinitionHandle)current.BaseType;
         }
 
         return false;
@@ -3314,6 +3443,15 @@ static class FidelityCheck
             var candidate = reader.GetTypeDefinition(handle);
             if (candidate.GetDeclaringType().IsNil
                 && namespaces.Contains(reader.GetString(candidate.Namespace))
+                && StripArity(reader.GetString(candidate.Name)) == root)
+            {
+                return true;
+            }
+        }
+        foreach (var handle in reader.TypeReferences)
+        {
+            var candidate = reader.GetTypeReference(handle);
+            if (namespaces.Contains(reader.GetString(candidate.Namespace))
                 && StripArity(reader.GetString(candidate.Name)) == root)
             {
                 return true;
@@ -4313,7 +4451,8 @@ static class FidelityCheck
     /// name-colliding explicit-interface shapes, field-like and
     /// explicit-interface events, and finalizers that cannot be recovered as
     /// destructors remain on their existing fallback paths. Generic methods on an
-    /// otherwise eligible non-generic interface are supported.
+    /// otherwise eligible non-generic interface are supported when their
+    /// constraints can be repeated on an explicit implementation.
     /// Non-essential custom attributes are omitted because the skeleton does not
     /// reproduce arbitrary attribute inheritance; compilation-required attributes
     /// such as <c>SkipLocalsInit</c> remain.
@@ -4411,8 +4550,14 @@ static class FidelityCheck
             return null;
         }
         if (entry.Member.Kind == "explicit-interface-implementation"
-            && SyntaxFactory.ParseMemberDeclaration(result.Text)
-                is not MethodDeclarationSyntax { ExplicitInterfaceSpecifier: not null })
+            && (SyntaxFactory.ParseMemberDeclaration(result.Text)
+                    is not MethodDeclarationSyntax
+                    {
+                        ExplicitInterfaceSpecifier.Name: { } interfaceName
+                    }
+                || interfaceName.DescendantNodesAndSelf()
+                    .OfType<AliasQualifiedNameSyntax>()
+                    .Any()))
         {
             return null;
         }
