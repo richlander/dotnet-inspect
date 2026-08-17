@@ -6279,7 +6279,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| API Info | section |", output);
         Assert.Contains("| Classes | section |", output);
         Assert.Contains("| @Surface | category |", output);
-        Assert.DoesNotContain("| Inspection Failures | section |", output);
+        Assert.Contains("| Inspection Failures | section |", output);
         Assert.DoesNotContain("| Type Forwarders | section |", output);
     }
 
@@ -12594,6 +12594,8 @@ public partial class CommandExecutionTests
                 path,
                 "-t",
                 "N.*",
+                "-S",
+                "Classes",
                 "--tips",
                 "q");
 

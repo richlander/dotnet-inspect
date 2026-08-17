@@ -1155,9 +1155,22 @@ public partial class CommandExecutionTests
     }
 
     /// <summary>Section names from a <c>-D --tsv</c> listing, header row dropped.</summary>
-    private static string[] DiscoveryNames(string output) => output
-        .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-        .Select(l => l.TrimEnd('\r').Split('\t')[0])
-        .Where(n => !n.Equals("name", StringComparison.Ordinal))
-        .ToArray();
+    private static string[] DiscoveryNames(string output)
+    {
+        var rows = output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r').Split('\t'))
+            .ToArray();
+        if (rows.Length == 0)
+            return [];
+
+        int nameColumn = Array.FindIndex(
+            rows[0],
+            column => column.Equals("name", StringComparison.Ordinal));
+        Assert.True(nameColumn >= 0, "Discovery TSV must include a name column.");
+        return rows
+            .Skip(1)
+            .Select(row => row[nameColumn])
+            .ToArray();
+    }
 }
