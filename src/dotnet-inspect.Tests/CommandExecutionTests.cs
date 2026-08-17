@@ -1739,10 +1739,20 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
-        Assert.Contains(
-            "PublicAnalyzeAsync",
-            result.Output,
-            StringComparison.Ordinal);
+        if (command == "member")
+        {
+            Assert.Contains(
+                "PublicAnalyzeAsync",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.DoesNotContain(
+                "PublicAnalyzeAsync",
+                result.Output,
+                StringComparison.Ordinal);
+        }
     }
 
     [Theory]

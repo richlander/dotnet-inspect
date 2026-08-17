@@ -465,6 +465,15 @@ public class LibraryBodyIndexTests
                 && opportunity.Method.DeclaringType.Name
                     == nameof(
                         SameTypeInheritedSynchronousBase));
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        StaticInheritedSynchronousConsumer
+                            .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        StaticInheritedSynchronousConsumer));
         Assert.Contains(
             opportunities,
             opportunity => opportunity.Method.Name
@@ -12036,6 +12045,30 @@ public sealed class SameTypeInheritedSynchronousDerived
 {
     public new Task<string> ReadAsync(int value)
         => Task.FromResult(value.ToString());
+}
+
+public class StaticInheritedSynchronousBase
+{
+    public static int Read(int value) => value;
+
+    public static Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+}
+
+public sealed class StaticInheritedSynchronousDerived
+    : StaticInheritedSynchronousBase
+{
+    public new static Task<string> ReadAsync(int value)
+        => Task.FromResult(value.ToString());
+}
+
+public static class StaticInheritedSynchronousConsumer
+{
+    public static async Task<int> AnalyzeAsync(int value)
+    {
+        await Task.Yield();
+        return StaticInheritedSynchronousDerived.Read(value);
+    }
 }
 
 public sealed class SealedSynchronousSiblingService

@@ -174,11 +174,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder
     bool InheritedReceiverLookupIsUnproven(
         AsyncSiblingLookup lookup)
     {
-        if ((lookup.SynchronousAttributes & MethodAttributes.Static) != 0)
-        {
-            return false;
-        }
-
         TypeAttributes attributes =
             lookup.SynchronousReader.GetTypeDefinition(
                     lookup.SynchronousDeclaringType)
