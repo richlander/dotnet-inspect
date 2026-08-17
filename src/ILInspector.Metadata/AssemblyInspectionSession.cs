@@ -59,7 +59,14 @@ public sealed class AssemblyInspectionSession : IDisposable
         => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
 
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
-    public bool HasMetadata => _image.HasMetadata;
+    public bool HasMetadata
+    {
+        get
+        {
+            _image.EnsureAlive();
+            return _image.HasMetadata;
+        }
+    }
 
     /// <summary>
     /// Session-bound method-body and operand access without exposing raw readers.
@@ -210,7 +217,10 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     /// <summary>Assembly audit metadata (P-Invoke counts, flags, …).</summary>
     public AssemblyAuditMetadata AuditMetadata()
-        => AssemblyDetailScanner.ScanAuditMetadata(_image.PEReader);
+    {
+        _image.EnsureAlive();
+        return AssemblyDetailScanner.ScanAuditMetadata(_image.PEReader);
+    }
 
     /// <summary>Presence flags for assembly-level features.</summary>
     public PresenceFlags PresenceFlags()
