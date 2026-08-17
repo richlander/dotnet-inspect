@@ -124,10 +124,13 @@ reaching-definition proof may split one top-level store only when every load it
 reaches is reached by that definition alone, no reachable load is
 use-before-definition, and at least one proven load is in another block.
 References nested in control flow, nested-function bodies, nested raw branches,
-and EH or external CFG edges decline;
-`LocalFunctionRoot_DoesNotExposeNestedLoadsToCrossBlockRewrite` gates the
-nested-function root boundary. Duplicate block offsets also decline because
-they do not identify one branch target;
+and EH or external CFG edges decline. The linear path also stays within the
+current function body, so a cross-block split cannot expose a nested function's
+independent loop-carried range;
+`LocalFunctionRoot_DoesNotExposeNestedLoadsToCrossBlockRewrite` and
+`CrossBlockSplit_DoesNotEnableNestedFunctionLoopCarriedSplit` gate those
+nested-function boundaries. Duplicate block offsets also decline because they
+do not identify one branch target;
 `StackSlotLiveRangeCrossBlockTests.DuplicateBlockOffsets_StayUnsplit` gates
 that boundary. A raw control transfer also declines when it is not the block's
 final statement, because the shared CFG models only block terminators.

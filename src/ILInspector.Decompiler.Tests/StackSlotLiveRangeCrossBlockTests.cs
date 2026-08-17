@@ -573,6 +573,45 @@ public class StackSlotLiveRangeCrossBlockTests
     }
 
     [Fact]
+    public void CrossBlockSplit_DoesNotEnableNestedFunctionLoopCarriedSplit()
+    {
+        var localPriorLoad = Load(Int32);
+        var localPostStoreLoad = Load(String);
+        var localEntry = BlockOf(100, Store(1), new Branch(110));
+        var localLoop = BlockOf(
+            110,
+            localPriorLoad,
+            Store("local"),
+            localPostStoreLoad,
+            new Branch(110));
+        var localBody = new BlockContainer();
+        localBody.Add(localEntry);
+        localBody.Add(localLoop);
+        var localFunction = new LocalFunctionStatement(
+            "Local",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            isStatic: true,
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localBody);
+        var hostLoad = Load(String);
+
+        var function = Run(
+            BlockOf(0, Store(1)),
+            BlockOf(10, Store("host")),
+            BlockOf(20, hostLoad, localFunction, new Return(null)));
+
+        Assert.NotEqual(Slot, Assert.IsType<LoadStackSlot>(hostLoad.Expression).Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(localPriorLoad.Expression).Slot);
+        Assert.Equal(Slot, Assert.Single(localLoop.Children.OfType<StoreStackSlot>()).Slot);
+        Assert.Equal(Slot, Assert.IsType<LoadStackSlot>(localPostStoreLoad.Expression).Slot);
+        Assert.Single(function.Descendants.OfType<StoreStackSlot>(), store => store.Slot != Slot);
+    }
+
+    [Fact]
     public void NestedBranchThatBypassesDefinition_StaysUnsplit()
     {
         var bypass = new Block(100);

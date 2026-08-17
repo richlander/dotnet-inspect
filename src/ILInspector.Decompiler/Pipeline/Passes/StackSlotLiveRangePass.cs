@@ -26,7 +26,7 @@ public sealed class StackSlotLiveRangePass : IIrPass
 
     static bool SplitOnce(IrFunction function, Stepper stepper, bool hasStructuredEh)
     {
-        foreach (var block in function.Descendants.OfType<Block>())
+        foreach (var block in CoercionSinks.ScopeNodes(function.Body).OfType<Block>())
         {
             for (int i = 0; i < block.Children.Count; i++)
             {
