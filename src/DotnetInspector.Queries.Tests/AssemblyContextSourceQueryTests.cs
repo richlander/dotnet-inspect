@@ -1528,7 +1528,7 @@ public sealed class AssemblyContextSourceQueryTests
         }
 
         Assert.Equal(
-            2,
+            1,
             Assert.IsType<BlockingDisposeStream>(
                     pdbStore.AuthoritativeStream)
                 .DisposeCount);
@@ -1644,7 +1644,7 @@ public sealed class AssemblyContextSourceQueryTests
         }
 
         Assert.Equal(
-            2,
+            1,
             Assert.IsType<BlockingDisposeStream>(
                     pdbStore.AuthoritativeStream)
                 .DisposeCount);
@@ -1744,7 +1744,7 @@ public sealed class AssemblyContextSourceQueryTests
         }
 
         Assert.Equal(
-            2,
+            1,
             Assert.IsType<BlockingDisposeStream>(
                     pdbStore.AuthoritativeStream)
                 .DisposeCount);
@@ -1810,7 +1810,7 @@ public sealed class AssemblyContextSourceQueryTests
         var typed = Assert.IsType<InvalidOperationException>(error);
         Assert.Same(disposalFailure, typed.InnerException);
         Assert.Equal(
-            2,
+            1,
             Assert.IsType<BlockingDisposeStream>(
                     pdbStore.AuthoritativeStream)
                 .DisposeCount);
@@ -1850,7 +1850,7 @@ public sealed class AssemblyContextSourceQueryTests
                         ? null
                         : primaryFailure,
                 disposeFailureAt: 1,
-                lengthFailure:
+                prefetchReadFailure:
                     providerFailure
                         ? primaryFailure
                         : null);
@@ -3120,8 +3120,8 @@ public sealed class AssemblyContextSourceQueryTests
         ManualResetEventSlim? disposeRelease = null,
         Exception? disposeFailure = null,
         Exception? positionResetFailure = null,
-        int disposeFailureAt = 2,
-        Exception? lengthFailure = null)
+        int disposeFailureAt = 1,
+        Exception? prefetchReadFailure = null)
         : IPdbStore
     {
         readonly InMemoryPdbStore _inner = new();
@@ -3149,7 +3149,7 @@ public sealed class AssemblyContextSourceQueryTests
                     disposeFailure,
                     positionResetFailure,
                     disposeFailureAt,
-                    lengthFailure);
+                    prefetchReadFailure);
             return AuthoritativeStream;
         }
 
@@ -3176,31 +3176,33 @@ public sealed class AssemblyContextSourceQueryTests
         ManualResetEventSlim? release,
         Exception? disposeFailure,
         Exception? positionResetFailure = null,
-        int disposeFailureAt = 2,
-        Exception? lengthFailure = null)
+        int disposeFailureAt = 1,
+        Exception? prefetchReadFailure = null)
         : Stream
     {
+        bool _headerReset;
+
         internal int DisposeCount { get; private set; }
 
         public override bool CanRead => inner.CanRead;
         public override bool CanSeek => inner.CanSeek;
         public override bool CanWrite => inner.CanWrite;
-        public override long Length =>
-            lengthFailure is null
-                ? inner.Length
-                : throw lengthFailure;
+        public override long Length => inner.Length;
         public override long Position
         {
             get => inner.Position;
             set
             {
-                if (value == 0
-                    && inner.Position != 0
+                bool headerReset =
+                    value == 0
+                    && inner.Position != 0;
+                if (headerReset
                     && positionResetFailure is not null)
                 {
                     throw positionResetFailure;
                 }
                 inner.Position = value;
+                _headerReset |= headerReset;
             }
         }
 
@@ -3210,8 +3212,17 @@ public sealed class AssemblyContextSourceQueryTests
         public override int Read(
             byte[] buffer,
             int offset,
-            int count) =>
-            inner.Read(buffer, offset, count);
+            int count)
+        {
+            ThrowPrefetchReadFailure();
+            return inner.Read(buffer, offset, count);
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            ThrowPrefetchReadFailure();
+            return inner.Read(buffer);
+        }
 
         public override long Seek(
             long offset,
@@ -3247,6 +3258,15 @@ public sealed class AssemblyContextSourceQueryTests
                 inner.Dispose();
             }
             base.Dispose(disposing);
+        }
+
+        void ThrowPrefetchReadFailure()
+        {
+            if (_headerReset
+                && prefetchReadFailure is not null)
+            {
+                throw prefetchReadFailure;
+            }
         }
     }
 

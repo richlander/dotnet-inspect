@@ -65,7 +65,13 @@ Descriptor-backed PDB contexts own the stream they open. If debug-directory or
 embedded-PDB inspection fails during construction, the incomplete context
 releases that stream before propagating the failure.
 `AssemblyContextSourceQueryTests.PdbContextOpenFailure_DisposesAuthoritativeStream`
-gates that construction boundary.
+gates that construction boundary. PE and portable-PDB readers leave their
+streams open so `PdbContext` remains the sole owner and disposes each stream
+once;
+`PdbContextDescriptorTests.DescriptorOpenPrimaryFailure_IsNotMaskedByCleanupFailure`
+and
+`AssemblyContextSourceQueryTests.PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure`
+gate those ownership boundaries.
 The compatibility `PdbContext.Dispose` path retains its best-effort cleanup
 behavior. Strict query ownership uses `DisposeWithFailure`, which attempts
 every owned resource and reports the first cleanup failure; source queries
