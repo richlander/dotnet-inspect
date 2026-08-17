@@ -432,7 +432,5 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
-[JsonSerializable(typeof(BrowserStyleOption[]))]
-[JsonSerializable(typeof(BrowserStyleTier[]))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserJsonContext : JsonSerializerContext;

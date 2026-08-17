@@ -1062,6 +1062,7 @@ public sealed class InspectionGraphDocument
 {
     public InspectionGraphDocument(
         InspectionGraphDocumentScope scope,
+        InspectionGraphModeRequest modeRequest,
         IEnumerable<InspectionGraphNode> nodes,
         IEnumerable<InspectionGraphGroup> groups,
         IEnumerable<InspectionGraphEdge> edges,
@@ -1072,7 +1073,9 @@ public sealed class InspectionGraphDocument
         IEnumerable<InspectionGraphFailure> failures)
     {
         InspectionGraphCollections.RequireDefined(scope, nameof(scope));
+        ArgumentNullException.ThrowIfNull(modeRequest);
         Scope = scope;
+        ModeRequest = modeRequest;
         Nodes = InspectionGraphCollections.Snapshot(nodes, nameof(nodes));
         Groups = InspectionGraphCollections.Snapshot(groups, nameof(groups));
         Edges = InspectionGraphCollections.Snapshot(edges, nameof(edges));
@@ -1135,6 +1138,7 @@ public sealed class InspectionGraphDocument
     }
 
     public InspectionGraphDocumentScope Scope { get; }
+    public InspectionGraphModeRequest ModeRequest { get; }
     public ImmutableArray<InspectionGraphNode> Nodes { get; }
     public ImmutableArray<InspectionGraphGroup> Groups { get; }
     public ImmutableArray<InspectionGraphEdge> Edges { get; }
@@ -1179,7 +1183,8 @@ public sealed class InspectionGraphDocument
                         occurrence.SourceSubject,
                         occurrence.TargetSubject,
                     }))
-                .Concat(Seeds.Select(static seed => seed.Subject));
+                .Concat(Seeds.Select(static seed => seed.Subject))
+                .Concat(ModeRequest.Seeds);
         if (subjects.Any(static subject => !subject.IsPortable))
         {
             throw new ArgumentException(
@@ -1499,6 +1504,45 @@ public sealed class InspectionGraphDocument
 
         if (primaryCount > 1)
             throw new ArgumentException("A graph can have at most one primary seed.", nameof(Seeds));
+
+        switch (ModeRequest.Mode)
+        {
+            case InspectionGraphMode.SingleSeed:
+                InspectionGraphSeed primary = Seeds.SingleOrDefault(
+                    static seed =>
+                        seed.Role == InspectionGraphSeedRole.Primary)
+                    ?? throw new ArgumentException(
+                        "Single-seed mode requires one primary seed binding.",
+                        nameof(Seeds));
+                if (Seeds.Length != 1
+                    || primary.Subject != ModeRequest.Seeds[0])
+                {
+                    throw new ArgumentException(
+                        "The primary seed binding must match the single-seed request.",
+                        nameof(Seeds));
+                }
+                break;
+            case InspectionGraphMode.PeerSeeds:
+                if (Seeds.Length != ModeRequest.Seeds.Length
+                    || Seeds.Any(static seed =>
+                        seed.Role != InspectionGraphSeedRole.Peer)
+                    || !Seeds.Select(static seed => seed.Subject)
+                        .SequenceEqual(ModeRequest.Seeds))
+                {
+                    throw new ArgumentException(
+                        "Peer seed bindings must preserve every requested peer in request order.",
+                        nameof(Seeds));
+                }
+                break;
+            case InspectionGraphMode.InducedSet:
+                if (!Seeds.IsEmpty)
+                {
+                    throw new ArgumentException(
+                        "An induced-set graph cannot contain seed bindings.",
+                        nameof(Seeds));
+                }
+                break;
+        }
     }
 
     private void ValidateDiagnostics()

@@ -462,6 +462,76 @@ public sealed class AssemblyContextSourceQueryTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
+    public async Task SnapshotPrimaryFailure_IsNotMaskedByCleanupFailure(
+        bool memberQuery,
+        bool fatalFailure)
+    {
+        Exception primaryFailure =
+            fatalFailure
+                ? new OutOfMemoryException(
+                    "Synthetic fatal snapshot failure.")
+                : new OperationCanceledException(
+                    "Synthetic snapshot cancellation.");
+        var cleanupFailure =
+            new HttpRequestException(
+                "Synthetic snapshot cleanup failure.");
+        PrimaryAndCleanupFailureStream? opened = null;
+        TestAssembly assembly =
+            TestAssembly.Create(
+                openRead: () =>
+                {
+                    opened =
+                        new PrimaryAndCleanupFailureStream(
+                            File.ReadAllBytes(
+                                typeof(
+                                    AssemblyContextSourceQueryTests)
+                                    .Assembly.Location),
+                            primaryFailure,
+                            cleanupFailure);
+                    return opened;
+                });
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        Func<Task> operation =
+            memberQuery
+                ? () => AssemblyContextSourceQuery.ExecuteMemberAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.MemberRequest(
+                        nameof(SourceFixture.Describe)),
+                    host.Context,
+                    TestContext.Current.CancellationToken)
+                : () => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                    group,
+                    assembly.Participant,
+                    assembly.TypeRequest(
+                        typeof(SourceFixture).Name),
+                    host.Context,
+                    TestContext.Current.CancellationToken);
+
+        Exception error =
+            fatalFailure
+                ? await Assert.ThrowsAsync<OutOfMemoryException>(
+                    operation)
+                : await Assert.ThrowsAsync<OperationCanceledException>(
+                    operation);
+
+        Assert.Same(primaryFailure, error);
+        Assert.Equal(1, Assert.IsType<
+            PrimaryAndCleanupFailureStream>(opened).DisposeCount);
+        Assert.Empty(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
     public async Task SnapshotAcquisitionStateChange_PrecedesEarlyTargetNotFound(
         bool memberQuery,
         bool rotatePolicy)
@@ -1473,6 +1543,26 @@ public sealed class AssemblyContextSourceQueryTests
         bool typeQuery)
     {
         TestAssembly assembly = TestAssembly.Create();
+        byte[] bytes =
+            File.ReadAllBytes(
+                typeof(AssemblyContextSourceQueryTests)
+                    .Assembly.Location);
+        using var stream =
+            new DisposeCountingStream(
+                new MemoryStream(
+                    bytes,
+                    writable: false));
+        var retained =
+            ResolvedAssemblyReference.Create(
+                assembly.Assembly.Identity,
+                path: null,
+                () => stream,
+                AssemblyResolutionProvenance.Package(
+                    "Example.Source",
+                    "1.0.0",
+                    "net10.0",
+                    rid: null));
+        var subject = new AssemblyContextSubject(retained);
         using var cancellation = new CancellationTokenSource();
         var pdbStore =
             new StateChangingPdbStore(
@@ -1481,36 +1571,41 @@ public sealed class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             pdbStore: pdbStore);
-        using var workspace = new InspectionWorkspace();
-        AssemblyContextGroup group =
-            workspace.CreateAssemblyContextGroup(
-                [assembly.Participant]);
 
         if (typeQuery)
         {
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => AssemblyContextSourceQuery.ExecuteTypeAsync(
-                    group,
+                () => AssemblyContextSourceQuery.InspectTypeAsync(
+                    subject,
                     assembly.Participant,
                     assembly.TypeRequest(
                         typeof(SourceFixture).Name),
                     host.Context,
+                    assembly.TypeTarget(
+                        typeof(SourceFixture).Name),
+                    retained,
+                    assembly.Policy.Version,
                     cancellation.Token));
         }
         else
         {
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => AssemblyContextSourceQuery.ExecuteMemberAsync(
-                    group,
+                () => AssemblyContextSourceQuery.InspectMemberAsync(
+                    subject,
                     assembly.Participant,
                     assembly.MemberRequest(
                         nameof(SourceFixture.Describe)),
                     host.Context,
+                    assembly.MemberTarget(
+                        nameof(SourceFixture.Describe)),
+                    retained,
+                    assembly.Policy.Version,
                     cancellation.Token));
         }
 
+        Assert.Equal(1, stream.DisposeCount);
         Assert.Equal(
-            2,
+            1,
             Assert.IsType<BlockingDisposeStream>(
                     pdbStore.AuthoritativeStream)
                 .DisposeCount);
@@ -1523,7 +1618,7 @@ public sealed class AssemblyContextSourceQueryTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public async Task AuthoredSuccessStateChangeDuringPdbDisposal_IsObserved(
+    public async Task StateChangeDuringPdbStreamRelease_IsObserved(
         bool memberQuery,
         bool rotatePolicy)
     {
@@ -1626,11 +1721,11 @@ public sealed class AssemblyContextSourceQueryTests
         }
 
         Assert.Equal(
-            2,
+            1,
             Assert.IsType<BlockingDisposeStream>(
                     pdbStore.AuthoritativeStream)
                 .DisposeCount);
-        Assert.Single(host.SourceRequests);
+        Assert.Empty(host.SourceRequests);
         Assert.Equal(0, assembly.Policy.SelectionCount);
     }
 
@@ -1726,7 +1821,7 @@ public sealed class AssemblyContextSourceQueryTests
         }
 
         Assert.Equal(
-            2,
+            1,
             Assert.IsType<BlockingDisposeStream>(
                     pdbStore.AuthoritativeStream)
                 .DisposeCount);
@@ -1792,7 +1887,7 @@ public sealed class AssemblyContextSourceQueryTests
         var typed = Assert.IsType<InvalidOperationException>(error);
         Assert.Same(disposalFailure, typed.InnerException);
         Assert.Equal(
-            2,
+            1,
             Assert.IsType<BlockingDisposeStream>(
                     pdbStore.AuthoritativeStream)
                 .DisposeCount);
@@ -1801,13 +1896,18 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
+    [InlineData(false, false, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, true, true)]
     public async Task PdbLoadPrimaryFailure_IsNotMaskedByCleanupFailure(
         bool memberQuery,
-        bool fatalFailure)
+        bool fatalFailure,
+        bool providerFailure)
     {
         TestAssembly assembly = TestAssembly.Create();
         Exception primaryFailure =
@@ -1822,8 +1922,15 @@ public sealed class AssemblyContextSourceQueryTests
                 disposeFailure:
                     new HttpRequestException(
                         "Synthetic PDB cleanup failure."),
-                positionResetFailure: primaryFailure,
-                disposeFailureAt: 1);
+                positionResetFailure:
+                    providerFailure
+                        ? null
+                        : primaryFailure,
+                disposeFailureAt: 1,
+                prefetchReadFailure:
+                    providerFailure
+                        ? primaryFailure
+                        : null);
         using var host = QueryHost.WithPdb(
             assembly.PdbPath,
             SourceFileBytes(),
@@ -2566,7 +2673,8 @@ public sealed class AssemblyContextSourceQueryTests
 
         internal static TestAssembly Create(
             string? selectedName = null,
-            bool retainPath = false)
+            bool retainPath = false,
+            Func<Stream>? openRead = null)
         {
             string path =
                 typeof(AssemblyContextSourceQueryTests)
@@ -2588,9 +2696,10 @@ public sealed class AssemblyContextSourceQueryTests
                     retainPath
                         ? path
                         : null,
-                    () => new MemoryStream(
-                        bytes,
-                        writable: false),
+                    openRead
+                        ?? (() => new MemoryStream(
+                            bytes,
+                            writable: false)),
                     AssemblyResolutionProvenance.Package(
                         "Example.Source",
                         "1.0.0",
@@ -2685,21 +2794,36 @@ public sealed class AssemblyContextSourceQueryTests
         internal AssemblyTypeSourceRequest TypeRequest(
             string typeName,
             Pipeline.PrinterOptions? printerOptions = null)
+            => AssemblyTypeSourceRequest.From(
+                TypeTarget(typeName),
+                printerOptions);
+
+        internal ApiType TypeTarget(
+            string typeName)
         {
-            ApiType type = Assert.Single(
+            return Assert.Single(
                 _surface.Types,
                 candidate =>
                     candidate.DefinitionName?.Segments[^1]
                     == typeName);
-            return AssemblyTypeSourceRequest.From(
-                type,
-                printerOptions);
         }
 
         internal AssemblyMemberSourceRequest MemberRequest(
             string memberName,
             string? typeName = null,
             Pipeline.PrinterOptions? printerOptions = null)
+        {
+            var target =
+                MemberTarget(memberName, typeName);
+            return AssemblyMemberSourceRequest.From(
+                target.Type,
+                target.Member,
+                printerOptions);
+        }
+
+        internal (ApiType Type, ApiMember Member) MemberTarget(
+            string memberName,
+            string? typeName = null)
         {
             ApiType type = Assert.Single(
                 _surface.Types,
@@ -2710,10 +2834,7 @@ public sealed class AssemblyContextSourceQueryTests
             ApiMember member = Assert.Single(
                 type.Members,
                 candidate => candidate.Name == memberName);
-            return AssemblyMemberSourceRequest.From(
-                type,
-                member,
-                printerOptions);
+            return (type, member);
         }
 
         static AssemblyReferenceIdentity ReadIdentity(
@@ -3093,7 +3214,8 @@ public sealed class AssemblyContextSourceQueryTests
         ManualResetEventSlim? disposeRelease = null,
         Exception? disposeFailure = null,
         Exception? positionResetFailure = null,
-        int disposeFailureAt = 2)
+        int disposeFailureAt = 1,
+        Exception? prefetchReadFailure = null)
         : IPdbStore
     {
         readonly InMemoryPdbStore _inner = new();
@@ -3120,7 +3242,8 @@ public sealed class AssemblyContextSourceQueryTests
                     disposeRelease,
                     disposeFailure,
                     positionResetFailure,
-                    disposeFailureAt);
+                    disposeFailureAt,
+                    prefetchReadFailure);
             return AuthoritativeStream;
         }
 
@@ -3147,9 +3270,12 @@ public sealed class AssemblyContextSourceQueryTests
         ManualResetEventSlim? release,
         Exception? disposeFailure,
         Exception? positionResetFailure = null,
-        int disposeFailureAt = 2)
+        int disposeFailureAt = 1,
+        Exception? prefetchReadFailure = null)
         : Stream
     {
+        bool _headerReset;
+
         internal int DisposeCount { get; private set; }
 
         public override bool CanRead => inner.CanRead;
@@ -3161,13 +3287,16 @@ public sealed class AssemblyContextSourceQueryTests
             get => inner.Position;
             set
             {
-                if (value == 0
-                    && inner.Position != 0
+                bool headerReset =
+                    value == 0
+                    && inner.Position != 0;
+                if (headerReset
                     && positionResetFailure is not null)
                 {
                     throw positionResetFailure;
                 }
                 inner.Position = value;
+                _headerReset |= headerReset;
             }
         }
 
@@ -3177,8 +3306,17 @@ public sealed class AssemblyContextSourceQueryTests
         public override int Read(
             byte[] buffer,
             int offset,
-            int count) =>
-            inner.Read(buffer, offset, count);
+            int count)
+        {
+            ThrowPrefetchReadFailure();
+            return inner.Read(buffer, offset, count);
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            ThrowPrefetchReadFailure();
+            return inner.Read(buffer);
+        }
 
         public override long Seek(
             long offset,
@@ -3214,6 +3352,15 @@ public sealed class AssemblyContextSourceQueryTests
                 inner.Dispose();
             }
             base.Dispose(disposing);
+        }
+
+        void ThrowPrefetchReadFailure()
+        {
+            if (_headerReset
+                && prefetchReadFailure is not null)
+            {
+                throw prefetchReadFailure;
+            }
         }
     }
 
@@ -3265,6 +3412,29 @@ public sealed class AssemblyContextSourceQueryTests
             int offset,
             int count) =>
             throw new NotSupportedException();
+    }
+
+    sealed class PrimaryAndCleanupFailureStream(
+        byte[] bytes,
+        Exception primaryFailure,
+        Exception cleanupFailure)
+        : MemoryStream(bytes, writable: false)
+    {
+        internal int DisposeCount { get; private set; }
+
+        public override long Length =>
+            throw primaryFailure;
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisposeCount++;
+                base.Dispose(disposing);
+                throw cleanupFailure;
+            }
+            base.Dispose(disposing);
+        }
     }
 
     sealed class DisposeCountingStream(Stream inner)
