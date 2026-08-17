@@ -130,6 +130,27 @@ public class MetadataTypeNameBudgetTests
     }
 
     [Fact]
+    public void CjkNameUnderTheCharacterBudget_IsAccepted()
+    {
+        // 2,000 BMP ideographs are 6,000 UTF-8 bytes and 2,000 UTF-16 units.
+        // Encoded preflight at 4,096 bytes would have rejected a legal name.
+        string name = new string('\u4E00', 2_000);
+        TypeDefinitionHandle handle = default;
+        using var image = BuildMetadata(metadata =>
+        {
+            handle = AddTypeDefinition(metadata, TypeAttributes.Public, "", name);
+        });
+
+        Assert.Equal(
+            name,
+            TypeResolver.ResolveTypeNameFromDefinition(image.Reader, handle)
+                .GetValueOrThrow());
+        var read = Assert.IsType<MetadataTypeDefinitionNameReadResult.Read>(
+            MetadataTypeDefinitionNameReader.Read(image.Reader, handle));
+        Assert.Equal(name, read.Name.Segments[0]);
+    }
+
+    [Fact]
     public void ManySmallSegments_AreRejectedOnAggregateEncodedLength()
     {
         const string small = "SmallSegmentName20!";

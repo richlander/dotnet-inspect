@@ -9,15 +9,25 @@ namespace ILInspector.Metadata;
 /// materializes an over-budget heap entry or concatenates many shared ones.
 /// </summary>
 /// <remarks>
-/// UTF-8 storage length is an upper bound on UTF-16 length, so the encoded
-/// preflight is sufficient to refuse a huge #Strings entry. Projected virtual
-/// strings may already be materialized by <see cref="MetadataReader.GetBlobReader(StringHandle)"/>;
+/// UTF-8 storage is at most three bytes per UTF-16 code unit, so the encoded
+/// preflight uses <c>3 * MaxTypeNameCharacters</c> and refuses a huge #Strings
+/// entry before <see cref="MetadataReader.GetString(StringHandle)"/>. The
+/// decoded recheck is the 4,096-character policy; a legal CJK name must not
+/// fail the encoded check. Projected virtual strings may already be
+/// materialized by <see cref="MetadataReader.GetBlobReader(StringHandle)"/>;
 /// the decoded recheck still prevents later segments from being appended.
 /// Accounting matches <c>MetadataTypeDefinitionName.Create</c>: namespace
 /// characters plus one delimiter per name segment.
 /// </remarks>
 internal struct MetadataTypeNameBudget
 {
+    /// <summary>
+    /// Worst-case UTF-8 bytes for a name that is still within
+    /// <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/> UTF-16 units.
+    /// </summary>
+    public const int MaxEncodedBytes =
+        MetadataSafetyPolicy.MaxTypeNameCharacters * 3;
+
     long encoded;
     long characters;
 
@@ -37,7 +47,7 @@ internal struct MetadataTypeNameBudget
         int utf8Length = reader.GetBlobReader(handle).Length;
         beforeMaterialize?.Invoke(utf8Length);
         encoded += utf8Length + delimiterChars;
-        if (encoded > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        if (encoded > MaxEncodedBytes)
         {
             value = string.Empty;
             return false;

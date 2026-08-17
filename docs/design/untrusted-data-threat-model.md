@@ -398,9 +398,9 @@ estimates, and bounded decoding charges each constructed node's complete
 estimated output so repeated wrapping cannot reallocate an uncharged subtree.
 Structured nested type names are read once and enforce their cumulative limit
 before the remaining chain is materialized. Legacy `FormatChain`, `ReadChain`,
-and leaf-append readers preflight UTF-8 storage against that same 4,096-character
-budget, then recheck decoded length, and report `NameBudget` rather than
-malformed or success-shaped output. Shared #Strings entries, many individually
+and leaf-append readers preflight UTF-8 storage against three times that
+4,096-character budget (the UTF-8 worst case), then recheck decoded length,
+and report `NameBudget` rather than malformed or success-shaped output. Shared #Strings entries, many individually
 small segments, and projected virtual strings whose blob length is obtained
 only after SRM materializes them are gated by
 `SharedOversizeHeapString_IsRejectedBeforeAggregateMaterialization`,
