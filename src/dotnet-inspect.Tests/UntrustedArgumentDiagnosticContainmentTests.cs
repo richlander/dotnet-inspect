@@ -36,6 +36,7 @@ namespace DotnetInspector.Tests;
 /// </description></item>
 /// </list>
 /// </remarks>
+[Collection("Console")]
 public class UntrustedArgumentDiagnosticContainmentTests : IDisposable
 {
     private const string Bidi = "\u202E";
