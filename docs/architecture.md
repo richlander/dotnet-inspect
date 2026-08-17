@@ -799,8 +799,10 @@ Research overlay bridge, and the application layer:
   discovery is cached by exact callee identity, while accessibility and
   dispatch suppression remain source-dependent;
   `OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce` gates the
-  per-type method index that bounds distinct-callee discovery. Constructed
-  generic type relationships preserve DAG sharing and
+  per-type method index that bounds distinct-callee discovery, and
+  `OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel` gates
+  constructed base traversal, generic substitution, name hiding, and inherited
+  accessibility. Constructed generic type relationships preserve DAG sharing and
   bound structural identity, comparison, and finding-display work;
   `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
   `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`, and

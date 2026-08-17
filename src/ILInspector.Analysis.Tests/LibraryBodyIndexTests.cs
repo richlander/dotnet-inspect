@@ -271,6 +271,82 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel()
+    {
+        var index = LibraryBodyIndex.Open(
+            typeof(OptimizationOpportunityFixtures)
+                .Assembly.Location);
+        OptimizationOpportunity[] opportunities =
+            index.OptimizationOpportunities
+                .Where(opportunity => opportunity.Shape
+                    == "sync-call-in-async")
+                .ToArray();
+
+        Assert.Contains(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        InheritedAsyncSiblingDerived<int>
+                            .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    .StartsWith(
+                        nameof(InheritedAsyncSiblingDerived<int>),
+                        StringComparison.Ordinal)
+                && opportunity.Evidence.Contains(
+                    "InheritedAsyncSiblingBase",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                    HiddenInheritedAsyncSiblingDerived
+                        .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        HiddenInheritedAsyncSiblingDerived));
+        Assert.Contains(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        NearestInheritedAsyncSiblingLeaf
+                            .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        NearestInheritedAsyncSiblingLeaf)
+                && opportunity.Evidence.Contains(
+                    "NearestInheritedAsyncSiblingMiddle"
+                        + "::ReadAsync",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                    ProtectedInheritedAsyncSiblingDerived
+                        .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ProtectedInheritedAsyncSiblingDerived));
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                    ProtectedInheritedAsyncSiblingConsumer
+                        .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        ProtectedInheritedAsyncSiblingConsumer));
+        Assert.Contains(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                    InternalInheritedAsyncSiblingDerived
+                        .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        InternalInheritedAsyncSiblingDerived));
+    }
+
+    [Fact]
     public void AsyncSiblingTypeMatching_RejectsMixedNonCoreOrigins()
     {
         MetadataTypeDefinitionName typeName =
@@ -11569,6 +11645,116 @@ public class GenericNewSlotSiblingBase<TFirst, TSecond>
 
     public virtual Task<TFirst> ReadAsync(TFirst value)
         => Task.FromResult(value);
+}
+
+public class InheritedAsyncSiblingBase<T>
+{
+    public Task<T> ReadAsync(T value)
+        => Task.FromResult(value);
+}
+
+public sealed class InheritedAsyncSiblingDerived<T>
+    : InheritedAsyncSiblingBase<T>
+{
+    public T Read(T value) => value;
+
+    public async Task<T> AnalyzeAsync(T value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
+}
+
+public class HiddenInheritedAsyncSiblingBase
+{
+    public Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+}
+
+public sealed class HiddenInheritedAsyncSiblingDerived
+    : HiddenInheritedAsyncSiblingBase
+{
+    public int Read(int value) => value;
+
+    public new Task<string> ReadAsync(int value)
+        => Task.FromResult(value.ToString());
+
+    public async Task<int> AnalyzeAsync(int value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
+}
+
+public class NearestInheritedAsyncSiblingBase
+{
+    public Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+}
+
+public class NearestInheritedAsyncSiblingMiddle
+    : NearestInheritedAsyncSiblingBase
+{
+    public new Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+}
+
+public sealed class NearestInheritedAsyncSiblingLeaf
+    : NearestInheritedAsyncSiblingMiddle
+{
+    public int Read(int value) => value;
+
+    public async Task<int> AnalyzeAsync(int value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
+}
+
+public class ProtectedInheritedAsyncSiblingBase
+{
+    protected Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+}
+
+public sealed class ProtectedInheritedAsyncSiblingDerived
+    : ProtectedInheritedAsyncSiblingBase
+{
+    public int Read(int value) => value;
+
+    public async Task<int> AnalyzeAsync(int value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
+}
+
+public static class ProtectedInheritedAsyncSiblingConsumer
+{
+    public static async Task<int> AnalyzeAsync(
+        ProtectedInheritedAsyncSiblingDerived value)
+    {
+        await Task.Yield();
+        return value.Read(1);
+    }
+}
+
+public class InternalInheritedAsyncSiblingBase
+{
+    internal Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+}
+
+public sealed class InternalInheritedAsyncSiblingDerived
+    : InternalInheritedAsyncSiblingBase
+{
+    public int Read(int value) => value;
+
+    public async Task<int> AnalyzeAsync(int value)
+    {
+        await Task.Yield();
+        return Read(value);
+    }
 }
 
 public class GenericNewSlotSiblingMiddle<TFirst, TSecond>

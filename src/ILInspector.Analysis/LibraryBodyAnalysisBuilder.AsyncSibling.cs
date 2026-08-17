@@ -130,26 +130,27 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         foreach (AsyncSiblingCandidate prepared
             in lookup.Candidates)
         {
-            if (lookup.SameAssembly
+            if (prepared.SameAssembly
                     && MetadataTokens.GetToken(
                         prepared.Handle)
                         == asyncSource.MetadataToken
                 || !IsCallableAsyncSibling(
                     prepared.Definition,
-                    lookup.SameAssembly,
+                    prepared.SameAssembly,
+                    prepared.Reference.DeclaringType,
                     lookup.Callee.DeclaringType,
                     asyncSource,
                     lookup.SynchronousAttributes,
-                    lookup.Reader,
-                    lookup.DeclaringType)
+                    prepared.Reader,
+                    prepared.DeclaringType)
                 || IsPotentialVirtualSelfDispatch(
-                    lookup.Reader,
-                    lookup.DeclaringType,
+                    prepared.Reader,
+                    prepared.DeclaringType,
                     prepared.Handle,
                     prepared.Definition,
                     prepared.Reference,
                     asyncSource,
-                    lookup.DeclaringTypeIsInterface)
+                    prepared.DeclaringTypeIsInterface)
                 || ImplementsCandidateSlot(
                     prepared.Definition,
                     prepared.Reference,
@@ -190,9 +191,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             synchronous.DefiningReader,
             synchronous.DeclaringType);
         callee = synchronous.Reference;
-        bool sameAssembly = ReferenceEquals(
-            resolved.DefiningReader,
-            _reader);
         var declaringDefinition =
             resolved.DefiningReader.GetTypeDefinition(
                 resolved.Definition);
@@ -205,71 +203,150 @@ internal sealed partial class LibraryBodyAnalysisBuilder
             return null;
         }
 
-        var candidates =
-            ImmutableArray.CreateBuilder<
-                AsyncSiblingCandidate>();
-        if (!AsyncSiblingMethodsByName(
+        ImmutableArray<AsyncSiblingCandidate> candidates =
+            FindAsyncSiblingCandidates(
                 resolved.DefiningReader,
-                resolved.Definition)
-            .TryGetValue(
-                callee.Name + "Async",
-                out ImmutableArray<MethodDefinitionHandle>
-                    asyncMethods))
-        {
-            asyncMethods = [];
-        }
-        foreach (var methodHandle in asyncMethods)
-        {
-            var methodDefinition =
-                resolved.DefiningReader.GetMethodDefinition(
-                    methodHandle);
-            if (HasGenericConstraints(
-                    resolved.DefiningReader,
-                    methodDefinition))
-            {
-                continue;
-            }
-
-            MemberRef? candidate = DecodeAsyncSibling(
-                resolved.DefiningReader,
-                declaringDefinition,
-                methodDefinition,
+                resolved.Definition,
                 callee);
-            if (candidate is null
-                || !HasSupportedAsyncSiblingSignature(candidate)
-                || !ParametersMatchAsyncSibling(
-                    callee,
-                    candidate))
-            {
-                continue;
-            }
-
-            candidates.Add(new(
-                methodHandle,
-                methodDefinition,
-                candidate));
-        }
         return new(
-            resolved.DefiningReader,
-            resolved.Definition,
             callee,
             synchronous.Attributes,
-            sameAssembly,
-            (declaringDefinition.Attributes
-                & TypeAttributes.Interface) != 0,
-            candidates.ToImmutable());
+            candidates);
+    }
+
+    ImmutableArray<AsyncSiblingCandidate>
+        FindAsyncSiblingCandidates(
+            MetadataReader reader,
+            TypeDefinitionHandle declaringType,
+            MemberRef callee)
+    {
+        ImmutableArray<TypeRef> typeArguments =
+            callee.DeclaringType.Kind
+                == TypeRefKind.GenericInstance
+                    ? callee.DeclaringType.TypeArguments
+                    : [];
+        var visited =
+            new Dictionary<MetadataReader, HashSet<int>>(
+                ReferenceEqualityComparer.Instance);
+        int visitedCount = 0;
+        string candidateName = callee.Name + "Async";
+        while (visitedCount
+            < MetadataSafetyPolicy.MaxRelationshipNodes)
+        {
+            if (!TryVisitTypeDefinition(
+                    visited,
+                    reader,
+                    declaringType,
+                    ref visitedCount))
+            {
+                return [];
+            }
+
+            TypeDefinition definition =
+                reader.GetTypeDefinition(declaringType);
+            if (AsyncSiblingMethodsByName(
+                    reader,
+                    declaringType)
+                .TryGetValue(
+                    candidateName,
+                    out ImmutableArray<MethodDefinitionHandle>
+                        asyncMethods))
+            {
+                TypeRef definitionType =
+                    TypeRefDecoder.Instance.GetTypeFromDefinition(
+                        reader,
+                        declaringType,
+                        0);
+                TypeRef constructedType =
+                    typeArguments.Length == 0
+                        ? definitionType
+                        : TypeRef.GenericInstance(
+                            definitionType,
+                            typeArguments);
+                MemberRef candidateLookup = callee with
+                {
+                    DeclaringType = constructedType,
+                };
+                var candidates =
+                    ImmutableArray.CreateBuilder<
+                        AsyncSiblingCandidate>();
+                foreach (MethodDefinitionHandle methodHandle
+                    in asyncMethods)
+                {
+                    MethodDefinition methodDefinition =
+                        reader.GetMethodDefinition(methodHandle);
+                    if (HasGenericConstraints(
+                            reader,
+                            methodDefinition))
+                    {
+                        continue;
+                    }
+
+                    MemberRef? candidate = DecodeAsyncSibling(
+                        reader,
+                        definition,
+                        methodDefinition,
+                        candidateLookup);
+                    if (candidate is null
+                        || !HasSupportedAsyncSiblingSignature(
+                            candidate)
+                        || !ParametersMatchAsyncSibling(
+                            callee,
+                            candidate))
+                    {
+                        continue;
+                    }
+
+                    candidates.Add(new(
+                        reader,
+                        declaringType,
+                        ReferenceEquals(reader, _reader),
+                        (definition.Attributes
+                            & TypeAttributes.Interface) != 0,
+                        methodHandle,
+                        methodDefinition,
+                        candidate));
+                }
+                return candidates.ToImmutable();
+            }
+
+            EntityHandle baseHandle = definition.BaseType;
+            if (baseHandle.IsNil)
+                return [];
+            TypeRef baseType = DecodeType(
+                    reader,
+                    baseHandle)
+                .Instantiate(
+                    typeArguments,
+                    []);
+            if (FrameworkIdentity.IsCoreLibraryType(
+                    DefinitionType(baseType),
+                    "System",
+                    "Object")
+                || TryResolveTypeDefinition(
+                        reader,
+                        baseType)
+                    is not { } resolvedBase)
+            {
+                return [];
+            }
+            reader = resolvedBase.DefiningReader;
+            declaringType = resolvedBase.Definition;
+            typeArguments = baseType.TypeArguments;
+        }
+        return [];
     }
 
     sealed record AsyncSiblingLookup(
-        MetadataReader Reader,
-        TypeDefinitionHandle DeclaringType,
         MemberRef Callee,
         MethodAttributes SynchronousAttributes,
-        bool SameAssembly,
-        bool DeclaringTypeIsInterface,
         ImmutableArray<AsyncSiblingCandidate> Candidates);
 
     readonly record struct AsyncSiblingCandidate(
+        MetadataReader Reader,
+        TypeDefinitionHandle DeclaringType,
+        bool SameAssembly,
+        bool DeclaringTypeIsInterface,
         MethodDefinitionHandle Handle,
         MethodDefinition Definition,
         MemberRef Reference);
@@ -525,7 +602,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder
     bool IsCallableAsyncSibling(
         MethodDefinition method,
         bool sameAssembly,
-        TypeRef declaringType,
+        TypeRef candidateDeclaringType,
+        TypeRef synchronousDeclaringType,
         MethodIdentity asyncSource,
         MethodAttributes synchronousAttributes,
         MetadataReader candidateReader,
@@ -534,8 +612,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         var access =
             method.Attributes & MethodAttributes.MemberAccessMask;
         bool sameType = SameTypeDefinition(
-            declaringType,
+            candidateDeclaringType,
             asyncSource.DeclaringType);
+        bool synchronousReceiverProven =
+            SameTypeDefinition(
+                synchronousDeclaringType,
+                asyncSource.DeclaringType);
         MethodAttributes synchronousAccess =
             synchronousAttributes
                 & MethodAttributes.MemberAccessMask;
@@ -549,6 +631,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder
                 == MethodAttributes.FamORAssem
             && internalAccess.MayApply;
         bool protectedReceiverProven = sameType
+            || synchronousReceiverProven
             || (method.Attributes
                     & MethodAttributes.Static) != 0
             || synchronousAccess
