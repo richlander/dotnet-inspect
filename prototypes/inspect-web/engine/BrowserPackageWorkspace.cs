@@ -44,7 +44,9 @@ namespace InspectWeb.Engine;
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller</c>
 /// gates per-caller deadlines over a shared transfer, and
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent</c>
-/// gates the final monotonic check before cache publication.
+/// gates the final monotonic check before cache publication, and
+/// <c>BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout</c>
+/// gates timeout classification after synchronous work overruns the deadline.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
@@ -484,7 +486,7 @@ internal static class BrowserPackageWorkspace
                 + $"the declared range '{declaredRange}'.");
     }
 
-    static async Task<T> RunPackageOperationAsync<T>(
+    internal static async Task<T> RunPackageOperationAsync<T>(
         Func<BrowserPackageOperationDeadline, Task<T>> operation,
         TimeSpan timeout)
     {
@@ -505,6 +507,15 @@ internal static class BrowserPackageWorkspace
             return result;
         }
         catch (OperationCanceledException exception)
+            when (deadline.HasExpired)
+        {
+            throw deadline.Timeout(exception);
+        }
+        catch (TimeoutException)
+        {
+            throw;
+        }
+        catch (Exception exception)
             when (deadline.HasExpired)
         {
             throw deadline.Timeout(exception);

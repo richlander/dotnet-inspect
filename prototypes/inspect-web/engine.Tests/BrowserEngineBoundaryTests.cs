@@ -1101,6 +1101,25 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageOperation_LateFailureBecomesVisibleTimeout()
+    {
+        TimeoutException failure =
+            await Assert.ThrowsAsync<TimeoutException>(
+                () => BrowserPackageWorkspace.RunPackageOperationAsync<int>(
+                    deadline =>
+                    {
+                        while (!deadline.HasExpired)
+                            Thread.SpinWait(100);
+                        return Task.FromException<int>(
+                            new InvalidOperationException(
+                                "Synchronous work failed after the deadline."));
+                    },
+                    TimeSpan.FromMilliseconds(10)));
+
+        Assert.IsType<InvalidOperationException>(failure.InnerException);
+    }
+
+    [Fact]
     public async Task PackageVersionIndex_ValidatesTheIdBeforeRequestingIt()
     {
         InvalidOperationException failure =

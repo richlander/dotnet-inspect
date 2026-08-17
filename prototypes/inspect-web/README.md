@@ -151,8 +151,9 @@ coordinate to rewrite the resource path.
 `BrowserEngineBoundaryTests.PackageResolution_StallBecomesVisibleOperationTimeout`,
 `BrowserEngineBoundaryTests.PackageAcquisition_StallBecomesVisibleOperationTimeout`,
 `BrowserEngineBoundaryTests.PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller`,
+`BrowserEngineBoundaryTests.PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent`,
 and
-`BrowserEngineBoundaryTests.PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent`
+`BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout`
 gate these boundaries.
 
 Acquisition is bounded before content enters either cache or workspace. A
