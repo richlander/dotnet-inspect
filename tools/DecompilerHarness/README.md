@@ -349,16 +349,19 @@ diagnostic buckets below:
 Raw syntax-only indexes still do not carry typed correlation, so fault
 attribution is not attempted for them. Assembly-aware fixture and on-demand
 indexes can establish it offline from a matching embedded or adjacent Portable
-PDB: the PDB's MethodDef selects a document and visible line span, the document
-checksum authenticates exactly one supplied local file with the same file name,
-and exactly one body-bearing declaration or accessor must contain the span.
-Recorded preprocessor symbols are applied before indexing. Missing or mismatched
-PDBs, checksums, files, bodies, or unique spans remain uncorrelated; the original
-compile diagnostic stays visible and an invalid result remains `Unclassified`,
-not a success.
+PDB: embedded containment or a verified Portable CodeView content ID first
+binds the PDB to the assembly; the PDB's MethodDef then selects a document and
+visible line span, the document checksum authenticates exactly one supplied
+local file with the same file name, and exactly one body-bearing declaration or
+accessor must contain the span. Recorded preprocessor symbols are applied before
+indexing. Missing or mismatched PDBs, checksums, files, bodies, or unique spans
+remain uncorrelated; the original compile diagnostic stays visible and an
+invalid result remains `Unclassified`, not a success.
 `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`,
 `TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch`,
-`TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`, and
+`TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`,
+`TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`,
+and
 `TryIsolateRecompileFailure_DeclinesDuplicateChecksumVerifiedSourceFiles` gate
 the positive and fail-closed paths.
 

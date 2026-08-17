@@ -237,6 +237,11 @@ public class PdbContext : IDisposable
     public CodeViewInfo? PdbId { get; private set; }
     public bool NeedsPdb => PdbId != null && !HasPdb;
     public bool HasPdb { get; private set; }
+    /// <summary>
+    /// Whether the loaded Portable PDB is bound to this assembly by embedded
+    /// containment or by a verified Portable CodeView content ID.
+    /// </summary>
+    public bool HasAssemblyBoundPdb { get; private set; }
     public int PdbVersion { get; private set; }
     public bool WindowsPdbDetected { get; set; }
     public string? PdbFormat { get; private set; }
@@ -538,6 +543,7 @@ public class PdbContext : IDisposable
             retained = true;
 
             HasPdb = true;
+            HasAssemblyBoundPdb = PdbId is not null;
             PdbVersion++;
             PdbFormat = "Portable";
             PdbLocation = pdbLocation ?? "Standalone";
@@ -1534,6 +1540,7 @@ public class PdbContext : IDisposable
                 _pdbProvider = provider;
                 _pdbReader = provider.GetMetadataReader();
                 HasPdb = true;
+                HasAssemblyBoundPdb = true;
                 PdbVersion++;
 
                 _log?.Invoke("Using embedded PDB");

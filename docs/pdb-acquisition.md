@@ -125,6 +125,11 @@ CodeView Entry 2: System.Text.Json.pdb    (MinorVersion: 0x504d, Portable PDB) â
 `PdbContext` exposes the selected CodeView identity and raw PDB records without
 exposing `PEReader` or `MetadataReader`. `ILInspector.SourceLink` uses those
 typed APIs for map extraction, URL decoration, and provenance.
+`HasAssemblyBoundPdb` distinguishes an embedded PDB, whose containment binds it
+to the PE, from standalone or caller-supplied content whose Portable PDB content
+ID was verified against the PE's Portable CodeView entry. A readable PDB
+without either binding remains available as raw data but cannot authorize exact
+assembly-to-source attribution.
 
 The ReturnToSender harness is a separate raw-fact consumer. For an
 assembly-aware local source index it asks `PdbContext` for an exact MethodDef's
@@ -134,6 +139,8 @@ correlate one checksum-authenticated local body. It does not interpret a
 SourceLink map or URL. `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`
 and `TryIsolateRecompileFailure_UsesPdbRecordedPreprocessorSymbols` gate this
 layering seam.
+`TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`
+gates the assembly-binding requirement.
 
 ## Microsoft vs third-party libraries
 

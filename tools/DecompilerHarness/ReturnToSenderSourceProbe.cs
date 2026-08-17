@@ -779,7 +779,7 @@ internal sealed class ReturnToSenderSourceIndex
             or InvalidOperationException
             or ArgumentException)
         {
-            return null;
+            return TryCreate(sourcePaths);
         }
         finally
         {
@@ -827,9 +827,9 @@ internal sealed class ReturnToSenderSourceIndex
     /// Raw syntax indexes created by <see cref="TryCreate(IReadOnlyList{string})"/>
     /// retain normal source-probe lookup behavior, but cannot support attribution:
     /// they lack the original build configuration and semantic identity. The
-    /// assembly-aware overload restores attribution only when a matching local or
-    /// embedded Portable PDB supplies an exact MethodDef span and checksum that
-    /// authenticates one uniquely named local source file. The positive and
+    /// assembly-aware overload restores attribution only when an assembly-bound
+    /// local or embedded Portable PDB supplies an exact MethodDef span and checksum
+    /// that authenticates one uniquely named local source file. The positive and
     /// fail-closed paths are gated by
     /// <c>TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan</c>,
     /// <c>TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch</c>,
@@ -870,8 +870,12 @@ internal sealed class ReturnToSenderSourceIndex
         PdbContext pdb,
         bool compilationOptionsKnown)
     {
-        if (!pdb.HasPdb || _sourceFiles.Count == 0 || _attributionCandidates.Count == 0)
+        if (!pdb.HasAssemblyBoundPdb
+            || _sourceFiles.Count == 0
+            || _attributionCandidates.Count == 0)
+        {
             return this;
+        }
 
         using var pe = new PEReader(File.OpenRead(assemblyPath));
         if (!pe.HasMetadata)

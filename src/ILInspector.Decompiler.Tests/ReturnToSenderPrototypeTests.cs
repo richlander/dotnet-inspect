@@ -6532,6 +6532,7 @@ public class ReturnToSenderPrototypeTests
                 var reader = pe.GetMetadataReader();
                 var (_, methodHandle) = FindMethod(reader, "Class1", "M");
                 Assert.True(pdb.HasPdb);
+                Assert.True(pdb.HasAssemblyBoundPdb);
                 PdbMethodDocumentInfo document = Assert.IsType<PdbMethodDocumentInfo>(
                     pdb.ResolveMethodDocument(
                         "",
@@ -6621,6 +6622,12 @@ public class ReturnToSenderPrototypeTests
         var assemblyPath = CompileFixture(source, sourceDirectory, sourcePath: sourcePath);
         try
         {
+            var sourceIndex = Assert.IsType<ReturnToSenderSourceIndex>(
+                ReturnToSenderSourceIndex.TryCreate(assemblyPath, [sourcePath]));
+            Assert.True(sourceIndex.TryFind(
+                new ReturnToSender.RequestedTarget("Class1", "M", 0),
+                out _));
+
             Assert.Null(TryIsolateRecompileFailureForMethod(
                 assemblyPath,
                 sourcePath,
@@ -6632,6 +6639,66 @@ public class ReturnToSenderPrototypeTests
         {
             DeleteFixture(assemblyPath);
             TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity()
+    {
+        const string assemblySource = """
+            public class Class1
+            {
+                public int M() { return 1; }
+            }
+            """;
+        const string foreignSource = """
+            public class Class1
+            {
+                public int M() { return 2; }
+            }
+            """;
+        var sourcePath = WriteTempSource(
+            "Assembly.cs",
+            assemblySource,
+            out var sourceDirectory);
+        var foreignSourcePath = WriteTempSource(
+            "Foreign.cs",
+            foreignSource,
+            out var foreignDirectory);
+        var assemblyPath = CompileFixture(
+            assemblySource,
+            sourceDirectory,
+            sourcePath: sourcePath);
+        var foreignAssemblyPath = CompileFixture(
+            foreignSource,
+            foreignDirectory,
+            assemblyName: "foreign",
+            sourcePath: foreignSourcePath,
+            emitPortablePdb: true);
+        File.Copy(
+            Path.ChangeExtension(foreignAssemblyPath, ".pdb"),
+            Path.ChangeExtension(assemblyPath, ".pdb"));
+        try
+        {
+            using (var pdb = PdbContext.Open(assemblyPath))
+            {
+                Assert.True(pdb.HasPdb);
+                Assert.False(pdb.HasAssemblyBoundPdb);
+            }
+
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                foreignSourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            DeleteFixture(foreignAssemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+            TryDeleteDirectory(foreignDirectory);
         }
     }
 

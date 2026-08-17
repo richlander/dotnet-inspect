@@ -65,15 +65,19 @@ shape match into fault-attribution identity; attribution still requires the
 exact MVID and MethodDef token. That typed correlation may come from a persisted
 authored-corpus row or from an assembly-aware local-source index. The latter
 uses Metadata's raw Portable PDB facts without SourceLink URL interpretation:
-an embedded or adjacent PDB supplies the exact MethodDef document and mapped
-line span, the document checksum authenticates one supplied local file with the
-same file name, and exactly one body-bearing declaration or accessor must
-contain the span. Recorded preprocessor symbols are applied before parsing.
+an assembly-bound embedded or adjacent PDB supplies the exact MethodDef document
+and mapped line span, the document checksum authenticates one supplied local
+file with the same file name, and exactly one body-bearing declaration or
+accessor must contain the span. Embedded containment or a verified Portable
+CodeView content ID establishes the assembly binding. Recorded preprocessor
+symbols are applied before parsing.
 Any missing, mismatched, or ambiguous input leaves the MethodDef
 uncorrelated. `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`,
 `TryIsolateRecompileFailure_AttributesTheExactPropertyAccessor`, and the
 `TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch`,
-`TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`, and
+`TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`,
+`TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`,
+and
 `TryIsolateRecompileFailure_DeclinesAmbiguousSameLinePdbSpan` tests gate this
 path.
 
