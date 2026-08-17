@@ -925,6 +925,7 @@ public static class OutputFormatter
                 SectionNames.ILOffset => true,
                 SectionNames.MemberContext => inspection.ILOffset.MemberContext != null,
                 SectionNames.InstructionContext => inspection.ILOffset.InstructionContext != null,
+                SectionNames.ExceptionContext => inspection.ILOffset.ExceptionContext is { Count: > 0 },
                 SectionNames.CallsiteContext => inspection.ILOffset.CallsiteContext != null,
                 SectionNames.ReturnAddressContext => inspection.ILOffset.ReturnAddressContext != null,
                 SectionNames.AllocationContext => inspection.ILOffset.AllocationContext is { Count: > 0 },
@@ -936,6 +937,7 @@ public static class OutputFormatter
                     SectionNames.ILOffset
                     or SectionNames.MemberContext
                     or SectionNames.InstructionContext
+                    or SectionNames.ExceptionContext
                     or SectionNames.CallsiteContext
                     or SectionNames.ReturnAddressContext
                     or SectionNames.AllocationContext

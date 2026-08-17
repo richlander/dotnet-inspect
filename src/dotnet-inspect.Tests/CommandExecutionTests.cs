@@ -879,6 +879,25 @@ public partial class CommandExecutionTests
                 return -1;
             }
         }
+
+        public int NestedTryCatch(int value)
+        {
+            try
+            {
+                try
+                {
+                    return 100 / value;
+                }
+                catch (DivideByZeroException)
+                {
+                    return -1;
+                }
+            }
+            finally
+            {
+                GC.KeepAlive(value);
+            }
+        }
     }
 
     private sealed class ILOffsetFunctionPointerFixture
@@ -15608,6 +15627,39 @@ public partial class CommandExecutionTests
         Assert.All(
             document.RootElement.EnumerateArray(),
             row => Assert.Equal(1, row.GetProperty("count").GetInt32()));
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetExceptionContextCountsTheCoordinate()
+    {
+        var method = typeof(ILOffsetExceptionFixture).GetMethod(
+            nameof(ILOffsetExceptionFixture.NestedTryCatch))!;
+        var body = method.GetMethodBody()!;
+        int offset = Enumerable.Range(0, body.GetILAsByteArray()!.Length)
+            .First(candidate => body.ExceptionHandlingClauses.Count(
+                clause => candidate >= clause.TryOffset
+                    && candidate < clause.TryOffset + clause.TryLength) > 1);
+        string coordinate = $"0x{method.MetadataToken:X}+0x{offset:X}";
+
+        var scalar = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--il-offset", coordinate,
+            "-S", "Context: Exception",
+            "--count", "--tips", "q");
+        var windowed = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "--il-offset", coordinate,
+            "-S", "Context: Exception",
+            "--rows", "2..2",
+            "--count", "--tips", "q");
+
+        Assert.Equal(0, scalar.Exit);
+        Assert.Equal("1", scalar.Output.Trim());
+        Assert.Empty(scalar.Error);
+
+        Assert.Equal(0, windowed.Exit);
+        Assert.Equal("0", windowed.Output.Trim());
+        Assert.Empty(windowed.Error);
     }
 
     [Fact]
