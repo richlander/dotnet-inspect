@@ -321,15 +321,13 @@ public class AttributeReaderTests
             beforeRetain: rendered.Add,
             preflight: lowerBounds.Add);
 
-        // Each attribute gates type-name materialization then the value lower bound
-        // (Sol R8 live budget). Value bounds are the odd slots and must not exceed
-        // the retained rendered spelling.
-        Assert.Equal(rendered.Count * 2, lowerBounds.Count);
+        // Value lower bounds only (type-name hard-cap gate does not fire for ordinary
+        // sample attributes). Each bound must not exceed the retained spelling.
+        Assert.Equal(rendered.Count, lowerBounds.Count);
         Assert.NotEmpty(rendered);
-        for (int i = 0; i < rendered.Count; i++)
-        {
-            Assert.InRange(lowerBounds[i * 2 + 1], 0, rendered[i].Length);
-        }
+        Assert.All(
+            lowerBounds.Zip(rendered),
+            pair => Assert.InRange(pair.First, 0, pair.Second.Length));
     }
 
     [Fact]
@@ -354,8 +352,8 @@ public class AttributeReaderTests
 
         Assert.Equal(expected, actual);
         Assert.Single(actual);
-        Assert.Equal(2, lowerBounds.Count); // type-name gate + value lower bound
-        Assert.InRange(lowerBounds[1], 0, actual[0].Length);
+        Assert.Single(lowerBounds);
+        Assert.InRange(lowerBounds[0], 0, actual[0].Length);
     }
 
     static CustomAttributeHandleCollection SampleAttributes(MetadataReader reader)

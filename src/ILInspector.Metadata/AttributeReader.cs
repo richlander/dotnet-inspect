@@ -409,12 +409,13 @@ public static class AttributeReader
             }
             else if (typeNameCharacters > MaxPreflightMaterializedStringCharacters)
             {
+                // Hard-cap only: do not charge the full constructor type name against
+                // the retained-text budget. EnsureCanMaterialize is wired as preflight
+                // and retained accounting uses short rendered spellings, so gating the
+                // transient full name false-rejects exact per-model budgets
+                // (Opus R9: RetainedTextPerModelBudget_IsExact).
                 preflight?.Invoke(typeNameCharacters);
                 continue;
-            }
-            else if (preflight is not null)
-            {
-                preflight(typeNameCharacters);
             }
 
             var typeName = GetAttributeTypeName(reader, attr.Constructor);
