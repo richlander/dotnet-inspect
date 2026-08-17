@@ -1012,12 +1012,16 @@ public static class PackageExtractor
     public static async Task<string?> GetSearchQueryServiceAsync(
         HttpClient client,
         NuGetSource source,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        TimeSpan? responseBodyTimeout = null)
     {
         IReadOnlyList<string>? services = await GetSearchQueryServicesAsync(
             client,
             source,
-            log).ConfigureAwait(false);
+            log,
+            cancellationToken,
+            responseBodyTimeout).ConfigureAwait(false);
         return services?.FirstOrDefault();
     }
 
@@ -1028,13 +1032,17 @@ public static class PackageExtractor
     public static async Task<IReadOnlyList<string>?> GetSearchQueryServicesAsync(
         HttpClient client,
         NuGetSource source,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        TimeSpan? responseBodyTimeout = null)
     {
         IReadOnlyList<ServiceResource>? resources =
             await GetServiceIndexResourcesAsync(
                 client,
                 source,
-                log).ConfigureAwait(false);
+                log,
+                cancellationToken,
+                responseBodyTimeout).ConfigureAwait(false);
         if (resources is null)
             return null;
 
@@ -1057,7 +1065,8 @@ public static class PackageExtractor
         HttpClient client,
         NuGetSource source,
         Action<string>? log = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        TimeSpan? responseBodyTimeout = null)
     {
         if (!IsHttpSource(source))
         {
@@ -1088,7 +1097,8 @@ public static class PackageExtractor
             indexUrl,
             auth: NuGetCredentialScope.AuthFor(source, indexUrl, log),
             cancellationToken: cancellationToken,
-            trafficKind: NetworkTrafficKind.PackageSourceDiscovery).ConfigureAwait(false);
+            trafficKind: NetworkTrafficKind.PackageSourceDiscovery,
+            responseBodyTimeout: responseBodyTimeout).ConfigureAwait(false);
         if (json == null)
             return null;
 
@@ -1328,14 +1338,16 @@ public static class PackageExtractor
         NuGetSource source,
         string resourceTypePrefix,
         Action<string>? log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? responseBodyTimeout = null)
     {
         IReadOnlyList<ServiceResource>? resources =
             await GetServiceIndexResourcesAsync(
                 client,
                 source,
                 log,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                responseBodyTimeout).ConfigureAwait(false);
         if (resources is null)
             return null;
 

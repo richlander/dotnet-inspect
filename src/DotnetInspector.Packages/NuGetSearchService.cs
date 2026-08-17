@@ -1,8 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
-using System.Globalization;
 using System.Text.Json;
 using NuGetFetch;
 using DotnetInspector.Core;
@@ -57,13 +55,16 @@ public static class NuGetSearchService
         int take = 20,
         bool prerelease = false,
         Action<string>? log = null,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        NuGetFetchOptions? fetchOptions = null)
     {
         List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
         PackageSourceMapping mapping =
             NuGetSourceResolver.ResolvePackageSourceMapping(sourceOptions);
+        fetchOptions ??= new NuGetFetchOptions();
         return await SearchResolvedAsync(
             client,
+            fetchOptions,
             sources,
             mapping,
             query,
@@ -75,6 +76,7 @@ public static class NuGetSearchService
 
     private static async Task<NuGetSearchOutcome> SearchResolvedAsync(
         HttpClient client,
+        NuGetFetchOptions fetchOptions,
         List<NuGetSource> sources,
         PackageSourceMapping mapping,
         string query,
@@ -87,6 +89,7 @@ public static class NuGetSearchService
 
         return await SearchSourcesAsync(
             client,
+            fetchOptions,
             sources,
             mapping,
             query,
@@ -98,6 +101,7 @@ public static class NuGetSearchService
 
     private static async Task<NuGetSearchOutcome> SearchSourcesAsync(
         HttpClient client,
+        NuGetFetchOptions fetchOptions,
         List<NuGetSource> sources,
         PackageSourceMapping mapping,
         string query,
@@ -113,6 +117,11 @@ public static class NuGetSearchService
         int searched = 0;
         bool useFactoryClients =
             ReferenceEquals(client, HttpClientFactory.Shared);
+        _ = NuGetFetchOptions.RequestTimeoutForClient(
+            fetchOptions,
+            client.Timeout);
+        using var operationCancellation = new CancellationTokenSource(
+            fetchOptions.OperationTimeout);
 
         foreach (NuGetSource source in sources)
         {
@@ -122,15 +131,43 @@ public static class NuGetSearchService
                 && sourceUri.Scheme is "http" or "https"
                     ? HttpClientFactory.GetPackageSourceClient(source.Url)
                     : client;
+            TimeSpan requestTimeout = NuGetFetchOptions.RequestTimeoutForClient(
+                fetchOptions,
+                sourceClient.Timeout);
             IReadOnlyList<string>? searchUrls;
             try
             {
-                searchUrls = await PackageExtractor.GetSearchQueryServicesAsync(
-                    sourceClient,
-                    source,
-                    log);
+                using CancellationTokenSource requestCancellation =
+                    CancellationTokenSource.CreateLinkedTokenSource(
+                        operationCancellation.Token);
+                requestCancellation.CancelAfter(requestTimeout);
+                try
+                {
+                    searchUrls = await PackageExtractor.GetSearchQueryServicesAsync(
+                        sourceClient,
+                        source,
+                        log,
+                        requestCancellation.Token,
+                        Timeout.InfiniteTimeSpan);
+                }
+                catch (OperationCanceledException ex)
+                    when (operationCancellation.IsCancellationRequested)
+                {
+                    throw new NuGetOperationTimeoutException(
+                        fetchOptions.OperationTimeout,
+                        ex);
+                }
+                catch (OperationCanceledException ex)
+                    when (requestCancellation.IsCancellationRequested)
+                {
+                    throw new NuGetRequestTimeoutException(
+                        requestTimeout,
+                        ex);
+                }
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            catch (Exception ex) when (ex is HttpRequestException
+                or TaskCanceledException
+                or TimeoutException)
             {
                 failures.Add(
                     $"{PackageSourceDisplay.ForDiagnostics(source)}: service index unavailable "
@@ -153,18 +190,8 @@ public static class NuGetSearchService
             IReadOnlyList<SearchResult>? found = null;
             Exception? lastFailure = null;
             string? lastSearchUrl = null;
-            TimeSpan sourceTimeout = GetSearchSourceTimeout(sourceClient);
-            long sourceTimeoutStarted = Stopwatch.GetTimestamp();
-            using var sourceSearchTimeout = new CancellationTokenSource(
-                sourceTimeout);
             foreach (string searchUrl in searchUrls.Take(MaxEquivalentSearchEndpoints))
             {
-                if (Stopwatch.GetElapsedTime(sourceTimeoutStarted) >= sourceTimeout)
-                {
-                    lastFailure = CreateSourceTimeoutException(sourceTimeout);
-                    break;
-                }
-
                 lastSearchUrl = searchUrl;
                 var auth = NuGetCredentialScope.AuthFor(source, searchUrl, log);
                 log?.Invoke(
@@ -179,20 +206,23 @@ public static class NuGetSearchService
 
                 try
                 {
-                    SearchService service = new(endpointClient, searchUrl);
+                    SearchService service = new(
+                        endpointClient,
+                        searchUrl,
+                        fetchOptions);
                     found = resultFilter is null
                         ? await service.SearchAsync(
                             query,
                             take,
                             prerelease,
                             auth,
-                            sourceSearchTimeout.Token)
+                            operationCancellation.Token)
                         : await service.SearchByPrefixAsync(
                             query,
                             take,
                             prerelease,
                             auth,
-                            sourceSearchTimeout.Token);
+                            operationCancellation.Token);
                     break;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or JsonException
@@ -200,10 +230,15 @@ public static class NuGetSearchService
                     or IOException or TimeoutException)
                 {
                     lastFailure = ex;
-                    if (sourceSearchTimeout.IsCancellationRequested
-                        || Stopwatch.GetElapsedTime(sourceTimeoutStarted) >= sourceTimeout)
+                    if (operationCancellation.IsCancellationRequested)
                     {
-                        lastFailure = CreateSourceTimeoutException(sourceTimeout);
+                        lastFailure = new NuGetOperationTimeoutException(
+                            fetchOptions.OperationTimeout,
+                            ex as OperationCanceledException
+                                ?? new OperationCanceledException(
+                                    "NuGet search operation deadline expired.",
+                                    ex,
+                                    operationCancellation.Token));
                         break;
                     }
                 }
@@ -265,28 +300,16 @@ public static class NuGetSearchService
     /// The part of a transport failure that may be printed.
     /// </summary>
     /// <remarks>
-    /// A timeout's wording is generated from this product's configured
-    /// <c>HttpClient.Timeout</c>, either by the client or by the source-level
-    /// failover budget, and names no endpoint. It is kept so an operator learns
-    /// which timeout fired. Every other message here is written by a layer that
-    /// saw the remote's response or the feed-declared URL, so only the
-    /// exception's category survives.
+    /// A timeout's wording is generated from this product's configured request
+    /// deadline or operation ceiling and names no endpoint. It is kept so an
+    /// operator learns which timeout fired. Every other message here is written
+    /// by a layer that saw the remote's response or the feed-declared URL, so
+    /// only the exception's category survives.
     /// </remarks>
     private static string DescribeTransportFailure(Exception error) =>
         error is TaskCanceledException or TimeoutException
             ? $"{error.GetType().Name}: {error.Message}"
             : error.GetType().Name;
-
-    private static TimeSpan GetSearchSourceTimeout(HttpClient client) =>
-        client.Timeout == Timeout.InfiniteTimeSpan
-            ? HttpClientFactoryOptions.BaselineTimeout
-            : client.Timeout;
-
-    private static TimeoutException CreateSourceTimeoutException(TimeSpan timeout) =>
-        new(
-            "The search's source-level HttpClient.Timeout budget of "
-            + $"{timeout.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture)} "
-            + "seconds elapsed.");
 
     private static string DescribeServiceIndexFailure(
         NuGetSource source,
@@ -310,14 +333,17 @@ public static class NuGetSearchService
         int take = 100,
         bool prerelease = false,
         Action<string>? log = null,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        NuGetFetchOptions? fetchOptions = null)
     {
         log?.Invoke($"Searching packages by prefix: {prefix}");
         List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
         PackageSourceMapping mapping =
             NuGetSourceResolver.ResolvePackageSourceMapping(sourceOptions);
+        fetchOptions ??= new NuGetFetchOptions();
         NuGetSearchOutcome outcome = await SearchResolvedAsync(
             client,
+            fetchOptions,
             sources,
             mapping,
             prefix,
