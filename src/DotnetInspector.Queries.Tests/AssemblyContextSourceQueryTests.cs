@@ -1491,6 +1491,26 @@ public sealed class AssemblyContextSourceQueryTests
         bool typeQuery)
     {
         TestAssembly assembly = TestAssembly.Create();
+        byte[] bytes =
+            File.ReadAllBytes(
+                typeof(AssemblyContextSourceQueryTests)
+                    .Assembly.Location);
+        using var stream =
+            new DisposeCountingStream(
+                new MemoryStream(
+                    bytes,
+                    writable: false));
+        var retained =
+            ResolvedAssemblyReference.Create(
+                assembly.Assembly.Identity,
+                path: null,
+                () => stream,
+                AssemblyResolutionProvenance.Package(
+                    "Example.Source",
+                    "1.0.0",
+                    "net10.0",
+                    rid: null));
+        var subject = new AssemblyContextSubject(retained);
         using var cancellation = new CancellationTokenSource();
         var pdbStore =
             new StateChangingPdbStore(
@@ -1499,34 +1519,39 @@ public sealed class AssemblyContextSourceQueryTests
             assembly.PdbPath,
             SourceFileBytes(),
             pdbStore: pdbStore);
-        using var workspace = new InspectionWorkspace();
-        AssemblyContextGroup group =
-            workspace.CreateAssemblyContextGroup(
-                [assembly.Participant]);
 
         if (typeQuery)
         {
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => AssemblyContextSourceQuery.ExecuteTypeAsync(
-                    group,
+                () => AssemblyContextSourceQuery.InspectTypeAsync(
+                    subject,
                     assembly.Participant,
                     assembly.TypeRequest(
                         typeof(SourceFixture).Name),
                     host.Context,
+                    assembly.TypeTarget(
+                        typeof(SourceFixture).Name),
+                    retained,
+                    assembly.Policy.Version,
                     cancellation.Token));
         }
         else
         {
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => AssemblyContextSourceQuery.ExecuteMemberAsync(
-                    group,
+                () => AssemblyContextSourceQuery.InspectMemberAsync(
+                    subject,
                     assembly.Participant,
                     assembly.MemberRequest(
                         nameof(SourceFixture.Describe)),
                     host.Context,
+                    assembly.MemberTarget(
+                        nameof(SourceFixture.Describe)),
+                    retained,
+                    assembly.Policy.Version,
                     cancellation.Token));
         }
 
+        Assert.Equal(1, stream.DisposeCount);
         Assert.Equal(
             1,
             Assert.IsType<BlockingDisposeStream>(
@@ -2716,16 +2741,31 @@ public sealed class AssemblyContextSourceQueryTests
 
         internal AssemblyTypeSourceRequest TypeRequest(
             string typeName)
+            => AssemblyTypeSourceRequest.From(
+                TypeTarget(typeName));
+
+        internal ApiType TypeTarget(
+            string typeName)
         {
-            ApiType type = Assert.Single(
+            return Assert.Single(
                 _surface.Types,
                 candidate =>
                     candidate.DefinitionName?.Segments[^1]
                     == typeName);
-            return AssemblyTypeSourceRequest.From(type);
         }
 
         internal AssemblyMemberSourceRequest MemberRequest(
+            string memberName,
+            string? typeName = null)
+        {
+            var target =
+                MemberTarget(memberName, typeName);
+            return AssemblyMemberSourceRequest.From(
+                target.Type,
+                target.Member);
+        }
+
+        internal (ApiType Type, ApiMember Member) MemberTarget(
             string memberName,
             string? typeName = null)
         {
@@ -2738,9 +2778,7 @@ public sealed class AssemblyContextSourceQueryTests
             ApiMember member = Assert.Single(
                 type.Members,
                 candidate => candidate.Name == memberName);
-            return AssemblyMemberSourceRequest.From(
-                type,
-                member);
+            return (type, member);
         }
 
         static AssemblyReferenceIdentity ReadIdentity(
