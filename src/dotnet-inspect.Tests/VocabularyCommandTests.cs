@@ -126,6 +126,53 @@ public sealed class VocabularyCommandTests
         Assert.Equal("4", counted.Output.Trim());
     }
 
+    [Fact]
+    public async Task Command_FieldsProjectsTableColumns()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = [VocabularyCatalog.StyleChoicesSection],
+                Tabular = true,
+                Tsv = true,
+                Fields = ["ID", "Tier"],
+                Rows = RowWindow.Range(1, 1),
+            })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        string[] lines = result.Output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, lines.Length);
+        Assert.Equal("id\ttier", lines[0]);
+        Assert.Equal(2, lines[1].Split('\t').Length);
+    }
+
+    [Fact]
+    public async Task Command_CategoryCountRendersPerSectionMap()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = ["@Decompiler"],
+                Count = true,
+            })));
+        VocabularySection tiers = VocabularyCatalog.GetById("csharp.style-tiers");
+        VocabularySection choices = VocabularyCatalog.GetById("csharp.style-choices");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            $"""
+            | Section | Count |
+            | ------- | ----- |
+            | C# Style Tiers | {tiers.Values.Length} |
+            | C# Style Choices | {choices.Values.Length} |
+            """,
+            result.Output.Trim());
+    }
+
     private static string ValueId(VocabularyRow row) =>
         row.GetRequired("id").Text!;
 }

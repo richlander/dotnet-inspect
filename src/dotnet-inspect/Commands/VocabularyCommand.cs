@@ -16,6 +16,7 @@ public static class VocabularyCommand
         string[] sectionNames = [.. document.Sections.Select(section => section.Name)];
         IReadOnlyDictionary<string, string[]> categoryMap = CreateCategoryMap(document);
         DocumentSchema schema = CreateSchema(document);
+        string[]? projectedColumns = ResolveProjectedColumns(options);
 
         if (options.Schema && options.Discover is null)
         {
@@ -58,17 +59,28 @@ public static class VocabularyCommand
         if (!ProjectionDiagnostics.ValidateProjection(
                 schema,
                 selectedNames,
-                options.Columns,
-                options.Fields))
+                fields: options.Fields,
+                columns: options.Columns))
         {
             return 1;
         }
 
         if (options.Count)
         {
-            if (!CountOutput.ValidateSingleSection(selectedNames))
-                return 1;
-            CountOutput.WriteCount(RowWindow.Apply(options.Rows, sections[0].Values).Count);
+            if (sections.Length == 1)
+            {
+                CountOutput.WriteCount(RowWindow.Apply(options.Rows, sections[0].Values).Count);
+            }
+            else
+            {
+                Dictionary<string, int> counts = sections.ToDictionary(
+                    section => section.Name,
+                    section => RowWindow.Apply(options.Rows, section.Values).Count,
+                    StringComparer.Ordinal);
+                CountOutput.WriteCountMap(
+                    counts,
+                    [.. sections.Select(section => section.Name)]);
+            }
             return 0;
         }
 
@@ -82,13 +94,12 @@ public static class VocabularyCommand
 
         if (options.JsonOutput)
         {
-            if (options.Columns is { Length: > 0 }
-                || options.Fields is { Length: > 0 })
+            if (projectedColumns is { Length: > 0 })
             {
                 OutputFormatter.WriteProjectedJson(
                     Console.Out,
-                    options.Columns,
-                    options.Fields,
+                    projectedColumns,
+                    fields: null,
                     (writer, formatter, writerOptions) =>
                         WriteSections(
                             new MarkoutWriter(writer, formatter, writerOptions),
@@ -118,8 +129,8 @@ public static class VocabularyCommand
                 showHeader: !options.NoHeader,
                 options.Tsv,
                 options.Jsonl,
-                options.Columns,
-                options.Fields,
+                projectedColumns,
+                fields: null,
                 (writer, formatter, writerOptions) =>
                 {
                     var markout = new MarkoutWriter(writer, formatter, writerOptions);
@@ -131,8 +142,8 @@ public static class VocabularyCommand
         }
 
         var markdownOptions = OutputFormatter.CreateProjectedWriterOptions(
-            options.Columns,
-            options.Fields,
+            projectedColumns,
+            fields: null,
             options.Rows);
         var markdown = new MarkoutWriter(
             Console.Out,
@@ -209,5 +220,20 @@ public static class VocabularyCommand
             pair => pair.Key,
             pair => pair.Value.ToArray(),
             StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string[]? ResolveProjectedColumns(VocabularyOptions options)
+    {
+        if (options.Columns is not { Length: > 0 })
+            return options.Fields is { Length: > 0 } ? options.Fields : null;
+        if (options.Fields is not { Length: > 0 })
+            return options.Columns;
+
+        return
+        [
+            .. options.Columns
+                .Concat(options.Fields)
+                .Distinct(StringComparer.OrdinalIgnoreCase),
+        ];
     }
 }
