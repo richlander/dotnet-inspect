@@ -53,12 +53,15 @@ internal static class MetadataAccessorSemantics
             default(InitOnlyModifierState));
         if (result.IsDegraded)
             throw new BadImageFormatException("The property setter signature could not be decoded.");
+        if (result.Value.ReturnType.IsMalformed)
+            throw new BadImageFormatException("The init-only modifier type is malformed.");
         return result.Value.ReturnType.IsInitOnly;
     }
 
     readonly record struct InitOnlyModifierState(
         bool IsExternalInitType,
-        bool IsInitOnly);
+        bool IsInitOnly,
+        bool IsMalformed);
 
     sealed class InitOnlyModifierDetector
         : ISignatureTypeProvider<InitOnlyModifierState, object?>
@@ -75,7 +78,11 @@ internal static class MetadataAccessorSemantics
         {
             var type = reader.GetTypeDefinition(handle);
             return new(
-                IsExternalInit(reader.GetString(type.Name), reader.GetString(type.Namespace)),
+                type.GetDeclaringType().IsNil
+                    && IsExternalInit(
+                        reader.GetString(type.Name),
+                        reader.GetString(type.Namespace)),
+                false,
                 false);
         }
 
@@ -85,8 +92,26 @@ internal static class MetadataAccessorSemantics
             byte rawTypeKind)
         {
             var type = reader.GetTypeReference(handle);
+            if (type.ResolutionScope.Kind == HandleKind.TypeReference)
+            {
+                Span<TypeReferenceHandle> chain =
+                    stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
+                if (!MetadataRelationshipTraversal.TryWalkTypeReferenceResolutionScope(
+                        reader,
+                        handle,
+                        chain,
+                        out _,
+                        out _,
+                        out _))
+                {
+                    return new(false, false, true);
+                }
+
+                return default;
+            }
             return new(
                 IsExternalInit(reader.GetString(type.Name), reader.GetString(type.Namespace)),
+                false,
                 false);
         }
 
@@ -133,7 +158,8 @@ internal static class MetadataAccessorSemantics
             => new(
                 false,
                 unmodifiedType.IsInitOnly
-                    || isRequired && modifier.IsExternalInitType);
+                    || isRequired && modifier.IsExternalInitType,
+                modifier.IsMalformed || unmodifiedType.IsMalformed);
 
         public InitOnlyModifierState GetPinnedType(InitOnlyModifierState elementType)
             => elementType;

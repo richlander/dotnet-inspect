@@ -587,7 +587,8 @@ public sealed class MetadataDeclarationQueryTests
             new ExplicitInterfaceTypeIdentity(
                 "nullable",
                 "System.Nullable",
-                GenericArity: 1),
+                GenericArity: 1,
+                IsWellKnownNullable: true),
             [element]);
         var nullableInterface = provider.GetGenericInstantiation(
             new ExplicitInterfaceTypeIdentity(
@@ -596,6 +597,27 @@ public sealed class MetadataDeclarationQueryTests
                 GenericArity: 1),
             [nullable]);
         Assert.Equal("Samples.IContract<System.Int32?>", nullableInterface.AggregateAliasName);
+        var spoofNullable = provider.GetGenericInstantiation(
+            new ExplicitInterfaceTypeIdentity(
+                "spoof-nullable",
+                "System.Nullable`1",
+                GenericArity: 1),
+            [element]);
+        Assert.Null(spoofNullable.AggregateAliasName);
+        Assert.Throws<BadImageFormatException>(() =>
+            provider.GetGenericInstantiation(
+                new ExplicitInterfaceTypeIdentity(
+                    "generic",
+                    "Samples.IContract`1",
+                    GenericArity: 1),
+                [element, element]));
+        Assert.False(provider.GetGenericInstantiation(
+            new ExplicitInterfaceTypeIdentity(
+                "class",
+                "Samples.NotAnInterface`1",
+                GenericArity: 1,
+                IsInterface: false),
+            [element]).IsInterface);
 
         Assert.NotNull(typeof(Dictionary<,>.KeyCollection));
         var nestedReference = PeReader.GetMetadataReader()
@@ -766,6 +788,30 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void MetadataAccessorSemantics_RejectsNestedAndMalformedInitModifiers()
+    {
+        using (var peReader = new PEReader(new MemoryStream(
+                   BuildHostileInitModifierImage(cyclicScope: false))))
+        {
+            var reader = peReader.GetMetadataReader();
+            Assert.Equal(
+                "set",
+                MetadataAccessorSemantics.Kind(
+                    reader,
+                    MetadataTokens.MethodDefinitionHandle(1),
+                    "set"));
+        }
+
+        using var cyclicReader = new PEReader(new MemoryStream(
+            BuildHostileInitModifierImage(cyclicScope: true)));
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataAccessorSemantics.Kind(
+                cyclicReader.GetMetadataReader(),
+                MetadataTokens.MethodDefinitionHandle(1),
+                "set"));
+    }
+
+    [Fact]
     public void ExplicitAggregateIdentity_RejectsBaseClassMethodImplTargets()
     {
         string path = EmitBaseClassMethodImplEvent();
@@ -784,6 +830,39 @@ public sealed class MetadataDeclarationQueryTests
                 ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(reader, typeDef),
                 (accessors.Adder, "add_"),
                 (accessors.Remover, "remove_")));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void EventSealing_DoesNotCombineDifferentAccessors()
+    {
+        string path = EmitIncoherentEventSealing();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = GetTypeDefinitionHandle(reader, "DerivedEventSealing");
+            var extracted = Assert.Single(
+                ApiSurfaceExtractor.Extract(peReader, includeAll: true).Types,
+                type => type.Name == "DerivedEventSealing");
+            var queried = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: true);
+
+            var extractedEvent = Assert.Single(
+                extracted.Members,
+                member => member.Kind == "event");
+            var queriedEvent = Assert.Single(
+                queried.Members,
+                member => member.Kind == "event");
+
+            Assert.False(extractedEvent.IsSealed);
+            Assert.Equal(queriedEvent.IsSealed, extractedEvent.IsSealed);
         }
         finally
         {
@@ -1478,6 +1557,144 @@ public sealed class MetadataDeclarationQueryTests
             $"BaseClassMethodImplEvent-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
+    }
+
+    static string EmitIncoherentEventSealing()
+    {
+        var assemblyName = new AssemblyName("IncoherentEventSealing");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        const MethodAttributes accessorAttributes =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig;
+
+        var baseBuilder = module.DefineType("BaseEventSealing", TypeAttributes.Public);
+        var baseAdder = baseBuilder.DefineMethod(
+            "add_Changed",
+            accessorAttributes | MethodAttributes.NewSlot,
+            typeof(void),
+            [typeof(Action)]);
+        baseAdder.GetILGenerator().Emit(OpCodes.Ret);
+        var baseRemover = baseBuilder.DefineMethod(
+            "remove_Changed",
+            accessorAttributes | MethodAttributes.NewSlot,
+            typeof(void),
+            [typeof(Action)]);
+        baseRemover.GetILGenerator().Emit(OpCodes.Ret);
+        var baseEvent = baseBuilder.DefineEvent("Changed", EventAttributes.None, typeof(Action));
+        baseEvent.SetAddOnMethod(baseAdder);
+        baseEvent.SetRemoveOnMethod(baseRemover);
+        var baseType = baseBuilder.CreateType();
+
+        var derivedBuilder = module.DefineType(
+            "DerivedEventSealing",
+            TypeAttributes.Public,
+            baseType);
+        var adder = derivedBuilder.DefineMethod(
+            "add_Changed",
+            accessorAttributes,
+            typeof(void),
+            [typeof(Action)]);
+        adder.GetILGenerator().Emit(OpCodes.Ret);
+        var remover = derivedBuilder.DefineMethod(
+            "remove_Changed",
+            accessorAttributes | MethodAttributes.NewSlot | MethodAttributes.Final,
+            typeof(void),
+            [typeof(Action)]);
+        remover.GetILGenerator().Emit(OpCodes.Ret);
+        var @event = derivedBuilder.DefineEvent("Changed", EventAttributes.None, typeof(Action));
+        @event.SetAddOnMethod(adder);
+        @event.SetRemoveOnMethod(remover);
+        derivedBuilder.DefineMethodOverride(adder, baseType.GetMethod("add_Changed")!);
+        derivedBuilder.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"IncoherentEventSealing-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static byte[] BuildHostileInitModifierImage(bool cyclicScope)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("HostileInitModifier.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("HostileInitModifier"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Host"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        EntityHandle outerScope;
+        if (cyclicScope)
+        {
+            outerScope = MetadataTokens.TypeReferenceHandle(2);
+        }
+        else
+        {
+            outerScope = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Dependency"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        }
+        TypeReferenceHandle outer = metadata.AddTypeReference(
+            outerScope,
+            default,
+            metadata.GetOrAddString("MarkerHost"));
+        TypeReferenceHandle modifier = metadata.AddTypeReference(
+            cyclicScope ? outer : (EntityHandle)outer,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("IsExternalInit"));
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00); // DEFAULT
+        signature.WriteByte(0x01); // parameter count
+        signature.WriteByte(0x1F); // CMOD_REQD
+        signature.WriteByte((byte)(MetadataTokens.GetRowNumber(modifier) << 2 | 1));
+        signature.WriteByte(0x01); // VOID
+        signature.WriteByte(0x08); // I4
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+            MethodImplAttributes.Runtime,
+            metadata.GetOrAddString("set_Value"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: 0,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static string EmitSignatureIncompatibleMethodImplProperty()

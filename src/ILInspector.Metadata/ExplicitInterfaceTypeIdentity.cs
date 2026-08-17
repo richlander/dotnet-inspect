@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Text;
 
@@ -10,7 +11,9 @@ internal readonly record struct ExplicitInterfaceTypeIdentity(
     string? AggregateAliasName = null,
     ImmutableArray<ExplicitInterfaceTypeIdentity> GenericArguments = default,
     int GenericArity = 0,
-    bool IsDegraded = false);
+    bool IsDegraded = false,
+    bool? IsInterface = null,
+    bool IsWellKnownNullable = false);
 
 internal readonly record struct ExplicitInterfaceSignatureContext(
     GenericContext? Names,
@@ -89,7 +92,10 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
                 CurrentModuleKey(reader),
                 StructuredNameKey(result.Name.Namespace, result.Name.Segments)),
             name,
-            GenericArity: reader.GetTypeDefinition(handle).GetGenericParameters().Count);
+            GenericArity: reader.GetTypeDefinition(handle).GetGenericParameters().Count,
+            IsInterface: (reader.GetTypeDefinition(handle).Attributes
+                & TypeAttributes.Interface) != 0,
+            IsWellKnownNullable: IsWellKnownNullable(reader, handle));
     }
 
     public ExplicitInterfaceTypeIdentity GetTypeFromReference(
@@ -106,7 +112,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
                 ResolutionScopeKey(reader, handle),
                 structuredName.Key),
             name,
-            GenericArity: structuredName.GenericArity);
+            GenericArity: structuredName.GenericArity,
+            IsWellKnownNullable: IsWellKnownNullable(reader, handle));
     }
 
     public ExplicitInterfaceTypeIdentity GetTypeFromSpecification(
@@ -175,13 +182,13 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
         ExplicitInterfaceTypeIdentity genericType,
         ImmutableArray<ExplicitInterfaceTypeIdentity> typeArguments)
     {
-        string? aggregateAlias = (genericType.MetadataName == "System.Nullable"
-            || genericType.MetadataName.StartsWith(
-                "System.Nullable<",
-                StringComparison.Ordinal)
-            || genericType.MetadataName.StartsWith(
-                "System.Nullable`",
-                StringComparison.Ordinal))
+        if (genericType.GenericArity != typeArguments.Length)
+        {
+            throw new BadImageFormatException(
+                "The generic interface type argument count does not match its declared arity.");
+        }
+
+        string? aggregateAlias = genericType.IsWellKnownNullable
             && typeArguments is [var nullableArgument]
                 ? $"{nullableArgument.AggregateAliasName ?? nullableArgument.MetadataName}?"
                 : typeArguments.Any(argument => argument.AggregateAliasName is not null)
@@ -199,9 +206,12 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
                 genericType.MetadataName,
                 typeArguments.Select(argument => argument.MetadataName).ToArray()),
             aggregateAlias,
-            typeArguments,
-            genericType.GenericArity,
-            genericType.IsDegraded || typeArguments.Any(argument => argument.IsDegraded));
+            GenericArguments: typeArguments,
+            GenericArity: genericType.GenericArity,
+            IsDegraded: genericType.IsDegraded
+                || typeArguments.Any(argument => argument.IsDegraded),
+            IsInterface: genericType.IsInterface,
+            IsWellKnownNullable: genericType.IsWellKnownNullable);
     }
 
     public ExplicitInterfaceTypeIdentity GetGenericMethodParameter(
@@ -456,6 +466,43 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
             && int.TryParse(name[(separator + 1)..], out int arity)
                 ? arity
                 : 0;
+    }
+
+    static bool IsWellKnownNullable(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        var type = reader.GetTypeDefinition(handle);
+        if (!type.GetDeclaringType().IsNil
+            || BoundedString(reader, type.Name) != "Nullable`1"
+            || BoundedString(reader, type.Namespace) != "System"
+            || !reader.IsAssembly)
+        {
+            return false;
+        }
+
+        return PlatformKeys.IsPlatform(
+            AssemblyReferenceIdentity
+                .FromAssemblyDefinition(reader)
+                .PublicKeyToken);
+    }
+
+    static bool IsWellKnownNullable(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+    {
+        var type = reader.GetTypeReference(handle);
+        if (type.ResolutionScope.Kind != HandleKind.AssemblyReference
+            || BoundedString(reader, type.Name) != "Nullable`1"
+            || BoundedString(reader, type.Namespace) != "System")
+        {
+            return false;
+        }
+
+        return PlatformKeys.IsPlatform(
+            AssemblyReferenceIdentity
+                .From(reader, (AssemblyReferenceHandle)type.ResolutionScope)
+                .PublicKeyToken);
     }
 
     static string NormalizeCulture(string? value)

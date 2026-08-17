@@ -681,6 +681,45 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void GetterExplicitInterfaceIndexerCompilesBack()
+    {
+        using var peReader = new PEReader(
+            File.OpenRead(typeof(ExplicitIndexerSurface).Assembly.Location));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            return reader.GetString(definition.Namespace) == "ILInspector.CSharp.Tests"
+                && reader.GetString(definition.Name) == nameof(ExplicitIndexerSurface);
+        });
+        var type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        type.Interfaces = [Assert.Single(type.Interfaces)];
+        type.Members =
+        [
+            Assert.Single(
+                type.Members,
+                member => member.Kind == "property"
+                    && member.IsExplicitInterfaceImplementation)
+        ];
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        AssertCompiles(
+            result.Source,
+            """
+            namespace ILInspector.CSharp.Tests;
+
+            public interface IExplicitIndexerSurface
+            {
+                int this[int index] { get; }
+            }
+            """);
+    }
+
+    [Fact]
     public void ExplicitInterfaceEventSkeletonDoesNotDiscardCallerBody()
     {
         var type = CreateEmptyType("Samples", "Widget");
@@ -5195,4 +5234,14 @@ public sealed class NullableExplicitAggregateSurface : INullableAggregateSurface
         add { }
         remove { }
     }
+}
+
+public interface IExplicitIndexerSurface
+{
+    int this[int index] { get; }
+}
+
+public sealed class ExplicitIndexerSurface : IExplicitIndexerSurface
+{
+    int IExplicitIndexerSurface.this[int index] => index;
 }

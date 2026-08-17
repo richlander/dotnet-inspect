@@ -462,7 +462,8 @@ public sealed class CSharpTypePrinter
 
         var accessors = snapshot.SignatureModel!.Accessors;
         if (type.Kind != "interface"
-            && accessors.Any(accessor => accessor.Kind == "get"))
+            && accessors.Any(accessor => accessor.Kind == "get")
+            && snapshot.SignatureModel.Parameters.Count == 0)
         {
             return policy;
         }

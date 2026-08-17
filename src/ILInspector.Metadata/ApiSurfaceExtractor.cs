@@ -2248,6 +2248,9 @@ public static class ApiSurfaceExtractor
                 identityProvider))
             return false;
 
+        if (declaringTypeIdentity.IsInterface == false)
+            return false;
+
         if (declaringType.Kind == HandleKind.TypeDefinition
             && (reader.GetTypeDefinition((TypeDefinitionHandle)declaringType).Attributes
                 & TypeAttributes.Interface) == 0)
