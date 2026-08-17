@@ -445,6 +445,14 @@ internal static class DependencyGraphService
         bool versionExistenceKnown,
         NuGetSourceOptions sourceOptions)
     {
+        if (Core.HttpClientFactory.IsOffline)
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Package '{packageName}' version '{version}' is not available offline; no cached package was found.")
+                .ToString();
+        }
+
         if (FeedFailureTelemetry.Current
             is { HasFailures: true } acquisitionFailures)
         {
@@ -471,7 +479,8 @@ internal static class DependencyGraphService
                 includeUnlisted: true,
                 limit: null,
                 log: null,
-                sourceOptions: sourceOptions).ConfigureAwait(false);
+                sourceOptions: sourceOptions,
+                useVersionCache: false).ConfigureAwait(false);
 
         if (FeedFailureTelemetry.Current
             is { HasFailures: true } failures)

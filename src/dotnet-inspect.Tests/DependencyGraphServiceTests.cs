@@ -556,6 +556,52 @@ public class DependencyGraphServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageDependencies_ExactVersionDiagnosisBypassesStaleListing()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Package.Dependencies.Stale.{suffix}";
+        string serviceIndex =
+            $"https://feed.example.test/{suffix}/v3/index.json";
+        string flatContainer =
+            $"https://content.example.test/{suffix}/flat/";
+        var handler = new ChangingVersionHandler(
+            serviceIndex,
+            flatContainer,
+            packageId,
+            firstVersion: "1.0.0",
+            subsequentVersion: "2.0.0");
+        using var httpClient = new HttpClient(handler);
+        var sourceOptions =
+            new NuGetSourceOptions { Sources = [serviceIndex] };
+
+        List<PackageVersionInfo>? seeded =
+            await PackageExtractor.GetVersionListingsAsync(
+                httpClient,
+                packageId,
+                includePrerelease: true,
+                includeUnlisted: true,
+                limit: null,
+                log: null,
+                sourceOptions: sourceOptions);
+        Assert.Equal("1.0.0", Assert.Single(seeded!).Version);
+
+        PackageDependencyGraphResult result =
+            await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                httpClient,
+                $"{packageId}@2.0.0",
+                requestedTfm: null,
+                sourceOptions,
+                new VerboseLogger(enabled: false));
+
+        var error =
+            Assert.IsType<PackageDependencyGraphResult.Error>(result);
+        Assert.Contains(
+            $"Nuspec for package '{packageId}' version '2.0.0' could not be resolved.",
+            error.Message);
+        Assert.Equal(2, handler.VersionIndexRequests);
+    }
+
+    [Fact]
     public async Task PackageDependencies_MissingVersionRetainsVersionsHint()
     {
         string suffix = Guid.NewGuid().ToString("N");
@@ -843,7 +889,9 @@ public class DependencyGraphServiceTests : IDisposable
     private sealed class ChangingVersionHandler(
         string serviceIndex,
         string flatContainer,
-        string packageId) : HttpMessageHandler
+        string packageId,
+        string firstVersion = "2.0.0",
+        string subsequentVersion = "1.0.0") : HttpMessageHandler
     {
         public int VersionIndexRequests { get; private set; }
 
@@ -874,8 +922,8 @@ public class DependencyGraphServiceTests : IDisposable
             {
                 VersionIndexRequests++;
                 string version = VersionIndexRequests == 1
-                    ? "2.0.0"
-                    : "1.0.0";
+                    ? firstVersion
+                    : subsequentVersion;
                 return Task.FromResult(Response(
                     $$"""{"versions":["{{version}}"]}"""));
             }
