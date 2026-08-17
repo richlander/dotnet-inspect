@@ -91,7 +91,9 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             ImmutableArray<ResolvedAssemblyReference> matches =
             [
                 .. _roots.Where(
-                    root => root.Identity == reference.Identity),
+                    root => SameIdentity(
+                        root.Identity,
+                        reference.Identity)),
             ];
             if (matches.Length == 1)
                 return AssemblyBindingSelection.Found(matches[0]);
@@ -148,7 +150,9 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
                     requested.Name,
                     StringComparison.OrdinalIgnoreCase)
                 || candidates.Any(candidate =>
-                    candidate.Identity == selected.Identity)))
+                    SameIdentity(
+                        candidate.Identity,
+                        selected.Identity))))
         {
             return null;
         }
@@ -162,6 +166,34 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             _ => AssemblyBindingSelection.Multiple(candidates),
         };
     }
+
+    static bool SameIdentity(
+        AssemblyReferenceIdentity left,
+        AssemblyReferenceIdentity right) =>
+        string.Equals(
+            left.Name,
+            right.Name,
+            StringComparison.OrdinalIgnoreCase)
+        && left.Version == right.Version
+        && string.Equals(
+            NormalizeCulture(left.Culture),
+            NormalizeCulture(right.Culture),
+            StringComparison.OrdinalIgnoreCase)
+        && string.Equals(
+            NormalizeOptional(left.PublicKeyToken),
+            NormalizeOptional(right.PublicKeyToken),
+            StringComparison.OrdinalIgnoreCase);
+
+    static string NormalizeCulture(string? culture) =>
+        string.IsNullOrEmpty(culture)
+            || culture.Equals(
+                "neutral",
+                StringComparison.OrdinalIgnoreCase)
+                ? ""
+                : culture;
+
+    static string NormalizeOptional(string? value) =>
+        string.IsNullOrEmpty(value) ? "" : value;
 
     Lazy<AssemblyBindingSelection> AddIntrinsicSelection(
         AssemblyAcquisitionRegistration registration,

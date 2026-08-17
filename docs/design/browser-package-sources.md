@@ -558,7 +558,30 @@ The existing NuGetFetch shape is a useful base:
 - it resolves multiple configured sources;
 - it implements package source mapping;
 - it source-scopes candidates and payload provenance; and
-- it already special-cases NuGet.org search internally.
+- its v3 primitives already own service-index, version, and package requests.
+
+The first implementation slice establishes the typed source identity,
+credential-free descriptor, capability, runtime-client, and factory contracts
+in NuGetFetch. It adapts the existing desktop `PackageSource` input to a NuGet
+v3 client without migrating current consumers, and centralizes canonical HTTP
+producer identity so credential scope and future transports use the same key.
+Portable descriptors reject user information, queries, and fragments. The
+desktop compatibility adapter keeps established query-bearing signed service
+indexes as runtime-only configuration rather than admitting them into a
+portable descriptor.
+Gallery and local-folder descriptors are modeled but intentionally have no
+runtime client yet. The v3 compatibility adapter initially exposes version and
+package-payload operations only, and validates package coordinates before any
+service-index or payload request. Search remains on the existing package-layer
+service-index discovery path until that resource discovery moves into the typed
+client; the adapter does not restore the retired NuGet.org-only search shortcut.
+`PackageSourceClientTests.GalleryAndCanonicalV3ShareProducerIdentity`,
+`HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
+`LegacyPackageSourceCreatesV3Client`,
+`CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut`, and
+`LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate this first boundary.
+The existing `NuGetSearchSourcesTests` continue to gate the package-layer
+service-index search behavior and credential-scope canonicalization.
 
 The remaining structural problem is that `PackageSource` and `NuGetClient`
 largely equate a source with a v3 service-index URL. The implementation should:
