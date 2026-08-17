@@ -1457,7 +1457,7 @@ function render() {
   bindEvents();
   recordNav();
   syncUrl();
-  maybeAutoLoadTypeSource();
+  maybeAutoLoadVisibleSource();
   maybeAutoLoadTypeMetadata();
   maybeAutoLoadPackageDependencies();
   maybeAutoLoadPackageIntegrations();
@@ -1471,13 +1471,22 @@ function render() {
   }
 }
 
-function maybeAutoLoadTypeSource() {
-  if (activeSourceOperationKind(state) !== "type") return;
+function maybeAutoLoadVisibleSource() {
+  const kind = activeSourceOperationKind(state);
   const type = selectedType();
   if (!type) return;
-  const signature = typeSourceSignature(type);
-  if (state.typeSourceKey === signature) return;
-  loadSelectedTypeSource();
+  if (kind === "type") {
+    const signature = typeSourceSignature(type);
+    if (state.typeSourceKey !== signature) loadSelectedTypeSource();
+    return;
+  }
+  if (kind === "member") {
+    const member = selectedMember(type);
+    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+    if (!member || !overload) return;
+    const signature = memberRequestSignature(type, overload, false, true);
+    if (state.memberSourceKey !== signature) loadSelectedMemberSource();
+  }
 }
 
 function maybeAutoLoadTypeMetadata() {
@@ -6038,7 +6047,10 @@ async function loadSelectedMemberDocumentation() {
 }
 
 async function loadSelectedMemberSource() {
-  if (activeSourceOperationKind(state) !== "member") return;
+  if (activeSourceOperationKind(state) !== "member") {
+    render();
+    return;
+  }
   const type = selectedType();
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
@@ -6183,7 +6195,10 @@ function memberRequestIsCurrent(
 }
 
 async function loadSelectedTypeSource() {
-  if (activeSourceOperationKind(state) !== "type") return;
+  if (activeSourceOperationKind(state) !== "type") {
+    render();
+    return;
+  }
   const type = selectedType();
   if (!type) {
     render();

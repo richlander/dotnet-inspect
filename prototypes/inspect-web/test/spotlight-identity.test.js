@@ -415,11 +415,16 @@ test("source operations cancel when superseded or hidden", () => {
     ?? "";
   assert.match(reloadBody, /switch \(sourceReloadKind\(state\)\)/);
   const autoLoadBody =
-    appSource.match(/function maybeAutoLoadTypeSource\(\)[\s\S]*?\n}/)?.[0]
+    appSource.match(
+      /function maybeAutoLoadVisibleSource\(\)[\s\S]*?\n}\n\nfunction maybeAutoLoadTypeMetadata/)?.[0]
     ?? "";
   assert.match(
     autoLoadBody,
-    /activeSourceOperationKind\(state\) !== "type"/);
+    /const kind = activeSourceOperationKind\(state\)/);
+  assert.match(autoLoadBody, /kind === "type"/);
+  assert.match(autoLoadBody, /kind === "member"/);
+  assert.match(autoLoadBody, /loadSelectedTypeSource\(\)/);
+  assert.match(autoLoadBody, /loadSelectedMemberSource\(\)/);
 
   const visible = {
     settings: false,
