@@ -1208,11 +1208,67 @@ public sealed class InspectionGraphDocument
         IEnumerable<InspectionGraphSeed> seeds,
         IEnumerable<InspectionGraphLimit> limits,
         IEnumerable<InspectionGraphFailure> failures)
+        : this(
+            scope,
+            modeRequest,
+            neighborhoodRequest: null,
+            nodes,
+            groups,
+            edges,
+            occurrences,
+            characteristics,
+            seeds,
+            limits,
+            failures)
+    {
+    }
+
+    public InspectionGraphDocument(
+        InspectionGraphDocumentScope scope,
+        InspectionGraphNeighborhoodRequest neighborhoodRequest,
+        IEnumerable<InspectionGraphNode> nodes,
+        IEnumerable<InspectionGraphGroup> groups,
+        IEnumerable<InspectionGraphEdge> edges,
+        IEnumerable<InspectionGraphOccurrence> occurrences,
+        IEnumerable<InspectionGraphCharacteristic> characteristics,
+        IEnumerable<InspectionGraphSeed> seeds,
+        IEnumerable<InspectionGraphLimit> limits,
+        IEnumerable<InspectionGraphFailure> failures)
+        : this(
+            scope,
+            neighborhoodRequest?.ModeRequest
+                ?? throw new ArgumentNullException(
+                    nameof(neighborhoodRequest)),
+            neighborhoodRequest,
+            nodes,
+            groups,
+            edges,
+            occurrences,
+            characteristics,
+            seeds,
+            limits,
+            failures)
+    {
+    }
+
+    InspectionGraphDocument(
+        InspectionGraphDocumentScope scope,
+        InspectionGraphModeRequest modeRequest,
+        InspectionGraphNeighborhoodRequest? neighborhoodRequest,
+        IEnumerable<InspectionGraphNode> nodes,
+        IEnumerable<InspectionGraphGroup> groups,
+        IEnumerable<InspectionGraphEdge> edges,
+        IEnumerable<InspectionGraphOccurrence> occurrences,
+        IEnumerable<InspectionGraphCharacteristic> characteristics,
+        IEnumerable<InspectionGraphSeed> seeds,
+        IEnumerable<InspectionGraphLimit> limits,
+        IEnumerable<InspectionGraphFailure> failures)
     {
         InspectionGraphCollections.RequireDefined(scope, nameof(scope));
         ArgumentNullException.ThrowIfNull(modeRequest);
         Scope = scope;
         ModeRequest = modeRequest;
+        NeighborhoodRequest = neighborhoodRequest;
         Nodes = InspectionGraphCollections.Snapshot(nodes, nameof(nodes));
         Groups = InspectionGraphCollections.Snapshot(groups, nameof(groups));
         Edges = InspectionGraphCollections.Snapshot(edges, nameof(edges));
@@ -1276,6 +1332,7 @@ public sealed class InspectionGraphDocument
 
     public InspectionGraphDocumentScope Scope { get; }
     public InspectionGraphModeRequest ModeRequest { get; }
+    public InspectionGraphNeighborhoodRequest? NeighborhoodRequest { get; }
     public ImmutableArray<InspectionGraphNode> Nodes { get; }
     public ImmutableArray<InspectionGraphGroup> Groups { get; }
     public ImmutableArray<InspectionGraphEdge> Edges { get; }
