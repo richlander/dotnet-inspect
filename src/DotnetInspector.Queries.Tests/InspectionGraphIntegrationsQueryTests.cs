@@ -186,6 +186,547 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
+    public void Execute_BoundsMixedRelationshipNeighborhoodByDepth()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject hub = FindType(
+            induced,
+            "Microsoft.Extensions.AI.Abstractions",
+            "Microsoft.Extensions.AI",
+            "IChatClient");
+        InspectionGraphRelationshipDescriptor[] relationships =
+        [
+            InspectionGraphIntegrationsCatalog.IntegrationObserved,
+            InspectionGraphIntegrationsCatalog.Extension,
+        ];
+        InspectionGraphNeighborhoodRequest depthOne =
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                hub,
+                relationships,
+                InspectionGraphTraversalDirection.Both,
+                maxDepth: 1);
+        InspectionGraphNeighborhoodRequest depthTwo =
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                hub,
+                relationships,
+                InspectionGraphTraversalDirection.Both,
+                maxDepth: 2);
+
+        InspectionGraphDocument one =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                depthOne);
+        InspectionGraphDocument two =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                depthTwo);
+
+        Assert.Same(depthOne, one.NeighborhoodRequest);
+        Assert.Same(depthOne.ModeRequest, one.ModeRequest);
+        Assert.Equal(2, one.Edges.Length);
+        Assert.All(
+            one.Edges,
+            edge => Assert.Same(
+                InspectionGraphIntegrationsCatalog.IntegrationObserved,
+                edge.Relationship));
+        Assert.Equal(4, two.Edges.Length);
+        Assert.Equal(
+            2,
+            two.Edges.Count(edge =>
+                edge.Relationship
+                    == InspectionGraphIntegrationsCatalog.Extension));
+        Assert.Equal(
+            2,
+            two.Edges.Count(edge =>
+                edge.Relationship
+                    == InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved));
+        Assert.All(
+            one.Edges,
+            edge => Assert.Equal(
+                hub,
+                one.Nodes[edge.ToNodeId].Subject));
+        Assert.Equal(one.Edges.Length, one.Occurrences.Length);
+        Assert.Equal(
+            induced.Occurrences
+                .Where(occurrence =>
+                    occurrence.Relationship
+                        == InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved)
+                .Select(occurrence =>
+                    occurrence.Relationship.OccurrenceIdentity.Project(
+                        occurrence)),
+            one.Occurrences.Select(occurrence =>
+                occurrence.Relationship.OccurrenceIdentity.Project(
+                    occurrence)));
+        Assert.Equal(
+            induced.Occurrences
+                .Where(occurrence =>
+                    occurrence.Relationship
+                        == InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved)
+                .Select(occurrence =>
+                    (
+                        occurrence.SourceSubject,
+                        occurrence.TargetSubject)),
+            one.Occurrences.Select(occurrence =>
+                (
+                    occurrence.SourceSubject,
+                    occurrence.TargetSubject)));
+        var bound = Assert.IsType<
+            InspectionGraphNeighborhoodDepthBoundEvidence>(
+                Assert.Single(
+                    one.Limits,
+                    limit =>
+                        limit.Descriptor
+                            == InspectionGraphNeighborhoodCatalog
+                                .DepthBound)
+                    .Evidence);
+        Assert.Equal(1, bound.MaxDepth);
+    }
+
+    [Fact]
+    public void Execute_PackageSeedExpandsThroughOwnedSourceSubjects()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.PackageSubject openAi =
+            PackageSubject(
+                induced,
+                "microsoft.extensions.ai.openai");
+        InspectionGraphNeighborhoodRequest request =
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                openAi,
+                [
+                    InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved,
+                ],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                request);
+
+        InspectionGraphEdge edge = Assert.Single(document.Edges);
+        Assert.Equal(
+            "microsoft.extensions.ai.openai",
+            PackageId(
+                document,
+                document.Nodes[edge.FromNodeId]));
+        Assert.Equal(
+            "Microsoft.Extensions.AI.IChatClient",
+            TypeName(document.Nodes[edge.ToNodeId].Subject));
+        InspectionGraphSeed seed = Assert.Single(document.Seeds);
+        Assert.Equal(InspectionGraphTargetKind.Group, seed.Target.Kind);
+        Assert.Equal(
+            openAi,
+            document.Groups[seed.Target.Id].Subject);
+    }
+
+    [Fact]
+    public void Execute_OpportunitySourceTypeUsesOccurrenceAdmission()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphOccurrence inducedOpportunity = Assert.Single(
+            induced.Occurrences,
+            occurrence =>
+                occurrence.Relationship
+                    == InspectionGraphIntegrationsCatalog
+                        .IntegrationOpportunity);
+        InspectionGraphSubject.TypeSubject source =
+            Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                inducedOpportunity.SourceSubject);
+        InspectionGraphNeighborhoodRequest request =
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                source,
+                [
+                    InspectionGraphIntegrationsCatalog
+                        .IntegrationOpportunity,
+                ],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                request);
+
+        InspectionGraphEdge edge = Assert.Single(document.Edges);
+        Assert.Equal(
+            "Azure.AI.OpenAI",
+            AssemblyName(document.Nodes[edge.FromNodeId].Subject));
+        Assert.NotEqual(
+            source,
+            document.Nodes[edge.FromNodeId].Subject);
+        InspectionGraphOccurrence occurrence =
+            document.Occurrences[
+                Assert.Single(edge.OccurrenceIds)];
+        Assert.Equal(source, occurrence.SourceSubject);
+        Assert.Equal(
+            source,
+            document.Nodes[
+                Assert.Single(document.Seeds).Target.Id]
+                .Subject);
+    }
+
+    [Fact]
+    public void Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject fulfilled = FindType(
+            induced,
+            "OpenAI",
+            "OpenAI.Chat",
+            "ChatClient");
+        Assert.DoesNotContain(
+            induced.Occurrences,
+            occurrence =>
+                occurrence.Relationship
+                    == InspectionGraphIntegrationsCatalog
+                        .IntegrationOpportunity
+                && occurrence.SourceSubject == fulfilled);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                InspectionGraphNeighborhoodRequest.SingleSeed(
+                    fulfilled,
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationOpportunity,
+                    ],
+                    InspectionGraphTraversalDirection.Outgoing,
+                    maxDepth: 1));
+
+        Assert.Empty(document.Edges);
+        Assert.Empty(document.Occurrences);
+        Assert.Equal(
+            fulfilled,
+            document.Nodes[
+                Assert.Single(document.Seeds).Target.Id]
+                .Subject);
+    }
+
+    [Fact]
+    public void Execute_ZeroDepthRetainsSeedWithoutEdges()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject hub = FindType(
+            induced,
+            "Microsoft.Extensions.AI.Abstractions",
+            "Microsoft.Extensions.AI",
+            "IChatClient");
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                InspectionGraphNeighborhoodRequest.SingleSeed(
+                    hub,
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved,
+                    ],
+                    InspectionGraphTraversalDirection.Incoming,
+                    maxDepth: 0));
+
+        Assert.Empty(document.Edges);
+        Assert.Empty(document.Occurrences);
+        Assert.Single(document.Seeds);
+        Assert.Contains(
+            document.Nodes,
+            node => node.Subject == hub);
+        var evidence = Assert.IsType<
+            InspectionGraphNeighborhoodDepthBoundEvidence>(
+                Assert.Single(document.Limits).Evidence);
+        Assert.Equal(0, evidence.MaxDepth);
+    }
+
+    [Fact]
+    public void Execute_ZeroDepthRetainsAdmissibleSeedWithoutSelectedEvidence()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject isolated = FindType(
+            induced,
+            "OpenAI",
+            "OpenAI.Chat",
+            "ChatClient");
+        Assert.DoesNotContain(
+            induced.Occurrences,
+            occurrence =>
+                occurrence.Relationship
+                    == InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved
+                && (occurrence.SourceSubject == isolated
+                    || occurrence.TargetSubject == isolated));
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                InspectionGraphNeighborhoodRequest.SingleSeed(
+                    isolated,
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved,
+                    ],
+                    InspectionGraphTraversalDirection.Incoming,
+                    maxDepth: 0));
+
+        Assert.Empty(document.Edges);
+        Assert.Empty(document.Occurrences);
+        InspectionGraphSeed seed = Assert.Single(document.Seeds);
+        Assert.Equal(
+            isolated,
+            document.Nodes[seed.Target.Id].Subject);
+    }
+
+    [Fact]
+    public void Execute_SelectedRelationshipsControlProducerDemand()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject hub = FindType(
+            induced,
+            "Microsoft.Extensions.AI.Abstractions",
+            "Microsoft.Extensions.AI",
+            "IChatClient");
+        InspectionGraphSubject.TypeSubject opportunitySource =
+            Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                Assert.Single(
+                    induced.Occurrences,
+                    occurrence =>
+                        occurrence.Relationship
+                            == InspectionGraphIntegrationsCatalog
+                                .IntegrationOpportunity)
+                    .SourceSubject);
+        InspectionGraphSubject.MemberSubject extensionSource =
+            Assert.IsType<InspectionGraphSubject.MemberSubject>(
+                induced.Occurrences.First(occurrence =>
+                    occurrence.Relationship
+                        == InspectionGraphIntegrationsCatalog.Extension)
+                    .SourceSubject);
+        InspectionGraphSubject.AssemblySubject referenceSource =
+            Assert.IsType<InspectionGraphSubject.AssemblySubject>(
+                induced.Nodes[
+                    Assert.Single(
+                        induced.Edges,
+                        edge =>
+                            edge.Relationship
+                                == InspectionGraphIntegrationsCatalog
+                                    .MetadataReference
+                            && AssemblyName(
+                                induced.Nodes[edge.FromNodeId].Subject)
+                                == "Azure.AI.OpenAI")
+                    .FromNodeId]
+                .Subject);
+        var extensionExecutions =
+            new List<InspectionQueryDefinition>();
+        var referenceExecutions =
+            new List<InspectionQueryDefinition>();
+        var observedExecutions =
+            new List<InspectionQueryDefinition>();
+        var opportunityExecutions =
+            new List<InspectionQueryDefinition>();
+
+        InspectionGraphIntegrationsQuery.Execute(
+            fixture.Context,
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                extensionSource,
+                [InspectionGraphIntegrationsCatalog.Extension],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1),
+            (query, _) => extensionExecutions.Add(query));
+        InspectionGraphIntegrationsQuery.Execute(
+            fixture.Context,
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                referenceSource,
+                [
+                    InspectionGraphIntegrationsCatalog
+                        .MetadataReference,
+                ],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1),
+            (query, _) => referenceExecutions.Add(query));
+        InspectionGraphIntegrationsQuery.Execute(
+            fixture.Context,
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                hub,
+                [
+                    InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved,
+                ],
+                InspectionGraphTraversalDirection.Incoming,
+                maxDepth: 1),
+            (query, _) => observedExecutions.Add(query));
+        InspectionGraphIntegrationsQuery.Execute(
+            fixture.Context,
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                opportunitySource,
+                [
+                    InspectionGraphIntegrationsCatalog
+                        .IntegrationOpportunity,
+                ],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1),
+            (query, _) => opportunityExecutions.Add(query));
+
+        Assert.Equal(
+            [AssemblyContextExtensionMethodsQuery.Definition],
+            extensionExecutions);
+        Assert.Equal(
+            [AssemblyContextReferencesQuery.Definition],
+            referenceExecutions);
+        Assert.Equal(
+            [AssemblyContextIntegrationsQuery.Definition],
+            observedExecutions);
+        Assert.Equal(
+            [
+                AssemblyContextExtensionMethodsQuery.Definition,
+                AssemblyContextIntegrationsQuery.Definition,
+                AssemblyContextIntegrationOpportunitiesQuery.Definition,
+            ],
+            opportunityExecutions);
+    }
+
+    [Fact]
+    public void Execute_RejectsForeignRelationshipBeforeProducerExecution()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphOccurrence integration =
+            induced.Occurrences.First(occurrence =>
+                occurrence.Relationship
+                    == InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved);
+        InspectionGraphSubject.MemberSubject member =
+            Assert.IsType<InspectionGraphSubject.MemberSubject>(
+                integration.SourceSubject);
+        InspectionGraphNeighborhoodRequest request =
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                [CallGraphInspectionGraphCatalog.Call],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1);
+        bool producerRan = false;
+
+        InspectionQueryException exception = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphIntegrationsQuery.Execute(
+                    fixture.Context,
+                    request,
+                    (_, _) => producerRan = true));
+
+        Assert.Contains("not supported", exception.Message);
+        Assert.False(producerRan);
+    }
+
+    [Fact]
+    public void Execute_NeighborhoodRetainsSelectedProducerFailures()
+    {
+        using var fixture = IntegrationFixture.Create(
+            includeRejectedParticipant: true);
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject hub = FindType(
+            induced,
+            "Microsoft.Extensions.AI.Abstractions",
+            "Microsoft.Extensions.AI",
+            "IChatClient");
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                InspectionGraphNeighborhoodRequest.SingleSeed(
+                    hub,
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved,
+                    ],
+                    InspectionGraphTraversalDirection.Incoming,
+                    maxDepth: 1));
+
+        InspectionGraphFailure failure = Assert.Single(document.Failures);
+        Assert.Equal(
+            InspectionGraphTargetKind.Node,
+            failure.Target!.Value.Kind);
+        Assert.Equal(
+            "Rejected.Integration",
+            AssemblyName(
+                document.Nodes[failure.Target.Value.Id].Subject));
+        Assert.All(
+            document.Edges,
+            edge => Assert.Same(
+                InspectionGraphIntegrationsCatalog.IntegrationObserved,
+                edge.Relationship));
+    }
+
+    [Fact]
+    public void Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures()
+    {
+        using var fixture = IntegrationFixture.Create(
+            includeRejectedParticipant: true);
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject source =
+            Assert.IsType<InspectionGraphSubject.TypeSubject>(
+                Assert.Single(
+                    induced.Occurrences,
+                    occurrence =>
+                        occurrence.Relationship
+                            == InspectionGraphIntegrationsCatalog
+                                .IntegrationOpportunity)
+                    .SourceSubject);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                InspectionGraphNeighborhoodRequest.SingleSeed(
+                    source,
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationOpportunity,
+                    ],
+                    InspectionGraphTraversalDirection.Outgoing,
+                    maxDepth: 1));
+
+        string[] failedProducers =
+        [
+            .. document.Failures
+                .SelectMany(failure =>
+                    Assert.IsType<
+                        InspectionGraphIntegrationFailureEvidence>(
+                            failure.Evidence)
+                        .Details)
+                .Select(static detail => detail.Producer)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+        Assert.Equal(
+            ["extensions", "integrations", "opportunities"],
+            failedProducers);
+        Assert.All(
+            document.Edges,
+            edge => Assert.Same(
+                InspectionGraphIntegrationsCatalog
+                    .IntegrationOpportunity,
+                edge.Relationship));
+    }
+
+    [Fact]
     public void Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups()
     {
         using var fixture = IntegrationFixture.Create();
