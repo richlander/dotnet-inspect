@@ -94,8 +94,9 @@ change ready to merge.
   another PR is expected to land, or because later integration would make the
   branch look newer. Base movement alone does not invalidate a candidate. A
   conflict, an author change, a review fix, a current-head merge-path failure
-  that requires code changes, or an explicit user direction ends it. Integrate
-  the then-current effective base only when forming that replacement.
+  that requires code changes, a required restack onto a moved parent slice, or
+  an explicit user direction ends it. Integrate the then-current effective base
+  only when forming that replacement.
 - Rebase only before the branch's first push. Once a branch is public or under
   review, merge `origin/main`; never amend, rebase, or force-push reviewed
   history. A slice in a stack is the standing exception: restacking rebases and
@@ -497,6 +498,11 @@ replacement head. Do not edit a head while its head lock is held. The lock ends
 when both reviewers have returned and their feedback has been reconciled for
 action. The fixed replacement is a new candidate and its review is a new round.
 
+A fixed-head review is **review-clean** when its public reconciliation leaves no
+finding unresolved. A justified dismissal counts as a resolution only when the
+reason is recorded publicly. The report classification `clean` is narrower: use
+it only when the reviewers returned no findings.
+
 A known conflict, known failing current-head required check, or known failing
 required local gate blocks an ordinary round. Resolve an actual conflict first,
 push the resolution, and then start its conflict-recovery round immediately.
@@ -509,10 +515,10 @@ gate, and restart the same numbered round.
 Absent an actual conflict, a round that produces no review-driven fix and then
 integrates newer `main` to create another round on the agent's own initiative
 is a failed round: the review produced no change and the integration discarded
-the value of the locked-head result. A clean round ends adversarial review; do
-not move the head merely to buy another pass. The sole default base-only
-integration after clean reviews is the explicitly approved carry-forward path
-in
+the value of the locked-head result. A review-clean round ends adversarial
+review; do not move the head merely to buy another pass. The sole default
+base-only integration after clean reviews is the explicitly approved
+carry-forward path in
 [Clean reviews are not spent by main
 moving](#clean-reviews-are-not-spent-by-main-moving), which preserves the clean
 reviews and does not open another round. An explicit user workflow adjustment
@@ -524,9 +530,11 @@ is Markdown linting, which must pass before an ordinary candidate is committed,
 pushed, or sent to reviewers. Conflict recovery is the exception: push the
 resolution head and start its authorized round immediately, then run Markdown
 linting in parallel with review and CI. A lint failure follows failed-gate
-recovery and supersedes that attempt. The first attempt at round 1 does not wait
-for CI after its push. An ordinary subsequent round requires a current-head
-status check confirming zero merge conflicts and green `ci-required`.
+recovery and supersedes that attempt. Do not reconcile or complete the
+conflict-recovery round until lint finishes successfully. The first attempt at
+round 1 does not wait for CI after its push. An ordinary subsequent round
+requires a current-head status check confirming zero merge conflicts and green
+`ci-required`.
 
 Adversarial review is scarce, but serial wall-clock time is also a cost. Spend
 review only on a named frozen head with focused local evidence, then accept the
@@ -673,20 +681,21 @@ change, review fix, or conflict requires a replacement candidate, say so on the
 PR and name the base tip and merge commit, so the next review reads as a
 confirmation rather than an unexplained second full pass. Do not form a
 replacement candidate from base movement alone unless the user approved the
-clean-review carry-forward path or explicitly adjusted the workflow to
-integrate and re-review an interacting range.
+clean-review carry-forward path, explicitly adjusted the workflow to
+integrate and re-review an interacting range, or the slice requires a
+cascading restack onto its moved parent.
 
 ### Clean reviews are not spent by main moving
 
-For a PR that targets `main` — including the bottom slice of a stack — when
-every reviewer the tier requires has come back clean at the current head and
-`origin/main` has since moved, **stop and ask.** Do not integrate main, and do
-not open another round on your own initiative. Evaluate this from the latest
-clean result: an earlier finding that was fixed and then reviewed clean does not
-disqualify it. If a finding remains unresolved, or the head changed after that
-clean result because of an author change, conflict resolution, or restack, the
-exception does not apply: resolve or restack, integrate the effective base, and
-review the new head normally.
+For a PR that targets `main` — including the bottom slice of a stack — when its
+required fixed-head review is review-clean at the current head and `origin/main`
+has since moved, **stop and ask.** Do not integrate main, and do not open
+another round on your own initiative. Evaluate this from the latest
+review-clean result: an earlier finding that was fixed and then reviewed clean
+does not disqualify it. If a finding remains unresolved, or the head changed
+after that review-clean result because of an author change, conflict resolution,
+or restack, the exception does not apply: resolve or restack, integrate the
+effective base, and review the new head normally.
 
 Ask with an analysis of what actually landed: which commits touch files this
 change touches, which behavior this change relies on that they alter, and any
@@ -714,7 +723,8 @@ carrying reviews across author changes, conflict-resolution changes, or a
 restack that occurred after the recorded reviewed head. It is also the sole
 default path that permits integrating the base when no actual conflict,
 review-driven fix, author change, current-head merge-path failure, or explicit
-user workflow adjustment has ended the candidate.
+user workflow adjustment has ended the candidate and no required cascading
+restack has moved its effective base.
 
 This is the one place the settled-branch rule yields, and it has to, or the
 budget is unbounded: on a busy `main`, a round takes longer than the interval
@@ -791,20 +801,25 @@ Reconcile the reviews publicly on the PR: attribute findings, state what was
 verified or dismissed, and link resolution commits or explain explicit
 non-actions. Address actionable findings only after the locked-head reviews
 finish. If fixes move the head, push the replacement candidate, wait for its
-zero-conflict and green-CI gate unless it is a conflict-recovery round, and
-re-review it as the next numbered round. Do not mark the PR ready until every
-required fixed-head review is clean.
+zero-conflict and green-CI gate, and re-review it as the next numbered round.
+Do not mark the PR ready until every required fixed-head review is
+review-clean.
 
-A round starts when its reviewers are dispatched. A clean round ends when its
-feedback is reconciled and posted. A round with actionable findings ends when
-the resulting fixes are committed and pushed as the replacement candidate and
-the public reconciliation is posted. A conflict- or failed-gate-superseded
-attempt is incomplete: it does not consume a round number, does not receive a
-completion report, and restarts with the same number after its applicable
-recovery gate. Let in-flight reviewers finish or cancel them explicitly. Record
-every finding returned by the superseded attempt whenever it arrives, carry it
-into the restarted round, and disposition it in that round's public
-reconciliation; supersession never retires a finding.
+A round starts when its reviewers are dispatched. It ends when all current and
+carried feedback is publicly reconciled, every resulting fix is committed and
+pushed, and every required post-push local gate for that round has completed
+successfully. A no-fix round with publicly justified dismissals can therefore
+end review-clean; a round that pushes fixes is complete, but its replacement
+head still requires the next numbered review.
+
+A conflict- or failed-gate-superseded attempt is incomplete: it does not consume
+a round number, does not receive a completion report, and restarts with the
+same number after its applicable recovery gate. Let in-flight reviewers finish
+or cancel them explicitly. Do not reconcile or complete the restarted round
+until every superseded reviewer has finished or its cancellation is
+acknowledged. Record every finding returned by the superseded attempt whenever
+it arrives, carry it into the restarted round, and disposition it in that
+round's public reconciliation; supersession never retires a finding.
 
 After every completed round and before starting the next one, emit this report
 as the assistant's visible user-facing response in the terminal, filling every
@@ -824,11 +839,15 @@ Fix description: <prose description of changes made in response to the round>.
 ```
 
 Use `Fix description` to state the concrete review-driven changes. For a clean
-round, say that no fixes were required and that the locked head remained
-unchanged. Do not integrate the base after that clean result except through the
-approved carry-forward path. The same report may also be posted on the PR; the
-public reconciliation may include more detail when the findings or fixes
-warrant it.
+classification, say that no findings or fixes were produced and that the locked
+head remained unchanged. For a no-fix round with dismissed findings, use
+`converging`, `diverging`, or `neutral` and explain the dismissals in the public
+reconciliation. Do not integrate the base after a review-clean result except
+through the approved carry-forward path or when a conflict, author change,
+current-head merge-path failure, required cascading restack, or explicit user
+workflow adjustment ends the candidate. The same report may also be posted on
+the PR; the public reconciliation may include more detail when the findings or
+fixes warrant it.
 
 ### Keep review proportional to the contract
 
@@ -923,6 +942,12 @@ until it is unreviewable, and over parallel PRs that race in the same files.
   `ci.yml` applies no base-branch filter, so a PR runs CI whatever it targets.
 - **One branch and one worktree per slice**, branched from the parent slice, and
   targeted at the parent branch (`gh pr create --base <parent-branch>`).
+- **During a GitHub outage, use stacked branches for new coherent slices** so
+  local work can continue without pretending remote evidence exists. Branch
+  each new slice from its local parent slice, create its worktree under
+  `.worktrees/`, and keep its commits isolated. When GitHub recovers, push and
+  open the stack bottom-up, then run each slice's required CI, status, and
+  review gates before treating it as ready.
 - **Merge bottom-up, one at a time**, then confirm the next PR retargeted and
   still shows only its own slice.
 - **Restacking rebases and force-pushes a public branch by design** — the
@@ -941,7 +966,7 @@ until it is unreviewable, and over parallel PRs that race in the same files.
   merge conflicts and green `ci-required`. Merge readiness still requires every
   layer to be green and mergeable — see [Adversarial
   review](#adversarial-review).
-- **A moved head — including one moved by a restack — needs a clean round at
-  the new head**, and a restack never retires an open finding.
+- **A moved head — including one moved by a restack — needs a review-clean round
+  at the new head**, and a restack never retires an open finding.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost
   is per PR; three coherent slices beat ten mechanical ones.
