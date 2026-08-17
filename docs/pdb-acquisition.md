@@ -156,30 +156,28 @@ CodeView Entry 2: System.Text.Json.pdb    (MinorVersion: 0x504d, Portable PDB) �
 `PdbContext` exposes the selected CodeView identity and raw PDB records without
 exposing `PEReader` or `MetadataReader`. `ILInspector.SourceLink` uses those
 typed APIs for map extraction, URL decoration, and provenance.
-`HasAssemblyBoundPdb` distinguishes an embedded PDB, whose containment binds it
-to the PE, from standalone or caller-supplied content whose Portable PDB content
-ID was verified against the PE's Portable CodeView entry. A readable PDB
-without either binding remains available as raw data but cannot authorize exact
-assembly-to-source attribution or supply build options to an assembly-aware
-source index.
-`GetModuleDefinitionInfo` returns the MVID and MethodDef count from the same
-retained PE image, so a PDB consumer does not reopen a mutable path to establish
-physical module coordinates.
 
-The ReturnToSender harness is a separate raw-fact consumer. For an
-assembly-aware local source index it asks `PdbContext` for an exact MethodDef's
-document, mapped visible line span, checksum, and recorded compilation options.
-The harness—not Metadata—parses C# declarations and uses those facts to
-correlate one checksum-authenticated local body. It does not interpret a
-SourceLink map or URL. `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`
-and `TryIsolateRecompileFailure_UsesPdbRecordedPreprocessorSymbols` gate this
-layering seam. A checksum-authenticated file containing a C# line-mapping
-directive remains available for non-authoritative raw lookup but is excluded
-from PDB attribution: declaration envelopes and independently mapped sequence
-points do not provide a safe containment identity across those directives.
-`TryIsolateRecompileFailure_DeclinesLineMappedPdbSource` gates that boundary.
-`TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`
-gates the assembly-binding and build-option requirements.
+### Document identity is not declaration provenance
+
+A Portable PDB document authenticates named content, not the physical syntax
+tree that produced a MethodDef. Its document row contains a name, language,
+checksum algorithm, and checksum; sequence points contain mapped destination
+documents and positions. Neither record preserves the pre-mapping source
+document or identifies a `#line` transition.
+
+This distinction prevents PDB method spans from authorizing a local C# body. A
+`#line` directive in one compilation input can map its MethodDef into another
+input's document row, reusing that document's real checksum. `#pragma checksum`
+can similarly give a mapped external document a caller-selected checksum. The
+originating file need not be among the source paths supplied to an inspector,
+and embedded source or a compiler-reported source-file count does not associate
+an individual MethodDef with its physical syntax tree.
+
+ReturnToSender therefore treats PDB-selected local source as non-authoritative.
+`TryIsolateRecompileFailure_DeclinesRawSourceIndex` gates that boundary. #3835
+remains blocked on an independent build manifest that certifies the complete
+physical source set and permits an assembly-wide line-mapping check, or on a
+stronger per-method provenance contract outside the Portable PDB format.
 
 ## Microsoft vs third-party libraries
 

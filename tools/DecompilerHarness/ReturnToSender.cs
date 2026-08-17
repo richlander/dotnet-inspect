@@ -706,7 +706,7 @@ static class ReturnToSender
         => CompileBackTargets(
             assemblyPath,
             targets,
-            ReturnToSenderSourceIndex.TryCreate(assemblyPath, sourcePaths),
+            ReturnToSenderSourceIndex.TryCreate(sourcePaths),
             applyCompileBackFloor: true,
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected);
@@ -2479,7 +2479,6 @@ static class ReturnToSender
         if (sourceIndex is null
             || !sourceIndex.TryFindForAttribution(
                 new RequestedTarget(request.FullType, request.MethodName, request.Overload, Signature: null),
-                request.Reader,
                 MetadataTokens.GetToken(request.TargetMethod),
                 out var sourceMember)
             || sourceMember.Body is not { } authoredBody)

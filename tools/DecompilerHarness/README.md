@@ -346,33 +346,20 @@ instead of silently reducing the product-body-defect count. Each target is
 valid-but-different taste buckets, `Invalid` (does not round-trip), or one of the
 diagnostic buckets below:
 
-Raw syntax-only indexes still do not carry typed correlation, so fault
-attribution is not attempted for them. Assembly-aware fixture and on-demand
-indexes can establish it offline from a matching embedded or adjacent Portable
-PDB: embedded containment or a verified Portable CodeView content ID first
-binds the PDB to the assembly; the PDB's MethodDef then selects a document and
-visible line span, the document checksum authenticates exactly one supplied
-local file with the same file name, and exactly one body-bearing declaration or
-accessor must contain the span. Recorded preprocessor symbols are applied before
-indexing only after the assembly binding succeeds, and attribution lookup
-revalidates the stored MVID against the current request reader. Missing or
-mismatched PDBs, checksums, files, bodies, or unique spans remain uncorrelated.
-A file containing a C# line-mapping directive remains available to raw lookup
-but cannot authorize attribution because its declaration envelopes and PDB
-sequence points may use incompatible mapped coordinates. The original compile
-diagnostic stays visible and an invalid result remains `Unclassified`, not a
-success.
-MethodDef enumeration and the stored MVID come from the PDB context's retained
-PE image; the harness does not reopen the assembly path while forming the
-correlation.
-`TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`,
-`TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch`,
-`TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`,
-`TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`,
-`PdbSourceIndex_RejectsCurrentReaderFromDifferentModule`,
-`TryIsolateRecompileFailure_DeclinesDuplicateChecksumVerifiedSourceFiles`,
-and `TryIsolateRecompileFailure_DeclinesLineMappedPdbSource` gate the positive
-and fail-closed paths.
+Raw syntax indexes used by fixture and on-demand source probes do not carry that
+typed correlation, so fault attribution is not attempted for them. Their
+original compile diagnostic remains visible and an invalid result is
+`Unclassified`, not a success.
+
+Portable PDB method spans do not restore that authority. A document checksum
+authenticates the mapped document content, but an unsupplied compilation input
+can use `#line` to map its MethodDef into that document and reuse its checksum;
+the PDB does not retain the physical source document behind the sequence point.
+Normalized compile-back IL is corroborating evidence, not source provenance.
+`TryIsolateRecompileFailure_DeclinesRawSourceIndex` gates the fail-closed
+behavior. #3835 remains blocked on a trusted complete-source manifest with an
+assembly-wide line-mapping exclusion, or a stronger per-method provenance
+contract.
 
 - **lowering (inherent)** — authored used sugar the compiler erases (iterator,
   async, dynamic call site); unrecoverable from IL.

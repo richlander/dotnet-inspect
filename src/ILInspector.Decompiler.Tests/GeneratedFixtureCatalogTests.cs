@@ -598,7 +598,7 @@ public class GeneratedFixtureCatalogTests
     }
 
     [Fact]
-    public void ReturnToSenderCatalog_StatusMismatchesKeepFaultIsolationBeforeBodyFragments()
+    public void ReturnToSenderCatalog_StatusMismatchesKeepFailureReasonBeforeBodyFragments()
     {
         var opcodeDiffWithBodyFragment = new GeneratedFixtureDefinition(
             "test.non-exact-body-fragment",
@@ -639,10 +639,7 @@ public class GeneratedFixtureCatalogTests
         Assert.False(run.Passed, report);
         Assert.Equal(GeneratedFixtureReturnToSenderStatus.Fail, result.Status);
         Assert.Equal(FidelityCheck.CompileBackStatus.OpcodeDiff, result.ActualStatus);
-        Assert.Equal("body-defect (opcode-diff)", result.Reason);
-        Assert.Equal(
-            ReturnToSender.FaultIsolationKind.BodyDefect,
-            Assert.IsType<ReturnToSender.FaultIsolationResult>(result.FaultIsolation).Kind);
+        Assert.Equal("opcode-diff", result.Reason);
         Assert.NotNull(result.IlDiffDiagnostic);
         Assert.NotEmpty(result.IlDiffDiagnostic.Rows);
         Assert.Contains(result.IlDiffDiagnostic.Rows, row => row.Offset.StartsWith("IL_", StringComparison.Ordinal));

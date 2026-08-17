@@ -62,41 +62,29 @@ operation. It may use `CSharpText.MemberSignatureShape` to discriminate
 same-named candidates, but correspondence remains typed as unique, ambiguous,
 or unavailable and may fall back to the recorded ordinal. It cannot turn a
 shape match into fault-attribution identity; attribution still requires the
-exact MVID and MethodDef token. That typed correlation may come from a persisted
-authored-corpus row or from an assembly-aware local-source index. The latter
-uses Metadata's raw Portable PDB facts without SourceLink URL interpretation:
-an assembly-bound embedded or adjacent PDB supplies the exact MethodDef document
-and mapped line span, the document checksum authenticates one supplied local
-file with the same file name, and exactly one body-bearing declaration or
-accessor must contain the span. Embedded containment or a verified Portable
-CodeView content ID establishes the assembly binding. Recorded preprocessor
-symbols are applied before parsing only after that binding succeeds. Attribution
-lookup revalidates the stored MVID against the current request reader before
-accepting the MethodDef token. The initial correlation enumerates MethodDefs
-from Metadata coordinates read from the PDB context's retained PE image rather
-than reopening the assembly path. A file containing a C# line-mapping directive
-remains available to non-authoritative raw lookup but cannot authorize
-attribution: independently mapped sequence points can otherwise land inside a
-same-named sibling declaration's mapped envelope.
-Any missing, mismatched, or ambiguous input leaves the MethodDef
-uncorrelated. `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`,
-`TryIsolateRecompileFailure_AttributesTheExactPropertyAccessor`, and the
-`TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch`,
-`TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`,
-`TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`,
-`PdbSourceIndex_RejectsCurrentReaderFromDifferentModule`,
-`TryIsolateRecompileFailure_DeclinesAmbiguousSameLinePdbSpan`,
-and `TryIsolateRecompileFailure_DeclinesLineMappedPdbSource` tests gate this
-path.
-
-Only canonical `mss1:` shapes may select a candidate. A persisted legacy
-signature may validate an already selected exact MethodDef, but never
-participates in candidate selection. The close gates are
+exact MVID and MethodDef token. Only canonical `mss1:` shapes may select a
+candidate. A persisted legacy signature may validate an already selected exact
+MethodDef, but never participates in candidate selection. The close gates are
 `ReturnToSenderSourceProbe_MatchesSourceBySignatureWhenDeclarationOrderDiffers`,
 `SourceSignatureCorrespondence_ReportsAmbiguousCandidates`, and
 `SourceSignatureCorrespondence_ReportsUnavailableCandidate`; legacy isolation is
 gated by `CompileBackTargets_LegacySignatureCannotOverrideOrdinal` and
 `SourceSignatureCorrespondence_RejectsLegacyCandidateSelection`.
+
+An assembly-bound Portable PDB does not supply the missing attribution identity.
+Its checksum authenticates a mapped document's content, but a `#line` directive
+in another, potentially unsupplied compilation input can route that input's
+MethodDef sequence points into the authenticated document. The PDB does not
+record the physical syntax tree behind those points. Compiling a proposed body
+and comparing normalized IL can reject some false candidates, but equivalent
+IL is not source provenance and divergence may instead reflect compiler,
+reference, shell, local-layout, or generated-code differences.
+
+Local PDB spans may therefore inform non-authoritative correspondence but cannot
+authorize fault attribution. `TryIsolateRecompileFailure_DeclinesRawSourceIndex`
+gates the current fail-closed behavior. #3835 remains blocked on a trusted
+complete-source manifest plus an assembly-wide line-mapping exclusion, or a
+stronger per-method provenance contract.
 
 ## The gauntlet
 
