@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
@@ -14,13 +13,17 @@ namespace ILInspector.Metadata;
 /// bytes can therefore request a gigabyte-scale builder. The blob-length charge
 /// on the value heap does not see that amplification.
 ///
-/// This guard walks the constructor MethodSig and value blob, refusing decode
-/// when a declared count exceeds the remaining bytes or when boxed / SZArray
-/// nesting exceeds <see cref="MaxSerializedDepth"/>. Declared slots are charged
-/// through <c>beforeMaterialize</c> so a hostile count becomes typed truncation
+/// This guard walks the constructor MethodSig and the whole value blob —
+/// fixed arguments <b>and</b> each named argument's <c>FieldOrPropType</c>,
+/// name, and value — refusing decode when a declared count exceeds the
+/// remaining bytes or when boxed / SZArray nesting exceeds
+/// <see cref="MaxSerializedDepth"/>. Declared slots are charged through
+/// <c>beforeMaterialize</c> so a hostile count becomes typed truncation
 /// rather than a swallowed <c>OutOfMemoryException</c>. Nesting is bounded so a
-/// chain of boxed tags cannot overflow the native stack the way SRM's recursive
-/// decoder would.
+/// chain of boxed tags or named-argument array types cannot overflow the
+/// native stack the way SRM's recursive decoder would. Enum argument widths
+/// come from <see cref="EnumUnderlyingPrimitive"/> so the skip stays aligned
+/// with SRM's provider.
 /// </summary>
 public static class CustomAttributeValueGuard
 {
@@ -48,11 +51,17 @@ public static class CustomAttributeValueGuard
     public static bool IsSafeToDecode(
         MetadataReader reader,
         CustomAttribute attribute,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType = null)
     {
         try
         {
-            return Check(reader, attribute, beforeMaterialize) != Result.Unsafe;
+            return Check(
+                    reader,
+                    attribute,
+                    beforeMaterialize,
+                    enumUnderlyingType)
+                != Result.Unsafe;
         }
         catch (BadImageFormatException)
         {
@@ -67,7 +76,8 @@ public static class CustomAttributeValueGuard
     static Result Check(
         MetadataReader reader,
         CustomAttribute attribute,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
     {
         if (!TryGetConstructorSignature(reader, attribute.Constructor, out var signatureHandle))
             return Result.Safe;
@@ -100,6 +110,7 @@ public static class CustomAttributeValueGuard
                 ref signature,
                 ref value,
                 beforeMaterialize,
+                enumUnderlyingType,
                 depth: 1);
             if (result != Result.Safe)
                 return result;
@@ -109,9 +120,22 @@ public static class CustomAttributeValueGuard
             return Result.Safe;
         int namedCount = value.ReadUInt16();
         Charge(beforeMaterialize, namedCount);
-        return namedCount > value.RemainingBytes
-            ? Result.Unsafe
-            : Result.Safe;
+        if (namedCount > value.RemainingBytes)
+            return Result.Unsafe;
+
+        for (int index = 0; index < namedCount; index++)
+        {
+            Result named = SkipNamedArg(
+                reader,
+                ref value,
+                beforeMaterialize,
+                enumUnderlyingType,
+                depth: 1);
+            if (named != Result.Safe)
+                return named;
+        }
+
+        return Result.Safe;
     }
 
     static Result SkipFixedArg(
@@ -119,6 +143,7 @@ public static class CustomAttributeValueGuard
         ref BlobReader signature,
         ref BlobReader value,
         Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
         int depth)
     {
         if (depth > MaxSerializedDepth)
@@ -143,18 +168,25 @@ public static class CustomAttributeValueGuard
             ElementTypeI8 or ElementTypeU8 or ElementTypeR8
                 => SkipBytes(ref value, 8),
             ElementTypeString => SkipSerString(ref value),
-            ElementTypeObject => SkipBoxed(ref value, beforeMaterialize, depth),
+            ElementTypeObject => SkipBoxed(
+                reader,
+                ref value,
+                beforeMaterialize,
+                enumUnderlyingType,
+                depth),
             ElementTypeSzArray => SkipSzArray(
                 reader,
                 ref signature,
                 ref value,
                 beforeMaterialize,
+                enumUnderlyingType,
                 depth),
             ElementTypeClass or ElementTypeValueType => SkipNamedType(
                 reader,
                 signature.ReadTypeHandle(),
                 ref value,
                 beforeMaterialize,
+                enumUnderlyingType,
                 depth),
             _ => Result.Unsafe,
         };
@@ -165,6 +197,7 @@ public static class CustomAttributeValueGuard
         ref BlobReader signature,
         ref BlobReader value,
         Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
         int depth)
     {
         if (depth > MaxSerializedDepth)
@@ -193,6 +226,7 @@ public static class CustomAttributeValueGuard
                 ref signature,
                 ref value,
                 beforeMaterialize,
+                enumUnderlyingType,
                 depth + 1);
             if (result != Result.Safe)
             {
@@ -210,32 +244,196 @@ public static class CustomAttributeValueGuard
         EntityHandle handle,
         ref BlobReader value,
         Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
         int depth)
     {
         if (IsSystemNamedType(reader, handle, "String")
             || IsSystemNamedType(reader, handle, "Type"))
             return SkipSerString(ref value);
         if (IsSystemNamedType(reader, handle, "Object"))
-            return SkipBoxed(ref value, beforeMaterialize, depth);
-        return SkipBytes(ref value, EnumUnderlyingSize(reader, handle));
+            return SkipBoxed(
+                reader,
+                ref value,
+                beforeMaterialize,
+                enumUnderlyingType,
+                depth);
+        return SkipBytes(
+            ref value,
+            EnumUnderlyingPrimitive.ByteSize(
+                ResolveEnum(reader, handle, beforeMaterialize, enumUnderlyingType)));
+    }
+
+    static Result SkipNamedArg(
+        MetadataReader reader,
+        ref BlobReader value,
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
+        int depth)
+    {
+        if (depth > MaxSerializedDepth)
+            return Result.Unsafe;
+        if (!TryReadElementType(ref value, out byte kind))
+            return Result.Safe;
+        if (kind is not (SerializedField or SerializedProperty))
+            return Result.Unsafe;
+
+        Result type = ReadFieldOrPropType(
+            ref value,
+            depth,
+            out byte leaf,
+            out int arrayDepth,
+            out string? enumName);
+        if (type != Result.Safe)
+            return type;
+
+        Result name = SkipSerString(ref value);
+        if (name != Result.Safe)
+            return name;
+
+        return SkipTypedValue(
+            reader,
+            leaf,
+            arrayDepth,
+            enumName,
+            ref value,
+            beforeMaterialize,
+            enumUnderlyingType,
+            depth);
+    }
+
+    static Result ReadFieldOrPropType(
+        ref BlobReader value,
+        int depth,
+        out byte leaf,
+        out int arrayDepth,
+        out string? enumName)
+    {
+        leaf = 0;
+        arrayDepth = 0;
+        enumName = null;
+        int typeDepth = depth;
+        while (true)
+        {
+            if (typeDepth > MaxSerializedDepth)
+                return Result.Unsafe;
+            if (!TryReadElementType(ref value, out byte code))
+                return Result.Safe;
+            if (code == ElementTypeSzArray)
+            {
+                arrayDepth++;
+                typeDepth++;
+                continue;
+            }
+
+            leaf = code;
+            if (code == SerializedEnum)
+                return TryReadSerString(ref value, out enumName);
+            return code is ElementTypeBoolean or ElementTypeChar
+                or ElementTypeI1 or ElementTypeU1
+                or ElementTypeI2 or ElementTypeU2
+                or ElementTypeI4 or ElementTypeU4
+                or ElementTypeI8 or ElementTypeU8
+                or ElementTypeR4 or ElementTypeR8
+                or ElementTypeString or ElementTypeObject
+                or SerializedType or SerializedBoxed
+                ? Result.Safe
+                : Result.Unsafe;
+        }
+    }
+
+    static Result SkipTypedValue(
+        MetadataReader reader,
+        byte code,
+        int arrayDepth,
+        string? enumName,
+        ref BlobReader value,
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
+        int depth)
+    {
+        if (depth > MaxSerializedDepth)
+            return Result.Unsafe;
+        if (arrayDepth > 0)
+        {
+            if (value.RemainingBytes < 4)
+                return Result.Safe;
+            int count = value.ReadInt32();
+            if (count == -1)
+                return Result.Safe;
+            if (count < 0)
+                return Result.Unsafe;
+            Charge(beforeMaterialize, count);
+            if ((uint)count > (uint)value.RemainingBytes)
+                return Result.Unsafe;
+            for (int index = 0; index < count; index++)
+            {
+                Result result = SkipTypedValue(
+                    reader,
+                    code,
+                    arrayDepth - 1,
+                    enumName,
+                    ref value,
+                    beforeMaterialize,
+                    enumUnderlyingType,
+                    depth + 1);
+                if (result != Result.Safe)
+                    return result;
+            }
+
+            return Result.Safe;
+        }
+
+        return code switch
+        {
+            ElementTypeBoolean or ElementTypeI1 or ElementTypeU1
+                => SkipBytes(ref value, 1),
+            ElementTypeChar or ElementTypeI2 or ElementTypeU2
+                => SkipBytes(ref value, 2),
+            ElementTypeI4 or ElementTypeU4 or ElementTypeR4
+                => SkipBytes(ref value, 4),
+            ElementTypeI8 or ElementTypeU8 or ElementTypeR8
+                => SkipBytes(ref value, 8),
+            ElementTypeString or SerializedType => SkipSerString(ref value),
+            ElementTypeObject or SerializedBoxed => SkipBoxed(
+                reader,
+                ref value,
+                beforeMaterialize,
+                enumUnderlyingType,
+                depth),
+            SerializedEnum => SkipBytes(
+                ref value,
+                EnumUnderlyingPrimitive.ByteSize(
+                    ResolveEnumName(reader, enumName, enumUnderlyingType))),
+            _ => Result.Unsafe,
+        };
     }
 
     static Result SkipBoxed(
+        MetadataReader reader,
         ref BlobReader value,
         Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
         int depth)
     {
         if (depth > MaxSerializedDepth)
             return Result.Unsafe;
         if (!TryReadElementType(ref value, out byte code))
             return Result.Safe;
-        return SkipSerialized(code, ref value, beforeMaterialize, depth);
+        return SkipSerialized(
+            reader,
+            code,
+            ref value,
+            beforeMaterialize,
+            enumUnderlyingType,
+            depth);
     }
 
     static Result SkipSerialized(
+        MetadataReader reader,
         byte code,
         ref BlobReader value,
         Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
         int depth)
     {
         if (depth > MaxSerializedDepth)
@@ -262,13 +460,21 @@ public static class CustomAttributeValueGuard
             case SerializedType:
                 return SkipSerString(ref value);
             case SerializedBoxed:
-                return SkipBoxed(ref value, beforeMaterialize, depth + 1);
+                return SkipBoxed(
+                    reader,
+                    ref value,
+                    beforeMaterialize,
+                    enumUnderlyingType,
+                    depth + 1);
             case SerializedEnum:
             {
-                Result name = SkipSerString(ref value);
+                Result name = TryReadSerString(ref value, out string? enumName);
                 return name != Result.Safe
                     ? name
-                    : SkipBytes(ref value, 4);
+                    : SkipBytes(
+                        ref value,
+                        EnumUnderlyingPrimitive.ByteSize(
+                            ResolveEnumName(reader, enumName, enumUnderlyingType)));
             }
             case ElementTypeSzArray:
             {
@@ -287,9 +493,11 @@ public static class CustomAttributeValueGuard
                 for (int index = 0; index < count; index++)
                 {
                     Result result = SkipSerialized(
+                        reader,
                         element,
                         ref value,
                         beforeMaterialize,
+                        enumUnderlyingType,
                         depth + 1);
                     if (result != Result.Safe)
                         return result;
@@ -302,8 +510,49 @@ public static class CustomAttributeValueGuard
         }
     }
 
-    static Result SkipSerString(ref BlobReader blob)
+    static PrimitiveTypeCode ResolveEnum(
+        MetadataReader reader,
+        EntityHandle handle,
+        Action<int>? beforeMaterialize,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
     {
+        if (handle.Kind == HandleKind.TypeDefinition)
+            return EnumUnderlyingPrimitive.FromDefinition(
+                reader,
+                (TypeDefinitionHandle)handle);
+        if (enumUnderlyingType is not null)
+        {
+            string? name = TypeResolver.GetTypeName(
+                reader,
+                handle,
+                context: null,
+                beforeMaterialize);
+            return name is null
+                ? PrimitiveTypeCode.Int32
+                : enumUnderlyingType(name);
+        }
+
+        return EnumUnderlyingPrimitive.FromHandle(reader, handle);
+    }
+
+    static PrimitiveTypeCode ResolveEnumName(
+        MetadataReader reader,
+        string? enumName,
+        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
+    {
+        if (enumName is null)
+            return PrimitiveTypeCode.Int32;
+        return enumUnderlyingType is not null
+            ? enumUnderlyingType(enumName)
+            : EnumUnderlyingPrimitive.FromSerializedName(reader, enumName);
+    }
+
+    static Result SkipSerString(ref BlobReader blob)
+        => TryReadSerString(ref blob, out _);
+
+    static Result TryReadSerString(ref BlobReader blob, out string? text)
+    {
+        text = null;
         if (blob.RemainingBytes < 1)
             return Result.Safe;
         int offset = blob.Offset;
@@ -311,7 +560,10 @@ public static class CustomAttributeValueGuard
             return Result.Safe;
         blob.Offset = offset;
         int length = blob.ReadCompressedInteger();
-        return SkipBytes(ref blob, length);
+        if (blob.RemainingBytes < length)
+            return Result.Safe;
+        text = blob.ReadUTF8(length);
+        return Result.Safe;
     }
 
     static Result SkipBytes(ref BlobReader blob, int count)
@@ -434,50 +686,6 @@ public static class CustomAttributeValueGuard
             && comparer.Equals(nameHandle, name);
     }
 
-    static int EnumUnderlyingSize(MetadataReader reader, EntityHandle handle)
-    {
-        if (handle.Kind != HandleKind.TypeDefinition)
-            return 4;
-
-        var definition = reader.GetTypeDefinition((TypeDefinitionHandle)handle);
-        if (!IsSystemNamedType(reader, definition.BaseType, "Enum"))
-            return 4;
-
-        foreach (var fieldHandle in definition.GetFields())
-        {
-            var field = reader.GetFieldDefinition(fieldHandle);
-            if ((field.Attributes & FieldAttributes.Static) != 0)
-                continue;
-            var signature = reader.GetBlobReader(field.Signature);
-            if (signature.RemainingBytes < 2)
-                return 4;
-            signature.ReadByte();
-            while (signature.RemainingBytes > 0)
-            {
-                byte code = signature.ReadByte();
-                if (code is ElementTypeCmodReqd or ElementTypeCmodOpt)
-                {
-                    signature.ReadTypeHandle();
-                    continue;
-                }
-
-                int size = PrimitiveSize(code);
-                return size > 0 ? size : 4;
-            }
-        }
-
-        return 4;
-    }
-
-    static int PrimitiveSize(byte code) => code switch
-    {
-        ElementTypeBoolean or ElementTypeI1 or ElementTypeU1 => 1,
-        ElementTypeChar or ElementTypeI2 or ElementTypeU2 => 2,
-        ElementTypeI4 or ElementTypeU4 or ElementTypeR4 => 4,
-        ElementTypeI8 or ElementTypeU8 or ElementTypeR8 => 8,
-        _ => 0,
-    };
-
     static bool TryReadElementType(ref BlobReader blob, out byte code)
     {
         if (blob.RemainingBytes < 1)
@@ -535,5 +743,7 @@ public static class CustomAttributeValueGuard
     const byte ElementTypePinned = 0x45;
     const byte SerializedType = 0x50;
     const byte SerializedBoxed = 0x51;
+    const byte SerializedField = 0x53;
+    const byte SerializedProperty = 0x54;
     const byte SerializedEnum = 0x55;
 }

@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -157,12 +156,17 @@ public static class AttributeDecoder
         bool preserveSerializedTypeNames,
         Action<int>? beforeMaterialize)
     {
+        var provider = new ArgTypeProvider(
+            reader,
+            preserveSerializedTypeNames,
+            beforeMaterialize);
         try
         {
             if (!CustomAttributeValueGuard.IsSafeToDecode(
                     reader,
                     attribute,
-                    beforeMaterialize))
+                    beforeMaterialize,
+                    provider.GetUnderlyingEnumType))
                 return null;
         }
         catch (Exception ex) when (
@@ -173,11 +177,7 @@ public static class AttributeDecoder
 
         try
         {
-            return attribute.DecodeValue(
-                new ArgTypeProvider(
-                    reader,
-                    preserveSerializedTypeNames,
-                    beforeMaterialize));
+            return attribute.DecodeValue(provider);
         }
         catch (MaterializationObserverException ex)
         {
@@ -238,26 +238,9 @@ public static class AttributeDecoder
         }
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
-        {
-            if (!TypeDefinitionsByName.TryGetValue(type, out var handle))
-                return PrimitiveTypeCode.Int32;
-
-            var def = reader.GetTypeDefinition(handle);
-            foreach (var fieldHandle in def.GetFields())
-            {
-                var field = reader.GetFieldDefinition(fieldHandle);
-                if ((field.Attributes & FieldAttributes.Static) != 0)
-                    continue;
-
-                // SRM decodes this field signature on the native stack before the
-                // first provider callback, so an over-deep enum field blob would
-                // overflow uncatchably. Prescan and fail closed to Int32.
-                return SignatureBlobGuard.IsSafeToDecode(reader, field.Signature, SignatureBlobGuard.Kind.Field)
-                    ? field.DecodeSignature(new PrimitiveCodeProvider(), null)
-                    : PrimitiveTypeCode.Int32;
-            }
-            return PrimitiveTypeCode.Int32;
-        }
+            => TypeDefinitionsByName.TryGetValue(type, out var handle)
+                ? EnumUnderlyingPrimitive.FromDefinition(reader, handle)
+                : PrimitiveTypeCode.Int32;
 
         Dictionary<string, TypeDefinitionHandle> TypeDefinitionsByName =>
             _materializationContext?.GetOrCreateTypeDefinitionsByName(
@@ -321,22 +304,4 @@ public static class AttributeDecoder
             Failure.Throw();
     }
 
-    /// <summary>Minimal signature provider that reports an enum's underlying primitive type code.</summary>
-    sealed class PrimitiveCodeProvider : ISignatureTypeProvider<PrimitiveTypeCode, object?>
-    {
-        public PrimitiveTypeCode GetPrimitiveType(PrimitiveTypeCode code) => code;
-        public PrimitiveTypeCode GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle h, byte k) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetTypeFromReference(MetadataReader r, TypeReferenceHandle h, byte k) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetSZArrayType(PrimitiveTypeCode e) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetArrayType(PrimitiveTypeCode e, ArrayShape s) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetByReferenceType(PrimitiveTypeCode e) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetPointerType(PrimitiveTypeCode e) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetGenericInstantiation(PrimitiveTypeCode g, ImmutableArray<PrimitiveTypeCode> a) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetGenericMethodParameter(object? ctx, int i) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetGenericTypeParameter(object? ctx, int i) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetModifiedType(PrimitiveTypeCode m, PrimitiveTypeCode u, bool r) => u;
-        public PrimitiveTypeCode GetPinnedType(PrimitiveTypeCode e) => e;
-        public PrimitiveTypeCode GetFunctionPointerType(MethodSignature<PrimitiveTypeCode> s) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetTypeFromSpecification(MetadataReader r, object? ctx, TypeSpecificationHandle h, byte k) => PrimitiveTypeCode.Int32;
-    }
 }

@@ -406,8 +406,14 @@ attribute values. Declared custom-attribute SZArray and named-argument counts
 are checked against remaining value-blob bytes before SRM allocates builders
 from those counts, and each declared slot is charged as decode work so a
 hostile four-byte count cannot become a gigabyte-scale argument array or a
-swallowed OOM. Boxed and nested SZArray encodings are depth-bounded before
-decode so a chain of tags cannot overflow the native stack. Every bounded member-name decode and every namespace/name
+swallowed OOM. The same walk covers each named argument's
+`FieldOrPropType`, name, and value — a named SZArray count or a nested
+named array type is not left for `DecodeValue` to allocate or recurse
+on. Boxed and nested SZArray encodings are depth-bounded before
+decode so a chain of tags cannot overflow the native stack. Enum-typed
+fixed and named arguments use one shared underlying-width oracle, so a
+TypeRef that resolves to a local non-`int32` enum, or an over-deep
+`value__` field signature, cannot desynchronize later count reads. Every bounded member-name decode and every namespace/name
 segment used to resolve an attribute type is also charged before SRM
 materializes it, including names inspected only to skip an accessor,
 compiler-generated field, or hidden member. Property-accessor nullable-context
@@ -459,6 +465,14 @@ pre-decoding rejection.
 `PropertyRefReturnDuplicateSeq0Attributes_StopsBeforeLargeAllocationAmplification`,
 `LegalNamedAttribute_HasBoundedUnboundedParity`,
 `DeepBoxedCustomAttribute_StopsBeforeStackOverflow`,
+`OneHugeNamedArgumentArrayCount_StopsBeforeLargeAllocationAmplification`,
+`DeepNamedNestedArrayCustomAttribute_StopsBeforeStackOverflow`,
+`TypeRefEnumWidthDesync_StopsBeforeLargeAllocationAmplification`,
+`OverDeepEnumFieldModifiers_StopsBeforeLargeAllocationAmplification`,
+`CustomAttributeValueGuardTests.HugeNamedArgumentArrayCount_IsUnsafe`,
+`CustomAttributeValueGuardTests.NamedArrayNestingJustOverLimit_IsUnsafe`,
+`CustomAttributeValueGuardTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
 `RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
 `SeparateEnumAttributes_ReuseTheChargedTypeNameIndex`,
 `FailedEnumAttributeIndexBuild_IsCachedAndVisible`,
