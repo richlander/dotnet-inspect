@@ -163,7 +163,11 @@ The harness—not Metadata—parses C# declarations and uses those facts to
 correlate one checksum-authenticated local body. It does not interpret a
 SourceLink map or URL. `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`
 and `TryIsolateRecompileFailure_UsesPdbRecordedPreprocessorSymbols` gate this
-layering seam.
+layering seam. A checksum-authenticated file containing a C# line-mapping
+directive remains available for non-authoritative raw lookup but is excluded
+from PDB attribution: declaration envelopes and independently mapped sequence
+points do not provide a safe containment identity across those directives.
+`TryIsolateRecompileFailure_DeclinesLineMappedPdbSource` gates that boundary.
 `TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`
 gates the assembly-binding and build-option requirements.
 

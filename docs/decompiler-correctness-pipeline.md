@@ -74,7 +74,10 @@ symbols are applied before parsing only after that binding succeeds. Attribution
 lookup revalidates the stored MVID against the current request reader before
 accepting the MethodDef token. The initial correlation enumerates MethodDefs
 from Metadata coordinates read from the PDB context's retained PE image rather
-than reopening the assembly path.
+than reopening the assembly path. A file containing a C# line-mapping directive
+remains available to non-authoritative raw lookup but cannot authorize
+attribution: independently mapped sequence points can otherwise land inside a
+same-named sibling declaration's mapped envelope.
 Any missing, mismatched, or ambiguous input leaves the MethodDef
 uncorrelated. `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`,
 `TryIsolateRecompileFailure_AttributesTheExactPropertyAccessor`, and the
@@ -82,8 +85,8 @@ uncorrelated. `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpa
 `TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`,
 `TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`,
 `PdbSourceIndex_RejectsCurrentReaderFromDifferentModule`,
-and
-`TryIsolateRecompileFailure_DeclinesAmbiguousSameLinePdbSpan` tests gate this
+`TryIsolateRecompileFailure_DeclinesAmbiguousSameLinePdbSpan`,
+and `TryIsolateRecompileFailure_DeclinesLineMappedPdbSource` tests gate this
 path.
 
 Only canonical `mss1:` shapes may select a candidate. A persisted legacy

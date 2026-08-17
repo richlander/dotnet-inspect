@@ -356,9 +356,12 @@ local file with the same file name, and exactly one body-bearing declaration or
 accessor must contain the span. Recorded preprocessor symbols are applied before
 indexing only after the assembly binding succeeds, and attribution lookup
 revalidates the stored MVID against the current request reader. Missing or
-mismatched PDBs, checksums, files, bodies, or unique spans remain uncorrelated;
-the original compile diagnostic stays visible and an invalid result remains
-`Unclassified`, not a success.
+mismatched PDBs, checksums, files, bodies, or unique spans remain uncorrelated.
+A file containing a C# line-mapping directive remains available to raw lookup
+but cannot authorize attribution because its declaration envelopes and PDB
+sequence points may use incompatible mapped coordinates. The original compile
+diagnostic stays visible and an invalid result remains `Unclassified`, not a
+success.
 MethodDef enumeration and the stored MVID come from the PDB context's retained
 PE image; the harness does not reopen the assembly path while forming the
 correlation.
@@ -367,9 +370,9 @@ correlation.
 `TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`,
 `TryIsolateRecompileFailure_DeclinesForeignPdbForAssemblyWithoutCodeViewIdentity`,
 `PdbSourceIndex_RejectsCurrentReaderFromDifferentModule`,
-and
-`TryIsolateRecompileFailure_DeclinesDuplicateChecksumVerifiedSourceFiles` gate
-the positive and fail-closed paths.
+`TryIsolateRecompileFailure_DeclinesDuplicateChecksumVerifiedSourceFiles`,
+and `TryIsolateRecompileFailure_DeclinesLineMappedPdbSource` gate the positive
+and fail-closed paths.
 
 - **lowering (inherent)** — authored used sugar the compiler erases (iterator,
   async, dynamic call site); unrecoverable from IL.

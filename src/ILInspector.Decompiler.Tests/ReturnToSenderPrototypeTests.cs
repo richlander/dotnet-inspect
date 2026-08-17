@@ -7178,6 +7178,67 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void TryIsolateRecompileFailure_DeclinesLineMappedPdbSource()
+    {
+        const string source = """
+            public class Class1
+            {
+            #line 1
+                public int M(int value)
+                {
+                    return value;
+                }
+
+            #line 100
+                public int M()
+                {
+            #line 3
+                    return 42;
+                }
+            #line default
+            }
+            """;
+        var sourcePath = WriteTempSource("LineMapped.cs", source, out var sourceDirectory);
+        var assemblyPath = CompileFixture(
+            source,
+            sourceDirectory,
+            sourcePath: sourcePath,
+            emitPortablePdb: true);
+        try
+        {
+            using (var pe = new PEReader(File.OpenRead(assemblyPath)))
+            {
+                var reader = pe.GetMetadataReader();
+                var (_, methodHandle) = FindMethod(reader, "Class1", "M", overload: 1);
+                var sourceIndex = Assert.IsType<ReturnToSenderSourceIndex>(
+                    ReturnToSenderSourceIndex.TryCreate(assemblyPath, [sourcePath]));
+                Assert.True(sourceIndex.TryFind(
+                    new ReturnToSender.RequestedTarget("Class1", "M", 1),
+                    out var rawMember));
+                Assert.Equal("return 42;", rawMember.Body);
+                Assert.False(sourceIndex.TryFindForAttribution(
+                    new ReturnToSender.RequestedTarget("Class1", "M", 1),
+                    reader,
+                    MetadataTokens.GetToken(methodHandle),
+                    out _));
+            }
+
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true,
+                overload: 1));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
     public void TryIsolateRecompileFailure_DeclinesRenamedChecksumMatchingSource()
     {
         const string source = """

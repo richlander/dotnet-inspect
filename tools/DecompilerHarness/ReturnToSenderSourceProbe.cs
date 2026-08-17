@@ -688,7 +688,8 @@ internal sealed class ReturnToSenderSourceIndex
         string Path,
         CompilationUnitSyntax Root,
         byte[] Content,
-        bool HasDirectives);
+        bool HasDirectives,
+        bool HasLineMappings);
 
     readonly Dictionary<string, ReturnToSenderSourceMember> _members;
     readonly Dictionary<string, RecordSourceInfo> _recordSources;
@@ -842,7 +843,8 @@ internal sealed class ReturnToSenderSourceIndex
     /// fail-closed paths are gated by
     /// <c>TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan</c>,
     /// <c>TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch</c>,
-    /// and <c>TryIsolateRecompileFailure_DeclinesDuplicateChecksumVerifiedSourceFiles</c>.
+    /// <c>TryIsolateRecompileFailure_DeclinesDuplicateChecksumVerifiedSourceFiles</c>,
+    /// and <c>TryIsolateRecompileFailure_DeclinesLineMappedPdbSource</c>.
     /// </para>
     /// </remarks>
     public static ReturnToSenderSourceIndex FromCorrelatedMembers(
@@ -956,6 +958,7 @@ internal sealed class ReturnToSenderSourceIndex
                 Path.GetFileName(file.Path),
                 fileName,
                 StringComparison.OrdinalIgnoreCase))
+            .Where(file => !file.HasLineMappings)
             .Where(file => compilationOptionsKnown || !file.HasDirectives)
             .Where(file => AuthoredSourceAcquisition.VerifyChecksum(
                     document.ChecksumAlgorithm,
@@ -1207,9 +1210,17 @@ internal sealed class ReturnToSenderSourceIndex
 
         var tree = CSharpSyntaxTree.ParseText(source, parseOptions, path: sourcePath);
         CompilationUnitSyntax root = tree.GetCompilationUnitRoot();
-        bool hasDirectives = root.DescendantTrivia(descendIntoTrivia: true)
-            .Any(trivia => trivia.IsDirective);
-        sourceFile = new IndexedSourceFile(sourcePath, root, content, hasDirectives);
+        SyntaxTrivia[] directives = root.DescendantTrivia(descendIntoTrivia: true)
+            .Where(trivia => trivia.IsDirective)
+            .ToArray();
+        bool hasLineMappings = directives.Any(trivia =>
+            trivia.GetStructure() is LineDirectiveTriviaSyntax or LineSpanDirectiveTriviaSyntax);
+        sourceFile = new IndexedSourceFile(
+            sourcePath,
+            root,
+            content,
+            HasDirectives: directives.Length > 0,
+            HasLineMappings: hasLineMappings);
         return true;
     }
 
