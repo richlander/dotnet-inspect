@@ -3201,7 +3201,7 @@ static class FidelityCheck
         else if (typeDef.BaseType.Kind == HandleKind.TypeReference
                  && targetApiType is
                  {
-                     BaseType: { } resolvedBaseType,
+                     BaseType: not null,
                      BaseTypeResolution:
                      {
                          IsPubliclyAccessible: true,
@@ -3210,7 +3210,8 @@ static class FidelityCheck
                  })
         {
             return AliasedBaseClause(
-                resolvedBaseType,
+                SourceSpellableDefinitionName(
+                    resolution.DefinitionName),
                 resolver.ResolveAlias(
                     resolution.Assembly,
                     AssemblyResolutionScope.Any));
@@ -3300,11 +3301,45 @@ static class FidelityCheck
     }
 
     static string AliasedBaseClause(
-        string baseType,
+        string? baseType,
         string? alias) =>
-        alias is null
+        alias is null || baseType is null
             ? ""
             : $" : {alias}::{EscapeMetadataTypeName(baseType)}";
+
+    static string? SourceSpellableDefinitionName(
+        MetadataTypeDefinitionName definition)
+    {
+        var parts = new List<string>();
+        if (definition.Namespace.Length != 0)
+        {
+            foreach (string part in definition.Namespace.Split('.'))
+            {
+                if (SourceIdentifier(part) is not { } identifier)
+                    return null;
+                parts.Add(identifier);
+            }
+        }
+
+        foreach (string segment in definition.Segments)
+        {
+            if (SourceIdentifier(segment) is not { } identifier)
+                return null;
+            parts.Add(identifier);
+        }
+
+        return string.Join('.', parts);
+
+        static string? SourceIdentifier(string value)
+        {
+            return SyntaxFacts.IsValidIdentifier(value)
+                || SyntaxFacts.GetKeywordKind(value) != SyntaxKind.None
+                || SyntaxFacts.GetContextualKeywordKind(value)
+                    != SyntaxKind.None
+                ? Identifier(value)
+                : null;
+        }
+    }
 
     static string GenericBaseClause(MetadataReader reader, EntityHandle handle)
     {

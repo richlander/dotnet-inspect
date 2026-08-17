@@ -748,11 +748,17 @@ public class ApiType
 }
 
 /// <summary>
-/// Durable facts collected from the exact resolved definition of an external
-/// base type.
+/// Durable identity and facts collected from the exact resolved definition of
+/// an external base type.
 /// </summary>
+/// <remarks>
+/// <c>SkeletonDoesNotFlattenUnspellableExternalBaseIdentity</c> gates that the
+/// structured definition identity remains authoritative when compile-back
+/// decides whether the base has an exact C# spelling.
+/// </remarks>
 public sealed record ApiBaseTypeResolution(
     AssemblyReferenceIdentity Assembly,
+    MetadataTypeDefinitionName DefinitionName,
     bool IsPubliclyAccessible,
     bool HasAccessibleParameterlessConstructor,
     bool IsAbstract);

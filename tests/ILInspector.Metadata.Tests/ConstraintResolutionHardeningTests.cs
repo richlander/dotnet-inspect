@@ -1833,6 +1833,9 @@ public class ConstraintResolutionHardeningTests
         ApiBaseTypeResolution resolution = Assert.IsType<
             ApiBaseTypeResolution>(
                 Assert.Single(surface.Types).BaseTypeResolution);
+        Assert.Equal(
+            "N.Base",
+            resolution.DefinitionName.ToEscapedFullName());
         Assert.True(resolution.IsPubliclyAccessible);
         Assert.False(
             resolution.HasAccessibleParameterlessConstructor);

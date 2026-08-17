@@ -3628,6 +3628,7 @@ public static class ApiSurfaceExtractor
                     type.BaseTypeResolution =
                         new ApiBaseTypeResolution(
                             definition.Assembly.Assembly.Identity,
+                            definition.Type,
                             definition.IsPubliclyAccessible,
                             definition
                                 .HasAccessibleParameterlessConstructor,

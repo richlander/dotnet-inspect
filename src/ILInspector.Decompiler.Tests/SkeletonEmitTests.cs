@@ -373,6 +373,70 @@ public class SkeletonEmitTests
     }
 
     [Fact]
+    public void SkeletonDoesNotFlattenUnspellableExternalBaseIdentity()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-segments-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "SegmentDependency.dll");
+        string targetPath =
+            Path.Combine(root, "SegmentTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "SegmentDependency",
+                """
+                namespace A
+                {
+                    public class BxC
+                    {
+                        public virtual int M() => 1;
+                    }
+                }
+                namespace A.B
+                {
+                    public class C
+                    {
+                        public virtual int M() => 1;
+                    }
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "SegmentTarget",
+                """
+                namespace SegmentTarget;
+                public sealed class Derived : A.BxC
+                {
+                    public override int M() => 42;
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            ReplaceMetadataName(dependencyPath, "BxC\0"u8, "B.C\0"u8);
+            ReplaceMetadataName(targetPath, "BxC\0"u8, "B.C\0"u8);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "SegmentTarget.Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                result.Status);
+            Assert.Contains("CS0115", result.Detail);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SkeletonQualifiesAuthenticatedExternalBaseAgainstTargetLookalike()
     {
         string root = Path.Combine(
@@ -964,6 +1028,22 @@ public class SkeletonEmitTests
             $"fidelity-check-whole-module-{Guid.NewGuid():N}.dll");
         File.WriteAllBytes(path, bytes);
         return path;
+    }
+
+    static void ReplaceMetadataName(
+        string path,
+        ReadOnlySpan<byte> original,
+        ReadOnlySpan<byte> replacement)
+    {
+        Assert.Equal(original.Length, replacement.Length);
+        byte[] bytes = File.ReadAllBytes(path);
+        int match = bytes.AsSpan().IndexOf(original);
+        Assert.True(match >= 0, $"Expected metadata name in {path}.");
+        replacement.CopyTo(bytes.AsSpan(match));
+        Assert.True(
+            bytes.AsSpan(match + original.Length).IndexOf(original) < 0,
+            $"Expected one metadata name occurrence in {path}.");
+        File.WriteAllBytes(path, bytes);
     }
 }
 
