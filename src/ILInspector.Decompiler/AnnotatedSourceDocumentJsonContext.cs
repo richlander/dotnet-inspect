@@ -21,6 +21,7 @@ namespace ILInspector.Decompiler;
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(AnnotatedSourceDocument))]
 [JsonSerializable(typeof(CSharpNodeCorrespondenceResult))]
+[JsonSerializable(typeof(CSharpStructuralDiffDocument))]
 public partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext;
 
 /// <inheritdoc cref="AnnotatedSourceDocumentJsonContext"/>
@@ -31,4 +32,5 @@ public partial class AnnotatedSourceDocumentJsonContext : JsonSerializerContext;
     UseStringEnumConverter = true)]
 [JsonSerializable(typeof(AnnotatedSourceDocument))]
 [JsonSerializable(typeof(CSharpNodeCorrespondenceResult))]
+[JsonSerializable(typeof(CSharpStructuralDiffDocument))]
 public partial class AnnotatedSourceDocumentCompactJsonContext : JsonSerializerContext;

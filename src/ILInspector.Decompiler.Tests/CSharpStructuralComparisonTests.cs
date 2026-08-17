@@ -904,6 +904,141 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void StructuralDiffDocument_ReissuesCorrespondenceAndDerivesRows()
+    {
+        var before = TrustedDocument(
+            "return;",
+            new NodeSpec("ReturnStatement", "return;", [0x10]));
+        var after = TrustedDocument(
+            "break;",
+            new NodeSpec("BreakStatement", "break;", [0x10]));
+
+        var document = CSharpStructuralDiffDocument.Create(before, after);
+
+        Assert.Equal(CSharpStructuralDiffDocument.CurrentSchemaVersion, document.SchemaVersion);
+        Assert.Equal(
+            CSharpStructuralDiffDocument.CurrentMethodologyVersion,
+            document.MethodologyVersion);
+        Assert.Single(document.Rows);
+        var row = Assert.Single(document.ToComparison().Rows);
+        Assert.Equal(CSharpStructuralChangeKind.Changed, row.Change);
+        Assert.Equal("ReturnStatement", row.BeforeKind);
+        Assert.Equal("BreakStatement", row.AfterKind);
+    }
+
+    [Fact]
+    public void StructuralDiffDocument_RejectsTamperedCorrespondence()
+    {
+        var before = TrustedDocument(
+            "return;",
+            new NodeSpec("ReturnStatement", "return;", [0x10]));
+        var after = TrustedDocument(
+            "break;",
+            new NodeSpec("BreakStatement", "break;", [0x10]));
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+
+        Assert.Throws<ArgumentException>(() => new CSharpStructuralDiffDocument(
+            CSharpStructuralDiffDocument.CurrentSchemaVersion,
+            CSharpStructuralDiffDocument.CurrentMethodologyVersion,
+            issued with
+            {
+                BeforeRevision = new CSharpDocumentRevision(new string('B', 64))
+            },
+            comparison.Before,
+            comparison.After,
+            comparison.Rows));
+    }
+
+    [Theory]
+    [InlineData(0, CSharpStructuralDiffDocument.CurrentMethodologyVersion)]
+    [InlineData(CSharpStructuralDiffDocument.CurrentSchemaVersion, 0)]
+    public void StructuralDiffDocument_RejectsUnsupportedVersions(
+        int schemaVersion,
+        int methodologyVersion)
+    {
+        var document = TrustedDocument(
+            "return;",
+            new NodeSpec("ReturnStatement", "return;", [0x10]));
+        var issued = CSharpBodyDiff.IssueCorrespondence(document, document);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new CSharpStructuralDiffDocument(
+            schemaVersion,
+            methodologyVersion,
+            issued,
+            comparison.Before,
+            comparison.After,
+            comparison.Rows));
+    }
+
+    [Fact]
+    public void StructuralDiffDocument_RejectsMalformedFidelityNote()
+    {
+        var document = TrustedDocument(
+            "return;",
+            new NodeSpec("ReturnStatement", "return;", [0x10]));
+        var issued = CSharpBodyDiff.IssueCorrespondence(document, document);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+
+        Assert.Throws<ArgumentException>(() => new CSharpStructuralDiffDocument(
+            CSharpStructuralDiffDocument.CurrentSchemaVersion,
+            CSharpStructuralDiffDocument.CurrentMethodologyVersion,
+            issued,
+            comparison.Before,
+            comparison.After,
+            comparison.Rows,
+            new CSharpStructuralFidelityEvidence(
+                IlBodyDiffOutcome.Exact,
+                IlBodyDiffOutcome.Exact,
+                "\uD800")));
+    }
+
+    [Fact]
+    public void StructuralDiffDocument_RejectsTamperedRows()
+    {
+        var before = TrustedDocument(
+            "return;",
+            new NodeSpec("ReturnStatement", "return;", [0x10]));
+        var after = TrustedDocument(
+            "break;",
+            new NodeSpec("BreakStatement", "break;", [0x10]));
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+
+        Assert.Throws<ArgumentException>(() => new CSharpStructuralDiffDocument(
+            CSharpStructuralDiffDocument.CurrentSchemaVersion,
+            CSharpStructuralDiffDocument.CurrentMethodologyVersion,
+            issued,
+            comparison.Before,
+            comparison.After,
+            comparison.Rows.SetItem(
+                0,
+                comparison.Rows[0] with { Change = CSharpStructuralChangeKind.Moved })));
+    }
+
+    [Fact]
+    public void StructuralDiffDocument_RejectsTamperedProjection()
+    {
+        var before = TrustedDocument(
+            "return;",
+            new NodeSpec("ReturnStatement", "return;", [0x10]));
+        var after = TrustedDocument(
+            "break;",
+            new NodeSpec("BreakStatement", "break;", [0x10]));
+        var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
+        var comparison = CSharpBodyDiff.CompareStructure(issued);
+
+        Assert.Throws<ArgumentException>(() => new CSharpStructuralDiffDocument(
+            CSharpStructuralDiffDocument.CurrentSchemaVersion,
+            CSharpStructuralDiffDocument.CurrentMethodologyVersion,
+            issued,
+            comparison.After,
+            comparison.After,
+            comparison.Rows));
+    }
+
+    [Fact]
     public void IssueCorrespondence_RequiresEqualPhysicalMethodProvenance()
     {
         var withoutSource = Document("return;", "ReturnStatement", "return;");
@@ -1101,7 +1236,7 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
-    public void IssuedComparison_ProjectsInterleavedIlWithoutInferringFromText()
+    public void StructuralDiffDocument_ProjectsInterleavedIlWithoutInferringFromText()
     {
         const string beforeText = "return;\nIL_0000: ret";
         const string afterText = "break;\nIL_0000: ret";
@@ -1128,9 +1263,13 @@ public class CSharpStructuralComparisonTests
             [],
             source);
 
-        var comparison = CSharpBodyDiff.CompareStructure(
-            CSharpBodyDiff.IssueCorrespondence(before, after));
+        var document = CSharpStructuralDiffDocument.Create(before, after);
+        var comparison = document.ToComparison();
 
+        Assert.Equal("return;\n", document.Before.Text);
+        Assert.Equal("break;\n", document.After.Text);
+        Assert.Equal(document.Before, comparison.Before);
+        Assert.Equal(document.After, comparison.After);
         Assert.Equal("return;\n", comparison.Before.Text);
         Assert.Equal("break;\n", comparison.After.Text);
         Assert.Single(comparison.Rows);
