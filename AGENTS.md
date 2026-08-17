@@ -50,8 +50,10 @@ change ready to merge.
   `git worktree add -b <branch> <repo>/.worktrees/<slug> origin/main`. Make all
   edits, builds, tests, and commits in the worktree, not the primary checkout.
   Do not create worktrees as direct children of the user's home directory. A
-  slice in a stack branches from its parent slice's branch instead — see
-  [Stacked PRs for multi-slice issues](#stacked-prs-for-multi-slice-issues).
+  slice in a stack branches from its parent slice's branch instead. If a GitHub
+  outage prevents the fetch, the outage exception under [Stacked PRs for
+  multi-slice issues](#stacked-prs-for-multi-slice-issues) permits a new slice
+  to use its recorded last-known local base or parent until service recovers.
 - Use one development worktree per PR, plus temporary worktrees for independent
   reviews. Development worktrees belong under the primary checkout's
   `.worktrees/` directory. Reviewer worktrees belong there or under an
@@ -63,7 +65,7 @@ change ready to merge.
   reports a merge conflict, stop tests, reviews, lower-stack restacks, and
   unrelated follow-up work on that PR. Integrate the effective base, resolve
   the conflict, re-read these instructions and the task-relevant docs, and push
-  the   replacement head immediately so CI starts. Subject to the six-round approval
+  the replacement head immediately so CI starts. Subject to the six-round approval
   boundary below, a review round formed by that conflict resolution starts at
   once on the pushed head; do not wait for CI before sending it to reviewers.
   Run required local validation against that exact pushed head in parallel with
@@ -75,8 +77,8 @@ change ready to merge.
   unready until local validation, CI, and required review are clean. Recover a
   stack bottom-up so every child rests on a conflict-free parent.
 - A confirmed failing current-head required check or required local gate that
-  requires an author change also supersedes any review attempt in progress and
-  releases its head lock. The incomplete attempt does not consume a round
+  requires an author change also supersedes an attempt while its head lock is
+  held and releases that lock. The incomplete attempt does not consume a round
   number or require a completion report. Make and push the required fix, wait
   for the replacement head's zero-conflict and green-CI gate, and restart the
   same numbered round. Unlike conflict recovery, failed-gate recovery does not
@@ -495,20 +497,25 @@ and green current-head `ci-required`.
 Review is a locked-head feedback loop: freeze and push one exact head, review
 that head, reconcile the feedback, make any resulting fixes, and freeze the
 replacement head. Do not edit a head while its head lock is held. The lock ends
-when both reviewers have returned and their feedback has been reconciled for
-action. The fixed replacement is a new candidate and its review is a new round.
+when both reviewers have returned, their feedback has been reconciled for
+action, and every required current-head check and local gate allowed to run
+concurrently has succeeded. The fixed replacement is a new candidate and its
+review is a new round.
 
 A fixed-head review is **review-clean** when its public reconciliation leaves no
-finding unresolved. A justified dismissal counts as a resolution only when the
-reason is recorded publicly. The report classification `clean` is narrower: use
-it only when the reviewers returned no findings.
+finding unresolved **and the reviewed head did not move in response to that
+round**. A justified dismissal counts as a resolution only when the reason is
+recorded publicly. A round that pushes a fix is complete but is not
+review-clean; only the replacement head can earn that status. The report
+classification `clean` is narrower: use it only when the reviewers returned no
+findings.
 
 A known conflict, known failing current-head required check, or known failing
 required local gate blocks an ordinary round. Resolve an actual conflict first,
 push the resolution, and then start its conflict-recovery round immediately.
 Pending CI or GitHub mergeability computation does not block the first attempt
 at round 1 or that conflict-recovery round. If a required check or local gate
-fails after reviewers were dispatched and requires an author change, end the
+fails while the head lock is held and requires an author change, end the
 incomplete attempt, push the fix, satisfy the ordinary subsequent-round status
 gate, and restart the same numbered round.
 
@@ -569,7 +576,7 @@ so again before every subsequent round:
   rounds do not wait for this result, but a failed-gate restart, an ordinary
   subsequent round, and merge readiness do. Use a single
   `gh api graphql` request that returns the PR's
-  `headRefOid`, `isDraft`, `mergeable`, `mergeStateStatus`,
+  `headRefOid`, `baseRefOid`, `isDraft`, `mergeable`, `mergeStateStatus`,
   `statusCheckRollup` state and contexts with `pageInfo`, and the query's
   `rateLimit` cost, remaining quota, and reset time. Request enough contexts for
   the normal check matrix; if
@@ -675,15 +682,19 @@ so again before every subsequent round:
   workflow leaves `ci-required` nothing to block on and displays as MERGEABLE
   and CLEAN (#3706).
 
-Do not fetch or integrate the base after the candidate is formed, including
-while validation or CI runs or while a reviewer is mid-read. When an author
-change, review fix, or conflict requires a replacement candidate, say so on the
-PR and name the base tip and merge commit, so the next review reads as a
+Do not fetch or integrate the base after the candidate is formed while
+validation, CI, or review is in progress. After a review-clean result, the
+consolidated status query's `baseRefOid` may reveal that the effective base
+moved; at that point a non-mutating fetch is permitted solely to inspect the
+exact landed range for the carry-forward decision below. Do not integrate
+unless that decision or another candidate-ending trigger authorizes it. When an
+author change, review fix, or conflict requires a replacement candidate, say so
+on the PR and name the base tip and merge commit, so the next review reads as a
 confirmation rather than an unexplained second full pass. Do not form a
 replacement candidate from base movement alone unless the user approved the
-clean-review carry-forward path, explicitly adjusted the workflow to
-integrate and re-review an interacting range, or the slice requires a
-cascading restack onto its moved parent.
+clean-review carry-forward path, explicitly adjusted the workflow to integrate
+and re-review an interacting range, or the slice requires a cascading restack
+onto its moved parent.
 
 ### Clean reviews are not spent by main moving
 
@@ -696,6 +707,11 @@ does not disqualify it. If a finding remains unresolved, or the head changed
 after that review-clean result because of an author change, conflict resolution,
 or restack, the exception does not apply: resolve or restack, integrate the
 effective base, and review the new head normally.
+
+Detect movement by comparing the candidate's recorded base tip with
+`baseRefOid` from the consolidated status query. If they differ after the
+review-clean result, fetch the effective base without integrating it, then
+analyze the exact old-to-new range.
 
 Ask with an analysis of what actually landed: which commits touch files this
 change touches, which behavior this change relies on that they alter, and any
@@ -802,15 +818,16 @@ verified or dismissed, and link resolution commits or explain explicit
 non-actions. Address actionable findings only after the locked-head reviews
 finish. If fixes move the head, push the replacement candidate, wait for its
 zero-conflict and green-CI gate, and re-review it as the next numbered round.
-Do not mark the PR ready until every required fixed-head review is
-review-clean.
+Do not mark the PR ready until every required fixed-head review at the current
+head is review-clean.
 
 A round starts when its reviewers are dispatched. It ends when all current and
 carried feedback is publicly reconciled, every resulting fix is committed and
-pushed, and every required post-push local gate for that round has completed
-successfully. A no-fix round with publicly justified dismissals can therefore
-end review-clean; a round that pushes fixes is complete, but its replacement
-head still requires the next numbered review.
+pushed, and every required current-head check and post-push local gate for that
+round has completed successfully. A no-fix round with publicly justified
+dismissals can therefore end review-clean; a round that pushes fixes is
+complete but not review-clean, and its replacement head still requires the next
+numbered review.
 
 A conflict- or failed-gate-superseded attempt is incomplete: it does not consume
 a round number, does not receive a completion report, and restarts with the
@@ -944,9 +961,11 @@ until it is unreviewable, and over parallel PRs that race in the same files.
   targeted at the parent branch (`gh pr create --base <parent-branch>`).
 - **During a GitHub outage, use stacked branches for new coherent slices** so
   local work can continue without pretending remote evidence exists. Branch
-  each new slice from its local parent slice, create its worktree under
-  `.worktrees/`, and keep its commits isolated. When GitHub recovers, push and
-  open the stack bottom-up, then run each slice's required CI, status, and
+  each new slice from its recorded last-known local base or parent slice, create
+  its worktree under `.worktrees/`, record that base SHA, and keep its commits
+  isolated. When GitHub recovers, fetch the effective base, update the bottom
+  slice, cascade required restacks and focused validation through the stack,
+  then push and open it bottom-up. Run each slice's required CI, status, and
   review gates before treating it as ready.
 - **Merge bottom-up, one at a time**, then confirm the next PR retargeted and
   still shows only its own slice.
