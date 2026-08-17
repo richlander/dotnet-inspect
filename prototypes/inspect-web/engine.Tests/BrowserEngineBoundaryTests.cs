@@ -985,6 +985,141 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageAcquisition_StallBecomesVisibleOperationTimeout()
+    {
+        var handler = new StallingPackageHandler();
+        using var client = new HttpClient(handler)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+        string packageId =
+            $"timeout.package.{Guid.NewGuid():N}";
+
+        Task<BrowserPackage> acquisition = BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            "1.0.0",
+            client,
+            TimeSpan.FromMilliseconds(200));
+        await handler.RequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+
+        TimeoutException failure =
+            await Assert.ThrowsAsync<TimeoutException>(() => acquisition);
+
+        Assert.Contains(
+            "Browser package operation",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public async Task PackageResolution_StallBecomesVisibleOperationTimeout()
+    {
+        var handler = new StallingPackageHandler();
+        using var client = new HttpClient(handler)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+        string packageId =
+            $"resolution.timeout.package.{Guid.NewGuid():N}";
+
+        Task<BrowserPackage> acquisition = BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            version: null,
+            client,
+            TimeSpan.FromSeconds(5));
+        await handler.RequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(10),
+            TestContext.Current.CancellationToken);
+
+        TimeoutException failure =
+            await Assert.ThrowsAsync<TimeoutException>(() => acquisition);
+
+        Assert.Contains(
+            "Browser package operation",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public async Task PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller()
+    {
+        var handler = new StallingPackageHandler();
+        using var client = new HttpClient(handler)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+        string packageId =
+            $"shared.timeout.package.{Guid.NewGuid():N}";
+
+        Task<BrowserPackage> first = BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            "1.0.0",
+            client,
+            TimeSpan.FromMilliseconds(500));
+        await handler.RequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+        Task<BrowserPackage> second = BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            "1.0.0",
+            client,
+            TimeSpan.FromMilliseconds(100));
+
+        TimeoutException secondFailure =
+            await Assert.ThrowsAsync<TimeoutException>(() => second);
+        Assert.Contains(
+            "0.1-second deadline",
+            secondFailure.Message,
+            StringComparison.Ordinal);
+        Assert.False(first.IsCompleted);
+        await Assert.ThrowsAsync<TimeoutException>(() => first);
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public void PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent()
+    {
+        using var deadline =
+            new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+                TimeSpan.FromMilliseconds(10));
+        var inner = new RecordingTransferPolicy();
+        var policy =
+            new BrowserPackageWorkspace.BrowserPackageOperationTransferPolicy(
+                inner,
+                deadline);
+        using IPackagePayloadReservation reservation =
+            policy.ApplyDeadline(inner.Reservation);
+        while (!deadline.HasExpired)
+            Thread.SpinWait(100);
+
+        Assert.Throws<TimeoutException>(() => reservation.Complete());
+        Assert.False(inner.Reservation.Completed);
+    }
+
+    [Fact]
+    public async Task PackageOperation_LateFailureBecomesVisibleTimeout()
+    {
+        TimeoutException failure =
+            await Assert.ThrowsAsync<TimeoutException>(
+                () => BrowserPackageWorkspace.RunPackageOperationAsync<int>(
+                    deadline =>
+                    {
+                        while (!deadline.HasExpired)
+                            Thread.SpinWait(100);
+                        return Task.FromException<int>(
+                            new InvalidOperationException(
+                                "Synchronous work failed after the deadline."));
+                    },
+                    TimeSpan.FromMilliseconds(10)));
+
+        Assert.IsType<InvalidOperationException>(failure.InnerException);
+    }
+
+    [Fact]
     public async Task PackageVersionIndex_ValidatesTheIdBeforeRequestingIt()
     {
         InvalidOperationException failure =
@@ -1367,6 +1502,46 @@ public sealed class BrowserEngineBoundaryTests
         }
 
         return content.ToArray();
+    }
+
+    sealed class StallingPackageHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+        public TaskCompletionSource RequestStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests++;
+            RequestStarted.TrySetResult();
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "The stalling handler completed without cancellation.");
+        }
+    }
+
+    sealed class RecordingTransferPolicy : IPackagePayloadTransferPolicy
+    {
+        internal RecordingReservation Reservation { get; } = new();
+
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer) =>
+            Reservation;
+    }
+
+    sealed class RecordingReservation : IPackagePayloadReservation
+    {
+        internal bool Completed { get; private set; }
+
+        public void Complete() => Completed = true;
+
+        public void Dispose()
+        {
+        }
     }
 
 }
