@@ -7,11 +7,24 @@ using DotnetInspector.Packages;
 namespace DotnetInspector.Tests;
 
 [Collection("Console")]
-public class DependencyGraphServiceTests
+public class DependencyGraphServiceTests : IDisposable
 {
+    private readonly string _testRoot = Path.Combine(
+        Path.GetTempPath(),
+        $"dependency-graph-tests-{Guid.NewGuid():N}");
+
     public DependencyGraphServiceTests()
     {
-        NuGetCache.Initialize("dotnet-inspect");
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            Path.Combine(_testRoot, "cache"),
+            skipNuGetCache: true);
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_testRoot))
+            Directory.Delete(_testRoot, recursive: true);
     }
 
     [Fact]
@@ -144,6 +157,72 @@ public class DependencyGraphServiceTests
     }
 
     [Fact]
+    public async Task BuildPackageDependencyTreeAsync_CachedFloatingLookupTimesOutEarly()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Depends.Cached.{suffix}";
+        const string Version = "1.0.0";
+        string serviceIndex =
+            $"https://feed.example.test/{suffix}/v3/index.json";
+        SeedCachedPackage(packageId, Version, serviceIndex);
+        var handler = new BlockingHandler();
+        using var httpClient = new HttpClient(handler);
+        var logger = new VerboseLogger(enabled: false);
+
+        PackageDependencyGraphResult result =
+            await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                httpClient,
+                packageId,
+                requestedTfm: null,
+                new NuGetSourceOptions { Sources = [serviceIndex] },
+                logger);
+
+        var error =
+            Assert.IsType<PackageDependencyGraphResult.Error>(result);
+        Assert.Contains("lookup timed out", error.Message);
+        Assert.Contains(
+            $"Locally cached versions: {Version}",
+            error.Message);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task BuildPackageDependencyTreeAsync_MissingLocalPackageReportsError()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Depends.Missing.{suffix}";
+        string serviceIndex =
+            $"https://feed.example.test/{suffix}/v3/index.json";
+        string flatContainer =
+            $"https://content.example.test/{suffix}/flat/";
+        var handler = new ManifestOnlyHandler(
+            serviceIndex,
+            flatContainer,
+            $"https://other.example.test/{suffix}/v3/index.json",
+            $"https://other-content.example.test/{suffix}/flat/",
+            packageId);
+        using var httpClient = new HttpClient(handler);
+        var logger = new VerboseLogger(enabled: false);
+        string packagePath = Path.Combine(
+            Path.GetTempPath(),
+            suffix,
+            $"{packageId}.1.0.0.nupkg");
+
+        PackageDependencyGraphResult result =
+            await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                httpClient,
+                packagePath,
+                requestedTfm: null,
+                new NuGetSourceOptions { Sources = [serviceIndex] },
+                logger);
+
+        var error =
+            Assert.IsType<PackageDependencyGraphResult.Error>(result);
+        Assert.Contains("File not found", error.Message);
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
     public async Task BuildPackageDependencyTreeAsync_AcquiresOnlyRootNuspec()
     {
         string suffix = Guid.NewGuid().ToString("N");
@@ -201,12 +280,93 @@ public class DependencyGraphServiceTests
                 StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task BuildPackageDependencyTreeAsync_ToolPackageUsesArchive()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Depends.Tool.{suffix}";
+        string serviceIndex =
+            $"https://feed.example.test/{suffix}/v3/index.json";
+        var handler = new ManifestOnlyHandler(
+            serviceIndex,
+            $"https://content.example.test/{suffix}/flat/",
+            $"https://other.example.test/{suffix}/v3/index.json",
+            $"https://other-content.example.test/{suffix}/flat/",
+            packageId,
+            isToolPackage: true);
+        using var httpClient = new HttpClient(handler);
+        var logger = new VerboseLogger(enabled: false);
+
+        PackageDependencyGraphResult result =
+            await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                httpClient,
+                $"{packageId}@1.0.0",
+                requestedTfm: null,
+                new NuGetSourceOptions { Sources = [serviceIndex] },
+                logger);
+
+        Assert.IsType<PackageDependencyGraphResult.Error>(result);
+        Assert.Contains(
+            handler.Requests,
+            uri => uri.AbsolutePath.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void SeedCachedPackage(
+        string packageId,
+        string version,
+        string source)
+    {
+        string staged = Path.Combine(
+            _testRoot,
+            $"staged-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(staged);
+        File.WriteAllText(
+            Path.Combine(staged, $"{packageId}.nuspec"),
+            $$"""
+            <package>
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>{{version}}</version>
+              </metadata>
+            </package>
+            """);
+        Directory.CreateDirectory(Path.Combine(staged, "payload"));
+        File.WriteAllText(
+            Path.Combine(staged, "payload", "marker.txt"),
+            "cached");
+        NuGetCache.CommitPackage(
+            staged,
+            nupkgPath: null,
+            packageId,
+            version,
+            NuGetCache.GetSourceKey(source));
+    }
+
+    private sealed class BlockingHandler : HttpMessageHandler
+    {
+        public List<Uri> Requests { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request.RequestUri!);
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException("Unreachable.");
+        }
+    }
+
     private sealed class ManifestOnlyHandler(
         string reportingServiceIndex,
         string reportingFlatContainer,
         string otherServiceIndex,
         string otherFlatContainer,
-        string packageId) : HttpMessageHandler
+        string packageId,
+        bool isToolPackage = false) : HttpMessageHandler
     {
         public List<Uri> Requests { get; } = [];
 
@@ -253,12 +413,14 @@ public class DependencyGraphServiceTests
                 StringComparison.Ordinal))
             {
                 return Task.FromResult(Response(
-                    $$"""
+                    "\uFEFF"
+                    + $$"""
                     <?xml version="1.0"?>
                     <package>
                       <metadata>
                         <id>{{packageId}}</id>
                         <version>1.0.0</version>
+                        {{(isToolPackage ? "<packageTypes><packageType name=\"DotnetTool\" /></packageTypes>" : "")}}
                       </metadata>
                     </package>
                     """));

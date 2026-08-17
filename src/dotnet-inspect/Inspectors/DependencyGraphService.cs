@@ -15,6 +15,8 @@ namespace DotnetInspector.Inspectors;
 internal static class DependencyGraphService
 {
     private const string TempDirPrefix = "inspect-depends";
+    private static readonly TimeSpan CachedVersionResolutionTimeout =
+        TimeSpan.FromSeconds(1);
 
     public static Task<TypeDependencyResult> BuildTypeDependencyTreeAsync(
         HttpClient httpClient,
@@ -179,56 +181,91 @@ internal static class DependencyGraphService
             PackageExtractor.ParsePackageReference(packageRef);
         logger.Log($"Resolving package: {packageRef}");
 
-        // Local inputs and wildcard selectors still need archive acquisition.
+        bool floatingSelector =
+            version is null
+            || string.Equals(
+                version,
+                "latest",
+                StringComparison.OrdinalIgnoreCase);
         bool requiresArchive =
-            (packageRef.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
-                && File.Exists(packageRef))
+            packageRef.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase)
             || version?.Contains('*', StringComparison.Ordinal) == true;
         if (requiresArchive)
         {
-            PackageExtractionOutcome outcome =
-                await PackageExtractor.ExtractPackageAsync(
-                    httpClient,
-                    packageRef,
-                    logger.Log,
-                    sourceOptions: sourceOptions).ConfigureAwait(false);
-            if (!outcome.IsSuccess)
-            {
-                return PackageNuspecResolution.Error(
-                    packageName,
-                    outcome.ErrorMessage
-                    ?? $"Package '{packageRef}' could not be resolved.");
-            }
-
-            PackageExtractionResult extracted = outcome.Result!;
-            try
-            {
-                return new PackageNuspecResolution(
-                    packageName,
-                    extracted.Version ?? "",
-                    NuspecParser.FindAndParse(extracted.ExtractPath),
-                    ErrorMessage: null);
-            }
-            finally
-            {
-                CleanupTempDir(extracted.TempDir);
-            }
+            return await ResolvePackageNuspecFromArchiveAsync(
+                httpClient,
+                packageRef,
+                packageName,
+                sourceOptions,
+                logger).ConfigureAwait(false);
         }
 
+        IReadOnlyList<string> cachedVersions = floatingSelector
+            ? GetCachedPackageVersions(packageName, sourceOptions)
+            : [];
         bool forceLatest = string.Equals(
             version,
             "latest",
             StringComparison.OrdinalIgnoreCase);
-        PackageCoordinateResolution coordinateResolution =
-            await PackageCoordinateResolver.ResolveUsingSourcePolicyAsync(
-                httpClient,
-                new PackageCoordinate(packageName, forceLatest ? null : version),
-                sourceOptions,
-                logger.Log,
-                useVersionCache: !forceLatest).ConfigureAwait(false);
+        CancellationTokenSource? latestTimeout = null;
+        if (!forceLatest
+            && floatingSelector
+            && !Core.HttpClientFactory.IsOffline
+            && cachedVersions.Count > 0)
+        {
+            latestTimeout = new CancellationTokenSource(
+                CachedVersionResolutionTimeout);
+        }
+
+        PackageCoordinateResolution coordinateResolution;
+        try
+        {
+            coordinateResolution =
+                await PackageCoordinateResolver.ResolveUsingSourcePolicyAsync(
+                    httpClient,
+                    new PackageCoordinate(
+                        packageName,
+                        floatingSelector ? null : version),
+                    sourceOptions,
+                    logger.Log,
+                    useVersionCache: !forceLatest,
+                    cancellationToken: latestTimeout?.Token ?? default)
+                    .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (latestTimeout?.IsCancellationRequested == true)
+        {
+            return PackageNuspecResolution.Error(
+                packageName,
+                DescribeCachedVersionFallback(
+                    packageName,
+                    cachedVersions,
+                    offline: false));
+        }
+        finally
+        {
+            latestTimeout?.Dispose();
+        }
+
         if (coordinateResolution
             is not PackageCoordinateResolution.Resolved resolved)
         {
+            if (floatingSelector && Core.HttpClientFactory.IsOffline)
+            {
+                string offlineMessage = cachedVersions.Count > 0
+                    ? DescribeCachedVersionFallback(
+                        packageName,
+                        cachedVersions,
+                        offline: true)
+                    : $"Package '{packageName}' is not available offline; "
+                        + "no cached version was found.";
+                return PackageNuspecResolution.Error(
+                    packageName,
+                    offlineMessage);
+            }
+
             string message = coordinateResolution switch
             {
                 PackageCoordinateResolution.Invalid invalid =>
@@ -241,13 +278,18 @@ internal static class DependencyGraphService
         }
 
         ResolvedPackageCoordinate coordinate = resolved.Coordinate;
+        string[] reportingSourceUrls =
+        [
+            .. coordinate.Sources.Select(source => source.Url),
+        ];
+        NuGetSourceOptions? reportingRestriction =
+            NuGetSourceResolver.RestrictToSources(
+                sourceOptions,
+                reportingSourceUrls);
         NuGetSourceOptions reportingSources =
             (sourceOptions ?? NuGetSourceOptions.Default) with
             {
-                Sources =
-                [
-                    .. coordinate.Sources.Select(source => source.Url),
-                ],
+                Sources = reportingSourceUrls,
                 AdditionalSources = [],
             };
         string? nuspecXml = await PackageExtractor.TryGetNuspecXmlAsync(
@@ -264,11 +306,102 @@ internal static class DependencyGraphService
                 + $"'{coordinate.Version}' could not be resolved.");
         }
 
+        NuspecData nuspec = NuspecParser.ParseContent(nuspecXml);
+        if (nuspec.IsToolPackage)
+        {
+            return await ResolvePackageNuspecFromArchiveAsync(
+                httpClient,
+                $"{coordinate.PackageId}@{coordinate.Version}",
+                packageName,
+                reportingRestriction,
+                logger).ConfigureAwait(false);
+        }
+
         return new PackageNuspecResolution(
             packageName,
             coordinate.Version,
-            NuspecParser.ParseContent(nuspecXml),
+            nuspec,
             ErrorMessage: null);
+    }
+
+    private static async Task<PackageNuspecResolution>
+        ResolvePackageNuspecFromArchiveAsync(
+            HttpClient httpClient,
+            string packageRef,
+            string packageName,
+            NuGetSourceOptions? sourceOptions,
+            VerboseLogger logger)
+    {
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPackageAsync(
+                httpClient,
+                packageRef,
+                logger.Log,
+                sourceOptions: sourceOptions).ConfigureAwait(false);
+        if (!outcome.IsSuccess)
+        {
+            return PackageNuspecResolution.Error(
+                packageName,
+                outcome.ErrorMessage
+                ?? $"Package '{packageRef}' could not be resolved.");
+        }
+
+        PackageExtractionResult extracted = outcome.Result!;
+        try
+        {
+            return new PackageNuspecResolution(
+                packageName,
+                extracted.Version ?? "",
+                NuspecParser.FindAndParse(extracted.ExtractPath),
+                ErrorMessage: null);
+        }
+        finally
+        {
+            CleanupTempDir(extracted.TempDir);
+        }
+    }
+
+    private static IReadOnlyList<string> GetCachedPackageVersions(
+        string packageName,
+        NuGetSourceOptions? sourceOptions)
+    {
+        try
+        {
+            return NuGetCache.GetCachedVersions(
+                packageName,
+                NuGetSourceResolver.ResolveSourceKeysForPackage(
+                    sourceOptions,
+                    packageName),
+                includePrerelease: false);
+        }
+        catch (PackageSourceMappingException)
+        {
+            return [];
+        }
+    }
+
+    private static string DescribeCachedVersionFallback(
+        string packageName,
+        IReadOnlyList<string> cachedVersions,
+        bool offline)
+    {
+        const int DisplayLimit = 5;
+        string displayed =
+            string.Join(", ", cachedVersions.Take(DisplayLimit));
+        string remainder = cachedVersions.Count > DisplayLimit
+            ? $" (+{cachedVersions.Count - DisplayLimit} more)"
+            : "";
+        string reason = offline
+            ? $"Package '{packageName}' cannot resolve its latest version "
+                + "while offline."
+            : $"Package '{packageName}' could not resolve its latest version "
+                + "before the online lookup timed out.";
+
+        return $"{reason}{Environment.NewLine}"
+            + $"Locally cached versions: {displayed}{remainder}"
+            + Environment.NewLine
+            + "Use an exact version to skip version discovery, for example: "
+            + $"dotnet-inspect package {packageName}@{cachedVersions[0]}";
     }
 
     private static async Task<TResult> WithAssemblySetAsync<TResult>(
