@@ -554,6 +554,115 @@ public sealed class InspectionGraphDocumentTests
     }
 
     [Fact]
+    public void NeighborhoodRequest_ValidatesAndSnapshotsSelection()
+    {
+        InspectionGraphSubject member = Subject("Member");
+        var relationships =
+            new List<InspectionGraphRelationshipDescriptor>
+            {
+                CallGraphInspectionGraphCatalog.Call,
+            };
+        InspectionGraphNeighborhoodRequest request =
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                relationships,
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 2);
+
+        relationships.Clear();
+
+        Assert.Equal(
+            [CallGraphInspectionGraphCatalog.Call],
+            request.Relationships);
+        Assert.Equal(member, request.Seed);
+        Assert.Equal(2, request.MaxDepth);
+        Assert.Equal(
+            InspectionGraphTraversalDirection.Outgoing,
+            request.Direction);
+        Assert.Throws<ArgumentException>(
+            () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                [],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1));
+        Assert.Throws<ArgumentException>(
+            () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                default(ImmutableArray<
+                    InspectionGraphRelationshipDescriptor>),
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1));
+        Assert.Throws<ArgumentException>(
+            () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                [
+                    CallGraphInspectionGraphCatalog.Call,
+                    CallGraphInspectionGraphCatalog.Call,
+                ],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                [CallGraphInspectionGraphCatalog.Call],
+                (InspectionGraphTraversalDirection)42,
+                maxDepth: 1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                [CallGraphInspectionGraphCatalog.Call],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: -1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new InspectionGraphNeighborhoodDepthBoundEvidence(-1));
+    }
+
+    [Fact]
+    public void NeighborhoodRequest_RequiresDirectionalSeedAdmission()
+    {
+        InspectionGraphSubject package =
+            InspectionGraphSubject.ForRealizedPackage(
+                new RealizedMemberCoordinate.Package(
+                    "sample.package",
+                    "1.0.0",
+                    "feed",
+                    "net11.0",
+                    null));
+
+        InspectionQueryException unsupported = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                    package,
+                    [CallGraphInspectionGraphCatalog.Call],
+                    InspectionGraphTraversalDirection.Outgoing,
+                    maxDepth: 1));
+        InspectionQueryException wrongDirection = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                    package,
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved,
+                    ],
+                    InspectionGraphTraversalDirection.Incoming,
+                    maxDepth: 1));
+        InspectionGraphNeighborhoodRequest outgoing =
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                package,
+                [
+                    InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved,
+                ],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1);
+
+        Assert.Contains("package seed", unsupported.Message);
+        Assert.Contains("call", unsupported.Message);
+        Assert.Contains("incoming", wrongDirection.Message);
+        Assert.Equal(package, outgoing.Seed);
+    }
+
+    [Fact]
     public void RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions()
     {
         static InspectionGraphRelationshipDescriptor Descriptor(

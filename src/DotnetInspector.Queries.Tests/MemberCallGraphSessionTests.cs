@@ -61,6 +61,14 @@ public sealed class MemberCallGraphSessionTests
                 "Void"),
             Analysis.MemberKind.Method);
 
+    static Analysis.MemberRef InspectionMember(
+        InspectionGraphNode node) =>
+        Assert.IsType<InspectionGraphMemberIdentity.CallGraph>(
+            Assert.IsType<InspectionGraphSubject.MemberSubject>(
+                node.Subject)
+                .Identity)
+            .Member;
+
     [Fact]
     public void Callees_ScopedFirstPaint_BuildsScopedIndexOnly()
     {
@@ -103,6 +111,264 @@ public sealed class MemberCallGraphSessionTests
         Assert.Equal(
             Analysis.CallTreeStatus.DepthLimited,
             Child(view.CalleeRoot!, "Run").Status);
+    }
+
+    [Fact]
+    public void CrossLibraryCalleeNeighborhood_CrossesBoundaryAndContinues()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "RunAcrossBoundary");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root);
+
+        InspectionGraphDocument document =
+            graph.CrossLibraryCalleeNeighborhood(
+                new(
+                    maxDepth: 2,
+                    maxNodes: 10));
+
+        Assert.Equal(
+            InspectionGraphTraversalDirection.Outgoing,
+            document.NeighborhoodRequest!.Direction);
+        Assert.Equal(2, document.NeighborhoodRequest.MaxDepth);
+        Assert.Same(
+            CallGraphInspectionGraphCatalog.Call,
+            Assert.Single(
+                document.NeighborhoodRequest.Relationships));
+        Assert.Equal(
+            [
+                ("RunAcrossBoundary", "Forward"),
+                ("Forward", "Leaf"),
+            ],
+            document.Edges.Select(edge =>
+                (
+                    InspectionMember(
+                        document.Nodes[edge.FromNodeId]).Name,
+                    InspectionMember(
+                        document.Nodes[edge.ToNodeId]).Name)));
+        Assert.Equal(2, document.Occurrences.Length);
+        Assert.All(
+            document.Occurrences,
+            occurrence => Assert.IsType<
+                CallGraphCallSiteEvidence>(
+                    occurrence.Evidence));
+        var depth = Assert.IsType<
+            InspectionGraphNeighborhoodDepthBoundEvidence>(
+                Assert.Single(
+                    document.Limits,
+                    limit => ReferenceEquals(
+                        limit.Descriptor,
+                        InspectionGraphNeighborhoodCatalog
+                            .DepthBound))
+                    .Evidence);
+        Assert.Equal(2, depth.MaxDepth);
+        var nodes = Assert.IsType<
+            CallGraphTraversalNodeBoundEvidence>(
+                Assert.Single(
+                    document.Limits,
+                    limit => ReferenceEquals(
+                        limit.Descriptor,
+                        CallGraphInspectionGraphCatalog
+                            .TraversalNodeBound))
+                    .Evidence);
+        Assert.Equal(10, nodes.MaxNodes);
+        Assert.Equal(
+            new MemberCallGraphBuildCounts(0, 1, 1),
+            graph.BuildCounts);
+        Assert.All(
+            context.Sources,
+            source => Assert.Equal(1, source.OpenCount));
+    }
+
+    [Fact]
+    public void CrossLibraryCalleeNeighborhood_DepthBoundStopsAfterBoundary()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "RunAcrossBoundary");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root);
+
+        InspectionGraphDocument document =
+            graph.CrossLibraryCalleeNeighborhood(
+                new(
+                    maxDepth: 1,
+                    maxNodes: 10));
+
+        InspectionGraphEdge edge = Assert.Single(document.Edges);
+        Assert.Equal(
+            "Forward",
+            InspectionMember(
+                document.Nodes[edge.ToNodeId]).Name);
+        Assert.Equal(
+            InspectionGraphNodeRole.Truncated,
+            document.Nodes[edge.ToNodeId].Role);
+        Assert.Contains(
+            document.Limits,
+            limit => ReferenceEquals(
+                limit.Descriptor,
+                CallGraphInspectionGraphCatalog
+                    .TraversalIncomplete));
+    }
+
+    [Fact]
+    public void CrossLibraryCalleeNeighborhood_ZeroDepthRetainsOnlySeed()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "RunAcrossBoundary");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root);
+
+        InspectionGraphDocument document =
+            graph.CrossLibraryCalleeNeighborhood(
+                new(
+                    maxDepth: 0,
+                    maxNodes: 10));
+
+        Assert.Single(document.Nodes);
+        Assert.Empty(document.Edges);
+        Assert.Empty(document.Occurrences);
+        Assert.Equal(
+            "RunAcrossBoundary",
+            InspectionMember(document.Nodes[0]).Name);
+        Assert.Equal(
+            0,
+            Assert.IsType<
+                InspectionGraphNeighborhoodDepthBoundEvidence>(
+                    Assert.Single(
+                        document.Limits,
+                        limit => ReferenceEquals(
+                            limit.Descriptor,
+                            InspectionGraphNeighborhoodCatalog
+                                .DepthBound))
+                    .Evidence)
+                .MaxDepth);
+    }
+
+    [Fact]
+    public void CrossLibraryCalleeNeighborhood_NodeBoundRetainsOnlySeed()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath, TargetPath);
+        int root = MemberToken(
+            CallerPath,
+            "Entry",
+            "RunAcrossBoundary");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root);
+
+        InspectionGraphDocument document =
+            graph.CrossLibraryCalleeNeighborhood(
+                new(
+                    maxDepth: 3,
+                    maxNodes: 1));
+
+        Assert.Single(document.Nodes);
+        Assert.Empty(document.Edges);
+        Assert.Empty(document.Occurrences);
+        Assert.Equal(
+            "RunAcrossBoundary",
+            InspectionMember(document.Nodes[0]).Name);
+        Assert.Equal(
+            InspectionGraphNodeRole.Unclassified,
+            document.Nodes[0].Role);
+        Assert.Contains(
+            document.Limits,
+            limit => ReferenceEquals(
+                limit.Descriptor,
+                CallGraphInspectionGraphCatalog
+                    .TraversalIncomplete));
+    }
+
+    [Fact]
+    public void CrossLibraryCalleeNeighborhood_OutsideGroupStaysExternal()
+    {
+        using GraphContext context =
+            GraphContext.Create(CallerPath);
+        int root = MemberToken(CallerPath, "Entry", "Run");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root);
+
+        InspectionGraphDocument document =
+            graph.CrossLibraryCalleeNeighborhood(
+                new(
+                    maxDepth: 3,
+                    maxNodes: 10));
+
+        InspectionGraphEdge edge = Assert.Single(document.Edges);
+        InspectionGraphNode target =
+            document.Nodes[edge.ToNodeId];
+        Assert.Equal("Ping", InspectionMember(target).Name);
+        Assert.Equal(
+            InspectionGraphNodeRole.External,
+            target.Role);
+        Assert.Single(document.Occurrences);
+    }
+
+    [Fact]
+    public void CrossLibraryCalleeNeighborhood_DisclosesCorrespondenceLimits()
+    {
+        using GraphContext context =
+            GraphContext.Create(TargetV2Path, CallerPath);
+        int root = MemberToken(
+            TargetV2Path,
+            "Api",
+            "Ping");
+        using var graph = new MemberCallGraphSession(
+            context.Group,
+            context.Sources[0].Assembly,
+            root);
+
+        InspectionGraphDocument document =
+            graph.CrossLibraryCalleeNeighborhood(
+                new(
+                    maxDepth: 1,
+                    maxNodes: 10));
+
+        var evidence = Assert.IsType<
+            CallGraphCorrespondenceIncompleteEvidence>(
+                Assert.Single(
+                    document.Limits,
+                    limit => ReferenceEquals(
+                        limit.Descriptor,
+                        CallGraphInspectionGraphCatalog
+                            .CorrespondenceIncomplete))
+                    .Evidence);
+        Assert.True(evidence.IncompleteEdgeCount > 0);
+    }
+
+    [Fact]
+    public void CalleeNeighborhoodRequest_RequiresFiniteValidBounds()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new MemberCallGraphCalleeNeighborhoodRequest(
+                maxDepth: -1,
+                maxNodes: 1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new MemberCallGraphCalleeNeighborhoodRequest(
+                maxDepth: 1,
+                maxNodes: 0));
     }
 
     [Fact]
