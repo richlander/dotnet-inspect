@@ -131,6 +131,9 @@ public class AttributeReaderTests
             attributes,
             preflight: lowerBound =>
             {
+                // Type-name materialization is gated first; the value lower bound follows.
+                if (lowerBound < characterCount)
+                    return;
                 observedLowerBound = lowerBound;
                 throw new StopPreflightException();
             }));
@@ -159,6 +162,8 @@ public class AttributeReaderTests
             attributes,
             preflight: lowerBound =>
             {
+                if (lowerBound < characterCount)
+                    return;
                 observedLowerBound = lowerBound;
                 throw new StopPreflightException();
             }));
@@ -180,17 +185,18 @@ public class AttributeReaderTests
                 reader.GetTypeDefinition(handle).Name) == "Target");
         CustomAttributeHandleCollection attributes =
             reader.GetTypeDefinition(target).GetCustomAttributes();
-        bool callbackInvoked = false;
+        long maxPreflight = 0;
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         var rendered = AttributeReader.RenderAttributes(
             reader,
             attributes,
-            preflight: _ => callbackInvoked = true);
+            preflight: lowerBound => maxPreflight = Math.Max(maxPreflight, lowerBound));
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.Empty(rendered);
-        Assert.False(callbackInvoked);
+        // Type-name gate may fire; the hostile AQ suffix must not appear as a bound.
+        Assert.True(maxPreflight < 1_000, $"Preflight saw {maxPreflight:N0} characters.");
         Assert.True(allocated < 8_000_000, $"Preflight allocated {allocated:N0} bytes.");
     }
 
@@ -216,6 +222,8 @@ public class AttributeReaderTests
             attributes,
             preflight: lowerBound =>
             {
+                if (lowerBound < characterCount)
+                    return;
                 observedLowerBound = lowerBound;
                 throw new StopPreflightException();
             }));
@@ -266,17 +274,18 @@ public class AttributeReaderTests
                 value.WriteBytes(0xff, elementCount);
             });
         var reader = provider.GetMetadataReader();
-        bool callbackInvoked = false;
+        long maxPreflight = 0;
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         var rendered = AttributeReader.RenderAttributes(
             reader,
             SyntheticTargetAttributes(reader),
-            preflight: _ => callbackInvoked = true);
+            preflight: lowerBound => maxPreflight = Math.Max(maxPreflight, lowerBound));
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.Empty(rendered);
-        Assert.False(callbackInvoked);
+        // Type-name gate may fire; the array itself must not be charged or allocated.
+        Assert.True(maxPreflight < 1_000, $"Preflight saw {maxPreflight:N0} characters.");
         Assert.True(allocated < 8_000_000, $"Preflight allocated {allocated:N0} bytes.");
     }
 
@@ -312,11 +321,15 @@ public class AttributeReaderTests
             beforeRetain: rendered.Add,
             preflight: lowerBounds.Add);
 
-        Assert.Equal(rendered.Count, lowerBounds.Count);
+        // Each attribute gates type-name materialization then the value lower bound
+        // (Sol R8 live budget). Value bounds are the odd slots and must not exceed
+        // the retained rendered spelling.
+        Assert.Equal(rendered.Count * 2, lowerBounds.Count);
         Assert.NotEmpty(rendered);
-        Assert.All(
-            lowerBounds.Zip(rendered),
-            pair => Assert.InRange(pair.First, 0, pair.Second.Length));
+        for (int i = 0; i < rendered.Count; i++)
+        {
+            Assert.InRange(lowerBounds[i * 2 + 1], 0, rendered[i].Length);
+        }
     }
 
     [Fact]
@@ -341,8 +354,8 @@ public class AttributeReaderTests
 
         Assert.Equal(expected, actual);
         Assert.Single(actual);
-        Assert.Single(lowerBounds);
-        Assert.InRange(lowerBounds[0], 0, actual[0].Length);
+        Assert.Equal(2, lowerBounds.Count); // type-name gate + value lower bound
+        Assert.InRange(lowerBounds[1], 0, actual[0].Length);
     }
 
     static CustomAttributeHandleCollection SampleAttributes(MetadataReader reader)

@@ -29,8 +29,13 @@ public static class TupleElementNamesReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName != KnownAttributeNames.TupleElementNamesAttribute) continue;
+            if (!AttributeReader.AttributeConstructorTypeNameEquals(
+                    reader,
+                    attr.Constructor,
+                    KnownAttributeNames.TupleElementNamesAttribute))
+            {
+                continue;
+            }
 
             var blob = reader.GetBlobReader(attr.Value);
             if (blob.RemainingBytes < 2) return null;
@@ -40,14 +45,50 @@ public static class TupleElementNamesReader
             uint count = blob.ReadUInt32();
             if (count == 0xFFFF_FFFF) return null; // null array
             // Each serialized string is at least one byte (length or 0xFF null marker).
-            if (count > (uint)blob.RemainingBytes) return null;
+            // Cap element count to the signature-node ceiling before allocating the
+            // array or materializing strings (Sol R8).
+            if (count > (uint)blob.RemainingBytes
+                || count > MetadataSafetyPolicy.MaxSignatureTypeNodes)
+            {
+                return null;
+            }
 
             var names = new string?[count];
             for (uint i = 0; i < count; i++)
-                names[i] = blob.ReadSerializedString();
+            {
+                if (!TryReadBoundedSerializedString(ref blob, out names[i]))
+                    return null;
+            }
             return names;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Reads one ECMA-335 serialized string without materializing values whose
+    /// UTF-8 storage exceeds the structural-signature ceiling.
+    /// </summary>
+    static bool TryReadBoundedSerializedString(ref BlobReader blob, out string? value)
+    {
+        value = null;
+        if (blob.RemainingBytes == 0)
+            return false;
+
+        byte marker = blob.ReadByte();
+        if (marker == 0xFF)
+            return true;
+
+        blob.Offset--;
+        int byteCount = blob.ReadCompressedInteger();
+        if (byteCount < 0
+            || byteCount > blob.RemainingBytes
+            || byteCount > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+        {
+            return false;
+        }
+
+        value = blob.ReadUTF8(byteCount);
+        return true;
     }
 
     /// <summary>

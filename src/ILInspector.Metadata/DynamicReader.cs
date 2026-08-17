@@ -30,8 +30,13 @@ public static class DynamicReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName != KnownAttributeNames.DynamicAttribute) continue;
+            if (!AttributeReader.AttributeConstructorTypeNameEquals(
+                    reader,
+                    attr.Constructor,
+                    KnownAttributeNames.DynamicAttribute))
+            {
+                continue;
+            }
 
             var blob = reader.GetBlobReader(attr.Value);
             if (blob.Length < 2) return null;
@@ -48,7 +53,14 @@ public static class DynamicReader
             if (blob.RemainingBytes >= 6)
             {
                 int count = blob.ReadInt32();
-                if (count < 0 || count > blob.RemainingBytes - 2) return null;
+                // Transform flags walk signature nodes; refuse attacker-sized arrays
+                // before allocation (Sol R8).
+                if (count < 0
+                    || count > MetadataSafetyPolicy.MaxSignatureTypeNodes
+                    || count > blob.RemainingBytes - 2)
+                {
+                    return null;
+                }
                 var flags = new byte[count];
                 for (int i = 0; i < count; i++)
                     flags[i] = (byte)(blob.ReadByte() != 0 ? 1 : 0);

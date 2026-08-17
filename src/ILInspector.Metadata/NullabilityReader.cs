@@ -18,8 +18,13 @@ public static class NullabilityReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName != KnownAttributeNames.NullableContextAttribute) continue;
+            if (!AttributeReader.AttributeConstructorTypeNameEquals(
+                    reader,
+                    attr.Constructor,
+                    KnownAttributeNames.NullableContextAttribute))
+            {
+                continue;
+            }
 
             var blob = reader.GetBlobReader(attr.Value);
             if (blob.Length < 3) continue;
@@ -70,8 +75,13 @@ public static class NullabilityReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName != KnownAttributeNames.NullableAttribute) continue;
+            if (!AttributeReader.AttributeConstructorTypeNameEquals(
+                    reader,
+                    attr.Constructor,
+                    KnownAttributeNames.NullableAttribute))
+            {
+                continue;
+            }
 
             var blob = reader.GetBlobReader(attr.Value);
             if (blob.Length < 3) return null;
@@ -86,7 +96,14 @@ public static class NullabilityReader
             else if (blob.RemainingBytes >= 6)
             {
                 int count = blob.ReadInt32();
-                if (count < 0 || count > blob.RemainingBytes - 2) return null;
+                // Transform flags walk signature nodes; refuse attacker-sized arrays
+                // before allocation (Sol R8).
+                if (count < 0
+                    || count > MetadataSafetyPolicy.MaxSignatureTypeNodes
+                    || count > blob.RemainingBytes - 2)
+                {
+                    return null;
+                }
                 var bytes = new byte[count];
                 for (int i = 0; i < count; i++)
                     bytes[i] = blob.ReadByte();

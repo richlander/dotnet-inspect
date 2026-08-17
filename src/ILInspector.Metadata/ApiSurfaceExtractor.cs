@@ -1758,7 +1758,7 @@ public static class ApiSurfaceExtractor
     internal static bool IsFinalizerMethod(MetadataReader reader, MethodDefinitionHandle methodHandle)
     {
         var method = reader.GetMethodDefinition(methodHandle);
-        if (!string.Equals(reader.GetString(method.Name), "Finalize", StringComparison.Ordinal))
+        if (!NameEquals(reader, method.Name, "Finalize"))
             return false;
         if (method.GetGenericParameters().Count != 0)
             return false;
@@ -1938,15 +1938,25 @@ public static class ApiSurfaceExtractor
         {
             case HandleKind.MemberReference:
                 var memberRef = reader.GetMemberReference((MemberReferenceHandle)methodDeclaration);
-                return string.Equals(reader.GetString(memberRef.Name), "Finalize", StringComparison.Ordinal)
+                // Count-first: a multi-MB MethodImpl declaration name must not
+                // allocate during finalizer preclassification (Sol R8).
+                return NameEquals(reader, memberRef.Name, "Finalize")
                     && IsSystemObjectType(reader, memberRef.Parent);
             case HandleKind.MethodDefinition:
                 var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)methodDeclaration);
-                return string.Equals(reader.GetString(methodDef.Name), "Finalize", StringComparison.Ordinal)
+                return NameEquals(reader, methodDef.Name, "Finalize")
                     && IsSystemObjectType(reader, methodDef.GetDeclaringType());
             default:
                 return false;
         }
+    }
+
+    static bool NameEquals(MetadataReader reader, StringHandle handle, string expected)
+    {
+        long characters = MetadataSafetyPolicy.GetStringCharacterCount(reader, handle);
+        if (characters != expected.Length)
+            return false;
+        return string.Equals(reader.GetString(handle), expected, StringComparison.Ordinal);
     }
 
     /// <summary>True when <paramref name="typeHandle"/> resolves to <c>System.Object</c>.</summary>
@@ -1963,9 +1973,10 @@ public static class ApiSurfaceExtractor
                 // recognized core library — matched by both assembly name and
                 // its strong-name public-key token — so that an adversarial
                 // `System.Object` defined in an arbitrary or name-impersonating
-                // assembly is rejected.
-                return string.Equals(reader.GetString(typeRef.Namespace), "System", StringComparison.Ordinal)
-                    && string.Equals(reader.GetString(typeRef.Name), "Object", StringComparison.Ordinal)
+                // assembly is rejected. Count-first on namespace/name so a giant
+                // TypeRef cannot allocate during finalizer preclassification.
+                return NameEquals(reader, typeRef.Namespace, "System")
+                    && NameEquals(reader, typeRef.Name, "Object")
                     && ResolvesThroughCoreLibrary(reader, typeRef.ResolutionScope);
             case HandleKind.TypeDefinition:
                 return CoreLibraryRootAuthentication
@@ -3076,6 +3087,17 @@ public static class ApiSurfaceExtractor
                 var typeDef = reader.GetTypeDefinition(typeHandle);
                 if (!IsEnum(reader, typeDef))
                     continue;
+
+                // Count before ResolveTypeName so an unrelated multi-MB enum name
+                // cannot allocate while scanning for the parameter's enum (Sol R8).
+                if (!MetadataSafetyPolicy.TryCountTypeNameCharacters(
+                        reader,
+                        typeHandle,
+                        out long enumTypeCharacters)
+                    || enumTypeCharacters != typeName.Length)
+                {
+                    continue;
+                }
 
                 if (TypeResolver.ResolveTypeName(reader, typeHandle)
                     is not MetadataTypeNameResult.Resolved resolvedEnumType)

@@ -247,7 +247,7 @@ public static class AttributeReader
     /// match (length mismatch). Known attribute filters must use this so a hostile
     /// multi-MB attribute type name cannot allocate during presence checks.
     /// </summary>
-    static bool AttributeConstructorTypeNameEquals(
+    public static bool AttributeConstructorTypeNameEquals(
         MetadataReader reader,
         EntityHandle constructorHandle,
         string expectedFullName)
@@ -390,20 +390,31 @@ public static class AttributeReader
             // Count before GetAttributeTypeName. A multi-MB constructor type name
             // must never materialize (Sol R7: ~80-240 MB on Exceeded). Names above
             // MaxPreflightMaterializedStringCharacters fail closed via preflight
-            // when a budget is open, and are skipped when unbounded — without
-            // charging ordinary value lower-bound preflight callbacks.
-            if (!MetadataSafetyPolicy.TryCountAttributeConstructorTypeNameCharacters(
-                    reader,
-                    attr.Constructor,
-                    out long typeNameCharacters))
+            // when a budget is open, and are skipped when unbounded. Under a live
+            // budget, always gate the counted length before GetString so a name
+            // under the hard cap cannot still blow the remaining model allowance
+            // (Sol R8).
+            bool countedTypeName = MetadataSafetyPolicy.TryCountAttributeConstructorTypeNameCharacters(
+                reader,
+                attr.Constructor,
+                out long typeNameCharacters);
+            if (!countedTypeName)
             {
-                continue;
+                // TypeSpec parents (generic attributes) are not counted by the
+                // named-type walker. Unbounded rendering keeps pre-R8 behavior via
+                // GetAttributeTypeName; a live budget fails closed without an
+                // unbounded decode (Opus R8 Medium).
+                if (preflight is not null)
+                    continue;
             }
-
-            if (typeNameCharacters > MaxPreflightMaterializedStringCharacters)
+            else if (typeNameCharacters > MaxPreflightMaterializedStringCharacters)
             {
                 preflight?.Invoke(typeNameCharacters);
                 continue;
+            }
+            else if (preflight is not null)
+            {
+                preflight(typeNameCharacters);
             }
 
             var typeName = GetAttributeTypeName(reader, attr.Constructor);

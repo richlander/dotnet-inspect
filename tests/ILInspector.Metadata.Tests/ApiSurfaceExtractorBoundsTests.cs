@@ -518,6 +518,60 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void GiantNullableTransformArray_IsRejectedBeforeAllocation()
+    {
+        // Sol R8: NullableAttribute(byte[]) allocated attacker-sized arrays during
+        // signature decoration while the surface still Extracted.
+        byte[] image = BuildGiantNullableTransformImage(5_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = Extract(image, bounds);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void GiantFinalizeMethodImplName_IsStoppedBeforeGetStringMaterialization()
+    {
+        // Sol R8: ReferencesObjectFinalize GetString'd MethodImpl declaration names
+        // during type preclassification with no budget (~10 MB Extracted).
+        byte[] image = BuildGiantFinalizeMethodImplImage(5_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = Extract(image, bounds);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void GiantUnrelatedEnumTypeName_IsSkippedDuringDefaultScan()
+    {
+        // Sol R8: TryFormatEnumDefaultValue resolved every enum type name before
+        // comparing, so an unrelated later enum forced multi-MB GetString.
+        byte[] image = BuildGiantUnrelatedEnumDefaultImage(5_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        _ = Extract(image, bounds);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void StringDefault_IsStoppedBeforeDecodeAndEscaping()
     {
         byte[] image = BuildStringDefaultImage(2_000_000);
@@ -1310,6 +1364,180 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddString("value"),
             1);
         metadata.AddConstant(parameter, 42);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(methodSignature),
+            0,
+            parameter);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGiantNullableTransformImage(int elementCount)
+    {
+        var metadata = CreateMetadata("GiantNullable");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(10, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle nullableAttribute = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("NullableAttribute"));
+        var ctorSignature = new BlobBuilder();
+        ctorSignature.WriteByte(0x20); // HASTHIS
+        ctorSignature.WriteCompressedInteger(1);
+        ctorSignature.WriteByte(0x01); // void
+        ctorSignature.WriteByte(0x1D); // SZARRAY
+        ctorSignature.WriteByte(0x05); // U1
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            nullableAttribute,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(ctorSignature));
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x00);
+        methodSignature.WriteCompressedInteger(0);
+        methodSignature.WriteByte(0x0e); // string return
+        ParameterHandle returnParam = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString(""),
+            0);
+        var attrValue = new BlobBuilder();
+        attrValue.WriteUInt16(1);
+        attrValue.WriteInt32(elementCount);
+        attrValue.WriteBytes(1, elementCount);
+        attrValue.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            returnParam,
+            constructor,
+            metadata.GetOrAddBlob(attrValue));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(methodSignature),
+            0,
+            returnParam);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGiantFinalizeMethodImplImage(int nameCharacters)
+    {
+        var metadata = CreateMetadata("GiantFinalize");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(10, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemObject = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        var finalizeSignature = new BlobBuilder();
+        finalizeSignature.WriteByte(0x20); // HASTHIS
+        finalizeSignature.WriteCompressedInteger(0);
+        finalizeSignature.WriteByte(0x01); // void
+        MemberReferenceHandle finalizeRef = metadata.AddMemberReference(
+            systemObject,
+            metadata.GetOrAddString(new string('F', nameCharacters)),
+            metadata.GetOrAddBlob(finalizeSignature));
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x20);
+        methodSignature.WriteCompressedInteger(0);
+        methodSignature.WriteByte(0x01);
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            MethodAttributes.Family | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Finalize"),
+            metadata.GetOrAddBlob(methodSignature),
+            0,
+            default);
+        metadata.AddMethodImplementation(surface, body, finalizeRef);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGiantUnrelatedEnumDefaultImage(int nameCharacters)
+    {
+        // Surface.M(SmallEnum value = 1) plus a later unrelated giant-named enum.
+        var metadata = CreateMetadata("GiantUnrelatedEnum");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+
+        var i4FieldSignature = new BlobBuilder();
+        i4FieldSignature.WriteByte(0x06);
+        i4FieldSignature.WriteByte(0x08);
+        BlobHandle i4FieldSig = metadata.GetOrAddBlob(i4FieldSignature);
+
+        FieldDefinitionHandle smallValue = metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            i4FieldSig);
+        FieldDefinitionHandle smallLiteral = metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault,
+            metadata.GetOrAddString("One"),
+            i4FieldSig);
+        metadata.AddConstant(smallLiteral, 1);
+
+        FieldDefinitionHandle giantValue = metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            i4FieldSig);
+        FieldDefinitionHandle giantLiteral = metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault,
+            metadata.GetOrAddString("X"),
+            i4FieldSig);
+        metadata.AddConstant(giantLiteral, 99);
+
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(10, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+
+        TypeDefinitionHandle smallEnum = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("SmallEnum"),
+            systemEnum,
+            smallValue,
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(smallEnum, surface);
+
+        TypeDefinitionHandle giantEnum = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString(new string('G', nameCharacters)),
+            systemEnum,
+            giantValue,
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(giantEnum, surface);
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x00);
+        methodSignature.WriteCompressedInteger(1);
+        methodSignature.WriteByte(0x01);
+        methodSignature.WriteByte(0x11);
+        methodSignature.WriteCompressedInteger(CodedIndex.TypeDefOrRef(smallEnum));
+        ParameterHandle parameter = metadata.AddParameter(
+            ParameterAttributes.Optional | ParameterAttributes.HasDefault,
+            metadata.GetOrAddString("value"),
+            1);
+        metadata.AddConstant(parameter, 1);
         metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static,
             MethodImplAttributes.IL,
