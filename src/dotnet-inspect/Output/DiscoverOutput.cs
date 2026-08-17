@@ -24,7 +24,8 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
-        IProjectionOptions? projection = null)
+        IProjectionOptions? projection = null,
+        bool plainText = false)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -86,6 +87,10 @@ public static class DiscoverOutput
         else if (markdown)
         {
             context.Serialize(view, Console.Out, new MarkdownFormatter());
+        }
+        else if (plainText)
+        {
+            context.Serialize(view, Console.Out, new PlainTextFormatter());
         }
         else
         {

@@ -11,20 +11,23 @@ namespace DotnetInspector.Tests;
 /// order-dependent flake in #3416, where the failing member of the pair varied per run.
 /// </para>
 /// <para>
-/// Every capture therefore goes through the same semaphore. Redirecting the console
-/// anywhere else in this assembly re-opens the race even if this type is used correctly
-/// everywhere else, so
+/// Every capture therefore goes through the same semaphore and rejects callers whose
+/// current xUnit collection is not assembly-exclusive. The negative path is gated by
+/// <c>ConsoleCaptureParallelCollectionTests.CaptureFromParallelCollectionIsRejected</c>.
+/// Redirecting the console anywhere else in this assembly re-opens the race even if
+/// this type is used correctly everywhere else, so
 /// <c>ConsoleCaptureTests.TestAssemblyRedirectsConsoleOnlyThroughConsoleCapture</c>
 /// fails if another file does it.
 /// </para>
 /// </summary>
 static class ConsoleCapture
 {
-    // Serialize access to Console.Out/Error to prevent parallel test interference
+    // Serialize captures within the assembly-exclusive collections.
     private static readonly SemaphoreSlim _lock = new(1, 1);
 
     public static async Task<(int ExitCode, string Output, string Error)> RunAsync(Func<Task<int>> action)
     {
+        EnsureAssemblyExclusive();
         await _lock.WaitAsync();
         var origOut = Console.Out;
         // Capturing the stream is the one thing that must reach past the
@@ -70,5 +73,17 @@ static class ConsoleCapture
         });
 
         return (output, error);
+    }
+
+    private static void EnsureAssemblyExclusive()
+    {
+        if (TestContext.Current.TestCollection is not Xunit.v3.IXunitTestCollection
+            {
+                DisableParallelization: true,
+            })
+        {
+            throw new InvalidOperationException(
+                "ConsoleCapture callers must run in an assembly-exclusive xUnit collection.");
+        }
     }
 }

@@ -1718,6 +1718,15 @@ public class ApiCommand
 
         if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
         {
+            if (GetRequestedMemberSections(type, options)
+                    .Contains(SectionNames.PerformanceTriage)
+                && HasExplicitPerformanceTriageSelector(options))
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Performance Triage analysis. "
+                    + "Use --jsonl, --tsv, --table, or --print.");
+                return 1;
+            }
             // --fields/--columns select table columns; document JSON has no column-slicing
             // facility, so the combination is rejected rather than silently dropped. A scalar
             // payload projection (--value/--print) does compose, and is handled above.
@@ -2952,6 +2961,15 @@ public class ApiCommand
         => selector.Equals(
             SectionNames.AnnotatedSourceDocument,
             StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasExplicitPerformanceTriageSelector(ApiOptions options)
+        => options.Select?.Any(static selector =>
+               selector.Equals(
+                   SectionNames.PerformanceTriage,
+                   StringComparison.OrdinalIgnoreCase)
+               || selector.Equals(
+                   "Optimization Opportunities",
+                   StringComparison.OrdinalIgnoreCase)) == true;
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;

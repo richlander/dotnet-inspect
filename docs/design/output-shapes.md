@@ -297,6 +297,17 @@ its value sets the count or the rows, and `--head`/`--tail` set the direction.
 - `--rows 2+10` keeps ten rows starting at row 2.
 - `--rows 10..` keeps row 10 through the last row.
 
+In `package --all-libraries`, singular sections retain one table per library
+for windowing even when a row format flattens them with provenance; aggregate
+sections window the rolled-up table once. The paired
+`PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount` and
+`PackageCommand_AllLibraries_AggregateRowFormats_WindowAcrossRolledUpSection`
+tests gate both scopes and their count/row-format parity.
+`PackageCommand_AllLibraries_RowFormats_TailWindowMatchesMarkdownRows`,
+`PackageCommand_AllLibraries_AggregateRowFormats_WindowSameRowsAsMarkdown`,
+and `PackageCommand_AllLibraries_OpportunityRowFormat_WindowSameRowAsMarkdown`
+gate selected-row identity at the window boundary.
+
 A count and a range are different kinds, not two spellings of one: a count
 anchors to an end and a range does not, so `--rows 2..10 --tail` is rejected
 rather than silently resolved. Bare `--rows` is an error — it once meant

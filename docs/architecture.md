@@ -767,6 +767,20 @@ Research overlay bridge, and the application layer:
   `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
   `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
   representative identity, cached classification, and token-shape behavior.
+  `LibraryBodyAnalysisPlan` carries the source type for mapped classic
+  `MoveNext` tokens so method/type scope intersection admits only the selected
+  source's evidence body;
+  `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`
+  gates member-, type-, and combined-scope projection.
+  `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped structural
+  signature and generic-scope identities, canonical `MemberRef`/`MethodSpec`
+  resolution caches, and their shared assembly work budgets. The primary
+  metadata resolver and lifted-source-owner reference index consume that same
+  resolution authority.
+  `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
+  `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
+  `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
+  sharing and scope-aware identity.
   `LibraryBodyAnalysisAccumulator` receives the completed per-method result
   array in metadata order, merges every topic and partial diagnostic, computes
   the call-derived non-heap and exception-type assembly projections, and
@@ -775,14 +789,81 @@ Research overlay bridge, and the application layer:
   output, while `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` also
   gates partial-result accumulation.
   The assembly builder retains the metadata-ordered work list, parallel
-  scheduling, and service lifetime composition.
+  scheduling, async source-to-evidence mapping, and service lifetime
+  composition.
   Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
   to `LibraryBodyReferenceMetadataResolver`, which composes
-  `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog`.
+  `AssemblyReferenceBindingPolicy` and `TypeResolutionCatalog`. When analysis
+  needs reference resolution, `LibraryBodyIndex` acquires one budgeted immutable
+  root snapshot and registers that same snapshot with the catalog; neither the
+  resolver nor the catalog may reacquire or copy the root image.
+  `RetainedSnapshot_IsRegisteredWithoutReopeningOrCopyingSource` and
+  `OptimizationOpportunities_RootImageIsRetainedOnce` gate the metadata and
+  end-to-end sides of that ownership contract;
+  `DisposedCatalog_ReleasesLatestCandidateImages` gates release of frozen
+  generation and correspondence-cache image roots while a disposed catalog
+  remains referenced;
+  `DisposedContext_ReleasesCandidateImages` gates the corresponding frozen
+  context roots.
   `CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly` and
   `ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope` gate its
   forwarder and binding-scope behavior.
+  `LibraryBodyAnalysisBuilder.AsyncSibling` owns the
+  `sync-call-in-async` opportunity because sibling discovery and recursive-slot
+  suppression require reader-relative MethodDef, MethodImpl, type hierarchy,
+  exact assembly identity, and workspace-resolution evidence. It consumes the
+  canonical direct-call rows after ordinary opportunity collection and appends
+  only this metadata-bound shape; recoverable sibling-classification failures
+  remain diagnostic without discarding independent ordinary opportunities or
+  body signals. Source-independent synchronous-definition and sibling-candidate
+  discovery is cached by exact callee identity, while accessibility and
+  dispatch suppression remain source-dependent;
+  `OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce` gates the
+  per-type method index that bounds distinct-callee discovery;
+  `AsyncSiblingMethodIndex_ConcurrentReadsBuildTypeOnce` gates synchronized
+  index publication during parallel body analysis, and
+  `OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel` gates
+  constructed base traversal, generic substitution, name hiding, and inherited
+  accessibility;
+  `OptimizationOpportunities_InheritedSynchronousReceiverHidingFailsClosed`
+  gates the erased receiver boundary for inherited synchronous definitions:
+  methods on unsealed classes and interfaces fail closed because IL does not
+  preserve the source receiver lookup type or static type qualifier; methods
+  declared on sealed classes remain eligible.
+  Constructed generic type relationships preserve DAG sharing and bound
+  structural identity, comparison, and finding-display work;
+  `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
+  `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`, and
+  `AsyncSiblingIdentityAndMatching_DistinguishArrayShape`, and
+  `AsyncSiblingTypeMatching_DistinguishesStructuredNames` gate exact identity,
+  while `AsyncSiblingFindingDisplay_RejectsExponentialDagExpansion`,
+  `AsyncSiblingFindingDisplay_AcceptsWideFlatSignature`, and
+  `AsyncSiblingFindingDisplay_BoundsAggregateMemberText`, and
+  `AsyncSiblingFindingDisplay_RejectsExcessiveArrayRank`, and
+  `AsyncSiblingFindingDisplay_AccumulatesNestedArrayRanks` gate per-type
+  relationship and aggregate-output limits.
+  `AsyncSiblingTypeSupport_IsLinearForSharedDag` gates signature
+  classification work. Trusted framework-contract identities, exact
+  interface-slot correspondence, friend-aware protected access, and nested
+  private-access domains are gated by
+  `AsyncSiblingPrivateAccess_CyclicDeclaringTypeFailsClosed`,
+  `OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes`,
+  `OptimizationOpportunities_MethodImplSelfDispatchIsSuppressed`,
+  `OptimizationOpportunities_ReceiverErasureSuppressesUnsealedFriendCandidates`,
+  `AsyncSiblingFriendAccess_StrongNamedGrantorRequiresFullFriendKey`,
+  `OptimizationOpportunities_SuppressesSourceGeneratedTypes`,
+  and
+  `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`.
+  Performance command projections report body-index diagnostics independently
+  of unsafe scanning, and reject document JSON rather than silently omitting
+  requested Performance analysis;
+  `PerformanceTriage_ReportsIncompleteAnalysisAcrossScopes` gates library,
+  type, and member disclosure;
+  `PerformanceTriage_SuppressesDiagnosticsOutsideSelectedScope` gates scoped
+  source/evidence projection, while
+  `PerformanceTriage_DocumentJsonRejectsUnsupportedAnalysis` gates the
+  unsupported document shape.
   `MethodInstructionFacts` owns the
   metadata-free local/argument-slot, operand, and single-branch-target grammar
   shared by safety and allocation
