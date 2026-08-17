@@ -285,6 +285,66 @@ public sealed class AssemblyContextGroup : IDisposable
             });
     }
 
+    internal AssemblyImageAccessResult<TResult> UseAssemblySession<TResult>(
+        ResolvedAssemblyReference assembly,
+        Func<
+            AssemblyInspectionSession,
+            ResolvedAssemblyReference,
+            TResult> callback)
+        => UseAssemblySession(
+            assembly,
+            CancellationToken.None,
+            callback);
+
+    internal AssemblyImageAccessResult<TResult> UseAssemblySession<TResult>(
+        ResolvedAssemblyReference assembly,
+        CancellationToken cancellationToken,
+        Func<
+            AssemblyInspectionSession,
+            ResolvedAssemblyReference,
+            TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(callback);
+
+        return UseSnapshot(
+            assembly,
+            cancellationToken,
+            snapshot =>
+            {
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Open(snapshot);
+                return callback(
+                    session,
+                    snapshot.RetainAssemblyReference(assembly));
+            });
+    }
+
+    internal AssemblyImageAccessResult<TResult> UseAssemblySession<TResult>(
+        AssemblyContextParticipant participant,
+        CancellationToken cancellationToken,
+        Func<
+            AssemblyInspectionSession,
+            ResolvedAssemblyReference,
+            TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(callback);
+
+        return UseSnapshot(
+            participant,
+            cancellationToken,
+            snapshot =>
+            {
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Open(snapshot);
+                return callback(
+                    session,
+                    snapshot.RetainAssemblyReference(
+                        participant.Assembly));
+            });
+    }
+
     internal async Task<AssemblyImageAccessResult<TResult>>
         UseAndReleaseAssemblySessionAsync<TResult>(
             ResolvedAssemblyReference assembly,
@@ -338,12 +398,49 @@ public sealed class AssemblyContextGroup : IDisposable
     internal AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
         ResolvedAssemblyReference assembly,
         Func<AssemblyImageSnapshot, TResult> callback)
+        => UseSnapshot(
+            assembly,
+            CancellationToken.None,
+            callback);
+
+    internal AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
+        ResolvedAssemblyReference assembly,
+        CancellationToken cancellationToken,
+        Func<AssemblyImageSnapshot, TResult> callback)
+        => UseSnapshot(
+            assembly,
+            expectedParticipant: null,
+            cancellationToken,
+            callback);
+
+    internal AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
+        AssemblyContextParticipant participant,
+        CancellationToken cancellationToken,
+        Func<AssemblyImageSnapshot, TResult> callback)
+    {
+        ArgumentNullException.ThrowIfNull(participant);
+        return UseSnapshot(
+            participant.Assembly,
+            participant,
+            cancellationToken,
+            callback);
+    }
+
+    AssemblyImageAccessResult<TResult> UseSnapshot<TResult>(
+        ResolvedAssemblyReference assembly,
+        AssemblyContextParticipant? expectedParticipant,
+        CancellationToken cancellationToken,
+        Func<AssemblyImageSnapshot, TResult> callback)
     {
         BeginCallback();
         Exception? operationFailure = null;
         try
         {
-            ParticipantState participant = FindParticipant(assembly);
+            ParticipantState participant =
+                expectedParticipant is null
+                    ? FindParticipant(assembly)
+                    : FindExactParticipant(expectedParticipant);
+            cancellationToken.ThrowIfCancellationRequested();
             SnapshotAccess access = GetSnapshot(participant);
             if (access.Failure is { } failure)
             {
@@ -453,6 +550,30 @@ public sealed class AssemblyContextGroup : IDisposable
         }
 
         return participant;
+    }
+
+    ParticipantState FindExactParticipant(
+        AssemblyContextParticipant participant)
+    {
+        ParticipantState registered =
+            FindParticipant(participant.Assembly);
+        if (!ReferenceEquals(
+                registered.Participant,
+                participant))
+        {
+            throw new ArgumentException(
+                "The participant does not belong to this context group.",
+                nameof(participant));
+        }
+        if (!ReferenceEquals(
+                participant.BindingPolicy.Version,
+                BindingPolicyVersion))
+        {
+            throw new InvalidOperationException(
+                "The participant binding-policy snapshot changed after the assembly context group was created.");
+        }
+
+        return registered;
     }
 
     SnapshotAccess GetSnapshot(ParticipantState participant)
