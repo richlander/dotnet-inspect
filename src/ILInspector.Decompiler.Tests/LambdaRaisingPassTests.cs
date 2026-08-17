@@ -1229,6 +1229,80 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void NintKeywordShadowedByTopLevelSibling_StaysLowered()
+    {
+        var nint = TypeRef.CoreLib("System", "IntPtr");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nint,
+            additionalSiblings: [TypeRef.Definition("Synthetic", "Samples", "nint")]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NuintKeywordShadowedByTopLevelSibling_StaysLowered()
+    {
+        var nuint = TypeRef.CoreLib("System", "UIntPtr");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nuint,
+            additionalSiblings: [TypeRef.Definition("Synthetic", "Samples", "nuint")]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void DynamicKeywordShadowedByTopLevelSibling_StaysLowered()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var host = RunSyntheticSiblingLambdaRaise(
+            objectType,
+            additionalSiblings: [TypeRef.Definition("Synthetic", "Samples", "dynamic")],
+            siblingIsDynamic: true);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NintKeywordShadowedByTopLevelConstituent_StaysLowered()
+    {
+        var nint = TypeRef.CoreLib("System", "IntPtr");
+        var proof = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "List`1"),
+            [TypeRef.Definition("Synthetic", "Samples", "nint")]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            nint,
+            additionalSiblings: [proof]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void ForeignNestedTypeShadowedByTopLevelSibling_StaysLowered()
+    {
+        var nested = TypeRef.Definition("Other", "Other", "Foo+Bar");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            additionalSiblings: [TypeRef.Definition("Synthetic", "Samples", "Foo")]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NestedTypeWithOwnTopLevelLeadingSibling_StillRaises()
+    {
+        var nested = TypeRef.Definition("Synthetic", "Samples", "Foo+Bar");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            additionalSiblings: [TypeRef.Definition("Synthetic", "Samples", "Foo")]);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
     public void DynamicObjectSiblingCollidingWithHostGenericParameter_StaysLowered()
     {
         var objectType = TypeRef.CoreLib("System", "Object");

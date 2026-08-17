@@ -1129,7 +1129,8 @@ internal static class CSharpSpellability
                     knownTypes[i],
                     hostDefinition,
                     firstSimple,
-                    firstArity))
+                    firstArity,
+                    definition))
             {
                 return true;
             }
@@ -1142,16 +1143,25 @@ internal static class CSharpSpellability
         TypeRef type,
         TypeRef hostDefinition,
         string simpleName,
-        int arity)
+        int arity,
+        TypeRef? excludeLeading = null)
     {
         switch (type.Kind)
         {
             case TypeRefKind.Definition:
-                return ChainProvesVisibleNestedName(type, hostDefinition, simpleName, arity);
+                if (excludeLeading is { } candidate && IsOwnLeadingType(type, candidate))
+                    return false;
+                return TopLevelProvesVisibleName(type, hostDefinition, simpleName, arity)
+                    || ChainProvesVisibleNestedName(type, hostDefinition, simpleName, arity);
 
             case TypeRefKind.GenericInstance:
                 if (type.ElementType is { } definition
-                    && TypeTreeProvesVisibleNestedName(definition, hostDefinition, simpleName, arity))
+                    && TypeTreeProvesVisibleNestedName(
+                        definition,
+                        hostDefinition,
+                        simpleName,
+                        arity,
+                        excludeLeading))
                 {
                     return true;
                 }
@@ -1162,7 +1172,8 @@ internal static class CSharpSpellability
                             type.TypeArguments[i],
                             hostDefinition,
                             simpleName,
-                            arity))
+                            arity,
+                            excludeLeading))
                     {
                         return true;
                     }
@@ -1176,11 +1187,21 @@ internal static class CSharpSpellability
             case TypeRefKind.Pointer:
             case TypeRefKind.Pinned:
                 return type.ElementType is { } element
-                    && TypeTreeProvesVisibleNestedName(element, hostDefinition, simpleName, arity);
+                    && TypeTreeProvesVisibleNestedName(
+                        element,
+                        hostDefinition,
+                        simpleName,
+                        arity,
+                        excludeLeading);
 
             case TypeRefKind.FunctionPointer:
                 if (type.ElementType is { } returnType
-                    && TypeTreeProvesVisibleNestedName(returnType, hostDefinition, simpleName, arity))
+                    && TypeTreeProvesVisibleNestedName(
+                        returnType,
+                        hostDefinition,
+                        simpleName,
+                        arity,
+                        excludeLeading))
                 {
                     return true;
                 }
@@ -1191,7 +1212,8 @@ internal static class CSharpSpellability
                             type.TypeArguments[i],
                             hostDefinition,
                             simpleName,
-                            arity))
+                            arity,
+                            excludeLeading))
                     {
                         return true;
                     }
@@ -1203,6 +1225,25 @@ internal static class CSharpSpellability
                 return false;
         }
     }
+
+    static bool TopLevelProvesVisibleName(
+        TypeRef named,
+        TypeRef hostDefinition,
+        string simpleName,
+        int arity)
+        => named.Kind == TypeRefKind.Definition
+            && !named.Name.Contains('+')
+            && named.Assembly == hostDefinition.Assembly
+            && named.Namespace == hostDefinition.Namespace
+            && StripArity(named.Name) == simpleName
+            && ArityOf(named.Name) == arity;
+
+    static bool IsOwnLeadingType(TypeRef named, TypeRef candidate)
+        => named.Kind == TypeRefKind.Definition
+            && !named.Name.Contains('+')
+            && named.Assembly == candidate.Assembly
+            && named.Namespace == candidate.Namespace
+            && named.Name == candidate.Name.Split('+')[0];
 
     static bool ChainProvesVisibleNestedName(
         TypeRef named,
