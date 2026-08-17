@@ -43,6 +43,24 @@ public static class InspectionGraphIntegrationsCatalog
             [InspectionGraphSubjectKind.Type],
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Type],
+            [
+                new(
+                    InspectionGraphSubjectKind.Member,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+                new(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+            ],
             InspectionGraphEndpointProjection.Exact,
             OccurrenceIdentity,
             [ExtensionEvidence]);
@@ -57,6 +75,24 @@ public static class InspectionGraphIntegrationsCatalog
             [InspectionGraphSubjectKind.Type],
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Type],
+            [
+                new(
+                    InspectionGraphSubjectKind.Member,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+                new(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+            ],
             InspectionGraphEndpointProjection.Exact,
             OccurrenceIdentity,
             [IntegrationEvidence]);
@@ -71,6 +107,24 @@ public static class InspectionGraphIntegrationsCatalog
             [InspectionGraphSubjectKind.Assembly],
             [InspectionGraphSubjectKind.Assembly],
             [InspectionGraphSubjectKind.Assembly],
+            [
+                new(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+                new(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Target),
+            ],
             InspectionGraphEndpointProjection.Exact,
             OccurrenceIdentity,
             [ReferenceEvidence]);
@@ -85,6 +139,24 @@ public static class InspectionGraphIntegrationsCatalog
             [InspectionGraphSubjectKind.Type],
             [InspectionGraphSubjectKind.Type],
             [InspectionGraphSubjectKind.Type],
+            [
+                new(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.OccurrenceEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+                new(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+            ],
             OpportunityEndpointProjection,
             OccurrenceIdentity,
             [OpportunityEvidence]);
@@ -397,9 +469,18 @@ public static class InspectionGraphIntegrationsQuery
         new("Inspection graph integrations", InspectionCost.Unbounded);
 
     public static InspectionGraphDocument Execute(
-        WorkspaceContextLoadOutcome.Loaded context)
+        WorkspaceContextLoadOutcome.Loaded context) =>
+        Execute(
+            context,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.WorkspaceParticipants));
+
+    public static InspectionGraphDocument Execute(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphModeRequest modeRequest)
     {
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(modeRequest);
 
         var registry =
             new InspectionQueryRegistry<AssemblyContextGroup>()
@@ -427,6 +508,7 @@ public static class InspectionGraphIntegrationsQuery
 
         return Create(
             context,
+            modeRequest,
             results.Get(
                 AssemblyContextExtensionMethodsQuery.Definition),
             results.Get(AssemblyContextIntegrationsQuery.Definition),
@@ -437,6 +519,7 @@ public static class InspectionGraphIntegrationsQuery
 
     internal static InspectionGraphDocument Create(
         WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphModeRequest modeRequest,
         AssemblyContextResult<ImmutableArray<ExtensionMethodInfo>> extensions,
         AssemblyContextIntegrationsResult integrations,
         AssemblyContextIntegrationOpportunitiesResult opportunities,
@@ -444,6 +527,7 @@ public static class InspectionGraphIntegrationsQuery
             references)
     {
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(modeRequest);
         ArgumentNullException.ThrowIfNull(extensions);
         ArgumentNullException.ThrowIfNull(integrations);
         ArgumentNullException.ThrowIfNull(opportunities);
@@ -470,7 +554,7 @@ public static class InspectionGraphIntegrationsQuery
         builder.AddIntegrations(integrations);
         builder.AddReferences(references);
         builder.AddOpportunities(opportunities);
-        return builder.Build();
+        return builder.Build(modeRequest);
     }
 
     sealed class Builder
@@ -943,7 +1027,8 @@ public static class InspectionGraphIntegrationsQuery
             }
         }
 
-        internal InspectionGraphDocument Build()
+        internal InspectionGraphDocument Build(
+            InspectionGraphModeRequest modeRequest)
         {
             InspectionGraphEdge[] edges =
             [
@@ -966,14 +1051,21 @@ public static class InspectionGraphIntegrationsQuery
                         new InspectionGraphIntegrationFailureEvidence(
                             failure.Details))),
             ];
+            ImmutableArray<InspectionGraphSeed> seeds =
+                InspectionGraphSeedBinder.Bind(
+                    modeRequest,
+                    _nodes,
+                    _groups,
+                    InspectionGraphSeedTargetPreference.Group);
             return new InspectionGraphDocument(
                 InspectionGraphDocumentScope.SessionBound,
+                modeRequest,
                 _nodes,
                 _groups,
                 edges,
                 _occurrences,
                 [],
-                [],
+                seeds,
                 [],
                 failures);
         }

@@ -7,6 +7,7 @@ using InertText;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public sealed class NuspecHardeningTests : IDisposable
 {
     private readonly string _directory =

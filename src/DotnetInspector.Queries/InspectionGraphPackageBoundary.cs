@@ -204,9 +204,21 @@ public sealed class InspectionGraphPackageBoundary
     /// Projects package ownership as structured groups, package nodes, or both.
     /// </summary>
     public InspectionGraphDocument Project(
-        InspectionGraphPackageBoundaryLens lens)
+        InspectionGraphPackageBoundaryLens lens) =>
+        Project(
+            lens,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.WorkspaceParticipants));
+
+    /// <summary>
+    /// Projects package ownership with explicit graph-mode intent.
+    /// </summary>
+    public InspectionGraphDocument Project(
+        InspectionGraphPackageBoundaryLens lens,
+        InspectionGraphModeRequest modeRequest)
     {
         InspectionGraphCollections.RequireDefined(lens, nameof(lens));
+        ArgumentNullException.ThrowIfNull(modeRequest);
 
         bool includeArtifacts =
             lens is InspectionGraphPackageBoundaryLens.PackageGroups
@@ -259,16 +271,25 @@ public sealed class InspectionGraphPackageBoundary
             }
         }
 
+        ImmutableArray<InspectionGraphSeed> seeds =
+            InspectionGraphSeedBinder.Bind(
+                modeRequest,
+                nodes,
+                groups,
+                lens == InspectionGraphPackageBoundaryLens.PackageGroups
+                    ? InspectionGraphSeedTargetPreference.Group
+                    : InspectionGraphSeedTargetPreference.Node);
         return new InspectionGraphDocument(
             includeArtifacts
                 ? InspectionGraphDocumentScope.SessionBound
                 : InspectionGraphDocumentScope.Portable,
+            modeRequest,
             nodes,
             groups,
             [],
             [],
             [],
-            [],
+            seeds,
             [],
             []);
     }
