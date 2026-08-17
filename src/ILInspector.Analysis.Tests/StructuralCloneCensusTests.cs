@@ -391,6 +391,16 @@ public class StructuralCloneCensusTests
         Assert.Equal("", existingConflict.output);
         Assert.Contains("--corpus-list", existingConflict.error);
         Assert.Contains("--leak-triage", existingConflict.error);
+
+        (int exitCode, string output, string error) missingOperandConflict =
+            await RunHarness(
+                "--leak-triage",
+                "--clone-census",
+                FixturePath);
+        Assert.Equal(2, missingOperandConflict.exitCode);
+        Assert.Equal("", missingOperandConflict.output);
+        Assert.Contains("--leak-triage", missingOperandConflict.error);
+        Assert.Contains("--clone-census", missingOperandConflict.error);
     }
 
     static async Task<(int ExitCode, string Output, string Error)> RunHarness(

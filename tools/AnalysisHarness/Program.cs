@@ -144,17 +144,20 @@ bool jsonl = false;
 int top = 20;
 bool topArgumentValid = true;
 int maxDepth = 4;
+HashSet<string> selectedModes = [];
 
 for (int i = 0; i < args.Length; i++)
 {
     switch (args[i])
     {
         case "--generated-fixtures":
+            selectedModes.Add("--generated-fixtures");
             fixturesMode = true;
             if (i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal))
                 fixtureSelector = args[++i];
             break;
         case "--corpus-list":
+            selectedModes.Add("--corpus-list");
             corpusList = NextValue(args, ref i);
             break;
         case "--diff-corpus-baseline":
@@ -164,9 +167,11 @@ for (int i = 0; i < args.Length; i++)
             emitSnapshot = NextValue(args, ref i);
             break;
         case "--paydirt-recall":
+            selectedModes.Add("--paydirt-recall");
             recallAssembly = NextValue(args, ref i);
             break;
         case "--historical-performance-recall":
+            selectedModes.Add("--historical-performance-recall");
             historicalPerformanceReference =
                 NextPathValue(args, ref i)
                 ?? Path.Combine(
@@ -175,9 +180,11 @@ for (int i = 0; i < args.Length; i++)
                     "historical-performance-reference.json");
             break;
         case "--precision-sample":
+            selectedModes.Add("--precision-sample");
             precisionAssembly = NextValue(args, ref i);
             break;
         case "--clone-corpus":
+            selectedModes.Add("--clone-corpus");
             cloneCorpusSpecified = true;
             cloneCorpusAssembly = NextPathValue(args, ref i);
             break;
@@ -186,6 +193,7 @@ for (int i = 0; i < args.Length; i++)
             relationshipLedger = NextPathValue(args, ref i);
             break;
         case "--clone-census":
+            selectedModes.Add("--clone-census");
             cloneCensusSpecified = true;
             cloneCensusAssembly = NextPathValue(args, ref i);
             break;
@@ -218,33 +226,42 @@ for (int i = 0; i < args.Length; i++)
             }
             break;
         case "--allocation-readout":
+            selectedModes.Add("--allocation-readout");
             allocationReadoutList = NextValue(args, ref i);
             break;
         case "--caller-loop-census":
+            selectedModes.Add("--caller-loop-census");
             callerLoopCensusList = NextValue(args, ref i);
             break;
         case "--deferred-callback-census":
+            selectedModes.Add("--deferred-callback-census");
             deferredCallbackCensusList = NextValue(args, ref i);
             break;
         case "--recursive-traversal-census":
+            selectedModes.Add("--recursive-traversal-census");
             recursiveTraversalCensusList = NextValue(args, ref i);
             break;
         case "--allocation-parity":
+            selectedModes.Add("--allocation-parity");
             allocationParityExpected = NextPathValue(args, ref i);
             allocationParityActual = NextPathValue(args, ref i);
             break;
         case "--annotation-parity":
+            selectedModes.Add("--annotation-parity");
             annotationParityCategory = NextValue(args, ref i);
             annotationParityExpected = NextPathValue(args, ref i);
             annotationParityActual = NextPathValue(args, ref i);
             break;
         case "--leak-triage":
+            selectedModes.Add("--leak-triage");
             leakTriageList = NextPathValue(args, ref i);
             break;
         case "--leak-actionability":
+            selectedModes.Add("--leak-actionability");
             leakActionabilityList = NextPathValue(args, ref i);
             break;
         case "--memorypool-lifecycle":
+            selectedModes.Add("--memorypool-lifecycle");
             memoryPoolLifecycleList = NextPathValue(args, ref i);
             break;
         case "--tsv":
@@ -277,6 +294,7 @@ for (int i = 0; i < args.Length; i++)
             }
             break;
         case "list":
+            selectedModes.Add("--generated-fixtures");
             list = true;
             break;
         case "--json":
@@ -337,39 +355,6 @@ if (!topArgumentValid || top < 1)
     return 2;
 }
 
-List<string> selectedModes = [];
-if (fixturesMode || list)
-    selectedModes.Add("--generated-fixtures");
-if (corpusList is not null)
-    selectedModes.Add("--corpus-list");
-if (recallAssembly is not null)
-    selectedModes.Add("--paydirt-recall");
-if (historicalPerformanceReference is not null)
-    selectedModes.Add("--historical-performance-recall");
-if (precisionAssembly is not null)
-    selectedModes.Add("--precision-sample");
-if (cloneCorpusSpecified)
-    selectedModes.Add("--clone-corpus");
-if (cloneCensusSpecified)
-    selectedModes.Add("--clone-census");
-if (allocationReadoutList is not null)
-    selectedModes.Add("--allocation-readout");
-if (callerLoopCensusList is not null)
-    selectedModes.Add("--caller-loop-census");
-if (deferredCallbackCensusList is not null)
-    selectedModes.Add("--deferred-callback-census");
-if (recursiveTraversalCensusList is not null)
-    selectedModes.Add("--recursive-traversal-census");
-if (allocationParityExpected is not null)
-    selectedModes.Add("--allocation-parity");
-if (annotationParityExpected is not null)
-    selectedModes.Add("--annotation-parity");
-if (leakTriageList is not null)
-    selectedModes.Add("--leak-triage");
-if (leakActionabilityList is not null)
-    selectedModes.Add("--leak-actionability");
-if (memoryPoolLifecycleList is not null)
-    selectedModes.Add("--memorypool-lifecycle");
 if (selectedModes.Count > 1)
 {
     Console.Error.WriteLine(
