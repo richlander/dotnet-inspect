@@ -1,9 +1,11 @@
+using System.Reflection.Metadata.Ecma335;
 using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
+using MethodDefinitionHandle = System.Reflection.Metadata.MethodDefinitionHandle;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -2153,6 +2155,30 @@ public class CSharpPrinterTests
 
 public class RaisingPassTests
 {
+    static MethodDefinitionHandle ResolveMethodBySignature(
+        MetadataSource source,
+        string typeFullName,
+        string methodName,
+        TypeRef returnType,
+        IReadOnlyList<TypeRef> parameterTypes,
+        bool hasThis)
+    {
+        var overload = Assert.Single(
+            IrImporter.Overloads(source, typeFullName, methodName),
+            candidate =>
+                candidate.ReturnType.Equals(returnType)
+                && candidate.ParameterTypes.SequenceEqual(parameterTypes)
+                && candidate.HasThis == hasThis
+                && candidate.HasBody);
+        var handle = IrImporter.ResolveMethodHandle(
+            source.Reader,
+            typeFullName,
+            methodName,
+            overload.Index);
+        Assert.True(handle.HasValue);
+        return handle.Value;
+    }
+
     static void AssertRefLocalBodyCompiles(string body)
     {
         string source = $$"""
@@ -3687,7 +3713,26 @@ public class RaisingPassTests
     public void Dragon4DoWhileNormalizedAfterEarlyPass_RaisesOnLatePass()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
-        var function = IrImporter.Import(source, "System.Number", "Dragon4", overloadIndex: 2);
+        var handle = ResolveMethodBySignature(
+            source,
+            "System.Number",
+            "Dragon4",
+            TypeRef.CoreLib("System", "UInt32"),
+            [
+                TypeRef.CoreLib("System", "UInt64"),
+                TypeRef.CoreLib("System", "Int32"),
+                TypeRef.CoreLib("System", "UInt32"),
+                TypeRef.CoreLib("System", "Boolean"),
+                TypeRef.CoreLib("System", "Int32"),
+                TypeRef.CoreLib("System", "Boolean"),
+                TypeRef.GenericInstance(
+                    TypeRef.CoreLib("System", "Span`1"),
+                    [TypeRef.CoreLib("System", "Byte")]),
+                TypeRef.ByRef(TypeRef.CoreLib("System", "Int32")),
+                TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean")),
+            ],
+            hasThis: false);
+        var function = IrImporter.Import(source, handle);
         Assert.NotNull(function);
 
         var stages = IrPasses.RunWithStages(function);
@@ -3698,6 +3743,30 @@ public class RaisingPassTests
         Assert.Contains("DoWhileLoop", doWhileStages[1].Projection);
         Assert.NotEmpty(function.Descendants.OfType<DoWhileLoop>());
         function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SignatureResolution_DoesNotDependOnOverloadOrdinal()
+    {
+        using var source = MetadataSource.Open(
+            typeof(InterleavedVisibilityOverloads).Assembly.Location);
+        var handle = ResolveMethodBySignature(
+            source,
+            typeof(InterleavedVisibilityOverloads).FullName!,
+            nameof(InterleavedVisibilityOverloads.Marker),
+            TypeRef.CoreLib("System", "Int32"),
+            [TypeRef.CoreLib("System", "Int32")],
+            hasThis: true);
+        var expected = typeof(InterleavedVisibilityOverloads).GetMethod(
+            nameof(InterleavedVisibilityOverloads.Marker),
+            System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            [typeof(int)],
+            modifiers: null);
+
+        Assert.NotNull(expected);
+        Assert.Equal(expected.MetadataToken, MetadataTokens.GetToken(handle));
     }
 
     [Fact]
