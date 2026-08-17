@@ -4210,8 +4210,7 @@ public class PackageCommand
         List<LibraryInspection> inspections,
         List<string> sections,
         LibraryOptions options,
-        SectionPipeline<LibraryInspection> pipeline,
-        Dictionary<string, int>? sectionCounts)
+        SectionPipeline<LibraryInspection> pipeline)
     {
         var sb = new StringBuilder();
         var title = string.IsNullOrWhiteSpace(version) ? packageName : $"{packageName} {version}";
@@ -4219,19 +4218,10 @@ public class PackageCommand
 
         foreach (var section in sections)
         {
-            var sectionStart = sb.Length;
             if (IsAggregatedAllLibrariesSection(section))
                 AppendAggregatedSection(sb, section, inspections, options.Rows);
             else
                 AppendPerLibrarySections(sb, section, inspections, options, pipeline);
-            if (sectionCounts is not null)
-            {
-                sectionCounts[section] =
-                    CountOutput.CountMarkdownTableRows(
-                        sb.ToString(
-                            sectionStart,
-                            sb.Length - sectionStart));
-            }
         }
 
         return sb.ToString().TrimEnd();

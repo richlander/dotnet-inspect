@@ -45,6 +45,86 @@ public partial class CommandExecutionTests
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
 
+    private static int CountRenderedMarkdownTableRows(string markdown) =>
+        EnumerateRenderedMarkdownTables(markdown).Sum(table => table.Rows);
+
+    private static Dictionary<string, int> CountRenderedMarkdownTableRowsBySection(
+        string markdown) =>
+        EnumerateRenderedMarkdownTables(markdown)
+            .Where(table => table.Section is not null)
+            .GroupBy(table => table.Section!, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Sum(table => table.Rows),
+                StringComparer.Ordinal);
+
+    private static IEnumerable<(string? Section, int Rows)> EnumerateRenderedMarkdownTables(
+        string markdown)
+    {
+        var lines = markdown.ReplaceLineEndings("\n").Split('\n');
+        var inCodeFence = false;
+        string? section = null;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i];
+            if (line.TrimStart().StartsWith("```", StringComparison.Ordinal))
+            {
+                inCodeFence = !inCodeFence;
+                continue;
+            }
+
+            if (inCodeFence)
+                continue;
+
+            if (line.StartsWith("## ", StringComparison.Ordinal))
+            {
+                section = line[3..].Trim();
+                continue;
+            }
+
+            if (i + 1 >= lines.Length
+                || !IsMarkdownTableLine(line)
+                || !IsMarkdownSeparatorLine(lines[i + 1]))
+            {
+                continue;
+            }
+
+            i += 2;
+            var rows = 0;
+            while (i < lines.Length && IsMarkdownTableLine(lines[i]))
+            {
+                if (!IsMarkdownSeparatorLine(lines[i]))
+                    rows++;
+                i++;
+            }
+            i--;
+            yield return (section, rows);
+        }
+    }
+
+    private static bool IsMarkdownTableLine(string line)
+    {
+        string trimmed = line.Trim();
+        return trimmed.Length >= 2
+            && trimmed.StartsWith('|')
+            && trimmed.EndsWith('|');
+    }
+
+    private static bool IsMarkdownSeparatorLine(string line)
+    {
+        if (!IsMarkdownTableLine(line))
+            return false;
+
+        var cells = line.Trim().Trim('|').Split(
+            '|',
+            StringSplitOptions.TrimEntries);
+        return cells.Length > 0 && cells.All(cell =>
+            cell.Length > 0
+            && cell.Any(character => character == '-')
+            && cell.All(character => character is '-' or ':' or ' '));
+    }
+
     private static class ResourceTriageFixture
     {
         public static int ReadBeforeReturn(Stream stream)
@@ -17771,8 +17851,7 @@ public partial class CommandExecutionTests
                         row.Count,
                         CultureInfo.InvariantCulture),
                     StringComparer.OrdinalIgnoreCase);
-            var renderedCounts = CountOutput
-                .CountMarkdownTableRowsBySection(renderOutput)
+            var renderedCounts = CountRenderedMarkdownTableRowsBySection(renderOutput)
                 .GroupBy(
                     row =>
                     {
@@ -17827,11 +17906,68 @@ public partial class CommandExecutionTests
                         "q");
 
                 Assert.Equal(0, formattedExit);
-                Assert.Equal(countOutput, formattedOutput);
                 Assert.DoesNotContain(
                     "unprojected output",
                     formattedError,
                     StringComparison.OrdinalIgnoreCase);
+
+                if (format is "--json" or "--jsonl")
+                {
+                    var documents = format == "--json"
+                        ? JsonDocument.Parse(formattedOutput).RootElement
+                            .EnumerateArray()
+                            .Select(element => element.Clone())
+                            .ToArray()
+                        : formattedOutput
+                            .ReplaceLineEndings("\n")
+                            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                            .Select(line => JsonDocument.Parse(line).RootElement.Clone())
+                            .ToArray();
+                    Assert.Equal(mapped.Count, documents.Length);
+                    foreach (var document in documents)
+                    {
+                        Assert.Equal(
+                            JsonValueKind.Number,
+                            document.GetProperty("count").ValueKind);
+                        Assert.Equal(
+                            mapped[document.GetProperty("section").GetString()!],
+                            document.GetProperty("count").GetInt32());
+                    }
+                }
+                else if (format == "--tsv")
+                {
+                    var rows = formattedOutput
+                        .ReplaceLineEndings("\n")
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                        .Skip(1)
+                        .Select(line => line.Split('\t'))
+                        .ToDictionary(
+                            cells => cells[0],
+                            cells => int.Parse(
+                                cells[1],
+                                CultureInfo.InvariantCulture),
+                            StringComparer.OrdinalIgnoreCase);
+                    Assert.Equal(mapped.Count, rows.Count);
+                    foreach (var (section, count) in mapped)
+                        Assert.Equal(count, rows[section]);
+                }
+                else
+                {
+                    var lines = formattedOutput
+                        .ReplaceLineEndings("\n")
+                        .Split('\n');
+                    foreach (var (section, count) in mapped)
+                    {
+                        Assert.Contains(
+                            lines,
+                            line => line.Contains(
+                                    section,
+                                    StringComparison.Ordinal)
+                                && line.Contains(
+                                    count.ToString(CultureInfo.InvariantCulture),
+                                    StringComparison.Ordinal));
+                    }
+                }
             }
 
             var (categoryExit, categoryOutput, categoryError) =
@@ -17892,8 +18028,7 @@ public partial class CommandExecutionTests
                     "q");
             Assert.Equal(0, metadataImageRenderExit);
             Assert.Equal(
-                CountOutput.CountMarkdownTableRows(
-                    metadataImageRender),
+                CountRenderedMarkdownTableRows(metadataImageRender),
                 metadataImageCount);
             Assert.Contains(
                 $"## {MetadataSectionNames.Image} (ref/",
@@ -17924,12 +18059,20 @@ public partial class CommandExecutionTests
                     "q");
 
             Assert.Equal(0, emptyExit);
-            Assert.Contains(
-                $"| {SectionNames.IdentifierConfusion} | 0 |",
-                emptyOutput);
-            Assert.Contains(
-                $"| {SectionNames.NonNormalizedPaths} | 0 |",
-                emptyOutput);
+            using var emptyDocument = JsonDocument.Parse(emptyOutput);
+            var emptyRows = emptyDocument.RootElement
+                .EnumerateArray()
+                .ToDictionary(
+                    row => row.GetProperty("section").GetString()!,
+                    row => row.GetProperty("count").GetInt32(),
+                    StringComparer.OrdinalIgnoreCase);
+            Assert.Equal(0, emptyRows[SectionNames.IdentifierConfusion]);
+            Assert.Equal(0, emptyRows[SectionNames.NonNormalizedPaths]);
+            Assert.All(
+                emptyDocument.RootElement.EnumerateArray(),
+                row => Assert.Equal(
+                    JsonValueKind.Number,
+                    row.GetProperty("count").ValueKind));
             Assert.DoesNotContain(
                 "unprojected output",
                 emptyError,
