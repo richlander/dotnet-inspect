@@ -42,7 +42,7 @@ public class E2EFixtureTests
 
         string observedAllocateOneRow = RowContaining(
             output,
-            "il-offset-hot",
+            "shape-hot",
             "RunFaster.AllocationFixture.Program.AllocateOne()");
         Assert.Contains("Object", observedAllocateOneRow); // AllocationKind
         Assert.Contains("Return", observedAllocateOneRow); // EscapeKind
@@ -288,7 +288,7 @@ public class E2EFixtureTests
     }
 
     [Fact]
-    public void Correlate_FilteredTriage_DoesNotCreditUnexportedCalleeToCaller()
+    public void Correlate_RejectsNonPerformanceRootRow()
     {
         string triagePath = Path.Combine(
             Path.GetTempPath(),
@@ -298,7 +298,54 @@ public class E2EFixtureTests
             File.WriteAllText(
                 triagePath,
                 """
-                {"performance":{"boxing":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"RunFaster.AllocationFixture","method_token":"0x06000001","shape":"box-value-type","il":"IL_0000","allocation":"boxed System.Int32"}]}}
+                {"method":"RunFaster.AllocationFixture.Program.AllocateOne()","kind":"Telemetry","assembly":"RunFaster.AllocationFixture","method_token":"0x06000002","il":"IL_0000","allocation":"System.Object"}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "contains no Performance Triage rows",
+                result.Error);
+            Assert.Empty(result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Theory]
+    [InlineData("Wrong.Assembly", "System.Object")]
+    [InlineData("RunFaster.AllocationFixture", "Other.Namespace.Object")]
+    public void Correlate_RequiresMatchingAssemblyAndAllocatedType(
+        string assembly,
+        string allocatedType)
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var allocateOne =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "AllocateOne",
+                BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(allocateOne);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[allocateOne.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"arrays":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"{{{assembly}}}","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","shape":"fixture-object","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"{{{allocatedType}}}"}]}}
                 """);
 
             var result = RunCorrelate(
@@ -320,7 +367,49 @@ public class E2EFixtureTests
                 output.RootElement.GetProperty(
                     "candidates").EnumerateArray());
             Assert.Equal(
-                "cold-for-this-workload",
+                0,
+                candidate.GetProperty("allocationBytes").GetInt64());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_FilteredTriage_DoesNotCreditUnexportedCalleeToCaller()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"RunFaster.AllocationFixture","method_token":"0x06000001","shape":"object-allocation","il":"IL_0000","allocation":"System.Object"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                0,
+                output.RootElement.GetProperty(
+                    "observedCandidates").GetInt32());
+            var candidate = Assert.Single(
+                output.RootElement.GetProperty(
+                    "candidates").EnumerateArray());
+            Assert.Equal(
+                "type-hot",
                 candidate.GetProperty("status").GetString());
             Assert.Equal(
                 0,
@@ -399,6 +488,26 @@ public class E2EFixtureTests
             Assert.Equal(
                 0,
                 library.GetProperty("allocationBytes").GetInt64());
+            Assert.Equal(
+                "superseded-by-triage",
+                library.GetProperty("status").GetString());
+
+            var markdown = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+            Assert.Equal(0, markdown.ExitCode);
+            Assert.Empty(markdown.Error);
+            Assert.Contains(
+                "1 static candidate row(s) were not observed",
+                markdown.Output);
+            Assert.DoesNotContain(
+                "2 static candidate row(s) were not observed",
+                markdown.Output);
         }
         finally
         {

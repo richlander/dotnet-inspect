@@ -149,6 +149,7 @@ For a filtered export, the trace join stops at the first frame in the
 represented assembly; it does not walk past an unexported in-assembly callee
 and credit an outer caller. If `--library` and `--triage` name the same physical
 site, the shape-compatible triage row supplies the single attribution.
+The raw library row is marked `superseded-by-triage`, not workload-cold.
 
 ## Select direct caller-loop repetition
 

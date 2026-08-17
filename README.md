@@ -353,7 +353,8 @@ For filtered triage exports, allocation-stack correlation stops at the first
 frame in the represented assembly. If that method has no exported row, the
 allocation remains unattributed rather than being credited to an outer caller.
 When the same site arrives from both `--library` and `--triage`, the
-shape-compatible triage row supplies the richer single attribution.
+shape-compatible triage row supplies the richer single attribution; the raw
+library row is marked `superseded-by-triage`, not workload-cold.
 
 `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
 cross-method repetition fact. `CallerLoop=direct` means a resolved invocation

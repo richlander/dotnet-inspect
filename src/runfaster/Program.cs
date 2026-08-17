@@ -549,8 +549,6 @@ static bool LooksLikeTriageRow(JsonElement element)
             element,
             "Shape",
             "shape",
-            "Kind",
-            "kind",
             "AllocationKind",
             "allocationKind") is not null;
     bool hasCompactPerformanceSchema =
@@ -823,8 +821,9 @@ static bool TryCorrelateNetTrace(
             while (stack != null)
             {
                 TraceCodeAddress address = stack.CodeAddress;
-                matchedCandidates = lookup
-                    .FindNearestByCodeAddress(address)
+                var coordinateCandidates = lookup
+                    .FindNearestByCodeAddress(address);
+                matchedCandidates = coordinateCandidates
                     .Where(candidate =>
                         !string.Equals(
                             candidate.Source,
@@ -839,6 +838,16 @@ static bool TryCorrelateNetTrace(
                             "triage",
                             StringComparison.Ordinal)))
                 {
+                    foreach (var candidate in coordinateCandidates.Where(candidate =>
+                                 string.Equals(
+                                     candidate.Source,
+                                     "library",
+                                     StringComparison.Ordinal)
+                                 && candidate.MatchesAllocatedType(
+                                     data.TypeName)))
+                    {
+                        candidate.SupersededByTriage = true;
+                    }
                     matchedCandidates = matchedCandidates
                         .Where(candidate => string.Equals(
                             candidate.Source,
@@ -1380,6 +1389,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     var cold = result.Candidates
         .Where(c => !c.IsObserved
             && !c.TypeConfirmed
+            && !c.SupersededByTriage
             && c.HasRuntimeCoordinate)
         .ToArray();
     var unjoinable = result.Candidates
@@ -1656,6 +1666,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. `.nettrace` allocation ticks stop at the first frame in a represented assembly and join only that method token and nearest-preceding IL offset; an unexported in-assembly callee is not attributed to its caller.");
     Console.WriteLine("- The kind-first table ranks realized allocation volume by static `AllocationKind`; `EscapeKind` is the static promotion prior for that hot site.");
     Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `il-offset-hot` means a `.nettrace` allocation tick joined to a single nearest-preceding static IL allocation site. `allocation-hot` means raw allocation events occurred with the method on-stack. `shape-hot` means the allocated type matched the static allocation shape. `shape-hot-ambiguous` means multiple same-shape static rows share that evidence. `confirmed-hot` means an exact token+IL coordinate was observed.");
+    Console.WriteLine("- `superseded-by-triage` means the same physical site was observed through a richer shape-compatible triage row; it is not workload-cold.");
 }
 
 static void RenderPlainText(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates)
@@ -2173,6 +2184,7 @@ sealed class AllocationCandidate(
     public int TypeConfirmedSiteCount { get; set; }
     public bool TypeConfirmed => TypeConfirmedBytes > 0 && !IsObserved;
     public bool TypeConfirmedAmbiguous => TypeConfirmedSiteCount > 1;
+    public bool SupersededByTriage { get; set; }
     public bool RowAmbiguous => AmbiguousIlOffsetJoin || (ShapeMatched && SameMethodShapeRows > 1 && !ExactOffsetObserved);
     public bool UnambiguousIlOffsetJoinObserved => IlOffsetJoinObserved && !AmbiguousIlOffsetJoin;
     public HashSet<string> ObservedSources { get; } = new(StringComparer.Ordinal);
@@ -2196,7 +2208,7 @@ sealed class AllocationCandidate(
     // the Loop/Once split is a static prior the trace does not verify. "Seen" here means the site was
     // observed directly OR its type was realized-hot via type-confirmation (#2264); a type-confirmed
     // loop site is therefore hot, not cold (it would otherwise be mislabeled "not exercised").
-    bool SeenHot => IsObserved || TypeConfirmed;
+    bool SeenHot => IsObserved || TypeConfirmed || SupersededByTriage;
     public string? MultiplicityCheck
     {
         get
@@ -2235,7 +2247,9 @@ sealed class AllocationCandidate(
         && (MethodToken & 0x00FFFFFF) != 0
         && IlOffset >= 0;
     public string TokenAndOffset => $"{DisplayHelpers.FormatToken(MethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
-    public string Status => ShapeMatched
+    public string Status => SupersededByTriage
+        ? "superseded-by-triage"
+        : ShapeMatched
         ? RowAmbiguous ? "shape-hot-ambiguous" : "shape-hot"
         : UnambiguousIlOffsetJoinObserved ? "il-offset-hot"
         : AllocationHits > 0
@@ -2294,23 +2308,42 @@ sealed class AllocationCandidate(
     {
         left = NormalizeTypeName(left);
         right = NormalizeTypeName(right);
-        return string.Equals(left, right, StringComparison.Ordinal)
-            || string.Equals(LeafTypeName(left), LeafTypeName(right), StringComparison.Ordinal);
+        return string.Equals(
+            ProgramSupport.CanonicalTypeSignature(left),
+            ProgramSupport.CanonicalTypeSignature(right, reflection: true),
+            StringComparison.Ordinal);
     }
 
     static string NormalizeTypeName(string value)
-        => value.Replace("class ", "", StringComparison.Ordinal)
-            .Replace("value class ", "", StringComparison.Ordinal)
-            .Replace("valuetype ", "", StringComparison.Ordinal)
-            .Trim();
-
-    static string LeafTypeName(string value)
     {
-        int generic = value.IndexOf('<');
-        if (generic >= 0)
-            value = value[..generic];
-        int dot = value.LastIndexOf('.');
-        return dot >= 0 ? value[(dot + 1)..] : value;
+        value = value.Trim();
+                 bool stripped;
+                 do
+                 {
+                     stripped = false;
+                     foreach (string prefix in new[]
+                              {
+                                  "boxed ",
+                                  "value class ",
+                                  "valuetype ",
+                                  "class "
+                              })
+            {
+                         if (!value.StartsWith(
+                                 prefix,
+                                 StringComparison.OrdinalIgnoreCase))
+                         {
+                             continue;
+                         }
+
+                         value = value[prefix.Length..].Trim();
+                         stripped = true;
+                         break;
+                     }
+                 }
+                 while (stripped);
+
+                 return value;
     }
 
     public static AllocationCandidate FromOccurrence(int id, string path, AllocationOccurrence occurrence) => new(
@@ -2505,7 +2538,10 @@ sealed class CandidateLookup
         if (token == 0)
             return [];
 
-        var moduleCandidates = ModuleLookupKeys(modulePath, moduleName)
+        var moduleKeys = ModuleLookupKeys(modulePath, moduleName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var moduleCandidates = moduleKeys
             .SelectMany(moduleKey => _byModuleMethodToken.TryGetValue((moduleKey, token), out var candidates) ? candidates : [])
             .DistinctBy(static candidate => candidate.Id)
             .ToArray();
@@ -2513,7 +2549,9 @@ sealed class CandidateLookup
         var search = moduleCandidates
             .Where(candidate => candidate.IlOffset <= ilOffset)
             .ToArray();
-        if (search.Length == 0 && !string.IsNullOrWhiteSpace(methodName))
+        if (search.Length == 0
+            && moduleKeys.Length == 0
+            && !string.IsNullOrWhiteSpace(methodName))
         {
             search = _byModuleMethodToken
                 .Where(pair => pair.Key.Token == token)
@@ -2545,10 +2583,16 @@ sealed class CandidateLookup
     {
         if (NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
             yield return assembly;
-        if (NormalizeModuleKey(candidate.LibraryPath) is { Length: > 0 } path)
-            yield return path;
-        if (NormalizeModuleKey(Path.GetFileName(candidate.LibraryPath)) is { Length: > 0 } file)
-            yield return file;
+        if (string.Equals(
+                candidate.Source,
+                "library",
+                StringComparison.Ordinal))
+        {
+            if (NormalizeModuleKey(candidate.LibraryPath) is { Length: > 0 } path)
+                yield return path;
+            if (NormalizeModuleKey(Path.GetFileName(candidate.LibraryPath)) is { Length: > 0 } file)
+                yield return file;
+        }
     }
 
     static IEnumerable<string> ModuleLookupKeys(string? modulePath, string? moduleName)
@@ -2733,7 +2777,9 @@ internal static class ProgramSupport
         var byCanon = new Dictionary<string, List<AllocationCandidate>>(StringComparer.Ordinal);
         foreach (var candidate in result.Candidates)
         {
-            if (candidate.IsObserved || candidate.PredictedType is not { Length: > 0 } type)
+            if (candidate.IsObserved
+                || candidate.SupersededByTriage
+                || candidate.PredictedType is not { Length: > 0 } type)
                 continue;
             var canon = CanonicalTypeSignature(type);
             if (canon.Length == 0 || observedCanons.Contains(canon))
