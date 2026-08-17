@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using NuGetFetch;
 
@@ -6,6 +7,14 @@ namespace NuGetFetch.Tests;
 
 public sealed class PackageSourceClientTests
 {
+    private const string GallerySearch =
+        "https://azuresearch-usnc.nuget.org/query";
+    private const string GalleryVersions =
+        "https://globalcdn.nuget.org/v3-flatcontainer/contoso/index.json";
+    private const string GalleryPackage =
+        "https://globalcdn.nuget.org/packages/contoso.1.0.0.nupkg";
+    private const string GallerySymbols =
+        "https://globalcdn.nuget.org/symbol-packages/contoso.1.0.0.snupkg";
     private const string ServiceIndex =
         "https://feed.example/v3/index.json";
     private const string FlatContainer =
@@ -337,17 +346,278 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
-    public void FactoryRejectsKindsWithoutAnImplementation()
+    public async Task GalleryClientUsesKnownEndpointsWithoutServiceIndex()
+    {
+        var handler = new RecordingHandler
+        {
+            [GallerySearch] = """
+                {
+                  "data": [
+                    {
+                      "id": "Contoso",
+                      "version": "1.0.0"
+                    }
+                  ]
+                }
+                """,
+            [GalleryVersions] = """{"versions":["1.0.0"]}""",
+            [GalleryPackage] = "package bytes",
+            [GallerySymbols] = "symbol bytes",
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        Assert.Equal(
+            PackageSourceCapabilities.Search
+                | PackageSourceCapabilities.VersionEnumeration
+                | PackageSourceCapabilities.PackagePayload
+                | PackageSourceCapabilities.SymbolPayload,
+            runtime.Capabilities);
+        SearchResult result = Assert.Single(
+            await runtime.SearchAsync(
+                "contoso",
+                cancellationToken:
+                    TestContext.Current.CancellationToken));
+        Assert.Equal("Contoso", result.Id);
+        Assert.Equal(
+            ["1.0.0"],
+            await runtime.GetVersionsAsync(
+                "Contoso",
+                TestContext.Current.CancellationToken));
+        await using Stream package = await runtime.GetPackageAsync(
+            "Contoso",
+            "1.0",
+            TestContext.Current.CancellationToken);
+        await using Stream? symbols = await runtime.TryGetSymbolsAsync(
+            "Contoso",
+            "1.0",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("package bytes", await ReadAsync(package));
+        Assert.Equal("symbol bytes", await ReadAsync(symbols!));
+        Assert.DoesNotContain(
+            handler.Requested,
+            url => url.Contains(
+                "api.nuget.org/v3/index.json",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            handler.Requested,
+            url => url.StartsWith(
+                $"{GallerySearch}?",
+                StringComparison.Ordinal));
+        string searchRequest = Assert.Single(
+            handler.Requested,
+            url => url.StartsWith(
+                GallerySearch,
+                StringComparison.Ordinal));
+        Assert.Contains("q=contoso", searchRequest);
+        Assert.Contains("prerelease=false", searchRequest);
+        Assert.Contains("semVerLevel=2.0.0", searchRequest);
+        Assert.Equal(
+            [GalleryVersions, GalleryPackage, GallerySymbols],
+            handler.Requested.Where(
+                url => !url.StartsWith(
+                    GallerySearch,
+                    StringComparison.Ordinal)));
+        Assert.All(handler.Authentication, Assert.Null);
+        Assert.All(
+            handler.Headers,
+            headers =>
+            {
+                Assert.DoesNotContain("Authorization", headers.Keys);
+                Assert.DoesNotContain("Cookie", headers.Keys);
+                Assert.DoesNotContain("X-NuGet-ApiKey", headers.Keys);
+            });
+    }
+
+    [Fact]
+    public async Task GalleryMissingSymbolsReturnNull()
+    {
+        var handler = new RecordingHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        Assert.Null(
+            await runtime.TryGetSymbolsAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        Assert.Equal([GallerySymbols], handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryRejectsInvalidVersionMetadata()
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = """{"versions":["../1.0.0"]}""",
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains("invalid package version", error.Message);
+        Assert.Equal([GalleryVersions], handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryRejectsNullVersionDocument()
+    {
+        var handler = new RecordingHandler
+        {
+            [GalleryVersions] = "null",
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        InvalidOperationException error =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains("not a valid version document", error.Message);
+        Assert.Equal([GalleryVersions], handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryMissingPackageHasNoVersions()
+    {
+        var handler = new RecordingHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        Assert.Empty(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+        Assert.Equal([GalleryVersions], handler.Requested);
+    }
+
+    [Fact]
+    public void GalleryRejectsCredentials()
     {
         using var client = new HttpClient(new RecordingHandler());
 
-        PackageSourceClientUnavailableException error =
-            Assert.Throws<PackageSourceClientUnavailableException>(
+        ArgumentException error = Assert.Throws<ArgumentException>(
+            () => PackageSourceClientFactory.Create(
+                PackageSourceDescriptor.NuGetGallery,
+                client,
+                credential:
+                    new PackageSourceCredential("user", "token")));
+
+        Assert.Contains("does not accept credentials", error.Message);
+    }
+
+    [Fact]
+    public void GalleryRejectsSharedHttpClient()
+    {
+        var handler = new RecordingHandler();
+        using var client = new HttpClient(handler);
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "secret");
+        client.DefaultRequestHeaders.TryAddWithoutValidation(
+            "Cookie",
+            "session=secret");
+        client.DefaultRequestHeaders.TryAddWithoutValidation(
+            "X-NuGet-ApiKey",
+            "secret");
+
+        InvalidOperationException error =
+            Assert.Throws<InvalidOperationException>(
                 () => PackageSourceClientFactory.Create(
                     PackageSourceDescriptor.NuGetGallery,
                     client));
 
-        Assert.Equal(PackageSourceKind.NuGetGallery, error.Kind);
+        Assert.Contains("isolated transport", error.Message);
+        Assert.Empty(handler.Requested);
+    }
+
+    [Fact]
+    public void GalleryOwnedTransportIsDisposedWithClient()
+    {
+        var handler = new RecordingHandler();
+        IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        runtime.Dispose();
+
+        Assert.True(handler.Disposed);
+    }
+
+    [Fact]
+    public void GalleryOwnedTransportLeavesLibraryDeadlinesAuthoritative()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMinutes(5),
+            OperationTimeout = TimeSpan.FromMinutes(10),
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                new RecordingHandler(),
+                options);
+        NuGetGalleryPackageSourceClient gallery =
+            Assert.IsType<NuGetGalleryPackageSourceClient>(runtime);
+
+        Assert.Equal(Timeout.InfiniteTimeSpan, gallery.TransportTimeout);
+        Assert.Equal(
+            options.RequestTimeout,
+            NuGetFetchOptions.RequestTimeoutForClient(
+                options,
+                gallery.TransportTimeout));
+    }
+
+    [Fact]
+    public async Task GalleryEscapesUnicodePackageIdsAsOneSegment()
+    {
+        const string versions =
+            "https://globalcdn.nuget.org/v3-flatcontainer/caf%C3%A9/index.json";
+        var handler = new RecordingHandler
+        {
+            [versions] = """{"versions":["1.0.0"]}""",
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        Assert.Equal(
+            ["1.0.0"],
+            await runtime.GetVersionsAsync(
+                "Caf\u00E9",
+                TestContext.Current.CancellationToken));
+        Assert.Equal([versions], handler.Requested);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GalleryRequestsUseLibraryDeadlines(bool payload)
+    {
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                new StallingHandler(),
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(50),
+                    OperationTimeout = TimeSpan.FromSeconds(1),
+                });
+
+        Task request = payload
+            ? runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken)
+            : runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+            async () => await request);
     }
 
     [Fact]
@@ -371,6 +641,18 @@ public sealed class PackageSourceClientTests
             : Encoding.UTF8.GetString(
                 Convert.FromBase64String(parameter));
 
+    private static async Task<string> ReadAsync(Stream stream)
+    {
+        using var reader = new StreamReader(
+            stream,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true,
+            bufferSize: 1024,
+            leaveOpen: true);
+        return await reader.ReadToEndAsync(
+            TestContext.Current.CancellationToken);
+    }
+
     private sealed class RecordingHandler : HttpMessageHandler
     {
         private readonly Dictionary<string, string> _routes =
@@ -380,6 +662,9 @@ public sealed class PackageSourceClientTests
 
         public List<string> Requested { get; } = [];
         public List<string?> Authentication { get; } = [];
+        public List<IReadOnlyDictionary<string, string[]>> Headers { get; } =
+            [];
+        public bool Disposed { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -389,7 +674,20 @@ public sealed class PackageSourceClientTests
             Requested.Add(url);
             Authentication.Add(
                 request.Headers.Authorization?.Parameter);
-            bool hasResponse = _routes.ContainsKey(url);
+            Headers.Add(
+                request.Headers.ToDictionary(
+                    header => header.Key,
+                    header => header.Value.ToArray(),
+                    StringComparer.OrdinalIgnoreCase));
+            string? route = _routes.Keys.FirstOrDefault(
+                candidate => url.Equals(
+                        candidate,
+                        StringComparison.OrdinalIgnoreCase)
+                    || candidate == GallerySearch
+                        && url.StartsWith(
+                            GallerySearch + "?",
+                            StringComparison.OrdinalIgnoreCase));
+            bool hasResponse = route is not null;
             HttpStatusCode status = hasResponse
                 ? HttpStatusCode.OK
                 : HttpStatusCode.NotFound;
@@ -397,10 +695,27 @@ public sealed class PackageSourceClientTests
             {
                 Content = new StringContent(
                     hasResponse
-                        ? _routes.GetValueOrDefault(url)!
+                        ? _routes.GetValueOrDefault(route!)!
                         : ""),
                 RequestMessage = request,
             });
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            Disposed = true;
+            base.Dispose(disposing);
+        }
+    }
+
+    private sealed class StallingHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("Unreachable.");
         }
     }
 }
