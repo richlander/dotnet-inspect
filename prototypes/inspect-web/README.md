@@ -47,6 +47,11 @@ shortening the selected assembly set.
    differ, per matching implementation asset. Malformed selected entries remain
    participants so queries report their rejection. Acquisition never inspects
    one.
+   The Browser adapter places one 30-second operation deadline around coordinate
+   resolution and payload acquisition. The deadline token flows through the
+   shared resolver, retry, response-body, archive-validation, and store paths;
+   expiry is surfaced as a visible timeout instead of leaving the page behind
+   an unbounded loading indicator.
 3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
    and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
    exposes exactly two hand-offs — `Use(group => query(group))` and
@@ -142,7 +147,13 @@ flat-container resource without losing a signed base query or allowing a
 coordinate to rewrite the resource path.
 `PackageCoordinateResolverTests.Coordinate_RejectsAPackageIdOutsideTheGrammar`,
 `ListVersions_UsesAuthorizedSourcesWithoutPersistentCaching`, and
-`BrowserEngineBoundaryTests.PackageCoordinates_AreRejectedBeforeAnyCacheOrNetworkAccess`
+`BrowserEngineBoundaryTests.PackageCoordinates_AreRejectedBeforeAnyCacheOrNetworkAccess`,
+`BrowserEngineBoundaryTests.PackageResolution_StallBecomesVisibleOperationTimeout`,
+`BrowserEngineBoundaryTests.PackageAcquisition_StallBecomesVisibleOperationTimeout`,
+`BrowserEngineBoundaryTests.PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller`,
+`BrowserEngineBoundaryTests.PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent`,
+and
+`BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout`
 gate these boundaries.
 
 Acquisition is bounded before content enters either cache or workspace. A
@@ -252,8 +263,8 @@ beside a product-selected compile asset).
 
 Three exports touch **no artifact at all** and say so in place: `SearchTypes`
 (ranking names the client already holds, through `TypeMatcher`),
-`PackageCacheStats`, and `ListStyleTiers`/`ListStyleOptions` (the
-`StyleOptionCatalog`).
+`PackageCacheStats`, and `ListVocabulary` (the shared product-owned vocabulary
+catalog).
 
 `QueryPackageIntegrations` groups the query's own
 `EcosystemIntegrationSignalInfo` values by the integration name the scanner
@@ -437,8 +448,9 @@ not answer report the engine's failure rather than fixture results.
 - Arrow keys or `j`/`k` navigate the type index.
 - Number keys switch the active scope's lenses when an input is not focused.
 - `share` copies the package, version, framework, type, and lens selection.
-- The Taste popover and Settings page render their groups, summaries, and
-  ordering from `StyleOptionCatalog`; the browser does not restate that taxonomy.
+- The Taste popover and Settings page consume the same `C# Style Tiers` and
+  `C# Style Choices` vocabulary sections as the CLI; the browser does not
+  restate their taxonomy.
 
 ## Deploy
 
