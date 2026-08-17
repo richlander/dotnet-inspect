@@ -3643,8 +3643,6 @@ public class PackageCommand
                 CommandError.WriteNote("matched sections have no data across all libraries.");
 
             var projection = CaptureAllLibrariesCounts(
-                packageName,
-                version,
                 inspections,
                 sections,
                 libraryOptions,
@@ -3982,10 +3980,19 @@ public class PackageCommand
             return false;
         }
 
-        var table = BuildAllLibrariesTable(packageName, version, inspections, sections[0]);
+        string section = sections[0];
+        bool windowsPerLibrary = section.Equals(
+            "Library Info",
+            StringComparison.OrdinalIgnoreCase);
+        var table = BuildAllLibrariesTable(
+            packageName,
+            version,
+            inspections,
+            section,
+            windowsPerLibrary ? options.Rows : null);
         if (table == null)
         {
-            CommandError.Write($"--all-libraries row output does not support section: {sections[0]}.");
+            CommandError.Write($"--all-libraries row output does not support section: {section}.");
             CommandError.WriteLine("Use Markdown output, or select Library Info, Switches, Integration: Opportunities, or a focused Integration: section.");
             return false;
         }
@@ -3998,17 +4005,11 @@ public class PackageCommand
 
         OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
         {
-            var writerOptions = OutputFormatter.CreateProjectedWriterOptions(
-                options.Columns,
-                options.Fields);
-            OutputFormatter.ConfigureTableWriterOptions(
-                writerOptions,
-                options.Tsv,
-                options.Jsonl);
+            var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
             var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
             markoutWriter.WriteTable(table.Headers, table.StableHeaders, table.Rows);
             markoutWriter.Flush();
-        }, options.Rows);
+        }, windowsPerLibrary ? null : options.Rows);
         return true;
     }
 
@@ -4018,12 +4019,18 @@ public class PackageCommand
         string packageName,
         string version,
         List<LibraryInspection> inspections,
-        string section)
+        string section,
+        RowWindow? perLibraryRows = null)
     {
         if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
         {
             var libraryInfoRows = inspections
-                .SelectMany(inspection => BuildLibraryInfoRows(packageName, version, inspection))
+                .SelectMany(inspection => RowWindow.Apply(
+                    perLibraryRows,
+                    BuildLibraryInfoRows(
+                        packageName,
+                        version,
+                        inspection).ToArray()))
                 .ToArray();
             return new(
                 ["Package", "Version", "Library", "TFM", "Field", "Value"],
@@ -4115,6 +4122,9 @@ public class PackageCommand
                      ("Custom Attributes", info.CustomAttributes),
                      ("Deterministic", info.Deterministic ? "Yes" : "No"),
                      ("Extension Methods", info.ExtensionMethods),
+                     ("Facade", info.Facade is { } facade
+                         ? facade ? "Yes" : "No"
+                         : null),
                      ("File Size", info.FileSize),
                      ("Informational Version", info.InformationalVersion),
                      ("Integrations", info.Integrations),
@@ -4131,6 +4141,7 @@ public class PackageCommand
                      ("Target Framework", info.TargetFramework),
                      ("Type Forwarders", info.TypeForwarders),
                      ("Types", info.Types),
+                     ("Union Types", info.UnionTypes),
                      ("Version", info.Version)
                  })
         {
@@ -4340,8 +4351,6 @@ public class PackageCommand
         };
 
     private static CountProjection CaptureAllLibrariesCounts(
-        string packageName,
-        string version,
         List<LibraryInspection> inspections,
         List<string> sections,
         LibraryOptions options,
@@ -4351,30 +4360,6 @@ public class PackageCommand
 
         foreach (var section in sections)
         {
-            if (BuildAllLibrariesTable(
-                    packageName,
-                    version,
-                    inspections,
-                    section) is { } table)
-            {
-                var writerOptions =
-                    OutputFormatter.CreateProjectedWriterOptions(
-                        options.Columns,
-                        options.Fields,
-                        options.Rows);
-                projection.Merge(CountProjectionFormatter.Capture(
-                    writer =>
-                    {
-                        writer.WriteHeading(2, section);
-                        writer.WriteTable(
-                            table.Headers,
-                            table.StableHeaders,
-                            table.Rows);
-                    },
-                    writerOptions));
-                continue;
-            }
-
             if (IsAggregatedAllLibrariesSection(section))
             {
                 if (BuildAggregatedSection(section, inspections) is { } document)

@@ -21899,11 +21899,33 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_AllLibraries_CountWindowsCombinedTableOnce()
+    public async Task Package_AllLibraries_LibraryInfoWindowsPerLibraryBeforeCombining()
     {
         var (package, directory) = CreateLocalLibPackage();
         try
         {
+            var allRows = await RunAppAsync(
+                "package",
+                package,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--jsonl");
+            var allCount = await RunAppAsync(
+                "package",
+                package,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--count");
+            var singleCount = await RunAppAsync(
+                "package",
+                package,
+                "--library",
+                "Latest.One.dll",
+                "-S",
+                "Library Info",
+                "--count");
             var rows = await RunAppAsync(
                 "package",
                 package,
@@ -21923,15 +21945,38 @@ public partial class CommandExecutionTests
                 "--rows",
                 "1");
 
+            Assert.Equal(0, allRows.Exit);
+            Assert.Equal(0, allCount.Exit);
+            Assert.Equal(0, singleCount.Exit);
             Assert.Equal(0, rows.Exit);
             Assert.Equal(0, count.Exit);
+            Assert.Contains("Using TFM:", allRows.Error);
+            Assert.Contains("Using TFM:", allCount.Error);
             Assert.Contains("Using TFM:", rows.Error);
             Assert.Contains("Using TFM:", count.Error);
-            Assert.Single(
+            Assert.Empty(singleCount.Error);
+            string[] all = allRows.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(
+                all.Length.ToString(CultureInfo.InvariantCulture),
+                allCount.Output.Trim());
+            Assert.Equal(
+                2 * int.Parse(
+                    singleCount.Output,
+                    CultureInfo.InvariantCulture),
+                all.Length);
+            Assert.Contains(
+                all,
+                row => row.Contains(
+                    "\"field\":\"Union Types\"",
+                    StringComparison.Ordinal));
+            Assert.Equal(
+                2,
                 rows.Output.Split(
                     '\n',
-                    StringSplitOptions.RemoveEmptyEntries));
-            Assert.Equal("1", count.Output.Trim());
+                    StringSplitOptions.RemoveEmptyEntries).Length);
+            Assert.Equal("2", count.Output.Trim());
         }
         finally
         {
