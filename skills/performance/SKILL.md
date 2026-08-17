@@ -145,6 +145,10 @@ runfaster correlate --triage triage.json --trace workload.nettrace
 Compact `Performance:* --jsonl` rows omit deep provenance and cannot support an
 exact trace join. `runfaster` keeps their operation `Token` separate from the
 declaring `MethodToken` and reports missing runtime coordinates explicitly.
+For a filtered export, the trace join stops at the first frame in the
+represented assembly; it does not walk past an unexported in-assembly callee
+and credit an outer caller. If `--library` and `--triage` name the same physical
+site, the shape-compatible triage row supplies the single attribution.
 
 ## Select direct caller-loop repetition
 

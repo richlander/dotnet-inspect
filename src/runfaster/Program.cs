@@ -822,12 +822,39 @@ static bool TryCorrelateNetTrace(
             IReadOnlyList<AllocationCandidate> matchedCandidates = [];
             while (stack != null)
             {
-                matchedCandidates = lookup.FindNearestByCodeAddress(stack.CodeAddress);
+                TraceCodeAddress address = stack.CodeAddress;
+                matchedCandidates = lookup
+                    .FindNearestByCodeAddress(address)
+                    .Where(candidate =>
+                        !string.Equals(
+                            candidate.Source,
+                            "triage",
+                            StringComparison.Ordinal)
+                        || candidate.MatchesAllocatedType(
+                            data.TypeName))
+                    .ToArray();
+                if (matchedCandidates.Any(candidate =>
+                        string.Equals(
+                            candidate.Source,
+                            "triage",
+                            StringComparison.Ordinal)))
+                {
+                    matchedCandidates = matchedCandidates
+                        .Where(candidate => string.Equals(
+                            candidate.Source,
+                            "triage",
+                            StringComparison.Ordinal))
+                        .ToArray();
+                }
+
                 if (matchedCandidates.Count > 0)
                 {
-                    matchedAddress = stack.CodeAddress;
+                    matchedAddress = address;
                     break;
                 }
+
+                if (lookup.IsCandidateModule(address))
+                    break;
 
                 stack = stack.Caller;
             }
@@ -1626,7 +1653,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine("## Reading this report");
     Console.WriteLine();
     Console.WriteLine("- Static rows are IL-visible candidates from dotnet-inspect Performance Triage.");
-    Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. `.nettrace` allocation ticks use the innermost stack frame whose method token and IL offset can join to a static allocation site by nearest-preceding IL offset.");
+    Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. `.nettrace` allocation ticks stop at the first frame in a represented assembly and join only that method token and nearest-preceding IL offset; an unexported in-assembly callee is not attributed to its caller.");
     Console.WriteLine("- The kind-first table ranks realized allocation volume by static `AllocationKind`; `EscapeKind` is the static promotion prior for that hot site.");
     Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `il-offset-hot` means a `.nettrace` allocation tick joined to a single nearest-preceding static IL allocation site. `allocation-hot` means raw allocation events occurred with the method on-stack. `shape-hot` means the allocated type matched the static allocation shape. `shape-hot-ambiguous` means multiple same-shape static rows share that evidence. `confirmed-hot` means an exact token+IL coordinate was observed.");
 }
@@ -2351,15 +2378,18 @@ sealed class CandidateLookup
 {
     readonly Dictionary<(int Token, int Offset), List<AllocationCandidate>> _byTokenOffset;
     readonly Dictionary<(string Module, int Token), List<AllocationCandidate>> _byModuleMethodToken;
+    readonly HashSet<string> _candidateModules;
     readonly List<(string Fragment, AllocationCandidate Candidate)> _methodFragments;
 
     CandidateLookup(
         Dictionary<(int Token, int Offset), List<AllocationCandidate>> byTokenOffset,
         Dictionary<(string Module, int Token), List<AllocationCandidate>> byModuleMethodToken,
+        HashSet<string> candidateModules,
         List<(string Fragment, AllocationCandidate Candidate)> methodFragments)
     {
         _byTokenOffset = byTokenOffset;
         _byModuleMethodToken = byModuleMethodToken;
+        _candidateModules = candidateModules;
         _methodFragments = methodFragments;
     }
 
@@ -2409,7 +2439,11 @@ sealed class CandidateLookup
         foreach (var tokenList in byModuleMethodToken.Values)
             tokenList.Sort(static (left, right) => left.IlOffset.CompareTo(right.IlOffset));
 
-        return new CandidateLookup(byTokenOffset, byModuleMethodToken, fragments);
+        return new CandidateLookup(
+            byTokenOffset,
+            byModuleMethodToken,
+            [.. byModuleMethodToken.Keys.Select(static key => key.Module)],
+            fragments);
 
         void AddFragment(string value, AllocationCandidate candidate)
         {
@@ -2451,6 +2485,12 @@ sealed class CandidateLookup
             address.ModuleName,
             address.FullMethodName);
     }
+
+    public bool IsCandidateModule(TraceCodeAddress address)
+        => ModuleLookupKeys(
+                address.ModuleFilePath,
+                address.ModuleName)
+            .Any(_candidateModules.Contains);
 
     public IReadOnlyList<AllocationCandidate> FindNearestByTokenOffset(
         int token,

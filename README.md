@@ -349,6 +349,11 @@ The compact `Performance:* --jsonl` table intentionally carries only the tight
 human-facing columns and therefore cannot support an exact trace join.
 `runfaster` reports those rows as not runtime-correlatable rather than treating
 them as negative workload evidence.
+For filtered triage exports, allocation-stack correlation stops at the first
+frame in the represented assembly. If that method has no exported row, the
+allocation remains unattributed rather than being credited to an outer caller.
+When the same site arrives from both `--library` and `--triage`, the
+shape-compatible triage row supplies the richer single attribution.
 
 `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
 cross-method repetition fact. `CallerLoop=direct` means a resolved invocation
