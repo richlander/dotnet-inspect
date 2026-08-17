@@ -363,12 +363,13 @@ public sealed class LambdaRaisingPass : IIrPass
             return null;
         bool hasByRefParameter =
             body.Signature.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef);
+        var host = RootFunction(creation);
         if (hasByRefParameter
             && (creation.Method.HasRefReadOnlyParameters
                 || creation.Method.ParameterRefKindsFacts != ParameterRefKindFacts.Known
                 || creation.Method.ParameterRefKinds.Length != body.Signature.Parameters.Length
                 || body.Signature.Parameters.Any(
-                    parameter => !CSharpSpellability.CanSpellExplicitParameterType(parameter.Type))))
+                    parameter => !CSharpSpellability.CanSpellExplicitParameterType(parameter.Type, host))))
         {
             return null;
         }

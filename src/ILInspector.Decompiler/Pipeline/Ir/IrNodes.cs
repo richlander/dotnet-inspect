@@ -351,6 +351,7 @@ public sealed class IrFunction : IrNode
     public int MetadataToken { get; set; }
     public TypeRef? BaseType { get; set; }
     public MethodSignature Signature { get; }
+    public ImmutableArray<string> DeclaringTypeGenericParameterNames { get; set; } = [];
     /// <summary>
     /// Typed constructor evidence decoded from the reserved metadata method name
     /// (<c>.ctor</c>/<c>.cctor</c>) at import time. Consumers (e.g. compile-back

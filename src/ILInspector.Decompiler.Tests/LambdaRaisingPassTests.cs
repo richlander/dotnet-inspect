@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using ILInspector.Decompiler.Pipeline;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -302,7 +303,7 @@ public class LambdaRaisingPassTests
             out var candidate);
 
         Assert.Equal(TypeRefKind.ByRef, candidate.ParameterTypes[0].Kind);
-        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(candidate.ParameterTypes[1]));
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(candidate.ParameterTypes[1], host));
         Assert.Empty(host.Descendants.OfType<Lambda>());
         Assert.Single(host.Descendants.OfType<DelegateCreation>());
     }
@@ -315,10 +316,138 @@ public class LambdaRaisingPassTests
             out var candidate);
 
         Assert.Equal(TypeRefKind.ByRef, candidate.ParameterTypes[0].Kind);
-        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(candidate.ParameterTypes[1]));
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(candidate.ParameterTypes[1], host));
         var lambda = Assert.Single(host.Descendants.OfType<Lambda>());
         Assert.Equal([ArgumentRefKind.Ref, ArgumentRefKind.Value], lambda.ParameterRefKinds);
         Assert.Empty(host.Descendants.OfType<DelegateCreation>());
+    }
+
+    [Fact]
+    public void ByRefLambdaWithInScopeGenericSibling_RaisesAtExplicitParameterBoundary()
+    {
+        var fixtureHost = RunIsolatedCompilerLambdaRaise(
+            typeof(GenericLambdaRaisingSamples<>),
+            nameof(GenericLambdaRaisingSamples<int>.ByRefLambdaWithGenericSibling),
+            out var candidate);
+        var host = RunSyntheticSiblingLambdaRaise(
+            candidate.ParameterTypes[1],
+            fixtureHost.DeclaringTypeGenericParameterNames);
+
+        Assert.Equal(TypeRefKind.GenericParameter, candidate.ParameterTypes[1].Kind);
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(candidate.ParameterTypes[1], host));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+        Assert.Empty(host.Descendants.OfType<DelegateCreation>());
+    }
+
+    [Fact]
+    public void ByRefLambdaWithRefReadonlyFunctionPointerSibling_StaysLowered()
+    {
+        var host = RunIsolatedCompilerLambdaRaise(
+            typeof(VoidLambdaRaisingSamples),
+            nameof(VoidLambdaRaisingSamples.ByRefLambdaWithRefReadonlyFunctionPointerSibling),
+            out var candidate);
+
+        Assert.Equal(TypeRefKind.FunctionPointer, candidate.ParameterTypes[1].Kind);
+        Assert.False(candidate.ParameterTypes[1].FunctionPointerSignatureIsExact);
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(candidate.ParameterTypes[1], host));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+        Assert.Single(host.Descendants.OfType<DelegateCreation>());
+    }
+
+    [Fact]
+    public void ByRefLambdaWithExactFunctionPointerSibling_Raises()
+    {
+        var functionPointer = TypeRef.FunctionPointer(
+            TypeRef.CoreLib("System", "Void"),
+            [TypeRef.ByRef(s_int)],
+            "");
+        var host = RunSyntheticSiblingLambdaRaise(functionPointer);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(functionPointer, host));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+        Assert.Empty(host.Descendants.OfType<DelegateCreation>());
+    }
+
+    public static TheoryData<ArgumentRefKind, TypeRef> ExactFunctionPointerSiblingTypes() => new()
+    {
+        {
+            ArgumentRefKind.In,
+            FunctionPointerWithParameterModifier(
+                "System.Runtime.InteropServices",
+                "InAttribute")
+        },
+        {
+            ArgumentRefKind.Out,
+            FunctionPointerWithParameterModifier(
+                "System.Runtime.InteropServices",
+                "OutAttribute")
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(ExactFunctionPointerSiblingTypes))]
+    public void ByRefLambdaWithExactFunctionPointerRefKindSibling_Raises(
+        ArgumentRefKind expectedRefKind,
+        TypeRef functionPointer)
+    {
+        var host = RunSyntheticSiblingLambdaRaise(functionPointer);
+
+        Assert.True(functionPointer.FunctionPointerSignatureIsExact);
+        Assert.Equal([expectedRefKind], functionPointer.FunctionPointerParameterRefKinds);
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(functionPointer, host));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    public static TheoryData<string, TypeRef> SpellableExplicitSiblingTypes() => new()
+    {
+        {
+            "pointer array generic argument",
+            TypeRef.GenericInstance(
+                TypeRef.CoreLib("System.Collections.Generic", "List`1"),
+                [TypeRef.SzArray(TypeRef.Pointer(s_int))])
+        },
+        {
+            "function-pointer array generic argument",
+            TypeRef.GenericInstance(
+                TypeRef.CoreLib("System.Collections.Generic", "List`1"),
+                [TypeRef.SzArray(
+                    TypeRef.FunctionPointer(TypeRef.CoreLib("System", "Void"), [], ""))])
+        },
+        {
+            "nested exact generic arity",
+            TypeRef.GenericInstance(
+                TypeRef.Definition("Synthetic", "Samples", "Outer`1+Inner`1"),
+                [s_int, s_int])
+        },
+        {
+            "member-function convention",
+            FunctionPointerWithConventionModifier("MemberFunction")
+        },
+        { "rank-two MD array", TypeRef.MdArray(s_int, 2) },
+        { "rank-thirty-two MD array", TypeRef.MdArray(s_int, 32) },
+    };
+
+    [Theory]
+    [MemberData(nameof(SpellableExplicitSiblingTypes))]
+    public void ByRefLambdaWithSpellableTypeShapeSibling_Raises(string _, TypeRef siblingType)
+    {
+        var host = RunSyntheticSiblingLambdaRaise(siblingType);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(siblingType, host));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+        Assert.Empty(host.Descendants.OfType<DelegateCreation>());
+    }
+
+    [Fact]
+    public void ByRefLambdaWithInScopeMethodGenericSibling_Raises()
+    {
+        var siblingType = TypeRef.MethodGenericParameter(0, "T");
+        var host = RunSyntheticSiblingLambdaRaise(
+            siblingType,
+            methodGenericParameterNames: ["T"]);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(siblingType, host));
+        Assert.Single(host.Descendants.OfType<Lambda>());
     }
 
     [Fact]
@@ -405,11 +534,76 @@ public class LambdaRaisingPassTests
         { "nested by-ref", TypeRef.ByRef(TypeRef.ByRef(s_int)) },
         { "by-ref array element", TypeRef.SzArray(TypeRef.ByRef(s_int)) },
         { "void", TypeRef.CoreLib("System", "Void") },
+        { "open generic definition", TypeRef.Definition("Synthetic", "Samples", "Pair`2") },
+        { "malformed generic arity", TypeRef.Definition("Synthetic", "Samples", "Pair`many") },
+        { "too few generic arguments",
+            TypeRef.GenericInstance(TypeRef.Definition("Synthetic", "Samples", "Pair`2"), [s_int]) },
+        { "too many generic arguments",
+            TypeRef.GenericInstance(TypeRef.Definition("Synthetic", "Samples", "Pair`2"), [s_int, s_int, s_int]) },
+        { "arguments on a non-generic definition",
+            TypeRef.GenericInstance(TypeRef.Definition("Synthetic", "Samples", "Plain"), [s_int]) },
+        { "pointer generic argument",
+            TypeRef.GenericInstance(
+                TypeRef.CoreLib("System.Collections.Generic", "List`1"),
+                [TypeRef.Pointer(s_int)]) },
+        { "function-pointer generic argument",
+            TypeRef.GenericInstance(
+                TypeRef.CoreLib("System.Collections.Generic", "List`1"),
+                [TypeRef.FunctionPointer(TypeRef.CoreLib("System", "Void"), [], "")]) },
+        { "rank-zero MD array", TypeRef.MdArray(s_int, 0) },
+        { "rank-one MD array", TypeRef.MdArray(s_int, 1) },
+        { "excessive MD array rank", TypeRef.MdArray(s_int, 33) },
+        { "non-default MD array bounds", TypeRef.MdArray(s_int, 2, arrayShapeIsExact: false) },
+        { "instantiated non-default MD array bounds",
+            TypeRef.MdArray(
+                    TypeRef.GenericParameter(0, "T"),
+                    2,
+                    arrayShapeIsExact: false)
+                .Instantiate([s_int], []) },
+        { "out-of-scope type generic parameter", TypeRef.GenericParameter(0, "T") },
+        { "out-of-scope method generic parameter", TypeRef.MethodGenericParameter(0, "T") },
+        { "lossy function-pointer convention",
+            TypeRef.FunctionPointer(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                "unmanaged",
+                callingConventionIsExact: false) },
+        { "instantiated lossy function-pointer convention",
+            TypeRef.FunctionPointer(
+                    TypeRef.CoreLib("System", "Void"),
+                    [TypeRef.GenericParameter(0, "T")],
+                    "unmanaged",
+                    callingConventionIsExact: false)
+                .Instantiate([s_int], []) },
+        { "unknown function-pointer convention modifier",
+            FunctionPointerWithConventionModifier("Unknown") },
+        { "required function-pointer convention modifier",
+            FunctionPointerWithConventionModifier("Cdecl", isRequired: true) },
+        { "unknown function-pointer parameter modifier",
+            FunctionPointerWithParameterModifier("Synthetic", "UnknownModifier") },
+        { "invalid function-pointer convention text",
+            TypeRef.FunctionPointer(
+                TypeRef.CoreLib("System", "Void"),
+                [],
+                "unmanaged[Unknown]") },
     };
 
     [Theory]
     [MemberData(nameof(UnspellableExplicitSiblingTypes))]
     public void ByRefLambdaWithUnspellableSibling_StaysLowered(string _, TypeRef siblingType)
+    {
+        var host = RunSyntheticSiblingLambdaRaise(siblingType);
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(siblingType, host));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+        Assert.Single(host.Descendants.OfType<DelegateCreation>());
+        host.CheckInvariant();
+    }
+
+    static IrFunction RunSyntheticSiblingLambdaRaise(
+        TypeRef siblingType,
+        ImmutableArray<string> declaringTypeGenericParameterNames = default,
+        ImmutableArray<string> methodGenericParameterNames = default)
     {
         var holder = TypeRef.Definition("Synthetic", "Samples", "Outer+<>c");
         var delegateType = TypeRef.Definition("Synthetic", "Samples", "RefCallback");
@@ -434,9 +628,26 @@ public class LambdaRaisingPassTests
         var host = new IrFunction(
             "M",
             TypeRef.Definition("Synthetic", "Samples", "Outer"),
-            new MethodSignature(delegateType, [], HasThis: false, GenericParameterCount: 0),
+            new MethodSignature(
+                delegateType,
+                [],
+                HasThis: false,
+                GenericParameterCount: methodGenericParameterNames.IsDefault
+                    ? 0
+                    : methodGenericParameterNames.Length)
+            {
+                GenericParameterNames = methodGenericParameterNames.IsDefault
+                    ? []
+                    : methodGenericParameterNames,
+            },
             [],
-            hostBody);
+            hostBody)
+        {
+            DeclaringTypeGenericParameterNames =
+                declaringTypeGenericParameterNames.IsDefault
+                    ? []
+                    : declaringTypeGenericParameterNames,
+        };
 
         var lambdaBlock = new Block();
         lambdaBlock.Add(new Return(null));
@@ -458,11 +669,31 @@ public class LambdaRaisingPassTests
             new PassContext(
                 new Stepper(enabled: false),
                 importMethodBody: _ => lambdaBody));
+        return host;
+    }
 
-        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(siblingType));
-        Assert.Empty(host.Descendants.OfType<Lambda>());
-        Assert.Single(host.Descendants.OfType<DelegateCreation>());
-        host.CheckInvariant();
+    static TypeRef FunctionPointerWithParameterModifier(string ns, string name)
+    {
+        var parameter = TypeRef.ByRef(s_int).WithCustomModifier(
+            TypeRef.Definition(TypeRef.CoreLibrary, ns, name),
+            isRequired: true);
+        return TypeRef.FunctionPointer(
+            TypeRef.CoreLib("System", "Void"),
+            [parameter],
+            "");
+    }
+
+    static TypeRef FunctionPointerWithConventionModifier(
+        string name,
+        bool isRequired = false)
+    {
+        var returnType = TypeRef.CoreLib("System", "Void").WithCustomModifier(
+            TypeRef.Definition(
+                TypeRef.CoreLibrary,
+                "System.Runtime.CompilerServices",
+                $"CallConv{name}"),
+            isRequired);
+        return TypeRef.FunctionPointer(returnType, [], "unmanaged");
     }
 
     static void AssertRefLambdaCompiles(string body)
@@ -491,26 +722,22 @@ public class LambdaRaisingPassTests
     }
 
     static IrFunction RunIsolatedCompilerLambdaRaise(
+        Type fixtureType,
         string methodName,
         out MethodRef candidate)
     {
-        using var source = MetadataSource.Open(typeof(VoidLambdaRaisingSamples).Assembly.Location);
+        using var source = MetadataSource.Open(fixtureType.Assembly.Location);
         var fixture = IrImporter.Import(
             source,
-            typeof(VoidLambdaRaisingSamples).FullName!,
+            fixtureType.FullName!,
             methodName);
         Assert.NotNull(fixture);
+        candidate = Assert.Single(fixture!.Descendants.OfType<LoadFunctionPointer>()).Method;
         var result = CSharpPrinter.PrintRaised(
             fixture!,
             method => IrImporter.Import(source, method));
         Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
-        candidate = Assert.Single(fixture!.Descendants.OfType<LoadFunctionPointer>()).Method;
-        var delegateType = TypeRef.GenericInstance(
-            TypeRef.Definition(
-                typeof(VoidLambdaRaisingSamples).Assembly.GetName().Name!,
-                typeof(VoidLambdaRaisingSamples).Namespace ?? string.Empty,
-                $"{nameof(VoidLambdaRaisingSamples)}+{nameof(VoidLambdaRaisingSamples.RefSiblingCallback<int>)}`1"),
-            [candidate.ParameterTypes[1]]);
+        var delegateType = TypeRef.Definition("Synthetic", "Samples", "RefCallback");
 
         var singleton = new LoadField(
             new FieldRef(candidate.DeclaringType, "<>9", candidate.DeclaringType),
@@ -525,14 +752,13 @@ public class LambdaRaisingPassTests
         container.Add(block);
         var host = new IrFunction(
             "M",
-            TypeRef.Definition("Synthetic", "Samples", "Outer"),
-            new MethodSignature(
-                delegateType,
-                [],
-                HasThis: false,
-                GenericParameterCount: 0),
+            fixture.DeclaringType,
+            fixture.Signature with { ReturnType = delegateType, Parameters = [] },
             [],
-            container);
+            container)
+        {
+            DeclaringTypeGenericParameterNames = fixture.DeclaringTypeGenericParameterNames,
+        };
 
         new LambdaRaisingPass().Run(
             host,
@@ -542,6 +768,14 @@ public class LambdaRaisingPassTests
         host.CheckInvariant();
         return host;
     }
+
+    static IrFunction RunIsolatedCompilerLambdaRaise(
+        string methodName,
+        out MethodRef candidate)
+        => RunIsolatedCompilerLambdaRaise(
+            typeof(VoidLambdaRaisingSamples),
+            methodName,
+            out candidate);
 
     [Fact]
     public void VoidBodyWithNestedControlFlow_StaysLowered()
@@ -891,6 +1125,9 @@ public static class VoidLambdaRaisingSamples
     public delegate void RefCallback(ref int value);
     public delegate void RefReadonlyCallback(ref readonly int value);
     public delegate void RefSiblingCallback<T>(ref int value, T sibling);
+    public unsafe delegate void RefReadonlyFunctionPointerSiblingCallback(
+        ref int value,
+        delegate*<ref readonly int, void> sibling);
 
     // The captured parameter is also consumed by the outer body, keeping the
     // display class in a local like NLOptNet.AddLessOrEqualZeroConstraints.
@@ -945,6 +1182,11 @@ public static class VoidLambdaRaisingSamples
     public static RefSiblingCallback<int> ByRefLambdaWithSpellableSibling()
         => (ref int value, int sibling) => System.Console.WriteLine(value + sibling);
 
+    public static unsafe RefReadonlyFunctionPointerSiblingCallback
+        ByRefLambdaWithRefReadonlyFunctionPointerSibling()
+        => (ref int value, delegate*<ref readonly int, void> sibling)
+            => System.Console.WriteLine(value);
+
     public static RefReadonlyCallback RefReadonlyVoidLambda()
         => (ref readonly int value) => System.Console.WriteLine(value);
 
@@ -963,6 +1205,14 @@ public static class VoidLambdaRaisingSamples
             if (x > 0)
                 System.Console.WriteLine(x);
         };
+}
+
+public static class GenericLambdaRaisingSamples<T>
+{
+    public delegate void RefGenericCallback(ref int value, T sibling);
+
+    public static RefGenericCallback ByRefLambdaWithGenericSibling()
+        => (ref int value, T sibling) => System.Console.WriteLine(value);
 }
 
 // Negative fixtures for LambdaRaisingPass: a captured variable mutated after the

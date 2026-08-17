@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -17,13 +19,23 @@ internal static class CSharpSpellability
     internal readonly record struct NameIssue(string Discriminator, string Reason);
 
     enum PlaceKind { Argument, Local, StackSlot }
+    enum ExplicitTypeContext
+    {
+        Parameter,
+        Element,
+        GenericArgument,
+        ArrayElement,
+        PointerElement,
+        FunctionPointerParameter,
+        FunctionPointerReturn,
+    }
 
     public static bool HasUnrepresentableMetadataName(IrNode node)
         => InspectUnrepresentableMetadataName(node) is not null;
 
-    public static bool CanSpellExplicitParameterType(TypeRef type)
+    public static bool CanSpellExplicitParameterType(TypeRef type, IrFunction host)
         => !type.ContainsUnsupported
-            && HasExplicitParameterTypeShape(type, allowByRef: true, allowVoid: false)
+            && HasExplicitParameterTypeShape(type, ExplicitTypeContext.Parameter, host)
             && TypeIssue(type) is null;
 
     internal static NameIssue? InspectUnrepresentableMetadataName(IrNode node)
@@ -437,50 +449,200 @@ internal static class CSharpSpellability
         }
     }
 
-    static bool HasExplicitParameterTypeShape(TypeRef type, bool allowByRef, bool allowVoid)
+    static bool HasExplicitParameterTypeShape(
+        TypeRef type,
+        ExplicitTypeContext context,
+        IrFunction host)
     {
         switch (type.Kind)
         {
             case TypeRefKind.Definition:
-                return allowVoid || !IsCoreLibVoid(type);
+                return TryGetTotalGenericArity(type.Name, out int definitionArity)
+                    && definitionArity == 0
+                    && (AllowsVoid(context) || !IsCoreLibVoid(type));
 
             case TypeRefKind.GenericInstance:
-                return type.ElementType is { } definition
-                    && HasExplicitParameterTypeShape(definition, allowByRef: false, allowVoid: false)
+                return type.ElementType is
+                    {
+                        Kind: TypeRefKind.Definition,
+                        Name: var definitionName,
+                    } definition
+                    && TryGetTotalGenericArity(definitionName, out int genericArity)
+                    && genericArity > 0
+                    && type.TypeArguments.Length == genericArity
+                    && TypeIssue(definition) is null
                     && type.TypeArguments.All(
-                        argument => HasExplicitParameterTypeShape(argument, allowByRef: false, allowVoid: false));
+                        argument => HasExplicitParameterTypeShape(
+                            argument,
+                            ExplicitTypeContext.GenericArgument,
+                            host));
 
             case TypeRefKind.SzArray:
-            case TypeRefKind.Array:
                 return type.ElementType is { } arrayElement
-                    && HasExplicitParameterTypeShape(arrayElement, allowByRef: false, allowVoid: false);
+                    && HasExplicitParameterTypeShape(
+                        arrayElement,
+                        ExplicitTypeContext.ArrayElement,
+                        host);
+
+            case TypeRefKind.Array:
+                return type.ArrayShapeIsExact
+                    && type.Rank is >= 2 and <= 32
+                    && type.ElementType is { } mdArrayElement
+                    && HasExplicitParameterTypeShape(
+                        mdArrayElement,
+                        ExplicitTypeContext.ArrayElement,
+                        host);
 
             case TypeRefKind.ByRef:
-                return allowByRef
+                return AllowsByRef(context)
                     && type.ElementType is { } byRefElement
-                    && HasExplicitParameterTypeShape(byRefElement, allowByRef: false, allowVoid: false);
+                    && HasExplicitParameterTypeShape(
+                        byRefElement,
+                        ExplicitTypeContext.Element,
+                        host);
 
             case TypeRefKind.Pointer:
-                return type.ElementType is { } pointerElement
-                    && HasExplicitParameterTypeShape(pointerElement, allowByRef: false, allowVoid: true);
+                return context != ExplicitTypeContext.GenericArgument
+                    && type.ElementType is { } pointerElement
+                    && HasExplicitParameterTypeShape(
+                        pointerElement,
+                        ExplicitTypeContext.PointerElement,
+                        host);
 
             case TypeRefKind.Pinned:
             case TypeRefKind.Unsupported:
                 return false;
 
             case TypeRefKind.GenericParameter:
+                return GenericParameterIsInScope(
+                    type,
+                    host.DeclaringTypeGenericParameterNames);
+
             case TypeRefKind.MethodGenericParameter:
-                return type.GenericParameterName.Length > 0;
+                return GenericParameterIsInScope(
+                    type,
+                    host.Signature.GenericParameterNames);
 
             case TypeRefKind.FunctionPointer:
-                return type.ElementType is { } returnType
-                    && HasExplicitParameterTypeShape(returnType, allowByRef: true, allowVoid: true)
-                    && type.TypeArguments.All(
-                        parameter => HasExplicitParameterTypeShape(parameter, allowByRef: true, allowVoid: false));
+                return context != ExplicitTypeContext.GenericArgument
+                    && type.FunctionPointerSignatureIsExact
+                    && IsSpellableFunctionPointerCallingConvention(type.CallingConvention)
+                    && type.ElementType is { } returnType
+                    && HasExplicitParameterTypeShape(
+                        returnType,
+                        ExplicitTypeContext.FunctionPointerReturn,
+                        host)
+                    && FunctionPointerParametersHaveExactShapes(type, host);
 
             default:
                 return false;
         }
+    }
+
+    static bool FunctionPointerParametersHaveExactShapes(TypeRef type, IrFunction host)
+    {
+        if (type.FunctionPointerParameterRefKinds.Length != type.TypeArguments.Length)
+            return false;
+        for (int i = 0; i < type.TypeArguments.Length; i++)
+        {
+            var parameter = type.TypeArguments[i];
+            var refKind = type.FunctionPointerParameterRefKinds[i];
+            if ((parameter.Kind == TypeRefKind.ByRef) != (refKind != ArgumentRefKind.Value)
+                || !HasExplicitParameterTypeShape(
+                    parameter,
+                    ExplicitTypeContext.FunctionPointerParameter,
+                    host))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool AllowsByRef(ExplicitTypeContext context)
+        => context is ExplicitTypeContext.Parameter
+            or ExplicitTypeContext.FunctionPointerParameter
+            or ExplicitTypeContext.FunctionPointerReturn;
+
+    static bool AllowsVoid(ExplicitTypeContext context)
+        => context is ExplicitTypeContext.PointerElement
+            or ExplicitTypeContext.FunctionPointerReturn;
+
+    static bool GenericParameterIsInScope(
+        TypeRef type,
+        ImmutableArray<string> names)
+        => type.GenericParameterIndex >= 0
+            && type.GenericParameterIndex < names.Length
+            && type.GenericParameterName.Length > 0
+            && string.Equals(
+                type.GenericParameterName,
+                names[type.GenericParameterIndex],
+                StringComparison.Ordinal);
+
+    static bool IsSpellableFunctionPointerCallingConvention(string convention)
+    {
+        if (convention.Length == 0 || convention == "unmanaged")
+            return true;
+        const string prefix = "unmanaged[";
+        if (!convention.StartsWith(prefix, StringComparison.Ordinal)
+            || !convention.EndsWith(']'))
+        {
+            return false;
+        }
+
+        var parts = convention[prefix.Length..^1]
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0 || parts.Length > 3)
+            return false;
+        bool sawConvention = false;
+        bool sawSuppressGcTransition = false;
+        bool sawMemberFunction = false;
+        foreach (var part in parts)
+        {
+            if (part == "SuppressGCTransition")
+            {
+                if (sawSuppressGcTransition)
+                    return false;
+                sawSuppressGcTransition = true;
+                continue;
+            }
+            if (part == "MemberFunction")
+            {
+                if (sawMemberFunction)
+                    return false;
+                sawMemberFunction = true;
+                continue;
+            }
+            if (part is not ("Cdecl" or "Stdcall" or "Thiscall" or "Fastcall")
+                || sawConvention)
+            {
+                return false;
+            }
+            sawConvention = true;
+        }
+        return true;
+    }
+
+    static bool TryGetTotalGenericArity(string metadataName, out int total)
+    {
+        total = 0;
+        foreach (var segment in metadataName.Split('+'))
+        {
+            int tick = segment.IndexOf('`');
+            if (tick < 0)
+                continue;
+            if (tick == segment.Length - 1
+                || segment.IndexOf('`', tick + 1) >= 0
+                || !int.TryParse(segment[(tick + 1)..], out int arity)
+                || arity <= 0
+                || total > int.MaxValue - arity)
+            {
+                total = 0;
+                return false;
+            }
+            total += arity;
+        }
+        return true;
     }
 
     static string MethodNameDiscriminator(string name)
