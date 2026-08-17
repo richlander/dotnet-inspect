@@ -4012,14 +4012,23 @@ public class PackageCommand
         {
             NewLine = Console.Out.NewLine
         };
+        CountingTextWriter? countingWriter = null;
         TextWriter destination = output;
+        if (InfoTracker.Enabled)
+        {
+            countingWriter = new CountingTextWriter(output);
+            destination = countingWriter;
+        }
+
         TailLineLimitingTextWriter? tailWriter = null;
+        bool hasLineWindow = false;
         if (rowWindow is null
             && CommandLineBuilder.HeadLines is int headLines)
         {
             destination = new LineLimitingTextWriter(
                 destination,
                 headLines);
+            hasLineWindow = true;
         }
 
         if (rowWindow is null
@@ -4029,11 +4038,25 @@ public class PackageCommand
                 destination,
                 tailLines);
             destination = tailWriter;
+            hasLineWindow = true;
         }
 
-        write(destination);
-        tailWriter?.FlushTail();
-        destination.Flush();
+        // Console.SetOut exposes its writer through a synchronized wrapper. Mirror that
+        // composition so formatters take the same streaming path for stdout and files.
+        if (hasLineWindow)
+            destination = TextWriter.Synchronized(destination);
+
+        try
+        {
+            write(destination);
+            tailWriter?.FlushTail();
+            destination.Flush();
+        }
+        finally
+        {
+            if (countingWriter is not null)
+                InfoTracker.RecordOutputChars(countingWriter.CharCount);
+        }
     }
 
     private sealed record AllLibrariesTable(

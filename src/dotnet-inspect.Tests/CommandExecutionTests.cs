@@ -19924,6 +19924,57 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageCommand_AllLibraries_OutputFile_IsIncludedInInfoMetrics()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        string outputPath = Path.Combine(tempDir, "output.txt");
+        try
+        {
+            var baseline = await RunAppInDirectoryAsync(
+                tempDir,
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--table",
+                "--info");
+            var redirected = await RunAppInDirectoryAsync(
+                tempDir,
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--table",
+                "--info",
+                "--out",
+                outputPath);
+
+            Assert.Equal(0, baseline.Exit);
+            Assert.Equal(baseline.Exit, redirected.Exit);
+            Assert.Empty(redirected.Output);
+            Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+
+            static string OutputMetric(string error) =>
+                SplitOutputLines(error).Single(line =>
+                    line.StartsWith("| Output |", StringComparison.Ordinal));
+
+            Assert.Equal(
+                OutputMetric(baseline.Error),
+                OutputMetric(redirected.Error));
+            Assert.DoesNotContain(
+                "| Output | 0 B |",
+                redirected.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_EmptyOutput_TruncatesAndValidatesOutputFile()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
