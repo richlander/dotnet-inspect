@@ -414,8 +414,11 @@ preservation, and the display/structured split are gated by
 `StructuredRead_ReportsNameBudgetNotMalformed`,
 `ProjectedVirtualStringLength_IsRecheckedAfterBlobReader`,
 `TypeSpecNameBudget_IsPreservedAsTypedEvidence`,
-`AppendLeaf_PreflightsActualUtf8OfMaterializedDeclaringName`, and
-`DisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`. Tuple-name, nullability, and dynamic
+`TypeSpecNameBudget_SurvivesLaterMalformedArgument`,
+`AppendLeaf_PreflightsActualUtf8OfMaterializedDeclaringName`,
+`DisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`,
+`NestedDisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`, and
+`EmptyLeadingNameSegment_DoesNotCollideWithTopLevelName`. Tuple-name, nullability, and dynamic
 transform arrays charge their encoded blob before allocating arrays, and one
 type generic context is reused across all of that type's members.
 Visibility probes use bounded blob readers rather than copying skipped

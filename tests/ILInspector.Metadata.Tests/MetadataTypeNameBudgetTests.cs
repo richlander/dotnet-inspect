@@ -426,6 +426,108 @@ public class MetadataTypeNameBudgetTests
     }
 
     [Fact]
+    public void NestedDisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap()
+    {
+        string leafName = new string('A', 5_030);
+        TypeDefinitionHandle leaf = default;
+        using var image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle outer = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "Ns",
+                "Outer");
+            leaf = AddTypeDefinition(
+                metadata,
+                TypeAttributes.NestedPublic,
+                "",
+                leafName);
+            metadata.AddNestedType(leaf, outer);
+        });
+
+        AssertNameBudget(
+            TypeResolver.ResolveTypeNameFromDefinition(image.Reader, leaf));
+        Assert.Equal(
+            "Ns.Outer." + leafName,
+            TypeResolver.GetTypeNameFromDefinition(image.Reader, leaf));
+        Assert.Equal(
+            "Ns.Outer." + leafName,
+            TypeResolver.GetFullName(image.Reader, image.Reader.GetTypeDefinition(leaf)));
+    }
+
+    [Fact]
+    public void EmptyLeadingNameSegment_DoesNotCollideWithTopLevelName()
+    {
+        TypeDefinitionHandle nested = default;
+        TypeDefinitionHandle topLevel = default;
+        using var image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle emptyOuter = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "",
+                "");
+            nested = AddTypeDefinition(
+                metadata,
+                TypeAttributes.NestedPublic,
+                "",
+                "Inner");
+            metadata.AddNestedType(nested, emptyOuter);
+            topLevel = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "",
+                "Inner");
+        });
+
+        Assert.Equal(
+            ".Inner",
+            TypeResolver.ResolveTypeNameFromDefinition(image.Reader, nested)
+                .GetValueOrThrow());
+        Assert.Equal(
+            "Inner",
+            TypeResolver.ResolveTypeNameFromDefinition(image.Reader, topLevel)
+                .GetValueOrThrow());
+    }
+
+    [Fact]
+    public void TypeSpecNameBudget_SurvivesLaterMalformedArgument()
+    {
+        TypeSpecificationHandle specification = default;
+        using var image = BuildMetadata(metadata =>
+        {
+            AssemblyReferenceHandle assembly = AddAssemblyReference(metadata);
+            TypeReferenceHandle oversize = metadata.AddTypeReference(
+                assembly,
+                default,
+                metadata.GetOrAddString(new string('A', 64 * 1024) + "`1"));
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x15);
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(
+                MetadataTokens.GetRowNumber(oversize) << 2 | 1);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger((0x7FFFF << 2) | 1);
+            specification = metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        });
+
+        Assert.Equal(
+            SignatureDecodeRejectionKind.NameBudget,
+            Assert.IsType<SignatureDecodeResult<string>.Rejected>(
+                    TypeResolver.DecodeTypeNameFromSpecification(
+                        image.Reader,
+                        specification))
+                .Rejection.Kind);
+        Assert.Equal(
+            nameof(SignatureDecodeRejectionKind.NameBudget),
+            Assert.IsType<MetadataTypeNameResult.Rejected>(
+                    TypeResolver.ResolveTypeName(image.Reader, specification))
+                .Failure.Kind);
+    }
+
+    [Fact]
     public void ExactBudgetNameFromMetadata_IsAccepted()
     {
         string name = new string(

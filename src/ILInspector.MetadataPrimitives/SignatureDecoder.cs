@@ -120,11 +120,11 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         }
         catch (BadImageFormatException ex)
         {
-            return Malformed<T>(ex);
+            return RecordedOrMalformed<T>(ex);
         }
         catch (ArgumentOutOfRangeException ex)
         {
-            return Malformed<T>(ex);
+            return RecordedOrMalformed<T>(ex);
         }
         finally
         {
@@ -160,6 +160,12 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             $"Metadata relationship traversal rejected ({rejection.Kind}): "
             + rejection.Detail);
     }
+
+    static SignatureDecodeResult<T> RecordedOrMalformed<T>(Exception exception)
+        where T : notnull
+        => s_rejection is { } recorded
+            ? new SignatureDecodeResult<T>.Rejected(recorded)
+            : Malformed<T>(exception);
 
     static SignatureDecodeResult<T> Malformed<T>(Exception exception)
         where T : notnull
