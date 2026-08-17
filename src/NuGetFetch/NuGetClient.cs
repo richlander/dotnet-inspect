@@ -50,7 +50,9 @@ public class NuGetClient(HttpClient client)
             sourceUrl,
             credential,
             operation).ConfigureAwait(false);
-        string url = $"{baseAddress}{packageId.ToLowerInvariant()}/index.json";
+        string url = AppendBaseAddressPath(
+            baseAddress,
+            $"{packageId.ToLowerInvariant()}/index.json");
         PackageSourceCredential? endpointCredential =
             CredentialForEndpoint(sourceUrl, url, credential);
 
@@ -60,7 +62,7 @@ public class NuGetClient(HttpClient client)
                 async requestToken =>
                 {
                     using HttpRequestMessage request =
-                        NuGetHttpRequest.CreateGet(url);
+                        NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
                     ApplyCredential(request, endpointCredential);
                     using HttpResponseMessage response = await client.SendAsync(
                         request,
@@ -150,7 +152,10 @@ public class NuGetClient(HttpClient client)
                     return version;
                 }
             }
-            catch (Exception ex) when (ex is HttpRequestException or JsonException)
+            catch (Exception ex) when (ex is
+                HttpRequestException
+                or JsonException
+                or NuGetSourceResponseException)
             {
                 // Try next source
             }
@@ -174,7 +179,9 @@ public class NuGetClient(HttpClient client)
                 operation).ConfigureAwait(false);
             string id = packageId.ToLowerInvariant();
             string ver = NormalizeVersion(version);
-            string url = $"{baseAddress}{id}/{ver}/{id}.{ver}.nupkg";
+            string url = AppendBaseAddressPath(
+                baseAddress,
+                $"{id}/{ver}/{id}.{ver}.nupkg");
             PackageSourceCredential? endpointCredential =
                 CredentialForEndpoint(sourceUrl, url, credential);
 
@@ -182,7 +189,7 @@ public class NuGetClient(HttpClient client)
                 async requestToken =>
                 {
                     using HttpRequestMessage request =
-                        NuGetHttpRequest.CreateGet(url);
+                        NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
                     ApplyCredential(request, endpointCredential);
                     HttpResponseMessage response = await client.SendAsync(
                         request,
@@ -379,6 +386,16 @@ public class NuGetClient(HttpClient client)
         return queryStart >= 0
             ? $"{path}/{baseAddress[queryStart..]}"
             : baseAddress + "/";
+    }
+
+    private static string AppendBaseAddressPath(
+        string baseAddress,
+        string relativePath)
+    {
+        int queryStart = baseAddress.IndexOf('?', StringComparison.Ordinal);
+        return queryStart >= 0
+            ? $"{baseAddress[..queryStart]}{relativePath}{baseAddress[queryStart..]}"
+            : baseAddress + relativePath;
     }
 
     private NuGetOperationDeadline CreateOperation(

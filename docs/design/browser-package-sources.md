@@ -568,7 +568,9 @@ producer identity so credential scope and future transports use the same key.
 Portable descriptors reject user information, queries, and fragments. The
 desktop compatibility adapter keeps established query-bearing signed service
 indexes as runtime-only configuration rather than admitting them into a
-portable descriptor.
+portable descriptor. Query and fragment components do not enter producer
+identity because signed credentials rotate; feeds that represent distinct
+immutable content domains require distinct endpoint paths.
 The Gallery descriptor creates a runtime client that uses the known search,
 flat-container, package, and symbol CDN routes without requesting the NuGet.org
 service index. The factory creates an isolated credential-free `HttpClient`

@@ -57,7 +57,7 @@ public sealed class PackageSourceClientTests
                 new Uri("https://feed.example/V3/index.json?tenant=a"));
 
         Assert.NotEqual(upperPath, lowerPath);
-        Assert.NotEqual(upperPath, query);
+        Assert.Equal(upperPath, query);
         Assert.Equal(
             "https://feed.example:443/v3/index.json",
             lowerPath.Value);
@@ -275,7 +275,7 @@ public sealed class PackageSourceClientTests
             "secret",
             runtime.Identity.Value,
             StringComparison.OrdinalIgnoreCase);
-        Assert.NotEqual(
+        Assert.Equal(
             runtime.Identity,
             PackageSourceIdentity.ForHttpEndpoint(
                 new Uri(ServiceIndex + "?sig=other")));
@@ -447,6 +447,56 @@ public sealed class PackageSourceClientTests
             failure.Kind);
         Assert.Equal(
             [ServiceIndex, Versions],
+            handler.Requested);
+    }
+
+    [Theory]
+    [InlineData("https://feed.example/v3/flat/?sig=secret")]
+    [InlineData("https://feed.example/v3/flat?sig=secret")]
+    public async Task V3SignedPackageBaseAddressPreservesQuery(
+        string baseAddress)
+    {
+        const string signedVersions =
+            "https://feed.example/v3/flat/contoso/index.json?sig=secret";
+        const string signedPackage =
+            "https://feed.example/v3/flat/contoso/1.0.0/contoso.1.0.0.nupkg?sig=secret";
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{baseAddress}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [signedVersions] = """{"versions":["1.0.0"]}""",
+            [signedPackage] = "package bytes",
+        };
+        using var client = new HttpClient(handler);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("signed-resource", ServiceIndex),
+                client);
+
+        Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+                .Candidates);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "contoso",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await payload.Content.DisposeAsync();
+
+        Assert.Equal(
+            [ServiceIndex, signedVersions, signedPackage],
             handler.Requested);
     }
 

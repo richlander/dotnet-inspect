@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Security.Cryptography;
 using NuGet.Versioning;
 
 namespace NuGetFetch;
@@ -85,10 +84,7 @@ public sealed record PackageSourceIdentity
             absolutePath.EndsWith("/", StringComparison.Ordinal)
                 ? absolutePath[..^1]
                 : absolutePath);
-        return new PackageSourceIdentity(
-            $"{origin}{path}"
-            + SensitiveComponentKey("query", endpoint.Query)
-            + SensitiveComponentKey("fragment", endpoint.Fragment));
+        return new PackageSourceIdentity($"{origin}{path}");
     }
 
     /// <inheritdoc/>
@@ -121,17 +117,6 @@ public sealed record PackageSourceIdentity
         return builder.ToString();
     }
 
-    private static string SensitiveComponentKey(
-        string label,
-        string value)
-    {
-        if (value.Length == 0)
-            return "";
-
-        byte[] digest = SHA256.HashData(
-            Encoding.UTF8.GetBytes(NormalizeEscapes(value)));
-        return $"|{label}-sha256:{Convert.ToHexString(digest)}";
-    }
 }
 
 /// <summary>
