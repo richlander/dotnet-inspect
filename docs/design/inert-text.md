@@ -243,7 +243,7 @@ Two are known, and neither is complete on its own:
 
 | Boundary | Measured size | Tracked by |
 | -------- | ------------- | ---------- |
-| Row and view types | 359 columns across 86 row types | #3463 |
+| Row and view types | 332 columns across 78 row types, pinned by `MarkoutRowContainmentTests` | #3463 |
 | Diagnostic and log callbacks | 97 `Action<string>` sites | #3606 |
 
 Those cover the table path and the logging path. They are not exhaustive: the
