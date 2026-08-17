@@ -218,8 +218,9 @@ without structured graph targets remain ordinary opportunity rows and are not
 invented as graph relationships.
 
 Repeated metadata-reference rows collapse to one semantic occurrence. Missing
-out-of-context references remain outside the selected graph, while ambiguous,
-rejected, or selected-outside-context bindings remain visible as failures.
+out-of-context references remain outside the selected graph, while unavailable,
+ambiguous, rejected, or selected-outside-context bindings remain visible as
+failures.
 Multiple producer failures for one graph subject aggregate into one targeted
 failure with typed per-producer details, preserving the document's
 descriptor/target uniqueness contract without discarding evidence.

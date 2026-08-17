@@ -215,6 +215,7 @@ public enum InspectionGraphIntegrationFailureKind
     ParticipantRejected,
     ParticipantFailed,
     StructuredEvidenceUnavailable,
+    BindingMissing,
     BindingUnavailable,
     BindingAmbiguous,
     BindingRejected,
@@ -645,7 +646,9 @@ public static class InspectionGraphIntegrationsQuery
                             AssemblySubject(
                                 available.Subject.Registration);
                         foreach (AssemblyReferenceIdentity reference
-                            in available.Value.Distinct())
+                            in available.Value.Distinct(
+                                AssemblyReferenceIdentity
+                                    .EquivalentComparer))
                         {
                             if (!TryBindInContext(
                                     available.Subject.Registration,
@@ -656,7 +659,7 @@ public static class InspectionGraphIntegrationsQuery
                             {
                                 if (bindingFailure
                                     != InspectionGraphIntegrationFailureKind
-                                        .BindingUnavailable)
+                                        .BindingMissing)
                                 {
                                     AddFailure(
                                         "references",
@@ -1114,6 +1117,12 @@ public static class InspectionGraphIntegrationsQuery
             participant = null;
             failure = selection switch
             {
+                AssemblyBindingSelection.Missing =>
+                    InspectionGraphIntegrationFailureKind
+                        .BindingMissing,
+                AssemblyBindingSelection.Unavailable =>
+                    InspectionGraphIntegrationFailureKind
+                        .BindingUnavailable,
                 AssemblyBindingSelection.Ambiguous =>
                     InspectionGraphIntegrationFailureKind
                         .BindingAmbiguous,

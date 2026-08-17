@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 
@@ -312,6 +313,46 @@ public sealed class InspectionGraphIntegrationsQueryTests
         Assert.Single(reference.OccurrenceIds);
     }
 
+    [Fact]
+    public void Execute_DeduplicatesEquivalentAssemblyReferenceRows()
+    {
+        using var fixture = IntegrationFixture.Create(
+            equivalentReferenceVariants: true);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+
+        InspectionGraphEdge reference = Assert.Single(
+            document.Edges.Where(edge =>
+                edge.Relationship
+                    == InspectionGraphIntegrationsCatalog.MetadataReference
+                && AssemblyName(document.Nodes[edge.FromNodeId].Subject)
+                    == "ReferenceVariants"
+                && AssemblyName(document.Nodes[edge.ToNodeId].Subject)
+                    == "Foo"));
+        Assert.Single(reference.OccurrenceIds);
+    }
+
+    [Fact]
+    public void Execute_ReportsUnavailableReferenceBinding()
+    {
+        using var fixture = IntegrationFixture.Create(
+            unavailableOpenAiBinding: true);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+
+        Assert.Contains(
+            document.Failures,
+            failure =>
+                Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
+                    failure.Evidence).Details.Any(detail =>
+                        detail.Producer == "references"
+                        && detail.Kind
+                            == InspectionGraphIntegrationFailureKind
+                                .BindingUnavailable));
+    }
+
     static InspectionGraphNode Node(
         InspectionGraphDocument document,
         InspectionGraphSubject subject) =>
@@ -417,7 +458,9 @@ public sealed class InspectionGraphIntegrationsQueryTests
             bool overBudgetAdapterTypeName = false,
             bool duplicateOpenAiReference = false,
             bool openAiAdapterReturnsDifferentAiType = false,
-            bool includeRejectedParticipant = false)
+            bool includeRejectedParticipant = false,
+            bool equivalentReferenceVariants = false,
+            bool unavailableOpenAiBinding = false)
         {
             (
                 PersistedAssemblyBuilder abstractions,
@@ -523,7 +566,24 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 assemblies.Add(RejectedAssembly());
                 packageIds.Add("rejected.integration");
             }
-            var policy = new FixtureBindingPolicy(assemblies);
+            if (equivalentReferenceVariants)
+            {
+                var fooName = new AssemblyName("Foo")
+                {
+                    Version = new Version(1, 0, 0, 0),
+                };
+                var foo = new PersistedAssemblyBuilder(
+                    fooName,
+                    typeof(object).Assembly);
+                foo.DefineDynamicModule("Foo");
+                assemblies.Add(Assembly(foo, "foo"));
+                packageIds.Add("foo");
+                assemblies.Add(EquivalentReferencesAssembly());
+                packageIds.Add("reference.variants");
+            }
+            var policy = new FixtureBindingPolicy(
+                assemblies,
+                unavailableOpenAiBinding);
             WorkspaceContextMember[] members =
             [
                 .. assemblies.Select((assembly, index) =>
@@ -661,6 +721,70 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     "net11.0",
                     null));
 
+        static ResolvedAssemblyReference EquivalentReferencesAssembly()
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("ReferenceVariants.dll"),
+                metadata.GetOrAddGuid(
+                    new Guid(
+                        "84112b51-cad1-4c5d-b499-bbbc52ab47b8")),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("ReferenceVariants"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Foo"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("foo"),
+                new Version(1, 0, 0, 0),
+                metadata.GetOrAddString("neutral"),
+                default,
+                default,
+                default);
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            var pe = new ManagedPEBuilder(
+                new PEHeaderBuilder(
+                    imageCharacteristics:
+                        Characteristics.Dll
+                        | Characteristics.ExecutableImage),
+                new MetadataRootBuilder(metadata),
+                new BlobBuilder());
+            var output = new BlobBuilder();
+            pe.Serialize(output);
+            byte[] bytes = output.ToArray();
+            return ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "ReferenceVariants",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(bytes, writable: false),
+                AssemblyResolutionProvenance.Package(
+                    "reference.variants",
+                    "1.0.0",
+                    "net11.0",
+                    null));
+        }
+
         static WorkspaceContextMember Member(
             ResolvedAssemblyReference assembly,
             string packageId,
@@ -687,10 +811,15 @@ public sealed class InspectionGraphIntegrationsQueryTests
     sealed class FixtureBindingPolicy : IAssemblyBindingPolicy
     {
         readonly IReadOnlyList<ResolvedAssemblyReference> _assemblies;
+        readonly bool _unavailableOpenAiBinding;
 
         internal FixtureBindingPolicy(
-            IReadOnlyList<ResolvedAssemblyReference> assemblies) =>
+            IReadOnlyList<ResolvedAssemblyReference> assemblies,
+            bool unavailableOpenAiBinding)
+        {
             _assemblies = assemblies;
+            _unavailableOpenAiBinding = unavailableOpenAiBinding;
+        }
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
@@ -702,11 +831,22 @@ public sealed class InspectionGraphIntegrationsQueryTests
             {
                 return AssemblyBindingSelection.NotFound();
             }
+            if (_unavailableOpenAiBinding
+                && reference.Identity.Name.Equals(
+                    "OpenAI",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind
+                            .IdentityPolicyRequired));
+            }
 
             ResolvedAssemblyReference[] candidates =
             [
                 .. _assemblies.Where(assembly =>
-                    assembly.Identity == reference.Identity),
+                    assembly.Identity.IsEquivalentTo(
+                        reference.Identity)),
             ];
             return candidates.Length switch
             {
