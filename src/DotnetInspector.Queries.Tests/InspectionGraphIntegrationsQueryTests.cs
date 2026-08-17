@@ -388,6 +388,52 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
+    public void Execute_RetainsEquivalentUnavailableReferenceSpellings()
+    {
+        using var fixture = IntegrationFixture.Create(
+            equivalentReferenceVariants: true,
+            multipleUnavailableReferenceBindings: true);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+
+        InspectionGraphFailure failure = Assert.Single(
+            document.Failures,
+            failure =>
+                failure.Target is
+                    {
+                        Kind: InspectionGraphTargetKind.Node,
+                    } target
+                && AssemblyName(document.Nodes[target.Id].Subject)
+                    == "ReferenceVariants");
+        AssemblyReferenceIdentity[] references =
+        [
+            .. Assert.IsType<
+                    InspectionGraphIntegrationFailureEvidence>(
+                        failure.Evidence)
+                .Details
+                .Where(detail =>
+                    detail.Producer == "references"
+                    && detail.Kind
+                        == InspectionGraphIntegrationFailureKind
+                            .BindingUnavailable)
+                .Select(detail => Assert.IsType<
+                    AssemblyReferenceIdentity>(detail.Reference)),
+        ];
+        Assert.Equal(2, references.Length);
+        Assert.Contains(
+            references,
+            reference =>
+                reference.Name == "Foo"
+                && reference.Culture is null);
+        Assert.Contains(
+            references,
+            reference =>
+                reference.Name == "foo"
+                && reference.Culture == "neutral");
+    }
+
+    [Fact]
     public void Execute_DeduplicatesEquivalentExtensionMethodRows()
     {
         using var fixture = IntegrationFixture.Create(
@@ -1256,7 +1302,12 @@ public sealed class InspectionGraphIntegrationsQueryTests
                             .IdentityPolicyRequired));
             }
             if (_multipleUnavailableReferenceBindings
-                && reference.Identity.Name is "Foo" or "Bar")
+                && (reference.Identity.Name.Equals(
+                        "Foo",
+                        StringComparison.OrdinalIgnoreCase)
+                    || reference.Identity.Name.Equals(
+                        "Bar",
+                        StringComparison.OrdinalIgnoreCase)))
             {
                 return AssemblyBindingSelection.CannotSelect(
                     new AssemblyBindingFailure(

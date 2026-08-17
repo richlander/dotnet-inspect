@@ -221,10 +221,11 @@ without structured graph targets remain ordinary opportunity rows and are not
 invented as graph relationships.
 
 Repeated producer observations collapse by each relationship's declared
-occurrence identity before document construction. Metadata-reference rows first
-normalize by semantic ECMA assembly identity. Missing out-of-context references
-remain outside the selected graph, while unavailable, ambiguous, rejected, or
-selected-outside-context bindings remain visible as failures.
+occurrence identity before document construction. Successfully bound
+metadata-reference rows normalize by semantic ECMA assembly identity, while
+failed rows retain each exact metadata spelling. Missing out-of-context
+references remain outside the selected graph, while unavailable, ambiguous,
+rejected, or selected-outside-context bindings remain visible as failures.
 Named signature scopes use the same semantic assembly-identity equivalence for
 occurrence identity, so case and neutral-culture spelling variants do not
 fabricate distinct extension or Integration observations.

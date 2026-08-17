@@ -792,9 +792,7 @@ public static class InspectionGraphIntegrationsQuery
                             AssemblySubject(
                                 available.Subject.Registration);
                         foreach (AssemblyReferenceIdentity reference
-                            in available.Value.Distinct(
-                                AssemblyReferenceIdentity
-                                    .EquivalentComparer))
+                            in available.Value)
                         {
                             if (!TryBindInContext(
                                     available.Subject.Registration,
