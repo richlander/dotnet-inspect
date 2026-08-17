@@ -1596,6 +1596,8 @@ public partial class CommandExecutionTests
         Assert.Contains("\"finding\": \"analysis.allocation\"", output);
         Assert.Contains("\"provenance\": \"exact\"", output);
         Assert.Contains("\"operation\": \"box\"", output);
+        Assert.Contains("\"assembly\": \"", output);
+        Assert.Contains("\"method_token\": \"0x06", output);
         Assert.Contains("\"token\": \"0x", output);
     }
 

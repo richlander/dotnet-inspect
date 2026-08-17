@@ -45,7 +45,7 @@ static Command CreateCorrelateCommand()
 
     var triageOption = new Option<string[]>("--triage")
     {
-        Description = "dotnet-inspect Performance Triage JSONL rows to include as static candidates",
+        Description = "dotnet-inspect Performance Triage JSON or JSONL to include as static candidates",
         Arity = ArgumentArity.ZeroOrMore,
         AllowMultipleArgumentsPerToken = true
     };
@@ -385,42 +385,212 @@ static bool TryLoadTriageFile(string triageFile, CorrelationResult result, out i
         return false;
     }
 
-    int rows = 0;
     try
     {
-        foreach (var line in File.ReadLines(path))
+        int rows = 0;
+        int candidatesBefore = result.Candidates.Count;
+        try
         {
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
+            using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+            string? assembly = FindDocumentAssembly(document.RootElement);
+            AddTriageDocumentCandidates(
+                document.RootElement,
+                path,
+                assembly,
+                result.Candidates,
+                ref rows);
+        }
+        catch (JsonException)
+        {
+            foreach (var line in File.ReadLines(path))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
 
-            rows++;
-            using var document = JsonDocument.Parse(line);
-            if (TryCreateCandidateFromJson(result.Candidates.Count, path, document.RootElement, out var candidate))
-                result.Candidates.Add(candidate);
+                using var document = JsonDocument.Parse(line);
+                AddTriageCandidates(
+                    document.RootElement,
+                    path,
+                    defaultAssembly: null,
+                    result.Candidates,
+                    ref rows);
+            }
         }
 
-        result.TriageInputs.Add(new TriageInput(path, rows));
+        int loaded = result.Candidates.Count - candidatesBefore;
+        if (rows == 0)
+        {
+            Console.Error.WriteLine(
+                $"Error: triage input contains no Performance Triage rows: "
+                + $"{triageFile}");
+            exitCode = 1;
+            return false;
+        }
+
+        int correlatable = result.Candidates
+            .Skip(candidatesBefore)
+            .Count(static candidate => candidate.HasRuntimeCoordinate);
+        result.TriageInputs.Add(
+            new TriageInput(path, rows, loaded, correlatable));
         return true;
     }
     catch (Exception ex) when (ex is JsonException or IOException)
     {
-        Console.Error.WriteLine($"Error: cannot read triage JSONL '{triageFile}': {ex.Message}");
+        Console.Error.WriteLine($"Error: cannot read triage JSON/JSONL '{triageFile}': {ex.Message}");
         exitCode = 1;
         return false;
     }
 }
 
-static bool TryCreateCandidateFromJson(int id, string path, JsonElement element, out AllocationCandidate candidate)
+static void AddTriageDocumentCandidates(
+    JsonElement root,
+    string path,
+    string? defaultAssembly,
+    List<AllocationCandidate> candidates,
+    ref int rows)
+{
+    if (root.ValueKind == JsonValueKind.Object
+        && (root.TryGetProperty("performance", out var performance)
+            || root.TryGetProperty("Performance", out performance)))
+    {
+        AddTriageCandidates(
+            performance,
+            path,
+            defaultAssembly,
+            candidates,
+            ref rows);
+        return;
+    }
+
+    AddTriageCandidates(
+        root,
+        path,
+        defaultAssembly,
+        candidates,
+        ref rows);
+}
+
+static void AddTriageCandidates(
+    JsonElement element,
+    string path,
+    string? defaultAssembly,
+    List<AllocationCandidate> candidates,
+    ref int rows)
+{
+    if (element.ValueKind == JsonValueKind.Object)
+    {
+        if (LooksLikeTriageRow(element))
+        {
+            rows++;
+            if (TryCreateCandidateFromJson(
+                    candidates.Count,
+                    path,
+                    defaultAssembly,
+                    element,
+                    out var candidate))
+            {
+                candidates.Add(candidate);
+            }
+            return;
+        }
+
+        foreach (var property in element.EnumerateObject())
+            AddTriageCandidates(
+                property.Value,
+                path,
+                defaultAssembly,
+                candidates,
+                ref rows);
+        return;
+    }
+
+    if (element.ValueKind != JsonValueKind.Array)
+        return;
+
+    foreach (var item in element.EnumerateArray())
+        AddTriageCandidates(
+            item,
+            path,
+            defaultAssembly,
+            candidates,
+            ref rows);
+}
+
+static bool LooksLikeTriageRow(JsonElement element)
+    => GetJsonString(
+            element,
+            "Method",
+            "method",
+            "Member",
+            "member") is not null
+        && GetJsonString(
+            element,
+            "Shape",
+            "shape",
+            "Kind",
+            "kind",
+            "AllocationKind",
+            "allocationKind") is not null;
+
+static string? FindDocumentAssembly(JsonElement root)
+{
+    if (GetJsonString(root, "Assembly", "assembly") is { Length: > 0 } assembly)
+        return assembly;
+
+    if (root.ValueKind == JsonValueKind.Object
+        && (root.TryGetProperty("assembly_info", out var info)
+            || root.TryGetProperty("assemblyInfo", out info))
+        && GetJsonString(
+            info,
+            "assembly_name",
+            "assemblyName",
+            "AssemblyName") is { Length: > 0 } assemblyName)
+    {
+        return assemblyName;
+    }
+
+    return null;
+}
+
+static bool TryCreateCandidateFromJson(
+    int id,
+    string path,
+    string? defaultAssembly,
+    JsonElement element,
+    out AllocationCandidate candidate)
 {
     candidate = default!;
     string? method = GetJsonString(element, "Method", "method", "Member", "member", "Selector", "selector", "Stable", "stable");
-    string? tokenText = GetJsonString(element, "MetadataToken", "metadataToken", "Token", "token", "MethodToken", "methodToken");
+    string? methodTokenText = GetJsonString(
+        element,
+        "Method Token",
+        "method_token",
+        "MethodToken",
+        "methodToken");
+    string? operandTokenText = GetJsonString(
+        element,
+        "MetadataToken",
+        "metadataToken",
+        "Token",
+        "token",
+        "OperandToken",
+        "operandToken",
+        "operand_token");
     string? offsetText = GetJsonString(element, "ILOffset", "ilOffset", "IL Offset", "il", "IL", "Offset", "offset");
 
-    int token = TryParseFlexibleInt(tokenText, out var parsedToken) ? parsedToken : 0;
+    int methodToken = TryParseFlexibleInt(
+        methodTokenText,
+        out var parsedMethodToken)
+        ? parsedMethodToken
+        : 0;
+    int? operandToken = TryParseFlexibleInt(
+        operandTokenText,
+        out var parsedOperandToken)
+        ? parsedOperandToken
+        : null;
     int offset = TryParseFlexibleInt(offsetText, out var parsedOffset) ? parsedOffset : -1;
 
-    if (method is null && token == 0)
+    if (method is null && methodToken == 0)
         return false;
 
     string kind = GetJsonString(element, "Shape", "shape", "Kind", "kind", "AllocationKind", "allocationKind") ?? "triage";
@@ -431,11 +601,13 @@ static bool TryCreateCandidateFromJson(int id, string path, JsonElement element,
         id,
         "triage",
         path,
-        GetJsonString(element, "Assembly", "assembly") ?? "",
+        GetJsonString(element, "Assembly", "assembly")
+            ?? defaultAssembly
+            ?? "",
         null,
-        token,
+        methodToken,
         offset,
-        method ?? DisplayHelpers.FormatToken(token),
+        method ?? DisplayHelpers.FormatToken(methodToken),
         DisplayHelpers.MethodKeyFromText(method),
         DisplayHelpers.MethodStackKeyFromText(method),
         kind,
@@ -449,7 +621,11 @@ static bool TryCreateCandidateFromJson(int id, string path, JsonElement element,
         GetJsonString(element, "Root Reach", "root_reach", "rootReach"),
         GetJsonString(element, "Path", "path"),
         GetJsonString(element, "Path Confidence", "path_confidence", "pathConfidence"),
-        GetJsonString(element, "Post Dominance", "post_dominance", "postDominance"));
+        GetJsonString(element, "Post Dominance", "post_dominance", "postDominance"),
+        candidateId: GetJsonString(element, "Candidate", "candidate"),
+        provenance: GetJsonString(element, "Provenance", "provenance"),
+        operation: GetJsonString(element, "Operation", "operation"),
+        operandToken: operandToken);
     return true;
 }
 
@@ -1139,7 +1315,14 @@ static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<Allocatio
 static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates, CorrelateOptions options)
 {
     var observed = candidates.Where(c => c.IsObserved).ToArray();
-    var cold = result.Candidates.Where(c => !c.IsObserved).ToArray();
+    var cold = result.Candidates
+        .Where(c => !c.IsObserved
+            && !c.TypeConfirmed
+            && c.HasRuntimeCoordinate)
+        .ToArray();
+    var unjoinable = result.Candidates
+        .Where(c => !c.IsObserved && !c.HasRuntimeCoordinate)
+        .ToArray();
     var counterObservations = result.DiagnosticInputs
         .Where(static i => string.Equals(i.Kind, "counters", StringComparison.OrdinalIgnoreCase))
         .SelectMany(static i => i.Observations)
@@ -1183,13 +1366,44 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine();
     Console.WriteLine($"Static candidates: {result.Candidates.Count.ToString(CultureInfo.InvariantCulture)}");
     Console.WriteLine($"Runtime-observed candidates: {result.Candidates.Count(c => c.IsObserved).ToString(CultureInfo.InvariantCulture)}");
+    if (result.TriageInputs.Count > 0)
+    {
+        Console.WriteLine(
+            $"Runtime-correlatable triage rows: "
+            + $"{result.TriageInputs.Sum(static input => input.CorrelatableRows).ToString(CultureInfo.InvariantCulture)}"
+            + $"/{result.TriageInputs.Sum(static input => input.LoadedRows).ToString(CultureInfo.InvariantCulture)}");
+    }
     Console.WriteLine();
 
     Console.WriteLine("## Conclusion");
     Console.WriteLine();
     if (observedGroups.Length == 0)
     {
-        Console.WriteLine("No static performance candidate was observed in the supplied runtime diagnostics. Treat the selected workload as a negative confirmation, not as proof the code is never hot.");
+        int typeConfirmedCount = result.Candidates.Count(
+            static candidate => candidate.TypeConfirmed);
+        if (typeConfirmedCount > 0)
+        {
+            Console.WriteLine(
+                $"No exact allocation site joined, but runtime type volume confirmed "
+                + $"{typeConfirmedCount.ToString(CultureInfo.InvariantCulture)} static "
+                + "candidate type(s). Treat that as type-level prioritization, not exact "
+                + "site attribution.");
+        }
+        else if (result.Candidates.Count > 0
+            && result.Candidates.All(static candidate =>
+                !candidate.HasRuntimeCoordinate
+                && !candidate.TypeConfirmed))
+        {
+            Console.WriteLine(
+                "No exact runtime join was possible because the supplied triage rows lack "
+                + "declaring assembly, method token, and IL offset coordinates. Export the "
+                + "nested Performance Triage document with `--json`; compact `--jsonl` rows "
+                + "do not carry deep provenance.");
+        }
+        else
+        {
+            Console.WriteLine("No static performance candidate was observed in the supplied runtime diagnostics. Treat the selected workload as a negative confirmation, not as proof the code is never hot.");
+        }
     }
     else
     {
@@ -1363,6 +1577,16 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
             Console.WriteLine($"| {Escape(shape.Key)} | {shape.Count().ToString(CultureInfo.InvariantCulture)} |");
         }
     }
+    if (unjoinable.Length > 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("## Not runtime-correlatable");
+        Console.WriteLine();
+        Console.WriteLine(
+            $"{unjoinable.Length.ToString(CultureInfo.InvariantCulture)} static candidate "
+            + "row(s) lack a complete declaring assembly + method token + IL offset "
+            + "coordinate. They are not negative runtime evidence.");
+    }
     Console.WriteLine();
     Console.WriteLine("## Reading this report");
     Console.WriteLine();
@@ -1459,6 +1683,18 @@ static void RenderJson(CorrelationResult result, IReadOnlyList<AllocationCandida
     writer.WriteStartObject();
     writer.WriteNumber("staticCandidates", result.Candidates.Count);
     writer.WriteNumber("observedCandidates", result.Candidates.Count(c => c.IsObserved));
+    writer.WritePropertyName("triageInputs");
+    writer.WriteStartArray();
+    foreach (var input in result.TriageInputs)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("path", input.Path);
+        writer.WriteNumber("rows", input.Rows);
+        writer.WriteNumber("loadedRows", input.LoadedRows);
+        writer.WriteNumber("correlatableRows", input.CorrelatableRows);
+        writer.WriteEndObject();
+    }
+    writer.WriteEndArray();
     writer.WritePropertyName("inputs");
     writer.WriteStartArray();
     foreach (var input in result.DiagnosticInputs)
@@ -1502,9 +1738,20 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     writer.WriteString("library", candidate.LibraryPath);
     writer.WriteString("assembly", candidate.AssemblyName);
     writer.WriteString("method", candidate.Method);
+    writer.WriteBoolean(
+        "runtimeCorrelatable",
+        candidate.HasRuntimeCoordinate);
     writer.WriteString("tokenIl", candidate.TokenAndOffset);
     writer.WriteNumber("methodToken", candidate.MethodToken);
     writer.WriteNumber("ilOffset", candidate.IlOffset);
+    if (candidate.CandidateId is not null)
+        writer.WriteString("candidate", candidate.CandidateId);
+    if (candidate.Provenance is not null)
+        writer.WriteString("provenance", candidate.Provenance);
+    if (candidate.Operation is not null)
+        writer.WriteString("operation", candidate.Operation);
+    if (candidate.OperandToken is int operandToken)
+        writer.WriteNumber("operandToken", operandToken);
     writer.WriteString("kind", candidate.AllocationKind);
     if (candidate.EscapeKind is not null)
         writer.WriteString("escapeKind", candidate.EscapeKind);
@@ -1672,7 +1919,11 @@ sealed record DiagnosticInput(string Kind, string Path);
 
 sealed record LibraryInput(string Path, int StaticCandidates, string? Error);
 
-sealed record TriageInput(string Path, int Rows);
+sealed record TriageInput(
+    string Path,
+    int Rows,
+    int LoadedRows,
+    int CorrelatableRows);
 
 sealed class DiagnosticInputSummary(
     string kind,
@@ -1794,7 +2045,11 @@ sealed class AllocationCandidate(
     string? escapeKind = null,
     string? churnedType = null,
     string? runtimeAllocationType = null,
-    string? multiplicity = null)
+    string? multiplicity = null,
+    string? candidateId = null,
+    string? provenance = null,
+    string? operation = null,
+    int? operandToken = null)
 {
     public int Id { get; } = id;
     public string Source { get; } = source;
@@ -1803,6 +2058,10 @@ sealed class AllocationCandidate(
     public Guid? ModuleVersionId { get; } = moduleVersionId;
     public int MethodToken { get; } = methodToken;
     public int IlOffset { get; } = ilOffset;
+    public string? CandidateId { get; } = candidateId;
+    public string? Provenance { get; } = provenance;
+    public string? Operation { get; } = operation;
+    public int? OperandToken { get; } = operandToken;
     public string Method { get; } = method;
     public string MethodKey { get; } = methodKey;
     public string MethodStackKey { get; } = methodStackKey;
@@ -1908,6 +2167,10 @@ sealed class AllocationCandidate(
     }
     public double CostWeight => EffectiveObservedBytes * PromotionFactor;
     public bool IsObserved => RuntimeHits > 0 || AllocationHits > 0;
+    public bool HasRuntimeCoordinate =>
+        AssemblyName.Length > 0
+        && MethodToken != 0
+        && IlOffset >= 0;
     public string TokenAndOffset => $"{DisplayHelpers.FormatToken(MethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
     public string Status => ShapeMatched
         ? RowAmbiguous ? "shape-hot-ambiguous" : "shape-hot"

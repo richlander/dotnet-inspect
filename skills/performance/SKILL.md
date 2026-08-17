@@ -113,7 +113,9 @@ Exact rows retain machine-readable provenance from the native Analysis
 producer in structured JSON:
 `Candidate`, `Finding` (`analysis.allocation` or `analysis.call-site`),
 `Provenance=exact`,
-`Operation`, `Token`, and `IL`. Use these fields for runtime/static joins or to
+`Assembly`, `MethodToken`, `Operation`, `Token`, and `IL`.
+`Assembly` + `MethodToken` + `IL` form the runtime allocation-trace coordinate;
+`Token` is the operand of `Operation`. Use these fields for runtime/static joins or to
 carry one triage row into the matching `diff`/`timeline` confirmation workflow
 without parsing `Evidence` text:
 
@@ -128,6 +130,21 @@ Aggregate rows such as `allocation-hotspot` use `Provenance=aggregate` and have
 a `pt~` candidate id but no exact source Finding, operation, or token.
 `Provenance=unmatched` flags an instruction-level row that did not join to the
 expected producer census.
+
+## Correlate triage with an allocation trace
+
+Export nested JSON, whose deep rows carry the declaring method coordinate, then
+pass it to `runfaster` with a trace captured from the same assembly build:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
+  --where "Priority>=high" --json > triage.json
+runfaster correlate --triage triage.json --trace workload.nettrace
+```
+
+Compact `Performance:* --jsonl` rows omit deep provenance and cannot support an
+exact trace join. `runfaster` keeps their operation `Token` separate from the
+declaring `MethodToken` and reports missing runtime coordinates explicitly.
 
 ## Select direct caller-loop repetition
 

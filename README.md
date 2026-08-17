@@ -298,8 +298,9 @@ the single `Performance Triage` lens.
 
 The tight markdown columns carry the ranked, human-facing fields, including a
 static `Priority` that is separate from evidence/rewrite `Confidence`; the full
-per-row diagnostics (shape, provenance, candidate id, native `Finding`, metadata
-`Token`, IL offset, allocation `Weight`, path/loop evidence, and the fix
+per-row diagnostics (shape, provenance, candidate id, native `Finding`,
+declaring `Assembly` and `MethodToken`, operation-operand metadata `Token`, IL
+offset, allocation `Weight`, path/loop evidence, and the fix
 sentence) are preserved in the nested `performance` object of `--json`.
 Allocation rows carry `Weight`, a coarse size x multiplicity x reach static
 prior that you can query or sort when choosing pre-profile instrumentation
@@ -307,7 +308,9 @@ targets. Exact allocation and call-site rows also retain a `Candidate` id, their
 native `Finding` descriptor, `Provenance=exact`, `Operation`, and metadata
 `Token`. Aggregate rows are marked `Provenance=aggregate`; `unmatched`
 identifies an instruction-level row that could not be joined to a producer
-occurrence. Those fields let trace and version-diff tooling join a triage row to
+occurrence. `Assembly` + `MethodToken` + `IL` form the runtime allocation-trace coordinate;
+`Token` is the operand of the reported IL operation and must not be used as the
+declaring method token. Those fields let trace and version-diff tooling join a triage row to
 `analysis.allocation` or `analysis.call-site` evidence without parsing
 `Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
 `--triage-shape` to ask the tool for the curated pay-dirt rows directly instead
@@ -332,6 +335,20 @@ When `--bin`, `--project`, or `--caller-package` supplies an assembly scope,
 retains its narrower inbound-only scan.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
+
+Export nested JSON when runtime correlation is the next step, then give that
+document and the matching allocation trace to `runfaster`:
+
+```bash
+dotnet-inspect library MyLib.dll -S "Performance:*" \
+  --where "Priority>=high" --json > triage.json
+runfaster correlate --triage triage.json --trace workload.nettrace
+```
+
+The compact `Performance:* --jsonl` table intentionally carries only the tight
+human-facing columns and therefore cannot support an exact trace join.
+`runfaster` reports those rows as not runtime-correlatable rather than treating
+them as negative workload evidence.
 
 `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
 cross-method repetition fact. `CallerLoop=direct` means a resolved invocation
