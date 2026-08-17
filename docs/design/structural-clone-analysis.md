@@ -232,6 +232,46 @@ suppression. `Discover_DuplicateHandles_AreCallerError`,
 `Discover_MalformedModuleIdentity_ReturnsTypedFailure` gate caller and
 malformed-input boundaries.
 
+## Seeded fuzzy retrieval
+
+`StructuralCloneAnalysis.RetrieveSimilar` ranks likely peers for one seed over
+a caller-supplied same-PE population. Retrieval is a separate evidence plane:
+it emits no `Exact`, `Near`, or `Different` relation and never establishes
+correspondence. Callers use `Compare` to verify a selected pair.
+
+The product produces each admitted body once and compares compact feature
+multisets. Only candidates with the same normalized method-signature shape as
+the seed enter the ranking. The integer score ranges from zero through 10,000
+and combines:
+
+- normalized operation identity, including same-reader operands and local type;
+- opcode and operand-category positions within blocks;
+- exit, operation-count, and incoming/outgoing-count block shapes;
+- typed edge roles with coarse source and target block shapes;
+- the local-type multiset.
+
+The components carry weights of 35%, 20%, 20%, 20%, and 5%, respectively.
+Block order and local slot numbers do not participate. Scores select and order
+candidates only; a high score can intentionally describe a hard negative.
+Ties resolve by component scores and then full MethodDef token, so input order
+cannot move a candidate.
+
+Method admission is atomic. Unsupported non-seed methods remain explicit
+method outcomes and do not make an otherwise complete ranking partial.
+Candidate production limits and failures remain visible in the overall
+disposition and blockers; candidates from completed methods remain available,
+but their ranks explicitly exclude suppressed methods and cannot prove
+negative recall. `MaximumResults` bounds returned rows after all eligible
+candidates are scored, and the receipt distinguishes ranked, returned, and
+suppressed rows. Seed unsupported, limit, and failure states remain separate
+retrieval dispositions.
+
+`StructuralCloneRetrievalTests` gates exact and near recall, contrastive
+ordering, input-order determinism, visible top-K suppression, partial-ranking
+disposition, atomic admission, seed-independent populations, duplicate caller
+errors, unsupported seeds, and the separation between ranking score and
+relationship.
+
 ## Correspondence and automorphisms
 
 Joint block/local refinement narrows possible correspondence classes until it
@@ -256,25 +296,29 @@ independent candidate relationships and expected outcomes. Each case records:
 - expected disposition and, separately, expected relation;
 - difficulty, intent, actionability, and tags.
 
-Schema 3 also declares expected edit-count summaries for every `Near` case and
-the closed-world exact-discovery population.
+Schema 4 also declares expected edit-count summaries for every `Near` case,
+the closed-world exact-discovery population, and seeded retrieval expectations.
 `analysis-harness --clone-corpus` resolves those identities through SRM and
-grades comparison, every returned near-alignment alternative, and discovery
-independently. Expected exact connected components derive only from declared
-expected relations. Complete actual clusters must equal them, so both missed
-families and undeclared cross-component merges fail. The harness does not own
-retrieval, normalization, alignment, clustering, CFG correspondence, or
-verification logic.
+grades comparison, every returned near-alignment alternative, exact discovery,
+recall-at-K, and strict contrastive ordering independently. Expected exact
+connected components derive only from declared expected relations. Complete
+actual clusters must equal them, so both missed families and undeclared
+cross-component merges fail. Retrieval expectations name candidates and hard
+negatives; the harness consumes product ranks and scores without reconstructing
+the similarity model. The harness does not own retrieval, normalization,
+alignment, clustering, CFG correspondence, or verification logic.
 `StructuralCloneCorpusTests` gates ledger validity, both fixture inventory
-views, all direct outcomes, and exact closed-world clustering.
+views, all direct outcomes, exact closed-world clustering, fuzzy recall, and
+contrastive ordering.
 
 The corpus includes authored arithmetic and metadata-operand exact pairs,
 constant and call-target near pairs, control-flow, operation-reordering, and
 two-operation hard negatives, exact parameter-type and return-type semantic
 hazards, and the EH unsupported boundary. Exact discovery still finds four
-families and does not cluster near pairs. Fuzzy retrieval/ranking and
-precision/recall measurement remain later slices; whole-assembly exact scale
-runs belong to the census.
+families and does not cluster near pairs. Three seeded fixture queries gate one exact
+and two near peers against hard negatives. Broad source-reviewed precision
+labeling remains a later evidence expansion; whole-assembly exact scale runs
+belong to the census.
 
 ## Census and demo projection
 
@@ -314,6 +358,15 @@ in output.
 behavior, unsupported and partial seed status, token selection, overload
 ambiguity, seed pinning under truncation, complete structured output,
 malformed metadata, and CLI argument/exit behavior.
+
+`analysis-harness --clone-worksheet` is the harness-only seeded fuzzy
+projection. It enumerates one PE's MethodDef table, calls `RetrieveSimilar`
+exactly once, and presents product-owned ranks, score components, limits,
+blockers, and receipts. Text output bounds displayed candidates with `--top`;
+structured output retains every product-returned candidate. The worksheet does
+not compare candidates, infer a relation, label precision, or reconstruct
+features. `StructuralCloneWorksheetTests` gates candidate projection,
+structured completeness, and required seed selection.
 
 Clone detection is intentionally neutral about why two bodies are similar.
 Deduplication, refactoring, provenance investigation, copied-code detection,

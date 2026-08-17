@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "cases": [
     {
       "id": "banal.authored.exact",
@@ -312,6 +312,84 @@
       {
         "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
         "method": "ExceptionHandlingB"
+      }
+    ]
+  },
+  "retrieval": {
+    "queries": [
+      {
+        "id": "exact-authored-peer",
+        "seed": {
+          "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+          "method": "ExactPositiveA"
+        },
+        "expectations": [
+          {
+            "candidate": {
+              "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+              "method": "ExactPositiveB"
+            },
+            "maximumRank": 1,
+            "ranksAbove": [
+              {
+                "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+                "method": "EdgeRoleNegativeA"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "near-constant-peer",
+        "seed": {
+          "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+          "method": "NearConstantA"
+        },
+        "expectations": [
+          {
+            "candidate": {
+              "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+              "method": "NearConstantB"
+            },
+            "maximumRank": 5,
+            "ranksAbove": [
+              {
+                "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+                "method": "NearHardNegativeA"
+              },
+              {
+                "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+                "method": "NearHardNegativeB"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "near-call-target-peer",
+        "seed": {
+          "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+          "method": "NearCallTargetA"
+        },
+        "expectations": [
+          {
+            "candidate": {
+              "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+              "method": "NearCallTargetB"
+            },
+            "maximumRank": 5,
+            "ranksAbove": [
+              {
+                "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+                "method": "NearHardNegativeA"
+              },
+              {
+                "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+                "method": "NearHardNegativeB"
+              }
+            ]
+          }
+        ]
       }
     ]
   }
