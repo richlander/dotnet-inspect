@@ -3489,7 +3489,11 @@ public class PackageCommand
             WriteIdentifierAuditFailures(identifierAuditFailures);
         int completionExitCode =
             AllLibrariesCompletionExitCode(
-                integrationsIncomplete || identifierAuditIncomplete);
+                integrationsIncomplete
+                    || identifierAuditIncomplete,
+                libraryOptions,
+                pipeline,
+                [.. inspections]);
 
         if (inspections.Count == 0)
         {
@@ -3657,6 +3661,18 @@ public class PackageCommand
     internal static int AllLibrariesCompletionExitCode(
         bool incomplete) =>
         incomplete ? 1 : 0;
+
+    internal static int AllLibrariesCompletionExitCode(
+        bool incomplete,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline,
+        params LibraryInspection[] inspections) =>
+        Math.Max(
+            AllLibrariesCompletionExitCode(incomplete),
+            LibraryCommand.SelectedInspectionFailureExitCode(
+                options,
+                pipeline,
+                inspections));
 
     internal static bool RequiresPackageMetadata(
         InspectionOptions options,

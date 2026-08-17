@@ -187,11 +187,21 @@ static class ArrayPoolExceptionPathAnalyzer
         HashSet<(int, int, int)>? creditable = null;
         foreach (var region in exceptionRegions)
         {
-            if (region.Kind is not ExceptionRegionKind.Catch || region.CatchType.IsNil)
+            if (region.Kind is not ExceptionRegionKind.Catch)
                 continue;
+            if (region.CatchType.IsNil)
+            {
+                throw new BadImageFormatException(
+                    "Catch type could not be resolved.");
+            }
             var catchType = resolveCatchType(MetadataTokens.GetToken(region.CatchType));
             if (catchType is null
-                || !(FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Object")
+                || catchType.Kind == TypeRefKind.Unsupported)
+            {
+                throw new BadImageFormatException(
+                    "Catch type could not be resolved.");
+            }
+            if (!(FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Object")
                     || FrameworkIdentity.IsCoreLibraryType(catchType, "System", "Exception")))
                 continue;
             (creditable ??= []).Add((region.TryOffset, region.TryLength, region.HandlerOffset));
