@@ -138,6 +138,30 @@ internal static class PromotionWorkflowContract
             """,
             ValidatePromotion,
             "Promotion workflow contract accepted an extra environment-scoped job.");
+
+        AssertMutationRejected(
+            stagingWorkflow,
+            "  workflow_dispatch:\n",
+            "  workflow_dispatch:\n  pull_request_target:\n",
+            ValidateStaging,
+            "Staging workflow contract accepted pull_request_target.");
+        AssertMutationRejected(
+            stagingWorkflow,
+            "permissions:\n  contents: read\n",
+            "permissions:\n  contents: write\n",
+            ValidateStaging,
+            "Staging workflow contract accepted write permission.");
+        AssertMutationRejected(
+            stagingWorkflow,
+            "    steps:\n      - uses: actions/checkout@v6\n",
+            """
+                steps:
+                  - uses: actions/checkout@v6
+                    with:
+                      ref: ${{ github.event.pull_request.head.sha }}
+            """,
+            ValidateStaging,
+            "Staging workflow contract accepted PR-head checkout.");
     }
 
     private static void ValidatePromotion(string workflow)
@@ -158,6 +182,25 @@ internal static class PromotionWorkflowContract
             root,
             ["name", "on", "permissions", "concurrency", "jobs"],
             "promotion workflow");
+        RequireScalarValue(root, "name", "Promote inspect-web", "promotion workflow");
+        ValidatePromotionTrigger(
+            GetRequiredMapping(root, "on", "promotion workflow"));
+        RequireExactScalarValues(
+            GetRequiredMapping(root, "permissions", "promotion workflow"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["actions"] = "read",
+                ["contents"] = "read",
+            },
+            "promotion workflow.permissions");
+        RequireExactScalarValues(
+            GetRequiredMapping(root, "concurrency", "promotion workflow"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["group"] = "promote-inspect-web",
+                ["cancel-in-progress"] = "false",
+            },
+            "promotion workflow.concurrency");
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "promotion workflow");
         RequireExactKeys(jobs, ["resolve", "deploy"], "promotion jobs");
         YamlMappingNode resolve = GetRequiredMapping(jobs, "resolve", "promotion jobs");
@@ -165,10 +208,34 @@ internal static class PromotionWorkflowContract
             resolve,
             ["name", "runs-on", "outputs", "steps"],
             "jobs.resolve");
+        RequireScalarValue(
+            resolve,
+            "name",
+            "Validate staging evidence",
+            "jobs.resolve");
+        RequireScalarValue(resolve, "runs-on", "ubuntu-26.04", "jobs.resolve");
+        RequireExactScalarValues(
+            GetRequiredMapping(resolve, "outputs", "jobs.resolve"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["sha"] = "${{ steps.evidence.outputs.sha }}",
+                ["run_attempt"] = "${{ steps.evidence.outputs.run_attempt }}",
+                ["artifact_id"] = "${{ steps.evidence.outputs.artifact_id }}",
+                ["artifact_digest"] =
+                    "${{ steps.evidence.outputs.artifact_digest }}",
+            },
+            "jobs.resolve.outputs");
+        ValidateResolveSteps(
+            GetRequiredSequence(resolve, "steps", "jobs.resolve"));
         YamlMappingNode deploy = GetRequiredMapping(jobs, "deploy", "promotion jobs");
         RequireExactKeys(
             deploy,
             ["name", "needs", "environment", "runs-on", "steps"],
+            "jobs.deploy");
+        RequireScalarValue(
+            deploy,
+            "name",
+            "Promote to production",
             "jobs.deploy");
         RequireScalarValue(deploy, "needs", "resolve", "jobs.deploy");
         RequireScalarValue(deploy, "runs-on", "ubuntu-26.04", "jobs.deploy");
@@ -344,6 +411,27 @@ internal static class PromotionWorkflowContract
             root,
             ["name", "on", "permissions", "concurrency", "env", "jobs"],
             "staging workflow");
+        RequireScalarValue(
+            root,
+            "name",
+            "Deploy inspect-web staging",
+            "staging workflow");
+        ValidateStagingTrigger(GetRequiredMapping(root, "on", "staging workflow"));
+        RequireExactScalarValues(
+            GetRequiredMapping(root, "permissions", "staging workflow"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["contents"] = "read",
+            },
+            "staging workflow.permissions");
+        RequireExactScalarValues(
+            GetRequiredMapping(root, "concurrency", "staging workflow"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["group"] = "deploy-inspect-web-staging",
+                ["cancel-in-progress"] = "true",
+            },
+            "staging workflow.concurrency");
         RequireExactScalarValues(
             GetRequiredMapping(root, "env", "staging workflow"),
             new Dictionary<string, string>(StringComparer.Ordinal)
@@ -360,11 +448,85 @@ internal static class PromotionWorkflowContract
             build,
             ["name", "if", "runs-on", "steps"],
             "jobs.build");
-        YamlSequenceNode buildSteps = GetRequiredSequence(build, "steps", "jobs.build");
-        YamlMappingNode upload = RequireNamedStep(
-            buildSteps,
-            "Upload staged site artifact",
+        RequireScalarValue(
+            build,
+            "name",
+            "Build staging artifact",
             "jobs.build");
+        RequireScalarValue(
+            build,
+            "if",
+            "github.ref == 'refs/heads/main'",
+            "jobs.build");
+        RequireScalarValue(build, "runs-on", "ubuntu-26.04", "jobs.build");
+        YamlSequenceNode buildSteps = GetRequiredSequence(build, "steps", "jobs.build");
+        if (buildSteps.Children.Count != 5)
+        {
+            throw new InvalidOperationException(
+                "Staging build must contain checkout, setup, workload install, " +
+                "publish, and artifact upload steps.");
+        }
+        YamlMappingNode checkout =
+            RequireStep(buildSteps, 0, null, "jobs.build");
+        RequireExactKeys(checkout, ["uses"], "staging build checkout");
+        RequireScalarValue(
+            checkout,
+            "uses",
+            "actions/checkout@v6",
+            "staging build checkout");
+
+        YamlMappingNode setup =
+            RequireStep(buildSteps, 1, "Setup .NET", "jobs.build");
+        RequireExactKeys(setup, ["name", "uses", "with"], "staging setup step");
+        RequireScalarValue(
+            setup,
+            "uses",
+            "actions/setup-dotnet@v5",
+            "staging setup step");
+        RequireExactScalarValues(
+            GetRequiredMapping(setup, "with", "staging setup step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["dotnet-version"] = "${{ env.DOTNET_SDK_VERSION }}",
+            },
+            "staging setup step.with");
+
+        YamlMappingNode install =
+            RequireStep(buildSteps, 2, "Install browser Wasm workload", "jobs.build");
+        RequireExactScalarValues(
+            install,
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["name"] = "Install browser Wasm workload",
+                ["run"] = "dotnet workload install wasm-experimental",
+            },
+            "staging workload step");
+
+        YamlMappingNode publish =
+            RequireStep(buildSteps, 3, "Publish browser app", "jobs.build");
+        RequireExactKeys(publish, ["name", "shell", "run"], "staging publish step");
+        RequireScalarValue(publish, "shell", "bash", "staging publish step");
+        const string ExpectedPublish =
+            """
+            version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
+            built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+            dotnet publish \
+              prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+              -c Release \
+              --output artifacts/inspect-web-publish \
+              -p:VersionPrefix="$version" \
+              -p:SourceRevisionId="$GITHUB_SHA" \
+              -p:BuildTimestampUtc="$built_at"
+            """;
+        if (GetRequiredScalar(publish, "run", "staging publish step").TrimEnd() !=
+            ExpectedPublish)
+        {
+            throw new InvalidOperationException(
+                "Staging publish command does not match the trusted contract.");
+        }
+
+        YamlMappingNode upload =
+            RequireStep(buildSteps, 4, "Upload staged site artifact", "jobs.build");
         RequireExactKeys(
             upload,
             ["name", "uses", "with"],
@@ -391,6 +553,13 @@ internal static class PromotionWorkflowContract
             ["name", "needs", "if", "environment", "runs-on", "steps"],
             "jobs.deploy");
         RequireScalarValue(deploy, "needs", "build", "jobs.deploy");
+        RequireScalarValue(deploy, "name", "Publish staging", "jobs.deploy");
+        RequireScalarValue(
+            deploy,
+            "if",
+            "github.ref == 'refs/heads/main'",
+            "jobs.deploy");
+        RequireScalarValue(deploy, "runs-on", "ubuntu-26.04", "jobs.deploy");
         YamlMappingNode environment =
             GetRequiredMapping(deploy, "environment", "jobs.deploy");
         RequireExactScalarValues(
@@ -475,21 +644,164 @@ internal static class PromotionWorkflowContract
             "staging deploy step.with");
     }
 
-    private static YamlMappingNode RequireNamedStep(
-        YamlSequenceNode steps,
-        string name,
-        string context)
+    private static void ValidatePromotionTrigger(YamlMappingNode on)
     {
-        YamlMappingNode[] matches = steps.Children
-            .Select((node, index) => RequireMapping(node, $"{context} step {index}"))
-            .Where(step => GetOptionalScalar(step, "name") == name)
-            .ToArray();
-        if (matches.Length != 1)
+        RequireExactKeys(on, ["workflow_dispatch"], "promotion workflow.on");
+        YamlMappingNode dispatch =
+            GetRequiredMapping(on, "workflow_dispatch", "promotion workflow.on");
+        RequireExactKeys(dispatch, ["inputs"], "promotion workflow_dispatch");
+        YamlMappingNode inputs =
+            GetRequiredMapping(dispatch, "inputs", "promotion workflow_dispatch");
+        RequireExactKeys(
+            inputs,
+            ["staging_run_id", "confirm"],
+            "promotion workflow_dispatch.inputs");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                inputs,
+                "staging_run_id",
+                "promotion workflow_dispatch.inputs"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["description"] =
+                    "Successful main staging run whose site artifact will be promoted",
+                ["required"] = "true",
+            },
+            "promotion staging_run_id input");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                inputs,
+                "confirm",
+                "promotion workflow_dispatch.inputs"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["description"] = "Type \"promote\" to confirm production deployment",
+                ["required"] = "true",
+            },
+            "promotion confirm input");
+    }
+
+    private static void ValidateStagingTrigger(YamlMappingNode on)
+    {
+        RequireExactKeys(
+            on,
+            ["push", "workflow_dispatch"],
+            "staging workflow.on");
+        YamlMappingNode push = GetRequiredMapping(on, "push", "staging workflow.on");
+        RequireExactKeys(push, ["branches"], "staging workflow.on.push");
+        YamlSequenceNode branches =
+            GetRequiredSequence(push, "branches", "staging workflow.on.push");
+        if (branches.Children.Count != 1 ||
+            RequireScalar(branches.Children[0], "staging push branch") != "main")
         {
             throw new InvalidOperationException(
-                $"{context} contains {matches.Length} '{name}' steps; expected one.");
+                "Staging push trigger must name only main.");
         }
-        return matches[0];
+        if (!TryGetNode(on, "workflow_dispatch", out YamlNode dispatch) ||
+            dispatch is not YamlScalarNode { Value: null or "" })
+        {
+            throw new InvalidOperationException(
+                "Staging workflow_dispatch must not declare inputs.");
+        }
+    }
+
+    private static void ValidateResolveSteps(YamlSequenceNode steps)
+    {
+        if (steps.Children.Count != 4)
+        {
+            throw new InvalidOperationException(
+                "Promotion resolution must contain intent, checkout, setup, " +
+                "and staging validation steps.");
+        }
+
+        YamlMappingNode intent =
+            RequireStep(steps, 0, "Validate dispatch intent", "jobs.resolve");
+        RequireExactKeys(
+            intent,
+            ["name", "shell", "env", "run"],
+            "dispatch intent step");
+        RequireScalarValue(intent, "shell", "bash", "dispatch intent step");
+        RequireExactScalarValues(
+            GetRequiredMapping(intent, "env", "dispatch intent step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["CONFIRM"] = "${{ inputs.confirm }}",
+            },
+            "dispatch intent step.env");
+        const string ExpectedIntent =
+            """
+            set -euo pipefail
+            if [ "$GITHUB_REF" != refs/heads/main ]; then
+              echo "::error::Production promotion must be dispatched from main." >&2
+              exit 1
+            fi
+            if [ "$CONFIRM" != promote ]; then
+              echo "::error::Type promote to confirm production deployment." >&2
+              exit 1
+            fi
+            """;
+        if (GetRequiredScalar(intent, "run", "dispatch intent step").TrimEnd() !=
+            ExpectedIntent)
+        {
+            throw new InvalidOperationException(
+                "Dispatch intent command does not match the trusted contract.");
+        }
+
+        YamlMappingNode checkout =
+            RequireStep(steps, 1, null, "jobs.resolve");
+        RequireExactKeys(checkout, ["uses"], "resolution checkout");
+        RequireScalarValue(
+            checkout,
+            "uses",
+            "actions/checkout@v6",
+            "resolution checkout");
+
+        YamlMappingNode setup =
+            RequireStep(steps, 2, "Setup .NET", "jobs.resolve");
+        RequireExactKeys(setup, ["name", "uses", "with"], "resolution setup step");
+        RequireScalarValue(
+            setup,
+            "uses",
+            "actions/setup-dotnet@v5",
+            "resolution setup step");
+        RequireExactScalarValues(
+            GetRequiredMapping(setup, "with", "resolution setup step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["dotnet-version"] = "11.0.x",
+                ["dotnet-quality"] = "preview",
+            },
+            "resolution setup step.with");
+
+        YamlMappingNode validate =
+            RequireStep(steps, 3, "Validate staged site", "jobs.resolve");
+        RequireExactKeys(
+            validate,
+            ["name", "id", "shell", "env", "run"],
+            "staging evidence step");
+        RequireScalarValue(validate, "id", "evidence", "staging evidence step");
+        RequireScalarValue(validate, "shell", "bash", "staging evidence step");
+        RequireExactScalarValues(
+            GetRequiredMapping(validate, "env", "staging evidence step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["GH_TOKEN"] = "${{ secrets.GITHUB_TOKEN }}",
+                ["STAGING_RUN_ID"] = "${{ inputs.staging_run_id }}",
+            },
+            "staging evidence step.env");
+        const string ExpectedValidation =
+            """
+            bash eng/validate-inspect-web-promotion.sh \
+              "$STAGING_RUN_ID" \
+              720 \
+              "$GITHUB_OUTPUT"
+            """;
+        if (GetRequiredScalar(validate, "run", "staging evidence step").TrimEnd() !=
+            ExpectedValidation)
+        {
+            throw new InvalidOperationException(
+                "Staging evidence command does not match the trusted contract.");
+        }
     }
 
     private static void ExpectFailure(Action action, string message)
@@ -531,13 +843,14 @@ internal static class PromotionWorkflowContract
     private static YamlMappingNode RequireStep(
         YamlSequenceNode steps,
         int index,
-        string? name)
+        string? name,
+        string context = "jobs.deploy")
     {
         YamlMappingNode step = RequireMapping(
             steps.Children[index],
-            $"jobs.deploy step {index}");
+            $"{context} step {index}");
         if (name is not null)
-            RequireScalarValue(step, "name", name, $"jobs.deploy step {index}");
+            RequireScalarValue(step, "name", name, $"{context} step {index}");
         return step;
     }
 }
