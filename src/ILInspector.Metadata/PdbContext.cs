@@ -1493,20 +1493,43 @@ public class PdbContext : IDisposable
         => AssemblyDetailScanner.ScanPresenceFlagsWithoutIntegrations(
             _peReader);
 
-    public void Dispose()
+    public void Dispose() =>
+        _ = DisposeWithFailure();
+
+    /// <summary>
+    /// Disposes every owned resource and returns the first disposal failure.
+    /// </summary>
+    /// <remarks>
+    /// The compatibility <see cref="Dispose()"/> path suppresses the returned
+    /// failure. Strict ownership boundaries inspect it after all cleanup has
+    /// been attempted.
+    /// </remarks>
+    public Exception? DisposeWithFailure()
     {
         if (_disposed)
-            return;
+            return null;
         _disposed = true;
-        foreach (var d in _disposables)
-        {
-            try { d.Dispose(); } catch { }
-        }
+        Exception? failure = null;
+        foreach (IDisposable disposable in _disposables)
+            DisposeOwned(disposable);
         _disposables.Clear();
         _pdbProvider = null;
         _pdbReader = null;
-        try { _peReader.Dispose(); } catch { }
-        try { _peStream.Dispose(); } catch { }
+        DisposeOwned(_peReader);
+        DisposeOwned(_peStream);
+        return failure;
+
+        void DisposeOwned(IDisposable disposable)
+        {
+            try
+            {
+                disposable.Dispose();
+            }
+            catch (Exception ex)
+            {
+                failure ??= ex;
+            }
+        }
     }
 
     void EnsureAlive()

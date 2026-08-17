@@ -226,7 +226,11 @@ gates the failure path, while
 `AssemblyContextSourceQueryTests.PostPdbCancellation_DisposesOpenedSourceLinkService`
 and
 `AssemblyContextSourceQueryTests.AuthoredSuccessStateChangeDuringPdbDisposal_IsObserved`
-gate ownership and the member/type success paths.
+gate ownership and the member/type success paths. Disposal cancellation remains
+exceptional and another disposal failure becomes typed inspection failure
+instead of authored success;
+`AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsAuthoredSuccess`
+gates both outcomes.
 
 Conditional branch liveness is composed only at the member slicing boundary:
 Metadata reports point lines, CSharpText reports lexical branch ranges, and the

@@ -1582,6 +1582,106 @@ public sealed class AssemblyContextSourceQueryTests
         Assert.Equal(0, assembly.Policy.SelectionCount);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task PdbDisposalFailure_PreventsAuthoredSuccess(
+        bool memberQuery,
+        bool cancellationFailure)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        Exception disposalFailure =
+            cancellationFailure
+                ? new OperationCanceledException(
+                    "Synthetic PDB disposal cancellation.")
+                : new IOException(
+                    "Synthetic PDB disposal failure.");
+        var pdbStore =
+            new StateChangingPdbStore(
+                afterLocalPath: null,
+                disposeFailure: disposalFailure);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        if (cancellationFailure)
+        {
+            Exception error =
+                memberQuery
+                    ? await Assert.ThrowsAsync<
+                        OperationCanceledException>(
+                            () => AssemblyContextSourceQuery
+                                .ExecuteMemberAsync(
+                                    group,
+                                    assembly.Participant,
+                                    assembly.MemberRequest(
+                                        nameof(SourceFixture.Describe)),
+                                    host.Context,
+                                    TestContext.Current.CancellationToken))
+                    : await Assert.ThrowsAsync<
+                        OperationCanceledException>(
+                            () => AssemblyContextSourceQuery
+                                .ExecuteTypeAsync(
+                                    group,
+                                    assembly.Participant,
+                                    assembly.TypeRequest(
+                                        typeof(SourceFixture).Name),
+                                    host.Context,
+                                    TestContext.Current.CancellationToken));
+            Assert.Same(disposalFailure, error);
+        }
+        else
+        {
+            Exception error;
+            if (memberQuery)
+            {
+                var unavailable =
+                    Assert.IsType<
+                        AssemblyMemberSourceEntry.Unavailable>(
+                            await AssemblyContextSourceQuery
+                                .ExecuteMemberAsync(
+                                    group,
+                                    assembly.Participant,
+                                    assembly.MemberRequest(
+                                        nameof(SourceFixture.Describe)),
+                                    host.Context,
+                                    TestContext.Current.CancellationToken));
+                error = unavailable.Failure.Error!;
+            }
+            else
+            {
+                var unavailable =
+                    Assert.IsType<
+                        AssemblyTypeSourceEntry.Unavailable>(
+                            await AssemblyContextSourceQuery
+                                .ExecuteTypeAsync(
+                                    group,
+                                    assembly.Participant,
+                                    assembly.TypeRequest(
+                                        typeof(SourceFixture).Name),
+                                    host.Context,
+                                    TestContext.Current.CancellationToken));
+                error = unavailable.Failure.Error!;
+            }
+            Assert.Same(disposalFailure, error);
+        }
+
+        Assert.Equal(
+            2,
+            Assert.IsType<BlockingDisposeStream>(
+                    pdbStore.AuthoritativeStream)
+                .DisposeCount);
+        Assert.Single(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+    }
+
     [Fact]
     public async Task MalformedPdbDocument_PreservesAuthoredFailureAndFallsBackForType()
     {
@@ -2798,7 +2898,8 @@ public sealed class AssemblyContextSourceQueryTests
     sealed class StateChangingPdbStore(
         Action? afterLocalPath,
         ManualResetEventSlim? disposeEntered = null,
-        ManualResetEventSlim? disposeRelease = null)
+        ManualResetEventSlim? disposeRelease = null,
+        Exception? disposeFailure = null)
         : IPdbStore
     {
         readonly InMemoryPdbStore _inner = new();
@@ -2822,7 +2923,8 @@ public sealed class AssemblyContextSourceQueryTests
                 new BlockingDisposeStream(
                     stream,
                     disposeEntered,
-                    disposeRelease);
+                    disposeRelease,
+                    disposeFailure);
             return AuthoritativeStream;
         }
 
@@ -2846,7 +2948,8 @@ public sealed class AssemblyContextSourceQueryTests
     sealed class BlockingDisposeStream(
         Stream inner,
         ManualResetEventSlim? entered,
-        ManualResetEventSlim? release)
+        ManualResetEventSlim? release,
+        Exception? disposeFailure)
         : Stream
     {
         internal int DisposeCount { get; private set; }
@@ -2897,6 +3000,8 @@ public sealed class AssemblyContextSourceQueryTests
                             TimeSpan.FromSeconds(10)),
                         "Timed out waiting for PDB disposal release.");
                 }
+                if (DisposeCount == 2 && disposeFailure is not null)
+                    throw disposeFailure;
                 inner.Dispose();
             }
             base.Dispose(disposing);

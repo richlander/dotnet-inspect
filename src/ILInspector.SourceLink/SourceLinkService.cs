@@ -457,4 +457,11 @@ public sealed class SourceLinkService : IDisposable
             or DecoderFallbackException;
 
     public void Dispose() => _context.Dispose();
+
+    /// <summary>
+    /// Disposes the service and returns the first owned-resource disposal
+    /// failure after all cleanup has been attempted.
+    /// </summary>
+    public Exception? DisposeWithFailure() =>
+        _context.DisposeWithFailure();
 }

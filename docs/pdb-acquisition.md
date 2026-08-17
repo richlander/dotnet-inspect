@@ -66,6 +66,12 @@ embedded-PDB inspection fails during construction, the incomplete context
 releases that stream before propagating the failure.
 `AssemblyContextSourceQueryTests.PdbContextOpenFailure_DisposesAuthoritativeStream`
 gates that construction boundary.
+The compatibility `PdbContext.Dispose` path retains its best-effort cleanup
+behavior. Strict query ownership uses `DisposeWithFailure`, which attempts
+every owned resource and reports the first cleanup failure; source queries
+therefore cannot publish authored success after PDB disposal failed.
+`AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsAuthoredSuccess`
+gates cancellation and operational failure for member and type queries.
 
 ### 1. Embedded PDB
 

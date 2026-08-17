@@ -469,7 +469,8 @@ public static class AssemblyContextSourceQuery
         if (sourceResult.Source is { } source)
         {
             AssemblyMemberSourceEntry.Available? authoredEntry = null;
-            using (source)
+            Exception? disposalFailure = null;
+            try
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 EnsureBindingPolicyVersion(
@@ -504,14 +505,17 @@ public static class AssemblyContextSourceQuery
                                 Provenance(source)));
                 }
             }
-            if (authoredEntry is not null)
+            finally
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                EnsureBindingPolicyVersion(
-                    participant,
-                    bindingPolicyVersion);
-                return authoredEntry;
+                disposalFailure = source.DisposeWithFailure();
             }
+            ValidateAfterSourceDisposal(
+                participant,
+                bindingPolicyVersion,
+                cancellationToken,
+                disposalFailure);
+            if (authoredEntry is not null)
+                return authoredEntry;
         }
         else
         {
@@ -590,7 +594,8 @@ public static class AssemblyContextSourceQuery
         if (sourceResult.Source is { } source)
         {
             AssemblyTypeSourceEntry.Available? authoredEntry = null;
-            using (source)
+            Exception? disposalFailure = null;
+            try
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 EnsureBindingPolicyVersion(
@@ -624,14 +629,17 @@ public static class AssemblyContextSourceQuery
                                 Provenance(source)));
                 }
             }
-            if (authoredEntry is not null)
+            finally
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                EnsureBindingPolicyVersion(
-                    participant,
-                    bindingPolicyVersion);
-                return authoredEntry;
+                disposalFailure = source.DisposeWithFailure();
             }
+            ValidateAfterSourceDisposal(
+                participant,
+                bindingPolicyVersion,
+                cancellationToken,
+                disposalFailure);
+            if (authoredEntry is not null)
+                return authoredEntry;
         }
         else
         {
@@ -828,6 +836,22 @@ public static class AssemblyContextSourceQuery
             throw new InvalidOperationException(
                 "The participant binding-policy snapshot changed during source inspection.");
         }
+    }
+
+    static void ValidateAfterSourceDisposal(
+        AssemblyContextParticipant participant,
+        AssemblyBindingPolicyVersion expectedVersion,
+        CancellationToken cancellationToken,
+        Exception? disposalFailure)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (disposalFailure is OperationCanceledException cancellation)
+            ExceptionDispatchInfo.Capture(cancellation).Throw();
+        EnsureBindingPolicyVersion(
+            participant,
+            expectedVersion);
+        if (disposalFailure is not null)
+            ExceptionDispatchInfo.Capture(disposalFailure).Throw();
     }
 
     sealed class CancellationObservingBindingPolicy(
