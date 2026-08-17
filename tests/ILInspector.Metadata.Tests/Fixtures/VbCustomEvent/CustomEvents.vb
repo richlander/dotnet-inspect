@@ -8,6 +8,10 @@ Namespace VbCustomEventFixture
             End RemoveHandler
 
             RaiseEvent(sender As Object, e As EventArgs)
+                Try
+                    Throw New InvalidOperationException()
+                Catch
+                End Try
             End RaiseEvent
         End Event
     End Class

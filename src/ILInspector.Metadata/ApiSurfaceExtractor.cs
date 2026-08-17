@@ -1814,10 +1814,6 @@ public static class ApiSurfaceExtractor
                 methods.Add(accessors.Adder);
             if (!accessors.Remover.IsNil)
                 methods.Add(accessors.Remover);
-            if (!accessors.Raiser.IsNil)
-                methods.Add(accessors.Raiser);
-            foreach (var other in accessors.Others)
-                methods.Add(other);
         }
 
         return methods;

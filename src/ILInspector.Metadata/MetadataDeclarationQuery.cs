@@ -259,7 +259,9 @@ public static class MetadataDeclarationQuery
                 continue;
 
             var declaration = GetMethod(reader, typeDef, method);
-            if (!includeNonPublicMembers && declaration.Accessibility != "public")
+            if (!includeNonPublicMembers
+                && declaration.Accessibility != "public"
+                && !explicitImplementationBodies.Contains(methodHandle))
                 continue;
 
             var signatureText = MethodSignatureText(declaration);

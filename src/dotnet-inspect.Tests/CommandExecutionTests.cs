@@ -6080,9 +6080,7 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("## Safety Facts", output, StringComparison.Ordinal);
         Assert.DoesNotContain("## Cost Facts", output, StringComparison.Ordinal);
         Assert.DoesNotContain("## Fidelity Causes", output, StringComparison.Ordinal);
-        Assert.Single(
-            output.Split('\n'),
-            line => line == "## Exception Regions");
+        Assert.DoesNotContain("## Exception Regions", output, StringComparison.Ordinal);
     }
 
     [Fact]

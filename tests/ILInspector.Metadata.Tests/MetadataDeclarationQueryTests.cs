@@ -160,7 +160,7 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
-    public void TypeSurface_ExcludesAllCompilerProducedEventAccessors()
+    public void TypeSurface_PreservesEventRaiserBodies()
     {
         string path = typeof(VbCustomEventFixture.CustomEvents).Assembly.Location;
         using var peReader = new PEReader(File.OpenRead(path));
@@ -182,12 +182,26 @@ public sealed class MetadataDeclarationQueryTests
             Assert.Single(surface.Members, member => member is { Name: "Changed", Kind: "event" });
             Assert.DoesNotContain(
                 surface.Members,
-                member => member.Name is "add_Changed" or "remove_Changed" or "raise_Changed");
+                member => member.Name is "add_Changed" or "remove_Changed");
+            Assert.Contains(
+                surface.Members,
+                member => member is
+                {
+                    Name: "raise_Changed",
+                    Kind: "method",
+                    HasMethodBody: true
+                });
         }
+
+        var typeDefinition = reader.GetTypeDefinition(typeHandle);
+        var raiser = typeDefinition.GetMethods()
+            .Select(reader.GetMethodDefinition)
+            .Single(method => reader.GetString(method.Name) == "raise_Changed");
+        Assert.NotEmpty(peReader.GetMethodBody(raiser.RelativeVirtualAddress).ExceptionRegions);
     }
 
     [Fact]
-    public void TypeSurface_ExcludesMetadataEventOtherAccessors()
+    public void TypeSurface_PreservesMetadataEventOtherAccessors()
     {
         string path = EmitEventWithOtherAccessor();
         try
@@ -207,7 +221,14 @@ public sealed class MetadataDeclarationQueryTests
             foreach (var surface in new[] { queried, extracted })
             {
                 Assert.Single(surface.Members, member => member is { Name: "Changed", Kind: "event" });
-                Assert.DoesNotContain(surface.Members, member => member.Name == "other_Changed");
+                Assert.Contains(
+                    surface.Members,
+                    member => member is
+                    {
+                        Name: "other_Changed",
+                        Kind: "method",
+                        HasMethodBody: true
+                    });
             }
         }
         finally
@@ -273,15 +294,21 @@ public sealed class MetadataDeclarationQueryTests
             var typeHandle = GetTypeDefinitionHandle(reader, "UnqualifiedAccessor");
             var queried = MetadataDeclarationQuery.GetTypeSurface(
                 reader,
+                typeHandle);
+            var queriedAll = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
                 typeHandle,
                 includeNonPublicMembers: true);
             var extracted = Assert.Single(
                 ApiSurfaceExtractor.Extract(peReader, includeAll: true).Types,
                 type => type.FullName == "UnqualifiedAccessor");
 
-            Assert.Contains(
-                queried.Members,
-                member => member is { Name: "Read", Kind: "method" });
+            foreach (var surface in new[] { queried, queriedAll })
+            {
+                Assert.Contains(
+                    surface.Members,
+                    member => member is { Name: "Read", Kind: "method" });
+            }
             Assert.Contains(
                 extracted.Members,
                 member => member is

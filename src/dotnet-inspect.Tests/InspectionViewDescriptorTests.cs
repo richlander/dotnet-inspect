@@ -319,6 +319,76 @@ public class InspectionViewDescriptorTests
     }
 
     [Fact]
+    public void BodyExecution_UsesCompleteFactsWhenPresentationOmitsAccessor()
+    {
+        var type = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    SetterToken = 0x06000002,
+                    HasMethodBody = true,
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "int",
+                        Accessors =
+                        [
+                            new ApiAccessor
+                            {
+                                Kind = "set",
+                                HasMethodBody = true,
+                                IsAbstract = false
+                            }
+                        ]
+                    },
+                    AccessorFacts =
+                    [
+                        new ApiAccessor
+                        {
+                            Kind = "get",
+                            HasMethodBody = false,
+                            IsAbstract = true
+                        },
+                        new ApiAccessor
+                        {
+                            Kind = "set",
+                            HasMethodBody = true,
+                            IsAbstract = false
+                        }
+                    ]
+                }
+            ]
+        };
+        HashSet<string> requested =
+        [
+            SectionNames.Facts,
+            SectionNames.CallGraph,
+            SectionNames.TopLeverage,
+            SectionNames.PerformanceTriage,
+            SectionNames.UnsafeOperations
+        ];
+
+        IReadOnlySet<string> executionSections =
+            ApiOutputFormatter.ResolveExecutionSections(type, requested, selectedOrdinal: 1);
+
+        Assert.Equal([SectionNames.UnsafeOperations], executionSections);
+        var methods = ApiOutputFormatter.ResolveBodyMethods(
+            type,
+            executionSections,
+            selectedOrdinal: 1);
+        Assert.Equal(2, methods.Count);
+        var method = methods[0];
+        Assert.False(method.HasMethodBody);
+        Assert.True(method.IsAbstract);
+    }
+
+    [Fact]
     public void MemberViewSelection_RoundTripsThroughOwningPipeline()
     {
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();

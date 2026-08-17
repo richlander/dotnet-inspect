@@ -1339,6 +1339,11 @@ public class ApiCommand
         }
 
         var view = ApiOutputFormatter.BuildTypeView(type, foundIn, packageName, packageVersion, apiSource, selectedTfm, options);
+        var requestedExecutionSections = GetRequestedMemberSections(type, options);
+        var executionSections = ApiOutputFormatter.ResolveExecutionSections(
+            type,
+            requestedExecutionSections,
+            options is MemberOptions { OverloadIndex: { } ordinal } ? ordinal : null);
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;
@@ -1410,18 +1415,17 @@ public class ApiCommand
             if (options is MemberOptions { DllPath: not null } mo4 
                 && (mo4.OverloadIndex.HasValue || mo4.HasCallerScope))
             {
-                var requestedSections = GetRequestedMemberSections(type, mo4);
                 var methods = ApiOutputFormatter.ResolveBodyMethods(
                     type,
-                    requestedSections,
+                    executionSections,
                     mo4.OverloadIndex);
                 if (methods.Count > 0)
                 {
                     var analysisInspection = new ApiMemberAnalysisInspection(
-                        mo4.DllPath!, methods, requestedSections, mo4.CallerScopeAssemblies, mo4);
+                        mo4.DllPath!, methods, executionSections, mo4.CallerScopeAssemblies, mo4);
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
-                        requestedSections, analysisInspection, mo4.PdbPath, mo4.IncludeSections, mo4);
+                        executionSections, analysisInspection, mo4.PdbPath, mo4.IncludeSections, mo4);
                 }
             }
 
@@ -1430,17 +1434,16 @@ public class ApiCommand
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
             Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
                 typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
-                    options.DllPath!, GetRequestedMemberSections(type, options), type, options);
+                    options.DllPath!, executionSections, type, options);
 
             if (options.DllPath is not null
-                && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
+                && executionSections.Contains(SectionNames.UnsafeMembers))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisIndex());
             }
 
             if (options.DllPath is { } exceptionRegionsDllPath
-                && (GetRequestedMemberSections(type, options).Contains(SectionNames.ExceptionRegions)
-                    || options.IncludeSections?.Contains(SectionNames.ExceptionRegions) == true))
+                && executionSections.Contains(SectionNames.ExceptionRegions))
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
@@ -1450,13 +1453,12 @@ public class ApiCommand
             }
 
             if (options.DllPath is not null
-                && (GetRequestedMemberSections(type, options).Contains(SectionNames.CalledTypes)
-                    || options.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
+                && executionSections.Contains(SectionNames.CalledTypes))
             {
                 ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisIndex(), options.IncludeSections);
             }
 
-            var semanticSections = GetRequestedMemberSections(type, options);
+            var semanticSections = executionSections;
             if (options is not MemberOptions
                 && options.DllPath is not null
                 && semanticSections.Overlaps(SemanticFactSections))
@@ -1465,7 +1467,7 @@ public class ApiCommand
             }
 
             if (options.DllPath is not null
-                && GetRequestedMemberSections(type, options).Contains(SectionNames.PerformanceTriage))
+                && executionSections.Contains(SectionNames.PerformanceTriage))
             {
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), options.IncludeSections,
                     options.PerformanceTriage,
@@ -1474,7 +1476,7 @@ public class ApiCommand
             }
 
             if (options.DllPath is not null
-                && GetRequestedMemberSections(type, options).Contains(SectionNames.TopLeverage))
+                && executionSections.Contains(SectionNames.TopLeverage))
             {
                 ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
@@ -1483,7 +1485,7 @@ public class ApiCommand
 
             // Source code (already resolved in command layer)
             if (options is MemberOptions mo5
-                && GetRequestedMemberSections(type, mo5).Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+                && executionSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
             {
                 if (mo5.MethodSource is { } resolvedSource)
                 {
@@ -1500,7 +1502,7 @@ public class ApiCommand
 
             PopulateSourceDiff(
                 view,
-                GetRequestedMemberSections(type, options),
+                executionSections,
                 options is MemberOptions { MemberSourceTooComplex: true },
                 options is MemberOptions { MemberSourceCoordinatesInvalid: true });
 
@@ -2209,6 +2211,11 @@ public class ApiCommand
         var view = ApiOutputFormatter.BuildTypeView(
             type, acquisition?.FoundIn, acquisition?.PackageName, acquisition?.PackageVersion,
             acquisition?.ApiSource, acquisition?.SelectedTfm, renderOptions);
+        var requestedExecutionSections = GetRequestedMemberSections(type, renderOptions);
+        var executionSections = ApiOutputFormatter.ResolveExecutionSections(
+            type,
+            requestedExecutionSections,
+            renderOptions is MemberOptions { OverloadIndex: { } ordinal } ? ordinal : null);
         EventsView? eventsView = null;
         MethodGroupsView? methodGroupsView = null;
         MethodsView? methodsView = null;
@@ -2267,24 +2274,23 @@ public class ApiCommand
             if (renderOptions is MemberOptions { DllPath: not null } memberOptions
                 && (memberOptions.OverloadIndex.HasValue || memberOptions.HasCallerScope))
             {
-                var requestedSections = GetRequestedMemberSections(type, memberOptions);
                 var methods = ApiOutputFormatter.ResolveBodyMethods(
                     type,
-                    requestedSections,
+                    executionSections,
                     memberOptions.OverloadIndex);
                 if (methods.Count > 0)
                 {
                     var analysisInspection = new ApiMemberAnalysisInspection(
-                        memberOptions.DllPath!, methods, requestedSections,
+                        memberOptions.DllPath!, methods, executionSections,
                         memberOptions.CallerScopeAssemblies, memberOptions);
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods,
                         memberOptions.DllPath!,
                         memberOptions.OverloadIndex.HasValue ? memberOptions.OverloadIndex.Value - 1 : null,
-                        requestedSections, analysisInspection, memberOptions.PdbPath,
+                        executionSections, analysisInspection, memberOptions.PdbPath,
                         memberOptions.IncludeSections, memberOptions);
                 }
 
-                if (requestedSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+                if (executionSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
                 {
                     if (memberOptions.MethodSource is { } resolvedSource)
                     {
@@ -2300,7 +2306,7 @@ public class ApiCommand
                 }
                 PopulateSourceDiff(
                     view,
-                    requestedSections,
+                    executionSections,
                     memberOptions.MemberSourceTooComplex,
                     memberOptions.MemberSourceCoordinatesInvalid);
             }
@@ -2308,17 +2314,16 @@ public class ApiCommand
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
             Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
                 typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
-                    renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type, renderOptions);
+                    renderOptions.DllPath!, executionSections, type, renderOptions);
 
             if (renderOptions.DllPath is not null
-                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))
+                && executionSections.Contains(SectionNames.UnsafeMembers))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisIndex());
             }
 
             if (renderOptions.DllPath is { } exceptionRegionsDllPath
-                && (GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.ExceptionRegions)
-                    || renderOptions.IncludeSections?.Contains(SectionNames.ExceptionRegions) == true))
+                && executionSections.Contains(SectionNames.ExceptionRegions))
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
@@ -2329,13 +2334,12 @@ public class ApiCommand
             }
 
             if (renderOptions.DllPath is not null
-                && (GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.CalledTypes)
-                    || renderOptions.IncludeSections?.Contains(SectionNames.CalledTypes) == true))
+                && executionSections.Contains(SectionNames.CalledTypes))
             {
                 ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections);
             }
 
-            var semanticSections = GetRequestedMemberSections(type, renderOptions);
+            var semanticSections = executionSections;
             if (renderOptions is not MemberOptions
                 && renderOptions.DllPath is not null
                 && semanticSections.Overlaps(SemanticFactSections))
@@ -2344,7 +2348,7 @@ public class ApiCommand
             }
 
             if (renderOptions.DllPath is not null
-                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.PerformanceTriage))
+                && executionSections.Contains(SectionNames.PerformanceTriage))
             {
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
@@ -2352,7 +2356,7 @@ public class ApiCommand
             }
 
             if (renderOptions.DllPath is not null
-                && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.TopLeverage))
+                && executionSections.Contains(SectionNames.TopLeverage))
             {
                 ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)

@@ -1420,6 +1420,24 @@ public static class ApiOutputFormatter
         return methods;
     }
 
+    internal static IReadOnlySet<string> ResolveExecutionSections(
+        ApiType type,
+        IReadOnlySet<string> requestedSections,
+        int? selectedOrdinal)
+    {
+        if (selectedOrdinal is not { } ordinal
+            || type.Members is not [{ } single]
+            || !ApiMemberSectionDescriptors.HasAccessorTokens(single))
+        {
+            return requestedSections;
+        }
+
+        var accessors = AccessorMethods(single, type).ToList();
+        return ordinal > 0 && ordinal <= accessors.Count
+            ? GetSelectedAccessorSections(accessors[ordinal - 1], requestedSections)
+            : requestedSections;
+    }
+
     private static bool CanAnalyzeSelectedAccessor(
         ApiMember accessor,
         IReadOnlySet<string> requestedSections)
@@ -1509,7 +1527,10 @@ public static class ApiOutputFormatter
             parameters.Add(new ApiParameter { Name = "value", Type = valueType });
         }
 
-        var accessorEntry = ownerModel?.Accessors.FirstOrDefault(accessor => accessor.Kind == accessorKind);
+        var accessorEntry = owner.AccessorFacts.FirstOrDefault(
+                accessor => accessor.Kind == accessorKind)
+            ?? ownerModel?.Accessors.FirstOrDefault(
+                accessor => accessor.Kind == accessorKind);
         var accessibility = string.IsNullOrEmpty(accessorEntry?.Accessibility)
             ? owner.Accessibility
             : accessorEntry!.Accessibility;
