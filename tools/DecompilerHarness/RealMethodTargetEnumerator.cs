@@ -174,24 +174,11 @@ static class RealMethodTargetEnumerator
         TypeDefinition typeDef,
         string methodName,
         MethodDefinitionHandle methodHandle)
-    {
-        string? signature;
-        try
-        {
-            signature = SignatureIdentity.ForMetadataMethod(reader, typeDef, methodHandle);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
-        {
-            return null;
-        }
-
-        if (signature is null)
-            return null;
-
-        return ReturnToSender.ResolvesUniquelyBySignature(reader, typeDef, methodName, signature, methodHandle)
-            ? signature
-            : null;
-    }
+        => ReturnToSenderSourceProbe.UniqueTargetSignature(
+            reader,
+            typeDef,
+            methodName,
+            methodHandle);
 
     static IlDifficulty ComputeDifficulty(
         PEReader pe,
