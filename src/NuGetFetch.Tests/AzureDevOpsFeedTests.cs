@@ -59,22 +59,20 @@ public sealed class AzureDevOpsFeedTests
     }
 
     [Fact]
-    public async Task CredentialArgumentAlone_FailsOnTheServiceIndex()
+    public async Task CredentialArgumentAlone_ResolvesVersions()
     {
-        // The live proof of the gap pinned by
-        // ServiceIndexAuthenticationTests.ServiceIndexRequest_DoesNotCarryTheCredential.
-        // Azure DevOps authenticates its service index, so a caller that supplies a perfectly
-        // good credential as the argument still cannot read the feed: discovery happens first
-        // and goes out anonymously.
         RequireFeed();
 
         NuGetClient client = new(new HttpClient());
         PackageSourceCredential credential = new("pat", Token!);
 
-        HttpRequestException error = await Assert.ThrowsAsync<HttpRequestException>(
-            () => client.GetVersionsAsync(PackageId, Feed, credential, TestContext.Current.CancellationToken));
+        IReadOnlyList<string> versions = await client.GetVersionsAsync(
+            PackageId,
+            Feed,
+            credential,
+            TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, error.StatusCode);
+        Assert.NotEmpty(versions);
     }
 
     [Fact]

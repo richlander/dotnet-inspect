@@ -3,6 +3,7 @@ using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
 using Markout;
+using NuGetFetch;
 
 namespace DotnetInspector.Commands;
 
@@ -26,7 +27,9 @@ public class PackageSearchCommand
                 options.Take,
                 options.Prerelease,
                 logger.Log,
-                options.SourceOptions);
+                options.SourceOptions,
+                NuGetFetchOptions.FromRequestTimeout(
+                    context.HttpClient.Timeout));
 
             var results = outcome.Results;
 
