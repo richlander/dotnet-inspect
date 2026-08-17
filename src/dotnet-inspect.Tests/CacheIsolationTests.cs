@@ -11,7 +11,7 @@ public sealed class CacheIsolationTests
             typeof(ConsoleCollection)
                 .GetCustomAttributes<CollectionDefinitionAttribute>());
 
-        Assert.Equal(ConsoleCollection.Name, definition.Name);
+        Assert.Equal("Console", definition.Name);
         Assert.True(definition.DisableParallelization);
     }
 }
