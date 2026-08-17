@@ -63,14 +63,16 @@ inspected, never executed. A floating member lists authorized versions and
 selects the latest admitted version whose major and minor match the target
 framework's base TFM; an exact pin must match that same release line. A
 platform-qualified target such as `net10.0-browser` therefore resolves on the
-`net10.0` line. Every authorized producer must return an authoritative listing
-or prove the package absent; transport, discovery, or malformed-response
-failure makes the floating result unavailable instead of silently narrowing
-the candidate set. Floating selection carries forward only the authorized
-producers that reported the chosen version, rather than allowing another
-authorized producer's cached payload to answer. Payload acquisition then uses
-the ordinary host-supplied package store, and the realized platform coordinate
-retains the serving producer for exact re-acquisition.
+`net10.0` line. Every authorized HTTP producer must return an authoritative
+listing or prove the package absent; transport, discovery, or
+malformed-response failure makes the floating result unavailable instead of
+silently narrowing the candidate set. Local-folder and `file://` sources are
+not consultable by this remote listing path and contribute neither candidate
+evidence nor incompleteness. Floating selection carries forward only the
+authorized producers that reported the chosen version, rather than allowing
+another authorized producer's cached payload to answer. Payload acquisition
+then uses the ordinary host-supplied package store, and the realized platform
+coordinate retains the serving producer for exact re-acquisition.
 
 Package metadata (publish date, downloads, deprecation, vulnerabilities) is
 also cached with a 1-hour TTL.

@@ -1,4 +1,8 @@
+using System.Net;
+
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using NuGetFetch;
 
 namespace DotnetInspector.Tests;
 
@@ -166,5 +170,72 @@ public class PackageVersionVectorTests
             Assert.Null(error);
         else
             Assert.Contains(expectedError, error);
+    }
+
+    [Theory]
+    [InlineData("/tmp/packages")]
+    [InlineData("file:///tmp/packages")]
+    public async Task ResolveAsync_SkipsNonHttpSource(
+        string localSource)
+    {
+        CoreCache.Initialize("dotnet-inspect-test");
+        Assert.True(
+            PackageVersionRange.TryParse(
+                "Example@1.0.0..2.0.0",
+                out PackageVersionRange? range,
+                out _));
+        using var client = new HttpClient(
+            new VersionListingHandler());
+
+        PackageVersionVector vector =
+            await PackageVersionVector.ResolveAsync(
+                client,
+                range!,
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        localSource,
+                        VersionListingHandler.IndexUrl,
+                    ],
+                });
+
+        Assert.Equal(
+            ["1.0.0", "2.0.0"],
+            vector.Addresses.Select(
+                address => address.Version.ToNormalizedString()));
+    }
+
+    sealed class VersionListingHandler : HttpMessageHandler
+    {
+        internal const string IndexUrl =
+            "https://healthy.test/v3/index.json";
+        const string FlatContainer =
+            "https://healthy.test/flat/";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            string? body = url switch
+            {
+                IndexUrl =>
+                    $$"""
+                    {"resources":[{"@id":"{{FlatContainer}}","@type":"PackageBaseAddress/3.0.0"}]}
+                    """,
+                $"{FlatContainer}example/index.json" =>
+                    """{"versions":["1.0.0","2.0.0"]}""",
+                _ => null,
+            };
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    body is null
+                        ? HttpStatusCode.NotFound
+                        : HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body ?? ""),
+                });
+        }
     }
 }

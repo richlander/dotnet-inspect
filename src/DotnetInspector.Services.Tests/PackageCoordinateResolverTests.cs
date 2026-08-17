@@ -1083,17 +1083,20 @@ public sealed class PackageCoordinateResolverTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
     public async Task ListVersions_RequiresEveryAuthorizedSourceToAnswer(
         bool malformedVersionIndex,
-        bool malformedPackageBaseAddress)
+        bool malformedPackageBaseAddress,
+        bool failedVersionIndex)
     {
         using var client = new HttpClient(
             new IncompleteVersionSourcesHandler(
                 malformedVersionIndex,
-                malformedPackageBaseAddress));
+                malformedPackageBaseAddress,
+                failedVersionIndex: failedVersionIndex));
 
         var unavailable =
             Assert.IsType<PackageVersionListingResult.Unavailable>(
@@ -1104,6 +1107,66 @@ public sealed class PackageCoordinateResolverTests
                         IncompleteVersionSourcesHandler.IncompleteSource,
                         IncompleteVersionSourcesHandler.AvailableSource,
                     ],
+                    useVersionCache: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "complete version set",
+            unavailable.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    public async Task ListVersions_HardFailureAloneIsIncomplete(
+        bool malformedVersionIndex,
+        bool malformedPackageBaseAddress,
+        bool failedVersionIndex)
+    {
+        using var client = new HttpClient(
+            new IncompleteVersionSourcesHandler(
+                malformedVersionIndex,
+                malformedPackageBaseAddress,
+                failedVersionIndex: failedVersionIndex));
+
+        var unavailable =
+            Assert.IsType<PackageVersionListingResult.Unavailable>(
+                await PackageCoordinateResolver.ListVersionsAsync(
+                    client,
+                    IncompleteVersionSourcesHandler.PackageId,
+                    [IncompleteVersionSourcesHandler.IncompleteSource],
+                    useVersionCache: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "complete version set",
+            unavailable.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(MalformedCriticalId.Missing)]
+    [InlineData(MalformedCriticalId.Empty)]
+    [InlineData(MalformedCriticalId.Whitespace)]
+    [InlineData(MalformedCriticalId.Number)]
+    [InlineData(MalformedCriticalId.Null)]
+    public async Task ListVersions_MalformedCriticalResourceIsIncomplete(
+        MalformedCriticalId shape)
+    {
+        using var client =
+            new HttpClient(new MalformedCriticalResourceHandler(shape));
+
+        var unavailable =
+            Assert.IsType<PackageVersionListingResult.Unavailable>(
+                await PackageCoordinateResolver.ListVersionsAsync(
+                    client,
+                    MalformedCriticalResourceHandler.PackageId,
+                    [MalformedCriticalResourceHandler.Source],
                     useVersionCache: false,
                     cancellationToken:
                         TestContext.Current.CancellationToken));
@@ -1166,6 +1229,33 @@ public sealed class PackageCoordinateResolverTests
             "complete version set",
             unavailable.Message,
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("/tmp/packages")]
+    [InlineData("file:///tmp/packages")]
+    public async Task ListVersions_SkipsNonHttpSource(
+        string localSourceUrl)
+    {
+        using var client = new HttpClient(
+            new IncompleteVersionSourcesHandler(
+                malformedVersionIndex: true));
+        var local = new PackageSource("local", localSourceUrl);
+
+        var available =
+            Assert.IsType<PackageVersionListingResult.Available>(
+                await PackageCoordinateResolver.ListVersionsAsync(
+                    client,
+                    IncompleteVersionSourcesHandler.PackageId,
+                    [
+                        local,
+                        IncompleteVersionSourcesHandler.AvailableSource,
+                    ],
+                    useVersionCache: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        Assert.Equal(["1.0.0"], available.Versions);
     }
 
     [Fact]
@@ -1333,7 +1423,8 @@ public sealed class PackageCoordinateResolverTests
     sealed class IncompleteVersionSourcesHandler(
         bool malformedVersionIndex,
         bool malformedPackageBaseAddress = false,
-        bool missingServiceIndex = false)
+        bool missingServiceIndex = false,
+        bool failedVersionIndex = false)
         : HttpMessageHandler
     {
         internal const string PackageId = "partial.package";
@@ -1359,7 +1450,8 @@ public sealed class PackageCoordinateResolverTests
                     Json(
                         """{"resources":[{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 "https://incomplete.test/v3/index.json"
-                    when !malformedVersionIndex =>
+                    when !malformedVersionIndex
+                        && !failedVersionIndex =>
                     Task.FromResult(
                         new HttpResponseMessage(
                             HttpStatusCode.ServiceUnavailable)),
@@ -1367,7 +1459,11 @@ public sealed class PackageCoordinateResolverTests
                     Json(
                         """{"resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://incomplete.test/flat/{PackageId}/index.json" =>
-                    Json("""{"versions":"not-an-array"}"""),
+                    failedVersionIndex
+                        ? Task.FromResult(
+                            new HttpResponseMessage(
+                                HttpStatusCode.InternalServerError))
+                        : Json("""{"versions":"not-an-array"}"""),
                 "https://available.test/v3/index.json" =>
                     Json(
                         """{"resources":[{"@id":"https://available.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
@@ -1383,6 +1479,49 @@ public sealed class PackageCoordinateResolverTests
                     {
                         Content = new StringContent(body),
                     });
+        }
+    }
+
+    public enum MalformedCriticalId
+    {
+        Missing,
+        Empty,
+        Whitespace,
+        Number,
+        Null,
+    }
+
+    sealed class MalformedCriticalResourceHandler(
+        MalformedCriticalId shape) : HttpMessageHandler
+    {
+        internal const string PackageId = "critical.package";
+        internal static readonly PackageSource Source =
+            new("critical", "https://critical.test/v3/index.json");
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string resource = shape switch
+            {
+                MalformedCriticalId.Missing =>
+                    """{"@type":"PackageBaseAddress/3.0.0"}""",
+                MalformedCriticalId.Empty =>
+                    """{"@id":"","@type":"PackageBaseAddress/3.0.0"}""",
+                MalformedCriticalId.Whitespace =>
+                    """{"@id":"   ","@type":"PackageBaseAddress/3.0.0"}""",
+                MalformedCriticalId.Number =>
+                    """{"@id":123,"@type":"PackageBaseAddress/3.0.0"}""",
+                MalformedCriticalId.Null =>
+                    """{"@id":null,"@type":"PackageBaseAddress/3.0.0"}""",
+                _ => throw new InvalidOperationException(),
+            };
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $$"""{"resources":[{{resource}}]}"""),
+                });
         }
     }
 

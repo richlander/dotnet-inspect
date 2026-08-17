@@ -511,15 +511,21 @@ public sealed class WorkspaceContextLoaderTests
         Assert.Equal(0, GroupCount(workspace));
     }
 
-    [Fact]
-    public async Task FloatingPlatformMember_FailedAuthorizedListingIsUnavailable()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FloatingPlatformMember_HttpSourceFailureIsUnavailable(
+        bool serviceIndexFailure)
     {
         var handler = new PerFeedHandler();
         handler.List(
             FeedA,
             RuntimePackPackageId,
             RuntimePackVersion);
-        handler.WithoutFlatContainer(FeedB);
+        if (serviceIndexFailure)
+            handler.FailServiceIndex(FeedB);
+        else
+            handler.FailListing(FeedB, RuntimePackPackageId);
         using var client = new HttpClient(handler);
         var store = new CountingPackageStore(
             new InMemoryPackageStore());
@@ -3717,6 +3723,10 @@ public sealed class WorkspaceContextLoaderTests
             new(StringComparer.Ordinal);
         readonly Dictionary<string, string[]> _listings =
             new(StringComparer.Ordinal);
+        readonly HashSet<string> _failedListings =
+            new(StringComparer.Ordinal);
+        readonly HashSet<string> _failedServiceIndexes =
+            new(StringComparer.Ordinal);
         readonly HashSet<string> _withoutFlatContainer =
             new(StringComparer.Ordinal);
         readonly List<string> _requests = [];
@@ -3745,6 +3755,15 @@ public sealed class WorkspaceContextLoaderTests
                 $"{FlatContainer(feed)}{packageId}/index.json"] =
                 versions;
 
+        internal void FailListing(
+            PackageSource feed,
+            string packageId) =>
+            _failedListings.Add(
+                $"{FlatContainer(feed)}{packageId}/index.json");
+
+        internal void FailServiceIndex(PackageSource feed) =>
+            _failedServiceIndexes.Add(feed.Url);
+
         /// <summary>
         /// Answers this feed's service index without a flat-container resource,
         /// so its package resources cannot be discovered at all.
@@ -3764,6 +3783,13 @@ public sealed class WorkspaceContextLoaderTests
             {
                 if (url.Equals(feed.Url, StringComparison.Ordinal))
                 {
+                    if (_failedServiceIndexes.Contains(feed.Url))
+                    {
+                        return Task.FromResult(
+                            new HttpResponseMessage(
+                                HttpStatusCode.ServiceUnavailable));
+                    }
+
                     string resources = _withoutFlatContainer.Contains(feed.Url)
                         ? ""
                         : $$"""{"@id":"{{FlatContainer(feed)}}","@type":"PackageBaseAddress/3.0.0"}""";
@@ -3779,7 +3805,10 @@ public sealed class WorkspaceContextLoaderTests
             }
 
             return Task.FromResult(
-                _listings.TryGetValue(url, out string[]? versions)
+                _failedListings.Contains(url)
+                    ? new HttpResponseMessage(
+                        HttpStatusCode.InternalServerError)
+                    : _listings.TryGetValue(url, out string[]? versions)
                     ? new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = new StringContent(

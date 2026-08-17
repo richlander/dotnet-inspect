@@ -899,7 +899,7 @@ is not part of runtime-pack acquisition. It supplies:
   filtering,
   `FloatingPlatformMember_AcquiresOnlyFromVersionReporters` for listing-to-
   payload source correspondence,
-  `FloatingPlatformMember_FailedAuthorizedListingIsUnavailable` and
+  `FloatingPlatformMember_HttpSourceFailureIsUnavailable` and
   `FloatingPlatformMember_AuthoritativeAbsenceDoesNotHideReporter` for typed
   source failure versus authoritative package absence,
   `InvalidPlatformCoordinate_UsesPlatformDiagnostic` for platform-owned

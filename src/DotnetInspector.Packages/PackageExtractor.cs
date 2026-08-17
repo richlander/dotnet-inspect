@@ -1125,18 +1125,20 @@ public static class PackageExtractor
                 if (resource.ValueKind != JsonValueKind.Object)
                     continue;
 
-                string? id = resource.TryGetProperty("@id", out JsonElement idElement)
-                    && idElement.ValueKind == JsonValueKind.String
-                    ? idElement.GetString()
-                    : null;
-                if (string.IsNullOrWhiteSpace(id)
-                    || !resource.TryGetProperty(
+                if (!resource.TryGetProperty(
                         "@type",
                         out JsonElement typeElement))
                 {
                     continue;
                 }
 
+                string? id =
+                    resource.TryGetProperty(
+                        "@id",
+                        out JsonElement idElement)
+                    && idElement.ValueKind == JsonValueKind.String
+                        ? idElement.GetString()
+                        : null;
                 IEnumerable<string> types = typeElement.ValueKind switch
                 {
                     JsonValueKind.String when !string.IsNullOrWhiteSpace(
@@ -1168,9 +1170,11 @@ public static class PackageExtractor
                         || IsServiceType(type, "VulnerabilityInfo");
                     if (!isCriticalHttpEndpoint && !isOptionalHttpEndpoint)
                     {
-                        result.Add(new ServiceResource(id, type));
+                        if (!string.IsNullOrWhiteSpace(id))
+                            result.Add(new ServiceResource(id, type));
                     }
-                    else if (Uri.TryCreate(
+                    else if (!string.IsNullOrWhiteSpace(id)
+                        && Uri.TryCreate(
                             id,
                             UriKind.Absolute,
                             out Uri? resourceUri)
@@ -1856,6 +1860,7 @@ public static class PackageExtractor
         Action<string>? log,
         CancellationToken cancellationToken = default)
     {
+        using var failureScope = FeedFailureTelemetry.Scope();
         bool attemptedAuthoritativeLookup = false;
 
         // Try flat-container index first
@@ -3010,6 +3015,13 @@ public static class PackageExtractor
         foreach (var source in sources)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!IsHttpSource(source))
+            {
+                log?.Invoke(
+                    $"Skipping non-HTTP NuGet source '{PackageSourceDisplay.ForDiagnostics(source)}': {UrlRedaction.ForDiagnostics(source.Url)}");
+                continue;
+            }
+
             List<PackageVersionInfo>? listings = null;
             bool fetchedAuthoritative = false;
             bool fetchedFailed = false;
