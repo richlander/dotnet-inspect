@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using CSharpText;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -36,8 +37,10 @@ internal static class CSharpSpellability
     public static bool CanSpellExplicitParameterType(
         TypeRef type,
         IrFunction host,
-        ArgumentRefKind refKind)
+        ArgumentRefKind refKind,
+        bool isDynamic = false)
         => !type.ContainsUnsupported
+            && (!isDynamic || IsDynamicParameterType(type))
             && type.ExplicitParameterModifiersAreExact(refKind)
             && HasExplicitParameterTypeShape(type, ExplicitTypeContext.Parameter, host)
             && TypeIssue(type) is null;
@@ -458,6 +461,13 @@ internal static class CSharpSpellability
         ExplicitTypeContext context,
         IrFunction host)
     {
+        if (context is ExplicitTypeContext.ArrayElement
+                or ExplicitTypeContext.GenericArgument
+            && IsByRefLikeType(type, host))
+        {
+            return false;
+        }
+
         switch (type.Kind)
         {
             case TypeRefKind.Definition:
@@ -465,7 +475,8 @@ internal static class CSharpSpellability
                     && definitionArity == 0
                     && (AllowsVoid(context) || !IsCoreLibVoid(type))
                     && (AllowsRestrictedSpecialType(context)
-                        || !IsRestrictedSpecialType(type));
+                        || !IsRestrictedSpecialType(type))
+                    && !CollidesWithInScopeGenericParameter(type, host);
 
             case TypeRefKind.GenericInstance:
                 return type.ElementType is
@@ -734,6 +745,49 @@ internal static class CSharpSpellability
         => type.Assembly == TypeRef.CoreLibrary
             && type.Namespace == "System"
             && type.Name is "TypedReference" or "ArgIterator" or "RuntimeArgumentHandle";
+
+    static bool IsCoreLibObject(TypeRef type)
+        => type.Assembly == TypeRef.CoreLibrary
+            && type.Namespace == "System"
+            && type.Name == "Object";
+
+    static bool IsDynamicParameterType(TypeRef type)
+        => IsCoreLibObject(
+            type.Kind == TypeRefKind.ByRef && type.ElementType is { } element
+                ? element
+                : type);
+
+    static bool CollidesWithInScopeGenericParameter(TypeRef type, IrFunction host)
+    {
+        int nested = type.Name.LastIndexOf('+');
+        string innermost = nested < 0 ? type.Name : type.Name[(nested + 1)..];
+        string simple = StripArity(innermost);
+        if (IsInScopeGenericParameterName(simple, host))
+            return true;
+        return type.Assembly == TypeRef.CoreLibrary
+            && type.Namespace == "System"
+            && PrimitiveTypeNames.TryToKeywordForSystemType(type.Name, out string? keyword)
+            && IsInScopeGenericParameterName(keyword, host);
+    }
+
+    static bool IsInScopeGenericParameterName(string name, IrFunction host)
+        => host.DeclaringTypeGenericParameterNames.Contains(name, StringComparer.Ordinal)
+            || host.Signature.GenericParameterNames.Contains(name, StringComparer.Ordinal);
+
+    static bool IsByRefLikeType(TypeRef type, IrFunction host)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is null)
+            return false;
+        if (host.ByRefLikeTypes.Contains(definition))
+            return true;
+        if (definition.Namespace != "System")
+            return false;
+        int tick = definition.Name.IndexOf('`');
+        string simple = tick < 0 ? definition.Name : definition.Name[..tick];
+        return simple is "Span" or "ReadOnlySpan" or "TypedReference"
+            or "ArgIterator" or "RuntimeArgumentHandle";
+    }
 
     static string StripArity(string name)
     {

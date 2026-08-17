@@ -421,7 +421,8 @@ public sealed class LambdaRaisingPass : IIrPass
             if (!CSharpSpellability.CanSpellExplicitParameterType(
                     body.Signature.Parameters[i].Type,
                     host,
-                    creation.Method.ParameterRefKinds[i]))
+                    creation.Method.ParameterRefKinds[i],
+                    body.Signature.Parameters[i].IsDynamic))
             {
                 return false;
             }

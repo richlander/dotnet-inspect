@@ -515,6 +515,10 @@ public class LambdaRaisingPassTests
                 TypeRef.CoreLib("System", "Void"),
                 [TypeRef.CoreLib("System", "TypedReference")],
                 "") },
+        { "value Span",
+            TypeRef.GenericInstance(
+                TypeRef.CoreLib("System", "Span`1"),
+                [s_int]) },
     };
 
     [Theory]
@@ -603,6 +607,59 @@ public class LambdaRaisingPassTests
         "ArgIterator",
         "RuntimeArgumentHandle",
     };
+
+    [Fact]
+    public void NamedTypeCollidingWithHostGenericParameter_StaysLowered()
+    {
+        var siblingType = TypeRef.Definition("Synthetic", "Samples", "Widget");
+        var host = RunSyntheticSiblingLambdaRaise(
+            siblingType,
+            declaringTypeGenericParameterNames: ["Widget"]);
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            siblingType,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void ForgedDynamicOnNonObjectSibling_StaysLowered()
+    {
+        var host = RunSyntheticSiblingLambdaRaise(s_int);
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            s_int,
+            host,
+            ArgumentRefKind.Value,
+            isDynamic: true));
+    }
+
+    [Fact]
+    public void DynamicObjectSibling_IsSpellable()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var host = RunSyntheticSiblingLambdaRaise(objectType);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            objectType,
+            host,
+            ArgumentRefKind.Value,
+            isDynamic: true));
+    }
+
+    [Fact]
+    public void SameAssemblyRefStructArray_StaysLowered()
+    {
+        var refStruct = TypeRef.Definition("Synthetic", "Samples", "RefBox");
+        var host = RunSyntheticSiblingLambdaRaise(s_int);
+        host.ByRefLikeTypes = ImmutableHashSet.Create(refStruct);
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            TypeRef.SzArray(refStruct),
+            host,
+            ArgumentRefKind.Value));
+    }
 
     [Theory]
     [MemberData(nameof(RestrictedByRefTypeNames))]
@@ -924,6 +981,17 @@ public class LambdaRaisingPassTests
                 "") },
         { "ref RuntimeArgumentHandle",
             TypeRef.ByRef(TypeRef.CoreLib("System", "RuntimeArgumentHandle")) },
+        { "Span array",
+            TypeRef.SzArray(
+                TypeRef.GenericInstance(
+                    TypeRef.CoreLib("System", "Span`1"),
+                    [s_int])) },
+        { "Span generic argument",
+            TypeRef.GenericInstance(
+                TypeRef.CoreLib("System.Collections.Generic", "List`1"),
+                [TypeRef.GenericInstance(
+                    TypeRef.CoreLib("System", "Span`1"),
+                    [s_int])]) },
     };
 
     [Theory]
