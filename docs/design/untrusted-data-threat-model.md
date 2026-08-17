@@ -88,21 +88,20 @@ bad-input-tolerance is diffuse and every new consumer re-litigates it.
 A rejecter still has to decide what to reject, and there are two ways to write
 that down. A **deny list** enumerates the bad forms; an **allow list**
 enumerates the permitted ones and refuses everything else. Where a field's
-grammar is externally defined and small — a package id, a version — use the
-allow list.
+grammar is externally defined — a package id, a version — use that grammar as
+the allow list rather than inventing a narrower substitute.
 
 The difference is not stylistic. A deny list is only ever as current as the
-last hazard someone thought of, and it cannot express the attacks that use
-*ordinary* characters. Cyrillic `а` (`U+0430`) and Latin `a` (`U+0061`) are the
-same glyph, different code points, and both are general category `Ll` — no
-hazard classification will ever separate them, because neither is a hazard.
-Homoglyph typosquatting is defeated by constraining the grammar and by nothing
-else.
+last hazard someone thought of. An allow list can still contain Unicode:
+NuGet's package-ID grammar uses Unicode word characters, and narrowing it to
+ASCII rejects legitimate packages. Cyrillic `а` (`U+0430`) and Latin `a`
+(`U+0061`) are the same glyph but both valid word characters, so homoglyph
+typosquatting is an identity-confusion signal rather than malformed syntax.
+Package and assembly signals report that separate concern below.
 
-An allow list is also the cheapest thing here to audit — one small set checked
-against one field — and the fastest to run, needing no Unicode tables. It is
-the same reject-over-sanitize rule applied one step earlier: at the point the
-value is admitted rather than the point it is printed.
+An allow list is also cheap to audit — one defined grammar checked against one
+field. It is the same reject-over-sanitize rule applied one step earlier: at
+the point the value is admitted rather than the point it is printed.
 
 Free-form fields cannot be treated this way. Assembly-derived type and member
 names are legitimately non-ASCII, and prose is legitimately international, so
@@ -423,26 +422,42 @@ inputs directly. Nothing gates the invariant, which is why the gaps persisted; s
 
 NuGetFetch reads service indexes, version indexes, and search responses headers-first, rejects an
 advertised `Content-Length` above the configured ceiling, and counts the bytes actually consumed
-when the length is absent or false. The default ceiling is 16 MiB. A separate body-phase timeout
-defaults to 30 seconds and never exceeds a shorter configured `HttpClient.Timeout`, because that
-client timeout stops applying once a headers-first request returns. Metadata requests also require
-Browser/Wasm streaming-response mode so the browser transport cannot buffer an unbounded body
-before the counting stream sees it.
+when the length is absent or false. The default ceiling is 16 MiB. Every HTTP request, including
+response-body consumption, has a 30-second default request deadline that a shorter configured
+`HttpClient.Timeout` tightens. A logical operation spanning service discovery, version or search
+metadata, pagination, and package-stream consumption has a separate 120-second default ceiling.
+Direct `NuGetApi` stream readers use the request deadline as their body-parse timeout, and callers
+may configure a stricter metadata-body timeout. Header-first NuGet and package-layer requests also
+require Browser/Wasm streaming-response mode so the browser transport cannot buffer an unbounded
+body before the counting or deadline streams see it.
+`NuGetSearchSourcesTests.GetSearchQueryServiceAsync_ServiceIndexRequiresBrowserStreamingResponse`
+gates the mandatory search-discovery path.
 
-Oversize and body-timeout failures have dedicated exception types. They are not represented as
-`JsonException`, `HttpRequestException`, a null document, or an empty result, so existing malformed
-JSON handling and multi-source fallback cannot turn a resource-limit failure into success-shaped
-output. Direct `NuGetApi` stream consumers pass through the same bounded reader. Package payload
-streams (`.nupkg` and `.snupkg`) are deliberately excluded; their larger download policy belongs to
-the acquisition layer.
+Oversize, request-timeout, operation-timeout, and optional body-timeout failures have dedicated
+exception types. They are not represented as `JsonException`, `HttpRequestException`, a null
+document, or an empty result, so existing malformed-JSON handling and multi-source fallback cannot
+turn a resource-limit failure into success-shaped output. Direct `NuGetApi` stream consumers pass
+through the same bounded reader. Package payload streams (`.nupkg` and `.snupkg`) are deliberately
+excluded from the metadata byte ceiling; their larger download policy belongs to the acquisition
+layer, while request and operation deadlines still cover their streamed consumption.
 
 This is gated by
 `NuGetMetadataLimitTests.Search_AdvertisedOversizeRejectsBeforeReadingTheBody`,
 `NuGetMetadataLimitTests.Search_UnderreportedLengthCannotBypassTheActualByteLimit`,
-`NuGetMetadataLimitTests.MetadataGets_RequestBrowserStreaming`,
+`NuGetMetadataLimitTests.NuGetGets_RequestBrowserStreaming`,
 `NuGetMetadataLimitTests.StalledBodyUsesTheBodyPhaseTimeout`,
+`NuGetMetadataLimitTests.ShorterHttpClientTimeoutBoundsTheWholeRequest`,
 `NuGetMetadataLimitTests.DirectNuGetApiReadersUseTheDefaultLimit`, and
-`NuGetMetadataLimitTests.PackagePayloadIsNotSubjectToTheMetadataLimit`.
+`NuGetMetadataLimitTests.PackagePayloadIsNotSubjectToTheMetadataLimit`, plus
+`NuGetDeadlineTests.RequestDeadline_BoundsARequestBeforeHeaders`,
+`NuGetDeadlineTests.RequestDeadline_BoundsPackageStreamConsumption`,
+`NuGetDeadlineTests.OperationCeiling_SpansServiceDiscoveryAndVersionLookup`,
+`NuGetDeadlineTests.OperationCeiling_IncludesPackageStreamConsumption`, and
+`NuGetDeadlineTests.CallerCancellation_IsNotReportedAsADeadline`, plus
+`HttpRetryHelperTests.HeaderFirstBodyRead_RequiresBrowserStreamingResponse`,
+`HttpRetryHelperTests.StringBodyRead_RequiresBrowserStreamingResponse`,
+`HttpRetryHelperTests.StreamedResponse_RequiresBrowserStreamingResponse`, and
+`HttpRetryHelperTests.RangeResponse_RequiresBrowserStreamingResponse`.
 
 ### Malformed NuGet metadata fails visibly
 

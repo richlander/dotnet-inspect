@@ -443,7 +443,7 @@ public static partial class StructuralCloneAnalysis
                         break;
                     }
 
-                    StructuralCloneComparison comparison = Compare(
+                    StructuralCloneComparison comparison = CompareExact(
                         group.Representative,
                         candidate,
                         comparisonLimits);

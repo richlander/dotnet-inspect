@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "cases": [
     {
       "id": "banal.authored.exact",
@@ -39,7 +39,7 @@
       "tags": [
         "compiler-produced",
         "cfg",
-        "close-negative"
+        "hard-negative"
       ]
     },
     {
@@ -104,6 +104,113 @@
       ]
     },
     {
+      "id": "banal.constant.near",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearConstantA"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearConstantB"
+      },
+      "expectedDisposition": "Completed",
+      "expectedRelation": "Near",
+      "difficulty": "banal",
+      "intent": "authored-near",
+      "actionability": "actionable",
+      "tags": [
+        "compiler-produced",
+        "constant",
+        "near-positive"
+      ],
+      "expectedEdits": {
+        "insertedBlocks": 0,
+        "removedBlocks": 0,
+        "changedBlocks": 1,
+        "insertedOperations": 0,
+        "removedOperations": 0,
+        "changedOperations": 1,
+        "insertedEdges": 0,
+        "removedEdges": 0,
+        "changedEdges": 0
+      }
+    },
+    {
+      "id": "challenging.call-target.near",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearCallTargetA"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearCallTargetB"
+      },
+      "expectedDisposition": "Completed",
+      "expectedRelation": "Near",
+      "difficulty": "challenging",
+      "intent": "authored-near",
+      "actionability": "diagnostic",
+      "tags": [
+        "compiler-produced",
+        "metadata-token",
+        "near-positive"
+      ],
+      "expectedEdits": {
+        "insertedBlocks": 0,
+        "removedBlocks": 0,
+        "changedBlocks": 1,
+        "insertedOperations": 0,
+        "removedOperations": 0,
+        "changedOperations": 1,
+        "insertedEdges": 0,
+        "removedEdges": 0,
+        "changedEdges": 0
+      }
+    },
+    {
+      "id": "challenging.two-operation.negative",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearHardNegativeA"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearHardNegativeB"
+      },
+      "expectedDisposition": "Completed",
+      "expectedRelation": "Different",
+      "difficulty": "challenging",
+      "intent": "authored-hard-negative",
+      "actionability": "diagnostic",
+      "tags": [
+        "compiler-produced",
+        "constant",
+        "opcode",
+        "hard-negative"
+      ]
+    },
+    {
+      "id": "challenging.operation-reordering.negative",
+      "left": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearReorderedA"
+      },
+      "right": {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearReorderedB"
+      },
+      "expectedDisposition": "Completed",
+      "expectedRelation": "Different",
+      "difficulty": "challenging",
+      "intent": "authored-hard-negative",
+      "actionability": "diagnostic",
+      "tags": [
+        "compiler-produced",
+        "operation-order",
+        "hard-negative"
+      ]
+    },
+    {
       "id": "banal.exception-handling.unsupported",
       "left": {
         "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
@@ -165,6 +272,38 @@
       {
         "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
         "method": "MetadataOperandsB"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearConstantA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearConstantB"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearCallTargetA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearCallTargetB"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearHardNegativeA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearHardNegativeB"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearReorderedA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "NearReorderedB"
       },
       {
         "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",

@@ -11,6 +11,7 @@ using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
 using DotnetInspector.Core;
+using NuGetFetch;
 
 namespace DotnetInspector.Packages;
 
@@ -345,6 +346,8 @@ public static class HttpRetryHelper
                 if (auth != null)
                     request.Headers.Authorization = auth;
                 request.Headers.Range = range;
+                if (range is not null)
+                    request.Options.Set(BrowserStreamingResponse, true);
                 return request;
             },
             range is null
@@ -373,7 +376,8 @@ public static class HttpRetryHelper
         AuthenticationHeaderValue? auth = null,
         NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
         long maxDownloadSize = 500_000_000,
-        Action<HttpRequestMessage>? configureRequest = null)
+        Action<HttpRequestMessage>? configureRequest = null,
+        bool preservePathAndQuery = false)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
@@ -397,7 +401,9 @@ public static class HttpRetryHelper
 
                 try
                 {
-                    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    using HttpRequestMessage request = preservePathAndQuery
+                        ? NuGetHttpRequest.CreateGetPreservingPathAndQuery(url)
+                        : new HttpRequestMessage(HttpMethod.Get, url);
                     if (auth != null)
                         request.Headers.Authorization = auth;
                     configureRequest?.Invoke(request);
@@ -579,6 +585,12 @@ public static class HttpRetryHelper
     /// Maximum accepted body bytes. Defaults to
     /// <see cref="DefaultMaxTextResponseBytes"/>.
     /// </param>
+    /// <param name="responseBodyTimeout">
+    /// Optional timeout for response-body consumption. The default preserves
+    /// the shared package HTTP baseline. Pass
+    /// <see cref="Timeout.InfiniteTimeSpan"/> when the supplied cancellation
+    /// token already owns the request deadline.
+    /// </param>
     /// <returns>Response body as string, or null if failed or oversize</returns>
     public static async Task<string?> GetStringWithRetryAsync(
         HttpClient client,
@@ -589,9 +601,19 @@ public static class HttpRetryHelper
         AuthenticationHeaderValue? auth = null,
         NetworkTrafficKind trafficKind = NetworkTrafficKind.Unknown,
         long maxDownloadSize = DefaultMaxTextResponseBytes,
-        Action<HttpRequestMessage>? configureRequest = null)
+        Action<HttpRequestMessage>? configureRequest = null,
+        TimeSpan? responseBodyTimeout = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDownloadSize);
+        if (responseBodyTimeout is TimeSpan configuredTimeout
+            && configuredTimeout != Timeout.InfiniteTimeSpan
+            && configuredTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(responseBodyTimeout),
+                configuredTimeout,
+                "Response body timeout must be positive or infinite.");
+        }
 
         // Headers-first via the shared retry loop so relative-URL resolution,
         // redacted failure logs, and FeedFailureTelemetry stay identical to
@@ -604,6 +626,7 @@ public static class HttpRetryHelper
                 if (auth != null)
                     request.Headers.Authorization = auth;
                 configureRequest?.Invoke(request);
+                request.Options.Set(BrowserStreamingResponse, true);
                 return request;
             },
             HttpCompletionOption.ResponseHeadersRead,
@@ -647,13 +670,15 @@ public static class HttpRetryHelper
             // Headers-first means HttpClient.Timeout no longer covers the body.
             // Match GetBytesAfterHeadersWithRetryAsync: linked CTS + CancelAfter so
             // a stalled feed cannot hang service-index / version-list discovery.
-            TimeSpan requestTimeout = client.Timeout == Timeout.InfiniteTimeSpan
-                || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
-                    ? HttpClientFactoryOptions.BaselineTimeout
-                    : client.Timeout;
+            TimeSpan requestTimeout = responseBodyTimeout
+                ?? (client.Timeout == Timeout.InfiniteTimeSpan
+                    || client.Timeout > HttpClientFactoryOptions.BaselineTimeout
+                        ? HttpClientFactoryOptions.BaselineTimeout
+                        : client.Timeout);
             using var bodyTimeout = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken);
-            bodyTimeout.CancelAfter(requestTimeout);
+            if (requestTimeout != Timeout.InfiniteTimeSpan)
+                bodyTimeout.CancelAfter(requestTimeout);
 
             try
             {
@@ -727,6 +752,7 @@ public static class HttpRetryHelper
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 if (auth != null)
                     request.Headers.Authorization = auth;
+                request.Options.Set(BrowserStreamingResponse, true);
                 return request;
             },
             HttpCompletionOption.ResponseHeadersRead,
