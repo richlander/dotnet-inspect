@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using NuGetFetch;
 
@@ -194,7 +193,7 @@ public sealed class PackageSourceClientTests
             [Versions] = """{"versions":["1.0.0"]}""",
             [Package] = "package bytes",
         };
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         var source = new PackageSource(
             "corporate",
             ServiceIndex,
@@ -266,7 +265,7 @@ public sealed class PackageSourceClientTests
                 """,
             [Versions] = """{"versions":["1.0.0"]}""",
         };
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource(
@@ -303,7 +302,7 @@ public sealed class PackageSourceClientTests
         {
             [NuGetOrgVersions] = """{"versions":["1.0.0"]}""",
         };
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 PackageSource.NuGetOrg,
@@ -341,7 +340,7 @@ public sealed class PackageSourceClientTests
                 """,
             [Versions] = """{"versions":["../1.0.0"]}""",
         };
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("corporate", ServiceIndex),
@@ -362,7 +361,7 @@ public sealed class PackageSourceClientTests
     public async Task V3ServiceIndexNotFoundIsInvalidResponse()
     {
         var handler = new RecordingHandler();
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("corporate", ServiceIndex),
@@ -390,6 +389,7 @@ public sealed class PackageSourceClientTests
     [InlineData("https://feed.example/v3/flat/?sig=a%")]
     [InlineData(" https://feed.example/v3/flat/")]
     [InlineData("https://bücher.example/flat%/")]
+    [InlineData("https://\u200D.example/flat/")]
     public async Task V3UnusablePackageBaseAddressIsInvalidResponse(
         string baseAddress)
     {
@@ -407,7 +407,7 @@ public sealed class PackageSourceClientTests
                 }
                 """,
         };
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("corporate", ServiceIndex),
@@ -448,7 +448,7 @@ public sealed class PackageSourceClientTests
                 Content = new StreamContent(new ImmediateIoFailureStream()),
                 RequestMessage = request,
             });
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("corporate", ServiceIndex),
@@ -493,7 +493,7 @@ public sealed class PackageSourceClientTests
             [signedVersions] = """{"versions":["1.0.0"]}""",
             [signedPackage] = "package bytes",
         };
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("signed-resource", ServiceIndex),
@@ -545,7 +545,7 @@ public sealed class PackageSourceClientTests
             [unicodeVersions] = """{"versions":["1.0.0"]}""",
             [unicodePackage] = "package bytes",
         };
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("unicode", ServiceIndex),
@@ -589,7 +589,7 @@ public sealed class PackageSourceClientTests
                 """,
             [idnVersions] = """{"versions":["1.0.0"]}""",
         };
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("idn", ServiceIndex),
@@ -626,7 +626,7 @@ public sealed class PackageSourceClientTests
                 """,
             [ipv6Versions] = """{"versions":["1.0.0"]}""",
         };
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("ipv6", ServiceIndex),
@@ -671,7 +671,7 @@ public sealed class PackageSourceClientTests
         string packageId)
     {
         var handler = new RecordingHandler();
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("corporate", ServiceIndex),
@@ -694,7 +694,7 @@ public sealed class PackageSourceClientTests
         string version)
     {
         var handler = new RecordingHandler();
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("corporate", ServiceIndex),
@@ -713,7 +713,7 @@ public sealed class PackageSourceClientTests
     public async Task UnsupportedCapabilityFailsBeforeNetworkAccess()
     {
         var handler = new RecordingHandler();
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource("corporate", ServiceIndex),
@@ -740,7 +740,7 @@ public sealed class PackageSourceClientTests
     public async Task CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut()
     {
         var handler = new RecordingHandler();
-        using var client = new HttpClient(handler);
+        HttpMessageHandler client = handler;
         IPackageSourceClient runtime =
             PackageSourceClientFactory.Create(
                 new PackageSource(
@@ -1019,12 +1019,9 @@ public sealed class PackageSourceClientTests
     [Fact]
     public void GalleryRejectsCredentials()
     {
-        using var client = new HttpClient(new RecordingHandler());
-
         ArgumentException error = Assert.Throws<ArgumentException>(
             () => PackageSourceClientFactory.Create(
                 PackageSourceDescriptor.NuGetGallery,
-                client,
                 credential:
                     new PackageSourceCredential("user", "token")));
 
@@ -1032,27 +1029,117 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
-    public void GalleryRejectsSharedHttpClient()
+    public void GalleryDescriptorRequiresGalleryFactory()
     {
-        var handler = new RecordingHandler();
-        using var client = new HttpClient(handler);
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", "secret");
-        client.DefaultRequestHeaders.TryAddWithoutValidation(
-            "Cookie",
-            "session=secret");
-        client.DefaultRequestHeaders.TryAddWithoutValidation(
-            "X-NuGet-ApiKey",
-            "secret");
-
         InvalidOperationException error =
             Assert.Throws<InvalidOperationException>(
                 () => PackageSourceClientFactory.Create(
-                    PackageSourceDescriptor.NuGetGallery,
-                    client));
+                    PackageSourceDescriptor.NuGetGallery));
 
         Assert.Contains("isolated transport", error.Message);
-        Assert.Empty(handler.Requested);
+    }
+
+    [Fact]
+    public void RuntimeFactoriesDoNotAcceptSharedHttpClient()
+    {
+        Assert.DoesNotContain(
+            typeof(PackageSourceClientFactory).GetMethods(),
+            method => method.IsPublic
+                && method.GetParameters().Any(
+                    parameter => parameter.ParameterType
+                        == typeof(HttpClient)));
+    }
+
+    [Fact]
+    public void DefaultV3TransportHasNoAmbientCredentialMechanisms()
+    {
+        using HttpClientHandler handler =
+            PackageSourceClientFactory
+                .CreateCredentialFreeTransportHandler();
+
+        Assert.False(handler.UseCookies);
+        Assert.False(handler.UseDefaultCredentials);
+        Assert.False(handler.PreAuthenticate);
+        Assert.Null(handler.Credentials);
+    }
+
+    [Fact]
+    public void V3OwnedTransportIsDisposedWithClient()
+    {
+        var handler = new RecordingHandler();
+        IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                handler);
+
+        runtime.Dispose();
+
+        Assert.True(handler.Disposed);
+    }
+
+    [Fact]
+    public void V3OwnedTransportLeavesLibraryDeadlinesAuthoritative()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMinutes(5),
+            OperationTimeout = TimeSpan.FromMinutes(10),
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("corporate", ServiceIndex),
+                new RecordingHandler(),
+                options);
+        NuGetV3PackageSourceClient v3 =
+            Assert.IsType<NuGetV3PackageSourceClient>(runtime);
+
+        Assert.Equal(Timeout.InfiniteTimeSpan, v3.TransportTimeout);
+        Assert.Equal(
+            options.RequestTimeout,
+            NuGetFetchOptions.RequestTimeoutForClient(
+                options,
+                v3.TransportTimeout));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CandidateProjectionRemainsInsideOperationDeadline(
+        bool search)
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromSeconds(1),
+            OperationTimeout = TimeSpan.FromMilliseconds(20),
+        };
+        using var operation = new NuGetOperationDeadline(
+            options,
+            Timeout.InfiniteTimeSpan,
+            CancellationToken.None);
+
+        Assert.Throws<NuGetOperationTimeoutException>(
+            () =>
+            {
+                if (search)
+                {
+                    PackageSourceProjection.ProjectSearch(
+                        new DelayedList<SearchResult>(
+                            new SearchResult("contoso", "1.0.0")),
+                        PackageSourceIdentity.NuGetOrg,
+                        operation);
+                }
+                else
+                {
+                    PackageSourceProjection.ProjectVersions(
+                        "contoso",
+                        new DelayedList<string>("1.0.0"),
+                        PackageSourceIdentity.NuGetOrg,
+                        PackageDiscoveryContract.CompleteVersionEnumeration,
+                        PackageListingState.Unknown,
+                        hasAuthoritativeListingState: false,
+                        operation);
+                }
+            });
     }
 
     [Fact]
@@ -1191,14 +1278,13 @@ public sealed class PackageSourceClientTests
     [Fact]
     public void LegacyLocalSourceRemainsAnExplicitUnsupportedKind()
     {
-        using var client = new HttpClient(new RecordingHandler());
         var source = new PackageSource(
             "local",
             Path.GetFullPath("packages"));
 
         PackageSourceClientUnavailableException error =
             Assert.Throws<PackageSourceClientUnavailableException>(
-                () => PackageSourceClientFactory.Create(source, client));
+                () => PackageSourceClientFactory.Create(source));
 
         Assert.Equal(PackageSourceKind.LocalFolder, error.Kind);
     }
@@ -1230,6 +1316,30 @@ public sealed class PackageSourceClientTests
         PackageSourceOperationResult<T> result) =>
         Assert.IsType<PackageSourceOperationResult<T>.Failed>(result)
             .Failure;
+
+    private sealed class DelayedList<T>(T value) : IReadOnlyList<T>
+    {
+        public int Count => 1;
+
+        public T this[int index]
+        {
+            get
+            {
+                Assert.Equal(0, index);
+                Thread.Sleep(100);
+                return value;
+            }
+        }
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            yield return this[0];
+        }
+
+        System.Collections.IEnumerator
+            System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
+    }
 
     private sealed class RecordingHandler : HttpMessageHandler
     {

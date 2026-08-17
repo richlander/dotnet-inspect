@@ -48,6 +48,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             PackageSourceCapabilities.Search,
             async () =>
             {
+                using var operation = CreateOperation(cancellationToken);
                 IReadOnlyList<SearchResult> results;
                 try
                 {
@@ -56,7 +57,7 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                             take,
                             prerelease,
                             auth: null,
-                            cancellationToken)
+                            operation)
                         .ConfigureAwait(false);
                 }
                 catch (InvalidOperationException exception)
@@ -66,18 +67,10 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         exception);
                 }
 
-                return new PackageSearchResult(
-                    results.Select(
-                        result => new PackageSearchMatch(
-                            result,
-                            new PackageCandidateObservation(
-                                PackageSourceCoordinate.Create(
-                                    result.Id,
-                                    result.Version),
-                                Identity,
-                                PackageDiscoveryContract.KeywordSearch,
-                                PackageListingState.Listed)))
-                        .ToArray());
+                return PackageSourceProjection.ProjectSearch(
+                    results,
+                    Identity,
+                    operation);
             },
             cancellationToken).ConfigureAwait(false);
     }
@@ -134,28 +127,14 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                 IReadOnlyList<string> versions = index?.Versions
                     ?? throw new NuGetSourceResponseException(
                         "The NuGet Gallery version response was not a valid version document.");
-                var candidates =
-                    new PackageCandidateObservation[versions.Count];
-                for (int i = 0; i < versions.Count; i++)
-                {
-                    operation.ThrowIfExpired();
-                    if (!PackageCoordinateValidation.IsValidPackageVersion(
-                            versions[i]))
-                    {
-                        throw new NuGetSourceResponseException(
-                            "The NuGet Gallery version response contained an invalid package version.");
-                    }
-
-                    candidates[i] = new PackageCandidateObservation(
-                        PackageSourceCoordinate.Create(packageId, versions[i]),
-                        Identity,
-                        PackageDiscoveryContract.CompleteVersionEnumeration,
-                        PackageListingState.Unknown);
-                }
-
-                return new PackageVersionResult(
-                    candidates,
-                    hasAuthoritativeListingState: false);
+                return PackageSourceProjection.ProjectVersions(
+                    packageId,
+                    versions,
+                    Identity,
+                    PackageDiscoveryContract.CompleteVersionEnumeration,
+                    PackageListingState.Unknown,
+                    hasAuthoritativeListingState: false,
+                    operation);
             },
             cancellationToken).ConfigureAwait(false);
     }

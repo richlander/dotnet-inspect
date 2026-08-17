@@ -117,6 +117,68 @@ public sealed record PackageVersionResult
     public bool HasAuthoritativeListingState { get; }
 }
 
+internal static class PackageSourceProjection
+{
+    public static PackageVersionResult ProjectVersions(
+        string packageId,
+        IReadOnlyList<string> versions,
+        PackageSourceIdentity producer,
+        PackageDiscoveryContract discoveryContract,
+        PackageListingState listingState,
+        bool hasAuthoritativeListingState,
+        NuGetOperationDeadline operation)
+    {
+        var candidates =
+            new PackageCandidateObservation[versions.Count];
+        for (int i = 0; i < versions.Count; i++)
+        {
+            operation.ThrowIfExpired();
+            if (!PackageCoordinateValidation.IsValidPackageVersion(
+                    versions[i]))
+            {
+                throw new NuGetSourceResponseException(
+                    "The package version response contained an invalid package version.");
+            }
+
+            candidates[i] = new PackageCandidateObservation(
+                PackageSourceCoordinate.Create(packageId, versions[i]),
+                producer,
+                discoveryContract,
+                listingState);
+        }
+
+        operation.ThrowIfExpired();
+        return new PackageVersionResult(
+            candidates,
+            hasAuthoritativeListingState);
+    }
+
+    public static PackageSearchResult ProjectSearch(
+        IReadOnlyList<SearchResult> results,
+        PackageSourceIdentity producer,
+        NuGetOperationDeadline operation)
+    {
+        var matches = new PackageSearchMatch[results.Count];
+        for (int i = 0; i < results.Count; i++)
+        {
+            operation.ThrowIfExpired();
+            SearchResult result = results[i];
+            matches[i] = new PackageSearchMatch(
+                result,
+                new PackageCandidateObservation(
+                    PackageSourceCoordinate.Create(
+                        result.Id,
+                        result.Version),
+                    producer,
+                    PackageDiscoveryContract.KeywordSearch,
+                    PackageListingState.Listed));
+        }
+
+        operation.ThrowIfExpired();
+        return new PackageSearchResult(matches);
+    }
+}
+
 /// <summary>The kind of payload returned by a package source.</summary>
 public enum PackageSourcePayloadKind
 {
@@ -264,24 +326,24 @@ internal static class PackageSourceOperation
                 or JsonException =>
                 PackageSourceFailureKind.InvalidResponse,
             HttpRequestException
-                {
-                    StatusCode: HttpStatusCode.NotFound,
-                } when coordinate is not null
+            {
+                StatusCode: HttpStatusCode.NotFound,
+            } when coordinate is not null
                     && capability is
                         PackageSourceCapabilities.PackagePayload
                         or PackageSourceCapabilities.SymbolPayload =>
                 PackageSourceFailureKind.NotFound,
             HttpRequestException
-                {
-                    StatusCode: HttpStatusCode.NotFound,
-                } =>
+            {
+                StatusCode: HttpStatusCode.NotFound,
+            } =>
                 PackageSourceFailureKind.InvalidResponse,
             HttpRequestException
-                {
-                    StatusCode:
+            {
+                StatusCode:
                         HttpStatusCode.Unauthorized
                         or HttpStatusCode.Forbidden,
-                } =>
+            } =>
                 PackageSourceFailureKind.AuthenticationRequired,
             HttpRequestException =>
                 PackageSourceFailureKind.Transport,

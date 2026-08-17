@@ -577,7 +577,18 @@ service index. The factory creates an isolated credential-free `HttpClient`
 owned by the Gallery client; it does not accept a shared mutable client whose
 defaults could carry authorization, cookies, or API keys to the fixed public
 hosts. The transport timeout is infinite so the finite NuGetFetch request and
-operation deadlines remain authoritative. Disposing the source client disposes that transport.
+operation deadlines remain authoritative. Disposing the source client disposes
+that transport.
+
+The v3 compatibility adapter also owns an isolated credential-free
+`HttpClient`; it does not accept a shared client or opaque caller handler that
+could inject ambient credentials into feed-advertised resources. Its default
+handler disables cookies, default credentials, and preauthentication. Source
+credentials are passed separately and are adopted only for same-origin
+resources. `RuntimeFactoriesDoNotAcceptSharedHttpClient` and
+`DefaultV3TransportHasNoAmbientCredentialMechanisms` gate that transport
+boundary. Candidate projection remains inside the same operation deadline as
+the metadata request.
 
 Source operations now return typed outcomes. Search and version results carry
 normalized package coordinates, producer identity, discovery contract, and

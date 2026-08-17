@@ -41,7 +41,7 @@ public class NuGetClient(HttpClient client)
             operation).ConfigureAwait(false);
     }
 
-    private async Task<IReadOnlyList<string>> GetVersionsAsync(
+    internal async Task<IReadOnlyList<string>> GetVersionsAsync(
         string packageId,
         string? sourceUrl,
         PackageSourceCredential? credential,
@@ -407,9 +407,21 @@ public class NuGetClient(HttpClient client)
             string escapedPath = endpoint.GetComponents(
                 UriComponents.Path,
                 UriFormat.UriEscaped);
+            string idnHost;
+            try
+            {
+                idnHost = endpoint.IdnHost;
+            }
+            catch (UriFormatException exception)
+            {
+                throw new NuGetSourceResponseException(
+                    "The source service index advertised an unusable PackageBaseAddress.",
+                    exception);
+            }
+
             string host = endpoint.HostNameType == UriHostNameType.IPv6
-                ? $"[{endpoint.IdnHost}]"
-                : endpoint.IdnHost;
+                ? $"[{idnHost}]"
+                : idnHost;
             string origin =
                 $"{endpoint.Scheme}://{host}"
                 + (endpoint.IsDefaultPort
@@ -477,17 +489,28 @@ public class NuGetClient(HttpClient client)
         if (credential is null || sourceUrl is null)
             return credential;
 
-        return Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? source)
-            && Uri.TryCreate(endpointUrl, UriKind.Absolute, out Uri? endpoint)
-            && source.Scheme.Equals(
-                endpoint.Scheme,
-                StringComparison.OrdinalIgnoreCase)
-            && source.IdnHost.Equals(
-                endpoint.IdnHost,
-                StringComparison.OrdinalIgnoreCase)
-            && source.Port == endpoint.Port
-                ? credential
-                : null;
+        if (!Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? source)
+            || !Uri.TryCreate(endpointUrl, UriKind.Absolute, out Uri? endpoint))
+        {
+            return null;
+        }
+
+        try
+        {
+            return source.Scheme.Equals(
+                    endpoint.Scheme,
+                    StringComparison.OrdinalIgnoreCase)
+                && source.IdnHost.Equals(
+                    endpoint.IdnHost,
+                    StringComparison.OrdinalIgnoreCase)
+                && source.Port == endpoint.Port
+                    ? credential
+                    : null;
+        }
+        catch (UriFormatException)
+        {
+            return null;
+        }
     }
 
     internal static string? FindLatestVersion(IReadOnlyList<string> versions, bool includePrerelease)

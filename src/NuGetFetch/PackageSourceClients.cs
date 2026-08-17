@@ -85,9 +85,22 @@ public sealed record PackageSourceIdentity
                 nameof(endpoint));
         }
 
+        string idnHost;
+        try
+        {
+            idnHost = endpoint.IdnHost;
+        }
+        catch (UriFormatException exception)
+        {
+            throw new ArgumentException(
+                "A package source endpoint must have a usable host.",
+                nameof(endpoint),
+                exception);
+        }
+
         string host = endpoint.HostNameType == UriHostNameType.IPv6
-            ? $"[{endpoint.IdnHost}]"
-            : endpoint.IdnHost.ToLowerInvariant();
+            ? $"[{idnHost}]"
+            : idnHost.ToLowerInvariant();
         var origin =
             $"{endpoint.Scheme.ToLowerInvariant()}://{host}:{endpoint.Port}";
         string absolutePath = endpoint.AbsolutePath;
@@ -304,11 +317,9 @@ public static class PackageSourceClientFactory
     /// </summary>
     public static IPackageSourceClient Create(
         PackageSource source,
-        HttpClient client,
         NuGetFetchOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(client);
         if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
             || endpoint.IsFile)
         {
@@ -319,7 +330,7 @@ public static class PackageSourceClientFactory
         return new NuGetV3PackageSourceClient(
             PackageSourceIdentity.ForProducerEndpoint(endpoint),
             endpoint,
-            client,
+            CreateOwnedTransport(),
             options ?? new NuGetFetchOptions(),
             source.Credential);
     }
@@ -330,12 +341,10 @@ public static class PackageSourceClientFactory
     /// </summary>
     public static IPackageSourceClient Create(
         PackageSourceDescriptor descriptor,
-        HttpClient client,
         NuGetFetchOptions? options = null,
         PackageSourceCredential? credential = null)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
-        ArgumentNullException.ThrowIfNull(client);
         options ??= new NuGetFetchOptions();
         if (descriptor.Kind == PackageSourceKind.NuGetGallery)
         {
@@ -355,7 +364,7 @@ public static class PackageSourceClientFactory
             PackageSourceKind.NuGetV3 when descriptor.Endpoint is not null =>
                 new NuGetV3PackageSourceClient(
                     descriptor,
-                    client,
+                    CreateOwnedTransport(),
                     options,
                     credential),
             _ => throw new PackageSourceClientUnavailableException(
@@ -388,6 +397,87 @@ public static class PackageSourceClientFactory
             },
             options ?? new NuGetFetchOptions());
     }
+
+    internal static IPackageSourceClient Create(
+        PackageSource source,
+        HttpMessageHandler transport,
+        NuGetFetchOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(transport);
+        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint)
+            || endpoint.IsFile)
+        {
+            throw new PackageSourceClientUnavailableException(
+                PackageSourceKind.LocalFolder);
+        }
+
+        return new NuGetV3PackageSourceClient(
+            PackageSourceIdentity.ForProducerEndpoint(endpoint),
+            endpoint,
+            CreateOwnedTransport(transport),
+            options ?? new NuGetFetchOptions(),
+            source.Credential);
+    }
+
+    internal static IPackageSourceClient Create(
+        PackageSourceDescriptor descriptor,
+        HttpMessageHandler transport,
+        NuGetFetchOptions? options = null,
+        PackageSourceCredential? credential = null)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(transport);
+        options ??= new NuGetFetchOptions();
+        if (descriptor.Kind == PackageSourceKind.NuGetGallery)
+        {
+            if (credential is not null)
+            {
+                throw new ArgumentException(
+                    "The built-in NuGet Gallery source does not accept credentials.",
+                    nameof(credential));
+            }
+
+            throw new InvalidOperationException(
+                "The NuGet Gallery source requires its isolated transport. Use CreateGallery instead.");
+        }
+
+        if (descriptor.Kind != PackageSourceKind.NuGetV3
+            || descriptor.Endpoint is null)
+        {
+            throw new PackageSourceClientUnavailableException(
+                descriptor.Kind);
+        }
+
+        return new NuGetV3PackageSourceClient(
+            descriptor,
+            CreateOwnedTransport(transport),
+            options,
+            credential);
+    }
+
+    private static HttpClient CreateOwnedTransport(
+        HttpMessageHandler? transport = null) =>
+        transport is null
+                ? new HttpClient(
+                    CreateCredentialFreeTransportHandler(),
+                    disposeHandler: true)
+                {
+                    Timeout = Timeout.InfiniteTimeSpan,
+                }
+            : new HttpClient(transport, disposeHandler: true)
+            {
+                Timeout = Timeout.InfiniteTimeSpan,
+            };
+
+    internal static HttpClientHandler
+        CreateCredentialFreeTransportHandler() =>
+        new()
+        {
+            UseCookies = false,
+            UseDefaultCredentials = false,
+            PreAuthenticate = false,
+        };
 }
 
 internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
@@ -395,7 +485,10 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
     private readonly PackageSourceIdentity _identity;
     private readonly Uri _endpoint;
     private readonly PackageSourceCredential? _credential;
+    private readonly HttpClient _client;
     private readonly NuGetClient _nuget;
+    private readonly NuGetFetchOptions _options;
+    private readonly TimeSpan _clientTimeout;
 
     public NuGetV3PackageSourceClient(
         PackageSourceDescriptor descriptor,
@@ -421,11 +514,15 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
         _identity = identity;
         _endpoint = endpoint;
         _credential = credential;
-        _nuget = new NuGetClient(client, options);
+        _client = client;
+        _options = NuGetFetchOptions.Validate(options);
+        _clientTimeout = client.Timeout;
+        _nuget = new NuGetClient(client, _options);
     }
 
     public PackageSourceIdentity Identity => _identity;
     public PackageSourceKind Kind => PackageSourceKind.NuGetV3;
+    internal TimeSpan TransportTimeout => _client.Timeout;
     public PackageSourceCapabilities Capabilities =>
         PackageSourceCapabilities.VersionEnumeration
         | PackageSourceCapabilities.PackagePayload;
@@ -454,33 +551,24 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
             PackageSourceCapabilities.VersionEnumeration,
             async () =>
             {
+                using var operation = new NuGetOperationDeadline(
+                    _options,
+                    _clientTimeout,
+                    cancellationToken);
                 IReadOnlyList<string> versions =
                     await _nuget.GetVersionsAsync(
                         packageId,
                         _endpoint.AbsoluteUri,
                         _credential,
-                        cancellationToken).ConfigureAwait(false);
-                var candidates =
-                    new PackageCandidateObservation[versions.Count];
-                for (int i = 0; i < versions.Count; i++)
-                {
-                    if (!PackageCoordinateValidation.IsValidPackageVersion(
-                            versions[i]))
-                    {
-                        throw new NuGetSourceResponseException(
-                            "The package version response contained an invalid package version.");
-                    }
-
-                    candidates[i] = new PackageCandidateObservation(
-                        PackageSourceCoordinate.Create(packageId, versions[i]),
-                        Identity,
-                        PackageDiscoveryContract.CompleteVersionEnumeration,
-                        PackageListingState.Unknown);
-                }
-
-                return new PackageVersionResult(
-                    candidates,
-                    hasAuthoritativeListingState: false);
+                        operation).ConfigureAwait(false);
+                return PackageSourceProjection.ProjectVersions(
+                    packageId,
+                    versions,
+                    Identity,
+                    PackageDiscoveryContract.CompleteVersionEnumeration,
+                    PackageListingState.Unknown,
+                    hasAuthoritativeListingState: false,
+                    operation);
             },
             cancellationToken).ConfigureAwait(false);
     }
@@ -528,6 +616,7 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
 
     public void Dispose()
     {
+        _client.Dispose();
     }
 }
 

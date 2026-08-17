@@ -77,6 +77,13 @@ immutable-source assumption; it needs distinct source endpoints to keep those
 content domains separate. Credentials selected for a configured endpoint may
 be sent to package resources discovered on the same origin (scheme, host, and
 port), but never to a cross-origin resource advertised by the feed.
+Runtime v3 clients own isolated credential-free transports rather than
+accepting a shared client or opaque caller handler. Their default handler
+disables cookies, default credentials, and preauthentication. Source
+credentials travel through the typed credential parameter so the library can
+enforce the origin boundary. This is gated by
+`RuntimeFactoriesDoNotAcceptSharedHttpClient` and
+`DefaultV3TransportHasNoAmbientCredentialMechanisms`.
 
 The typed source-client compatibility adapter therefore derives producer
 identity from a query-bearing legacy service index's origin and path while
