@@ -373,6 +373,10 @@ public sealed class PackageSourceClientTests
     [InlineData("file:///tmp/feed/")]
     [InlineData("https://user:secret@flat.example/")]
     [InlineData("https://flat.example/#fragment")]
+    [InlineData("https://feed.example/v3/flat%/")]
+    [InlineData("https://feed.example/v3/fl^at/")]
+    [InlineData("https://feed.example/v3/flat/?sig=a%")]
+    [InlineData(" https://feed.example/v3/flat/")]
     public async Task V3UnusablePackageBaseAddressIsInvalidResponse(
         string baseAddress)
     {
@@ -586,6 +590,43 @@ public sealed class PackageSourceClientTests
                 .Candidates);
         Assert.Equal(
             [ServiceIndex, idnVersions],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3PreservesIpv6BracketsWhenEscapingBasePath()
+    {
+        const string ipv6Versions =
+            "https://[::1]/caf%C3%A9/contoso/index.json";
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = """
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "https://[::1]/café/",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [ipv6Versions] = """{"versions":["1.0.0"]}""",
+        };
+        using var client = new HttpClient(handler);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("ipv6", ServiceIndex),
+                client);
+
+        Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+                .Candidates);
+        Assert.Equal(
+            [ServiceIndex, ipv6Versions],
             handler.Requested);
     }
 

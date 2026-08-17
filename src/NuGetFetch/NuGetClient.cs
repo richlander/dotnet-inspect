@@ -404,8 +404,11 @@ public class NuGetClient(HttpClient client)
             string escapedPath = endpoint.GetComponents(
                 UriComponents.Path,
                 UriFormat.UriEscaped);
+            string host = endpoint.HostNameType == UriHostNameType.IPv6
+                ? $"[{endpoint.IdnHost}]"
+                : endpoint.IdnHost;
             string origin =
-                $"{endpoint.Scheme}://{endpoint.IdnHost}"
+                $"{endpoint.Scheme}://{host}"
                 + (endpoint.IsDefaultPort
                     ? ""
                     : $":{endpoint.Port}");
@@ -425,9 +428,18 @@ public class NuGetClient(HttpClient client)
                     UriFormat.UriEscaped);
         }
 
-        return pathAndOrigin.EndsWith("/", StringComparison.Ordinal)
+        string normalized = pathAndOrigin.EndsWith("/", StringComparison.Ordinal)
             ? pathAndOrigin + query
             : $"{pathAndOrigin}/{query}";
+        if (!NuGetHttpRequest.TryCreatePreservingPathAndQuery(
+                normalized,
+                out _))
+        {
+            throw new NuGetSourceResponseException(
+                "The source service index advertised an unusable PackageBaseAddress.");
+        }
+
+        return normalized;
     }
 
     private static string AppendBaseAddressPath(
