@@ -6506,6 +6506,571 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan()
+    {
+        const string source = """
+            public class Class1
+            {
+                public int M()
+                {
+                    return 42;
+                }
+            }
+            """;
+        var sourcePath = WriteTempSource("PdbSource.cs", source, out var sourceDirectory);
+        var assemblyPath = CompileFixture(
+            source,
+            sourceDirectory,
+            sourcePath: sourcePath,
+            emitPortablePdb: true);
+        try
+        {
+            using (var pe = new PEReader(File.OpenRead(assemblyPath)))
+            using (var pdb = PdbContext.Open(assemblyPath))
+            {
+                var reader = pe.GetMetadataReader();
+                var (_, methodHandle) = FindMethod(reader, "Class1", "M");
+                Assert.True(pdb.HasPdb);
+                PdbMethodDocumentInfo document = Assert.IsType<PdbMethodDocumentInfo>(
+                    pdb.ResolveMethodDocument(
+                        "",
+                        "",
+                        0,
+                        metadataToken: MetadataTokens.GetToken(methodHandle)));
+                Assert.Equal(
+                    SourceChecksumVerification.Exact,
+                    AuthoredSourceAcquisition.VerifyChecksum(
+                        document.ChecksumAlgorithm,
+                        document.Checksum,
+                        File.ReadAllBytes(sourcePath)));
+                var sourceIndex = Assert.IsType<ReturnToSenderSourceIndex>(
+                    ReturnToSenderSourceIndex.TryCreate(assemblyPath, [sourcePath]));
+                int metadataToken = MetadataTokens.GetToken(methodHandle);
+                Assert.True(sourceIndex.TryFindForAttribution(
+                    new ReturnToSender.RequestedTarget("Class1", "M", 0),
+                    metadataToken,
+                    out var correlated));
+                Assert.Equal(metadataToken, correlated.MetadataToken);
+                Assert.Equal(
+                    reader.GetGuid(reader.GetModuleDefinition().Mvid),
+                    correlated.ModuleVersionId);
+            }
+
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true);
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+            Assert.Equal(sourcePath, result.SourcePath);
+            Assert.Contains("authored body compiled", result.Detail);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch()
+    {
+        const string source = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("ChangedAfterBuild.cs", source, out var sourceDirectory);
+        var assemblyPath = CompileFixture(
+            source,
+            sourceDirectory,
+            sourcePath: sourcePath,
+            emitPortablePdb: true);
+        File.WriteAllText(sourcePath, source.Replace("42", "43", StringComparison.Ordinal));
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb()
+    {
+        const string source = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("NoPdb.cs", source, out var sourceDirectory);
+        var assemblyPath = CompileFixture(source, sourceDirectory, sourcePath: sourcePath);
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesDuplicateChecksumVerifiedSourceFiles()
+    {
+        const string source = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("Duplicate.cs", source, out var sourceDirectory);
+        string duplicateDirectory = Path.Combine(sourceDirectory, "copy");
+        Directory.CreateDirectory(duplicateDirectory);
+        string duplicatePath = Path.Combine(duplicateDirectory, "Duplicate.cs");
+        File.WriteAllText(duplicatePath, source);
+        var assemblyPath = CompileFixture(
+            source,
+            sourceDirectory,
+            sourcePath: sourcePath,
+            emitPortablePdb: true);
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true,
+                pdbSourcePaths: [sourcePath, duplicatePath]));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Theory]
+    [InlineData("get_P", "return Missing.Symbol;")]
+    [InlineData("set_P", "Missing.Symbol();")]
+    public void TryIsolateRecompileFailure_AttributesTheExactPropertyAccessor(
+        string methodName,
+        string rejectedBody)
+    {
+        const string source = """
+            public class Class1
+            {
+                int _value;
+
+                public int P
+                {
+                    get
+                    {
+                        return _value;
+                    }
+                    set
+                    {
+                        _value = value;
+                    }
+                }
+            }
+            """;
+        var sourcePath = WriteTempSource("Accessors.cs", source, out var sourceDirectory);
+        var assemblyPath = CompileFixture(
+            source,
+            sourceDirectory,
+            sourcePath: sourcePath,
+            emitPortablePdb: true);
+        try
+        {
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                rejectedBody,
+                authoredBody: null,
+                usePdbSourceIndex: true,
+                methodName: methodName);
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_UsesPdbRecordedPreprocessorSymbols()
+    {
+        const string source = """
+            public class Class1
+            {
+                public int M()
+                {
+            #if FEATURE
+                    return 42;
+            #else
+                    return Missing.Symbol;
+            #endif
+                }
+            }
+            """;
+        var sourcePath = WriteTempSource("ConditionalPdbSource.cs", source, out var sourceDirectory);
+        var assemblyPath = CompileFixture(
+            source,
+            sourceDirectory,
+            sourcePath: sourcePath,
+            emitPortablePdb: true,
+            preprocessorSymbols: ["FEATURE"]);
+        try
+        {
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return AlsoMissing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true);
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_PdbSpanDoesNotDependOnSourceTypeSpelling()
+    {
+        const string source = """
+            using First = NamespaceOne.Value;
+            using Second = NamespaceTwo.Value;
+
+            public class Class1
+            {
+                public int M(First value)
+                {
+                    return 1;
+                }
+
+                public int M(Second value)
+                {
+                    return 2;
+                }
+            }
+
+            namespace NamespaceOne
+            {
+                public class Value;
+            }
+
+            namespace NamespaceTwo
+            {
+                public class Value;
+            }
+            """;
+        var sourcePath = WriteTempSource("AliasedSignature.cs", source, out var sourceDirectory);
+        var assemblyPath = CompileFixture(
+            source,
+            sourceDirectory,
+            sourcePath: sourcePath,
+            emitPortablePdb: true);
+        try
+        {
+            using (var pe = new PEReader(File.OpenRead(assemblyPath)))
+            {
+                var reader = pe.GetMetadataReader();
+                var (_, methodHandle) = FindMethod(reader, "Class1", "M", overload: 1);
+                string metadataSignature = MetadataMemberSignatureShape.Create(reader, methodHandle).Shape is { } shape
+                    ? MemberSignatureShapeCodec.Encode(shape)
+                    : throw new InvalidOperationException("Expected a metadata signature shape.");
+                Assert.NotEmpty(metadataSignature);
+                Assert.Null(SourceMemberSignatureShape.Create(
+                    "public int M(Second value);",
+                    SourceMemberSignatureKind.Method).Shape);
+            }
+
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true,
+                methodName: "M",
+                overload: 1);
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_PdbTokenIgnoresReversedSourceFileOrder()
+    {
+        const string firstSource = """
+            public partial class Class1
+            {
+                public int Pick(int value) { return value + 1; }
+            }
+            """;
+        const string secondSource = """
+            public partial class Class1
+            {
+                public int Pick(string value) { return value.Length; }
+            }
+            """;
+        var firstPath = WriteTempSource("First.cs", firstSource, out var sourceDirectory);
+        string secondPath = Path.Combine(sourceDirectory, "Second.cs");
+        File.WriteAllText(secondPath, secondSource);
+        var assemblyPath = CompileFixture(
+            firstSource,
+            sourceDirectory,
+            sourcePath: firstPath,
+            emitPortablePdb: true,
+            additionalSourceFiles: [(secondSource, secondPath)]);
+        try
+        {
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                firstPath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true,
+                pdbSourcePaths: [secondPath, firstPath],
+                methodName: "Pick",
+                overload: 0);
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+            Assert.Equal(firstPath, result.SourcePath);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_BodylessRvaZeroSiblingCannotStealPdbAttribution()
+    {
+        const string source = """
+            public abstract class Class1
+            {
+                public abstract int M(int value);
+
+                public int M(string value)
+                {
+                    return value.Length;
+                }
+            }
+            """;
+        var sourcePath = WriteTempSource("BodylessSibling.cs", source, out var sourceDirectory);
+        var assemblyPath = CompileFixture(
+            source,
+            sourceDirectory,
+            sourcePath: sourcePath,
+            emitPortablePdb: true);
+        try
+        {
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true,
+                overload: 1);
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_SynthesizedRecordMemberHasNoPdbAttribution()
+    {
+        const string source = "public record Class1(int Value);";
+        var sourcePath = WriteTempSource("SynthesizedRecord.cs", source, out var sourceDirectory);
+        var assemblyPath = CompileFixture(
+            source,
+            sourceDirectory,
+            sourcePath: sourcePath,
+            emitPortablePdb: true);
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true,
+                methodName: "ToString"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_PdbDocumentSeparatesNestedTypesWithSameSuffix()
+    {
+        const string nestedSource = """
+            namespace First;
+
+            public class Outer
+            {
+                public class Inner
+                {
+                    public int M() { return 42; }
+                }
+            }
+            """;
+        const string namespaceSource = """
+            namespace Second;
+
+            public class Outer
+            {
+                public class Inner
+                {
+                    int _value = 1;
+
+                    public int M() { return _value; }
+                }
+            }
+            """;
+        var nestedPath = WriteTempSource("Nested.cs", nestedSource, out var sourceDirectory);
+        string namespacePath = Path.Combine(sourceDirectory, "Namespace.cs");
+        File.WriteAllText(namespacePath, namespaceSource);
+        var assemblyPath = CompileFixture(
+            nestedSource,
+            sourceDirectory,
+            sourcePath: nestedPath,
+            emitPortablePdb: true,
+            additionalSourceFiles: [(namespaceSource, namespacePath)]);
+        try
+        {
+            var result = TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                nestedPath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true,
+                pdbSourcePaths: [namespacePath, nestedPath],
+                typeName: "First.Outer.Inner",
+                methodName: "M");
+
+            Assert.NotNull(result);
+            Assert.Equal(ReturnToSender.FaultIsolationKind.BodyDefect, result.Kind);
+            Assert.Equal(nestedPath, result.SourcePath);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesAmbiguousSameLinePdbSpan()
+    {
+        const string source = """
+            public class Class1
+            {
+                public int A() => 1; public int M() => 42;
+            }
+            """;
+        var sourcePath = WriteTempSource("SameLine.cs", source, out var sourceDirectory);
+        var assemblyPath = CompileFixture(
+            source,
+            sourceDirectory,
+            sourcePath: sourcePath,
+            emitPortablePdb: true);
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                sourcePath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
+    [Fact]
+    public void TryIsolateRecompileFailure_DeclinesRenamedChecksumMatchingSource()
+    {
+        const string source = """
+            public class Class1
+            {
+                public int M() { return 42; }
+            }
+            """;
+        var sourcePath = WriteTempSource("OriginalName.cs", source, out var sourceDirectory);
+        var assemblyPath = CompileFixture(
+            source,
+            sourceDirectory,
+            sourcePath: sourcePath,
+            emitPortablePdb: true);
+        string renamedPath = Path.Combine(sourceDirectory, "Renamed.cs");
+        File.Move(sourcePath, renamedPath);
+        try
+        {
+            Assert.Null(TryIsolateRecompileFailureForMethod(
+                assemblyPath,
+                renamedPath,
+                "return Missing.Symbol;",
+                authoredBody: null,
+                usePdbSourceIndex: true));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            TryDeleteDirectory(sourceDirectory);
+        }
+    }
+
     /// <summary>
     /// Raw source declaration order can differ from metadata order. Without an
     /// exact token correlation, fault attribution must fail closed (#3804).
@@ -6824,6 +7389,9 @@ public class ReturnToSenderPrototypeTests
         string rejectedTargetBody,
         string? authoredBody,
         bool useRawSourceIndex = false,
+        bool usePdbSourceIndex = false,
+        IReadOnlyList<string>? pdbSourcePaths = null,
+        string typeName = "Class1",
         string methodName = "M",
         int overload = 0,
         Guid? correlatedModuleVersionIdOverride = null,
@@ -6835,7 +7403,7 @@ public class ReturnToSenderPrototypeTests
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
 
-        var (typeHandle, methodHandle) = FindMethod(reader, "Class1", methodName, overload);
+        var (typeHandle, methodHandle) = FindMethod(reader, typeName, methodName, overload);
         var moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         var typeDefinition = reader.GetTypeDefinition(typeHandle);
         string? signature = MetadataMemberSignatureShape.Create(reader, methodHandle).Shape is { } shape
@@ -6851,8 +7419,8 @@ public class ReturnToSenderPrototypeTests
         {
             signature = null;
         }
-        var function = IrImporter.Import(source, "Class1", methodName, overload)
-            ?? throw new InvalidOperationException($"Could not import Class1::{methodName}#{overload}.");
+        var function = IrImporter.Import(source, typeName, methodName, overload)
+            ?? throw new InvalidOperationException($"Could not import {typeName}::{methodName}#{overload}.");
         var request = new MethodArtifactRequest(
             AssemblyPath: assemblyPath,
             Reader: reader,
@@ -6860,14 +7428,20 @@ public class ReturnToSenderPrototypeTests
             TargetType: typeHandle,
             TargetMethod: methodHandle,
             TargetBody: new ProductTargetBody(rejectedTargetBody, []),
-            FullType: "Class1",
+            FullType: typeName,
             MethodName: methodName,
             Overload: overload,
             SignatureText: "",
             ClosureRoots: new HashSet<TypeDefinitionHandle> { typeHandle },
             ClosureFacts: new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>());
         ReturnToSenderSourceIndex? sourceIndex;
-        if (useRawSourceIndex)
+        if (usePdbSourceIndex)
+        {
+            sourceIndex = ReturnToSenderSourceIndex.TryCreate(
+                assemblyPath,
+                pdbSourcePaths ?? [sourcePath]);
+        }
+        else if (useRawSourceIndex)
         {
             sourceIndex = ReturnToSenderSourceIndex.TryCreate([sourcePath]);
         }
@@ -9889,16 +10463,39 @@ public class ReturnToSenderPrototypeTests
         string? directory = null,
         string assemblyName = "fixture",
         IReadOnlyList<MetadataReference>? additionalReferences = null,
-        bool allowUnsafe = false)
+        bool allowUnsafe = false,
+        string? sourcePath = null,
+        bool emitPortablePdb = false,
+        IReadOnlyList<string>? preprocessorSymbols = null,
+        IReadOnlyList<(string Source, string Path)>? additionalSourceFiles = null)
     {
         directory ??= Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, $"{assemblyName}.dll");
         var references = RoslynTestReferences.TrustedPlatform
             .Concat(additionalReferences ?? []);
+        var parseOptions = new CSharpParseOptions(
+            LanguageVersion.Preview,
+            preprocessorSymbols: preprocessorSymbols);
+        var sourceText = Microsoft.CodeAnalysis.Text.SourceText.From(
+            source,
+            new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        var syntaxTrees = new List<SyntaxTree>
+        {
+            CSharpSyntaxTree.ParseText(sourceText, parseOptions, sourcePath ?? ""),
+        };
+        foreach (var additionalSource in additionalSourceFiles ?? [])
+        {
+            syntaxTrees.Add(CSharpSyntaxTree.ParseText(
+                Microsoft.CodeAnalysis.Text.SourceText.From(
+                    additionalSource.Source,
+                    new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false)),
+                parseOptions,
+                additionalSource.Path));
+        }
         var compilation = CSharpCompilation.Create(
             Path.GetFileNameWithoutExtension(path),
-            [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
+            syntaxTrees,
             references,
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
@@ -9906,7 +10503,21 @@ public class ReturnToSenderPrototypeTests
                 nullableContextOptions: NullableContextOptions.Disable,
                 allowUnsafe: allowUnsafe));
 
-        var emit = compilation.Emit(path);
+        Microsoft.CodeAnalysis.Emit.EmitResult emit;
+        if (emitPortablePdb)
+        {
+            using var peStream = File.Create(path);
+            using var pdbStream = File.Create(Path.ChangeExtension(path, ".pdb"));
+            emit = compilation.Emit(
+                peStream,
+                pdbStream,
+                options: new Microsoft.CodeAnalysis.Emit.EmitOptions(
+                    debugInformationFormat: Microsoft.CodeAnalysis.Emit.DebugInformationFormat.PortablePdb));
+        }
+        else
+        {
+            emit = compilation.Emit(path);
+        }
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
         return path;
     }

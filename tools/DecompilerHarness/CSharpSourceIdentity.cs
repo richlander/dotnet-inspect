@@ -8,7 +8,9 @@ internal sealed record CSharpSourceMemberIdentity(
     string MetadataName,
     MemberSignatureShapeResult SignatureShape,
     string? Body,
-    IReadOnlyList<string> Evidence);
+    IReadOnlyList<string> Evidence,
+    int AttributionStartLine,
+    int AttributionEndLine);
 
 internal sealed class CSharpSourceIdentityContext
 {
@@ -59,13 +61,16 @@ internal sealed class CSharpSourceIdentityContext
         if (method.ExplicitInterfaceSpecifier is not null || IsBodylessPartial(method))
             return [];
 
+        var span = AttributionSpan(method);
         return
         [
             new CSharpSourceMemberIdentity(
                 method.Identifier.ValueText,
                 SourceShape(method, SourceMemberSignatureKind.Method),
                 BodyText(method),
-                MethodEvidence(method).ToArray()),
+                MethodEvidence(method).ToArray(),
+                span.StartLine,
+                span.EndLine),
         ];
     }
 
@@ -73,36 +78,49 @@ internal sealed class CSharpSourceIdentityContext
     {
         var members = new List<CSharpSourceMemberIdentity>();
         if (HasPrimaryConstructor(type))
+        {
+            var span = AttributionSpan(type);
             members.Add(new CSharpSourceMemberIdentity(
                 ".ctor",
                 SourceShape(type, SourceMemberSignatureKind.Constructor),
                 Body: null,
-                Evidence: ["primary-constructor"]));
+                Evidence: ["primary-constructor"],
+                span.StartLine,
+                span.EndLine));
+        }
         return members;
     }
 
     public IReadOnlyList<CSharpSourceMemberIdentity> ConstructorMembers(ConstructorDeclarationSyntax constructor)
     {
         string methodName = constructor.Modifiers.Any(SyntaxKind.StaticKeyword) ? ".cctor" : ".ctor";
+        var span = AttributionSpan(constructor);
         return
         [
             new CSharpSourceMemberIdentity(
                 methodName,
                 SourceShape(constructor, SourceMemberSignatureKind.Constructor),
                 BodyText(constructor),
-                ConstructorEvidence(constructor).ToArray()),
+                ConstructorEvidence(constructor).ToArray(),
+                span.StartLine,
+                span.EndLine),
         ];
     }
 
     public IReadOnlyList<CSharpSourceMemberIdentity> OperatorMembers(OperatorDeclarationSyntax op)
-        =>
+    {
+        var span = AttributionSpan(op);
+        return
         [
             new CSharpSourceMemberIdentity(
                 OperatorMetadataName(op),
                 SourceShape(op, SourceMemberSignatureKind.Operator),
                 BodyText(op),
-                ["operator"]),
+                ["operator"],
+                span.StartLine,
+                span.EndLine),
         ];
+    }
 
     public IReadOnlyList<CSharpSourceMemberIdentity> ConversionOperatorMembers(ConversionOperatorDeclarationSyntax conversion)
     {
@@ -115,13 +133,16 @@ internal sealed class CSharpSourceIdentityContext
             (false, true) => "op_CheckedExplicit",
             (false, false) => "op_Explicit",
         };
+        var span = AttributionSpan(conversion);
         return
         [
             new CSharpSourceMemberIdentity(
                 methodName,
                 SourceShape(conversion, SourceMemberSignatureKind.ConversionOperator),
                 BodyText(conversion),
-                ["conversion-operator"]),
+                ["conversion-operator"],
+                span.StartLine,
+                span.EndLine),
         ];
     }
 
@@ -133,17 +154,27 @@ internal sealed class CSharpSourceIdentityContext
         var evidence = PropertyEvidence(property).ToArray();
         var members = new List<CSharpSourceMemberIdentity>(2);
         if (HasGetter(property))
+        {
+            var span = AttributionSpan(GetterDeclaration(property));
             members.Add(new CSharpSourceMemberIdentity(
                 $"get_{property.Identifier.ValueText}",
                 SourceShape(property, SourceMemberSignatureKind.Property),
                 GetterBodyText(property),
-                evidence));
+                evidence,
+                span.StartLine,
+                span.EndLine));
+        }
         if (HasSetter(property))
+        {
+            var span = AttributionSpan(SetterDeclaration(property));
             members.Add(new CSharpSourceMemberIdentity(
                 $"set_{property.Identifier.ValueText}",
                 SetterShape(property),
                 SetterBodyText(property),
-                evidence));
+                evidence,
+                span.StartLine,
+                span.EndLine));
+        }
         return members;
     }
 
@@ -156,19 +187,59 @@ internal sealed class CSharpSourceIdentityContext
         var evidence = IndexerEvidence(indexer, metadataName).ToArray();
         var members = new List<CSharpSourceMemberIdentity>(2);
         if (HasGetter(indexer))
+        {
+            var span = AttributionSpan(GetterDeclaration(indexer));
             members.Add(new CSharpSourceMemberIdentity(
                 $"get_{metadataName}",
                 SourceShape(indexer, SourceMemberSignatureKind.Indexer),
                 GetterBodyText(indexer),
-                evidence));
+                evidence,
+                span.StartLine,
+                span.EndLine));
+        }
         if (HasSetter(indexer))
+        {
+            var span = AttributionSpan(SetterDeclaration(indexer));
             members.Add(new CSharpSourceMemberIdentity(
                 $"set_{metadataName}",
                 SetterShape(indexer),
                 SetterBodyText(indexer),
-                evidence));
+                evidence,
+                span.StartLine,
+                span.EndLine));
+        }
         return members;
     }
+
+    static (int StartLine, int EndLine) AttributionSpan(SyntaxNode declaration)
+    {
+        FileLinePositionSpan span = declaration.SyntaxTree.GetMappedLineSpan(declaration.Span);
+        return (span.StartLinePosition.Line + 1, span.EndLinePosition.Line + 1);
+    }
+
+    static SyntaxNode GetterDeclaration(PropertyDeclarationSyntax property)
+        => property.ExpressionBody
+            ?? (SyntaxNode?)property.AccessorList?.Accessors.FirstOrDefault(
+                accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration))
+            ?? property;
+
+    static SyntaxNode SetterDeclaration(PropertyDeclarationSyntax property)
+        => (SyntaxNode?)property.AccessorList?.Accessors.FirstOrDefault(accessor =>
+                accessor.IsKind(SyntaxKind.SetAccessorDeclaration)
+                || accessor.IsKind(SyntaxKind.InitAccessorDeclaration))
+            ?? property;
+
+    static SyntaxNode GetterDeclaration(IndexerDeclarationSyntax indexer)
+        => indexer.ExpressionBody
+            ?? (SyntaxNode?)indexer.AccessorList?.Accessors.FirstOrDefault(
+                accessor => accessor.IsKind(SyntaxKind.GetAccessorDeclaration))
+            ?? indexer;
+
+    static SyntaxNode SetterDeclaration(IndexerDeclarationSyntax indexer)
+        => (SyntaxNode?)indexer.AccessorList?.Accessors.FirstOrDefault(accessor =>
+                accessor.IsKind(SyntaxKind.SetAccessorDeclaration)
+                || accessor.IsKind(SyntaxKind.InitAccessorDeclaration))
+            ?? indexer;
 
     static MemberSignatureShapeResult SourceShape(
         SyntaxNode declaration,

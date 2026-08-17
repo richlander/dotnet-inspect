@@ -126,6 +126,15 @@ CodeView Entry 2: System.Text.Json.pdb    (MinorVersion: 0x504d, Portable PDB) �
 exposing `PEReader` or `MetadataReader`. `ILInspector.SourceLink` uses those
 typed APIs for map extraction, URL decoration, and provenance.
 
+The ReturnToSender harness is a separate raw-fact consumer. For an
+assembly-aware local source index it asks `PdbContext` for an exact MethodDef's
+document, mapped visible line span, checksum, and recorded compilation options.
+The harness—not Metadata—parses C# declarations and uses those facts to
+correlate one checksum-authenticated local body. It does not interpret a
+SourceLink map or URL. `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`
+and `TryIsolateRecompileFailure_UsesPdbRecordedPreprocessorSymbols` gate this
+layering seam.
+
 ## Microsoft vs third-party libraries
 
 ### Microsoft platform libraries

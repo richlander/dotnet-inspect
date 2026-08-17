@@ -62,9 +62,24 @@ operation. It may use `CSharpText.MemberSignatureShape` to discriminate
 same-named candidates, but correspondence remains typed as unique, ambiguous,
 or unavailable and may fall back to the recorded ordinal. It cannot turn a
 shape match into fault-attribution identity; attribution still requires the
-exact MVID and MethodDef token. Only canonical `mss1:` shapes may select a
-candidate. A persisted legacy signature may validate an already selected exact
-MethodDef, but never participates in candidate selection. The close gates are
+exact MVID and MethodDef token. That typed correlation may come from a persisted
+authored-corpus row or from an assembly-aware local-source index. The latter
+uses Metadata's raw Portable PDB facts without SourceLink URL interpretation:
+an embedded or adjacent PDB supplies the exact MethodDef document and mapped
+line span, the document checksum authenticates one supplied local file with the
+same file name, and exactly one body-bearing declaration or accessor must
+contain the span. Recorded preprocessor symbols are applied before parsing.
+Any missing, mismatched, or ambiguous input leaves the MethodDef
+uncorrelated. `TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`,
+`TryIsolateRecompileFailure_AttributesTheExactPropertyAccessor`, and the
+`TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch`,
+`TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`, and
+`TryIsolateRecompileFailure_DeclinesAmbiguousSameLinePdbSpan` tests gate this
+path.
+
+Only canonical `mss1:` shapes may select a candidate. A persisted legacy
+signature may validate an already selected exact MethodDef, but never
+participates in candidate selection. The close gates are
 `ReturnToSenderSourceProbe_MatchesSourceBySignatureWhenDeclarationOrderDiffers`,
 `SourceSignatureCorrespondence_ReportsAmbiguousCandidates`, and
 `SourceSignatureCorrespondence_ReportsUnavailableCandidate`; legacy isolation is

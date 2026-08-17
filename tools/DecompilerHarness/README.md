@@ -346,11 +346,21 @@ instead of silently reducing the product-body-defect count. Each target is
 valid-but-different taste buckets, `Invalid` (does not round-trip), or one of the
 diagnostic buckets below:
 
-Raw syntax indexes used by fixture and on-demand source probes do not carry that
-typed correlation, so fault attribution is not attempted for them. Their
-original compile diagnostic remains visible and an invalid result is
-`Unclassified`, not a success. #3835 tracks restoring attribution through exact
-PDB method spans.
+Raw syntax-only indexes still do not carry typed correlation, so fault
+attribution is not attempted for them. Assembly-aware fixture and on-demand
+indexes can establish it offline from a matching embedded or adjacent Portable
+PDB: the PDB's MethodDef selects a document and visible line span, the document
+checksum authenticates exactly one supplied local file with the same file name,
+and exactly one body-bearing declaration or accessor must contain the span.
+Recorded preprocessor symbols are applied before indexing. Missing or mismatched
+PDBs, checksums, files, bodies, or unique spans remain uncorrelated; the original
+compile diagnostic stays visible and an invalid result remains `Unclassified`,
+not a success.
+`TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan`,
+`TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch`,
+`TryIsolateRecompileFailure_DeclinesSourceWithoutPortablePdb`, and
+`TryIsolateRecompileFailure_DeclinesDuplicateChecksumVerifiedSourceFiles` gate
+the positive and fail-closed paths.
 
 - **lowering (inherent)** — authored used sugar the compiler erases (iterator,
   async, dynamic call site); unrecoverable from IL.

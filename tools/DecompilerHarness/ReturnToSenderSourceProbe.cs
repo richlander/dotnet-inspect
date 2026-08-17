@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.HarnessReports;
+using DotnetInspector.Services;
 using ILInspector.Decompiler;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -265,7 +266,7 @@ static partial class ReturnToSenderSourceProbe
         => EvaluateTargets(
             assemblyPath,
             targets,
-            ReturnToSenderSourceIndex.TryCreate(sourcePaths),
+            ReturnToSenderSourceIndex.TryCreate(assemblyPath, sourcePaths),
             "source index could not be built from the supplied source paths");
 
     public static IReadOnlyList<ReturnToSenderSourceProbeResult> EvaluateWithIndex(
@@ -677,42 +678,113 @@ internal sealed record ReturnToSenderSourceMember(
     string? Body,
     int? MetadataToken = null,
     Guid? ModuleVersionId = null,
-    string? SignatureUnavailableReason = null);
+    string? SignatureUnavailableReason = null,
+    int? AttributionStartLine = null,
+    int? AttributionEndLine = null);
 
 internal sealed class ReturnToSenderSourceIndex
 {
+    sealed record IndexedSourceFile(
+        string Path,
+        CompilationUnitSyntax Root,
+        byte[] Content,
+        bool HasDirectives);
+
     readonly Dictionary<string, ReturnToSenderSourceMember> _members;
     readonly Dictionary<string, RecordSourceInfo> _recordSources;
     readonly Dictionary<int, ReturnToSenderSourceMember> _correlatedMembersByToken;
+    readonly IReadOnlyList<ReturnToSenderSourceMember> _attributionCandidates;
+    readonly IReadOnlyList<IndexedSourceFile> _sourceFiles;
 
     ReturnToSenderSourceIndex(
         Dictionary<string, ReturnToSenderSourceMember> members,
         Dictionary<string, RecordSourceInfo> recordSources,
-        Dictionary<int, ReturnToSenderSourceMember>? correlatedMembersByToken = null)
+        Dictionary<int, ReturnToSenderSourceMember>? correlatedMembersByToken = null,
+        IReadOnlyList<ReturnToSenderSourceMember>? attributionCandidates = null,
+        IReadOnlyList<IndexedSourceFile>? sourceFiles = null)
     {
         _members = members;
         _recordSources = recordSources;
         _correlatedMembersByToken = correlatedMembersByToken ?? [];
+        _attributionCandidates = attributionCandidates ?? [];
+        _sourceFiles = sourceFiles ?? [];
     }
 
     public static ReturnToSenderSourceIndex? TryCreate(IReadOnlyList<string> sourcePaths)
+        => TryCreate(sourcePaths, new CSharpParseOptions(LanguageVersion.Preview));
+
+    static ReturnToSenderSourceIndex? TryCreate(
+        IReadOnlyList<string> sourcePaths,
+        CSharpParseOptions parseOptions)
     {
         var members = new Dictionary<string, ReturnToSenderSourceMember>(StringComparer.Ordinal);
         var recordSources = new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal);
         var overloads = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
-        var sourceFiles = new List<(string Path, CompilationUnitSyntax Root)>();
+        var sourceFiles = new List<IndexedSourceFile>();
+        var attributionCandidates = new List<ReturnToSenderSourceMember>();
         foreach (var sourcePath in sourcePaths)
         {
-            if (!TryReadSourceFile(sourcePath, out var root))
+            if (!TryReadSourceFile(sourcePath, parseOptions, out var sourceFile))
                 return null;
-            sourceFiles.Add((sourcePath, root));
+            sourceFiles.Add(sourceFile);
         }
 
         var sourceIdentity = CSharpSourceIdentityContext.Create(sourceFiles.Select(file => file.Root));
         foreach (var sourceFile in sourceFiles)
-            AddSourceFile(members, recordSources, overloads, sourceFile.Path, sourceFile.Root, sourceIdentity);
+        {
+            AddSourceFile(
+                members,
+                recordSources,
+                overloads,
+                attributionCandidates,
+                sourceFile.Path,
+                sourceFile.Root,
+                sourceIdentity);
+        }
 
-        return new ReturnToSenderSourceIndex(members, recordSources);
+        return new ReturnToSenderSourceIndex(
+            members,
+            recordSources,
+            attributionCandidates: attributionCandidates,
+            sourceFiles: sourceFiles);
+    }
+
+    public static ReturnToSenderSourceIndex? TryCreate(
+        string assemblyPath,
+        IReadOnlyList<string> sourcePaths)
+    {
+        PdbContext? pdb = null;
+        try
+        {
+            pdb = PdbContext.Open(assemblyPath);
+            IReadOnlyList<CompilationOptionInfo> compilationOptions = pdb.GetCompilationOptions();
+            string[] symbols = compilationOptions
+                .Where(option => string.Equals(option.Name, "define", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(option => option.Value.Split(
+                    [',', ';'],
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var index = TryCreate(
+                sourcePaths,
+                new CSharpParseOptions(LanguageVersion.Preview, preprocessorSymbols: symbols));
+            return index?.WithPdbCorrelations(
+                assemblyPath,
+                pdb,
+                compilationOptionsKnown: compilationOptions.Count > 0);
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or BadImageFormatException
+            or InvalidOperationException
+            or ArgumentException)
+        {
+            return null;
+        }
+        finally
+        {
+            pdb?.Dispose();
+        }
     }
 
     public static ReturnToSenderSourceIndex? TryCreate(string assemblyPath)
@@ -733,7 +805,7 @@ internal sealed class ReturnToSenderSourceIndex
             if (!TryGetSourcePaths(fixture, out var sourcePaths))
                 return null;
 
-            return TryCreate(sourcePaths);
+            return TryCreate(assemblyPath, sourcePaths);
         }
 
         return null;
@@ -754,9 +826,14 @@ internal sealed class ReturnToSenderSourceIndex
     /// <para>
     /// Raw syntax indexes created by <see cref="TryCreate(IReadOnlyList{string})"/>
     /// retain normal source-probe lookup behavior, but cannot support attribution:
-    /// they lack the original build configuration and semantic identity. Fault
-    /// isolation is not attempted for those indexes; #3835 tracks restoring it
-    /// through exact PDB method spans.
+    /// they lack the original build configuration and semantic identity. The
+    /// assembly-aware overload restores attribution only when a matching local or
+    /// embedded Portable PDB supplies an exact MethodDef span and checksum that
+    /// authenticates one uniquely named local source file. The positive and
+    /// fail-closed paths are gated by
+    /// <c>TryIsolateRecompileFailure_AttributesChecksumVerifiedPdbMethodSpan</c>,
+    /// <c>TryIsolateRecompileFailure_DeclinesPdbSourceAfterChecksumMismatch</c>,
+    /// and <c>TryIsolateRecompileFailure_DeclinesDuplicateChecksumVerifiedSourceFiles</c>.
     /// </para>
     /// </remarks>
     public static ReturnToSenderSourceIndex FromCorrelatedMembers(
@@ -786,6 +863,116 @@ internal sealed class ReturnToSenderSourceIndex
             members,
             new Dictionary<string, RecordSourceInfo>(StringComparer.Ordinal),
             correlatedMembersByToken);
+    }
+
+    ReturnToSenderSourceIndex WithPdbCorrelations(
+        string assemblyPath,
+        PdbContext pdb,
+        bool compilationOptionsKnown)
+    {
+        if (!pdb.HasPdb || _sourceFiles.Count == 0 || _attributionCandidates.Count == 0)
+            return this;
+
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        if (!pe.HasMetadata)
+            return this;
+
+        var reader = pe.GetMetadataReader();
+        Guid moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        if (moduleVersionId == Guid.Empty)
+            return this;
+
+        var verifiedSources = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var correlatedMembers = new Dictionary<int, ReturnToSenderSourceMember>();
+        foreach (var methodHandle in reader.MethodDefinitions)
+        {
+            int metadataToken = MetadataTokens.GetToken(methodHandle);
+            PdbMethodDocumentInfo? document = pdb.ResolveMethodDocument(
+                typeName: "",
+                methodName: "",
+                overloadIndex: 0,
+                metadataToken: metadataToken);
+            if (document is null
+                || document.Checksum is not { Length: > 0 }
+                || document.ChecksumAlgorithm is not { Length: > 0 })
+            {
+                continue;
+            }
+
+            string documentKey = $"{document.FilePath}\0{document.ChecksumAlgorithm}\0{Convert.ToHexString(document.Checksum)}";
+            if (!verifiedSources.TryGetValue(documentKey, out string? sourcePath))
+            {
+                sourcePath = FindUniqueVerifiedSource(document, compilationOptionsKnown);
+                verifiedSources.Add(documentKey, sourcePath);
+            }
+            if (sourcePath is null)
+                continue;
+
+            ReturnToSenderSourceMember[] candidates = _attributionCandidates
+                .Where(candidate =>
+                    candidate.Body is not null
+                    && string.Equals(candidate.SourcePath, sourcePath, StringComparison.Ordinal)
+                    && candidate.AttributionStartLine is { } startLine
+                    && candidate.AttributionEndLine is { } endLine
+                    && startLine <= document.StartLine
+                    && endLine >= document.EndLine)
+                .ToArray();
+            if (candidates.Length != 1)
+                continue;
+
+            var method = reader.GetMethodDefinition(methodHandle);
+            var type = reader.GetTypeDefinition(method.GetDeclaringType());
+            string methodName = reader.GetString(method.Name);
+            string fullType = reader.GetFullTypeName(type);
+            ReturnToSenderSourceMember candidate = candidates[0];
+            if (!string.Equals(candidate.Type, fullType, StringComparison.Ordinal)
+                || !string.Equals(candidate.Method, methodName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            int overload = ReturnToSenderSourceProbe.OverloadIndex(
+                reader,
+                type,
+                methodHandle,
+                methodName);
+            correlatedMembers.TryAdd(
+                metadataToken,
+                candidate with
+                {
+                    Overload = overload,
+                    MetadataToken = metadataToken,
+                    ModuleVersionId = moduleVersionId,
+                });
+        }
+
+        return new ReturnToSenderSourceIndex(
+            _members,
+            _recordSources,
+            correlatedMembers,
+            _attributionCandidates,
+            _sourceFiles);
+    }
+
+    string? FindUniqueVerifiedSource(
+        PdbMethodDocumentInfo document,
+        bool compilationOptionsKnown)
+    {
+        string fileName = Path.GetFileName(document.FilePath.Replace('\\', '/'));
+        IndexedSourceFile[] matches = _sourceFiles
+            .Where(file => string.Equals(
+                Path.GetFileName(file.Path),
+                fileName,
+                StringComparison.OrdinalIgnoreCase))
+            .Where(file => compilationOptionsKnown || !file.HasDirectives)
+            .Where(file => AuthoredSourceAcquisition.VerifyChecksum(
+                    document.ChecksumAlgorithm,
+                    document.Checksum,
+                    file.Content)
+                is SourceChecksumVerification.Exact
+                    or SourceChecksumVerification.LineEndingNormalized)
+            .ToArray();
+        return matches.Length == 1 ? matches[0].Path : null;
     }
 
     static void ValidateCorrelatedMember(
@@ -971,21 +1158,37 @@ internal sealed class ReturnToSenderSourceIndex
         return false;
     }
 
-    static bool TryReadSourceFile(string sourcePath, out CompilationUnitSyntax root)
+    static bool TryReadSourceFile(
+        string sourcePath,
+        CSharpParseOptions parseOptions,
+        out IndexedSourceFile sourceFile)
     {
-        string source;
+        byte[] content;
         try
         {
-            source = File.ReadAllText(sourcePath);
+            content = File.ReadAllBytes(sourcePath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            root = null!;
+            sourceFile = null!;
             return false;
         }
 
-        var tree = CSharpSyntaxTree.ParseText(source, path: sourcePath);
-        root = tree.GetCompilationUnitRoot();
+        string source;
+        using (var stream = new MemoryStream(content, writable: false))
+        using (var reader = new StreamReader(
+            stream,
+            System.Text.Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true))
+        {
+            source = reader.ReadToEnd();
+        }
+
+        var tree = CSharpSyntaxTree.ParseText(source, parseOptions, path: sourcePath);
+        CompilationUnitSyntax root = tree.GetCompilationUnitRoot();
+        bool hasDirectives = root.DescendantTrivia(descendIntoTrivia: true)
+            .Any(trivia => trivia.IsDirective);
+        sourceFile = new IndexedSourceFile(sourcePath, root, content, hasDirectives);
         return true;
     }
 
@@ -993,12 +1196,16 @@ internal sealed class ReturnToSenderSourceIndex
         Dictionary<string, ReturnToSenderSourceMember> members,
         Dictionary<string, RecordSourceInfo> recordSources,
         Dictionary<string, Dictionary<string, int>> overloads,
+        List<ReturnToSenderSourceMember> attributionCandidates,
         string sourcePath,
         CompilationUnitSyntax root,
         CSharpSourceIdentityContext sourceIdentity)
     {
         foreach (var member in SourceMembers(root, sourcePath, recordSources, overloads, sourceIdentity))
+        {
+            attributionCandidates.Add(member);
             members.TryAdd(Key(member.Type, member.Method, member.Overload), member);
+        }
     }
 
     static string Key(string type, string method, int overload) => $"{type}::{method}#{overload}";
@@ -1098,7 +1305,9 @@ internal sealed class ReturnToSenderSourceIndex
                     signature,
                     path,
                     sourceMember.Body,
-                    SignatureUnavailableReason: sourceMember.SignatureShape.UnavailableReason);
+                    SignatureUnavailableReason: sourceMember.SignatureShape.UnavailableReason,
+                    AttributionStartLine: sourceMember.AttributionStartLine,
+                    AttributionEndLine: sourceMember.AttributionEndLine);
             }
         }
 

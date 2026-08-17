@@ -706,7 +706,7 @@ static class ReturnToSender
         => CompileBackTargets(
             assemblyPath,
             targets,
-            ReturnToSenderSourceIndex.TryCreate(sourcePaths),
+            ReturnToSenderSourceIndex.TryCreate(assemblyPath, sourcePaths),
             applyCompileBackFloor: true,
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected);
