@@ -3761,6 +3761,67 @@ public class RaisingPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void NestedContainerSecondBackEdge_StaysFlat()
+    {
+        var function = BottomTestedRegionWithNestedContainerTransfer(targetOffset: 10);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedContainerNonCanonicalExit_StaysFlat()
+    {
+        var function = BottomTestedRegionWithNestedContainerTransfer(targetOffset: 40);
+
+        new DoWhileLoopPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DoWhileLoop>());
+        function.CheckInvariant();
+    }
+
+    static IrFunction BottomTestedRegionWithNestedContainerTransfer(int targetOffset)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var switchBody = new BlockContainer();
+        var switchBlock = new Block(12);
+        switchBlock.Add(new Branch(targetOffset));
+        switchBody.Add(switchBlock);
+
+        var body = new BlockContainer();
+        var header = new Block(10);
+        header.Add(new Switch(
+            new Constant(0, intType),
+            [new SwitchSection([], isDefault: true, switchBody)]));
+        body.Add(header);
+        var bottom = new Block(20);
+        bottom.Add(new ConditionalBranch(
+            new LoadArgument(0, "repeat", boolType),
+            10));
+        body.Add(bottom);
+        var exit = new Block(30);
+        exit.Add(new Return(new Constant(0, intType)));
+        body.Add(exit);
+        var alternateExit = new Block(40);
+        alternateExit.Add(new Return(new Constant(1, intType)));
+        body.Add(alternateExit);
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Loops"),
+            new MethodSignature(
+                intType,
+                [new Parameter("repeat", boolType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+    }
+
     public enum NestedEntryKind
     {
         Branch,

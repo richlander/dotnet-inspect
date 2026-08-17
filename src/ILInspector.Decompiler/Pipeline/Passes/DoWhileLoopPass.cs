@@ -26,6 +26,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// accepted locally owned boundary, while
 /// <c>NestedDoWhileWithBranchingBody_RaisesBothLoops</c> pins local transfers
 /// inside an already-raised nested container.
+/// <c>NestedContainerSecondBackEdge_StaysFlat</c> and
+/// <c>NestedContainerNonCanonicalExit_StaysFlat</c> pin outward transfers from
+/// that container.
 /// </summary>
 public sealed class DoWhileLoopPass : IIrPass
 {
