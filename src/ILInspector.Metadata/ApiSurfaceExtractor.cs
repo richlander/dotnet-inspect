@@ -2770,6 +2770,18 @@ public static class ApiSurfaceExtractor
         foreach (var attributeHandle in attributes)
         {
             var attribute = reader.GetCustomAttribute(attributeHandle);
+            // Length short-circuit before GetAttributeTypeName so a multi-MB
+            // constructor type name cannot allocate during default scanning.
+            if (!MetadataSafetyPolicy.TryCountAttributeConstructorTypeNameCharacters(
+                    reader,
+                    attribute.Constructor,
+                    out long typeNameCharacters)
+                || (typeNameCharacters != KnownAttributeNames.DecimalConstantAttribute.Length
+                    && typeNameCharacters != KnownAttributeNames.DateTimeConstantAttribute.Length))
+            {
+                continue;
+            }
+
             var attributeTypeName = AttributeReader.GetAttributeTypeName(reader, attribute.Constructor);
             if (attributeTypeName == KnownAttributeNames.DecimalConstantAttribute
                 && TryReadDecimalConstantAttribute(reader, attribute, out var decimalValue))
@@ -2900,7 +2912,7 @@ public static class ApiSurfaceExtractor
         if (value == null)
             return acceptsNullDefault ? "null" : "default";
 
-        if (TryFormatEnumDefaultValue(reader, value, typeName) is { } enumValue)
+        if (TryFormatEnumDefaultValue(reader, value, typeName, materialization) is { } enumValue)
             return enumValue;
 
         if (!acceptsNullDefault
@@ -3048,7 +3060,11 @@ public static class ApiSurfaceExtractor
         return length;
     }
 
-    private static string? TryFormatEnumDefaultValue(MetadataReader reader, object value, string typeName)
+    private static string? TryFormatEnumDefaultValue(
+        MetadataReader reader,
+        object value,
+        string typeName,
+        TextMaterializationBudget? materialization = null)
     {
         if (!TryConvertEnumConstant(value, out var defaultValue))
             return null;
@@ -3083,6 +3099,13 @@ public static class ApiSurfaceExtractor
                     if (TryReadEnumConstant(reader, constant, out var memberValue)
                         && memberValue == defaultValue)
                     {
+                        // Count before GetString so a multi-MB enum member name used as a
+                        // parameter default cannot allocate under an open model budget (Opus R7).
+                        long fieldCharacters = MetadataSafetyPolicy.GetStringCharacterCount(
+                            reader,
+                            field.Name);
+                        materialization?.EnsureCanMaterialize(
+                            typeName.Length + 1L + fieldCharacters);
                         return $"{typeName}.{reader.GetString(field.Name)}";
                     }
                 }
@@ -3148,17 +3171,28 @@ public static class ApiSurfaceExtractor
         GenericContext? context = null,
         TextMaterializationBudget? materialization = null)
     {
-        if (materialization is not null
-            && handle.Kind == HandleKind.TypeSpecification)
+        if (materialization is not null)
         {
-            TypeNode node = GuardedProviderDecode.TypeSpec(
-                reader,
-                (TypeSpecificationHandle)handle,
-                TypeNodeProvider.CreateCaching(),
-                context,
-                (TypeNode)new DegradedTypeNode());
-            materialization.EnsureCanMaterialize(
-                node.RenderLength(canonicalTuples: true));
+            if (handle.Kind == HandleKind.TypeSpecification)
+            {
+                TypeNode node = GuardedProviderDecode.TypeSpec(
+                    reader,
+                    (TypeSpecificationHandle)handle,
+                    TypeNodeProvider.CreateCaching(),
+                    context,
+                    (TypeNode)new DegradedTypeNode());
+                materialization.EnsureCanMaterialize(
+                    node.RenderLength(canonicalTuples: true));
+            }
+            else if (MetadataSafetyPolicy.TryCountTypeNameCharacters(
+                    reader,
+                    handle,
+                    out long typeNameCharacters))
+            {
+                // TypeDef/TypeRef/ExportedType names are GetString'd inside
+                // TypeResolver; refuse before that materialization (Sol R7).
+                materialization.EnsureCanMaterialize(typeNameCharacters);
+            }
         }
 
         return TypeResolver.ResolveTypeName(reader, handle, context) switch

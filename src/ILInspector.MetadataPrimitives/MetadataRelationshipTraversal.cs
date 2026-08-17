@@ -130,6 +130,227 @@ public static class MetadataSafetyPolicy
     }
 
     /// <summary>
+    /// Lower-bound character count of a TypeDef/TypeRef/ExportedType display name
+    /// (namespace + nested segments + separators) without materializing strings.
+    /// Returns false when the handle is not a named type or the chain is rejected.
+    /// Gated by <c>GiantBaseTypeName_IsStoppedBeforeGetStringMaterialization</c>.
+    /// </summary>
+    public static bool TryCountTypeNameCharacters(
+        MetadataReader reader,
+        EntityHandle handle,
+        out long characters)
+    {
+        characters = 0;
+        try
+        {
+            return handle.Kind switch
+            {
+                HandleKind.TypeDefinition => TryCountTypeDefinitionNameCharacters(
+                    reader,
+                    (TypeDefinitionHandle)handle,
+                    out characters),
+                HandleKind.TypeReference => TryCountTypeReferenceNameCharacters(
+                    reader,
+                    (TypeReferenceHandle)handle,
+                    out characters),
+                HandleKind.ExportedType => TryCountExportedTypeNameCharacters(
+                    reader,
+                    (ExportedTypeHandle)handle,
+                    out characters),
+                _ => false,
+            };
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or DecoderFallbackException)
+        {
+            characters = 0;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Counts the fully-qualified attribute type name pointed at by a constructor
+    /// MethodDef or MemberRef without materializing it.
+    /// </summary>
+    public static bool TryCountAttributeConstructorTypeNameCharacters(
+        MetadataReader reader,
+        EntityHandle constructorHandle,
+        out long characters)
+    {
+        characters = 0;
+        try
+        {
+            if (constructorHandle.Kind == HandleKind.MemberReference)
+            {
+                var memberRef = reader.GetMemberReference(
+                    (MemberReferenceHandle)constructorHandle);
+                return TryCountTypeNameCharacters(reader, memberRef.Parent, out characters);
+            }
+
+            if (constructorHandle.Kind == HandleKind.MethodDefinition)
+            {
+                var methodDef = reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)constructorHandle);
+                return TryCountTypeNameCharacters(
+                    reader,
+                    methodDef.GetDeclaringType(),
+                    out characters);
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException
+                or DecoderFallbackException)
+        {
+            characters = 0;
+            return false;
+        }
+    }
+
+    static bool TryCountTypeDefinitionNameCharacters(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        out long characters)
+    {
+        characters = 0;
+        var typeDef = reader.GetTypeDefinition(handle);
+        if (typeDef.GetDeclaringType().IsNil)
+        {
+            characters = CountNamespaceAndName(
+                reader,
+                typeDef.Namespace,
+                typeDef.Name);
+            return true;
+        }
+
+        var traversal = MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(
+            reader,
+            handle);
+        if (traversal is not RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Completed completed)
+            return false;
+
+        return TryCountChainNameCharacters(
+            reader,
+            completed.Value.Handles,
+            current =>
+            {
+                var definition = reader.GetTypeDefinition(current);
+                return (definition.Namespace, definition.Name);
+            },
+            out characters);
+    }
+
+    static bool TryCountTypeReferenceNameCharacters(
+        MetadataReader reader,
+        TypeReferenceHandle handle,
+        out long characters)
+    {
+        characters = 0;
+        var typeRef = reader.GetTypeReference(handle);
+        if (typeRef.ResolutionScope.Kind != HandleKind.TypeReference)
+        {
+            characters = CountNamespaceAndName(
+                reader,
+                typeRef.Namespace,
+                typeRef.Name);
+            return true;
+        }
+
+        var traversal = MetadataRelationshipTraversal.WalkTypeReferenceResolutionScope(
+            reader,
+            handle);
+        if (traversal is not RelationshipTraversalResult<RelationshipChain<TypeReferenceHandle>>.Completed completed)
+            return false;
+
+        return TryCountChainNameCharacters(
+            reader,
+            completed.Value.Handles,
+            current =>
+            {
+                var reference = reader.GetTypeReference(current);
+                return (reference.Namespace, reference.Name);
+            },
+            out characters);
+    }
+
+    static bool TryCountExportedTypeNameCharacters(
+        MetadataReader reader,
+        ExportedTypeHandle handle,
+        out long characters)
+    {
+        characters = 0;
+        var exported = reader.GetExportedType(handle);
+        if (exported.Implementation.Kind != HandleKind.ExportedType)
+        {
+            characters = CountNamespaceAndName(
+                reader,
+                exported.Namespace,
+                exported.Name);
+            return true;
+        }
+
+        var traversal = MetadataRelationshipTraversal.WalkExportedTypeImplementationChain(
+            reader,
+            handle);
+        if (traversal is not RelationshipTraversalResult<RelationshipChain<ExportedTypeHandle>>.Completed completed)
+            return false;
+
+        return TryCountChainNameCharacters(
+            reader,
+            completed.Value.Handles,
+            current =>
+            {
+                var row = reader.GetExportedType(current);
+                return (row.Namespace, row.Name);
+            },
+            out characters);
+    }
+
+    static bool TryCountChainNameCharacters<THandle>(
+        MetadataReader reader,
+        ImmutableArray<THandle> handles,
+        Func<THandle, (StringHandle Namespace, StringHandle Name)> getName,
+        out long characters)
+        where THandle : struct
+    {
+        characters = 0;
+        for (int index = 0; index < handles.Length; index++)
+        {
+            var (namespaceHandle, nameHandle) = getName(handles[index]);
+            if (index == 0)
+            {
+                long namespaceCharacters = GetStringCharacterCount(reader, namespaceHandle);
+                if (namespaceCharacters > 0)
+                    characters += namespaceCharacters + 1;
+            }
+            else
+            {
+                characters++;
+            }
+
+            characters += GetStringCharacterCount(reader, nameHandle);
+        }
+
+        return true;
+    }
+
+    static long CountNamespaceAndName(
+        MetadataReader reader,
+        StringHandle namespaceHandle,
+        StringHandle nameHandle)
+    {
+        long namespaceCharacters = GetStringCharacterCount(reader, namespaceHandle);
+        long nameCharacters = GetStringCharacterCount(reader, nameHandle);
+        return namespaceCharacters == 0
+            ? nameCharacters
+            : namespaceCharacters + 1 + nameCharacters;
+    }
+
+    /// <summary>
     /// Counts a metadata string's decoded UTF-16 characters without materializing it.
     /// </summary>
     /// <remarks>

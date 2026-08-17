@@ -36,9 +36,13 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName == KnownAttributeNames.ExtensionAttribute)
+            if (AttributeConstructorTypeNameEquals(
+                    reader,
+                    attr.Constructor,
+                    KnownAttributeNames.ExtensionAttribute))
+            {
                 return true;
+            }
         }
         return false;
     }
@@ -51,9 +55,11 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName is not (ExtensionMarkerAttributeName or ExtensionMarkerNameAttributeName))
+            if (!AttributeConstructorTypeNameEquals(reader, attr.Constructor, ExtensionMarkerAttributeName)
+                && !AttributeConstructorTypeNameEquals(reader, attr.Constructor, ExtensionMarkerNameAttributeName))
+            {
                 continue;
+            }
 
             try
             {
@@ -82,14 +88,12 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-
-            if (attrTypeName == EditorBrowsableAttributeName)
+            if (AttributeConstructorTypeNameEquals(reader, attr.Constructor, EditorBrowsableAttributeName))
             {
                 if (IsEditorBrowsableNever(reader, attr))
                     return true;
             }
-            else if (attrTypeName == ObsoleteAttributeName)
+            else if (AttributeConstructorTypeNameEquals(reader, attr.Constructor, ObsoleteAttributeName))
             {
                 if (!IsCompilerCompatibilityObsolete(
                         reader,
@@ -109,9 +113,11 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName == EditorBrowsableAttributeName && IsEditorBrowsableNever(reader, attr))
+            if (AttributeConstructorTypeNameEquals(reader, attr.Constructor, EditorBrowsableAttributeName)
+                && IsEditorBrowsableNever(reader, attr))
+            {
                 return true;
+            }
         }
         return false;
     }
@@ -128,25 +134,24 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName == ObsoleteAttributeName)
-            {
-                long lowerBound = 0;
-                if (preflight is not null
-                    && !TryGetFirstSerializedStringLength(reader, attr, out lowerBound))
-                {
-                    lowerBound = 0;
-                }
-                preflight?.Invoke(lowerBound);
-                message = TryGetAttributeDisplayValue(reader, attr);
-                if (IsCompilerCompatibilityObsolete(reader, attributes, message))
-                {
-                    message = null;
-                    return false;
-                }
+            if (!AttributeConstructorTypeNameEquals(reader, attr.Constructor, ObsoleteAttributeName))
+                continue;
 
-                return true;
+            long lowerBound = 0;
+            if (preflight is not null
+                && !TryGetFirstSerializedStringLength(reader, attr, out lowerBound))
+            {
+                lowerBound = 0;
             }
+            preflight?.Invoke(lowerBound);
+            message = TryGetAttributeDisplayValue(reader, attr);
+            if (IsCompilerCompatibilityObsolete(reader, attributes, message))
+            {
+                message = null;
+                return false;
+            }
+
+            return true;
         }
         message = null;
         return false;
@@ -187,9 +192,13 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrTypeName != KnownAttributeNames.CompilerFeatureRequiredAttribute)
+            if (!AttributeConstructorTypeNameEquals(
+                    reader,
+                    attr.Constructor,
+                    KnownAttributeNames.CompilerFeatureRequiredAttribute))
+            {
                 continue;
+            }
 
             var value = TryGetAttributeDisplayValue(reader, attr);
             if (string.Equals(value, featureName, StringComparison.Ordinal))
@@ -220,8 +229,7 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrName = GetAttributeTypeName(reader, attr.Constructor);
-            if (attrName == attributeTypeName)
+            if (AttributeConstructorTypeNameEquals(reader, attr.Constructor, attributeTypeName))
                 return true;
         }
         return false;
@@ -232,6 +240,29 @@ public static class AttributeReader
     /// </summary>
     public static string? GetAttributeTypeName(MetadataReader reader, EntityHandle constructorHandle)
         => AttributeDecoder.GetAttributeTypeName(reader, constructorHandle);
+
+    /// <summary>
+    /// True when the constructor's declaring type name equals
+    /// <paramref name="expectedFullName"/> without materializing names that cannot
+    /// match (length mismatch). Known attribute filters must use this so a hostile
+    /// multi-MB attribute type name cannot allocate during presence checks.
+    /// </summary>
+    static bool AttributeConstructorTypeNameEquals(
+        MetadataReader reader,
+        EntityHandle constructorHandle,
+        string expectedFullName)
+    {
+        if (!MetadataSafetyPolicy.TryCountAttributeConstructorTypeNameCharacters(
+                reader,
+                constructorHandle,
+                out long characters)
+            || characters != expectedFullName.Length)
+        {
+            return false;
+        }
+
+        return GetAttributeTypeName(reader, constructorHandle) == expectedFullName;
+    }
 
     /// <summary>
     /// Gets custom attributes for a specific method, identified by type name, method name, and overload index.
@@ -356,12 +387,31 @@ public static class AttributeReader
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
+            // Count before GetAttributeTypeName. A multi-MB constructor type name
+            // must never materialize (Sol R7: ~80-240 MB on Exceeded). Names above
+            // MaxPreflightMaterializedStringCharacters fail closed via preflight
+            // when a budget is open, and are skipped when unbounded — without
+            // charging ordinary value lower-bound preflight callbacks.
+            if (!MetadataSafetyPolicy.TryCountAttributeConstructorTypeNameCharacters(
+                    reader,
+                    attr.Constructor,
+                    out long typeNameCharacters))
+            {
+                continue;
+            }
+
+            if (typeNameCharacters > MaxPreflightMaterializedStringCharacters)
+            {
+                preflight?.Invoke(typeNameCharacters);
+                continue;
+            }
+
             var typeName = GetAttributeTypeName(reader, attr.Constructor);
             if (typeName is null || IsReEmittedAttribute(typeName))
                 continue;
             if (skipAttribute?.Invoke(typeName) == true)
                 continue;
-            if (TryRenderAttribute(reader, attr, qualifyNames, preflight) is not { } rendered)
+            if (TryRenderAttribute(reader, attr, typeName, qualifyNames, preflight) is not { } rendered)
                 continue;
             beforeRetain?.Invoke(rendered);
             int lastDot = typeName.LastIndexOf('.');
@@ -583,7 +633,11 @@ public static class AttributeReader
     }
 
     static string? TryRenderAttribute(
-        MetadataReader reader, CustomAttribute attr, bool qualifyName, Action<long>? preflight)
+        MetadataReader reader,
+        CustomAttribute attr,
+        string typeName,
+        bool qualifyName,
+        Action<long>? preflight)
     {
         if (preflight is not null)
         {
@@ -593,7 +647,6 @@ public static class AttributeReader
         }
         if (AttributeDecoder.TryDecode(reader, attr) is not { } value)
             return null;
-        var typeName = GetAttributeTypeName(reader, attr.Constructor)!;
         string name = qualifyName ? GetQualifiedAttributeName(typeName) : TypeMatcher.GetShortAttributeName(typeName);
         var args = new List<string>();
         foreach (var arg in value.FixedArguments)

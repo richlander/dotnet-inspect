@@ -453,6 +453,71 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void GiantEnumDefaultMemberName_IsStoppedBeforeGetStringMaterialization()
+    {
+        // Opus R7: TryFormatEnumDefaultValue GetString'd the matching enum field name
+        // with no preflight (~120 MB on a 20M-char member under Exceeded).
+        byte[] image = BuildGiantEnumDefaultMemberNameImage(20_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void GiantBaseTypeName_IsStoppedBeforeGetStringMaterialization()
+    {
+        // Sol R7: ResolveRequiredTypeName GetString'd TypeRef names before budget.
+        byte[] image = BuildGiantBaseTypeNameImage(20_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void GiantAttributeTypeName_IsStoppedBeforeGetStringMaterialization()
+    {
+        // Sol R7: attribute type names were GetString'd during presence checks and
+        // RenderAttributes before preflight (~80-240 MB on Exceeded).
+        byte[] image = BuildGiantAttributeTypeNameImage(20_000_000);
+        var bounds = BrowserTextBounds();
+
+        _ = Extract(image, bounds);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            Extract(image, bounds));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharactersPerModel,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 4_000_000,
+            $"Bounded extraction allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void StringDefault_IsStoppedBeforeDecodeAndEscaping()
     {
         byte[] image = BuildStringDefaultImage(2_000_000);
@@ -1125,6 +1190,133 @@ public sealed class ApiSurfaceExtractorBoundsTests
             property,
             MethodSemanticsAttributes.Getter,
             getter);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGiantBaseTypeNameImage(int nameCharacters)
+    {
+        var metadata = CreateMetadata("GiantBase");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(10, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle giantBase = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('B', nameCharacters)));
+
+        // Replace Surface's base type by re-adding is not possible; add a second
+        // public type that extends the giant TypeRef so ResolveRequiredTypeName runs.
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Derived"),
+            giantBase,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        _ = surface;
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGiantAttributeTypeNameImage(int nameCharacters)
+    {
+        var metadata = CreateMetadata("GiantAttrType");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+        AssemblyReferenceHandle target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            target,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(new string('A', nameCharacters)));
+        var ctorSignature = new BlobBuilder();
+        ctorSignature.WriteByte(0x20); // HASTHIS
+        ctorSignature.WriteCompressedInteger(0);
+        ctorSignature.WriteByte(0x01); // void
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(ctorSignature));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            surface,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGiantEnumDefaultMemberNameImage(int nameCharacters)
+    {
+        // Public Surface.M(EnumB value = 42) with nested EnumB whose matching
+        // literal has a giant name. Default formatting materializes the member
+        // name while resolving the public method parameter.
+        var metadata = CreateMetadata("GiantEnumDefault");
+        TypeDefinitionHandle surface = AddModuleAndSurfaceTypes(metadata);
+
+        var i4FieldSignature = new BlobBuilder();
+        i4FieldSignature.WriteByte(0x06); // FIELD
+        i4FieldSignature.WriteByte(0x08); // I4
+        BlobHandle i4FieldSig = metadata.GetOrAddBlob(i4FieldSignature);
+
+        FieldDefinitionHandle valueField = metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.SpecialName | FieldAttributes.RTSpecialName,
+            metadata.GetOrAddString("value__"),
+            i4FieldSig);
+        FieldDefinitionHandle literal = metadata.AddFieldDefinition(
+            FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault,
+            metadata.GetOrAddString(new string('E', nameCharacters)),
+            i4FieldSig);
+        metadata.AddConstant(literal, 42);
+
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(10, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemEnum = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Enum"));
+
+        TypeDefinitionHandle enumType = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("EnumB"),
+            systemEnum,
+            valueField,
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddNestedType(enumType, surface);
+
+        var methodSignature = new BlobBuilder();
+        methodSignature.WriteByte(0x00);
+        methodSignature.WriteCompressedInteger(1);
+        methodSignature.WriteByte(0x01); // void
+        methodSignature.WriteByte(0x11); // ELEMENT_TYPE_VALUETYPE
+        methodSignature.WriteCompressedInteger(CodedIndex.TypeDefOrRef(enumType));
+        ParameterHandle parameter = metadata.AddParameter(
+            ParameterAttributes.Optional | ParameterAttributes.HasDefault,
+            metadata.GetOrAddString("value"),
+            1);
+        metadata.AddConstant(parameter, 42);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(methodSignature),
+            0,
+            parameter);
         return Serialize(metadata);
     }
 
