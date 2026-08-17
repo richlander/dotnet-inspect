@@ -61,9 +61,13 @@ projecting a pack directory. `runtime` and `aspnetcore` map to the representativ
 `linux-x64` implementation-pack packages because their managed assemblies are
 inspected, never executed. A floating member lists authorized versions and
 selects the latest admitted version whose major and minor match the target
-framework; an exact pin must match that same release line. Payload acquisition
-then uses the ordinary host-supplied package store, and the realized platform
-coordinate retains the serving producer for exact re-acquisition.
+framework's base TFM; an exact pin must match that same release line. A
+platform-qualified target such as `net10.0-browser` therefore resolves on the
+`net10.0` line. Floating selection carries forward only the authorized
+producers that reported the chosen version, rather than allowing another
+authorized producer's cached payload to answer. Payload acquisition then uses
+the ordinary host-supplied package store, and the realized platform coordinate
+retains the serving producer for exact re-acquisition.
 
 Package metadata (publish date, downloads, deprecation, vulnerabilities) is
 also cached with a 1-hour TTL.

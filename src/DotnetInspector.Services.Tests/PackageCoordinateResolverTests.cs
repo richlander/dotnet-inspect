@@ -1073,6 +1073,11 @@ public sealed class PackageCoordinateResolverTests
         Assert.Equal(
             ["1.0.0", "2.0.0-preview.1"],
             first.Versions);
+        Assert.All(
+            first.Candidates,
+            candidate => Assert.Equal(
+                [NuGetOrg],
+                candidate.ReportingSources));
         Assert.Equal(first.Versions, second.Versions);
         Assert.True(handler.RequestCount > firstRequestCount);
     }

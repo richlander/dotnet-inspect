@@ -182,6 +182,14 @@ public static class WorkspaceContextLoader
         if (!rejections.IsEmpty)
             return new WorkspaceContextLoadOutcome.Failed(rejections);
 
+        if (ValidatePlatformAcquisitions(
+                context.Members,
+                framework) is { } platformConflict)
+        {
+            return new WorkspaceContextLoadOutcome.Failed(
+                [platformConflict]);
+        }
+
         if (Distinct(
                 context.Members,
                 member => KeyFor(member, framework, rid),
@@ -295,6 +303,13 @@ public static class WorkspaceContextLoader
             ValidateRealized(members, out string? framework, out string? rid);
         if (!rejections.IsEmpty)
             return new WorkspaceContextLoadOutcome.Failed(rejections);
+
+        if (ValidatePlatformAcquisitions(members)
+            is { } platformConflict)
+        {
+            return new WorkspaceContextLoadOutcome.Failed(
+                [platformConflict]);
+        }
 
         // A loaded context reports one member per participant, so a package
         // carrying several assemblies repeats its realized coordinate. Handing
@@ -473,10 +488,10 @@ public static class WorkspaceContextLoader
                 string platformFramework =
                     (platform.Framework ?? framework ?? string.Empty)
                         .ToLowerInvariant();
-                string assembly =
-                    platform.Assembly?.ToLowerInvariant() ?? "*";
+                string assembly = PlatformAssemblySelectionKey(
+                    platform.Assembly);
                 return new AcquisitionKey(
-                    $"platform:{family}:{assembly}",
+                    $"platform:{family}|{assembly}",
                     $"platform:{family}|{assembly}|{platformVersion}|{platformFramework}");
 
             case WorkspaceMemberCoordinate.EmbeddedMember embedded:
@@ -508,8 +523,8 @@ public static class WorkspaceContextLoader
                 $"package:{package.PackageId}|{package.Version}|{package.Framework}"
                     + $"|{package.RuntimeIdentifier}|{package.Producer}"),
             RealizedMemberCoordinate.Platform platform => new AcquisitionKey(
-                $"platform:{platform.Family}:{platform.Assembly?.ToLowerInvariant() ?? "*"}",
-                $"platform:{platform.Family}|{platform.Assembly?.ToLowerInvariant() ?? "*"}"
+                $"platform:{platform.Family}|{PlatformAssemblySelectionKey(platform.Assembly)}",
+                $"platform:{platform.Family}|{PlatformAssemblySelectionKey(platform.Assembly)}"
                     + $"|{platform.Version}|{platform.Framework}|{platform.Producer}"),
             RealizedMemberCoordinate.Embedded embedded => new AcquisitionKey(
                 $"embedded:{embedded.ContentRef}",
@@ -518,6 +533,11 @@ public static class WorkspaceContextLoader
                 $"other:{coordinate.GetHashCode()}",
                 $"other:{coordinate.GetHashCode()}"),
         };
+
+    static string PlatformAssemblySelectionKey(string? assembly) =>
+        assembly is null
+            ? "all"
+            : $"assembly:{assembly.ToLowerInvariant()}";
 
     /// <summary>
     /// The normalized spelling of a declared version, or the declared text when
@@ -560,6 +580,116 @@ public static class WorkspaceContextLoader
                     embedded.DeclaredName),
             _ => throw new ArgumentOutOfRangeException(nameof(coordinate)),
         };
+
+    static WorkspaceContextLoadFailure? ValidatePlatformAcquisitions(
+        IReadOnlyList<WorkspaceMemberCoordinate> members,
+        string? framework)
+    {
+        var acquisitions = new Dictionary<
+            string,
+            (string Key, bool HasAll, bool HasSelection)>(
+            StringComparer.Ordinal);
+        foreach (WorkspaceMemberCoordinate.PlatformMember platform
+            in members.OfType<WorkspaceMemberCoordinate.PlatformMember>())
+        {
+            string family = platform.Family.ToLowerInvariant();
+            string version = platform.Version is { } pinned
+                ? CanonicalVersion(pinned)
+                : "*";
+            string effectiveFramework =
+                (platform.Framework ?? framework ?? string.Empty)
+                    .ToLowerInvariant();
+            string key = $"{version}|{effectiveFramework}";
+            bool isAll = platform.Assembly is null;
+
+            if (!acquisitions.TryGetValue(family, out var existing))
+            {
+                acquisitions.Add(
+                    family,
+                    (key, isAll, !isAll));
+                continue;
+            }
+
+            if (!string.Equals(
+                    existing.Key,
+                    key,
+                    StringComparison.Ordinal))
+            {
+                return Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    platform,
+                    $"Platform family '{family}' cannot be acquired more than once with different versions or target frameworks in one workspace context.");
+            }
+
+            if (isAll && existing.HasSelection
+                || !isAll && existing.HasAll)
+            {
+                return Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    platform,
+                    $"Platform family '{family}' cannot combine an all-assembly member with selected-assembly members in one workspace context.");
+            }
+
+            acquisitions[family] = (
+                existing.Key,
+                existing.HasAll || isAll,
+                existing.HasSelection || !isAll);
+        }
+
+        return null;
+    }
+
+    static WorkspaceContextLoadFailure? ValidatePlatformAcquisitions(
+        IReadOnlyList<RealizedMemberCoordinate> members)
+    {
+        var acquisitions = new Dictionary<
+            string,
+            (string Key, bool HasAll, bool HasSelection)>(
+            StringComparer.Ordinal);
+        foreach (RealizedMemberCoordinate.Platform platform
+            in members.OfType<RealizedMemberCoordinate.Platform>())
+        {
+            string key =
+                $"{platform.Version}|{platform.Framework}|{platform.Producer}";
+            bool isAll = platform.Assembly is null;
+            if (!acquisitions.TryGetValue(
+                    platform.Family,
+                    out var existing))
+            {
+                acquisitions.Add(
+                    platform.Family,
+                    (key, isAll, !isAll));
+                continue;
+            }
+
+            if (!string.Equals(
+                    existing.Key,
+                    key,
+                    StringComparison.Ordinal))
+            {
+                return Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    Declare(platform),
+                    $"Platform family '{platform.Family}' cannot be re-acquired from different versions, target frameworks, or producers in one workspace context.");
+            }
+
+            if (isAll && existing.HasSelection
+                || !isAll && existing.HasAll)
+            {
+                return Failure(
+                    WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                    Declare(platform),
+                    $"Platform family '{platform.Family}' cannot combine an all-assembly member with selected-assembly members in one workspace context.");
+            }
+
+            acquisitions[platform.Family] = (
+                existing.Key,
+                existing.HasAll || isAll,
+                existing.HasSelection || !isAll);
+        }
+
+        return null;
+    }
 
     static ImmutableArray<WorkspaceContextLoadFailure> ValidateRealized(
         IReadOnlyList<RealizedMemberCoordinate> members,
@@ -691,6 +821,39 @@ public static class WorkspaceContextLoader
         return null;
     }
 
+    static WorkspaceContextLoadFailure? FirstPlatformAcquisitionCollision(
+        ImmutableArray<RealizedMember>.Builder realized)
+    {
+        var acquisitions = new Dictionary<string, string>(
+            StringComparer.Ordinal);
+        foreach (RealizedMember entry in realized)
+        {
+            if (entry.Realized
+                is not RealizedMemberCoordinate.Platform platform)
+            {
+                continue;
+            }
+
+            string key =
+                $"{platform.Version}|{platform.Framework}|{platform.Producer}";
+            if (acquisitions.TryAdd(platform.Family, key)
+                || string.Equals(
+                    acquisitions[platform.Family],
+                    key,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            return Failure(
+                WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                entry.Declared,
+                $"Platform family '{platform.Family}' resolved to more than one version or producer, so it cannot form one binding-consistent workspace context.");
+        }
+
+        return null;
+    }
+
     static WorkspaceContextLoadOutcome CreateGroup(
         InspectionWorkspace workspace,
         ImmutableArray<RealizedMember>.Builder realized,
@@ -698,6 +861,13 @@ public static class WorkspaceContextLoader
         string? framework,
         string? runtimeIdentifier)
     {
+        if (FirstPlatformAcquisitionCollision(realized)
+            is { } platformCollision)
+        {
+            return new WorkspaceContextLoadOutcome.Failed(
+                [platformCollision]);
+        }
+
         // Two images can carry one assembly identity without either coordinate
         // being duplicated: a package that ships the same assembly under two
         // asset paths, two producers serving one library, or an embedded member
@@ -1003,15 +1173,20 @@ public static class WorkspaceContextLoader
             options.SourceAuthorization.AuthorizeSourcesFor(packageId);
         if (authorization.Sources.Count == 0)
         {
+            LogPlatformDetail(
+                options,
+                family,
+                authorization.DenialReason);
             return new MemberRealization(
                 Failure(
                     WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
                     member,
-                    authorization.DenialReason
-                    ?? $"No source is authorized to provide the '{family}' platform family."));
+                    $"No source is authorized to provide platform family '{family}'."));
         }
 
         string version;
+        IReadOnlyList<PackageSource> acquisitionSources =
+            authorization.Sources;
         if (pinnedVersion is not null)
         {
             version = pinnedVersion;
@@ -1029,27 +1204,32 @@ public static class WorkspaceContextLoader
                     cancellationToken).ConfigureAwait(false);
             if (listing is not PackageVersionListingResult.Available available)
             {
-                string message = listing switch
+                string? detail = listing switch
                 {
                     PackageVersionListingResult.Invalid invalid =>
                         invalid.Message,
                     PackageVersionListingResult.Unavailable unavailable =>
                         unavailable.Message,
-                    _ => $"No version listing is available for the '{family}' platform family.",
+                    _ => null,
                 };
+                LogPlatformDetail(options, family, detail);
                 return new MemberRealization(
                     Failure(
                         WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
                         member,
-                        message));
+                        $"No authoritative version listing is available for platform family '{family}'."));
             }
 
-            NuGetVersion? selectedVersion = available.Versions
-                .Select(NuGetVersion.Parse)
-                .Where(candidate => MatchesTarget(candidate, target))
-                .OrderBy(static candidate => candidate)
+            PackageVersionListingResult.Candidate? selectedCandidate =
+                available.Candidates
+                .Where(candidate =>
+                    MatchesTarget(
+                        NuGetVersion.Parse(candidate.Version),
+                        target))
+                .OrderBy(candidate =>
+                    NuGetVersion.Parse(candidate.Version))
                 .LastOrDefault();
-            if (selectedVersion is null)
+            if (selectedCandidate is null)
             {
                 return new MemberRealization(
                     Failure(
@@ -1058,7 +1238,10 @@ public static class WorkspaceContextLoader
                         $"No published version of platform family '{family}' matches target framework '{framework}'."));
             }
 
-            version = selectedVersion.ToNormalizedString().ToLowerInvariant();
+            version = NuGetVersion.Parse(selectedCandidate.Version)
+                .ToNormalizedString()
+                .ToLowerInvariant();
+            acquisitionSources = selectedCandidate.ReportingSources;
         }
 
         PackageCoordinateResolution resolution =
@@ -1069,7 +1252,7 @@ public static class WorkspaceContextLoader
                     version,
                     framework,
                     RepresentativeRuntimeIdentifier),
-                authorization.Sources,
+                acquisitionSources,
                 options.Log,
                 options.IncludePrerelease,
                 options.UseVersionCache,
@@ -1077,18 +1260,19 @@ public static class WorkspaceContextLoader
                 cancellationToken).ConfigureAwait(false);
         if (resolution is not PackageCoordinateResolution.Resolved resolved)
         {
-            string message = resolution switch
+            string? detail = resolution switch
             {
                 PackageCoordinateResolution.Invalid invalid => invalid.Message,
                 PackageCoordinateResolution.Unavailable unavailable =>
                     unavailable.Message,
-                _ => $"Platform family '{family}' could not be resolved.",
+                _ => null,
             };
+            LogPlatformDetail(options, family, detail);
             return new MemberRealization(
                 Failure(
                     WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
                     member,
-                    message));
+                    $"Platform family '{family}' version '{version}' could not be resolved from its authorized producers."));
         }
 
         PackagePayloadResult payload =
@@ -1101,17 +1285,22 @@ public static class WorkspaceContextLoader
                 cancellationToken).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
+            LogPlatformDetail(
+                options,
+                family,
+                payloadFailure.Message);
             return new MemberRealization(
                 Failure(
                     WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
                     member,
-                    payloadFailure.Message));
+                    $"Platform family '{family}' version '{version}' could not be acquired from its authorized producers."));
         }
 
         return RealizeAcquiredPlatform(
             member,
             ((PackagePayloadResult.Acquired)payload).Payload,
             framework,
+            options,
             cancellationToken);
     }
 
@@ -1131,13 +1320,16 @@ public static class WorkspaceContextLoader
                 StringComparison.Ordinal));
         if (producer is null)
         {
+            LogPlatformDetail(
+                options,
+                pinned.Family,
+                authorization.DenialReason);
             return new MemberRealization(
                 Failure(
                     WorkspaceContextLoadFailureKind
                         .PlatformProducerUnavailable,
                     declared,
-                    authorization.DenialReason
-                    ?? $"The producer recorded for platform family '{pinned.Family}' is not authorized by this host."));
+                    $"The recorded producer for platform family '{pinned.Family}' is not authorized by this host."));
         }
 
         PackageCoordinateResolution resolution =
@@ -1156,19 +1348,23 @@ public static class WorkspaceContextLoader
                 cancellationToken).ConfigureAwait(false);
         if (resolution is not PackageCoordinateResolution.Resolved resolved)
         {
-            string message = resolution switch
+            string? detail = resolution switch
             {
                 PackageCoordinateResolution.Invalid invalid => invalid.Message,
                 PackageCoordinateResolution.Unavailable unavailable =>
                     unavailable.Message,
-                _ => $"Platform family '{pinned.Family}' could not be resolved.",
+                _ => null,
             };
+            LogPlatformDetail(
+                options,
+                pinned.Family,
+                detail);
             return new MemberRealization(
                 Failure(
                     WorkspaceContextLoadFailureKind
                         .PlatformProducerUnavailable,
                     declared,
-                    message));
+                    $"The recorded producer could not resolve platform family '{pinned.Family}' version '{pinned.Version}'."));
         }
 
         PackagePayloadResult payload =
@@ -1181,12 +1377,16 @@ public static class WorkspaceContextLoader
                 cancellationToken).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
+            LogPlatformDetail(
+                options,
+                pinned.Family,
+                payloadFailure.Message);
             return new MemberRealization(
                 Failure(
                     WorkspaceContextLoadFailureKind
                         .PlatformProducerUnavailable,
                     declared,
-                    payloadFailure.Message));
+                    $"The recorded producer could not acquire platform family '{pinned.Family}' version '{pinned.Version}'."));
         }
 
         AcquiredPackagePayload acquired =
@@ -1208,6 +1408,7 @@ public static class WorkspaceContextLoader
             declared,
             acquired,
             pinned.Framework,
+            options,
             cancellationToken);
         return realization.Failure is null
             ? new MemberRealization(pinned, realization.Assemblies)
@@ -1218,30 +1419,36 @@ public static class WorkspaceContextLoader
         WorkspaceMemberCoordinate.PlatformMember member,
         AcquiredPackagePayload acquired,
         string framework,
+        WorkspaceContextLoadOptions options,
         CancellationToken cancellationToken)
     {
+        string family = member.Family.ToLowerInvariant();
         PackageAssetSelection selection = PackageAssetSelector.Select(
             acquired.Content,
             framework,
             RepresentativeRuntimeIdentifier);
         if (selection is not PackageAssetSelection.Selected selected)
         {
-            string message = selection switch
+            string? detail = selection switch
             {
                 PackageAssetSelection.Ambiguous ambiguous =>
                     ambiguous.Message,
                 PackageAssetSelection.NoMatch noMatch => noMatch.Message,
                 PackageAssetSelection.Invalid invalid => invalid.Message,
-                _ => "The platform pack assets could not be selected.",
+                _ => null,
             };
+            LogPlatformDetail(options, family, detail);
             return new MemberRealization(
                 Failure(
                     WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
                     member,
-                    message));
+                    selection is PackageAssetSelection.Ambiguous
+                        ? $"Platform family '{family}' has more than one applicable assembly asset universe for target framework '{framework}'."
+                        : selection is PackageAssetSelection.Invalid
+                            ? $"Platform family '{family}' has an invalid assembly asset layout."
+                            : $"Platform family '{family}' carries no assembly assets for target framework '{framework}'."));
         }
 
-        string family = member.Family.ToLowerInvariant();
         AssemblyResolutionProvenance provenance =
             AssemblyResolutionProvenance.Platform(
                 family,
@@ -1339,7 +1546,7 @@ public static class WorkspaceContextLoader
         out Version version)
     {
         version = default!;
-        if (!TfmResolver.TryGetFrameworkIdentity(
+        if (!TfmResolver.TryGetBaseFrameworkIdentity(
                 framework,
                 out TfmResolver.FrameworkIdentity identity)
             || identity.Family
@@ -1351,6 +1558,18 @@ public static class WorkspaceContextLoader
 
         version = identity.Version;
         return true;
+    }
+
+    static void LogPlatformDetail(
+        WorkspaceContextLoadOptions options,
+        string family,
+        string? detail)
+    {
+        if (detail is not null)
+        {
+            options.Log?.Invoke(
+                $"Platform family '{family}' acquisition detail: {detail}");
+        }
     }
 
     static bool MatchesTarget(NuGetVersion package, Version target) =>

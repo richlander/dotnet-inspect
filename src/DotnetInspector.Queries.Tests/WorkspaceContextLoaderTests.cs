@@ -237,6 +237,281 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task PlatformMembers_SameFamilyAndVersionSelectDifferentAssemblies()
+    {
+        string caller = Path.GetFileNameWithoutExtension(CallerPath);
+        string target = Path.GetFileNameWithoutExtension(TargetPath);
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(RuntimePack()),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            caller,
+                            RuntimePackVersion),
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            target,
+                            RuntimePackVersion),
+                    ],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            [caller, target],
+            loaded.Group.Participants
+                .Select(participant => participant.Assembly.Identity.Name)
+                .Order(StringComparer.Ordinal));
+        Assert.All(
+            loaded.Members,
+            member => Assert.Equal(
+                RuntimePackVersion,
+                Assert.IsType<RealizedMemberCoordinate.Platform>(
+                    member.Realized).Version));
+    }
+
+    [Fact]
+    public async Task PlatformMembers_SameFamilyAtDifferentVersionsFailBeforeHostCapabilities()
+    {
+        var authorization = new RecordingAuthorization();
+        var store = new CountingPackageStore(
+            new InMemoryPackageStore());
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            Path.GetFileNameWithoutExtension(CallerPath),
+                            RuntimePackVersion),
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            Path.GetFileNameWithoutExtension(TargetPath),
+                            "10.0.3"),
+                    ],
+                },
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization: authorization),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.InvalidCoordinate,
+            Assert.Single(failed.Failures).Kind);
+        Assert.Equal(0, authorization.Requests);
+        Assert.Equal(0, store.Interactions);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task FloatingPlatformMembers_SameFamilyCannotDriftAcrossListings()
+    {
+        const string nextVersion = "10.0.3";
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(RuntimePack()),
+            TestContext.Current.CancellationToken);
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            nextVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(RuntimePack()),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(
+            new AlternatingPlatformListingHandler(
+                RuntimePackVersion,
+                nextVersion));
+        using var workspace = new InspectionWorkspace();
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            Path.GetFileNameWithoutExtension(CallerPath)),
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            Path.GetFileNameWithoutExtension(TargetPath)),
+                    ],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.InvalidCoordinate,
+            Assert.Single(failed.Failures).Kind);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task PlatformMembers_AllAndSelectedAsteriskFailBeforeHostCapabilities()
+    {
+        var authorization = new RecordingAuthorization();
+        var store = new CountingPackageStore(
+            new InMemoryPackageStore());
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            version: RuntimePackVersion),
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            assembly: "*",
+                            version: RuntimePackVersion),
+                    ],
+                },
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization: authorization),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.InvalidCoordinate,
+            Assert.Single(failed.Failures).Kind);
+        Assert.Equal(0, authorization.Requests);
+        Assert.Equal(0, store.Interactions);
+    }
+
+    [Fact]
+    public async Task PlatformMember_PlatformQualifiedTargetUsesBaseReleaseLine()
+    {
+        const string platformFramework = "net10.0-browser";
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(RuntimePack()),
+            TestContext.Current.CancellationToken);
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = platformFramework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            version: RuntimePackVersion),
+                    ],
+                },
+                Options(client, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(platformFramework, loaded.Framework);
+        Assert.All(
+            loaded.Members,
+            member => Assert.Equal(
+                platformFramework,
+                Assert.IsType<RealizedMemberCoordinate.Platform>(
+                    member.Realized).Framework));
+    }
+
+    [Fact]
+    public async Task FloatingPlatformMember_AcquiresOnlyFromVersionReporters()
+    {
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(FeedB),
+            new MemoryStream(RuntimePack()),
+            TestContext.Current.CancellationToken);
+        var handler = new PerFeedHandler();
+        handler.List(
+            FeedA,
+            RuntimePackPackageId,
+            RuntimePackVersion);
+        handler.List(
+            FeedB,
+            RuntimePackPackageId,
+            "9.0.9");
+        using var client = new HttpClient(handler);
+        using var workspace = new InspectionWorkspace();
+        var authorization = new PerPackageAuthorization
+        {
+            [RuntimePackPackageId] = [FeedA, FeedB],
+        };
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform("runtime"),
+                    ],
+                },
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization: authorization),
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(failed.Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+            failure.Kind);
+        Assert.DoesNotContain(
+            RuntimePackPackageId,
+            failure.Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "package",
+            failure.Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public async Task PlatformFamilies_FormOneBindingConsistentGroup()
     {
         var store = new InMemoryPackageStore();
@@ -436,6 +711,45 @@ public sealed class WorkspaceContextLoaderTests
             WorkspaceContextLoadFailureKind.PlatformProducerUnavailable,
             Assert.Single(failed.Failures).Kind);
         Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task RealizedPlatformCoordinates_SameFamilyAtDifferentVersionsFailBeforeHostCapabilities()
+    {
+        var authorization = new RecordingAuthorization();
+        var store = new CountingPackageStore(
+            new InMemoryPackageStore());
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                workspace,
+                [
+                    new RealizedMemberCoordinate.Platform(
+                        "runtime",
+                        RuntimePackVersion,
+                        Producer(NuGetOrg),
+                        Framework,
+                        Path.GetFileNameWithoutExtension(CallerPath)),
+                    new RealizedMemberCoordinate.Platform(
+                        "runtime",
+                        "10.0.3",
+                        Producer(NuGetOrg),
+                        Framework,
+                        Path.GetFileNameWithoutExtension(TargetPath)),
+                ],
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization: authorization),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.InvalidCoordinate,
+            Assert.Single(failed.Failures).Kind);
+        Assert.Equal(0, authorization.Requests);
+        Assert.Equal(0, store.Interactions);
     }
 
     [Fact]
@@ -3172,6 +3486,54 @@ public sealed class WorkspaceContextLoaderTests
         }
     }
 
+    sealed class AlternatingPlatformListingHandler(params string[] versions)
+        : HttpMessageHandler
+    {
+        int _listing = -1;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            if (url.Equals(
+                $"https://api.nuget.org/v3-flatcontainer/{RuntimePackPackageId}/index.json",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                int listing = Math.Min(
+                    Interlocked.Increment(ref _listing),
+                    versions.Length - 1);
+                return Json(
+                    $"{{\"versions\":[\"{versions[listing]}\"]}}");
+            }
+
+            if (url.Equals(
+                $"https://api.nuget.org/v3/registration5-gz-semver2/{RuntimePackPackageId}/index.json",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                string version = versions[
+                    Math.Clamp(
+                        Volatile.Read(ref _listing),
+                        0,
+                        versions.Length - 1)];
+                return Json(
+                    "{\"items\":[{\"items\":[{\"catalogEntry\":"
+                    + $"{{\"version\":\"{version}\",\"listed\":true}}"
+                    + "}]}]}");
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.NotFound));
+
+            static Task<HttpResponseMessage> Json(string body) =>
+                Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(body),
+                    });
+        }
+    }
+
     sealed class NotFoundHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -3190,6 +3552,8 @@ public sealed class WorkspaceContextLoaderTests
     sealed class PerFeedHandler : HttpMessageHandler
     {
         readonly Dictionary<string, byte[]> _payloads =
+            new(StringComparer.Ordinal);
+        readonly Dictionary<string, string[]> _listings =
             new(StringComparer.Ordinal);
         readonly HashSet<string> _withoutFlatContainer =
             new(StringComparer.Ordinal);
@@ -3210,6 +3574,14 @@ public sealed class WorkspaceContextLoaderTests
             string version,
             byte[] nupkg) =>
             _payloads[NupkgUrl(feed, packageId, version)] = nupkg;
+
+        internal void List(
+            PackageSource feed,
+            string packageId,
+            params string[] versions) =>
+            _listings[
+                $"{FlatContainer(feed)}{packageId}/index.json"] =
+                versions;
 
         /// <summary>
         /// Answers this feed's service index without a flat-container resource,
@@ -3245,7 +3617,17 @@ public sealed class WorkspaceContextLoaderTests
             }
 
             return Task.FromResult(
-                _payloads.TryGetValue(url, out byte[]? nupkg)
+                _listings.TryGetValue(url, out string[]? versions)
+                    ? new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            $$"""
+                            {"versions":[{{string.Join(
+                                ",",
+                                versions.Select(version => $"\"{version}\""))}}]}
+                            """),
+                    }
+                    : _payloads.TryGetValue(url, out byte[]? nupkg)
                     ? new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = new ByteArrayContent(nupkg),

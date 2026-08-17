@@ -888,9 +888,17 @@ is not part of runtime-pack acquisition. It supplies:
   `WorkspaceContextLoaderTests.PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants`
   for target-line version selection, pathless platform provenance, and
   binding, `PlatformFamilies_FormOneBindingConsistentGroup` for composition,
+  `PlatformMembers_SameFamilyAtDifferentVersionsFailBeforeHostCapabilities`
+  and `FloatingPlatformMembers_SameFamilyCannotDriftAcrossListings` for one
+  version and producer per family,
   `PlatformMember_MismatchedExactVersionFailsBeforeHostCapabilities` for early
-  target-line rejection, `PlatformMember_AssemblyFilterUsesMetadataIdentity`
-  for identity-owned filtering, and
+  target-line rejection,
+  `PlatformMember_PlatformQualifiedTargetUsesBaseReleaseLine` for
+  platform-qualified TFMs,
+  `PlatformMember_AssemblyFilterUsesMetadataIdentity` for identity-owned
+  filtering,
+  `FloatingPlatformMember_AcquiresOnlyFromVersionReporters` for listing-to-
+  payload source correspondence, and
   `RealizedPlatformCoordinate_ReacquiresRecordedProducer` for exact
   producer-bound transport;
 - a package-specific authorization gate —

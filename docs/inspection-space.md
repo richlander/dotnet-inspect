@@ -322,12 +322,19 @@ coordinates without requiring a filesystem. A platform coordinate maps the
 `runtime` or `aspnetcore` family to its product-owned implementation-pack
 coordinate, selects the latest authorized version on the target framework's
 major/minor release line unless exactly pinned, and mints pathless participants
-with `PlatformAsset` provenance. The implementation-pack RID is `linux-x64`
+with `PlatformAsset` provenance. A platform-qualified target such as
+`net10.0-browser` uses its `net10.0` base release line, and one family cannot
+mix versions or producers inside a group. Floating selection retains only the
+authorized producers that reported the selected version. The
+implementation-pack RID is `linux-x64`
 because the assemblies are inspected as representative CoreCLR IL and never
 executed; the workspace target RID remains the caller's independent binding
 constraint. `WorkspaceContextLoaderTests.PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants`
 gates version selection, pathless platform provenance, and in-group platform
-binding; `RealizedPlatformCoordinate_ReacquiresRecordedProducer` gates exact
+binding; `PlatformMember_PlatformQualifiedTargetUsesBaseReleaseLine` gates
+qualified targets, `FloatingPlatformMember_AcquiresOnlyFromVersionReporters`
+gates source correspondence, and
+`RealizedPlatformCoordinate_ReacquiresRecordedProducer` gates exact
 producer-bound transport.
 Portable-PDB acquisition now follows the same content-shaped boundary:
 `AcquiredPortablePdb` opens repeatable content from a host-supplied `IPdbStore`,

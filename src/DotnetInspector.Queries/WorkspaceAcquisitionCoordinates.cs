@@ -685,7 +685,7 @@ public abstract record RealizedMemberCoordinate
         IsCanonicalPackageVersion(version)
         && IsCanonicalFramework(framework)
         && NuGetVersion.TryParse(version, out NuGetVersion? package)
-        && TfmResolver.TryGetFrameworkIdentity(
+        && TfmResolver.TryGetBaseFrameworkIdentity(
             framework,
             out TfmResolver.FrameworkIdentity target)
         && target.Family
