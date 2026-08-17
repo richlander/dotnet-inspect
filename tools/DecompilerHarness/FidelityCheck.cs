@@ -3332,6 +3332,14 @@ static class FidelityCheck
 
         static string? SourceIdentifier(string value)
         {
+            if (value.EnumerateRunes().Any(
+                    static rune =>
+                        Rune.GetUnicodeCategory(rune)
+                            == UnicodeCategory.Format))
+            {
+                return null;
+            }
+
             return SyntaxFacts.IsValidIdentifier(value)
                 || SyntaxFacts.GetKeywordKind(value) != SyntaxKind.None
                 || SyntaxFacts.GetContextualKeywordKind(value)

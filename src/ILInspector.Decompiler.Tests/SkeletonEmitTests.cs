@@ -437,6 +437,74 @@ public class SkeletonEmitTests
     }
 
     [Fact]
+    public void SkeletonDoesNotBindCfExternalBaseToLookalike()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-check-base-cf-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        string dependencyPath =
+            Path.Combine(root, "CfDependency.dll");
+        string targetPath =
+            Path.Combine(root, "CfTarget.dll");
+
+        try
+        {
+            EmitLibrary(
+                dependencyPath,
+                "CfDependency",
+                """
+                namespace A
+                {
+                    public class BxxxC
+                    {
+                        public virtual int M() => 1;
+                    }
+
+                    public class BC
+                    {
+                        public virtual int M() => 1;
+                    }
+                }
+                """);
+            EmitLibrary(
+                targetPath,
+                "CfTarget",
+                """
+                namespace CfTarget;
+                public sealed class Derived : A.BxxxC
+                {
+                    public override int M() => 42;
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            ReplaceMetadataName(
+                dependencyPath,
+                "BxxxC\0"u8,
+                "B\u200CC\0"u8);
+            ReplaceMetadataName(
+                targetPath,
+                "BxxxC\0"u8,
+                "B\u200CC\0"u8);
+
+            var result = Assert.Single(FidelityCheck.Evaluate(
+                targetPath,
+                type => type == "CfTarget.Derived",
+                method => method.Method == "M"));
+
+            Assert.Equal(
+                FidelityCheck.CompileBackStatus.RecompileFail,
+                result.Status);
+            Assert.Contains("CS0115", result.Detail);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SkeletonQualifiesAuthenticatedExternalBaseAgainstTargetLookalike()
     {
         string root = Path.Combine(
