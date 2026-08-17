@@ -674,17 +674,12 @@ static Guid? ReadOptionalModuleVersionId(
             continue;
         }
 
-        if (property.Value.ValueKind ==
-            JsonValueKind.Null)
-        {
-            continue;
-        }
-
         if (property.Value.ValueKind !=
                 JsonValueKind.String
             || !Guid.TryParse(
                 property.Value.GetString(),
-                out var parsed))
+                out var parsed)
+            || parsed == Guid.Empty)
         {
             throw new InvalidDataException(
                 $"Invalid module version ID in "

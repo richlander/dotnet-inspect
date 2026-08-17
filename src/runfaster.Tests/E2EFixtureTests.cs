@@ -155,8 +155,12 @@ public class E2EFixtureTests
         }
     }
 
-    [Fact]
-    public void Correlate_RejectsMalformedTriageModuleVersionId()
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("null")]
+    [InlineData("\"00000000-0000-0000-0000-000000000000\"")]
+    public void Correlate_RejectsInvalidTriageModuleVersionId(
+        string moduleVersionIdJson)
     {
         string triagePath = Path.Combine(
             Path.GetTempPath(),
@@ -165,14 +169,14 @@ public class E2EFixtureTests
         {
             File.WriteAllText(
                 triagePath,
-                """
+                $$"""
                 {
                   "performance": {
                     "objects": [
                       {
                         "member": "RunFaster.AllocationFixture.Program.AllocateOne()",
                         "assembly": "RunFaster.AllocationFixture",
-                        "module_version_id": {},
+                        "module_version_id": {{moduleVersionIdJson}},
                         "method_token": "0x06000002",
                         "shape": "object-allocation",
                         "il": "IL_0000",
