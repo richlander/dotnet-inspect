@@ -335,8 +335,11 @@ public class NuGetSearchSourcesTests
                 client,
                 "Contoso",
                 sourceOptions: new NuGetSourceOptions { Sources = [IndexUrl] },
-                fetchOptions: NuGetFetchOptions.FromRequestTimeout(
-                    TimeSpan.FromMilliseconds(40))));
+                fetchOptions: new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(40),
+                    OperationTimeout = TimeSpan.FromSeconds(5),
+                }));
 
         Assert.Contains(
             "NuGetRequestTimeoutException",
