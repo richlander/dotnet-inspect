@@ -238,10 +238,13 @@ public static class MetadataDeclarationQuery
                 bool accessorOverride = accessorVirtual && (accessorAttributes & MethodAttributes.NewSlot) == 0;
                 isStatic |= (accessorAttributes & MethodAttributes.Static) != 0;
                 isVirtual |= accessorVirtual;
-                isAbstract |= (accessorAttributes & MethodAttributes.Abstract) != 0;
                 isOverride |= accessorOverride;
                 isSealed |= accessorOverride && (accessorAttributes & MethodAttributes.Final) != 0;
             }
+            isAbstract = MetadataAccessorSemantics.IsUniformlyAbstract(
+                reader,
+                accessors.Adder,
+                accessors.Remover);
 
             string accessibility = AccessibilityKeyword(bestAccess);
             if (!includeNonPublicMembers && accessibility != "public")
@@ -402,7 +405,7 @@ public static class MetadataDeclarationQuery
         var method = reader.GetMethodDefinition(handle);
         return new ApiAccessor
         {
-            Kind = kind,
+            Kind = MetadataAccessorSemantics.Kind(reader, handle, kind),
             MethodName = reader.GetString(method.Name),
             Accessibility = NonPublicAccessibility(
                 method.Attributes & MethodAttributes.MemberAccessMask),
@@ -637,14 +640,28 @@ public static class MetadataDeclarationQuery
         var setter = accessors.Setter.IsNil ? default : reader.GetMethodDefinition(accessors.Setter);
 
         var bestAccess = BestAccessorAccess(getter, setter, accessors);
-        var primaryAccessor = !accessors.Getter.IsNil ? getter : setter;
-        var accessorAttributes = !accessors.Getter.IsNil || !accessors.Setter.IsNil
-            ? primaryAccessor.Attributes
-            : default;
-        var isVirtual = (accessorAttributes & MethodAttributes.Virtual) != 0;
-        var isNewSlot = (accessorAttributes & MethodAttributes.NewSlot) != 0;
-        var isOverride = isVirtual && !isNewSlot;
+        var getterAttributes = accessors.Getter.IsNil ? default : getter.Attributes;
+        var setterAttributes = accessors.Setter.IsNil ? default : setter.Attributes;
+        var isStatic = ((getterAttributes | setterAttributes) & MethodAttributes.Static) != 0;
+        var getterVirtual = (getterAttributes & MethodAttributes.Virtual) != 0;
+        var setterVirtual = (setterAttributes & MethodAttributes.Virtual) != 0;
+        var getterOverride = getterVirtual
+            && (getterAttributes & MethodAttributes.NewSlot) == 0;
+        var setterOverride = setterVirtual
+            && (setterAttributes & MethodAttributes.NewSlot) == 0;
+        var isVirtual = getterVirtual || setterVirtual;
+        var isOverride = getterOverride || setterOverride;
+        var isSealed =
+            getterOverride && (getterAttributes & MethodAttributes.Final) != 0
+            || setterOverride && (setterAttributes & MethodAttributes.Final) != 0;
         var isPublicOrProtected = IsPublicOrProtected(bestAccess);
+        var isAbstract = MetadataAccessorSemantics.IsUniformlyAbstract(
+            reader,
+            accessors.Getter,
+            accessors.Setter);
+        var setterKind = accessors.Setter.IsNil
+            ? "set"
+            : MetadataAccessorSemantics.Kind(reader, accessors.Setter, "set");
 
         var accessorParameters = !accessors.Getter.IsNil
             ? getter.GetParameters()
@@ -674,7 +691,7 @@ public static class MetadataDeclarationQuery
         {
             accessorModels.Add(new ApiAccessor
             {
-                Kind = "set",
+                Kind = setterKind,
                 Accessibility = AccessorAccessibility(setter.Attributes & MethodAttributes.MemberAccessMask, bestAccess),
                 ReturnAttributes = ReturnAttributes(reader, setter.GetParameters()).ToList(),
                 HasMethodBody = setter.RelativeVirtualAddress != 0,
@@ -694,17 +711,11 @@ public static class MetadataDeclarationQuery
             csharpName,
             AccessibilityKeyword(bestAccess),
             isPublicOrProtected,
-            !accessors.Getter.IsNil || !accessors.Setter.IsNil
-                ? (accessorAttributes & MethodAttributes.Static) != 0
-                : false,
-            isPublicOrProtected && (accessorAttributes & MethodAttributes.Abstract) != 0,
-            isPublicOrProtected
-                && isVirtual
-                && (accessorAttributes & MethodAttributes.Abstract) == 0
-                && (accessorAttributes & MethodAttributes.Final) == 0
-                && isNewSlot,
+            isStatic,
+            isAbstract,
+            isVirtual,
             isOverride,
-            isOverride && (accessorAttributes & MethodAttributes.Final) != 0,
+            isSealed,
             new ApiSignature
             {
                 ReturnType = signature.ReturnType,

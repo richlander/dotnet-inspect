@@ -583,6 +583,20 @@ public sealed class MetadataDeclarationQueryTests
             index: 0);
         Assert.True(invalidVariable.IsDegraded);
 
+        var nullable = provider.GetGenericInstantiation(
+            new ExplicitInterfaceTypeIdentity(
+                "nullable",
+                "System.Nullable",
+                GenericArity: 1),
+            [element]);
+        var nullableInterface = provider.GetGenericInstantiation(
+            new ExplicitInterfaceTypeIdentity(
+                "interface",
+                "Samples.IContract",
+                GenericArity: 1),
+            [nullable]);
+        Assert.Equal("Samples.IContract<System.Int32?>", nullableInterface.AggregateAliasName);
+
         Assert.NotNull(typeof(Dictionary<,>.KeyCollection));
         var nestedReference = PeReader.GetMetadataReader()
             .TypeReferences
@@ -672,6 +686,20 @@ public sealed class MetadataDeclarationQueryTests
                 ]
             },
             (accessor, "get_")));
+
+        Assert.True(ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
+            "Alias::System.Collections.IList.this[]",
+            new Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
+            {
+                [accessor] =
+                [
+                    new ExplicitInterfaceMethodTarget(
+                        default,
+                        interfaceType,
+                        "get_Item")
+                ]
+            },
+            (accessor, "get_")));
     }
 
     [Fact]
@@ -690,6 +718,51 @@ public sealed class MetadataDeclarationQueryTests
             queried.Members,
             member => member.IsExplicitInterfaceImplementation
                 && member.Name.Contains("IMinMaxValue<nint>.MinValue", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TypeSurface_ClassifiesNullableExplicitInterfaceAggregates()
+    {
+        var typeHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.NullableExplicitAggregateMetadataFixture));
+        var queried = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+
+        var aggregates = queried.Members.Where(member =>
+                member.IsExplicitInterfaceImplementation
+                && member.Kind is "property" or "event").ToArray();
+
+        Assert.Equal(2, aggregates.Length);
+        Assert.All(
+            aggregates,
+            member => Assert.Contains("System.Int32?", member.Name, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void MetadataAccessorSemantics_DistinguishesInitAndRejectsMixedAbstraction()
+    {
+        var fixture = Reader.GetTypeDefinition(GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.NullableExplicitAggregateMetadataFixture)));
+        var contract = Reader.GetTypeDefinition(GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.INullableExplicitAggregateMetadataFixture<>)));
+        var ordinarySetter = fixture.GetMethods().Single(handle =>
+            Reader.GetString(Reader.GetMethodDefinition(handle).Name) == "set_Ordinary");
+        var initSetter = fixture.GetMethods().Single(handle =>
+            Reader.GetString(Reader.GetMethodDefinition(handle).Name) == "set_Initial");
+        var abstractGetter = contract.GetMethods().Single(handle =>
+            Reader.GetString(Reader.GetMethodDefinition(handle).Name) == "get_Value");
+
+        Assert.Equal("set", MetadataAccessorSemantics.Kind(Reader, ordinarySetter, "set"));
+        Assert.Equal("init", MetadataAccessorSemantics.Kind(Reader, initSetter, "set"));
+        Assert.False(MetadataAccessorSemantics.IsUniformlyAbstract(Reader, ordinarySetter));
+        Assert.True(MetadataAccessorSemantics.IsUniformlyAbstract(Reader, abstractGetter));
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataAccessorSemantics.IsUniformlyAbstract(
+                Reader,
+                abstractGetter,
+                ordinarySetter));
     }
 
     [Fact]
@@ -1567,6 +1640,28 @@ public class MetadataDeclarationQueryFixtures
         global::@event mode = (global::@event)1,
         string text = "a\"b.class")
     {
+    }
+
+    public interface INullableExplicitAggregateMetadataFixture<T>
+    {
+        T Value { get; }
+        event Action Changed;
+    }
+
+    public sealed class NullableExplicitAggregateMetadataFixture
+        : INullableExplicitAggregateMetadataFixture<int?>
+    {
+        public int Ordinary { get; set; }
+
+        public int Initial { get; init; }
+
+        int? INullableExplicitAggregateMetadataFixture<int?>.Value => null;
+
+        event Action INullableExplicitAggregateMetadataFixture<int?>.Changed
+        {
+            add { }
+            remove { }
+        }
     }
 
     public int get_Orphan() => 0;

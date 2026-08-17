@@ -543,6 +543,143 @@ public sealed class CSharpTypePrinterTests
             """);
     }
 
+    [Theory]
+    [InlineData(typeof(SetterOnlyExplicitSurface), "set")]
+    [InlineData(typeof(InitOnlyExplicitSurface), "init")]
+    public void SetterAndInitOnlyExplicitPropertiesCompileBack(
+        Type fixtureType,
+        string accessorKind)
+    {
+        using var peReader = new PEReader(File.OpenRead(fixtureType.Assembly.Location));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            return reader.GetString(definition.Namespace) == fixtureType.Namespace
+                && reader.GetString(definition.Name) == fixtureType.Name;
+        });
+        var type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        type.Interfaces = [Assert.Single(type.Interfaces)];
+        type.Members =
+        [
+            Assert.Single(
+                type.Members,
+                member => member.Kind == "property"
+                    && member.IsExplicitInterfaceImplementation)
+        ];
+
+        Assert.Equal(
+            accessorKind,
+            Assert.Single(type.Members[0].SignatureModel!.Accessors).Kind);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("throw null;", result.Source, StringComparison.Ordinal);
+        AssertCompiles(
+            result.Source,
+            """
+            namespace ILInspector.CSharp.Tests;
+
+            public interface ISetterOnlySurface
+            {
+                int Value { set; }
+            }
+
+            public interface IInitOnlySurface
+            {
+                int Value { init; }
+            }
+            """);
+    }
+
+    [Fact]
+    public void ReabstractedExplicitInterfaceAggregatesCompileBack()
+    {
+        using var peReader = new PEReader(
+            File.OpenRead(typeof(ReabstractedExplicitSurface).Assembly.Location));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            return reader.GetString(definition.Namespace) == "ILInspector.CSharp.Tests"
+                && reader.GetString(definition.Name) == nameof(ReabstractedExplicitSurface);
+        });
+        var type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        type.Interfaces = [Assert.Single(type.Interfaces)];
+        type.Members =
+        [
+            .. type.Members.Where(member =>
+                member.IsExplicitInterfaceImplementation
+                && member.Kind is "property" or "event")
+        ];
+
+        Assert.Equal(2, type.Members.Count);
+        Assert.All(type.Members, member => Assert.True(member.IsAbstract));
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("abstract int", result.Source, StringComparison.Ordinal);
+        Assert.Contains("abstract event", result.Source, StringComparison.Ordinal);
+        AssertCompiles(
+            result.Source,
+            """
+            namespace ILInspector.CSharp.Tests;
+
+            public interface IReabstractedSurface
+            {
+                int Value { get; }
+                event System.Action Changed;
+            }
+            """);
+    }
+
+    [Fact]
+    public void NullableExplicitInterfaceAggregatesCompileBack()
+    {
+        using var peReader = new PEReader(
+            File.OpenRead(typeof(NullableExplicitAggregateSurface).Assembly.Location));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            return reader.GetString(definition.Namespace) == "ILInspector.CSharp.Tests"
+                && reader.GetString(definition.Name) == nameof(NullableExplicitAggregateSurface);
+        });
+        var type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        type.Interfaces = [Assert.Single(type.Interfaces)];
+        type.Members =
+        [
+            .. type.Members.Where(member =>
+                member.IsExplicitInterfaceImplementation
+                && member.Kind is "property" or "event")
+        ];
+
+        Assert.Equal(2, type.Members.Count);
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        AssertCompiles(
+            result.Source,
+            """
+            namespace ILInspector.CSharp.Tests;
+
+            public interface INullableAggregateSurface<T>
+            {
+                T Value { get; }
+                event System.Action Changed;
+            }
+            """);
+    }
+
     [Fact]
     public void ExplicitInterfaceEventSkeletonDoesNotDiscardCallerBody()
     {
@@ -4999,6 +5136,61 @@ public sealed class GenericExplicitAggregateSurface<T> : IGenericAggregateSurfac
     T IGenericAggregateSurface<T>.Value => default!;
 
     event Action<T> IGenericAggregateSurface<T>.Changed
+    {
+        add { }
+        remove { }
+    }
+}
+
+public interface ISetterOnlySurface
+{
+    int Value { set; }
+}
+
+public sealed class SetterOnlyExplicitSurface : ISetterOnlySurface
+{
+    int ISetterOnlySurface.Value
+    {
+        set { }
+    }
+}
+
+public interface IInitOnlySurface
+{
+    int Value { init; }
+}
+
+public sealed class InitOnlyExplicitSurface : IInitOnlySurface
+{
+    int IInitOnlySurface.Value
+    {
+        init { }
+    }
+}
+
+public interface IReabstractedSurface
+{
+    int Value { get; }
+    event Action Changed;
+}
+
+public interface ReabstractedExplicitSurface : IReabstractedSurface
+{
+    abstract int IReabstractedSurface.Value { get; }
+    abstract event Action IReabstractedSurface.Changed;
+}
+
+public interface INullableAggregateSurface<T>
+{
+    T Value { get; }
+    event Action Changed;
+}
+
+public sealed class NullableExplicitAggregateSurface : INullableAggregateSurface<int?>
+{
+    int? INullableAggregateSurface<int?>.Value => null;
+
+    event Action INullableAggregateSurface<int?>.Changed
     {
         add { }
         remove { }

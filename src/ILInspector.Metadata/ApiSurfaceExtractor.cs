@@ -975,6 +975,10 @@ public static class ApiSurfaceExtractor
                     isOverrideProperty |= setterOverride;
                     isSealedProperty |= setterOverride && (setterAttributes & MethodAttributes.Final) != 0;
                 }
+                isAbstractProperty = MetadataAccessorSemantics.IsUniformlyAbstract(
+                    reader,
+                    accessors.Getter,
+                    accessors.Setter);
 
                 if (!MetadataAccessibility.TryGet(bestAccess, out string? propertyAccessibility))
                 {
@@ -2157,6 +2161,9 @@ public static class ApiSurfaceExtractor
             return false;
 
         string interfaceName = name[..separator];
+        int aliasSeparator = interfaceName.IndexOf("::", StringComparison.Ordinal);
+        if (aliasSeparator >= 0)
+            interfaceName = interfaceName[(aliasSeparator + 2)..];
         string memberName = name[(separator + 1)..];
         string declarationMemberName = memberName == "this[]" ? "Item" : memberName;
         bool hasAccessor = false;
@@ -4366,6 +4373,9 @@ public static class ApiSurfaceExtractor
         MethodAttributes setterAccess = 0;
         bool hasGetter = !accessors.Getter.IsNil;
         bool hasSetter = !accessors.Setter.IsNil;
+        string setterKind = hasSetter
+            ? MetadataAccessorSemantics.Kind(reader, accessors.Setter, "set")
+            : "set";
 
         if (hasGetter)
         {
@@ -4382,7 +4392,7 @@ public static class ApiSurfaceExtractor
         int bestAccess = Math.Max((int)getterAccess, (int)setterAccess);
         var accessorModels = new List<ApiAccessor>();
         var getStr = hasGetter ? FormatAccessor("get", getterAccess, bestAccess) : null;
-        var setStr = hasSetter ? FormatAccessor("set", setterAccess, bestAccess) : null;
+        var setStr = hasSetter ? FormatAccessor(setterKind, setterAccess, bestAccess) : null;
         if (hasGetter)
         {
             var getter = reader.GetMethodDefinition(accessors.Getter);
@@ -4404,7 +4414,7 @@ public static class ApiSurfaceExtractor
             var setter = reader.GetMethodDefinition(accessors.Setter);
             accessorModels.Add(new ApiAccessor
             {
-                Kind = "set",
+                Kind = setterKind,
                 Accessibility = AccessorAccessibility(setterAccess, bestAccess),
                 ReturnAttributes = ReturnParameterAttributes(
                     reader,
@@ -4592,7 +4602,7 @@ public static class ApiSurfaceExtractor
         var method = reader.GetMethodDefinition(handle);
         return new ApiAccessor
         {
-            Kind = kind,
+            Kind = MetadataAccessorSemantics.Kind(reader, handle, kind),
             MethodName = DecodeString(reader, method.Name, beforeDecodeWork),
             Accessibility = GetAccessorAccessibility(method.Attributes),
             ReturnAttributes = ReturnParameterAttributes(

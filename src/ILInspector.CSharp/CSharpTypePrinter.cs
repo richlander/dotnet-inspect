@@ -460,10 +460,13 @@ public sealed class CSharpTypePrinter
                 new CSharpEventBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw));
         }
 
-        if (type.Kind != "interface")
-            return policy;
-
         var accessors = snapshot.SignatureModel!.Accessors;
+        if (type.Kind != "interface"
+            && accessors.Any(accessor => accessor.Kind == "get"))
+        {
+            return policy;
+        }
+
         return new CSharpMemberPolicy(
             policy.Member,
             CSharpBodyPolicy.Stub,

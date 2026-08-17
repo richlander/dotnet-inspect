@@ -174,23 +174,35 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
     public ExplicitInterfaceTypeIdentity GetGenericInstantiation(
         ExplicitInterfaceTypeIdentity genericType,
         ImmutableArray<ExplicitInterfaceTypeIdentity> typeArguments)
-        => new(
+    {
+        string? aggregateAlias = (genericType.MetadataName == "System.Nullable"
+            || genericType.MetadataName.StartsWith(
+                "System.Nullable<",
+                StringComparison.Ordinal)
+            || genericType.MetadataName.StartsWith(
+                "System.Nullable`",
+                StringComparison.Ordinal))
+            && typeArguments is [var nullableArgument]
+                ? $"{nullableArgument.AggregateAliasName ?? nullableArgument.MetadataName}?"
+                : typeArguments.Any(argument => argument.AggregateAliasName is not null)
+                    ? ApplyGenericArguments(
+                        genericType.MetadataName,
+                        typeArguments
+                            .Select(argument => argument.AggregateAliasName ?? argument.MetadataName)
+                            .ToArray())
+                    : null;
+        return new(
             Node(
                 "generic",
                 [genericType.Key, .. typeArguments.Select(argument => argument.Key)]),
             ApplyGenericArguments(
                 genericType.MetadataName,
                 typeArguments.Select(argument => argument.MetadataName).ToArray()),
-            typeArguments.Any(argument => argument.AggregateAliasName is not null)
-                ? ApplyGenericArguments(
-                    genericType.MetadataName,
-                    typeArguments
-                        .Select(argument => argument.AggregateAliasName ?? argument.MetadataName)
-                        .ToArray())
-                : null,
+            aggregateAlias,
             typeArguments,
             genericType.GenericArity,
             genericType.IsDegraded || typeArguments.Any(argument => argument.IsDegraded));
+    }
 
     public ExplicitInterfaceTypeIdentity GetGenericMethodParameter(
         ExplicitInterfaceSignatureContext context,
