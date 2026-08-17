@@ -897,15 +897,22 @@ public class LibraryInspectionView
             if (!selectedSections.Contains(section))
                 continue;
             rows.Add(new PerformanceGroupRow(
-                PerformanceKinds.KindLabel(section),
-                MarkoutInline.Code(opportunity.Member),
-                MarkoutInline.Code(opportunity.Evidence),
-                opportunity.Allocation is null ? null : MarkoutInline.Code(opportunity.Allocation),
-                string.IsNullOrEmpty(opportunity.Loop) ? null : opportunity.Loop,
-                opportunity.RootReach.ToString(),
-                opportunity.Weight,
-                opportunity.Priority,
-                opportunity.Confidence));
+                LibraryViewText.Field(PerformanceKinds.KindLabel(section)),
+                MarkoutInline.CodeText(LibraryViewText.Field(opportunity.Member)),
+                MarkoutInline.CodeText(LibraryViewText.Field(opportunity.Evidence)),
+                opportunity.Allocation is null
+                    ? null
+                    : MarkoutInline.CodeText(
+                        LibraryViewText.Field(opportunity.Allocation)),
+                string.IsNullOrEmpty(opportunity.Loop)
+                    ? null
+                    : LibraryViewText.Field(opportunity.Loop),
+                LibraryViewText.Field(opportunity.RootReach.ToString()),
+                opportunity.Weight is null
+                    ? null
+                    : LibraryViewText.Field(opportunity.Weight),
+                LibraryViewText.Field(opportunity.Priority),
+                LibraryViewText.Field(opportunity.Confidence)));
         }
         return rows;
     }
@@ -1820,16 +1827,91 @@ public record PerformanceRow(
 /// <c>--jsonl</c>/<c>--table</c>). The leading <c>Kind</c> column tells consumers which performance
 /// kind each row belongs to, since the flattened table has no per-section headings.
 /// </summary>
+[MarkoutSerializable]
 public record PerformanceGroupRow(
-    string Kind,
-    string Member,
-    string Evidence,
-    [property: MarkoutSkipNull] string? Allocation,
-    [property: MarkoutSkipNull] string? Loop,
-    string Reach,
-    [property: MarkoutSkipNull] string? Weight,
-    string Priority,
-    string Confidence);
+    InertString KindText,
+    InertString MemberText,
+    InertString EvidenceText,
+    InertString? AllocationText,
+    InertString? LoopText,
+    InertString ReachText,
+    InertString? WeightText,
+    InertString PriorityText,
+    InertString ConfidenceText)
+{
+    public PerformanceGroupRow(
+        string kind,
+        string member,
+        string evidence,
+        string? allocation,
+        string? loop,
+        string reach,
+        string? weight,
+        string priority,
+        string confidence)
+        : this(
+            LibraryViewText.Field(kind),
+            MarkoutInline.CodeText(LibraryViewText.Field(member)),
+            MarkoutInline.CodeText(LibraryViewText.Field(evidence)),
+            allocation is null
+                ? null
+                : MarkoutInline.CodeText(LibraryViewText.Field(allocation)),
+            loop is null ? null : LibraryViewText.Field(loop),
+            LibraryViewText.Field(reach),
+            weight is null ? null : LibraryViewText.Field(weight),
+            LibraryViewText.Field(priority),
+            LibraryViewText.Field(confidence))
+    {
+    }
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString KindText { get; init; } = KindText;
+
+    public string Kind => KindText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString MemberText { get; init; } = MemberText;
+
+    public string Member => MemberText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString EvidenceText { get; init; } = EvidenceText;
+
+    public string Evidence => EvidenceText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? AllocationText { get; init; } = AllocationText;
+
+    [MarkoutSkipNull]
+    public string? Allocation => AllocationText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? LoopText { get; init; } = LoopText;
+
+    [MarkoutSkipNull]
+    public string? Loop => LoopText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString ReachText { get; init; } = ReachText;
+
+    public string Reach => ReachText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString? WeightText { get; init; } = WeightText;
+
+    [MarkoutSkipNull]
+    public string? Weight => WeightText?.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString PriorityText { get; init; } = PriorityText;
+
+    public string Priority => PriorityText.ToString();
+
+    [MarkoutIgnore, JsonIgnore]
+    public InertString ConfidenceText { get; init; } = ConfidenceText;
+
+    public string Confidence => ConfidenceText.ToString();
+}
 
 /// <summary>
 /// Single-section view that renders the flattened, kind-labeled performance rows as one table.

@@ -59,7 +59,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void LibraryInspectionResidualRows_CarryConcernProvenance()
+    public void LibraryInspectionTypedRows_CarryConcernProvenance()
     {
         const string hostile = "value\u202E\nINJECTED";
         const TextConcern concerns = TextConcern.Control | TextConcern.Format;
@@ -86,6 +86,16 @@ public class OutputFormatterTests
             hostile,
             hostile);
         var performance = new PerformanceRow(
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile,
+            hostile);
+        var performanceGroup = new PerformanceGroupRow(
+            hostile,
             hostile,
             hostile,
             hostile,
@@ -124,6 +134,15 @@ public class OutputFormatterTests
             performance.EvidenceText,
             performance.AllocationText!.Value,
             performance.ReachText,
+            performanceGroup.KindText,
+            performanceGroup.MemberText,
+            performanceGroup.EvidenceText,
+            performanceGroup.AllocationText!.Value,
+            performanceGroup.LoopText!.Value,
+            performanceGroup.ReachText,
+            performanceGroup.WeightText!.Value,
+            performanceGroup.PriorityText,
+            performanceGroup.ConfidenceText,
             failure.SectionText,
             union.IUnionText,
             sourceLink.SourceFilesText,
@@ -133,7 +152,7 @@ public class OutputFormatterTests
             sourceIntegrity.StatusText,
         ];
 
-        Assert.Equal(21, texts.Length);
+        Assert.Equal(30, texts.Length);
         Assert.All(texts, text => Assert.Equal(concerns, text.Concerns));
     }
 
@@ -181,6 +200,55 @@ public class OutputFormatterTests
             row => row.Contains(
                 "\"field\":\"Mismatched Files\"",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PerformanceGroupTypedText_RendersAcrossTsvAndJsonl()
+    {
+        const string hostile = "value\u200D\uFEFF\U000E0041\t\u202E\nINJECTED";
+        var view = new PerformanceGroupView(
+        [
+            new PerformanceGroupRow(
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile,
+                hostile),
+        ]);
+
+        string tsv = RenderPerformanceGroupTable(
+            view,
+            tsv: true,
+            jsonl: false);
+        string jsonl = RenderPerformanceGroupTable(
+            view,
+            tsv: false,
+            jsonl: true);
+
+        foreach (string output in new[] { tsv, jsonl })
+        {
+            Assert.DoesNotContain("\u200D", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("\uFEFF", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("\U000E0041", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\u200D", output, StringComparison.Ordinal);
+            Assert.Contains(@"\uFEFF", output, StringComparison.Ordinal);
+            Assert.Contains(@"\U000E0041", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^I", output, StringComparison.Ordinal);
+            Assert.Contains(@"\u202E", output, StringComparison.Ordinal);
+            Assert.Contains(@"\^J", output, StringComparison.Ordinal);
+        }
+
+        string jsonlRow = Assert.Single(
+            jsonl.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        using JsonDocument document = JsonDocument.Parse(jsonlRow);
+        Assert.DoesNotContain(
+            document.RootElement.EnumerateObject(),
+            property => property.Name.EndsWith("_text", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -3280,6 +3348,22 @@ public class OutputFormatterTests
                     {
                         IncludeSections = [SectionNames.SourceLinkIntegrity],
                     },
+                    tsv,
+                    jsonl)));
+
+    private static string RenderPerformanceGroupTable(
+        PerformanceGroupView view,
+        bool tsv,
+        bool jsonl) =>
+        OutputFormatter.RenderTable(
+            showHeader: true,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                InspectionContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions(),
                     tsv,
                     jsonl)));
 
