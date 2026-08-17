@@ -5143,7 +5143,7 @@ public class LibraryBodyIndexTests
 
         Assert.Equal(local, external);
         Assert.False(
-            LibraryBodyAnalysisBuilder
+            LibraryBodyMethodReferenceResolver
                 .SameMethodReferenceDeclaringType(
                     local,
                     external));

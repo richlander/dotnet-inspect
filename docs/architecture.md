@@ -767,6 +767,15 @@ Research overlay bridge, and the application layer:
   `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
   `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
   representative identity, cached classification, and token-shape behavior.
+  `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped structural
+  signature and generic-scope identities, canonical `MemberRef`/`MethodSpec`
+  resolution caches, and their shared assembly work budgets. The primary
+  metadata resolver and lifted-source-owner reference index consume that same
+  resolution authority.
+  `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
+  `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
+  `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
+  sharing and scope-aware identity.
   `LibraryBodyAnalysisAccumulator` receives the completed per-method result
   array in metadata order, merges every topic and partial diagnostic, computes
   the call-derived non-heap and exception-type assembly projections, and
