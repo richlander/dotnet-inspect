@@ -23,6 +23,12 @@ public sealed record OptimizationOpportunity(
     string? PathContext = null,
     string? PathConfidence = null)
 {
+    /// <summary>
+    /// MethodDef token whose IL contains the evidence when it differs from
+    /// <see cref="Method"/> (for example, an async state machine's MoveNext body).
+    /// </summary>
+    public int? EvidenceMethodToken { get; init; }
+
     public bool Amortized { get; init; }
     public string? PostDominance { get; init; }
 
