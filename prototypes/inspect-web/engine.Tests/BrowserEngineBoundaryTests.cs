@@ -1319,7 +1319,8 @@ public sealed class BrowserEngineBoundaryTests
                             new InvalidOperationException(
                                 "Synchronous work failed after the deadline."));
                     },
-                    TimeSpan.FromMilliseconds(10)));
+                    TimeSpan.FromMilliseconds(10),
+                    TestContext.Current.CancellationToken));
 
         Assert.IsType<InvalidOperationException>(failure.InnerException);
     }
