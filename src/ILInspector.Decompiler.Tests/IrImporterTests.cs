@@ -2159,17 +2159,19 @@ public class RaisingPassTests
         MetadataSource source,
         string typeFullName,
         string methodName,
-        TypeRef returnType,
-        IReadOnlyList<TypeRef> parameterTypes,
-        bool hasThis)
+        Func<OverloadInfo, bool> matchesSignature)
     {
-        var overload = Assert.Single(
-            IrImporter.Overloads(source, typeFullName, methodName),
-            candidate =>
-                candidate.ReturnType.Equals(returnType)
-                && candidate.ParameterTypes.SequenceEqual(parameterTypes)
-                && candidate.HasThis == hasThis
-                && candidate.HasBody);
+        var overloads = IrImporter.Overloads(source, typeFullName, methodName);
+        var matches = overloads.Where(matchesSignature).ToArray();
+        Assert.True(
+            matches.Length == 1,
+            $"Expected exactly one {typeFullName}::{methodName} signature match, " +
+            $"found {matches.Length}. Candidates: {string.Join(
+                "; ",
+                overloads.Select(candidate =>
+                    $"{candidate.Index}: {candidate.ReturnType.ToDisplayString()} " +
+                    $"{methodName}{candidate.Describe()}"))}");
+        var overload = matches[0];
         var handle = IrImporter.ResolveMethodHandle(
             source.Reader,
             typeFullName,
@@ -3713,25 +3715,36 @@ public class RaisingPassTests
     public void Dragon4DoWhileNormalizedAfterEarlyPass_RaisesOnLatePass()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        TypeRef[] stableParameters =
+        [
+            TypeRef.CoreLib("System", "UInt64"),
+            TypeRef.CoreLib("System", "Int32"),
+            TypeRef.CoreLib("System", "UInt32"),
+            TypeRef.CoreLib("System", "Boolean"),
+            TypeRef.CoreLib("System", "Int32"),
+            TypeRef.CoreLib("System", "Boolean"),
+            TypeRef.GenericInstance(
+                TypeRef.CoreLib("System", "Span`1"),
+                [TypeRef.CoreLib("System", "Byte")]),
+            TypeRef.ByRef(TypeRef.CoreLib("System", "Int32")),
+        ];
+        var optionalExactnessParameter =
+            TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
         var handle = ResolveMethodBySignature(
             source,
             "System.Number",
             "Dragon4",
-            TypeRef.CoreLib("System", "UInt32"),
-            [
-                TypeRef.CoreLib("System", "UInt64"),
-                TypeRef.CoreLib("System", "Int32"),
-                TypeRef.CoreLib("System", "UInt32"),
-                TypeRef.CoreLib("System", "Boolean"),
-                TypeRef.CoreLib("System", "Int32"),
-                TypeRef.CoreLib("System", "Boolean"),
-                TypeRef.GenericInstance(
-                    TypeRef.CoreLib("System", "Span`1"),
-                    [TypeRef.CoreLib("System", "Byte")]),
-                TypeRef.ByRef(TypeRef.CoreLib("System", "Int32")),
-                TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean")),
-            ],
-            hasThis: false);
+            candidate =>
+                candidate.ReturnType.Equals(TypeRef.CoreLib("System", "UInt32"))
+                && !candidate.HasThis
+                && candidate.HasBody
+                && !candidate.IsPublic
+                && candidate.ParameterTypes.Length is 8 or 9
+                && candidate.ParameterTypes.Take(stableParameters.Length)
+                    .SequenceEqual(stableParameters)
+                && (candidate.ParameterTypes.Length == stableParameters.Length
+                    || candidate.ParameterTypes[^1]
+                        .Equals(optionalExactnessParameter)));
         var function = IrImporter.Import(source, handle);
         Assert.NotNull(function);
 
@@ -3754,9 +3767,13 @@ public class RaisingPassTests
             source,
             typeof(InterleavedVisibilityOverloads).FullName!,
             nameof(InterleavedVisibilityOverloads.Marker),
-            TypeRef.CoreLib("System", "Int32"),
-            [TypeRef.CoreLib("System", "Int32")],
-            hasThis: true);
+            candidate =>
+                candidate.ReturnType.Equals(TypeRef.CoreLib("System", "Int32"))
+                && candidate.ParameterTypes.SequenceEqual(
+                    [TypeRef.CoreLib("System", "Int32")])
+                && candidate.HasThis
+                && candidate.HasBody
+                && !candidate.IsPublic);
         var expected = typeof(InterleavedVisibilityOverloads).GetMethod(
             nameof(InterleavedVisibilityOverloads.Marker),
             System.Reflection.BindingFlags.Instance
