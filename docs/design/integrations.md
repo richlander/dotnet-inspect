@@ -130,6 +130,18 @@ signals and broader public-type evidence into the legacy presence flags. The
 classifier owns no traversal or output state, and the presence path reuses the
 same projection rather than implementing a second scanner.
 
+Integration and extension rows retain their existing presentation equality,
+but actionable API rows also carry the `MemberAnchor`, structured declaring
+type, and named receiver and return signature types derived during that same
+guarded traversal. Type rows retain their exact
+`MetadataTypeDefinitionName`. Opportunities similarly retain a structured
+source definition and, where policy names an exact candidate, a structured
+assembly/type target. These values are composition currency; consumers must not
+recover graph endpoints from `Name`, `API`, `LookFor`, or other display text.
+One compact API presentation row may retain multiple structured overload
+observations; presentation deduplication does not discard their distinct member
+anchors or signature endpoints.
+
 `EcosystemIntegrationScannerTests.Scan_ProjectsExactOrderedPublicCurrencyAndPresence`
 gates public-method filtering, signal kind and shape, row order, and parity
 between direct and precomputed presence paths.
@@ -188,6 +200,47 @@ gates reuse of the acquired image across both queries.
 section-specific structured failure surface. Independently inducing a late
 opportunity metadata-decode failure remains unverified. Cancellation-aware
 group execution and optional concurrency remain later slices.
+
+`InspectionGraphIntegrationsQuery` composes the group-scoped extension,
+Integrations, opportunity, and reference producers over one complete loaded
+workspace context. It resolves structured signature scopes only through each
+participant's frozen binding policy, verifies the selected participant defines
+the exact structured type, and joins package ownership only by acquisition
+registration. The resulting `api.extension`, `integration.observed`,
+`metadata.reference`, and `integration.opportunity` occurrences retain their
+native evidence and semantic direction.
+
+Before projecting opportunities, the composer reconciles co-dependent
+assemblies: when one exact adapter member both extends a source SDK type and
+returns the requested integration type, that observed adapter fulfills the raw
+per-assembly opportunity for that exact acquired source type. It does not
+suppress a same-spelled type from another acquisition. The locked OpenAI and
+Bedrock adapters therefore suppress their local MEAI gaps while Azure OpenAI
+retains its explicit `IChatClient` opportunity. Other opportunity policies
+without structured graph targets remain ordinary opportunity rows and are not
+invented as graph relationships.
+
+Repeated producer observations collapse by each relationship's declared
+occurrence identity before document construction. Successfully bound
+metadata-reference rows normalize by semantic ECMA assembly identity, while
+failed rows retain each exact metadata spelling. Missing out-of-context
+references remain outside the selected graph, while unavailable, ambiguous,
+rejected, or selected-outside-context bindings remain visible as failures.
+Named signature scopes use the same semantic assembly-identity equivalence for
+occurrence identity, so case and neutral-culture spelling variants do not
+fabricate distinct extension or Integration observations.
+Multiple producer failures for one graph subject aggregate into one targeted
+failure with typed per-producer details, preserving the document's
+descriptor/target uniqueness contract without discarding evidence. Reference
+binding details retain the exact metadata reference identity, including when
+multiple references fail with the same binding outcome.
+
+`InspectionGraphIntegrationsQueryTests.Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups`
+gates the locked topology and the absence of a fabricated call;
+`PackageAndTypeReadingsShareTheSameIntegrationOccurrences` gates the shared
+dual-lens receipts; and
+`Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities` gates the close
+acquisition-identity case.
 
 Package `--all-libraries` creates one binding-consistent group per package asset
 directory, preserving non-`net*` framework and runtime contexts, so `--tfm all`

@@ -152,6 +152,7 @@ public static class NuGetSearchService
             IReadOnlyList<string>? searchUrls;
             try
             {
+                long requestStarted = Stopwatch.GetTimestamp();
                 using CancellationTokenSource requestCancellation =
                     CancellationTokenSource.CreateLinkedTokenSource(
                         operationCancellation.Token);
@@ -168,6 +169,13 @@ public static class NuGetSearchService
                         operationStarted,
                         fetchOptions.OperationTimeout,
                         operationCancellation.Token);
+                    if (HasOperationExpired(requestStarted, requestTimeout))
+                    {
+                        throw new NuGetRequestTimeoutException(
+                            requestTimeout,
+                            new OperationCanceledException(
+                                requestCancellation.Token));
+                    }
                 }
                 catch (OperationCanceledException ex)
                     when (operationCancellation.IsCancellationRequested
@@ -180,7 +188,8 @@ public static class NuGetSearchService
                         ex);
                 }
                 catch (OperationCanceledException ex)
-                    when (requestCancellation.IsCancellationRequested)
+                    when (requestCancellation.IsCancellationRequested
+                        || HasOperationExpired(requestStarted, requestTimeout))
                 {
                     throw new NuGetRequestTimeoutException(
                         requestTimeout,
@@ -188,7 +197,7 @@ public static class NuGetSearchService
                 }
             }
             catch (Exception ex) when (ex is HttpRequestException
-                or TaskCanceledException
+                or OperationCanceledException
                 or TimeoutException)
             {
                 failures.Add(

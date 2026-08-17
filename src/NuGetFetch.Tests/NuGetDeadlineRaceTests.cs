@@ -1,0 +1,102 @@
+using Xunit;
+
+namespace NuGetFetch.Tests;
+
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class ThreadPoolDeadlineCollection
+{
+    public const string Name = "ThreadPoolDeadlineGuard";
+}
+
+[Collection(ThreadPoolDeadlineCollection.Name)]
+public sealed class NuGetDeadlineRaceTests
+{
+    [Fact]
+    public async Task RequestCompletion_UsesElapsedTimeWhenTimerCallbackIsDelayed()
+    {
+        await WithDelayedTimerCallbacksAsync(
+            async () =>
+            {
+                using var operation = CreateOperation();
+
+                NuGetRequestTimeoutException error =
+                    await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                        () => operation.RunRequestAsync(
+                            _ =>
+                            {
+                                Thread.Sleep(TimeSpan.FromMilliseconds(250));
+                                return Task.FromResult(42);
+                            }));
+
+                Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+            });
+    }
+
+    [Fact]
+    public async Task StreamConsumption_UsesElapsedTimeWhenTimerCallbackIsDelayed()
+    {
+        await WithDelayedTimerCallbacksAsync(
+            async () =>
+            {
+                using var operation = CreateOperation();
+                using var owner = new MemoryStream();
+                using Stream response =
+                    await operation.RunStreamingRequestAsync(
+                        _ => Task.FromResult<(Stream, IDisposable)>(
+                            (new MemoryStream([42], writable: false), owner)));
+
+                Thread.Sleep(TimeSpan.FromMilliseconds(250));
+
+                NuGetRequestTimeoutException error =
+                    Assert.Throws<NuGetRequestTimeoutException>(
+                        () => response.ReadByte());
+                Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+            });
+    }
+
+    private static NuGetOperationDeadline CreateOperation() =>
+        new(
+            new NuGetFetchOptions
+            {
+                RequestTimeout = TimeSpan.FromMilliseconds(40),
+                OperationTimeout = TimeSpan.FromSeconds(2),
+            },
+            Timeout.InfiniteTimeSpan,
+            TestContext.Current.CancellationToken);
+
+    private static async Task WithDelayedTimerCallbacksAsync(
+        Func<Task> action)
+    {
+        ThreadPool.GetMinThreads(out int originalMinWorkers, out int minIo);
+        ThreadPool.GetMaxThreads(out int originalMaxWorkers, out int maxIo);
+        using var blockerStarted = new ManualResetEventSlim();
+        using var releaseBlocker = new ManualResetEventSlim();
+        bool currentThreadIsWorker = Thread.CurrentThread.IsThreadPoolThread;
+        CancellationToken testCancellation =
+            TestContext.Current.CancellationToken;
+
+        try
+        {
+            Assert.True(ThreadPool.SetMinThreads(1, minIo));
+            Assert.True(ThreadPool.SetMaxThreads(1, maxIo));
+            if (!currentThreadIsWorker)
+            {
+                ThreadPool.QueueUserWorkItem(
+                    _ =>
+                    {
+                        blockerStarted.Set();
+                        releaseBlocker.Wait(testCancellation);
+                    });
+                blockerStarted.Wait(testCancellation);
+            }
+
+            await action();
+        }
+        finally
+        {
+            releaseBlocker.Set();
+            Assert.True(ThreadPool.SetMaxThreads(originalMaxWorkers, maxIo));
+            Assert.True(ThreadPool.SetMinThreads(originalMinWorkers, minIo));
+        }
+    }
+}

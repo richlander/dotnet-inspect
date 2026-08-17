@@ -433,6 +433,16 @@ public static class HttpClientFactory
             if (HasPrefix(address, [0x20, 0x02], 16))
                 return IsNonPublic(new IPAddress(address.AsSpan(2, 4)));
 
+            // ISATAP embeds its IPv4 destination after either the universal or
+            // local interface identifier marker.
+            if ((address[8] is 0x00 or 0x02)
+                && address[9] == 0x00
+                && address[10] == 0x5e
+                && address[11] == 0xfe)
+            {
+                return IsNonPublic(new IPAddress(address.AsSpan(12, 4)));
+            }
+
             // Public IPv6 unicast is allocated from 2000::/3. Explicit public
             // exceptions outside that range, such as NAT64, returned above.
             return !HasPrefix(address, [0x20], 3);
