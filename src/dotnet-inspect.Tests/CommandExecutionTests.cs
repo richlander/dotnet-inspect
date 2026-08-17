@@ -19857,6 +19857,8 @@ public partial class CommandExecutionTests
                 Assert.Equal(baseline.Error, redirected.Error);
                 Assert.Empty(redirected.Output);
                 Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+                if (name == "json")
+                    Assert.EndsWith(Environment.NewLine, baseline.Output, StringComparison.Ordinal);
             }
         }
         finally

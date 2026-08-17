@@ -3539,7 +3539,7 @@ public class PackageCommand
             WriteAllLibrariesOutput(
                 libraryOptions.OutputPath,
                 libraryOptions.Rows,
-                writer => OutputFormatter.WriteLfLine(writer, json));
+                writer => writer.WriteLine(json));
             return completionExitCode;
         }
 
