@@ -1,15 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!--
-    Consolidated compile-referenced analysis fixture assembly. Source
-    namespaces remain fixture-specific; this project only consolidates ordinary
-    external fixture types that do not need their own assembly-name, TFM, alias,
-    or spoofing build axis.
-  -->
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
     <LangVersion>preview</LangVersion>
-    <RuntimeAsync>off</RuntimeAsync>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
