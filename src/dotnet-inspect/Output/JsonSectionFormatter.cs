@@ -244,6 +244,11 @@ internal sealed class JsonSectionFormatter :
             .SelectMany(section => section.Headers)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
 
+    internal IReadOnlyList<string> EmittedTableRowSections =>
+        [.. _sections
+            .Where(section => section.Kind == SectionKind.Table && section.Rows.Count > 0)
+            .Select(section => section.Name)];
+
     internal IReadOnlyList<OutputFormatter.ProjectedJsonFieldEvidence> EmittedFields
     {
         get

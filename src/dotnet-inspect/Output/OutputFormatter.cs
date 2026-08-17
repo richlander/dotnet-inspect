@@ -27,7 +27,8 @@ public static class OutputFormatter
         string Json,
         IReadOnlyList<ProjectedJsonFieldEvidence> EmittedFields,
         IReadOnlyList<string> EmittedColumns,
-        IReadOnlyList<string> EmittedSections);
+        IReadOnlyList<string> EmittedSections,
+        IReadOnlyList<string> EmittedTableRowSections);
 
     internal static IReadOnlyList<string> CorrelateProjectedFields(
         ProjectedJsonDocument document,
@@ -271,7 +272,8 @@ public static class OutputFormatter
             formatter.Finish(indented),
             formatter.EmittedFields,
             formatter.EmittedColumns,
-            formatter.EmittedSectionNames);
+            formatter.EmittedSectionNames,
+            formatter.EmittedTableRowSections);
     }
 
     /// <summary>

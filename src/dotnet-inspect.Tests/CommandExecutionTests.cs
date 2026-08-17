@@ -12768,6 +12768,17 @@ public partial class CommandExecutionTests
                 "Operation",
                 "--tips",
                 "q");
+            var windowed = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "--json",
+                "--columns",
+                "Operation",
+                "--rows",
+                "2..",
+                "--tips",
+                "q");
 
             Assert.Equal(0, excluded.Exit);
             Assert.Contains("\"classes\"", excluded.Output, StringComparison.Ordinal);
@@ -12781,6 +12792,15 @@ public partial class CommandExecutionTests
                 included.Output,
                 StringComparison.Ordinal);
             Assert.Empty(included.Error);
+            Assert.Equal(0, windowed.Exit);
+            Assert.Contains(
+                "\"inspection_failures\": []",
+                windowed.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Generic-constraint classification was incomplete",
+                windowed.Error,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -17478,8 +17498,12 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Fact]
-    public async Task Package_JsonRecognizesDisplayAliasInTypedOutput()
+    [Theory]
+    [InlineData("Built", "built_date")]
+    [InlineData("Type", "is_tool_package")]
+    public async Task Package_JsonRecognizesDisplayAliasInTypedOutput(
+        string field,
+        string property)
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Package.JsonDisplayAlias",
@@ -17488,16 +17512,74 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", packagePath, "--json", "--fields", "Built", "--tips", "q");
+                "package", packagePath, "--json", "--fields", field, "--tips", "q");
 
             Assert.Equal(0, exit);
-            Assert.Contains("\"built_date\"", output, StringComparison.Ordinal);
+            Assert.Contains($"\"{property}\"", output, StringComparison.Ordinal);
             Assert.Empty(error);
         }
         finally
         {
             Directory.Delete(tempDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Package_JsonRecognizesSignedDisplayAliasInTypedOutput()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonSignedAlias",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Signature",
+                "--json",
+                "--fields",
+                "Signed",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("\"is_unsigned\"", output, StringComparison.Ordinal);
+            Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    [InlineData("--plaintext")]
+    public async Task SingleType_ProjectedMachineOutputUsesLf(string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Runtime",
+            "-S",
+            "Methods",
+            "--columns",
+            "Name",
+            "--rows",
+            "1",
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains('\n', output);
+        Assert.DoesNotContain('\r', output);
     }
 
     [Fact]

@@ -1119,7 +1119,7 @@ public class ApiCommand
                 maxRows: options.Rows,
                 writerOptions,
                 promotedApiInfo ? [SectionNames.ApiInfo] : null);
-            if (!document.EmittedSections.Contains(
+            if (!document.EmittedTableRowSections.Contains(
                 SectionNames.InspectionFailures,
                 StringComparer.OrdinalIgnoreCase))
             {

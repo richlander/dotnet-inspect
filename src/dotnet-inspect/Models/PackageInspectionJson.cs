@@ -32,9 +32,10 @@ internal sealed class PackageInspectionJson
             ["Readme"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(HasReadme)),
             ["RID-Specific Pointer"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(IsRidSpecificPointerPackage)),
             ["Runtime Identifiers"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(SupportedRids)),
+            ["Signed"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(PackageSignatureJson.IsUnsigned)),
             ["Size"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(PackageSize)),
             ["TFM Count"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(TargetFrameworks)),
-            ["Type"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(PackageTypes)),
+            ["Type"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(IsToolPackage)),
             ["Verified"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(IsVerified)),
         };
 

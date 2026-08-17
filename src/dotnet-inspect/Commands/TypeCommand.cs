@@ -294,6 +294,7 @@ public static class TypeCommand
                         effectiveOptions.MemberFilter);
                     if (tabularProjection)
                     {
+                        var sw = new StringWriter { NewLine = "\n" };
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType,
                             foundIn,
@@ -301,9 +302,11 @@ public static class TypeCommand
                             packageVersion,
                             apiSource,
                             selectedTfm,
-                            effectiveOptions);
+                            effectiveOptions,
+                            sw);
                         if (writeExitCode != 0)
                             return writeExitCode;
+                        Console.Out.Write(sw.ToString());
                     }
                     else
                     {
