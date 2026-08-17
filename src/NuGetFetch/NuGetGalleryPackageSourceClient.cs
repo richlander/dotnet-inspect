@@ -20,10 +20,6 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         NuGetFetchOptions options)
     {
         _client = client;
-        RejectAmbientAuthorization(
-            () => new ArgumentException(
-                "The NuGet Gallery source requires an HttpClient without a default Authorization header.",
-                nameof(client)));
         _options = NuGetFetchOptions.Validate(options);
         _search = new SearchService(
             client,
@@ -45,7 +41,6 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         bool prerelease = false,
         CancellationToken cancellationToken = default)
     {
-        EnsureCredentialFreeClient();
         return await _search.SearchAsync(
             query,
             take,
@@ -58,7 +53,6 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         string packageId,
         CancellationToken cancellationToken = default)
     {
-        EnsureCredentialFreeClient();
         string normalizedId = NormalizePackageId(packageId);
         string url =
             $"{FlatContainer}{EscapeSegment(normalizedId)}/index.json";
@@ -110,7 +104,6 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         string version,
         CancellationToken cancellationToken = default)
     {
-        EnsureCredentialFreeClient();
         (string normalizedId, string normalizedVersion) =
             NormalizeCoordinate(packageId, version);
         string fileName =
@@ -128,7 +121,6 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         string version,
         CancellationToken cancellationToken = default)
     {
-        EnsureCredentialFreeClient();
         (string normalizedId, string normalizedVersion) =
             NormalizeCoordinate(packageId, version);
         string fileName =
@@ -197,18 +189,6 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         CancellationToken cancellationToken) =>
         new(_options, _client.Timeout, cancellationToken);
 
-    private void EnsureCredentialFreeClient() =>
-        RejectAmbientAuthorization(
-            static () => new InvalidOperationException(
-                "The NuGet Gallery HttpClient gained a default Authorization header after registration."));
-
-    private void RejectAmbientAuthorization(
-        Func<Exception> createException)
-    {
-        if (_client.DefaultRequestHeaders.Contains("Authorization"))
-            throw createException();
-    }
-
     private static string NormalizePackageId(string packageId)
     {
         PackageCoordinateValidation.ValidatePackageId(
@@ -229,6 +209,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
 
     private static string EscapeSegment(string value) =>
         Uri.EscapeDataString(value);
+
+    public void Dispose() => _client.Dispose();
 
     private sealed class GalleryPayloadNotFoundException : Exception
     {

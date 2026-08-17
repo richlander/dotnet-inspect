@@ -364,11 +364,8 @@ public sealed class PackageSourceClientTests
             [GalleryPackage] = "package bytes",
             [GallerySymbols] = "symbol bytes",
         };
-        using var client = new HttpClient(handler);
-        IPackageSourceClient runtime =
-            PackageSourceClientFactory.Create(
-                PackageSourceDescriptor.NuGetGallery,
-                client);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
 
         Assert.Equal(
             PackageSourceCapabilities.Search
@@ -423,17 +420,22 @@ public sealed class PackageSourceClientTests
                     GallerySearch,
                     StringComparison.Ordinal)));
         Assert.All(handler.Authentication, Assert.Null);
+        Assert.All(
+            handler.Headers,
+            headers =>
+            {
+                Assert.DoesNotContain("Authorization", headers.Keys);
+                Assert.DoesNotContain("Cookie", headers.Keys);
+                Assert.DoesNotContain("X-NuGet-ApiKey", headers.Keys);
+            });
     }
 
     [Fact]
     public async Task GalleryMissingSymbolsReturnNull()
     {
         var handler = new RecordingHandler();
-        using var client = new HttpClient(handler);
-        IPackageSourceClient runtime =
-            PackageSourceClientFactory.Create(
-                PackageSourceDescriptor.NuGetGallery,
-                client);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
 
         Assert.Null(
             await runtime.TryGetSymbolsAsync(
@@ -450,11 +452,8 @@ public sealed class PackageSourceClientTests
         {
             [GalleryVersions] = """{"versions":["../1.0.0"]}""",
         };
-        using var client = new HttpClient(handler);
-        IPackageSourceClient runtime =
-            PackageSourceClientFactory.Create(
-                PackageSourceDescriptor.NuGetGallery,
-                client);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
 
         InvalidOperationException error =
             await Assert.ThrowsAsync<InvalidOperationException>(
@@ -473,11 +472,8 @@ public sealed class PackageSourceClientTests
         {
             [GalleryVersions] = "null",
         };
-        using var client = new HttpClient(handler);
-        IPackageSourceClient runtime =
-            PackageSourceClientFactory.Create(
-                PackageSourceDescriptor.NuGetGallery,
-                client);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
 
         InvalidOperationException error =
             await Assert.ThrowsAsync<InvalidOperationException>(
@@ -493,11 +489,8 @@ public sealed class PackageSourceClientTests
     public async Task GalleryMissingPackageHasNoVersions()
     {
         var handler = new RecordingHandler();
-        using var client = new HttpClient(handler);
-        IPackageSourceClient runtime =
-            PackageSourceClientFactory.Create(
-                PackageSourceDescriptor.NuGetGallery,
-                client);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
 
         Assert.Empty(
             await runtime.GetVersionsAsync(
@@ -522,46 +515,39 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
-    public void GalleryRejectsAmbientAuthorization()
+    public void GalleryRejectsSharedHttpClient()
     {
         var handler = new RecordingHandler();
         using var client = new HttpClient(handler);
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", "secret");
+        client.DefaultRequestHeaders.TryAddWithoutValidation(
+            "Cookie",
+            "session=secret");
+        client.DefaultRequestHeaders.TryAddWithoutValidation(
+            "X-NuGet-ApiKey",
+            "secret");
 
-        ArgumentException error = Assert.Throws<ArgumentException>(
-            () => PackageSourceClientFactory.Create(
-                PackageSourceDescriptor.NuGetGallery,
-                client));
+        InvalidOperationException error =
+            Assert.Throws<InvalidOperationException>(
+                () => PackageSourceClientFactory.Create(
+                    PackageSourceDescriptor.NuGetGallery,
+                    client));
 
-        Assert.Contains(
-            "without a default Authorization header",
-            error.Message);
+        Assert.Contains("isolated transport", error.Message);
         Assert.Empty(handler.Requested);
     }
 
     [Fact]
-    public async Task GalleryRejectsAuthorizationAddedAfterRegistration()
+    public void GalleryOwnedTransportIsDisposedWithClient()
     {
         var handler = new RecordingHandler();
-        using var client = new HttpClient(handler);
         IPackageSourceClient runtime =
-            PackageSourceClientFactory.Create(
-                PackageSourceDescriptor.NuGetGallery,
-                client);
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", "secret");
+            PackageSourceClientFactory.CreateGallery(handler);
 
-        InvalidOperationException error =
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => runtime.GetVersionsAsync(
-                    "contoso",
-                    TestContext.Current.CancellationToken));
+        runtime.Dispose();
 
-        Assert.Contains(
-            "gained a default Authorization header",
-            error.Message);
-        Assert.Empty(handler.Requested);
+        Assert.True(handler.Disposed);
     }
 
     [Fact]
@@ -573,11 +559,8 @@ public sealed class PackageSourceClientTests
         {
             [versions] = """{"versions":["1.0.0"]}""",
         };
-        using var client = new HttpClient(handler);
-        IPackageSourceClient runtime =
-            PackageSourceClientFactory.Create(
-                PackageSourceDescriptor.NuGetGallery,
-                client);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
 
         Assert.Equal(
             ["1.0.0"],
@@ -592,14 +575,9 @@ public sealed class PackageSourceClientTests
     [InlineData(true)]
     public async Task GalleryRequestsUseLibraryDeadlines(bool payload)
     {
-        using var client = new HttpClient(new StallingHandler())
-        {
-            Timeout = Timeout.InfiniteTimeSpan,
-        };
-        IPackageSourceClient runtime =
-            PackageSourceClientFactory.Create(
-                PackageSourceDescriptor.NuGetGallery,
-                client,
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                new StallingHandler(),
                 new NuGetFetchOptions
                 {
                     RequestTimeout = TimeSpan.FromMilliseconds(50),
@@ -661,6 +639,9 @@ public sealed class PackageSourceClientTests
 
         public List<string> Requested { get; } = [];
         public List<string?> Authentication { get; } = [];
+        public List<IReadOnlyDictionary<string, string[]>> Headers { get; } =
+            [];
+        public bool Disposed { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -670,6 +651,11 @@ public sealed class PackageSourceClientTests
             Requested.Add(url);
             Authentication.Add(
                 request.Headers.Authorization?.Parameter);
+            Headers.Add(
+                request.Headers.ToDictionary(
+                    header => header.Key,
+                    header => header.Value.ToArray(),
+                    StringComparer.OrdinalIgnoreCase));
             string? route = _routes.Keys.FirstOrDefault(
                 candidate => url.Equals(
                         candidate,
@@ -690,6 +676,12 @@ public sealed class PackageSourceClientTests
                         : ""),
                 RequestMessage = request,
             });
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            Disposed = true;
+            base.Dispose(disposing);
         }
     }
 
