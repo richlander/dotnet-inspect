@@ -801,7 +801,7 @@ internal static class CSharpSpellability
         IrFunction host,
         bool qualified)
     {
-        if (qualified || IsCoreLibPrimitive(definition))
+        if (IsCoreLibPrimitive(definition))
             return false;
 
         var hostDefinition = host.DeclaringType.Kind == TypeRefKind.GenericInstance
@@ -809,22 +809,65 @@ internal static class CSharpSpellability
             : host.DeclaringType;
         if (hostDefinition is not { Kind: TypeRefKind.Definition })
             return false;
-        if (definition.Assembly == hostDefinition.Assembly
-            && definition.Namespace == hostDefinition.Namespace
-            && definition.Name == hostDefinition.Name)
+
+        var hostSegments = hostDefinition.Name.Split('+');
+        if (qualified)
         {
+            string first = definition.Name.Split('+')[0];
+            string firstSimple = StripArity(first);
+            int firstArity = ArityOf(first);
+            for (int i = 0; i < hostSegments.Length; i++)
+            {
+                if (StripArity(hostSegments[i]) != firstSimple
+                    || ArityOf(hostSegments[i]) != firstArity)
+                {
+                    continue;
+                }
+
+                // Arity-aware lookup binds the leading segment to this host
+                // chain entry. That is the sibling's own outermost type only
+                // when it is the host's outermost type.
+                bool sameIdentity = i == 0
+                    && definition.Assembly == hostDefinition.Assembly
+                    && definition.Namespace == hostDefinition.Namespace
+                    && first == hostSegments[0];
+                return !sameIdentity;
+            }
+
             return false;
         }
 
         string printed = SimpleMetadataName(definition.Name);
-        string hostSimple = SimpleMetadataName(hostDefinition.Name);
-        return printed.Length > 0 && printed == hostSimple;
+        if (printed.Length == 0)
+            return false;
+
+        for (int i = 0; i < hostSegments.Length; i++)
+        {
+            if (StripArity(hostSegments[i]) != printed)
+                continue;
+
+            string hostPrefix = string.Join("+", hostSegments, 0, i + 1);
+            bool sameIdentity = definition.Assembly == hostDefinition.Assembly
+                && definition.Namespace == hostDefinition.Namespace
+                && definition.Name == hostPrefix;
+            if (!sameIdentity)
+                return true;
+            return false;
+        }
+
+        return false;
     }
 
     static string SimpleMetadataName(string metadataName)
     {
         int nested = metadataName.LastIndexOf('+');
         return StripArity(nested < 0 ? metadataName : metadataName[(nested + 1)..]);
+    }
+
+    static int ArityOf(string metadataName)
+    {
+        int tick = metadataName.IndexOf('`');
+        return tick >= 0 && int.TryParse(metadataName[(tick + 1)..], out int arity) ? arity : 0;
     }
 
     static bool IsInScopeGenericParameterName(string name, IrFunction host)

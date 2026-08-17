@@ -750,6 +750,115 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void QualifiedNestedLeadingSegmentCollidingWithDeclaringType_StaysLowered()
+    {
+        var nested = TypeRef.Definition("OtherAssembly", "A", "Outer+Inner");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void QualifiedNestedGenericLeadingSegmentCollidingWithDeclaringType_StaysLowered()
+    {
+        var nested = TypeRef.GenericInstance(
+            TypeRef.Definition("OtherAssembly", "A", "Outer`1+Inner"),
+            [s_int]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer`1"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void QualifiedNestedLeadingSegmentArityMismatch_StillRaises()
+    {
+        var nested = TypeRef.GenericInstance(
+            TypeRef.Definition("OtherAssembly", "A", "Outer`1+Inner"),
+            [s_int]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer"));
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void SameIdentityQualifiedNestedDeclaringChain_StillRaises()
+    {
+        var nested = TypeRef.Definition("Synthetic", "Samples", "Outer+Mid+Inner");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer"));
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void BareNameCollidingWithNestedHostDeclaringChain_StaysLowered()
+    {
+        var siblingType = TypeRef.Definition("OtherAssembly", "A", "Widget");
+        var host = RunSyntheticSiblingLambdaRaise(
+            siblingType,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Widget+Holder"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            siblingType,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void BareNameCollidingWithMiddleHostDeclaringSegment_StaysLowered()
+    {
+        var siblingType = TypeRef.Definition("OtherAssembly", "A", "Mid");
+        var host = RunSyntheticSiblingLambdaRaise(
+            siblingType,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Widget+Mid+Holder"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            siblingType,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void SameIdentityEnclosingTypeOnNestedHost_StillRaises()
+    {
+        var widget = TypeRef.Definition("Synthetic", "Samples", "Widget");
+        var host = RunSyntheticSiblingLambdaRaise(
+            widget,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Widget+Holder"));
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            widget,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
     public void ForgedDynamicOnNonObjectSibling_StaysLowered()
     {
         var host = RunSyntheticSiblingLambdaRaise(s_int);
