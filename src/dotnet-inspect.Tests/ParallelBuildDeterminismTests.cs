@@ -4,11 +4,12 @@ namespace DotnetInspector.Tests;
 
 /// <summary>
 /// Locks the parallel full-build invariant: <see cref="Analysis.LibraryBodyIndex.Open(string)"/> analyzes
-/// method bodies concurrently for assemblies above the parallel threshold, then merges per-method results
-/// back in metadata order. The merge must be order-stable and race-free, so repeated opens of the same
-/// assembly must produce byte-identical ordered output for every order-sensitive collection (methods,
-/// direct calls, unsafe evidence, optimization opportunities, diagnostics). A residual data race would
-/// surface here as nondeterministic ordering or counts across repeats.
+/// method bodies concurrently for assemblies above the parallel threshold, then
+/// <c>LibraryBodyAnalysisAccumulator</c> merges per-method results back in metadata order. The merge must
+/// be order-stable and race-free, so repeated opens of the same assembly must produce byte-identical
+/// ordered output for every order-sensitive collection (methods, direct calls, unsafe evidence,
+/// optimization opportunities, diagnostics). A residual data race would surface here as nondeterministic
+/// ordering or counts across repeats.
 ///
 /// Equivalence to the previous sequential build is proven separately by whole-CLI byte-diff in the PR;
 /// this test is the ongoing regression guard against concurrency-induced nondeterminism.
