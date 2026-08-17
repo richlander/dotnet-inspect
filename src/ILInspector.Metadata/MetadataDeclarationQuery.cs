@@ -215,9 +215,9 @@ public static class MetadataDeclarationQuery
         {
             var evt = reader.GetEventDefinition(eventHandle);
             var accessors = evt.GetAccessors();
-            if (accessors.Adder.IsNil || accessors.Remover.IsNil)
+            if (accessors.Adder.IsNil && accessors.Remover.IsNil)
                 throw new BadImageFormatException(
-                    "The event does not have both add and remove accessors.");
+                    "The event has no add or remove accessor.");
 
             MethodAttributes bestAccess = 0;
             bool isStatic = false;
@@ -239,12 +239,25 @@ public static class MetadataDeclarationQuery
                 isStatic |= (accessorAttributes & MethodAttributes.Static) != 0;
                 isVirtual |= accessorVirtual;
                 isOverride |= accessorOverride;
-                isSealed |= accessorOverride && (accessorAttributes & MethodAttributes.Final) != 0;
             }
-            isAbstract = MetadataAccessorSemantics.IsUniformlyAbstract(
+            isAbstract = MetadataAccessorSemantics.AreAllAbstract(
                 reader,
                 accessors.Adder,
                 accessors.Remover);
+            isSealed = MetadataAccessorSemantics.IsUniformlySealedOverride(
+                reader,
+                accessors.Adder,
+                accessors.Remover);
+            bool hasFinalAccessor = new[] { accessors.Adder, accessors.Remover }
+                .Where(handle => !handle.IsNil)
+                .Any(handle => (reader.GetMethodDefinition(handle).Attributes
+                    & MethodAttributes.Final) != 0);
+            isVirtual =
+                (typeDef.Attributes & (TypeAttributes.Interface | TypeAttributes.Sealed)) == 0
+                && isVirtual
+                && !isAbstract
+                && !isOverride
+                && !hasFinalAccessor;
 
             string accessibility = AccessibilityKeyword(bestAccess);
             if (!includeNonPublicMembers && accessibility != "public")
@@ -649,16 +662,27 @@ public static class MetadataDeclarationQuery
             && (getterAttributes & MethodAttributes.NewSlot) == 0;
         var setterOverride = setterVirtual
             && (setterAttributes & MethodAttributes.NewSlot) == 0;
-        var isVirtual = getterVirtual || setterVirtual;
+        var hasVirtualAccessor = getterVirtual || setterVirtual;
         var isOverride = getterOverride || setterOverride;
-        var isSealed =
-            getterOverride && (getterAttributes & MethodAttributes.Final) != 0
-            || setterOverride && (setterAttributes & MethodAttributes.Final) != 0;
-        var isPublicOrProtected = IsPublicOrProtected(bestAccess);
-        var isAbstract = MetadataAccessorSemantics.IsUniformlyAbstract(
+        var isSealed = MetadataAccessorSemantics.IsUniformlySealedOverride(
             reader,
             accessors.Getter,
             accessors.Setter);
+        var isPublicOrProtected = IsPublicOrProtected(bestAccess);
+        var isAbstract = MetadataAccessorSemantics.AreAllAbstract(
+            reader,
+            accessors.Getter,
+            accessors.Setter);
+        var hasFinalAccessor =
+            (getterAttributes & MethodAttributes.Final) != 0
+            || (setterAttributes & MethodAttributes.Final) != 0;
+        var isVirtual =
+            (typeDef.Attributes & (TypeAttributes.Interface | TypeAttributes.Sealed)) == 0
+            && isPublicOrProtected
+            && hasVirtualAccessor
+            && !isAbstract
+            && !isOverride
+            && !hasFinalAccessor;
         var setterKind = accessors.Setter.IsNil
             ? "set"
             : MetadataAccessorSemantics.Kind(reader, accessors.Setter, "set");

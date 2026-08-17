@@ -440,6 +440,23 @@ public sealed class CSharpTypePrinter
         if (policy.BodyPolicy != CSharpBodyPolicy.Skeleton
             || !IsExplicitInterfaceAggregate(snapshot))
         {
+            if (policy.BodyPolicy == CSharpBodyPolicy.Skeleton
+                && type.Kind == "interface"
+                && IsProperty(snapshot)
+                && HasMixedAccessorAbstraction(snapshot))
+            {
+                var mixedAccessors = snapshot.SignatureModel!.Accessors;
+                return new CSharpMemberPolicy(
+                    policy.Member,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpPropertyBody(
+                        mixedAccessors.Any(accessor => accessor.Kind == "get")
+                            ? CSharpAccessorBody.Throw
+                            : null,
+                        mixedAccessors.Any(accessor => accessor.Kind is "set" or "init")
+                            ? CSharpAccessorBody.Throw
+                            : null));
+            }
             return policy;
         }
 
@@ -463,7 +480,10 @@ public sealed class CSharpTypePrinter
         var accessors = snapshot.SignatureModel!.Accessors;
         if (type.Kind != "interface"
             && accessors.Any(accessor => accessor.Kind == "get")
-            && snapshot.SignatureModel.Parameters.Count == 0)
+            && snapshot.SignatureModel.Parameters.Count == 0
+            && !snapshot.SignatureModel.ReturnType!.StartsWith(
+                "ref ",
+                StringComparison.Ordinal))
         {
             return policy;
         }
@@ -988,7 +1008,8 @@ public sealed class CSharpTypePrinter
         {
             Kind = accessor.Kind,
             Accessibility = accessor.Accessibility,
-            ReturnAttributes = returnAttributes?.ToList()!
+            ReturnAttributes = returnAttributes?.ToList()!,
+            IsAbstract = accessor.IsAbstract
         };
     }
 
@@ -1152,7 +1173,8 @@ public sealed class CSharpTypePrinter
         }
         if (type.Kind == "interface"
             && policy.BodyPolicy != CSharpBodyPolicy.Skeleton
-            && !IsExplicitInterfaceAggregate(member))
+            && !IsExplicitInterfaceAggregate(member)
+            && !HasMixedAccessorAbstraction(member))
         {
             throw new ArgumentException(
                 $"Interface member '{member.Name}' must use skeleton body policy.",
@@ -1187,6 +1209,11 @@ public sealed class CSharpTypePrinter
     static bool HasOnlyAccessors(ApiMember member, params string[] kinds)
         => member.SignatureModel?.Accessors is { Count: > 0 } accessors
             && accessors.All(accessor => kinds.Contains(accessor.Kind, StringComparer.Ordinal));
+
+    static bool HasMixedAccessorAbstraction(ApiMember member)
+        => member.SignatureModel?.Accessors is { Count: > 1 } accessors
+            && accessors.Any(accessor => accessor.IsAbstract == true)
+            && accessors.Any(accessor => accessor.IsAbstract == false);
 
     static RenderedFragment Join(IEnumerable<RenderedFragment> fragments, string separator)
     {

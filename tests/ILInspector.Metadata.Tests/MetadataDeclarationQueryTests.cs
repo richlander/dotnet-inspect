@@ -561,6 +561,10 @@ public sealed class MetadataDeclarationQueryTests
 
         Assert.NotEqual(vector.Key, variableBound.Key);
         Assert.NotEqual(variableBound.Key, sized.Key);
+        Assert.False(vector.IsInterface);
+        Assert.False(variableBound.IsInterface);
+        Assert.False(provider.GetPointerType(element).IsInterface);
+        Assert.False(provider.GetByReferenceType(element).IsInterface);
         Assert.Equal(
             ExplicitInterfaceTypeIdentityProvider.AssemblyKey(
                 new AssemblyReferenceIdentity(
@@ -618,6 +622,16 @@ public sealed class MetadataDeclarationQueryTests
                 GenericArity: 1,
                 IsInterface: false),
             [element]).IsInterface);
+        var constructed = provider.GetGenericInstantiation(
+            new ExplicitInterfaceTypeIdentity(
+                "definition",
+                "Samples.IContract`1",
+                GenericArity: 1,
+                IsInterface: true),
+            [element]);
+        Assert.True(constructed.IsConstructedGeneric);
+        Assert.Throws<BadImageFormatException>(
+            () => provider.GetGenericInstantiation(constructed, [element]));
 
         Assert.NotNull(typeof(Dictionary<,>.KeyCollection));
         var nestedReference = PeReader.GetMetadataReader()
@@ -763,7 +777,7 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
-    public void MetadataAccessorSemantics_DistinguishesInitAndRejectsMixedAbstraction()
+    public void MetadataAccessorSemantics_DistinguishesInitAndRetainsMixedAbstraction()
     {
         var fixture = Reader.GetTypeDefinition(GetTypeDefinitionHandle(
             typeof(MetadataDeclarationQueryFixtures.NullableExplicitAggregateMetadataFixture)));
@@ -778,13 +792,12 @@ public sealed class MetadataDeclarationQueryTests
 
         Assert.Equal("set", MetadataAccessorSemantics.Kind(Reader, ordinarySetter, "set"));
         Assert.Equal("init", MetadataAccessorSemantics.Kind(Reader, initSetter, "set"));
-        Assert.False(MetadataAccessorSemantics.IsUniformlyAbstract(Reader, ordinarySetter));
-        Assert.True(MetadataAccessorSemantics.IsUniformlyAbstract(Reader, abstractGetter));
-        Assert.Throws<BadImageFormatException>(() =>
-            MetadataAccessorSemantics.IsUniformlyAbstract(
-                Reader,
-                abstractGetter,
-                ordinarySetter));
+        Assert.False(MetadataAccessorSemantics.AreAllAbstract(Reader, ordinarySetter));
+        Assert.True(MetadataAccessorSemantics.AreAllAbstract(Reader, abstractGetter));
+        Assert.False(MetadataAccessorSemantics.AreAllAbstract(
+            Reader,
+            abstractGetter,
+            ordinarySetter));
     }
 
     [Fact]
@@ -807,6 +820,16 @@ public sealed class MetadataDeclarationQueryTests
         Assert.Throws<BadImageFormatException>(() =>
             MetadataAccessorSemantics.Kind(
                 cyclicReader.GetMetadataReader(),
+                MetadataTokens.MethodDefinitionHandle(1),
+                "set"));
+
+        using var typeSpecReader = new PEReader(new MemoryStream(
+            BuildHostileInitModifierImage(
+                cyclicScope: false,
+                typeSpecModifier: true)));
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataAccessorSemantics.Kind(
+                typeSpecReader.GetMetadataReader(),
                 MetadataTokens.MethodDefinitionHandle(1),
                 "set"));
     }
@@ -838,7 +861,7 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
-    public void EventSealing_DoesNotCombineDifferentAccessors()
+    public void EventSealing_RejectsMixedAccessorState()
     {
         string path = EmitIncoherentEventSealing();
         try
@@ -846,23 +869,20 @@ public sealed class MetadataDeclarationQueryTests
             using var peReader = new PEReader(File.OpenRead(path));
             var reader = peReader.GetMetadataReader();
             var typeHandle = GetTypeDefinitionHandle(reader, "DerivedEventSealing");
+            var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
             var extracted = Assert.Single(
-                ApiSurfaceExtractor.Extract(peReader, includeAll: true).Types,
+                surface.Types,
                 type => type.Name == "DerivedEventSealing");
-            var queried = MetadataDeclarationQuery.GetTypeSurface(
-                reader,
-                typeHandle,
-                includeNonPublicMembers: true);
 
-            var extractedEvent = Assert.Single(
-                extracted.Members,
-                member => member.Kind == "event");
-            var queriedEvent = Assert.Single(
-                queried.Members,
-                member => member.Kind == "event");
-
-            Assert.False(extractedEvent.IsSealed);
-            Assert.Equal(queriedEvent.IsSealed, extractedEvent.IsSealed);
+            Assert.DoesNotContain(extracted.Members, member => member.Kind == "event");
+            Assert.Contains(
+                surface.InspectionFailures,
+                failure => failure.Operation == "event modifiers");
+            Assert.Throws<BadImageFormatException>(() =>
+                MetadataDeclarationQuery.GetTypeSurface(
+                    reader,
+                    typeHandle,
+                    includeNonPublicMembers: true));
         }
         finally
         {
@@ -909,6 +929,31 @@ public sealed class MetadataDeclarationQueryTests
                         IsExplicitInterfaceImplementation: true
                     } && member.Name.EndsWith(".Changed", StringComparison.Ordinal));
             }
+        }
+    }
+
+    [Theory]
+    [InlineData(typeof(MetadataDeclarationQueryFixtures.SealedImplicitSurface))]
+    [InlineData(typeof(MetadataDeclarationQueryFixtures.StructImplicitSurface))]
+    public void TypeSurface_DoesNotProjectMetadataVirtualAsCSharpVirtual(Type fixtureType)
+    {
+        var queried = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(fixtureType),
+            includeNonPublicMembers: true);
+        var extracted = Assert.Single(
+            ApiSurfaceExtractor.Extract(PeReader, includeAll: true).Types,
+            type => type.FullName.EndsWith(
+                "." + fixtureType.Name,
+                StringComparison.Ordinal));
+
+        foreach (var surface in new[] { queried, extracted })
+        {
+            var property = Assert.Single(
+                surface.Members,
+                member => member.Kind == "property" && member.Name == "Value");
+
+            Assert.False(property.IsVirtual);
         }
     }
 
@@ -1057,9 +1102,9 @@ public sealed class MetadataDeclarationQueryTests
             var typeHandle = GetTypeDefinitionHandle(reader, "Derived");
             var typeDef = reader.GetTypeDefinition(typeHandle);
 
-            var bodies = ApiSurfaceExtractor.GetExplicitInterfaceImplementationBodies(
+            var bodies = ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(
                 reader,
-                typeDef);
+                typeDef).Keys;
             var names = bodies
                 .Select(handle => reader.GetString(reader.GetMethodDefinition(handle).Name))
                 .ToList();
@@ -1600,7 +1645,7 @@ public sealed class MetadataDeclarationQueryTests
         adder.GetILGenerator().Emit(OpCodes.Ret);
         var remover = derivedBuilder.DefineMethod(
             "remove_Changed",
-            accessorAttributes | MethodAttributes.NewSlot | MethodAttributes.Final,
+            accessorAttributes | MethodAttributes.Final,
             typeof(void),
             [typeof(Action)]);
         remover.GetILGenerator().Emit(OpCodes.Ret);
@@ -1608,6 +1653,7 @@ public sealed class MetadataDeclarationQueryTests
         @event.SetAddOnMethod(adder);
         @event.SetRemoveOnMethod(remover);
         derivedBuilder.DefineMethodOverride(adder, baseType.GetMethod("add_Changed")!);
+        derivedBuilder.DefineMethodOverride(remover, baseType.GetMethod("remove_Changed")!);
         derivedBuilder.CreateType();
 
         string path = Path.Combine(
@@ -1617,7 +1663,9 @@ public sealed class MetadataDeclarationQueryTests
         return path;
     }
 
-    static byte[] BuildHostileInitModifierImage(bool cyclicScope)
+    static byte[] BuildHostileInitModifierImage(
+        bool cyclicScope,
+        bool typeSpecModifier = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1671,12 +1719,22 @@ public sealed class MetadataDeclarationQueryTests
             cyclicScope ? outer : (EntityHandle)outer,
             metadata.GetOrAddString("System.Runtime.CompilerServices"),
             metadata.GetOrAddString("IsExternalInit"));
+        EntityHandle modifierHandle = modifier;
+        if (typeSpecModifier)
+        {
+            var typeSpec = new BlobBuilder();
+            typeSpec.WriteByte(0x12); // CLASS
+            typeSpec.WriteByte((byte)(MetadataTokens.GetRowNumber(modifier) << 2 | 1));
+            modifierHandle = metadata.AddTypeSpecification(metadata.GetOrAddBlob(typeSpec));
+        }
 
         var signature = new BlobBuilder();
         signature.WriteByte(0x00); // DEFAULT
         signature.WriteByte(0x01); // parameter count
         signature.WriteByte(0x1F); // CMOD_REQD
-        signature.WriteByte((byte)(MetadataTokens.GetRowNumber(modifier) << 2 | 1));
+        signature.WriteByte((byte)(
+            MetadataTokens.GetRowNumber(modifierHandle) << 2
+            | (modifierHandle.Kind == HandleKind.TypeSpecification ? 2 : 1)));
         signature.WriteByte(0x01); // VOID
         signature.WriteByte(0x08); // I4
         metadata.AddMethodDefinition(
@@ -1901,6 +1959,21 @@ public class MetadataDeclarationQueryFixtures
             [return: System.Diagnostics.CodeAnalysis.MaybeNull]
             remove { }
         }
+    }
+
+    public interface IImplicitSurface
+    {
+        int Value { get; }
+    }
+
+    public sealed class SealedImplicitSurface : IImplicitSurface
+    {
+        public int Value => 42;
+    }
+
+    public readonly struct StructImplicitSurface : IImplicitSurface
+    {
+        public int Value => 42;
     }
 
     public interface IGenericSurface<TLeft, TRight>

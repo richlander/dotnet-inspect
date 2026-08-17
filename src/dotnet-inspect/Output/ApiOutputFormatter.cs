@@ -1632,10 +1632,10 @@ public static class ApiOutputFormatter
             parameters.Add(new ApiParameter { Name = "value", Type = valueType });
         }
 
-        var accessorFact = owner.AccessorFacts.FirstOrDefault(
-            accessor => accessor.Kind == accessorKind);
-        var presentationAccessor = ownerModel?.Accessors.FirstOrDefault(
-            accessor => accessor.Kind == accessorKind);
+        var accessorFact = FindAccessor(owner.AccessorFacts, accessorKind);
+        var presentationAccessor = ownerModel is null
+            ? null
+            : FindAccessor(ownerModel.Accessors, accessorKind);
         var accessibility = accessorFact is not null
             ? accessorFact.Accessibility
             : presentationAccessor is not null
@@ -1718,6 +1718,14 @@ public static class ApiOutputFormatter
         + (owner.SetterToken.HasValue ? 1 : 0)
         + (owner.AdderToken.HasValue ? 1 : 0)
         + (owner.RemoverToken.HasValue ? 1 : 0);
+
+    static ApiAccessor? FindAccessor(
+        IEnumerable<ApiAccessor> accessors,
+        string accessorKind)
+        => accessors.FirstOrDefault(accessor => accessor.Kind == accessorKind)
+            ?? (accessorKind == "set"
+                ? accessors.FirstOrDefault(accessor => accessor.Kind == "init")
+                : null);
 
     static ApiParameter CloneAccessorParameter(ApiParameter parameter) => new()
     {

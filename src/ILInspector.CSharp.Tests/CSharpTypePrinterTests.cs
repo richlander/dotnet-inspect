@@ -720,6 +720,91 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void MixedDefaultInterfaceAccessorsCompileBack()
+    {
+        var type = new ApiType
+        {
+            Namespace = "ILInspector.CSharp.Tests",
+            Name = "IMixedDefaultAccessorSurface",
+            Kind = "interface",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "int",
+                        MemberName = "Value",
+                        Accessors =
+                        [
+                            new ApiAccessor { Kind = "get", IsAbstract = true },
+                            new ApiAccessor { Kind = "set", IsAbstract = false }
+                        ]
+                    }
+                }
+            ]
+        };
+
+        Assert.False(type.Members[0].IsAbstract);
+        Assert.Contains(
+            type.Members[0].SignatureModel!.Accessors,
+            accessor => accessor is { Kind: "get", IsAbstract: true });
+        Assert.Contains(
+            type.Members[0].SignatureModel!.Accessors,
+            accessor => accessor is { Kind: "set", IsAbstract: false });
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("get", result.Source, StringComparison.Ordinal);
+        Assert.Contains("set", result.Source, StringComparison.Ordinal);
+        Assert.Equal(2, result.Source.Split("throw null;", StringSplitOptions.None).Length - 1);
+        AssertCompiles(result.Source);
+    }
+
+    [Fact]
+    public void RefReturnExplicitInterfacePropertyUsesThrowAccessor()
+    {
+        using var peReader = new PEReader(
+            File.OpenRead(typeof(RefReturnExplicitSurface).Assembly.Location));
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            return reader.GetString(definition.Namespace) == "ILInspector.CSharp.Tests"
+                && reader.GetString(definition.Name) == nameof(RefReturnExplicitSurface);
+        });
+        var type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        type.Interfaces = [Assert.Single(type.Interfaces)];
+        type.Members =
+        [
+            Assert.Single(
+                type.Members,
+                member => member.Kind == "property"
+                    && member.IsExplicitInterfaceImplementation)
+        ];
+
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("ref int", result.Source, StringComparison.Ordinal);
+        Assert.Contains("throw null;", result.Source, StringComparison.Ordinal);
+        AssertCompiles(
+            result.Source,
+            """
+            namespace ILInspector.CSharp.Tests;
+
+            public interface IRefReturnSurface
+            {
+                ref int Value { get; }
+            }
+            """);
+    }
+
+    [Fact]
     public void ExplicitInterfaceEventSkeletonDoesNotDiscardCallerBody()
     {
         var type = CreateEmptyType("Samples", "Widget");
@@ -5244,4 +5329,16 @@ public interface IExplicitIndexerSurface
 public sealed class ExplicitIndexerSurface : IExplicitIndexerSurface
 {
     int IExplicitIndexerSurface.this[int index] => index;
+}
+
+public interface IRefReturnSurface
+{
+    ref int Value { get; }
+}
+
+public sealed class RefReturnExplicitSurface : IRefReturnSurface
+{
+    private int _value;
+
+    ref int IRefReturnSurface.Value => ref _value;
 }

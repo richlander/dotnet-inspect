@@ -14,30 +14,62 @@ internal static class MetadataAccessorSemantics
             ? "init"
             : defaultKind;
 
-    public static bool IsUniformlyAbstract(
+    public static bool AreAllAbstract(
         MetadataReader reader,
         params MethodDefinitionHandle[] handles)
     {
-        bool anyAbstract = false;
-        bool anyConcrete = false;
+        bool anyAccessor = false;
         foreach (var handle in handles)
         {
             if (handle.IsNil)
                 continue;
 
-            bool isAbstract =
-                (reader.GetMethodDefinition(handle).Attributes & MethodAttributes.Abstract) != 0;
-            anyAbstract |= isAbstract;
-            anyConcrete |= !isAbstract;
+            anyAccessor = true;
+            if ((reader.GetMethodDefinition(handle).Attributes & MethodAttributes.Abstract) == 0)
+                return false;
         }
 
-        if (anyAbstract && anyConcrete)
+        return anyAccessor;
+    }
+
+    public static bool TryGetUniformSealedOverride(
+        MetadataReader reader,
+        out bool isSealed,
+        params MethodDefinitionHandle[] handles)
+    {
+        bool? expected = null;
+        foreach (var handle in handles)
+        {
+            if (handle.IsNil)
+                continue;
+
+            var attributes = reader.GetMethodDefinition(handle).Attributes;
+            bool accessorSealed =
+                (attributes & MethodAttributes.Virtual) != 0
+                && (attributes & MethodAttributes.NewSlot) == 0
+                && (attributes & MethodAttributes.Final) != 0;
+            if (expected is not null && expected != accessorSealed)
+            {
+                isSealed = false;
+                return false;
+            }
+            expected = accessorSealed;
+        }
+
+        isSealed = expected == true;
+        return true;
+    }
+
+    public static bool IsUniformlySealedOverride(
+        MetadataReader reader,
+        params MethodDefinitionHandle[] handles)
+    {
+        if (!TryGetUniformSealedOverride(reader, out bool isSealed, handles))
         {
             throw new BadImageFormatException(
-                "The aggregate has inconsistent abstract accessor metadata.");
+                "The aggregate has inconsistent sealed accessor metadata.");
         }
-
-        return anyAbstract;
+        return isSealed;
     }
 
     static bool IsInitOnlySetter(
@@ -120,7 +152,19 @@ internal static class MetadataAccessorSemantics
             object? context,
             TypeSpecificationHandle handle,
             byte rawTypeKind)
-            => default;
+        {
+            var decoded = GuardedProviderDecode.TypeSpec(
+                reader,
+                handle,
+                this,
+                context,
+                new InitOnlyModifierState(false, false, true));
+            return decoded with
+            {
+                IsExternalInitType = false,
+                IsMalformed = true,
+            };
+        }
 
         public InitOnlyModifierState GetSZArrayType(InitOnlyModifierState elementType)
             => default;

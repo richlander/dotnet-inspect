@@ -13,7 +13,8 @@ internal readonly record struct ExplicitInterfaceTypeIdentity(
     int GenericArity = 0,
     bool IsDegraded = false,
     bool? IsInterface = null,
-    bool IsWellKnownNullable = false);
+    bool IsWellKnownNullable = false,
+    bool IsConstructedGeneric = false);
 
 internal readonly record struct ExplicitInterfaceSignatureContext(
     GenericContext? Names,
@@ -72,7 +73,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
         return new ExplicitInterfaceTypeIdentity(
             Node("primitive", ((int)typeCode).ToString()),
             name,
-            alias);
+            alias,
+            IsInterface: false);
     }
 
     public ExplicitInterfaceTypeIdentity GetTypeFromDefinition(
@@ -136,7 +138,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
             Node("szarray", elementType.Key),
             $"{elementType.MetadataName}[]",
             elementType.AggregateAliasName is { } alias ? $"{alias}[]" : null,
-            IsDegraded: elementType.IsDegraded);
+            IsDegraded: elementType.IsDegraded,
+            IsInterface: false);
 
     public ExplicitInterfaceTypeIdentity GetArrayType(
         ExplicitInterfaceTypeIdentity elementType,
@@ -154,7 +157,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
                 elementType.Key),
             elementType.MetadataName + suffix,
             elementType.AggregateAliasName is { } alias ? alias + suffix : null,
-            IsDegraded: elementType.IsDegraded);
+            IsDegraded: elementType.IsDegraded,
+            IsInterface: false);
     }
 
     public ExplicitInterfaceTypeIdentity GetByReferenceType(ExplicitInterfaceTypeIdentity elementType)
@@ -162,26 +166,34 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
             Node("byref", elementType.Key),
             $"{elementType.MetadataName}&",
             elementType.AggregateAliasName is { } alias ? $"{alias}&" : null,
-            IsDegraded: elementType.IsDegraded);
+            IsDegraded: elementType.IsDegraded,
+            IsInterface: false);
 
     public ExplicitInterfaceTypeIdentity GetPointerType(ExplicitInterfaceTypeIdentity elementType)
         => new(
             Node("pointer", elementType.Key),
             $"{elementType.MetadataName}*",
             elementType.AggregateAliasName is { } alias ? $"{alias}*" : null,
-            IsDegraded: elementType.IsDegraded);
+            IsDegraded: elementType.IsDegraded,
+            IsInterface: false);
 
     public ExplicitInterfaceTypeIdentity GetPinnedType(ExplicitInterfaceTypeIdentity elementType)
         => new(
             Node("pinned", elementType.Key),
             elementType.MetadataName,
             elementType.AggregateAliasName,
-            IsDegraded: elementType.IsDegraded);
+            IsDegraded: elementType.IsDegraded,
+            IsInterface: false);
 
     public ExplicitInterfaceTypeIdentity GetGenericInstantiation(
         ExplicitInterfaceTypeIdentity genericType,
         ImmutableArray<ExplicitInterfaceTypeIdentity> typeArguments)
     {
+        if (genericType.IsConstructedGeneric)
+        {
+            throw new BadImageFormatException(
+                "A constructed generic interface type cannot be instantiated again.");
+        }
         if (genericType.GenericArity != typeArguments.Length)
         {
             throw new BadImageFormatException(
@@ -211,7 +223,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
             IsDegraded: genericType.IsDegraded
                 || typeArguments.Any(argument => argument.IsDegraded),
             IsInterface: genericType.IsInterface,
-            IsWellKnownNullable: genericType.IsWellKnownNullable);
+            IsWellKnownNullable: genericType.IsWellKnownNullable,
+            IsConstructedGeneric: true);
     }
 
     public ExplicitInterfaceTypeIdentity GetGenericMethodParameter(
@@ -250,7 +263,12 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
             Node(isRequired ? "modreq" : "modopt", modifier.Key, unmodifiedType.Key),
             unmodifiedType.MetadataName,
             unmodifiedType.AggregateAliasName,
-            IsDegraded: modifier.IsDegraded || unmodifiedType.IsDegraded);
+            GenericArguments: unmodifiedType.GenericArguments,
+            GenericArity: unmodifiedType.GenericArity,
+            IsDegraded: modifier.IsDegraded || unmodifiedType.IsDegraded,
+            IsInterface: unmodifiedType.IsInterface,
+            IsWellKnownNullable: unmodifiedType.IsWellKnownNullable,
+            IsConstructedGeneric: unmodifiedType.IsConstructedGeneric);
 
     public ExplicitInterfaceTypeIdentity GetFunctionPointerType(
         MethodSignature<ExplicitInterfaceTypeIdentity> signature)
@@ -271,7 +289,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
             key,
             name,
             IsDegraded: signature.ReturnType.IsDegraded
-                || signature.ParameterTypes.Any(parameter => parameter.IsDegraded));
+                || signature.ParameterTypes.Any(parameter => parameter.IsDegraded),
+            IsInterface: false);
     }
 
     internal ExplicitInterfaceTypeIdentity FromHandle(

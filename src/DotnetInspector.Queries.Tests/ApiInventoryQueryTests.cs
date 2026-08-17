@@ -500,7 +500,7 @@ public class ApiInventoryQueryTests
     }
 
     [Fact]
-    public void Extract_EventAccessibilityUsesBothAccessorsAndRejectsMissingPairs()
+    public void Extract_EventAccessibilityUsesBothAccessorsAndRetainsRemoveOnlyEvents()
     {
         using var peReader = new PEReader(new MemoryStream(BuildEventAccessibilityImage()));
 
@@ -513,22 +513,22 @@ public class ApiInventoryQueryTests
         Assert.Null(changed.Accessibility);
         Assert.NotNull(changed.AdderToken);
         Assert.NotNull(changed.RemoverToken);
-        Assert.DoesNotContain(type.Members, member => member.Name == "Broken");
-        ApiSurfaceInspectionFailure failure = Assert.Single(surface.InspectionFailures);
-        Assert.Equal("event accessors", failure.Operation);
+        ApiMember brokenMember = Assert.Single(type.Members, member => member.Name == "Broken");
+        Assert.Null(brokenMember.AdderToken);
+        Assert.NotNull(brokenMember.RemoverToken);
+        Assert.Empty(surface.InspectionFailures);
         MetadataReader reader = peReader.GetMetadataReader();
         EventDefinitionHandle broken = reader.GetTypeDefinition(
                 reader.TypeDefinitions.Single(handle =>
                     reader.GetString(reader.GetTypeDefinition(handle).Name) == "EventAccessibilityHost"))
             .GetEvents()
             .Single(handle => reader.GetString(reader.GetEventDefinition(handle).Name) == "Broken");
-        Assert.Equal(MetadataTokens.GetToken(broken), failure.SubjectToken);
         TypeDefinitionHandle typeHandle = reader.GetEventDefinition(broken).GetDeclaringType();
-        Assert.Throws<BadImageFormatException>(
-            () => MetadataDeclarationQuery.GetTypeSurface(
-                reader,
-                typeHandle,
-                includeNonPublicMembers: true));
+        ApiType queried = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            typeHandle,
+            includeNonPublicMembers: true);
+        Assert.Single(queried.Members, member => member.Name == "Broken");
     }
 
     [Fact]

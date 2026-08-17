@@ -376,7 +376,7 @@ public class InspectionViewDescriptorTests
     }
 
     [Fact]
-    public void BodyExecution_SkipsSelectedAbstractAccessorWithoutShiftingOrdinal()
+    public void BodyExecution_RetainsSelectedAbstractAccessorFactsWithoutShiftingOrdinal()
     {
         var type = new ApiType
         {
@@ -415,10 +415,10 @@ public class InspectionViewDescriptorTests
             ]
         };
 
-        Assert.Empty(ApiOutputFormatter.ResolveBodyMethods(
+        Assert.Equal(2, ApiOutputFormatter.ResolveBodyMethods(
             type,
             new HashSet<string> { SectionNames.Facts },
-            selectedOrdinal: 1));
+            selectedOrdinal: 1).Count);
         Assert.Equal(2, ApiOutputFormatter.ResolveBodyMethods(
             type,
             new HashSet<string> { SectionNames.Facts },
@@ -488,7 +488,9 @@ public class InspectionViewDescriptorTests
         IReadOnlySet<string> executionSections =
             ApiOutputFormatter.ResolveExecutionSections(type, requested, selectedOrdinal: 1);
 
-        Assert.Equal([SectionNames.UnsafeOperations], executionSections);
+        Assert.Equal(
+            [SectionNames.Facts, SectionNames.UnsafeOperations],
+            executionSections.Order(StringComparer.Ordinal));
         var methods = ApiOutputFormatter.ResolveBodyMethods(
             type,
             executionSections,

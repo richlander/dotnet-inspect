@@ -949,6 +949,7 @@ public static class ApiSurfaceExtractor
                 bool isAbstractProperty = false;
                 bool isOverrideProperty = false;
                 bool isSealedProperty = false;
+                bool hasFinalPropertyAccessor = false;
                 if (!accessors.Getter.IsNil)
                 {
                     var getter = reader.GetMethodDefinition(accessors.Getter);
@@ -959,6 +960,7 @@ public static class ApiSurfaceExtractor
                     isAbstractProperty = (getterAttributes & MethodAttributes.Abstract) != 0;
                     isOverrideProperty = isVirtualProperty && (getterAttributes & MethodAttributes.NewSlot) == 0;
                     isSealedProperty = isOverrideProperty && (getterAttributes & MethodAttributes.Final) != 0;
+                    hasFinalPropertyAccessor = (getterAttributes & MethodAttributes.Final) != 0;
                 }
                 if (!accessors.Setter.IsNil)
                 {
@@ -974,11 +976,35 @@ public static class ApiSurfaceExtractor
                     isAbstractProperty |= (setterAttributes & MethodAttributes.Abstract) != 0;
                     isOverrideProperty |= setterOverride;
                     isSealedProperty |= setterOverride && (setterAttributes & MethodAttributes.Final) != 0;
+                    hasFinalPropertyAccessor |= (setterAttributes & MethodAttributes.Final) != 0;
                 }
-                isAbstractProperty = MetadataAccessorSemantics.IsUniformlyAbstract(
+                isAbstractProperty = MetadataAccessorSemantics.AreAllAbstract(
                     reader,
                     accessors.Getter,
                     accessors.Setter);
+                if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(
+                        reader,
+                        out isSealedProperty,
+                        accessors.Getter,
+                        accessors.Setter))
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "property modifiers",
+                        propHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            propHandle,
+                            "The property has inconsistent sealed accessor metadata."));
+                    continue;
+                }
+                bool isCSharpVirtualProperty =
+                    apiType.Kind == "class"
+                    && !apiType.IsSealed
+                    && isVirtualProperty
+                    && !isAbstractProperty
+                    && !isOverrideProperty
+                    && !hasFinalPropertyAccessor;
 
                 if (!MetadataAccessibility.TryGet(bestAccess, out string? propertyAccessibility))
                 {
@@ -1060,7 +1086,7 @@ public static class ApiSurfaceExtractor
                         ? SignatureDecodeStatus.Degraded
                         : null,
                     IsStatic = isStaticProperty,
-                    IsVirtual = isVirtualProperty,
+                    IsVirtual = isCSharpVirtualProperty,
                     IsAbstract = isAbstractProperty,
                     IsOverride = isOverrideProperty,
                     IsSealed = isSealedProperty,
@@ -1403,10 +1429,49 @@ public static class ApiSurfaceExtractor
                         eventType = eventNode.Render();
                     }
                 }
-                var primaryAccessorAttributes = primaryAccessor.Attributes;
-                var isVirtualEvent = (primaryAccessorAttributes & MethodAttributes.Virtual) != 0;
-                var isOverrideEvent = isVirtualEvent
-                    && (primaryAccessorAttributes & MethodAttributes.NewSlot) == 0;
+                bool isStaticEvent = false;
+                bool isVirtualEvent = false;
+                bool isOverrideEvent = false;
+                bool hasFinalEventAccessor = false;
+                foreach (var accessorHandle in new[] { accessors.Adder, accessors.Remover })
+                {
+                    if (accessorHandle.IsNil)
+                        continue;
+                    var accessorAttributes = reader.GetMethodDefinition(accessorHandle).Attributes;
+                    bool accessorVirtual = (accessorAttributes & MethodAttributes.Virtual) != 0;
+                    isStaticEvent |= (accessorAttributes & MethodAttributes.Static) != 0;
+                    isVirtualEvent |= accessorVirtual;
+                    isOverrideEvent |= accessorVirtual
+                        && (accessorAttributes & MethodAttributes.NewSlot) == 0;
+                    hasFinalEventAccessor |= (accessorAttributes & MethodAttributes.Final) != 0;
+                }
+                bool isAbstractEvent = MetadataAccessorSemantics.AreAllAbstract(
+                    reader,
+                    accessors.Adder,
+                    accessors.Remover);
+                if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(
+                        reader,
+                        out bool isSealedEvent,
+                        accessors.Adder,
+                        accessors.Remover))
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "event modifiers",
+                        eventHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            eventHandle,
+                            "The event has inconsistent sealed accessor metadata."));
+                    continue;
+                }
+                bool isCSharpVirtualEvent =
+                    apiType.Kind == "class"
+                    && !apiType.IsSealed
+                    && isVirtualEvent
+                    && !isAbstractEvent
+                    && !isOverrideEvent
+                    && !hasFinalEventAccessor;
                 string eventName = DecodeString(
                     reader,
                     evt.Name,
@@ -1441,6 +1506,7 @@ public static class ApiSurfaceExtractor
                         HasMethodBody = remover.RelativeVirtualAddress != 0,
                         IsAbstract = (remover.Attributes & MethodAttributes.Abstract) != 0
                     });
+                }
                 var accessorFacts = AccessorFacts(
                     reader,
                     observeText,
@@ -1496,12 +1562,11 @@ public static class ApiSurfaceExtractor
                         Accessors = accessorModels
                     },
                     AccessorFacts = accessorFacts,
-                    IsStatic = (primaryAccessorAttributes & MethodAttributes.Static) != 0,
-                    IsVirtual = isVirtualEvent,
-                    IsAbstract = (primaryAccessorAttributes & MethodAttributes.Abstract) != 0,
+                    IsStatic = isStaticEvent,
+                    IsVirtual = isCSharpVirtualEvent,
+                    IsAbstract = isAbstractEvent,
                     IsOverride = isOverrideEvent,
-                    IsSealed = isOverrideEvent
-                        && (primaryAccessorAttributes & MethodAttributes.Final) != 0,
+                    IsSealed = isSealedEvent,
                     IsExplicitInterfaceImplementation = isExplicitInterfaceImplementation,
                     IsUnsafe = HasUnsafeSignature(reader, evt, observeDecodeWork)
                         || AttributeReader.HasRequiresUnsafeAttribute(
