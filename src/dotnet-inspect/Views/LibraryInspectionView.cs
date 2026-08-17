@@ -795,7 +795,11 @@ public class LibraryInspectionView
                 .OrderBy(
                     evidence => ApiOutputFormatter.FormatMethod(evidence.Member),
                     StringComparer.OrdinalIgnoreCase)
-                .ThenBy(evidence => evidence.ILOffset ?? -1)
+                .ThenBy(
+                    evidence => evidence.ILOffset is { } offset
+                        ? $"IL_{offset:X4}"
+                        : null,
+                    StringComparer.OrdinalIgnoreCase)
                 .ThenBy(evidence => evidence.Reason, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(evidence => evidence.Detail, StringComparer.OrdinalIgnoreCase)
                 .Select(evidence =>

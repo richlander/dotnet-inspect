@@ -270,6 +270,7 @@ public class LibraryFindingConsumerTests
         Assert.Equal(Reason, summary.Reason);
         Assert.Equal(Detail, summary.Detail);
         Assert.Equal(Kind, summary.Kind);
+        Assert.Equal(result.Diagnostics, inspection.UnsafeEvidenceDiagnostics);
 
         Assert.NotEqual(Reason, row.Reason);
         Assert.NotEqual(Detail, row.Detail);
@@ -282,6 +283,91 @@ public class LibraryFindingConsumerTests
         Assert.True(InertString.IsPermitted(TextPolicy.Field, row.Token!));
         Assert.StartsWith("<code>", row.Member, StringComparison.Ordinal);
         Assert.StartsWith("<code>", row.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnsafeEvidenceQueryProjection_UsesDistinctPerMethodFindingSubjects()
+    {
+        static MethodIdentity Method(string name, int token) => new(
+            "Hostile",
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            TypeRef.Definition("Hostile", "Namespace", "Type"),
+            name,
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            token,
+            IsStatic: true);
+
+        var first = new UnsafeEvidence(
+            Method("First", 0x06000001),
+            "Unsafe signature",
+            "int*",
+            "signature",
+            ILOffset: null,
+            OperandToken: null);
+        var second = new UnsafeEvidence(
+            Method("Second", 0x06000002),
+            "Unsafe signature",
+            "int*",
+            "signature",
+            ILOffset: null,
+            OperandToken: null);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyUnsafeEvidenceResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            new UnsafeEvidenceResult.Available([first, second], []));
+
+        var findings = inspection.UnsafeEvidenceInspection.Findings();
+        Assert.Equal(2, findings.Length);
+        Assert.Equal(2, findings.Select(finding => finding.Subject.Key).Distinct().Count());
+        Assert.Contains(findings, finding => ReferenceEquals(finding.Payload, first));
+        Assert.Contains(findings, finding => ReferenceEquals(finding.Payload, second));
+    }
+
+    [Fact]
+    public void UnsafeEvidenceTypedView_PreservesLegacyFormattedIlOrdering()
+    {
+        var method = new MethodIdentity(
+            "Hostile",
+            Guid.Empty,
+            TypeRef.Definition("Hostile", "Namespace", "Type"),
+            "Method",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            IsStatic: true);
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyUnsafeEvidenceResult(
+            "hostile.dll",
+            inspection,
+            new VerboseLogger(enabled: false),
+            new UnsafeEvidenceResult.Available(
+                [
+                    new UnsafeEvidence(
+                        method,
+                        "Unsafe operation",
+                        "first",
+                        "opcode",
+                        ILOffset: 0xFFFF,
+                        OperandToken: null),
+                    new UnsafeEvidence(
+                        method,
+                        "Unsafe operation",
+                        "second",
+                        "opcode",
+                        ILOffset: 0x10000,
+                        OperandToken: null),
+                ],
+                []));
+
+        Assert.Equal(
+            ["<code>IL_10000</code>", "<code>IL_FFFF</code>"],
+            new LibraryInspectionView(inspection).UnsafeMembersSection!
+                .Select(row => row.IL));
     }
 
     [Fact]

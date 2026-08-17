@@ -322,8 +322,9 @@ assembly-context Integrations inspection are the first vertical L1 canaries:
   metadata acquisition no longer requires a mutable composition scanner.
 - `UnsafeEvidenceQuery` consumes an already-acquired `LibraryBodyIndex` and
   returns immutable Analysis-owned unsafe evidence plus diagnostics. The CLI
-  adds path-based Finding provenance and compatibility JSON, while Markdown
-  rows contain raw evidence only at the `UnsafeMemberRow` sink.
+  adds path-scoped per-method Finding provenance, retains partial-census
+  diagnostics, and projects compatibility JSON, while Markdown rows contain raw
+  evidence only at the `UnsafeMemberRow` sink.
 - `SwitchesQuery` lives in the optional Research-backed query companion. It
   composes attribute-declared metadata with Research-owned AppContext IL
   evidence into one immutable ordered inventory. The CLI adds path-based

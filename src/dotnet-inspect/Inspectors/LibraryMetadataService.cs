@@ -2450,9 +2450,17 @@ internal static class LibraryMetadataService
             case UnsafeEvidenceResult.Available available:
                 inspection.UnsafeEvidenceInspection =
                     new FindingInspection<Analysis.UnsafeEvidence>.Complete(
-                        Analysis.AnalysisFindings.InspectUnsafeEvidence(
-                            available.Evidence,
-                            FindingSubjectFor(path)));
+                        [
+                            .. available.Evidence
+                                .GroupBy(evidence => (
+                                    evidence.Member.ModuleVersionId,
+                                    evidence.Member.MetadataToken))
+                                .SelectMany(group =>
+                                    Analysis.AnalysisFindings.InspectUnsafeEvidence(
+                                        group,
+                                        FindingSubjectFor(path, group.First().Member))),
+                        ]);
+                inspection.UnsafeEvidenceDiagnostics = available.Diagnostics;
                 var rows = available.Evidence
                     .Select(evidence => new UnsafeMemberSummary
                     {
@@ -2478,6 +2486,7 @@ internal static class LibraryMetadataService
                 break;
 
             case UnsafeEvidenceResult.NoMetadata:
+                inspection.UnsafeEvidenceDiagnostics = [];
                 break;
 
             case UnsafeEvidenceResult.Failed failed:
@@ -2488,6 +2497,7 @@ internal static class LibraryMetadataService
                         path,
                         Analysis.AnalysisFindings.UnsafeEvidenceDescriptor,
                         failed.Error);
+                inspection.UnsafeEvidenceDiagnostics = [];
                 inspection.UnsafeMembers = null;
                 break;
 
@@ -2814,4 +2824,11 @@ internal static class LibraryMetadataService
 
     private static FindingSubject FindingSubjectFor(string path)
         => new(Path.GetFullPath(path), Path.GetFileName(path));
+
+    private static FindingSubject FindingSubjectFor(
+        string path,
+        Analysis.MethodIdentity method)
+        => new(
+            $"{Path.GetFullPath(path)}|{method.ModuleVersionId:N}:0x{method.MetadataToken:X8}",
+            $"{Path.GetFileName(path)}: {FormatMethod(method)}");
 }

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using DotnetInspector.Options;
 using DotnetInspector.Queries;
@@ -427,6 +428,10 @@ public class LibraryInspection
         }
     }
 
+    /// <summary>Per-method failures that made the unsafe-evidence census incomplete.</summary>
+    [JsonIgnore]
+    public ImmutableArray<AnalysisDiagnostic> UnsafeEvidenceDiagnostics { get; set; } = [];
+
     /// <summary>
     /// Methods ranked by call-graph leverage (distinct direct callers, then outbound
     /// shape). Assembly-wide; populated only when the Top Leverage section is selected.
@@ -703,7 +708,7 @@ public class LibraryInspection
             AddFailure(failures, "Compilation Options", CompilationOptionInspection);
             AddFailure(failures, "Compilation References", CompilationReferenceInspection);
             AddFailure(failures, "Classified Methods", ClassifiedMethodInspection);
-            AddFailure(failures, "Unsafe Evidence", UnsafeEvidenceInspection);
+            AddFailure(failures, SectionNames.UnsafeMembers, UnsafeEvidenceInspection);
             AddFailure(failures, "Extension Methods", ExtensionMemberInspection);
             AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);
             AddFailure(failures, EcosystemIntegrationNames.OpenTelemetry, OpenTelemetryInspection);

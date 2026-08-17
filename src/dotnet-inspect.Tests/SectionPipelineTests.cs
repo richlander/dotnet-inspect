@@ -4281,7 +4281,12 @@ public class SectionPipelineTests
     public void ProductionScannerCatchBoundary_DoesNotSwallowDeclarationViolation()
     {
         var registry = new ScannerRegistry()
-            .Add("cheap", SectionCost.NetworkFree, ctx => _ = ctx.BodyIndex());
+            .Add("cheap", SectionCost.NetworkFree, ctx =>
+                LibraryMetadataService.ScanTopLeverage(
+                    ctx.BodyIndex,
+                    ctx.DrillMap,
+                    ctx.AssemblyPath,
+                    ctx.Logger));
 
         Assert.Throws<ScannerCostDeclarationException>(
             () => registry.RunScanners(["cheap"], NullScannerContext()));
@@ -4290,13 +4295,14 @@ public class SectionPipelineTests
     [Fact]
     public async Task ProductionQueryCatchBoundary_DoesNotSwallowDeclarationViolation()
     {
-        var query = new InspectionQuery<int>("cheap", InspectionCost.NetworkFree);
+        var query = new InspectionQuery<UnsafeEvidenceResult>(
+            "cheap",
+            InspectionCost.NetworkFree);
         var registry = LibrarySections.CreateQueryRegistry()
             .Add(query, ctx =>
-            {
-                ctx.BodyIndex();
-                return 0;
-            });
+                LibrarySections.ExecuteUnsafeEvidenceQuery(
+                    hasMetadata: true,
+                    ctx.BodyIndex));
         using var httpClient = new HttpClient();
 
         await Assert.ThrowsAsync<QueryCostDeclarationException>(() =>
@@ -5105,6 +5111,11 @@ public class SectionPipelineTests
         var failed = Assert.IsType<FindingInspection<Analysis.UnsafeEvidence>.Failed>(
             inspection.UnsafeEvidenceInspection?.Value);
         Assert.Contains("body index failed", failed.Error.Reason, StringComparison.Ordinal);
+        var projected = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(SectionNames.UnsafeMembers, projected.Section);
+        Assert.True(LibraryCommand.FailureAffectsSection(
+            projected.Section,
+            SectionNames.UnsafeMembers));
         Assert.Null(inspection.UnsafeMembers);
     }
 
