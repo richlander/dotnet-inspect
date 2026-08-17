@@ -141,7 +141,12 @@ public static class CSharpStructuralDiffPrinter
 
             var facts = entries.Select(static entry => entry.Fact).ToArray();
             var extents = entries.ToDictionary(static entry => entry.Fact, static entry => entry.Extent);
-            var rendered = AnnotationCaret.Render(line.Text, memberIndent, facts, extents: extents);
+            var rendered = AnnotationCaret.Render(
+                line.Text,
+                memberIndent,
+                facts,
+                extents: extents,
+                alignDetailWithCaret: true);
             output.AddRange(rendered.Count > 0 ? rendered : RenderExactFallback(line.Text, entries));
         }
 
@@ -296,16 +301,10 @@ public static class CSharpStructuralDiffPrinter
         var lines = new List<string>();
         foreach (var group in entries.GroupBy(static entry => entry.Extent))
         {
-            bool first = true;
+            string padding = RenderFallbackPadding(sourceLine, group.Key.Column);
+            lines.Add(padding + new string('^', group.Key.Length));
             foreach (var entry in group)
-            {
-                lines.Add(
-                    RenderFallbackPadding(sourceLine, entry.Extent.Column)
-                    + (first ? new string('^', entry.Extent.Length) : new string(' ', entry.Extent.Length))
-                    + " "
-                    + AnnotationText.Format(entry.Fact));
-                first = false;
-            }
+                lines.Add(padding + AnnotationText.Format(entry.Fact));
         }
         return lines;
     }

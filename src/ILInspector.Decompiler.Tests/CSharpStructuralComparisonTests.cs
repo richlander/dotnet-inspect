@@ -582,9 +582,13 @@ public class CSharpStructuralComparisonTests
             static line => line.Contains("return value;", StringComparison.Ordinal));
 
         Assert.True(sourceLineIndex >= 0);
+        string caretLine = rendered[sourceLineIndex + 1];
+        string detailLine = rendered[sourceLineIndex + 2];
         Assert.Equal(
             rendered[sourceLineIndex].IndexOf("return", StringComparison.Ordinal),
-            rendered[sourceLineIndex + 1].IndexOf('^'));
+            caretLine.IndexOf('^'));
+        Assert.StartsWith("//", caretLine, StringComparison.Ordinal);
+        Assert.Equal(caretLine.IndexOf('^'), detailLine.IndexOf("raise:", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -627,10 +631,8 @@ public class CSharpStructuralComparisonTests
             .Split('\n');
 
         Assert.Equal("\t\t\treturn value;", rendered[1]);
-        Assert.StartsWith(
-            "\t\t\t^^^^^^^^^^^^^ raise: Return",
-            rendered[2],
-            StringComparison.Ordinal);
+        Assert.Equal("\t\t\t^^^^^^^^^^^^^", rendered[2]);
+        Assert.StartsWith("\t\t\traise: Return", rendered[3], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -673,7 +675,8 @@ public class CSharpStructuralComparisonTests
             .Split('\n');
 
         Assert.Equal("    return;", rendered[1]);
-        Assert.StartsWith("    ^^^^^^^ raise: Return", rendered[2], StringComparison.Ordinal);
+        Assert.Equal("    ^^^^^^^", rendered[2]);
+        Assert.StartsWith("    raise: Return", rendered[3], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -714,10 +717,10 @@ public class CSharpStructuralComparisonTests
             .RenderAnnotatedBody(comparison, CSharpStructuralSide.Before)
             .Split('\n');
         Assert.Equal(beforeText, rendered[0]);
-        Assert.StartsWith("^^^^ raise: InvocationExpression", rendered[1], StringComparison.Ordinal);
-        Assert.StartsWith("  ^ raise: NameExpression", rendered[2], StringComparison.Ordinal);
-        Assert.Equal("^^^^", new string([.. rendered[1].TakeWhile(character => character == '^')]));
-        Assert.Equal("^", new string([.. rendered[2].Skip(2).TakeWhile(character => character == '^')]));
+        Assert.Equal("^^^^", rendered[1]);
+        Assert.StartsWith("raise: InvocationExpression", rendered[2], StringComparison.Ordinal);
+        Assert.Equal("  ^", rendered[3]);
+        Assert.StartsWith("  raise: NameExpression", rendered[4], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -750,7 +753,8 @@ public class CSharpStructuralComparisonTests
             .Split('\n');
 
         Assert.Equal(afterText.Split('\n')[1], rendered[1]);
-        Assert.StartsWith("    ^^ raise: Break", rendered[2], StringComparison.Ordinal);
+        Assert.Equal("    ^^", rendered[2]);
+        Assert.StartsWith("    raise: Break", rendered[3], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1539,7 +1543,8 @@ public class CSharpStructuralComparisonTests
         string caretLine = lines[sourceLine + 1];
         Assert.Equal(lines[sourceLine].IndexOf(source, StringComparison.Ordinal), caretLine.IndexOf('^'));
         Assert.Equal(source.Length, caretLine.Count(character => character == '^'));
-        Assert.Contains(label, caretLine, StringComparison.Ordinal);
+        string detailLine = lines[sourceLine + 2];
+        Assert.Equal(caretLine.IndexOf('^'), detailLine.IndexOf(label, StringComparison.Ordinal));
     }
 
     static string ReconstructAnnotation(string body, string prefix)

@@ -132,12 +132,19 @@ public static class AnnotationCaret
     /// unplaced. See
     /// <see cref="Agreed"/> and <see cref="Stack"/>.
     /// </param>
+    /// <param name="alignDetailWithCaret">
+    /// When true, detail starts on a separate line aligned with the first
+    /// rendered caret. Wrapped continuations share that alignment; a numbered
+    /// stacked list begins at that column. The default retains the compact
+    /// trailing detail and fixed-column block layout.
+    /// </param>
     public static IReadOnlyList<string> Render(
         string lineText,
         string memberIndent,
         IReadOnlyList<IAnnotation> annotations,
         bool hoist = false,
-        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null)
+        IReadOnlyDictionary<IAnnotation, AnnotationAnchor.CaretExtent>? extents = null,
+        bool alignDetailWithCaret = false)
     {
         if (annotations.Count == 0)
             return [];
@@ -171,7 +178,14 @@ public static class AnnotationCaret
         var agreed = Agreed(annotations, extents, lineText.Length);
         if (agreed is null
             && Stack(annotations, extents, lineText.Length, out var unplaced) is { Count: > 0 } stacked
-            && RenderStacked(stacked, unplaced, gutter, commentColumn, hoisted, hoist ? 1 : 0) is { } stackedLines)
+            && RenderStacked(
+                stacked,
+                unplaced,
+                gutter,
+                commentColumn,
+                hoisted,
+                hoist ? 1 : 0,
+                alignDetailWithCaret) is { } stackedLines)
         {
             return stackedLines;
         }
@@ -180,13 +194,18 @@ public static class AnnotationCaret
         int caretColumn = extent.Column + hoisted;
 
         int pad = Math.Max(1, caretColumn - commentColumn - 2);
-        int caretEnd = commentColumn + 2 + pad + extent.Length;
+        int renderedCaretColumn = commentColumn + 2 + pad;
+        int caretEnd = renderedCaretColumn + extent.Length;
 
         // Prefer trailing the detail on the caret line. When the underline is so
         // long that doing so leaves no usable width, drop the detail to its own
         // lines on a modest fixed column instead of wrapping into a sliver.
-        bool inline = caretEnd <= InlineDetailMaxColumn && caretEnd + 1 + MinDetailWidth <= Budget;
-        int detailColumn = inline ? caretEnd + 1 : commentColumn + 5;
+        bool inline = !alignDetailWithCaret
+            && caretEnd <= InlineDetailMaxColumn
+            && caretEnd + 1 + MinDetailWidth <= Budget;
+        int detailColumn = alignDetailWithCaret
+            ? renderedCaretColumn
+            : inline ? caretEnd + 1 : commentColumn + 5;
         int width = Math.Max(MinDetailWidth, Budget - detailColumn);
 
         var lines = new List<string>();
@@ -464,7 +483,8 @@ public static class AnnotationCaret
         string gutter,
         int commentColumn,
         int hoisted,
-        int markerWidth)
+        int markerWidth,
+        bool alignDetailWithCaret)
     {
         int Column(int index) => groups[index].Extent.Column + hoisted;
         string Label(int index) => $"{index + 1}.";
@@ -532,8 +552,12 @@ public static class AnnotationCaret
         // wrapping stays predictable, which a column-aligned list cannot offer:
         // its texts would stagger across the width of the line and each wrap.
         int labelWidth = $"{groups.Count}.".Length + 1;
-        int detailColumn = commentColumn + 4 + labelWidth;
-        int width2 = Math.Max(MinDetailWidth, Budget - detailColumn);
+        int detailStartColumn = alignDetailWithCaret ? Column(0) : commentColumn + 4;
+        int detailTextColumn = detailStartColumn + labelWidth;
+        int width2 = Math.Max(MinDetailWidth, Budget - detailTextColumn);
+        string detailIndent = alignDetailWithCaret
+            ? new string(' ', detailStartColumn - commentColumn - 2)
+            : "  ";
         for (int i = 0; i < groups.Count; i++)
         {
             string prefix = Label(i).PadRight(labelWidth);
@@ -541,7 +565,7 @@ public static class AnnotationCaret
             {
                 foreach (string chunk in Wrap(AnnotationText.Format(annotation), width2))
                 {
-                    lines.Add(gutter + "  " + prefix + chunk);
+                    lines.Add(gutter + detailIndent + prefix + chunk);
                     prefix = new string(' ', labelWidth);
                 }
             }
@@ -555,7 +579,7 @@ public static class AnnotationCaret
             string prefix = $"{UnplacedMarker}".PadRight(labelWidth);
             foreach (string chunk in Wrap(AnnotationText.Format(annotation), width2))
             {
-                lines.Add(gutter + "  " + prefix + chunk);
+                lines.Add(gutter + detailIndent + prefix + chunk);
                 prefix = new string(' ', labelWidth);
             }
         }
