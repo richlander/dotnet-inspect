@@ -67,8 +67,8 @@ ambiguous nodes never become guessed additions or removals.
 overload validates the complete result against the exact documents, projects
 the mixed annotated-source documents to C# without re-parsing rendered syntax,
 and maps matches plus `NoCounterpart` nodes into the existing selected-node
-comparison. The explicit-input overload remains for already-issued legacy
-artifacts.
+comparison. The explicit-input overload is an internal construction seam for
+focused presentation tests; it is not a portable input contract.
 
 The result is one `CSharpStructuralComparison` with explicit `Added`, `Removed`,
 `Changed`, and `Moved` outcomes. Movement is orthogonal, so a node may be both
@@ -80,6 +80,33 @@ in identity. Stable kind ids and display labels come from
 Each row retains exact absolute UTF-16 spans and the smallest enclosing region
 role on both sides. Optional compile-back fidelity is separately supplied typed
 evidence, not a conclusion inferred from C# text.
+
+`CSharpStructuralDiffDocument` is the portable artifact paired with
+`AnnotatedSourceDocument`. It carries schema and methodology versions, the
+exact revision-bound `CSharpNodeCorrespondenceResult`, and optional independent
+fidelity evidence. It also retains the generated structural rows so the JSON is
+the diff artifact, not only a recipe for recreating one. Its top-level Before
+and After values are the exact C#-only projections that own those row ids and
+spans; the correspondence payload separately retains the original mixed
+annotated-source documents. Construction and strict deserialization reissue
+correspondence from those originals, derive both projections and the expected
+rows, and require exact agreement before `ToComparison` exposes them. This
+keeps the artifact product-issued rather than accepting caller-authored
+mappings, projections, or rows.
+`CSharpStructuralComparisonTests.StructuralDiffDocument_RejectsTamperedCorrespondence`
+`CSharpStructuralComparisonTests.StructuralDiffDocument_RejectsTamperedProjection`,
+and
+`StructuralDiffDocument_RejectsTamperedRows` are the non-vacuity gates for that
+replay check.
+`StructuralDiffDocument_ProjectsInterleavedIlWithoutInferringFromText` gates
+that the top-level projections own the serialized row coordinates.
+
+The C# name is intentional. `AnnotatedSourceDocument` may interleave C# and IL,
+but this artifact compares the C# node/span projection. Native IL comparison
+remains owned by `ILInspector.ILDiff` through `IlBodyDiffResult`; a future
+portable IL envelope should retain that typed result rather than manufacture a
+parallel generic structural-row hierarchy. Research remains the owner of any
+combined C# + IL implementation-diff document.
 
 `CSharpStructuralDiffPrinter` projects that one result into complete-body caret
 overlays and compact rich-diff rows. For a changed single-span node, each caret
@@ -95,12 +122,14 @@ remains rejected by the existing safety gate. It performs no correspondence.
 gates the lossless wrapped-text claim.
 DecompilerHarness `--structural-review` mode owns Markdown orchestration and
 consumes the same result for both presentations. With two documents it invokes
-the product issuer; the legacy one-file form consumes already-issued explicit
-correspondence. It reads untrusted input through Decompiler-owned
-`AnnotatedSourceJson`, so the CLI document writer and harness reader share one
-model-owned contract while retaining separate writer and strict-reader
-policies. Unsupported and ambiguous nodes remain a separate correspondence-gap
-section; an incomplete result is never reported as "no structural changes."
+the product issuer; `--json` emits the resulting
+`CSharpStructuralDiffDocument`. The one-file form accepts only that generated
+artifact, reissues its correspondence, and renders it later. Both forms read
+untrusted input through Decompiler-owned `AnnotatedSourceJson`, so the CLI
+document writer and harness reader share one model-owned contract while
+retaining separate writer and strict-reader policies. Unsupported and ambiguous
+nodes remain a separate correspondence-gap section; an incomplete result is
+never reported as "no structural changes."
 This model exists only for node/span structure that the line-oriented
 `CSharpDiffRow` cannot represent; it does not introduce another generic
 diff-row hierarchy. Ordinary indented spans reuse the annotation comment gutter
