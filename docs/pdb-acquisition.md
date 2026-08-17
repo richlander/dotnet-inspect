@@ -159,11 +159,13 @@ typed APIs for map extraction, URL decoration, and provenance.
 
 ### Document identity is not declaration provenance
 
-A Portable PDB document authenticates named content, not the physical syntax
-tree that produced a MethodDef. Its document row contains a name, language,
-checksum algorithm, and checksum; sequence points contain mapped destination
-documents and positions. Neither record preserves the pre-mapping source
-document or identifies a `#line` transition.
+A Portable PDB document names content but does not identify the physical syntax
+tree that produced a MethodDef. Its document row contains a name and may carry
+language and checksum metadata; sequence points contain mapped destination
+documents and positions. When a recognized checksum algorithm and checksum are
+present, they can validate candidate bytes against the recorded value. Neither
+record preserves the pre-mapping source document or identifies a `#line`
+transition.
 
 This distinction prevents PDB method spans from authorizing a local C# body. A
 `#line` directive in one compilation input can map its MethodDef into another
@@ -173,11 +175,14 @@ originating file need not be among the source paths supplied to an inspector,
 and embedded source or a compiler-reported source-file count does not associate
 an individual MethodDef with its physical syntax tree.
 
-ReturnToSender therefore treats PDB-selected local source as non-authoritative.
-`TryIsolateRecompileFailure_DeclinesRawSourceIndex` gates that boundary. #3835
-remains blocked on an independent build manifest that certifies the complete
-physical source set and permits an assembly-wide line-mapping check, or on a
-stronger per-method provenance contract outside the Portable PDB format.
+ReturnToSender has no PDB-authoritative local-source path. Its raw source
+indexes remain non-authoritative, and
+`TryIsolateRecompileFailure_DeclinesRawSourceIndex` gates that raw-index
+behavior. No dedicated gate asserts the broader absence of a PDB attribution
+path; it is an architectural non-action boundary. #3835 remains blocked on an
+independent build manifest that certifies the complete physical source set and
+permits an assembly-wide line-mapping check, or on a stronger per-method
+provenance contract outside the Portable PDB format.
 
 ## Microsoft vs third-party libraries
 

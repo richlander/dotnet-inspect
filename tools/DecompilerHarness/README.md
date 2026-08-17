@@ -351,13 +351,16 @@ typed correlation, so fault attribution is not attempted for them. Their
 original compile diagnostic remains visible and an invalid result is
 `Unclassified`, not a success.
 
-Portable PDB method spans do not restore that authority. A document checksum
-authenticates the mapped document content, but an unsupplied compilation input
-can use `#line` to map its MethodDef into that document and reuse its checksum;
-the PDB does not retain the physical source document behind the sequence point.
-Normalized compile-back IL is corroborating evidence, not source provenance.
-`TryIsolateRecompileFailure_DeclinesRawSourceIndex` gates the fail-closed
-behavior. #3835 remains blocked on a trusted complete-source manifest with an
+Portable PDB method spans do not restore that authority. When present and
+recognized, a document checksum can authenticate mapped content, but an
+unsupplied compilation input can use `#line` to map its MethodDef into that
+document and reuse its checksum; the PDB does not retain the physical source
+document behind the sequence point. Normalized compile-back IL is corroborating
+evidence, not source provenance.
+`TryIsolateRecompileFailure_DeclinesRawSourceIndex` gates raw-index
+ineligibility. No dedicated gate asserts the broader absence of a
+PDB-authoritative path; that remains an architectural non-action boundary.
+Issue #3835 is blocked on a trusted complete-source manifest with an
 assembly-wide line-mapping exclusion, or a stronger per-method provenance
 contract.
 
