@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using NuGetFetch;
 
@@ -1061,6 +1062,7 @@ public sealed class PackageSourceClientTests
         Assert.False(handler.UseCookies);
         Assert.False(handler.UseDefaultCredentials);
         Assert.False(handler.PreAuthenticate);
+        Assert.False(handler.AllowAutoRedirect);
         Assert.Null(handler.Credentials);
     }
 
@@ -1071,6 +1073,9 @@ public sealed class PackageSourceClientTests
             PackageSourceClientFactory
                 .CreateCredentialFreeTransportHandler(
                     isBrowser: true);
+
+        Assert.True(handler.UseCookies);
+        Assert.True(handler.AllowAutoRedirect);
     }
 
     [Fact]
@@ -1090,6 +1095,41 @@ public sealed class PackageSourceClientTests
                 fetchOptionsKey,
                 out IDictionary<string, object>? options));
         Assert.Equal("omit", options["credentials"]);
+    }
+
+    [Theory]
+    [InlineData(
+        "https://feed.example/redirected",
+        "user:token")]
+    [InlineData(
+        "https://cdn.example/redirected",
+        null)]
+    public async Task DesktopRedirectsScopeAuthorizationToOriginalOrigin(
+        string redirectTarget,
+        string? expectedRedirectAuthorization)
+    {
+        var transport = new RedirectRecordingHandler(
+            redirectTarget);
+        using var client = new HttpClient(
+            new NuGetCredentialRedirectHandler(transport));
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            ServiceIndex);
+        request.Headers.Authorization =
+            new AuthenticationHeaderValue(
+                "Basic",
+                Convert.ToBase64String(
+                    Encoding.UTF8.GetBytes("user:token")));
+
+        using HttpResponseMessage response =
+            await client.SendAsync(
+                request,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            ["user:token", expectedRedirectAuthorization],
+            transport.Authorization);
     }
 
     [Fact]
@@ -1368,6 +1408,34 @@ public sealed class PackageSourceClientTests
         System.Collections.IEnumerator
             System.Collections.IEnumerable.GetEnumerator() =>
             GetEnumerator();
+    }
+
+    private sealed class RedirectRecordingHandler(
+        string redirectTarget)
+        : HttpMessageHandler
+    {
+        public List<string?> Authorization { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Authorization.Add(
+                DecodeBasic(
+                    request.Headers.Authorization?.Parameter));
+            if (Authorization.Count == 1)
+            {
+                var redirect = new HttpResponseMessage(
+                    HttpStatusCode.Found);
+                redirect.Headers.Location =
+                    new Uri(redirectTarget);
+                return Task.FromResult(redirect);
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK));
+        }
     }
 
     private sealed class RecordingHandler : HttpMessageHandler

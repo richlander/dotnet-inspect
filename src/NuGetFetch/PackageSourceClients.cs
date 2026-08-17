@@ -457,19 +457,21 @@ public static class PackageSourceClientFactory
     }
 
     private static HttpClient CreateOwnedTransport(
-        HttpMessageHandler? transport = null) =>
-        transport is null
-                ? new HttpClient(
-                    CreateCredentialFreeTransportHandler(
-                        OperatingSystem.IsBrowser()),
-                    disposeHandler: true)
-                {
-                    Timeout = Timeout.InfiniteTimeSpan,
-                }
-            : new HttpClient(transport, disposeHandler: true)
-            {
-                Timeout = Timeout.InfiniteTimeSpan,
-            };
+        HttpMessageHandler? transport = null)
+    {
+        bool isBrowser = OperatingSystem.IsBrowser();
+        HttpMessageHandler handler = transport
+            ?? CreateCredentialFreeTransportHandler(isBrowser);
+        if (!isBrowser)
+        {
+            handler = new NuGetCredentialRedirectHandler(handler);
+        }
+
+        return new HttpClient(handler, disposeHandler: true)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+    }
 
     internal static HttpClientHandler CreateCredentialFreeTransportHandler(
         bool isBrowser)
@@ -483,6 +485,7 @@ public static class PackageSourceClientFactory
         handler.UseCookies = false;
         handler.UseDefaultCredentials = false;
         handler.PreAuthenticate = false;
+        handler.AllowAutoRedirect = false;
         return handler;
     }
 }

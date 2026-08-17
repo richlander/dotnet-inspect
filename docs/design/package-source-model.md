@@ -83,11 +83,14 @@ disables cookies, default credentials, and preauthentication on desktop.
 Browser/Wasm applies `BrowserRequestCredentials.Omit` to each request instead
 of setting unsupported handler properties. Source credentials travel through
 the typed credential parameter so the library can enforce the origin boundary.
+Desktop redirects are followed by a bounded source-owned handler that reapplies
+authorization only to the credential's original origin.
 This is gated by
 `RuntimeFactoriesDoNotAcceptSharedHttpClient` and
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`,
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration`,
-`BrowserNuGetRequestsOmitAmbientCredentials`, and the `NuGetFetch`
+`BrowserNuGetRequestsOmitAmbientCredentials`,
+`DesktopRedirectsScopeAuthorizationToOriginalOrigin`, and the `NuGetFetch`
 `browser-wasm` build.
 
 The typed source-client compatibility adapter therefore derives producer
