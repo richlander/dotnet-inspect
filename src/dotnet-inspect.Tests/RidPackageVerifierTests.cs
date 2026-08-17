@@ -157,6 +157,10 @@ public class RidPackageVerifierTests
     [InlineData("<package xmlns=\"urn:a\"><metadata xmlns=\"urn:b\"><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></package>")]
     [InlineData("<package><metadata><id>Other.Package</id><version>1.0.0</version></metadata></package>")]
     [InlineData("<package><metadata><id>TestPackage.linux-x64</id><version>2.0.0</version></metadata></package>")]
+    [InlineData("<package><metadata><id>TestPackage.linux-x64</id><id>Other.Package</id><version>1.0.0</version></metadata></package>")]
+    [InlineData("<package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version><version>2.0.0</version></metadata></package>")]
+    [InlineData("<package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version></metadata></package>")]
+    [InlineData("<package xmlns=\"urn:a\"><metadata><id>TestPackage.linux-x64</id><id xmlns=\"urn:b\">Other.Package</id><version>1.0.0</version></metadata></package>")]
     public async Task VerifyAsync_InvalidNuspecLeavesAvailabilityUnknown(
         string nuspec)
     {

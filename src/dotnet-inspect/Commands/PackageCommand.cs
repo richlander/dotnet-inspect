@@ -1430,10 +1430,15 @@ public class PackageCommand
         return result;
     }
 
-    private static bool DiscoverRequestsSection(string[]? discover, string sectionName, SectionPipeline<InspectionResult> pipeline)
+    internal static bool DiscoverRequestsSection(
+        string[]? discover,
+        string sectionName,
+        SectionPipeline<InspectionResult> pipeline)
     {
-        if (discover is not { Length: > 0 })
+        if (discover is null)
             return false;
+        if (discover.Length == 0)
+            return true;
 
         var categories = pipeline.GetCategoryMap();
         foreach (var value in discover)

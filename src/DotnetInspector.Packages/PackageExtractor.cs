@@ -1429,24 +1429,48 @@ public static class PackageExtractor
             }
 
             XNamespace nuspecNamespace = root.Name.Namespace;
-            XElement? metadata = root.Element(
-                nuspecNamespace + "metadata");
-            string? actualId = metadata?
-                .Element(nuspecNamespace + "id")
-                ?.Value;
-            string? actualVersion = metadata?
-                .Element(nuspecNamespace + "version")
-                ?.Value;
+            XElement[] metadataElements = root.Elements()
+                .Where(element =>
+                    element.Name.LocalName == "metadata")
+                .Take(2)
+                .ToArray();
+            if (metadataElements.Length != 1
+                || metadataElements[0].Name.Namespace
+                    != nuspecNamespace)
+            {
+                return false;
+            }
+
+            XElement metadata = metadataElements[0];
+            XElement[] idElements = metadata.Elements()
+                .Where(element => element.Name.LocalName == "id")
+                .Take(2)
+                .ToArray();
+            XElement[] versionElements = metadata.Elements()
+                .Where(element =>
+                    element.Name.LocalName == "version")
+                .Take(2)
+                .ToArray();
+            if (idElements.Length != 1
+                || idElements[0].Name.Namespace != nuspecNamespace
+                || versionElements.Length != 1
+                || versionElements[0].Name.Namespace != nuspecNamespace)
+            {
+                return false;
+            }
+
+            string actualId = idElements[0].Value;
+            string actualVersion = versionElements[0].Value;
 
             return string.Equals(
-                       actualId?.Trim(),
+                       actualId.Trim(),
                        packageId,
                        StringComparison.OrdinalIgnoreCase)
                    && TryNormalizePackageVersion(
                        version,
                        out string expected)
                    && TryNormalizePackageVersion(
-                       actualVersion?.Trim(),
+                       actualVersion.Trim(),
                        out string actual)
                    && string.Equals(
                        expected,

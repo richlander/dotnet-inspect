@@ -312,7 +312,9 @@ authoritative absence renders `no`, and malformed or otherwise inconclusive prob
 `unknown`. A local sibling must also pass bounded package-archive admission before its strict
 UTF-8 nuspec can prove presence; an existing but empty, corrupt, unreadable, or mismatched sibling
 remains `unknown`. An acquired redirect hop likewise proves its mapped package present only when
-its extracted root nuspec matches the acquired coordinate. `RidPackageVerifierTests` and
+its extracted root nuspec has one consistently namespaced metadata, id, and version element that
+matches the acquired coordinate. Bare effective discovery requests every discoverable section,
+so it performs the same Manifest verification as targeted discovery. `RidPackageVerifierTests` and
 `PackageInspectorMetadataSourceTests` gate these local, remote, and acquired distinctions.
 Availability is not retained in the payload index; each explicit request evaluates the current
 source policy and available cache replicas. Redirect and RID package ids must satisfy the canonical

@@ -8,6 +8,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Sections;
 using DotnetInspector.Views;
 
 namespace DotnetInspector.Tests;
@@ -824,6 +825,30 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             discovered.Error);
         Assert.DoesNotContain(packageId, rendered.Error);
         Assert.DoesNotContain(packageId, discovered.Error);
+    }
+
+    [Fact]
+    public void PackageCommand_BareDiscoveryRequestsEverySection()
+    {
+        var pipeline =
+            PackageSectionDescriptors.CreateCatalog().Pipeline;
+
+        Assert.True(PackageCommand.DiscoverRequestsSection(
+            [],
+            PackageSections.Manifest,
+            pipeline));
+        Assert.True(PackageCommand.DiscoverRequestsSection(
+            [],
+            PackageSections.Signals,
+            pipeline));
+        Assert.False(PackageCommand.DiscoverRequestsSection(
+            null,
+            PackageSections.Manifest,
+            pipeline));
+        Assert.False(PackageCommand.DiscoverRequestsSection(
+            [PackageSections.Signals],
+            PackageSections.Manifest,
+            pipeline));
     }
 
     [Fact]
