@@ -67,9 +67,9 @@ evidence over workspace-owned immutable snapshots; call graphs retain one
 catalog generation for both traversal directions. These queries return typed
 results without choosing a renderer or output format.
 The library CLI executes metadata-image, direct assembly-reference,
-extension-method, custom-attribute, manifest-resource, type-forwarder, and
-union-type queries, the method-classification query, plus the Research-backed
-switch query through a typed, content-shaped registry over a host-owned
+extension-method, custom-attribute, manifest-resource, type-forwarder,
+union-type, method-classification, and audit-metadata queries, plus the
+Research-backed switch query through a typed, content-shaped registry over a host-owned
 `AssemblyInspectionSession`. The `References`, `Extension Methods`, `Custom
 Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union Types`,
 `P/Invoke Methods`, `Async Methods`, `Signals`, and `Library Info` sections
@@ -270,7 +270,8 @@ consumer's convenience.
 Metadata-image, direct-reference, assembly-context reference,
 package dependency-group, loaded dependency-coordinate match,
 extension-method, custom-attribute,
-manifest-resource, type-forwarder, union-type, classified-method, switch,
+manifest-resource, type-forwarder, union-type, classified-method,
+audit-metadata, switch,
 SourceLink,
 API-comparison, Analysis body-signal comparison, Implementation comparison, and
 assembly-context Integrations inspection are the first vertical L1 canaries:
@@ -314,6 +315,10 @@ assembly-context Integrations inspection are the first vertical L1 canaries:
   and Signals. The CLI adds path-based Finding provenance and compatibility
   summaries after query execution, and P/Invoke and async rows contain exact
   evidence at the presentation boundary.
+- `AuditMetadataQuery` returns immutable assembly/module/member audit facts as
+  `Available`, `NoMetadata`, or `Failed`. `Signals` composes those facts with
+  direct references, classified methods, and later source evidence in the CLI;
+  metadata acquisition no longer requires a mutable composition scanner.
 - `SwitchesQuery` lives in the optional Research-backed query companion. It
   composes attribute-declared metadata with Research-owned AppContext IL
   evidence into one immutable ordered inventory. The CLI adds path-based
@@ -404,7 +409,7 @@ the L2 project split still need migration.
 
 The structural fix is completing L1. Outside the metadata, direct-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, classified-method, switch, SourceLink, and type/member inventory
+union-type, classified-method, audit-metadata, switch, SourceLink, and type/member inventory
 canaries, collection is still neither typed nor demand-driven:
 
 - Data collection **mutates a shared aggregate** rather than returning typed

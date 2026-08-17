@@ -122,11 +122,12 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   --structural-review /tmp/before.json /tmp/after.json
 
 Paste the output verbatim. Its complete Before/After blocks and rich structural
-diff consume one CSharpStructuralComparison issued from physical-method and
-IL-origin provenance; do not manually place carets or reconstruct rows. Node ids
-remain document-local. Equal ids, coordinates, selected text, labels, and
-display order never establish correspondence. Fidelity and retained IL notes
-are independent evidence, not claims inferred from the C# transition.
+diff derive from one product-issued `CSharpStructuralDiffDocument` bound to
+physical-method and IL-origin provenance; do not manually place carets or
+reconstruct rows. Node ids remain document-local. Equal ids, coordinates,
+selected text, labels, and display order never establish correspondence.
+Fidelity and retained IL notes are independent evidence, not claims inferred
+from the C# transition.
 
 When either document lacks product provenance, the physical method identities
 differ, or the changed nodes are unsupported or ambiguous, write:
