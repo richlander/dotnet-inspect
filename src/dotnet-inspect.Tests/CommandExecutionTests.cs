@@ -17094,6 +17094,57 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain(
                 CountOutput.SingleSectionRequiredMessage,
                 categoryError);
+
+            var (metadataExit, metadataOutput, metadataError) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    SectionCategoryNames.Metadata,
+                    "--count",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, metadataExit);
+            var metadataImageRow = metadataOutput
+                .ReplaceLineEndings("\n")
+                .Split('\n')
+                .Single(line => line.StartsWith(
+                    $"| {MetadataSectionNames.Image} |",
+                    StringComparison.Ordinal));
+            var metadataImageCount = int.Parse(
+                metadataImageRow.Split('|')[2].Trim(),
+                CultureInfo.InvariantCulture);
+            Assert.True(metadataImageCount > 0);
+            Assert.DoesNotContain(
+                "unprojected output",
+                metadataError,
+                StringComparison.OrdinalIgnoreCase);
+
+            var (emptyExit, emptyOutput, emptyError) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    $"{SectionNames.IdentifierConfusion},{SectionNames.NonNormalizedPaths}",
+                    "--count",
+                    "--json",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, emptyExit);
+            Assert.Contains(
+                $"| {SectionNames.IdentifierConfusion} | 0 |",
+                emptyOutput);
+            Assert.Contains(
+                $"| {SectionNames.NonNormalizedPaths} | 0 |",
+                emptyOutput);
+            Assert.DoesNotContain(
+                "unprojected output",
+                emptyError,
+                StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

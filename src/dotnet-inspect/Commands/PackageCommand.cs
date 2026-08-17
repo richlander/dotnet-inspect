@@ -4276,7 +4276,11 @@ public class PackageCommand
                 .Contains(section, StringComparer.OrdinalIgnoreCase))
                 continue;
 
-            var rendered = RenderLibrarySection(inspection, section, options);
+            var rendered = RenderLibrarySection(
+                inspection,
+                section,
+                options,
+                pipeline);
             if (rendered.Length == 0)
                 continue;
 
@@ -4284,20 +4288,25 @@ public class PackageCommand
         }
     }
 
-    private static string RenderLibrarySection(LibraryInspection inspection, string section, LibraryOptions options)
+    private static string RenderLibrarySection(
+        LibraryInspection inspection,
+        string section,
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline)
     {
         var view = new LibraryInspectionView(inspection);
         var writerOptions = new MarkoutWriterOptions
         {
             IncludeSections = [section],
             Projection = OutputFormatter.BuildProjection(options.Columns, options.Fields),
-            // Windowed here rather than over the assembled document: the heading rewrite below is
-            // the only text this path edits, and it does not touch rows.
-            RowWindow = RowWindow.ToMarkout(options.Rows)
         };
-        var output = new StringWriter { NewLine = "\n" };
-        MarkoutSerializer.Serialize(view, output, InspectionContext.Default, writerOptions);
-        var markdown = output.ToString().Trim();
+        var markdown = OutputFormatter.SerializeLibraryMarkdown(
+                view,
+                inspection,
+                writerOptions,
+                pipeline,
+                options.Rows)
+            .Trim();
         if (markdown.Length == 0)
             return "";
 
