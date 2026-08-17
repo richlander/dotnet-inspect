@@ -256,6 +256,9 @@ public class IteratorReconstructionPassTests
         Assert.Equal(2, yields.Count);
         Assert.Equal(1, Assert.IsType<Constant>(yields[0].Value).Value);
         Assert.Equal(2, Assert.IsType<Constant>(yields[1].Value).Value);
+        Assert.All(
+            yields.SelectMany(static yield => yield.Descendants.Prepend(yield)),
+            node => Assert.Equal(-1, node.SourceOffset));
 
         // The misleading state-machine handoff and acknowledgment marker are gone.
         Assert.Empty(function.Descendants.OfType<NewObject>());

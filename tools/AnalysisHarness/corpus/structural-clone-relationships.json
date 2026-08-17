@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "cases": [
     {
       "id": "banal.authored.exact",
@@ -123,5 +123,57 @@
         "exception-handling"
       ]
     }
-  ]
+  ],
+  "discovery": {
+    "population": [
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExactPositiveA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExactPositiveB"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "EdgeRoleNegativeA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "EdgeRoleNegativeB"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardByte"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardUInt"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardString"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "SignatureHazardObject"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "MetadataOperandsA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "MetadataOperandsB"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExceptionHandlingA"
+      },
+      {
+        "type": "ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture",
+        "method": "ExceptionHandlingB"
+      }
+    ]
+  }
 }
