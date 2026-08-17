@@ -132,7 +132,8 @@ internal sealed class NuGetCredentialRedirectHandler(
         }
 
         string rawLocation = locationValues.ToString();
-        if (!NuGetHttpRequest.HasValidRawText(
+        if (string.IsNullOrEmpty(rawLocation)
+            || !NuGetHttpRequest.HasValidRawText(
                 rawLocation,
                 allowNonAscii: true))
         {

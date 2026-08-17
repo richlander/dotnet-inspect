@@ -1201,6 +1201,7 @@ public sealed class PackageSourceClientTests
     }
 
     [Theory]
+    [InlineData("")]
     [InlineData("https://feed.example/path%")]
     [InlineData("https://\u200D.example/next")]
     [InlineData("https://user:secret@feed.example/next")]
