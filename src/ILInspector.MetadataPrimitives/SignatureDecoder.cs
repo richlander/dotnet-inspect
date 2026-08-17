@@ -129,17 +129,38 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
                 SignatureDecodeRejectionKind.MalformedMetadata,
                 exception.Message));
 
-    public string GetSZArrayType(string elementType) => $"{elementType}[]";
+    public string GetSZArrayType(string elementType)
+    {
+        ObserveMaterialization(elementType.Length + 2L);
+        return $"{elementType}[]";
+    }
 
     public string GetArrayType(string elementType, ArrayShape shape)
-        => $"{elementType}[{new string(',', shape.Rank - 1)}]";
+    {
+        ObserveMaterialization(elementType.Length + Math.Max(shape.Rank, 0L) + 1L);
+        return $"{elementType}[{new string(',', shape.Rank - 1)}]";
+    }
 
-    public string GetByReferenceType(string elementType) => $"ref {elementType}";
+    public string GetByReferenceType(string elementType)
+    {
+        ObserveMaterialization(elementType.Length + 4L);
+        return $"ref {elementType}";
+    }
 
-    public string GetPointerType(string elementType) => $"{elementType}*";
+    public string GetPointerType(string elementType)
+    {
+        ObserveMaterialization(elementType.Length + 1L);
+        return $"{elementType}*";
+    }
 
     public string GetGenericInstantiation(string genericType, ImmutableArray<string> typeArguments)
-        => TypeResolver.ApplyGenericArguments(genericType, typeArguments);
+    {
+        long estimatedLength = genericType.Length * 2L + 16L;
+        foreach (string argument in typeArguments)
+            estimatedLength += argument.Length + 2L;
+        ObserveMaterialization(estimatedLength);
+        return TypeResolver.ApplyGenericArguments(genericType, typeArguments);
+    }
 
     public string GetGenericMethodParameter(GenericContext? context, int index)
     {
@@ -157,6 +178,11 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 
     public string GetFunctionPointerType(MethodSignature<string> signature)
     {
+        long estimatedLength = signature.ReturnType.Length + 32L;
+        foreach (string parameterType in signature.ParameterTypes)
+            estimatedLength += parameterType.Length + 2L;
+        ObserveMaterialization(
+            estimatedLength + 16L + signature.ParameterTypes.Length * 4L);
         var types = signature.ParameterTypes.Add(signature.ReturnType);
         string arguments = string.Join(", ", types);
         string convention = ConventionText(signature.Header.CallingConvention);
@@ -178,4 +204,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired) => unmodifiedType;
 
     public string GetPinnedType(string elementType) => elementType;
+
+    void ObserveMaterialization(long units)
+        => _beforeMaterialize?.Invoke((int)Math.Min(units, int.MaxValue));
 }

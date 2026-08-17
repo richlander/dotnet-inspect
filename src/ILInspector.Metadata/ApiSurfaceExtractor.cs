@@ -2071,27 +2071,37 @@ public static class ApiSurfaceExtractor
             .SelectMany(type => GetTypeMatchKeys(type).Select(key => (key, type)))
             .GroupBy(item => item.key, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First().type, StringComparer.OrdinalIgnoreCase);
+        var attachedIdentities = new Dictionary<
+            ApiType,
+            HashSet<(string DeclaringType, string Name, string? Signature)>>();
 
         foreach (var declaringType in surface.Types)
         {
-            foreach (var extension in declaringType.Members.Where(member => member.IsExtension))
+            var overloadCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var extension in declaringType.Members)
             {
+                overloadCounts.TryGetValue(extension.Name, out int declaringOverloadIndex);
+                declaringOverloadIndex++;
+                overloadCounts[extension.Name] = declaringOverloadIndex;
+                if (!extension.IsExtension)
+                    continue;
+
                 var key = NormalizeTypeMatchKey(extension.ExtendedType);
                 if (key == null || !targets.TryGetValue(key, out var targetType))
                     continue;
                 if (ReferenceEquals(targetType, declaringType))
                     continue;
-                if (targetType.Members.Any(member =>
-                    member.Kind == "extension-method"
-                    && string.Equals(member.DeclaringType, declaringType.FullName, StringComparison.Ordinal)
-                    && string.Equals(member.Name, extension.Name, StringComparison.Ordinal)
-                    && string.Equals(member.Signature, extension.Signature, StringComparison.Ordinal)))
+                if (!attachedIdentities.TryGetValue(targetType, out var identities))
+                {
+                    identities = [];
+                    attachedIdentities.Add(targetType, identities);
+                }
+                var identity = (
+                    declaringType.FullName,
+                    extension.Name,
+                    extension.Signature);
+                if (identities.Contains(identity))
                     continue;
-
-                var declaringOverloadIndex = declaringType.Members
-                    .Where(member => string.Equals(member.Name, extension.Name, StringComparison.Ordinal))
-                    .ToList()
-                    .IndexOf(extension) + 1;
 
                 var attached = new ApiMember
                 {
@@ -2118,6 +2128,7 @@ public static class ApiSurfaceExtractor
                 };
                 budget?.RetainAttachedMember(attached);
                 targetType.Members.Add(attached);
+                identities.Add(identity);
             }
         }
     }
