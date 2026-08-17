@@ -1059,7 +1059,7 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             "1.0.0",
             client,
-            TimeSpan.FromMilliseconds(100));
+            TimeSpan.FromMilliseconds(500));
         await handler.RequestStarted.Task.WaitAsync(
             TimeSpan.FromSeconds(1),
             TestContext.Current.CancellationToken);
@@ -1067,11 +1067,37 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             "1.0.0",
             client,
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromMilliseconds(100));
 
+        TimeoutException secondFailure =
+            await Assert.ThrowsAsync<TimeoutException>(() => second);
+        Assert.Contains(
+            "0.1-second deadline",
+            secondFailure.Message,
+            StringComparison.Ordinal);
+        Assert.False(first.IsCompleted);
         await Assert.ThrowsAsync<TimeoutException>(() => first);
-        await Assert.ThrowsAsync<TimeoutException>(() => second);
         Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public void PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent()
+    {
+        using var deadline =
+            new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+                TimeSpan.FromMilliseconds(10));
+        var inner = new RecordingTransferPolicy();
+        var policy =
+            new BrowserPackageWorkspace.BrowserPackageOperationTransferPolicy(
+                inner,
+                deadline);
+        using IPackagePayloadReservation reservation =
+            policy.ApplyDeadline(inner.Reservation);
+        while (!deadline.HasExpired)
+            Thread.SpinWait(100);
+
+        Assert.Throws<TimeoutException>(() => reservation.Complete());
+        Assert.False(inner.Reservation.Completed);
     }
 
     [Fact]
@@ -1476,6 +1502,26 @@ public sealed class BrowserEngineBoundaryTests
                 cancellationToken);
             throw new InvalidOperationException(
                 "The stalling handler completed without cancellation.");
+        }
+    }
+
+    sealed class RecordingTransferPolicy : IPackagePayloadTransferPolicy
+    {
+        internal RecordingReservation Reservation { get; } = new();
+
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer) =>
+            Reservation;
+    }
+
+    sealed class RecordingReservation : IPackagePayloadReservation
+    {
+        internal bool Completed { get; private set; }
+
+        public void Complete() => Completed = true;
+
+        public void Dispose()
+        {
         }
     }
 

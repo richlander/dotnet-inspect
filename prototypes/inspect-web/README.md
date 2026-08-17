@@ -149,8 +149,10 @@ coordinate to rewrite the resource path.
 `ListVersions_UsesAuthorizedSourcesWithoutPersistentCaching`, and
 `BrowserEngineBoundaryTests.PackageCoordinates_AreRejectedBeforeAnyCacheOrNetworkAccess`,
 `BrowserEngineBoundaryTests.PackageResolution_StallBecomesVisibleOperationTimeout`,
+`BrowserEngineBoundaryTests.PackageAcquisition_StallBecomesVisibleOperationTimeout`,
+`BrowserEngineBoundaryTests.PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller`,
 and
-`BrowserEngineBoundaryTests.PackageAcquisition_StallBecomesVisibleOperationTimeout`
+`BrowserEngineBoundaryTests.PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent`
 gate these boundaries.
 
 Acquisition is bounded before content enters either cache or workspace. A

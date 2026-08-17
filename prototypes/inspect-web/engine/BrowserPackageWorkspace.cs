@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
 using DotnetInspector.Packages;
@@ -40,6 +41,10 @@ namespace InspectWeb.Engine;
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_StallBecomesVisibleOperationTimeout</c>
 /// gate the Browser operation deadline through shared coordinate resolution
 /// and payload acquisition.
+/// <c>BrowserEngineBoundaryTests.PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller</c>
+/// gates per-caller deadlines over a shared transfer, and
+/// <c>BrowserEngineBoundaryTests.PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent</c>
+/// gates the final monotonic check before cache publication.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
@@ -98,12 +103,11 @@ internal static class BrowserPackageWorkspace
         string packageId,
         string? version) =>
         RunPackageOperationAsync(
-            cancellationToken => AcquireCoreAsync(
+            deadline => AcquireCoreAsync(
                 packageId,
                 version,
                 Http,
-                cancellationToken,
-                PackageOperationTimeout),
+                deadline),
             PackageOperationTimeout);
 
     internal static Task<BrowserPackage> AcquireAsync(
@@ -112,20 +116,18 @@ internal static class BrowserPackageWorkspace
         HttpClient client,
         TimeSpan operationTimeout) =>
         RunPackageOperationAsync(
-            cancellationToken => AcquireCoreAsync(
+            deadline => AcquireCoreAsync(
                 packageId,
                 version,
                 client,
-                cancellationToken,
-                operationTimeout),
+                deadline),
             operationTimeout);
 
     static async Task<BrowserPackage> AcquireCoreAsync(
         string packageId,
         string? version,
         HttpClient client,
-        CancellationToken cancellationToken,
-        TimeSpan operationTimeout)
+        BrowserPackageOperationDeadline deadline)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
@@ -137,9 +139,10 @@ internal static class BrowserPackageWorkspace
         ResolvedPackageCoordinate coordinate = await ResolveCoordinateAsync(
             new PackageCoordinate(packageId, requestedVersion),
             client,
-            cancellationToken);
+            deadline.Token);
 
         string key = PackageKey(coordinate.PackageId, coordinate.Version);
+        bool ownsPendingAcquisition = false;
         if (!PendingAcquisitions.TryGetValue(
                 key,
                 out Task<AcquiredPackagePayload>? pending))
@@ -147,19 +150,30 @@ internal static class BrowserPackageWorkspace
             pending = AcquirePayloadWithinOperationAsync(
                 coordinate,
                 client,
-                cancellationToken,
-                operationTimeout);
+                deadline);
             PendingAcquisitions.Add(key, pending);
+            ownsPendingAcquisition = true;
         }
 
         AcquiredPackagePayload payload;
         try
         {
-            payload = await pending.ConfigureAwait(false);
+            payload = ownsPendingAcquisition
+                ? await pending.ConfigureAwait(false)
+                : await pending
+                    .WaitAsync(deadline.Token)
+                    .ConfigureAwait(false);
         }
         finally
         {
-            PendingAcquisitions.Remove(key);
+            if (ownsPendingAcquisition
+                && PendingAcquisitions.TryGetValue(
+                    key,
+                    out Task<AcquiredPackagePayload>? active)
+                && ReferenceEquals(active, pending))
+            {
+                PendingAcquisitions.Remove(key);
+            }
         }
 
         if (!Cache.TryGetValue(key, out CacheEntry? cached)
@@ -352,7 +366,8 @@ internal static class BrowserPackageWorkspace
     static async Task<AcquiredPackagePayload> AcquirePayloadAsync(
         ResolvedPackageCoordinate coordinate,
         HttpClient client,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IPackagePayloadTransferPolicy transferPolicy)
     {
         PackagePayloadResult result = await PackagePayloadAcquisition.AcquireAsync(
             client,
@@ -360,7 +375,7 @@ internal static class BrowserPackageWorkspace
             Store,
             limits: PayloadLimits,
             cancellationToken: cancellationToken,
-            transferPolicy: Store).ConfigureAwait(false);
+            transferPolicy: transferPolicy).ConfigureAwait(false);
         return result switch
         {
             PackagePayloadResult.Acquired acquired => acquired.Payload,
@@ -374,28 +389,30 @@ internal static class BrowserPackageWorkspace
     static async Task<AcquiredPackagePayload> AcquirePayloadWithinOperationAsync(
         ResolvedPackageCoordinate coordinate,
         HttpClient client,
-        CancellationToken cancellationToken,
-        TimeSpan operationTimeout)
+        BrowserPackageOperationDeadline deadline)
     {
         try
         {
             return await AcquirePayloadAsync(
                 coordinate,
                 client,
-                cancellationToken).ConfigureAwait(false);
+                deadline.Token,
+                new BrowserPackageOperationTransferPolicy(
+                    Store,
+                    deadline)).ConfigureAwait(false);
         }
         catch (OperationCanceledException exception)
-            when (cancellationToken.IsCancellationRequested)
+            when (deadline.HasExpired)
         {
-            throw PackageOperationTimedOut(operationTimeout, exception);
+            throw deadline.Timeout(exception);
         }
     }
 
     internal static Task<string[]> GetVersionsAsync(string packageId) =>
         RunPackageOperationAsync(
-            cancellationToken => GetVersionsCoreAsync(
+            deadline => GetVersionsCoreAsync(
                 packageId,
-                cancellationToken),
+                deadline.Token),
             PackageOperationTimeout);
 
     static async Task<string[]> GetVersionsCoreAsync(
@@ -436,10 +453,10 @@ internal static class BrowserPackageWorkspace
         string packageId,
         string? declaredRange) =>
         RunPackageOperationAsync(
-            cancellationToken => ResolveDependencyVersionCoreAsync(
+            deadline => ResolveDependencyVersionCoreAsync(
                 packageId,
                 declaredRange,
-                cancellationToken),
+                deadline.Token),
             PackageOperationTimeout);
 
     static async Task<string> ResolveDependencyVersionCoreAsync(
@@ -468,7 +485,7 @@ internal static class BrowserPackageWorkspace
     }
 
     static async Task<T> RunPackageOperationAsync<T>(
-        Func<CancellationToken, Task<T>> operation,
+        Func<BrowserPackageOperationDeadline, Task<T>> operation,
         TimeSpan timeout)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -480,24 +497,86 @@ internal static class BrowserPackageWorkspace
                 "The Browser package-operation timeout must be positive.");
         }
 
-        using var deadline = new CancellationTokenSource(timeout);
+        using var deadline = new BrowserPackageOperationDeadline(timeout);
         try
         {
-            return await operation(deadline.Token).ConfigureAwait(false);
+            T result = await operation(deadline).ConfigureAwait(false);
+            deadline.ThrowIfExpired();
+            return result;
         }
         catch (OperationCanceledException exception)
-            when (deadline.IsCancellationRequested)
+            when (deadline.HasExpired)
         {
-            throw PackageOperationTimedOut(timeout, exception);
+            throw deadline.Timeout(exception);
         }
     }
 
-    static TimeoutException PackageOperationTimedOut(
-        TimeSpan timeout,
-        OperationCanceledException exception) =>
-        new(
-            $"The Browser package operation exceeded its {timeout.TotalSeconds:g}-second deadline.",
-            exception);
+    internal sealed class BrowserPackageOperationDeadline : IDisposable
+    {
+        readonly CancellationTokenSource _cancellation;
+        readonly long _started = Stopwatch.GetTimestamp();
+        readonly TimeSpan _timeout;
+
+        internal BrowserPackageOperationDeadline(TimeSpan timeout)
+        {
+            _timeout = timeout;
+            _cancellation = new CancellationTokenSource(timeout);
+        }
+
+        internal CancellationToken Token => _cancellation.Token;
+
+        internal bool HasExpired =>
+            _cancellation.IsCancellationRequested
+            || Stopwatch.GetElapsedTime(_started) >= _timeout;
+
+        internal void ThrowIfExpired()
+        {
+            if (HasExpired)
+            {
+                throw Timeout(
+                    new OperationCanceledException(
+                        "Browser package operation deadline expired.",
+                        Token));
+            }
+        }
+
+        internal TimeoutException Timeout(Exception exception) =>
+            new(
+                $"The Browser package operation exceeded its {_timeout.TotalSeconds:g}-second deadline.",
+                exception);
+
+        public void Dispose() => _cancellation.Dispose();
+    }
+
+    internal sealed class BrowserPackageOperationTransferPolicy(
+        IPackagePayloadTransferPolicy inner,
+        BrowserPackageOperationDeadline deadline)
+        : IPackagePayloadTransferPolicy
+    {
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer) =>
+            ApplyDeadline(inner.Reserve(transfer));
+
+        internal IPackagePayloadReservation ApplyDeadline(
+            IPackagePayloadReservation reservation) =>
+            new DeadlineReservation(
+                reservation,
+                deadline);
+
+        sealed class DeadlineReservation(
+            IPackagePayloadReservation inner,
+            BrowserPackageOperationDeadline deadline)
+            : IPackagePayloadReservation
+        {
+            public void Complete()
+            {
+                deadline.ThrowIfExpired();
+                inner.Complete();
+            }
+
+            public void Dispose() => inner.Dispose();
+        }
+    }
 
     internal static string? SelectDependencyVersion(
         string[] versions,
