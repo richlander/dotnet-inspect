@@ -131,7 +131,8 @@ public static class GuardedSignatureDecoder
         MetadataReader reader,
         TypeSpecificationHandle handle,
         GenericContext? context = null,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        bool enforceCharacterBudget = true)
         => SignatureDecoder.Decode(() =>
         {
             beforeMaterialize?.Invoke(
@@ -154,10 +155,11 @@ public static class GuardedSignatureDecoder
 
             using (scope)
             {
+                SignatureDecoder decoder = beforeMaterialize is null && enforceCharacterBudget
+                    ? SignatureDecoder.Instance
+                    : new SignatureDecoder(beforeMaterialize, enforceCharacterBudget);
                 return reader.GetTypeSpecification(handle).DecodeSignature(
-                    beforeMaterialize is null
-                        ? SignatureDecoder.Instance
-                        : new SignatureDecoder(beforeMaterialize),
+                    decoder,
                     context);
             }
         });

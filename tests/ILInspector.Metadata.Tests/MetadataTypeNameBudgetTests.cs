@@ -528,6 +528,92 @@ public class MetadataTypeNameBudgetTests
     }
 
     [Fact]
+    public void TypeSpecDisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap()
+    {
+        string name = new string('A', 5_030);
+        TypeSpecificationHandle specification = default;
+        TypeReferenceHandle typeRef = default;
+        using var image = BuildMetadata(metadata =>
+        {
+            AssemblyReferenceHandle assembly = AddAssemblyReference(metadata);
+            typeRef = metadata.AddTypeReference(
+                assembly,
+                default,
+                metadata.GetOrAddString(name));
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x12);
+            signature.WriteCompressedInteger(
+                MetadataTokens.GetRowNumber(typeRef) << 2 | 1);
+            specification = metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(signature));
+        });
+
+        Assert.Equal(
+            SignatureDecodeRejectionKind.NameBudget,
+            Assert.IsType<SignatureDecodeResult<string>.Rejected>(
+                    TypeResolver.DecodeTypeNameFromSpecification(
+                        image.Reader,
+                        specification))
+                .Rejection.Kind);
+        Assert.Equal(
+            name,
+            TypeResolver.GetTypeNameFromSpecification(image.Reader, specification));
+        Assert.Equal(
+            name,
+            TypeResolver.GetTypeName(image.Reader, specification));
+        Assert.Equal(
+            name,
+            TypeResolver.GetTypeNameFromReference(image.Reader, typeRef));
+    }
+
+    [Fact]
+    public void EmptyNamespaceExactCharacterBudget_AgreesWithCreate()
+    {
+        int budget = MetadataSafetyPolicy.MaxTypeNameCharacters;
+        string accepted = new string('E', budget - 1);
+        string rejected = new string('E', budget);
+        TypeDefinitionHandle acceptedHandle = default;
+        TypeDefinitionHandle rejectedHandle = default;
+        using var image = BuildMetadata(metadata =>
+        {
+            acceptedHandle = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "",
+                accepted);
+            rejectedHandle = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "",
+                rejected);
+        });
+
+        Assert.Equal(
+            accepted,
+            TypeResolver.ResolveTypeNameFromDefinition(image.Reader, acceptedHandle)
+                .GetValueOrThrow());
+        Assert.IsType<MetadataTypeDefinitionNameReadResult.Read>(
+            MetadataTypeDefinitionNameReader.Read(image.Reader, acceptedHandle));
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("", [accepted]));
+
+        AssertNameBudget(
+            TypeResolver.ResolveTypeNameFromDefinition(image.Reader, rejectedHandle));
+        Assert.Equal(
+            RelationshipTraversalRejectionKind.NameBudget,
+            Assert.IsType<MetadataTypeDefinitionNameReadResult.Rejected>(
+                    MetadataTypeDefinitionNameReader.Read(
+                        image.Reader,
+                        rejectedHandle))
+                .Failure.RelationshipKind);
+        Assert.Equal(
+            MetadataTypeNameRejectionKind.SegmentsTooLong,
+            Assert.IsType<MetadataTypeDefinitionNameResult.Rejected>(
+                    MetadataTypeDefinitionName.Create("", [rejected]))
+                .Rejection.Kind);
+    }
+
+    [Fact]
     public void ExactBudgetNameFromMetadata_IsAccepted()
     {
         string name = new string(

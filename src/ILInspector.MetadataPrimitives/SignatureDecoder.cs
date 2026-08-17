@@ -11,6 +11,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 {
     const string Unresolved = "object";
     readonly Action<int>? _beforeMaterialize;
+    readonly bool _enforceCharacterBudget;
 
     [ThreadStatic]
     static SignatureDecodeRejection? s_rejection;
@@ -21,13 +22,20 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     public static SignatureDecoder Instance { get; } = new();
 
     public SignatureDecoder()
+        : this(beforeMaterialize: null, enforceCharacterBudget: true)
     {
     }
 
     internal SignatureDecoder(Action<int> beforeMaterialize)
+        : this(beforeMaterialize, enforceCharacterBudget: true)
     {
-        _beforeMaterialize = beforeMaterialize
-            ?? throw new ArgumentNullException(nameof(beforeMaterialize));
+        ArgumentNullException.ThrowIfNull(beforeMaterialize);
+    }
+
+    internal SignatureDecoder(Action<int>? beforeMaterialize, bool enforceCharacterBudget)
+    {
+        _beforeMaterialize = beforeMaterialize;
+        _enforceCharacterBudget = enforceCharacterBudget;
     }
 
     public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode switch
@@ -60,7 +68,8 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
                 handle,
                 _beforeMaterialize,
                 out string? name,
-                out var rejection),
+                out var rejection,
+                _enforceCharacterBudget),
             name,
             rejection);
 
@@ -71,7 +80,8 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
                 handle,
                 _beforeMaterialize,
                 out string? name,
-                out var rejection),
+                out var rejection,
+                _enforceCharacterBudget),
             name,
             rejection);
 

@@ -63,7 +63,8 @@ public static class TypeResolver
                 reader,
                 (TypeSpecificationHandle)handle,
                 context,
-                beforeMaterialize).TryGetValue(out var name)
+                beforeMaterialize,
+                enforceCharacterBudget: false).TryGetValue(out var name)
                     ? name
                     : null,
             _ => null
@@ -408,7 +409,12 @@ public static class TypeResolver
         MetadataReader reader,
         TypeSpecificationHandle handle,
         GenericContext? context = null)
-        => DecodeTypeNameFromSpecification(reader, handle, context).GetValueOrThrow();
+        => DecodeTypeNameFromSpecification(
+            reader,
+            handle,
+            context,
+            beforeMaterialize: null,
+            enforceCharacterBudget: false).GetValueOrThrow();
 
     /// <summary>
     /// Gets the guarded decode outcome for a TypeSpecification handle (generic instantiations).
@@ -417,12 +423,14 @@ public static class TypeResolver
         MetadataReader reader,
         TypeSpecificationHandle handle,
         GenericContext? context = null,
-        Action<int>? beforeMaterialize = null)
+        Action<int>? beforeMaterialize = null,
+        bool enforceCharacterBudget = true)
         => GuardedSignatureDecoder.DecodeTypeSpecification(
             reader,
             handle,
             context,
-            beforeMaterialize);
+            beforeMaterialize,
+            enforceCharacterBudget);
 
     /// <summary>
     /// Gets the full name of a type definition (Namespace.Name), qualifying a
@@ -780,7 +788,8 @@ public static class TypeResolver
                         reader,
                         ref budget,
                         namespaceHandle,
-                        delimiterChars: 0,
+                        chargeDelimiterChars: 0,
+                        renderDelimiterChars: 0,
                         builder,
                         getSubject(handle),
                         i + 1,
@@ -790,12 +799,12 @@ public static class TypeResolver
                     return namespaceRejection;
                 }
 
-                int nameDelimiter = i > 0 || builder.Length > 0 ? 1 : 0;
                 if (!TryAppendNamePart(
                         reader,
                         ref budget,
                         nameHandle,
-                        nameDelimiter,
+                        chargeDelimiterChars: 1,
+                        renderDelimiterChars: i > 0 || builder.Length > 0 ? 1 : 0,
                         builder,
                         getSubject(handle),
                         i + 1,
@@ -851,7 +860,8 @@ public static class TypeResolver
                     reader,
                     ref budget,
                     leafName,
-                    delimiterChars: 1,
+                    chargeDelimiterChars: 1,
+                    renderDelimiterChars: 1,
                     builder,
                     subject,
                     completed.ConsumedNodes + 1,
@@ -891,7 +901,8 @@ public static class TypeResolver
                     reader,
                     ref budget,
                     namespaceHandle,
-                    delimiterChars: 0,
+                    chargeDelimiterChars: 0,
+                    renderDelimiterChars: 0,
                     builder,
                     subject,
                     consumedNodes,
@@ -905,7 +916,8 @@ public static class TypeResolver
                     reader,
                     ref budget,
                     nameHandle,
-                    delimiterChars: builder.Length > 0 ? 1 : 0,
+                    chargeDelimiterChars: 1,
+                    renderDelimiterChars: builder.Length > 0 ? 1 : 0,
                     builder,
                     subject,
                     consumedNodes,
@@ -933,7 +945,8 @@ public static class TypeResolver
         MetadataReader reader,
         ref MetadataTypeNameBudget budget,
         StringHandle handle,
-        int delimiterChars,
+        int chargeDelimiterChars,
+        int renderDelimiterChars,
         StringBuilder builder,
         EntityHandle subject,
         int consumedNodes,
@@ -943,7 +956,7 @@ public static class TypeResolver
         if (!budget.TryRead(
                 reader,
                 handle,
-                delimiterChars,
+                chargeDelimiterChars,
                 beforeMaterialize: null,
                 out string value,
                 enforceCharacterBudget))
@@ -952,7 +965,7 @@ public static class TypeResolver
             return false;
         }
 
-        if (delimiterChars > 0)
+        if (renderDelimiterChars > 0)
             builder.Append('.');
         builder.Append(value);
         rejection = null!;
