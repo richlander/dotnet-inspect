@@ -88,8 +88,10 @@ change ready to merge.
   or evidenced transient infrastructure failure, re-run the failed check on the
   unchanged head. If it passes, continue the same attempt. If it fails again,
   inspect the current-head failure and either repeat only with concrete
-  transient evidence or classify the failure as requiring an author change;
-  never release the lock while a required check remains red.
+  transient evidence or classify the failure as requiring an author change,
+  which hands the attempt to failed-gate recovery above and releases the lock.
+  Absent that classification, never continue or complete the attempt while a
+  required check remains red.
 - Form one frozen candidate for each review round. Immediately before focused
   local validation, fetch and integrate the effective base and record that base
   tip. Once the smallest local test, lint, or build gate covering the authored
@@ -116,11 +118,14 @@ change ready to merge.
   task-relevant docs before continuing.
 - Do not mix unrelated changes into one commit or sweep another contributor's
   working-tree changes into your work.
-- Treat worktrees as temporary. Confirm the exact reviewed head is pushed, then
-  `git worktree remove <path>` as soon as every required fixed-head review is
-  clean — or after merge, for a change that needs no adversarial review. Do not
-  retain inactive worktrees in case more work appears; recreate one for the
-  branch if follow-up work is needed.
+- Treat worktrees as temporary. Remove a reviewer worktree after that reviewer
+  has returned and any required reproduction there is complete. Remove the
+  development worktree only after the exact reviewed head is pushed, its head
+  lock has ended with all required concurrent gates successful, and every
+  required fixed-head review at that head is review-clean — or after merge, for
+  a change that needs no adversarial review. Do not retain inactive worktrees
+  in case more work appears; recreate one for the branch if follow-up work is
+  needed.
 
 ## Task-specific guidance
 
