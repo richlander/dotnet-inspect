@@ -32,12 +32,18 @@ public static class DynamicReader
     /// its custom-attribute encoding is malformed. The no-argument marker form
     /// returns a one-element array.
     /// </summary>
-    public static byte[]? GetDynamicFlags(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    public static byte[]? GetDynamicFlags(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = AttributeReader.GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName != KnownAttributeNames.DynamicAttribute) continue;
             if (GetConstructorKind(reader, attr.Constructor) is not { } constructorKind)
                 return null;
@@ -58,6 +64,7 @@ public static class DynamicReader
             {
                 int count = blob.ReadInt32();
                 if (count < 0 || blob.RemainingBytes != count + 2) return null;
+                beforeMaterialize?.Invoke(blob.Length);
                 var flags = new byte[count];
                 for (int i = 0; i < count; i++)
                 {
@@ -166,13 +173,19 @@ public static class DynamicReader
     /// number. Sequence 0 = return type, 1+ = parameters.
     /// </summary>
     public static byte[]? GetParameterDynamicFlags(
-        MetadataReader reader, ParameterHandleCollection paramHandles, int sequenceNumber)
+        MetadataReader reader,
+        ParameterHandleCollection paramHandles,
+        int sequenceNumber,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var handle in paramHandles)
         {
             var param = reader.GetParameter(handle);
             if (param.SequenceNumber == sequenceNumber)
-                return GetDynamicFlags(reader, param.GetCustomAttributes());
+                return GetDynamicFlags(
+                    reader,
+                    param.GetCustomAttributes(),
+                    beforeMaterialize);
         }
         return null;
     }
