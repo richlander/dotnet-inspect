@@ -470,6 +470,24 @@ public sealed class ResolvedAssemblyReference
             ObserveAsync(
                 () => inner.FlushAsync(cancellationToken));
 
+        public override void CopyTo(
+            Stream destination,
+            int bufferSize) =>
+            Observe(
+                () => inner.CopyTo(
+                    destination,
+                    bufferSize));
+
+        public override Task CopyToAsync(
+            Stream destination,
+            int bufferSize,
+            CancellationToken cancellationToken) =>
+            ObserveAsync(
+                () => inner.CopyToAsync(
+                    destination,
+                    bufferSize,
+                    cancellationToken));
+
         public override int Read(
             byte[] buffer,
             int offset,
@@ -512,6 +530,24 @@ public sealed class ResolvedAssemblyReference
                 () => inner.ReadAsync(
                     buffer,
                     cancellationToken));
+
+        public override IAsyncResult BeginRead(
+            byte[] buffer,
+            int offset,
+            int count,
+            AsyncCallback? callback,
+            object? state) =>
+            Observe(
+                () => inner.BeginRead(
+                    buffer,
+                    offset,
+                    count,
+                    callback,
+                    state));
+
+        public override int EndRead(
+            IAsyncResult asyncResult) =>
+            Observe(() => inner.EndRead(asyncResult));
 
         public override long Seek(
             long offset,
@@ -561,6 +597,24 @@ public sealed class ResolvedAssemblyReference
                 () => inner.WriteAsync(
                     buffer,
                     cancellationToken));
+
+        public override IAsyncResult BeginWrite(
+            byte[] buffer,
+            int offset,
+            int count,
+            AsyncCallback? callback,
+            object? state) =>
+            Observe(
+                () => inner.BeginWrite(
+                    buffer,
+                    offset,
+                    count,
+                    callback,
+                    state));
+
+        public override void EndWrite(
+            IAsyncResult asyncResult) =>
+            Observe(() => inner.EndWrite(asyncResult));
 
         public override void WriteByte(byte value) =>
             Observe(() => inner.WriteByte(value));

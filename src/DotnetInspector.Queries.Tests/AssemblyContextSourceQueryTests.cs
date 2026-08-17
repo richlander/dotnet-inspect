@@ -405,6 +405,157 @@ public sealed class AssemblyContextSourceQueryTests
         Assert.Equal(0, assembly.Policy.SelectionCount);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task SnapshotAcquisitionStateChange_PrecedesEarlyTargetNotFound(
+        bool memberQuery,
+        bool rotatePolicy)
+    {
+        byte[] bytes =
+            File.ReadAllBytes(
+                typeof(AssemblyContextSourceQueryTests)
+                    .Assembly.Location);
+        TestAssembly requestSource =
+            TestAssembly.Create(bytes);
+        var policy = new FrameworkBindingPolicy();
+        using var openerEntered =
+            new ManualResetEventSlim();
+        using var openerRelease =
+            new ManualResetEventSlim();
+        var assembly =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(bytes),
+                path: null,
+                () =>
+                {
+                    openerEntered.Set();
+                    Assert.True(
+                        openerRelease.Wait(
+                            TimeSpan.FromSeconds(10)),
+                        "Timed out waiting for the snapshot state change.");
+                    return new MemoryStream(
+                        bytes,
+                        writable: false);
+                },
+                AssemblyResolutionProvenance.Local(
+                    "source query snapshot race"));
+        var participant =
+            new AssemblyContextParticipant(
+                assembly,
+                policy);
+        using var host = QueryHost.WithoutPdb();
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [participant]);
+        using var cancellation =
+            new CancellationTokenSource();
+        Task actor = Task.Run(
+            () =>
+            {
+                Assert.True(
+                    openerEntered.Wait(
+                        TimeSpan.FromSeconds(10)),
+                    "Timed out waiting for snapshot acquisition.");
+                if (rotatePolicy)
+                    policy.ChangeVersion();
+                else
+                    cancellation.Cancel();
+                openerRelease.Set();
+            },
+            TestContext.Current.CancellationToken);
+        MetadataTypeDefinitionName missingType =
+            Assert.IsType<
+                MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Definitely",
+                        ["Missing"]))
+                .Name;
+
+        if (rotatePolicy)
+        {
+            Exception error;
+            if (memberQuery)
+            {
+                AssemblyMemberSourceRequest sourceRequest =
+                    requestSource.MemberRequest(
+                        nameof(SourceFixture.Describe));
+                var request =
+                    new AssemblyMemberSourceRequest(
+                        missingType,
+                        sourceRequest.Member,
+                        sourceRequest.MetadataToken);
+                var unavailable =
+                    Assert.IsType<
+                        AssemblyMemberSourceEntry.Unavailable>(
+                            await AssemblyContextSourceQuery
+                                .ExecuteMemberAsync(
+                                    group,
+                                    participant,
+                                    request,
+                                    host.Context,
+                                    cancellation.Token));
+                error = unavailable.Failure.Error!;
+            }
+            else
+            {
+                var unavailable =
+                    Assert.IsType<
+                        AssemblyTypeSourceEntry.Unavailable>(
+                            await AssemblyContextSourceQuery
+                                .ExecuteTypeAsync(
+                                    group,
+                                    participant,
+                                    new AssemblyTypeSourceRequest(
+                                        missingType),
+                                    host.Context,
+                                    cancellation.Token));
+                error = unavailable.Failure.Error!;
+            }
+
+            Assert.IsType<InvalidOperationException>(error);
+        }
+        else if (memberQuery)
+        {
+            AssemblyMemberSourceRequest sourceRequest =
+                requestSource.MemberRequest(
+                    nameof(SourceFixture.Describe));
+            var request =
+                new AssemblyMemberSourceRequest(
+                    missingType,
+                    sourceRequest.Member,
+                    sourceRequest.MetadataToken);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => AssemblyContextSourceQuery
+                    .ExecuteMemberAsync(
+                        group,
+                        participant,
+                        request,
+                        host.Context,
+                        cancellation.Token));
+        }
+        else
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => AssemblyContextSourceQuery
+                    .ExecuteTypeAsync(
+                        group,
+                        participant,
+                        new AssemblyTypeSourceRequest(
+                            missingType),
+                        host.Context,
+                        cancellation.Token));
+        }
+
+        await actor;
+        Assert.Empty(host.SymbolRequests);
+        Assert.Empty(host.SourceRequests);
+        Assert.Equal(0, policy.SelectionCount);
+    }
+
     [Fact]
     public async Task SameDescriptorForeignParticipant_IsRejectedBeforeCancellation()
     {

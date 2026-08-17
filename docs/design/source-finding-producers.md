@@ -185,7 +185,11 @@ participant belongs to the group, then stops before snapshot acquisition.
 gates the pre-entry member and type boundary. Participant membership includes
 the binding-policy snapshot rather than assembly-descriptor identity alone,
 and a policy that rotates its snapshot after group creation is rejected before
-snapshot acquisition or cancellation. The snapshot is revalidated after
+snapshot acquisition or cancellation. Cancellation and the snapshot are
+revalidated immediately after workspace acquisition, before rejected or
+missing-target results can return;
+`AssemblyContextSourceQueryTests.SnapshotAcquisitionStateChange_PrecedesEarlyTargetNotFound`
+gates that member and type boundary. The snapshot is also revalidated after
 authored-source awaits and before publication, and around every binding-policy
 selection during fallback;
 `AssemblyContextSourceQueryTests.SameDescriptorForeignParticipant_IsRejectedBeforeCancellation`

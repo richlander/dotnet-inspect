@@ -302,6 +302,10 @@ public static class AssemblyContextSourceQuery
                 (session, retained) => new MemberInspectionSeed(
                     retained,
                     ResolveMember(session, request)));
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureBindingPolicyVersion(
+                participant,
+                bindingPolicyVersion);
         }
         catch (Exception ex) when (IsInspectionFailure(ex))
         {
@@ -382,6 +386,10 @@ public static class AssemblyContextSourceQuery
                 (session, retained) => new TypeInspectionSeed(
                     retained,
                     ResolveType(session, request.Type)));
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureBindingPolicyVersion(
+                participant,
+                bindingPolicyVersion);
         }
         catch (Exception ex) when (IsInspectionFailure(ex))
         {

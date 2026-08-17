@@ -325,6 +325,12 @@ public class InspectionAcquisitionPlanTests
     [InlineData(StreamCancellationPoint.ReadAsyncMemory)]
     [InlineData(StreamCancellationPoint.WriteAsyncArray)]
     [InlineData(StreamCancellationPoint.WriteAsyncMemory)]
+    [InlineData(StreamCancellationPoint.CopyTo)]
+    [InlineData(StreamCancellationPoint.CopyToAsync)]
+    [InlineData(StreamCancellationPoint.BeginRead)]
+    [InlineData(StreamCancellationPoint.EndRead)]
+    [InlineData(StreamCancellationPoint.BeginWrite)]
+    [InlineData(StreamCancellationPoint.EndWrite)]
     public async Task ObserveOpenReadCancellation_PreservesRegistrationAndReportsStreamOperationCancellation(
         StreamCancellationPoint cancellationPoint)
     {
@@ -384,23 +390,32 @@ public class InspectionAcquisitionPlanTests
                     _ = stream.CanRead;
                     break;
                 case StreamCancellationPoint.Read:
-                    stream.Read(buffer, offset: 0, count: 1);
+                    Assert.Equal(
+                        1,
+                        stream.Read(
+                            buffer,
+                            offset: 0,
+                            count: 1));
                     break;
                 case StreamCancellationPoint.FlushAsync:
                     await stream.FlushAsync(
                         TestContext.Current.CancellationToken);
                     break;
                 case StreamCancellationPoint.ReadAsyncArray:
-                    await stream.ReadAsync(
-                        buffer,
-                        offset: 0,
-                        count: 1,
-                        TestContext.Current.CancellationToken);
+                    Assert.Equal(
+                        1,
+                        await stream.ReadAsync(
+                            buffer,
+                            offset: 0,
+                            count: 1,
+                            TestContext.Current.CancellationToken));
                     break;
                 case StreamCancellationPoint.ReadAsyncMemory:
-                    await stream.ReadAsync(
-                        buffer.AsMemory(),
-                        TestContext.Current.CancellationToken);
+                    Assert.Equal(
+                        1,
+                        await stream.ReadAsync(
+                            buffer.AsMemory(),
+                            TestContext.Current.CancellationToken));
                     break;
                 case StreamCancellationPoint.WriteAsyncArray:
                     await stream.WriteAsync(
@@ -413,6 +428,45 @@ public class InspectionAcquisitionPlanTests
                     await stream.WriteAsync(
                         buffer.AsMemory(),
                         TestContext.Current.CancellationToken);
+                    break;
+                case StreamCancellationPoint.CopyTo:
+                    using (var destination = new MemoryStream())
+                    {
+                        stream.CopyTo(
+                            destination,
+                            bufferSize: 1);
+                    }
+                    break;
+                case StreamCancellationPoint.CopyToAsync:
+                    using (var destination = new MemoryStream())
+                    {
+                        await stream.CopyToAsync(
+                            destination,
+                            bufferSize: 1,
+                            TestContext.Current.CancellationToken);
+                    }
+                    break;
+                case StreamCancellationPoint.BeginRead:
+                case StreamCancellationPoint.EndRead:
+                    IAsyncResult read =
+                        stream.BeginRead(
+                            buffer,
+                            offset: 0,
+                            count: 1,
+                            callback: null,
+                            state: null);
+                    stream.EndRead(read);
+                    break;
+                case StreamCancellationPoint.BeginWrite:
+                case StreamCancellationPoint.EndWrite:
+                    IAsyncResult write =
+                        stream.BeginWrite(
+                            buffer,
+                            offset: 0,
+                            count: 1,
+                            callback: null,
+                            state: null);
+                    stream.EndWrite(write);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(
@@ -1109,13 +1163,19 @@ public class InspectionAcquisitionPlanTests
         ReadAsyncMemory,
         WriteAsyncArray,
         WriteAsyncMemory,
+        CopyTo,
+        CopyToAsync,
+        BeginRead,
+        EndRead,
+        BeginWrite,
+        EndWrite,
     }
 
     sealed class CancellationOnOperationStream(
         byte[] image,
         OperationCanceledException cancellation,
         StreamCancellationPoint cancellationPoint)
-        : MemoryStream(image, writable: false)
+        : MemoryStream(image, writable: true)
     {
         public override bool CanRead =>
             cancellationPoint == StreamCancellationPoint.CanRead
@@ -1180,6 +1240,70 @@ public class InspectionAcquisitionPlanTests
             cancellationPoint == StreamCancellationPoint.WriteAsyncMemory
                 ? throw cancellation
                 : base.WriteAsync(buffer, cancellationToken);
+
+        public override void CopyTo(
+            Stream destination,
+            int bufferSize)
+        {
+            if (cancellationPoint == StreamCancellationPoint.CopyTo)
+                throw cancellation;
+            base.CopyTo(destination, bufferSize);
+        }
+
+        public override Task CopyToAsync(
+            Stream destination,
+            int bufferSize,
+            CancellationToken cancellationToken) =>
+            cancellationPoint == StreamCancellationPoint.CopyToAsync
+                ? throw cancellation
+                : base.CopyToAsync(
+                    destination,
+                    bufferSize,
+                    cancellationToken);
+
+        public override IAsyncResult BeginRead(
+            byte[] buffer,
+            int offset,
+            int count,
+            AsyncCallback? callback,
+            object? state) =>
+            cancellationPoint == StreamCancellationPoint.BeginRead
+                ? throw cancellation
+                : base.BeginRead(
+                    buffer,
+                    offset,
+                    count,
+                    callback,
+                    state);
+
+        public override int EndRead(
+            IAsyncResult asyncResult) =>
+            cancellationPoint == StreamCancellationPoint.EndRead
+                ? throw cancellation
+                : base.EndRead(asyncResult);
+
+        public override IAsyncResult BeginWrite(
+            byte[] buffer,
+            int offset,
+            int count,
+            AsyncCallback? callback,
+            object? state) =>
+            cancellationPoint == StreamCancellationPoint.BeginWrite
+                ? throw cancellation
+                : base.BeginWrite(
+                    buffer,
+                    offset,
+                    count,
+                    callback,
+                    state);
+
+        public override void EndWrite(
+            IAsyncResult asyncResult)
+        {
+            if (cancellationPoint == StreamCancellationPoint.EndWrite)
+                throw cancellation;
+            base.EndWrite(asyncResult);
+        }
     }
 
     sealed class NonSeekableReadStream(Stream inner) : Stream
