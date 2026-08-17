@@ -134,6 +134,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
 | Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files, plus version-resolved package README/PROJECT docs from restored projects. |
+| Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections and shared with browser/WASM. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
@@ -154,6 +155,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
+| `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility` or `C# Style Choices` to enumerate their legal values. |
 | `body-shape X` | Search one library's full-fidelity bodies for an exact stable rendered-syntax kind, returning the containing member, MethodDef token, exact range, and selected text. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -591,6 +593,9 @@ dotnet-inspect member Command --project ./src/App -S "Member Index"
 dotnet-inspect project ./src/App -S Skills --jsonl
 dotnet-inspect project ./src/App -S Skills --paths
 dotnet-inspect project ./src/App -S Skills --print --row 1
+dotnet-inspect vocabulary -D
+dotnet-inspect vocabulary -S Accessibility --json
+dotnet-inspect vocabulary -S "C# Style Choices" --columns "ID,Title,Tier" --tsv
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
