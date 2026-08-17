@@ -840,8 +840,8 @@ public sealed class LibraryBodyIndex
 
     /// <summary>
     /// True when <paramref name="type"/> is a classified generated-framework type
-    /// or a metadata nested type of one. Walks <c>+</c> containing-type names;
-    /// does not parse qualified display text.
+    /// or a metadata nested type of one. Prefers decoder segment structure over
+    /// flattened <c>+</c> names; does not parse qualified display text.
     /// </summary>
     public static bool IsGeneratedFrameworkType(
         IReadOnlySet<TypeRef> generatedFrameworkTypes,

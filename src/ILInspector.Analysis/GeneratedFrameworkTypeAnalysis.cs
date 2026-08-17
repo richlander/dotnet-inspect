@@ -68,8 +68,10 @@ internal static class GeneratedFrameworkTypeAnalysis
 
     /// <summary>
     /// True when <paramref name="type"/> is a classified generated-framework
-    /// type, or a metadata nested type of one. Walks <c>+</c> containing-type
-    /// names; does not parse qualified display text.
+    /// type, or a metadata nested type of one. Prefers decoder
+    /// <c>Resolution.Type.Segments</c> so a literal <c>+</c> in one metadata
+    /// name segment is not treated as nesting. Falls back to walking flattened
+    /// <c>+</c> names only for synthesized refs with no resolution.
     /// </summary>
     internal static bool Contains(IReadOnlySet<TypeRef> generated, TypeRef type)
     {
@@ -82,6 +84,24 @@ internal static class GeneratedFrameworkTypeAnalysis
 
         if (current.Kind != TypeRefKind.Definition)
             return false;
+
+        if (current.Resolution?.Type is { } resolved)
+        {
+            var segments = resolved.Segments;
+            for (int keep = segments.Length - 1; keep >= 1; keep--)
+            {
+                if (generated.Contains(
+                        TypeRef.Definition(
+                            current.Assembly,
+                            current.Namespace,
+                            NestedMetadataName(segments, keep))))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
 
         string name = current.Name;
         while (true)
@@ -97,6 +117,31 @@ internal static class GeneratedFrameworkTypeAnalysis
                 return true;
             }
         }
+    }
+
+    static string NestedMetadataName(ImmutableArray<string> segments, int keep)
+    {
+        if (keep == 1)
+            return segments[0];
+
+        int length = keep - 1;
+        for (int i = 0; i < keep; i++)
+            length += segments[i].Length;
+
+        return string.Create(
+            length,
+            (segments, keep),
+            static (span, state) =>
+            {
+                int written = 0;
+                for (int i = 0; i < state.keep; i++)
+                {
+                    if (i > 0)
+                        span[written++] = '+';
+                    state.segments[i].AsSpan().CopyTo(span[written..]);
+                    written += state.segments[i].Length;
+                }
+            });
     }
 
     static TypeRef NamedDefinition(TypeRef type)
