@@ -82,6 +82,24 @@ public static class CSharpMemberLayout
     }
 
     /// <summary>
+    /// Applies this layout's generic-constraint wrapping to a declaration head
+    /// without adding a body, terminator, or indentation. A head without
+    /// constraints remains unchanged, including an over-width signature.
+    /// </summary>
+    public static string LayOutDeclarationHead(string head, bool disableSignatureWrapping = false)
+    {
+        ArgumentNullException.ThrowIfNull(head);
+        var parts = SplitConstraintClauses(head);
+        if (disableSignatureWrapping || parts.Count == 1)
+            return head;
+
+        var sb = new StringBuilder(parts[0]);
+        for (int i = 1; i < parts.Count; i++)
+            sb.Append('\n').Append("    ").Append(parts[i]);
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// Renders a multi-line single-<c>return</c> expression body (a raised switch
     /// expression, a wrapped fluent chain, or any other wrapped single
     /// expression). The value/arrow line sits after the arrow — on
@@ -217,9 +235,18 @@ public static class CSharpMemberLayout
         if (indexes.Count == 0)
             return [head];
 
+        int firstConstraint = indexes[0];
+        if (!TryLocateParameterList(head, firstConstraint, out int parameterOpen, out _)
+            || parameterOpen == 0
+            || head[parameterOpen - 1] != '>'
+            || indexes.Any(index => !IsConstraintClauseStart(head, index + 1)))
+        {
+            return [head];
+        }
+
         var parts = new List<string>(indexes.Count + 1)
         {
-            head[..indexes[0]].TrimEnd()
+            head[..firstConstraint].TrimEnd()
         };
         for (int i = 0; i < indexes.Count; i++)
         {
@@ -228,6 +255,26 @@ public static class CSharpMemberLayout
             parts.Add(head[start..end].Trim());
         }
         return parts;
+    }
+
+    static bool IsConstraintClauseStart(string head, int start)
+    {
+        int i = start + "where".Length;
+        while (i < head.Length && char.IsWhiteSpace(head[i]))
+            i++;
+
+        if (i < head.Length && head[i] == '@')
+            i++;
+
+        int identifierStart = i;
+        while (i < head.Length && (char.IsLetterOrDigit(head[i]) || head[i] == '_'))
+            i++;
+        if (i == identifierStart)
+            return false;
+
+        while (i < head.Length && char.IsWhiteSpace(head[i]))
+            i++;
+        return i < head.Length && head[i] == ':';
     }
 
     static bool ContainsLineComment(string head)
@@ -287,12 +334,16 @@ public static class CSharpMemberLayout
     /// the signature inline rather than risk mangling it.
     /// </summary>
     static bool TryLocateParameterList(string head, out int open, out int close)
+        => TryLocateParameterList(
+            head,
+            FindTopLevelWhere(head) is { } where and >= 0 ? where : head.Length,
+            out open,
+            out close);
+
+    static bool TryLocateParameterList(string head, int limit, out int open, out int close)
     {
         open = -1;
         close = -1;
-        int limit = FindTopLevelWhere(head);
-        if (limit < 0)
-            limit = head.Length;
 
         int angle = 0, bracket = 0, brace = 0;
         for (int i = 0; i < limit; i++)

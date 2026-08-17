@@ -298,6 +298,15 @@ public sealed class CSharpMemberLayoutTests
                 indent: 4));
 
     [Fact]
+    public void Append_ContextualWhereMethodName_DoesNotStartConstraintClause()
+        => Assert.Equal(
+            "    public (int, int) where(int value) => (value, value);\n",
+            Render(
+                "public (int, int) where(int value)",
+                "return (value, value);",
+                indent: 4));
+
+    [Fact]
     public void Append_WhereInsideLineComment_DoesNotBecomeLiveConstraint()
         => Assert.Equal(
             "    public void Log<T>() // mentions where U : class\n"
