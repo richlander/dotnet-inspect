@@ -72,7 +72,8 @@ internal static class BrowserPackageWorkspace
     sealed record ScopeEntry(
         BrowserInspectionScope Scope,
         ImmutableHashSet<string> PackageKeys,
-        long LastAccess);
+        long LastAccess,
+        int ActiveLeases);
 
     public static BrowserPackageCacheStats Stats() =>
         new(
@@ -237,17 +238,69 @@ internal static class BrowserPackageWorkspace
         while (Scopes.Count >= MaxOpenScopes)
         {
             string? oldest = Scopes
+                .Where(candidate => candidate.Value.ActiveLeases == 0)
                 .OrderBy(candidate => candidate.Value.LastAccess)
                 .Select(candidate => candidate.Key)
                 .FirstOrDefault();
             if (oldest is null)
-                break;
+            {
+                scope.Dispose();
+                throw new InvalidOperationException(
+                    "The browser workspace limit cannot evict an active inspection.");
+            }
             Scopes[oldest].Scope.Dispose();
             Scopes.Remove(oldest);
         }
 
-        Scopes[key] = new ScopeEntry(scope, packageKeys, ++_clock);
+        Scopes[key] = new ScopeEntry(scope, packageKeys, ++_clock, ActiveLeases: 0);
         return scope;
+    }
+
+    /// <summary>
+    /// Pins a registry-owned scope and its package archives for one asynchronous inspection.
+    /// </summary>
+    internal static BrowserInspectionScopeLease LeaseScope(
+        BrowserInspectionScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        KeyValuePair<string, ScopeEntry> registered = Scopes
+            .SingleOrDefault(candidate => ReferenceEquals(candidate.Value.Scope, scope));
+        if (registered.Value is null)
+        {
+            throw new InvalidOperationException(
+                "The browser inspection scope is no longer retained.");
+        }
+
+        foreach (string packageKey in registered.Value.PackageKeys)
+            LeasePackage(packageKey);
+        Scopes[registered.Key] = registered.Value with
+        {
+            LastAccess = ++_clock,
+            ActiveLeases = registered.Value.ActiveLeases + 1,
+        };
+        return new BrowserInspectionScopeLease(
+            scope,
+            () => ReleaseScopeLease(registered.Key, scope));
+    }
+
+    static void ReleaseScopeLease(
+        string scopeKey,
+        BrowserInspectionScope scope)
+    {
+        if (!Scopes.TryGetValue(scopeKey, out ScopeEntry? entry)
+            || !ReferenceEquals(entry.Scope, scope)
+            || entry.ActiveLeases <= 0)
+        {
+            throw new InvalidOperationException(
+                "The browser inspection scope lease is not active.");
+        }
+
+        Scopes[scopeKey] = entry with
+        {
+            ActiveLeases = entry.ActiveLeases - 1,
+        };
+        foreach (string packageKey in entry.PackageKeys)
+            ReleasePackageLease(packageKey);
     }
 
     /// <summary>Opens — or reuses — the workspace for one exact package coordinate.</summary>

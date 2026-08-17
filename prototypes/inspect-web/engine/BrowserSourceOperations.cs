@@ -23,6 +23,10 @@ public static partial class BrowserInspectionEngine
             maxExpandedPdbBytes: 24 * MiB);
 
     [JSExport]
+    public static void CancelSourceQuery() =>
+        BrowserSourceOperationCoordinator.CancelCurrent();
+
+    [JSExport]
     public static Task<string> QueryMemberSource(
         string packageId,
         string version,
@@ -53,8 +57,10 @@ public static partial class BrowserInspectionEngine
         string typeIdentity,
         string styleOptionsJson)
     {
+        using BrowserSourceOperationLease operation =
+            await BrowserSourceOperationCoordinator.BeginAsync();
         (
-            BrowserInspectionScope scope,
+            BrowserInspectionScopeLease scopeLease,
             BrowserWorkspaceParticipant participant,
             ApiType type
         ) = await SourceTypeAsync(
@@ -62,21 +68,27 @@ public static partial class BrowserInspectionEngine
             version,
             targetFramework,
             assemblyName,
-            typeIdentity);
-        var request = AssemblyTypeSourceRequest.From(
-            type,
-            BrowserStyleOptions.Resolve(styleOptionsJson));
-        AssemblyTypeSourceEntry result = await scope.UseImplementationParticipant(
-            participant,
-            (group, member) => AssemblyContextSourceQuery.ExecuteTypeAsync(
-                group,
-                member,
-                request,
-                CreateSourceContext()));
+            typeIdentity,
+            operation.CancellationToken);
+        using (scopeLease)
+        {
+            BrowserInspectionScope scope = scopeLease.Scope;
+            var request = AssemblyTypeSourceRequest.From(
+                type,
+                BrowserStyleOptions.Resolve(styleOptionsJson));
+            AssemblyTypeSourceEntry result = await scope.UseImplementationParticipant(
+                participant,
+                (group, member) => AssemblyContextSourceQuery.ExecuteTypeAsync(
+                    group,
+                    member,
+                    request,
+                    CreateSourceContext(),
+                    operation.CancellationToken));
 
-        return JsonSerializer.Serialize(
-            Adapt(result, participant),
-            BrowserJsonContext.Default.BrowserSource);
+            return JsonSerializer.Serialize(
+                Adapt(result, participant),
+                BrowserJsonContext.Default.BrowserSource);
+        }
     }
 
     [JSExport]
@@ -112,6 +124,8 @@ public static partial class BrowserInspectionEngine
         int metadataToken,
         string styleOptionsJson)
     {
+        using BrowserSourceOperationLease operation =
+            await BrowserSourceOperationCoordinator.BeginAsync();
         (
             BrowserInspectionScope scope,
             BrowserWorkspaceParticipant participant,
@@ -125,6 +139,9 @@ public static partial class BrowserInspectionEngine
             memberName,
             selectorKey,
             metadataToken);
+        operation.CancellationToken.ThrowIfCancellationRequested();
+        using BrowserInspectionScopeLease scopeLease =
+            BrowserPackageWorkspace.LeaseScope(scope);
         if (resolution.Member.MetadataToken != resolution.BodyToken)
         {
             throw new InvalidOperationException(
@@ -143,7 +160,8 @@ public static partial class BrowserInspectionEngine
                     group,
                     member,
                     request,
-                    CreateSourceContext()));
+                    CreateSourceContext(),
+                    operation.CancellationToken));
 
         return JsonSerializer.Serialize(
             Adapt(result, participant),
@@ -151,60 +169,74 @@ public static partial class BrowserInspectionEngine
     }
 
     static async Task<(
-        BrowserInspectionScope Scope,
+        BrowserInspectionScopeLease ScopeLease,
         BrowserWorkspaceParticipant Participant,
         ApiType Type)> SourceTypeAsync(
             string packageId,
             string version,
             string targetFramework,
             string assemblyName,
-            string typeIdentity)
+            string typeIdentity,
+            CancellationToken cancellationToken)
     {
         BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
             packageId,
             version,
             targetFramework);
-        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
-        PackageCompileAsset surfaceAsset = coordinate.CompileAsset(assemblyName);
-        BrowserWorkspaceParticipant surfaceParticipant =
-            scope.SurfaceParticipant(coordinate, surfaceAsset);
-        _ = coordinate.ImplementationAsset(assemblyName);
-        BrowserWorkspaceParticipant participant =
-            scope.ImplementationParticipant(surfaceParticipant);
-
-        AssemblyContextApiSurfaceResult projected =
-            scope.UseImplementationParticipant(
-                participant,
-                (group, member) => AssemblyContextApiSurfaceQuery.ExecuteBounded(
-                    group,
-                    ApiSurfaceScope.IncludeAll,
-                    BrowserApiSurfacePolicy.Limits,
-                    [member]));
-        if (projected.Truncation is { } truncation)
+        cancellationToken.ThrowIfCancellationRequested();
+        BrowserInspectionScopeLease scopeLease =
+            BrowserPackageWorkspace.LeaseScope(scope);
+        try
         {
-            throw new InvalidOperationException(
-                $"The source surface for '{typeIdentity}' exceeds the browser projection bounds. "
-                + BrowserApiSurfacePolicy.TruncationNotice(truncation));
-        }
+            BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+            PackageCompileAsset surfaceAsset = coordinate.CompileAsset(assemblyName);
+            BrowserWorkspaceParticipant surfaceParticipant =
+                scope.SurfaceParticipant(coordinate, surfaceAsset);
+            _ = coordinate.ImplementationAsset(assemblyName);
+            BrowserWorkspaceParticipant participant =
+                scope.ImplementationParticipant(surfaceParticipant);
 
-        AssemblyApiSurface surface = BrowserSurfaceProjection.Require(
-            projected.Assemblies.Assemblies.Single(),
-            $"Source surface for '{typeIdentity}'");
-        ApiType[] matches =
-        [
-            .. surface.Surface.Types
-                .Where(candidate =>
-                    candidate.DefinitionName?.ToEscapedFullName()
-                        .Equals(typeIdentity, StringComparison.Ordinal) == true)
-                .Take(2),
-        ];
-        if (matches.Length != 1)
+            AssemblyContextApiSurfaceResult projected =
+                scope.UseImplementationParticipant(
+                    participant,
+                    (group, member) => AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                        group,
+                        ApiSurfaceScope.IncludeAll,
+                        BrowserApiSurfacePolicy.Limits,
+                        [member]));
+            cancellationToken.ThrowIfCancellationRequested();
+            if (projected.Truncation is { } truncation)
+            {
+                throw new InvalidOperationException(
+                    $"The source surface for '{typeIdentity}' exceeds the browser projection "
+                    + "bounds. "
+                    + BrowserApiSurfacePolicy.TruncationNotice(truncation));
+            }
+
+            AssemblyApiSurface surface = BrowserSurfaceProjection.Require(
+                projected.Assemblies.Assemblies.Single(),
+                $"Source surface for '{typeIdentity}'");
+            ApiType[] matches =
+            [
+                .. surface.Surface.Types
+                    .Where(candidate =>
+                        candidate.DefinitionName?.ToEscapedFullName()
+                            .Equals(typeIdentity, StringComparison.Ordinal) == true)
+                    .Take(2),
+            ];
+            if (matches.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    $"The selected participant does not contain one exact type '{typeIdentity}'.");
+            }
+
+            return (scopeLease, participant, matches[0]);
+        }
+        catch
         {
-            throw new InvalidOperationException(
-                $"The selected participant does not contain one exact type '{typeIdentity}'.");
+            scopeLease.Dispose();
+            throw;
         }
-
-        return (scope, participant, matches[0]);
     }
 
     internal static AssemblyContextSourceQueryContext CreateSourceContext()

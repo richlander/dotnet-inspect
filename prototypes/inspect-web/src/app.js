@@ -43,6 +43,7 @@ import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } 
 import { loadPlatformIndex } from "/src/platform-index.js";
 
 let initializeEngine;
+let cancelSourceInspection;
 let inspectBuildIdentity;
 let inspectExpandPlatformCallGraph;
 let inspectListStyleOptions;
@@ -80,6 +81,7 @@ let resolveDependencyVersion;
 
 async function loadEngineModule() {
   ({
+    cancelSourceInspection,
     initializeEngine,
     inspectBuildIdentity,
     inspectExpandPlatformCallGraph,
@@ -1262,6 +1264,13 @@ function updateCommandSuggestions() {
 }
 
 function render() {
+  const sourceVisible = state.graphSourceOpen
+    || state.lens === "source"
+    || (state.lens === "api"
+      && state.selectedMemberKey
+      && state.memberSection === "source");
+  if (state.settings || !sourceVisible) cancelSourceInspection?.();
+
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
   // so it renders first and returns; closeSettings restores the underlying view.

@@ -391,6 +391,25 @@ test("type source identity includes decompiler taste", () => {
   assert.match(typeSignature, /state\.taste/);
 });
 
+test("source operations cancel when superseded or hidden", () => {
+  assert.match(
+    engineSource,
+    /cancelSourceQuery = exports\.BrowserInspectionEngine\.CancelSourceQuery/);
+  assert.match(
+    engineSource,
+    /export function cancelSourceInspection\(\)[\s\S]*?cancelSourceQuery\?\.\(\)/);
+
+  const renderBody =
+    appSource.match(/function render\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(renderBody, /state\.graphSourceOpen/);
+  assert.match(renderBody, /state\.lens === "source"/);
+  assert.match(renderBody, /state\.memberSection === "source"/);
+  assert.match(
+    renderBody,
+    /if \(state\.settings \|\| !sourceVisible\) cancelSourceInspection\?\.\(\)/);
+});
+
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   for (const kind of ["property", "field", "event", "constant"]) {
     assert.deepEqual(

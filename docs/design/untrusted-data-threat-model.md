@@ -396,9 +396,15 @@ host-supplied limits for response bytes, expanded PDB bytes, archive entry
 count, aggregate candidate-PDB expansion, and in-memory retention; the Browser
 supplies those limits on every symbol-server and symbol-package path. Bounded
 symbol-package inspection rejects ZIP64 before archive enumeration and observes
-cancellation while expanding candidates. Callers that do not supply limits
-retain only the shared transport ceiling. Product-wide default expansion and
-retention budgets remain an open requirement below.
+cancellation while expanding candidates. Browser source operations are
+exclusive and superseding, and each operation leases its workspace and package
+archives until its bounded PDB and source stores are released. This prevents
+concurrent stale requests or workspace eviction from multiplying the
+request-local budgets; `SourceOperations_AreExclusiveAndSuperseding` and
+`ActiveScopeLease_PreventsWorkspaceAndPackageEviction` gate that host contract.
+Callers that do not supply limits retain only the shared transport ceiling.
+Product-wide default expansion and retention budgets remain an open requirement
+below.
 
 ### Untrusted JSON rejects duplicate properties
 

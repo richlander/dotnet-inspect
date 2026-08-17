@@ -46,6 +46,50 @@ public sealed class BrowserEngineBoundaryTests
             24L * MiB);
     }
 
+    [Fact]
+    public async Task SourceOperations_AreExclusiveAndSuperseding()
+    {
+        using BrowserSourceOperationLease first =
+            await BrowserSourceOperationCoordinator.BeginAsync();
+        Task<BrowserSourceOperationLease> secondTask =
+            BrowserSourceOperationCoordinator.BeginAsync().AsTask();
+
+        Assert.True(first.CancellationToken.IsCancellationRequested);
+        Assert.False(secondTask.IsCompletedSuccessfully);
+
+        first.Dispose();
+        using BrowserSourceOperationLease second = await secondTask;
+        Assert.False(second.CancellationToken.IsCancellationRequested);
+
+        BrowserSourceOperationCoordinator.CancelCurrent();
+        Assert.True(second.CancellationToken.IsCancellationRequested);
+    }
+
+    [Fact]
+    public void ActiveScopeLease_PreventsWorkspaceAndPackageEviction()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate activeCoordinate = Coordinate(
+            "Active.Source",
+            Package(image, "lib/net11.0/Active.Source.dll"));
+        BrowserInspectionScope active = BrowserPackageWorkspace.OpenScope(
+            [activeCoordinate]);
+        using BrowserInspectionScopeLease lease =
+            BrowserPackageWorkspace.LeaseScope(active);
+
+        foreach (string id in new[] { "Lease.B", "Lease.C", "Lease.D", "Lease.E" })
+        {
+            BrowserPackageWorkspace.OpenScope(
+                [Coordinate(id, Package(image, $"lib/net11.0/{id}.dll"))]);
+        }
+
+        BrowserInspectionScope reopened = BrowserPackageWorkspace.OpenScope(
+            [activeCoordinate]);
+        Assert.Same(active, reopened);
+        Assert.InRange(BrowserPackageWorkspace.Stats().Workspaces, 1, 4);
+    }
+
     [Theory]
     [InlineData("https://raw.githubusercontent.com/org/repo/commit/A.cs", true)]
     [InlineData("https://dev.azure.com/org/project/_apis/git/A.cs", true)]
