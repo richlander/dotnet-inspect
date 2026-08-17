@@ -460,7 +460,8 @@ public static class PackageSourceClientFactory
         HttpMessageHandler? transport = null) =>
         transport is null
                 ? new HttpClient(
-                    CreateCredentialFreeTransportHandler(),
+                    CreateCredentialFreeTransportHandler(
+                        OperatingSystem.IsBrowser()),
                     disposeHandler: true)
                 {
                     Timeout = Timeout.InfiniteTimeSpan,
@@ -470,14 +471,20 @@ public static class PackageSourceClientFactory
                 Timeout = Timeout.InfiniteTimeSpan,
             };
 
-    internal static HttpClientHandler
-        CreateCredentialFreeTransportHandler() =>
-        new()
+    internal static HttpClientHandler CreateCredentialFreeTransportHandler(
+        bool isBrowser)
+    {
+        var handler = new HttpClientHandler();
+        if (isBrowser)
         {
-            UseCookies = false,
-            UseDefaultCredentials = false,
-            PreAuthenticate = false,
-        };
+            return handler;
+        }
+
+        handler.UseCookies = false;
+        handler.UseDefaultCredentials = false;
+        handler.PreAuthenticate = false;
+        return handler;
+    }
 }
 
 internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient

@@ -1055,12 +1055,41 @@ public sealed class PackageSourceClientTests
     {
         using HttpClientHandler handler =
             PackageSourceClientFactory
-                .CreateCredentialFreeTransportHandler();
+                .CreateCredentialFreeTransportHandler(
+                    isBrowser: false);
 
         Assert.False(handler.UseCookies);
         Assert.False(handler.UseDefaultCredentials);
         Assert.False(handler.PreAuthenticate);
         Assert.Null(handler.Credentials);
+    }
+
+    [Fact]
+    public void BrowserV3TransportAvoidsUnsupportedHandlerConfiguration()
+    {
+        using HttpClientHandler handler =
+            PackageSourceClientFactory
+                .CreateCredentialFreeTransportHandler(
+                    isBrowser: true);
+    }
+
+    [Fact]
+    public void BrowserNuGetRequestsOmitAmbientCredentials()
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            ServiceIndex);
+        NuGetHttpRequest.ConfigureBrowserRequest(
+            request,
+            isBrowser: true);
+        var fetchOptionsKey = new HttpRequestOptionsKey<
+            IDictionary<string, object>>("WebAssemblyFetchOptions");
+
+        Assert.True(
+            request.Options.TryGetValue(
+                fetchOptionsKey,
+                out IDictionary<string, object>? options));
+        Assert.Equal("omit", options["credentials"]);
     }
 
     [Fact]

@@ -79,11 +79,16 @@ be sent to package resources discovered on the same origin (scheme, host, and
 port), but never to a cross-origin resource advertised by the feed.
 Runtime v3 clients own isolated credential-free transports rather than
 accepting a shared client or opaque caller handler. Their default handler
-disables cookies, default credentials, and preauthentication. Source
-credentials travel through the typed credential parameter so the library can
-enforce the origin boundary. This is gated by
+disables cookies, default credentials, and preauthentication on desktop.
+Browser/Wasm applies `BrowserRequestCredentials.Omit` to each request instead
+of setting unsupported handler properties. Source credentials travel through
+the typed credential parameter so the library can enforce the origin boundary.
+This is gated by
 `RuntimeFactoriesDoNotAcceptSharedHttpClient` and
-`DefaultV3TransportHasNoAmbientCredentialMechanisms`.
+`DefaultV3TransportHasNoAmbientCredentialMechanisms`,
+`BrowserV3TransportAvoidsUnsupportedHandlerConfiguration`,
+`BrowserNuGetRequestsOmitAmbientCredentials`, and the `NuGetFetch`
+`browser-wasm` build.
 
 The typed source-client compatibility adapter therefore derives producer
 identity from a query-bearing legacy service index's origin and path while

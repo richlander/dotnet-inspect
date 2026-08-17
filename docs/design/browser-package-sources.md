@@ -583,12 +583,18 @@ that transport.
 The v3 compatibility adapter also owns an isolated credential-free
 `HttpClient`; it does not accept a shared client or opaque caller handler that
 could inject ambient credentials into feed-advertised resources. Its default
-handler disables cookies, default credentials, and preauthentication. Source
-credentials are passed separately and are adopted only for same-origin
-resources. `RuntimeFactoriesDoNotAcceptSharedHttpClient` and
-`DefaultV3TransportHasNoAmbientCredentialMechanisms` gate that transport
-boundary. Candidate projection remains inside the same operation deadline as
-the metadata request.
+desktop handler disables cookies, default credentials, and preauthentication.
+Browser/Wasm avoids unsupported handler credential properties and instead marks
+each request with `BrowserRequestCredentials.Omit`; explicit source
+authorization remains a request header. Source credentials are passed
+separately and are adopted only for same-origin resources.
+`RuntimeFactoriesDoNotAcceptSharedHttpClient`,
+`DefaultV3TransportHasNoAmbientCredentialMechanisms`, and
+`BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate transport
+construction. `BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch
+credential option, and the `NuGetFetch` `browser-wasm` build is the
+browser-target compilation gate. Candidate projection remains inside the same
+operation deadline as the metadata request.
 
 Source operations now return typed outcomes. Search and version results carry
 normalized package coordinates, producer identity, discovery contract, and

@@ -4,11 +4,14 @@ internal static class NuGetHttpRequest
 {
     private static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
         new("WebAssemblyEnableStreamingResponse");
+    private static readonly HttpRequestOptionsKey<
+        IDictionary<string, object>> BrowserFetchOptions =
+        new("WebAssemblyFetchOptions");
 
     public static HttpRequestMessage CreateGet(string requestUri)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Options.Set(BrowserStreamingResponse, true);
+        ConfigureBrowserRequest(request);
         return request;
     }
 
@@ -23,7 +26,7 @@ internal static class NuGetHttpRequest
         }
 
         var request = new HttpRequestMessage(HttpMethod.Get, preserved);
-        request.Options.Set(BrowserStreamingResponse, true);
+        ConfigureBrowserRequest(request);
         return request;
     }
 
@@ -46,6 +49,30 @@ internal static class NuGetHttpRequest
         };
         preserved = new Uri(requestUri, in options);
         return true;
+    }
+
+    private static void ConfigureBrowserRequest(
+        HttpRequestMessage request)
+    {
+        ConfigureBrowserRequest(
+            request,
+            OperatingSystem.IsBrowser());
+    }
+
+    internal static void ConfigureBrowserRequest(
+        HttpRequestMessage request,
+        bool isBrowser)
+    {
+        request.Options.Set(BrowserStreamingResponse, true);
+        if (isBrowser)
+        {
+            request.Options.Set(
+                BrowserFetchOptions,
+                new Dictionary<string, object>
+                {
+                    ["credentials"] = "omit",
+                });
+        }
     }
 
     internal static bool HasValidRawText(
