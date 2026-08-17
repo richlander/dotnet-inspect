@@ -512,6 +512,105 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task FloatingPlatformMember_FailedAuthorizedListingIsUnavailable()
+    {
+        var handler = new PerFeedHandler();
+        handler.List(
+            FeedA,
+            RuntimePackPackageId,
+            RuntimePackVersion);
+        handler.WithoutFlatContainer(FeedB);
+        using var client = new HttpClient(handler);
+        var store = new CountingPackageStore(
+            new InMemoryPackageStore());
+        using var workspace = new InspectionWorkspace();
+        var authorization = new PerPackageAuthorization
+        {
+            [RuntimePackPackageId] = [FeedA, FeedB],
+        };
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform("runtime"),
+                    ],
+                },
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization: authorization),
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(failed.Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+            failure.Kind);
+        Assert.DoesNotContain(
+            "package",
+            failure.Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, store.Interactions);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task FloatingPlatformMember_AuthoritativeAbsenceDoesNotHideReporter()
+    {
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(FeedA),
+            new MemoryStream(RuntimePack()),
+            TestContext.Current.CancellationToken);
+        var handler = new PerFeedHandler();
+        handler.List(
+            FeedA,
+            RuntimePackPackageId,
+            RuntimePackVersion);
+        using var client = new HttpClient(handler);
+        using var workspace = new InspectionWorkspace();
+        var authorization = new PerPackageAuthorization
+        {
+            [RuntimePackPackageId] = [FeedA, FeedB],
+        };
+
+        var loaded = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform("runtime"),
+                    ],
+                },
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization: authorization),
+                TestContext.Current.CancellationToken));
+
+        Assert.All(
+            loaded.Members,
+            member =>
+            {
+                var realized =
+                    Assert.IsType<RealizedMemberCoordinate.Platform>(
+                        member.Realized);
+                Assert.Equal(RuntimePackVersion, realized.Version);
+                Assert.Equal(Producer(FeedA), realized.Producer);
+            });
+    }
+
+    [Fact]
     public async Task PlatformFamilies_FormOneBindingConsistentGroup()
     {
         var store = new InMemoryPackageStore();
@@ -1866,6 +1965,67 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Theory]
+    [InlineData("10.*", null, "version")]
+    [InlineData(null, "net10..0", "target framework")]
+    public async Task InvalidPlatformCoordinate_UsesPlatformDiagnostic(
+        string? version,
+        string? memberFramework,
+        string expectedRule)
+    {
+        var logs = new List<string>();
+        var authorization = new RecordingAuthorization();
+        var store = new CountingPackageStore(
+            new InMemoryPackageStore());
+        using var client = new HttpClient(new FailingHandler());
+        using var workspace = new InspectionWorkspace();
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            version: version,
+                            framework: memberFramework),
+                    ],
+                },
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization: authorization,
+                    log: logs.Add),
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            failed.Failures.Where(candidate =>
+                candidate.Kind
+                    == WorkspaceContextLoadFailureKind.InvalidCoordinate
+                && candidate.Message.Contains(
+                    "platform member",
+                    StringComparison.Ordinal)));
+        Assert.Contains(
+            expectedRule,
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "package",
+            failure.Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            logs,
+            message => message.Contains(
+                "package coordinate",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(0, authorization.Requests);
+        Assert.Equal(0, store.Interactions);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Theory]
     [InlineData("../../admin")]
     [InlineData("sample?version=1")]
     [InlineData("sample#fragment")]
@@ -3215,7 +3375,8 @@ public sealed class WorkspaceContextLoaderTests
         IPackageStore store,
         IEmbeddedContentProvider? embeddedContent = null,
         IPackageSourceAuthorization? sourceAuthorization = null,
-        PackagePayloadLimits? payloadLimits = null) =>
+        PackagePayloadLimits? payloadLimits = null,
+        Action<string>? log = null) =>
         new()
         {
             HttpClient = client,
@@ -3224,6 +3385,7 @@ public sealed class WorkspaceContextLoaderTests
             PackageStore = store,
             EmbeddedContent = embeddedContent,
             PayloadLimits = payloadLimits ?? PackagePayloadLimits.Default,
+            Log = log,
         };
 
     static string Producer(PackageSource source) =>

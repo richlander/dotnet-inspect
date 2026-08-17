@@ -1444,6 +1444,20 @@ public static class PackageExtractor
         List<PackageVersionInfo> Listings,
         bool Authoritative);
 
+    readonly record struct SourceVersionList(
+        List<string>? Versions,
+        bool Failed)
+    {
+        internal static SourceVersionList Found(List<string> versions) =>
+            new(versions, Failed: false);
+
+        internal static SourceVersionList Absent { get; } =
+            new(null, Failed: false);
+
+        internal static SourceVersionList Failure { get; } =
+            new(null, Failed: true);
+    }
+
     static PackageExtractor()
     {
         CoreCache.RegisterVersionedCategory(
@@ -1830,40 +1844,34 @@ public static class PackageExtractor
     /// <summary>
     /// Fetches all version strings for a package from a single source.
     /// </summary>
-    private static async Task<List<string>?> FetchAllVersionsFromSourceAsync(
+    private static async Task<SourceVersionList> FetchAllVersionsFromSourceAsync(
         HttpClient client,
         string packageName,
         NuGetSource source,
         Action<string>? log,
         CancellationToken cancellationToken = default)
     {
+        bool attemptedAuthoritativeLookup = false;
+
         // Try flat-container index first
         if (GetVersionIndexUrl(source.GetFlatContainerUrl(), packageName)
             is { } wellKnownIndexUrl)
         {
-            // Attribute only this request. A clean 404 leaves no telemetry mark;
-            // transport/parse failures do. nuget.org's well-known flat-container
-            // is authoritative for presence — do not consult the service index
-            // after a clean 404, or a later SI outage would convert absence into
-            // Failure for complete-source floating resolution.
-            int wellKnownFailuresBefore =
-                FeedFailureTelemetry.Current?.Failures.Count ?? 0;
-            var versions = await FetchVersionListAsync(
+            attemptedAuthoritativeLookup = true;
+            // nuget.org's well-known flat-container is authoritative for
+            // presence. Do not consult the service index after a clean 404, or
+            // a later service-index outage would convert absence into failure.
+            SourceVersionList versions = await FetchVersionListAsync(
                 client,
                 wellKnownIndexUrl,
                 log,
                 NuGetCredentialScope.AuthFor(source, wellKnownIndexUrl, log),
                 cancellationToken).ConfigureAwait(false);
-            if (versions != null)
+            if (versions.Versions is not null || versions.Failed)
                 return versions;
 
-            int wellKnownFailuresAfter =
-                FeedFailureTelemetry.Current?.Failures.Count ?? 0;
-            if (source.IsNuGetOrg
-                && wellKnownFailuresAfter == wellKnownFailuresBefore)
-            {
-                return null;
-            }
+            if (source.IsNuGetOrg)
+                return SourceVersionList.Absent;
         }
 
         // Fall back to V3 service index discovery
@@ -1874,31 +1882,42 @@ public static class PackageExtractor
             cancellationToken).ConfigureAwait(false);
         if (GetVersionIndexUrl(baseAddress, packageName) is { } indexUrl)
         {
-            var versions = await FetchVersionListAsync(
+            attemptedAuthoritativeLookup = true;
+            SourceVersionList versions = await FetchVersionListAsync(
                 client,
                 indexUrl,
                 log,
                 NuGetCredentialScope.AuthFor(source, indexUrl, log),
                 cancellationToken).ConfigureAwait(false);
-            if (versions != null)
-                return versions;
+            return versions;
         }
 
-        return null;
+        return attemptedAuthoritativeLookup
+            ? SourceVersionList.Absent
+            : SourceVersionList.Failure;
     }
 
-    private static async Task<List<string>?> FetchVersionListAsync(
+    private static async Task<SourceVersionList> FetchVersionListAsync(
         HttpClient client, string indexUrl, Action<string>? log,
         AuthenticationHeaderValue? auth = null,
         CancellationToken cancellationToken = default)
     {
         log?.Invoke(
             $"Fetching versions from: {UrlRedaction.ForDiagnostics(indexUrl)}");
+        int failuresBefore =
+            FeedFailureTelemetry.Current?.Failures.Count ?? 0;
         string? json = await HttpRetryHelper.GetStringWithRetryAsync(
             client, indexUrl, auth: auth,
             cancellationToken: cancellationToken,
             trafficKind: NetworkTrafficKind.PackageVersionList).ConfigureAwait(false);
-        if (json == null) return null;
+        if (json == null)
+        {
+            int failuresAfter =
+                FeedFailureTelemetry.Current?.Failures.Count ?? 0;
+            return failuresAfter > failuresBefore
+                ? SourceVersionList.Failure
+                : SourceVersionList.Absent;
+        }
 
         try
         {
@@ -1912,7 +1931,7 @@ public static class PackageExtractor
                 FeedFailureTelemetry.Record(
                     indexUrl,
                     HttpStatusCode.OK);
-                return null;
+                return SourceVersionList.Failure;
             }
 
             List<string> result = [];
@@ -1926,13 +1945,15 @@ public static class PackageExtractor
                     FeedFailureTelemetry.Record(
                         indexUrl,
                         HttpStatusCode.OK);
-                    return null;
+                    return SourceVersionList.Failure;
                 }
 
                 result.Add(candidate);
             }
 
-            return result.Count == 0 ? null : result;
+            return result.Count == 0
+                ? SourceVersionList.Absent
+                : SourceVersionList.Found(result);
         }
         catch (Exception ex) when (ex is
             System.Text.Json.JsonException
@@ -1944,7 +1965,7 @@ public static class PackageExtractor
                 HttpStatusCode.OK);
         }
 
-        return null;
+        return SourceVersionList.Failure;
     }
 
     // nuget.org registration index — the only nuget.org endpoint that carries the
@@ -1971,21 +1992,29 @@ public static class PackageExtractor
     /// unlisted versions for the whole cache TTL.
     /// </para>
     /// </summary>
-    private static async Task<(List<string>? Versions, bool Authoritative)> FetchListedVersionsFromSourceAsync(
+    private static async Task<(
+        List<string>? Versions,
+        bool Authoritative,
+        bool Failed)> FetchListedVersionsFromSourceAsync(
         HttpClient client,
         string packageName,
         NuGetSource source,
         Action<string>? log,
         CancellationToken cancellationToken = default)
     {
-        var versions = await FetchAllVersionsFromSourceAsync(
+        SourceVersionList lookup = await FetchAllVersionsFromSourceAsync(
             client,
             packageName,
             source,
             log,
             cancellationToken).ConfigureAwait(false);
-        if (versions == null || !source.IsNuGetOrg)
-            return (versions, Authoritative: true);
+        if (lookup.Versions is not { } versions || !source.IsNuGetOrg)
+        {
+            return (
+                lookup.Versions,
+                Authoritative: true,
+                lookup.Failed);
+        }
 
         var registration = await FetchRegistrationVersionsFromNuGetOrgAsync(
             client,
@@ -1993,16 +2022,16 @@ public static class PackageExtractor
             log,
             cancellationToken).ConfigureAwait(false);
         if (registration == null)
-            return (versions, Authoritative: false);
+            return (versions, Authoritative: false, Failed: true);
         if (!RegistrationCovers(versions, registration.AllVersions))
         {
             FeedFailureTelemetry.Record(
                 $"{NuGetOrgRegistrationBase}/{packageName}/index.json",
                 HttpStatusCode.OK);
-            return (versions, Authoritative: false);
+            return (versions, Authoritative: false, Failed: true);
         }
         if (registration.UnlistedVersions.Count == 0)
-            return (versions, Authoritative: true);
+            return (versions, Authoritative: true, Failed: false);
 
         var filtered = versions
             .Where(v => !IsUnlisted(v, registration.UnlistedVersions))
@@ -2010,7 +2039,7 @@ public static class PackageExtractor
         int removed = versions.Count - filtered.Count;
         if (removed > 0)
             log?.Invoke($"Excluded {removed} unlisted version(s) from enumeration");
-        return (filtered, Authoritative: true);
+        return (filtered, Authoritative: true, Failed: false);
     }
 
     private static bool IsUnlisted(string version, HashSet<NuGet.Versioning.NuGetVersion> unlisted) =>
@@ -2259,19 +2288,13 @@ public static class PackageExtractor
         // index below.
         if (source.IsNuGetOrg)
         {
-            // Attribute outage vs absence to this nuget.org lookup only. A clean
-            // flat-container 404 returns (null, Authoritative: true) with no
-            // telemetry mark; that is Absent, not Failure. Treating it as Failure
-            // makes requireStableFloating workspace loads Unavailable whenever
-            // nuget.org is authorized beside a private feed that has the package.
-            int nugetOrgFailuresBefore =
-                FeedFailureTelemetry.Current?.Failures.Count ?? 0;
-            var (listed, authoritative) = await FetchListedVersionsFromSourceAsync(
-                client,
-                packageName,
-                source,
-                log,
-                cancellationToken).ConfigureAwait(false);
+            var (listed, authoritative, failed) =
+                await FetchListedVersionsFromSourceAsync(
+                    client,
+                    packageName,
+                    source,
+                    log,
+                    cancellationToken).ConfigureAwait(false);
             if (listed != null && authoritative)
             {
                 return PickLatest(listed, includePrerelease) is { } picked
@@ -2281,9 +2304,7 @@ public static class PackageExtractor
 
             if (listed is null && authoritative)
             {
-                int nugetOrgFailuresAfter =
-                    FeedFailureTelemetry.Current?.Failures.Count ?? 0;
-                return nugetOrgFailuresAfter > nugetOrgFailuresBefore
+                return failed
                     ? SourceLatestVersion.Failure
                     : SourceLatestVersion.Absent;
             }
@@ -2645,7 +2666,8 @@ public static class PackageExtractor
             [.. sources],
             log,
             useCache,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            requireCompleteSources: true).ConfigureAwait(false);
         if (perSource is null)
             return (null, HasIncompleteMetadata: false);
         if (perSource.Any(candidate => !candidate.Authoritative))
@@ -2927,8 +2949,10 @@ public static class PackageExtractor
     /// result; callers that authorize payloads retain its provenance.
     /// </summary>
     /// <returns>
-    /// One entry per source that produced a list, in source order, or <see langword="null"/> when
-    /// no source carried the package at all.
+    /// One entry per source that produced a list, in source order, or
+    /// <see langword="null"/> when no source carried the package at all.
+    /// Complete-source callers also retain a failed source as a
+    /// non-authoritative empty entry.
     /// </returns>
     private static async Task<List<SourceVersionListings>?> FetchListingsPerSourceAsync(
         HttpClient client,
@@ -2936,7 +2960,8 @@ public static class PackageExtractor
         List<NuGetSource> sources,
         Action<string>? log,
         bool useCache = true,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool requireCompleteSources = false)
     {
         var perSource = new List<SourceVersionListings>();
 
@@ -2945,6 +2970,7 @@ public static class PackageExtractor
             cancellationToken.ThrowIfCancellationRequested();
             List<PackageVersionInfo>? listings = null;
             bool fetchedAuthoritative = false;
+            bool fetchedFailed = false;
             bool fromCache = false;
             string cacheKey = ListingsVersionCacheKey(
                 NuGetCache.GetSourceKey(source.Url),
@@ -2970,7 +2996,7 @@ public static class PackageExtractor
 
             if (listings == null)
             {
-                (listings, fetchedAuthoritative) =
+                (listings, fetchedAuthoritative, fetchedFailed) =
                     await FetchVersionListingsFromSourceAsync(
                         client,
                         normalizedName,
@@ -2979,7 +3005,16 @@ public static class PackageExtractor
                         cancellationToken).ConfigureAwait(false);
             }
             if (listings == null)
+            {
+                if (requireCompleteSources && fetchedFailed)
+                {
+                    perSource.Add(new SourceVersionListings(
+                        source,
+                        [],
+                        Authoritative: false));
+                }
                 continue;
+            }
 
             bool authoritative = fromCache || fetchedAuthoritative;
             perSource.Add(new SourceVersionListings(
@@ -3056,21 +3091,29 @@ public static class PackageExtractor
     /// the whole cache TTL.
     /// </para>
     /// </summary>
-    private static async Task<(List<PackageVersionInfo>? Listings, bool Authoritative)> FetchVersionListingsFromSourceAsync(
+    private static async Task<(
+        List<PackageVersionInfo>? Listings,
+        bool Authoritative,
+        bool Failed)> FetchVersionListingsFromSourceAsync(
         HttpClient client,
         string packageName,
         NuGetSource source,
         Action<string>? log,
         CancellationToken cancellationToken = default)
     {
-        var versions = await FetchAllVersionsFromSourceAsync(
+        SourceVersionList lookup = await FetchAllVersionsFromSourceAsync(
             client,
             packageName,
             source,
             log,
             cancellationToken).ConfigureAwait(false);
-        if (versions == null)
-            return (null, Authoritative: true);
+        if (lookup.Versions is not { } versions)
+        {
+            return (
+                null,
+                Authoritative: true,
+                lookup.Failed);
+        }
 
         NuGetOrgRegistrationVersions? registration = source.IsNuGetOrg
             ? await FetchRegistrationVersionsFromNuGetOrgAsync(
@@ -3089,7 +3132,10 @@ public static class PackageExtractor
                 registration == null
                     || !IsUnlisted(v, registration.UnlistedVersions)))
             .ToList();
-        return (listings, authoritative);
+        return (
+            listings,
+            authoritative,
+            Failed: !authoritative);
     }
 
     // Every line carries an explicit two-character tab suffix. The versioned

@@ -178,7 +178,11 @@ public static class WorkspaceContextLoader
         cancellationToken.ThrowIfCancellationRequested();
 
         ImmutableArray<WorkspaceContextLoadFailure> rejections =
-            Validate(context, out string? framework, out string? rid);
+            Validate(
+                context,
+                options,
+                out string? framework,
+                out string? rid);
         if (!rejections.IsEmpty)
             return new WorkspaceContextLoadOutcome.Failed(rejections);
 
@@ -920,6 +924,7 @@ public static class WorkspaceContextLoader
 
     static ImmutableArray<WorkspaceContextLoadFailure> Validate(
         WorkspaceContextInput context,
+        WorkspaceContextLoadOptions options,
         out string? framework,
         out string? runtimeIdentifier)
     {
@@ -1040,12 +1045,23 @@ public static class WorkspaceContextLoader
                                 platform.Framework))
                         is { } platformInvalid)
                     {
+                        LogPlatformDetail(
+                            options,
+                            platform.Family,
+                            platformInvalid.Message);
+                        string message =
+                            platform.Framework is not null
+                            && !PackageCoordinateResolver
+                                .IsAcquisitionTargetText(
+                                    platform.Framework)
+                                ? "A platform member target framework must be a moniker of ASCII letters and digits joined by single '.', '-', or '+' separators."
+                                : "A platform member version must be one exact normalized NuGet version, without build metadata, whitespace, a range, or a wildcard.";
                         failures.Add(
                             Failure(
                                 WorkspaceContextLoadFailureKind
                                     .InvalidCoordinate,
                                 member,
-                                platformInvalid.Message));
+                                message));
                     }
 
                     AddTarget(

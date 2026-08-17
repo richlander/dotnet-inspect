@@ -325,8 +325,10 @@ major/minor release line unless exactly pinned, and mints pathless participants
 with `PlatformAsset` provenance. A platform-qualified target such as
 `net10.0-browser` uses its `net10.0` base release line, and one family cannot
 mix versions or producers inside a group. Floating selection retains only the
-authorized producers that reported the selected version. The
-implementation-pack RID is `linux-x64`
+authorized producers that reported the selected version. Every authorized
+producer must first return an authoritative listing or prove the package
+absent; a failed producer makes the floating result unavailable rather than
+silently narrowing the candidate set. The implementation-pack RID is `linux-x64`
 because the assemblies are inspected as representative CoreCLR IL and never
 executed; the workspace target RID remains the caller's independent binding
 constraint. `WorkspaceContextLoaderTests.PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants`
@@ -334,6 +336,11 @@ gates version selection, pathless platform provenance, and in-group platform
 binding; `PlatformMember_PlatformQualifiedTargetUsesBaseReleaseLine` gates
 qualified targets, `FloatingPlatformMember_AcquiresOnlyFromVersionReporters`
 gates source correspondence, and
+`FloatingPlatformMember_FailedAuthorizedListingIsUnavailable` with
+`FloatingPlatformMember_AuthoritativeAbsenceDoesNotHideReporter` gates the
+failure-versus-absence distinction. `InvalidPlatformCoordinate_UsesPlatformDiagnostic`
+gates the platform-owned public diagnostic boundary while retaining package
+detail in host logging, and
 `RealizedPlatformCoordinate_ReacquiresRecordedProducer` gates exact
 producer-bound transport.
 Portable-PDB acquisition now follows the same content-shaped boundary:

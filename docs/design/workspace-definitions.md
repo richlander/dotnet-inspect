@@ -898,7 +898,13 @@ is not part of runtime-pack acquisition. It supplies:
   `PlatformMember_AssemblyFilterUsesMetadataIdentity` for identity-owned
   filtering,
   `FloatingPlatformMember_AcquiresOnlyFromVersionReporters` for listing-to-
-  payload source correspondence, and
+  payload source correspondence,
+  `FloatingPlatformMember_FailedAuthorizedListingIsUnavailable` and
+  `FloatingPlatformMember_AuthoritativeAbsenceDoesNotHideReporter` for typed
+  source failure versus authoritative package absence,
+  `InvalidPlatformCoordinate_UsesPlatformDiagnostic` for platform-owned
+  public validation text with package-layer detail retained in host logging,
+  and
   `RealizedPlatformCoordinate_ReacquiresRecordedProducer` for exact
   producer-bound transport;
 - a package-specific authorization gate —

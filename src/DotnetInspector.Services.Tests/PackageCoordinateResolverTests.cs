@@ -1082,6 +1082,65 @@ public sealed class PackageCoordinateResolverTests
         Assert.True(handler.RequestCount > firstRequestCount);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task ListVersions_RequiresEveryAuthorizedSourceToAnswer(
+        bool malformedVersionIndex,
+        bool malformedPackageBaseAddress)
+    {
+        using var client = new HttpClient(
+            new IncompleteVersionSourcesHandler(
+                malformedVersionIndex,
+                malformedPackageBaseAddress));
+
+        var unavailable =
+            Assert.IsType<PackageVersionListingResult.Unavailable>(
+                await PackageCoordinateResolver.ListVersionsAsync(
+                    client,
+                    IncompleteVersionSourcesHandler.PackageId,
+                    [
+                        IncompleteVersionSourcesHandler.IncompleteSource,
+                        IncompleteVersionSourcesHandler.AvailableSource,
+                    ],
+                    useVersionCache: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "complete version set",
+            unavailable.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ListVersions_AllowsAuthoritativeAbsenceFromOneSource()
+    {
+        using var client =
+            new HttpClient(new OptionalMalformedServiceIndexHandler());
+
+        var available =
+            Assert.IsType<PackageVersionListingResult.Available>(
+                await PackageCoordinateResolver.ListVersionsAsync(
+                    client,
+                    OptionalMalformedServiceIndexHandler.PackageId,
+                    [
+                        OptionalMalformedServiceIndexHandler.HealthySource,
+                        OptionalMalformedServiceIndexHandler
+                            .CosmeticPoisonSource,
+                    ],
+                    useVersionCache: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        var candidate = Assert.Single(available.Candidates);
+        Assert.Equal("1.0.0", candidate.Version);
+        Assert.Equal(
+            [OptionalMalformedServiceIndexHandler.HealthySource],
+            candidate.ReportingSources);
+    }
+
     [Fact]
     public async Task ListVersions_RequiresAnAuthorizedSource()
     {
