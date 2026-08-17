@@ -344,6 +344,53 @@ public unsafe class MetadataMemberSignatureShapeTests
     }
 
     [Fact]
+    public void MetadataAdapter_RefusesUnavailableErasedModifier()
+    {
+        byte[] image = BuildCyclicModifierImage();
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("repeats handle", result.UnavailableReason);
+    }
+
+    [Fact]
+    public void MetadataAdapter_RefusesMultidimensionalArrayBounds()
+    {
+        byte[][] images =
+        [
+            BuildArrayShapeImage(sizes: [3], lowerBounds: []),
+            BuildArrayShapeImage(sizes: [], lowerBounds: [1]),
+        ];
+
+        foreach (byte[] image in images)
+        {
+            MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+            Assert.False(result.IsAvailable);
+            Assert.Contains("bounds that C# cannot represent", result.UnavailableReason);
+        }
+    }
+
+    [Fact]
+    public void MetadataAdapter_AllowsExplicitZeroArrayLowerBound()
+    {
+        byte[] image = BuildArrayShapeImage(
+            sizes: [],
+            lowerBounds: [0]);
+
+        MemberSignatureShapeResult result = ReadCraftedShape(image);
+
+        Assert.True(result.IsAvailable, result.UnavailableReason);
+        Assert.Equal(
+            new ArrayTypeSignatureShape(
+                new PrimitiveTypeSignatureShape("System.Int32"),
+                2,
+                IsSzArray: false),
+            result.Shape!.Parameters.Single().Type);
+    }
+
+    [Fact]
     public void MetadataAdapter_RefusesGenericHeaderWithoutOwnedRows()
     {
         byte[] image = BuildGenericMethodImage(
@@ -570,6 +617,49 @@ public unsafe class MetadataMemberSignatureShapeTests
             signature.WriteCompressedInteger(modifierCodedIndex);
         }
         signature.WriteByte(0x08);
+        AddMethodAndType(metadata, metadata.GetOrAddBlob(signature));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildCyclicModifierImage()
+    {
+        var metadata = CreateMetadataBuilder();
+        TypeReferenceHandle modifier = metadata.AddTypeReference(
+            MetadataTokens.TypeReferenceHandle(1),
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Modifier"));
+        int modifierCodedIndex =
+            (MetadataTokens.GetRowNumber(modifier) << 2) | 1;
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(modifierCodedIndex);
+        signature.WriteByte(0x08);
+        AddMethodAndType(metadata, metadata.GetOrAddBlob(signature));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildArrayShapeImage(
+        int[] sizes,
+        int[] lowerBounds)
+    {
+        var metadata = CreateMetadataBuilder();
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x14);
+        signature.WriteByte(0x08);
+        signature.WriteCompressedInteger(2);
+        signature.WriteCompressedInteger(sizes.Length);
+        foreach (int size in sizes)
+            signature.WriteCompressedInteger(size);
+        signature.WriteCompressedInteger(lowerBounds.Length);
+        foreach (int lowerBound in lowerBounds)
+            signature.WriteCompressedSignedInteger(lowerBound);
         AddMethodAndType(metadata, metadata.GetOrAddBlob(signature));
         return Serialize(metadata);
     }

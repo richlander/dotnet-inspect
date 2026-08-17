@@ -227,7 +227,11 @@ cumulative owned rows disagree. Positional generic references must also fit
 those validated bounds. Metadata arity suffixes accept only nonzero canonical
 ASCII decimal, and function-pointer headers carrying instance, explicit-this,
 generic, or vararg semantics are unavailable because the shared shape cannot
-represent them. These properties are gated by
+represent them. Multidimensional array sizes and nonzero lower bounds are
+likewise unavailable because C# array syntax carries rank but not those
+signature facts.
+An erased custom modifier is accepted only when its modifier type was decoded
+successfully. These properties are gated by
 `MetadataAdapter_RefusesGenericHeaderWithoutOwnedRows`,
 `MetadataAdapter_RefusesNonContiguousGenericParameterRows`,
 `MetadataAdapter_RefusesZeroArityGenericHeader`,
@@ -235,7 +239,9 @@ represent them. These properties are gated by
 `MetadataAdapter_RefusesMissingDeclaringTypeGenericRows`,
 `MetadataAdapter_AllowsCumulativeNestedTypeGenericRows`,
 `MetadataAdapter_RefusesNoncanonicalTypeReferenceArity`, and
-`MetadataAdapter_RefusesUnrepresentableFunctionPointerHeaders`.
+`MetadataAdapter_RefusesUnrepresentableFunctionPointerHeaders`,
+`MetadataAdapter_RefusesMultidimensionalArrayBounds`, and
+`MetadataAdapter_RefusesUnavailableErasedModifier`.
 
 One cumulative work budget covers the full metadata projection, including
 custom-modifier subtrees erased from the final shape and generic-parameter names

@@ -620,11 +620,17 @@ public static class MetadataMemberSignatureShape
         public TypeResult GetArrayType(TypeResult elementType, ArrayShape shape)
         {
             _workBudget.ChargeNode();
-            return shape.Rank <= 0
-                ? TypeResult.Unavailable("The metadata array rank is invalid.")
-                : Wrap(
-                    elementType,
-                    type => new ArrayTypeSignatureShape(type, shape.Rank, IsSzArray: false));
+            if (shape.Rank <= 0)
+                return TypeResult.Unavailable("The metadata array rank is invalid.");
+            if (!shape.Sizes.IsDefaultOrEmpty
+                || shape.LowerBounds.Any(static bound => bound != 0))
+            {
+                return TypeResult.Unavailable(
+                    "The metadata array carries bounds that C# cannot represent.");
+            }
+            return Wrap(
+                elementType,
+                type => new ArrayTypeSignatureShape(type, shape.Rank, IsSzArray: false));
         }
 
         public TypeResult GetByReferenceType(TypeResult elementType)
@@ -784,10 +790,13 @@ public static class MetadataMemberSignatureShape
             TypeResult unmodifiedType,
             bool isRequired)
         {
-            _ = modifier;
             _ = isRequired;
             _workBudget.ChargeNode();
-            return unmodifiedType;
+            return modifier.Shape is null
+                ? TypeResult.Unavailable(
+                    modifier.Reason
+                    ?? "The custom-modifier type is unavailable.")
+                : unmodifiedType;
         }
 
         public TypeResult GetPinnedType(TypeResult elementType)
