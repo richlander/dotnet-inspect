@@ -52,10 +52,15 @@ public sealed class BrowserStyleOptionsTests
                     == "csharp.body-kinds")
             .GetProperty("values");
 
-        Assert.Equal(
-            BodyShapeSearch.SupportedKinds,
-            actual.EnumerateArray()
-                .Select(value => value.GetProperty("id").GetString()));
+        Assert.Equal(BodyShapeSearch.SupportedKinds.Count, actual.GetArrayLength());
+        for (int i = 0; i < actual.GetArrayLength(); i++)
+        {
+            string expected = BodyShapeSearch.SupportedKinds[i];
+            Assert.Equal(expected, actual[i].GetProperty("id").GetString());
+            Assert.Equal(
+                AnnotatedSourceNodeKinds.GetDisplayLabel(expected),
+                actual[i].GetProperty("label").GetString());
+        }
     }
 
     [Fact]

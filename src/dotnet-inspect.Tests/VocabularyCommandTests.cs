@@ -48,6 +48,10 @@ public sealed class VocabularyCommandTests
         Assert.Equal(
             BodyShapeSearch.SupportedKinds,
             bodyKinds.Values.Select(ValueId));
+        Assert.Equal(
+            BodyShapeSearch.SupportedKinds.Select(
+                AnnotatedSourceNodeKinds.GetDisplayLabel),
+            bodyKinds.Values.Select(row => row.GetRequired("label").Text));
     }
 
     [Fact]

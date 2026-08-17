@@ -349,11 +349,19 @@ public static class VocabularyCatalog
                 VocabularyOperator.Equals,
                 VocabularyOperator.NotEquals,
                 VocabularyOperator.In),
+            TextField(
+                "label",
+                "Label",
+                "Product-owned display label.",
+                VocabularyOperator.Equals,
+                VocabularyOperator.Glob),
         ];
         ImmutableArray<VocabularyRow> rows =
         [
             .. BodyShapeSearch.SupportedKinds.Select(kind => new VocabularyRow(
-                ("id", VocabularyValue.FromText(kind)))),
+                ("id", VocabularyValue.FromText(kind)),
+                ("label", VocabularyValue.FromText(
+                    AnnotatedSourceNodeKinds.GetDisplayLabel(kind))))),
         ];
         return new(
             "csharp.body-kinds",
