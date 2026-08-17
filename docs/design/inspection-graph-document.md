@@ -398,6 +398,7 @@ A relationship descriptor defines:
 - semantic direction and endpoint roles;
 - admitted edge source and target subject kinds;
 - admitted original-occurrence source and target subject kinds;
+- admitted seed subject kinds, entry mechanisms, and semantic endpoint roles;
 - the producer that owns the relation;
 - whether the relation is observed, derived, or synthetic;
 - the occurrence evidence contract;
@@ -493,6 +494,26 @@ while admitting only member-to-member original occurrences. The projection
 rule receives the typed occurrence, including its producer evidence, and the
 semantically directed selected endpoint. It does not recover package ownership
 from labels or capture an unvalidated per-document side map.
+
+Seed admission is also descriptor-owned and separate from endpoint projection.
+A seed may enter a relationship as an exact logical `EdgeEndpoint`, as an
+original `OccurrenceEndpoint` retained behind a rolled-up edge, or through
+typed `OwnedSubjects`. Every admission names semantic source or target;
+incoming traversal never changes that role. Direct edge and occurrence
+admissions must use a subject kind declared by the corresponding descriptor
+endpoint domain. Owned-subject admission authorizes later expansion through
+typed ownership but does not change the logical edge's subject kind or
+direction.
+
+A seeded request must have at least one selected relationship, and every seed
+kind must be admitted by at least one of them. Validation occurs before producer
+execution and fails with the selected relationship ids and typed guidance.
+Induced-set requests carry no seeds and bypass this gate.
+`RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`,
+`DirectAdmissionsMatchDeclaredEndpointDomains`,
+`RelationshipCatalogsDeclareCurrentSeedAdmissions`,
+`SeedAdmissionValidator_RejectsUnsupportedRelationshipSet`, and
+`SeedAdmissionValidator_DoesNotConstrainInducedSets` gate these contracts.
 
 Each relationship descriptor owns an occurrence-identity projection within one
 document. Projection deduplicates repeated observations by that key before
@@ -1011,7 +1032,10 @@ subject lenses it advances.
    `InspectionGraphPackageBoundary` and `InspectionGraphIntegrationsQuery`
    bind type, assembly, and package subjects to exact nodes or groups; peers
    retain equal roles; and request-free workspace projection declares its
-   workspace-participant induced-set rule. Producer admission,
+   workspace-participant induced-set rule. Relationship descriptors now own
+   direct edge, original occurrence, and owned-subject seed admission, and
+   seeded Integration requests validate the relationship catalog before
+   producer execution. Admission-driven producer selection,
    connecting-neighborhood construction, explicit-subject induced sets, and
    presentation lowering remain.
 

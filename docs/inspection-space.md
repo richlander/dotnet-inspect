@@ -453,13 +453,23 @@ workspace-participant induced set; type and assembly seeds bind exact nodes,
 package seeds bind exact package groups in the detailed Integration lens, and
 mixed peers remain equal. Mode binding happens after the same deterministic
 producer plan, so it does not change occurrence identity or semantic edge
-direction.
+direction. Before that plan runs, each seeded request validates that the
+Integration relationship catalog admits every seed kind as a logical edge
+endpoint, an original occurrence endpoint, or through owned subjects.
+Unsupported combinations fail with typed guidance rather than running
+producers and returning a success-shaped empty graph. Induced-set requests have
+no seed-admission requirement. Admission-driven producer selection remains
+deferred, so this validation preserves the deterministic sequential plan.
 `Execute_DefaultsToWorkspaceInducedSetWithoutSeeds`,
 `Execute_BindsTypeSeedToExactNode`,
 `Execute_BindsAssemblySeedToExactNode`,
 `Execute_BindsPackageSeedToDetailedLensGroup`,
 `Execute_BindsPeerSeedsWithoutChoosingPrimary`, and
 `PackageAndTypeModesShareSemanticIntegrationOccurrences` gate those claims.
+`RelationshipCatalogsDeclareCurrentSeedAdmissions`,
+`SeedAdmissionValidator_RejectsUnsupportedRelationshipSet`, and
+`SeedAdmissionValidator_DoesNotConstrainInducedSets` gate catalog admission and
+its seeded/induced boundary.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
 composition and the shared nonzero completion status used after Markdown,
 count, tabular, or JSON output.
