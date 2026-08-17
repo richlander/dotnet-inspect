@@ -91,6 +91,40 @@ the exact-only comparator path, so near cases in the population remain outside
 exact clusters. Seeded fuzzy retrieval is independently graded and does not
 establish a relation.
 
+The real-artifact corpus grades retrieval against independently source-reviewed
+CoreLib labels:
+
+```bash
+dotnet "$DLL" --clone-corelib-corpus \
+  <dotnet-root>/shared/Microsoft.NETCore.App/11.0.0-preview.7.26381.103/System.Private.CoreLib.dll
+dotnet "$DLL" --clone-corelib-corpus System.Private.CoreLib.dll --json
+```
+
+The committed `corpus/structural-clone-corelib.json` ledger pins the artifact
+SHA-256 and MVID plus the corresponding
+`https://github.com/dotnet/dotnet` source commit. MethodDef token is artifact
+identity; type, name, signature, source path, and line are audit fields. The
+harness mechanically verifies token/type/name against the artifact. Source
+paths, lines, rationales, and relevance labels record the independent source
+review and are not inferred or fetched by the harness.
+
+Each query labels every actual top-K row as `Relevant`, `HardNegative`,
+`OrdinaryNegative`, or `SemanticHazard`. Relevant labels outside K remain
+explicit misses. The harness calls product `RetrieveSimilar` over the full
+MethodDef population, calls `Compare` independently for every label, and grades
+rank bounds, strict score contrasts, relation expectations, labeled precision,
+and labeled recall. It does not reconstruct similarity, promote `Exact` or
+`Near` to relevance, or treat unlabeled CoreLib methods as negatives.
+
+The pinned six-query card passes with 16 relevant rows among 27 reviewed rows
+(59.25% labeled precision) and recovers 16 of 20 declared relevant labels
+(80.00% labeled recall). It includes four known misses, two top-K hard
+negatives, and nine `Unsafe` intrinsic stubs whose placeholder bodies compare
+`Exact` but whose operations are semantic hazards. These are metrics over this
+source-reviewed ledger only, not broad CoreLib precision or recall estimates.
+`StructuralCloneCoreLibCorpusTests.CommittedCorpus_GradesPinnedCoreLib` gates
+the artifact, coverage, metric, miss, contrast, and hazard card.
+
 The worksheet projects one product-owned ranking for source review:
 
 ```bash
