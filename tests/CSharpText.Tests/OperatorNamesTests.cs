@@ -400,4 +400,20 @@ public class OperatorNamesTests
         string input,
         string? expected)
         => Assert.Equal(expected, OperatorNames.RequiredOperatorSibling(input));
+
+    [Theory]
+    [InlineData("in Samples.Widget", "Samples.Widget", true)]
+    [InlineData("ref Samples.Widget", "out Samples.Widget", true)]
+    [InlineData("Samples.Widget&", "Samples.Widget", true)]
+    [InlineData("Samples.Widget?", "Samples.Widget", true)]
+    [InlineData("List<dynamic?>", "List<object>", true)]
+    [InlineData("int?", "int", false)]
+    [InlineData("Samples.Widget", "Samples.Other", false)]
+    public void OperatorPairingTypesMatch_UsesCSharpPairingIdentity(
+        string left,
+        string right,
+        bool expected)
+        => Assert.Equal(
+            expected,
+            OperatorNames.OperatorPairingTypesMatch(left, right));
 }

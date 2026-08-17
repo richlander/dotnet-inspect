@@ -782,6 +782,15 @@ public static class CompileBackSourceComposer
         MethodRef method)
         => TypeProducer.TryCreateClosureMemberRequirement(reader, typeHandle, method);
 
+    static CompileBackMemberRequirement? TryCreateRequiredOperatorSibling(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodRef method)
+        => TypeProducer.TryCreateRequiredOperatorSibling(
+            reader,
+            typeHandle,
+            method);
+
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
@@ -942,7 +951,14 @@ public static class CompileBackSourceComposer
             if (method.IsOperator == MetadataFactState.Yes
                 && OperatorNames.RequiredOperatorSibling(method.Name) is { } siblingName)
             {
-                AddSingleMethodFact(method with { Name = siblingName }, allowTargetRoot);
+                AddMemberFact(method.DeclaringType, "method", siblingName);
+                AddMemberRequirement(
+                    method.DeclaringType,
+                    root => TryCreateRequiredOperatorSibling(
+                        reader,
+                        root,
+                        method),
+                    allowTargetRoot);
             }
         }
 
@@ -3251,8 +3267,12 @@ public static class CompileBackSourceComposer
     }
 
     static bool OperatorSignaturesMatch(MethodSignature<string> left, MethodSignature<string> right)
-        => left.ReturnType == right.ReturnType
-            && left.ParameterTypes.SequenceEqual(right.ParameterTypes, StringComparer.Ordinal);
+        => OperatorNames.OperatorPairingTypesMatch(left.ReturnType, right.ReturnType)
+            && left.ParameterTypes.Length == right.ParameterTypes.Length
+            && left.ParameterTypes.Zip(
+                right.ParameterTypes,
+                OperatorNames.OperatorPairingTypesMatch)
+                .All(static equal => equal);
 
     static bool IsRecordGeneratedFieldReadHelper(
         MetadataReader reader,
@@ -4148,6 +4168,28 @@ public static class CompileBackSourceComposer
             if (TryFindMethod(reader, typeDef, methodRef) is { } methodHandle)
                 return MethodRequirement(reader, typeDef, typeIdentity, methodHandle);
             return null;
+        }
+
+        public static CompileBackMemberRequirement? TryCreateRequiredOperatorSibling(
+            MetadataReader reader,
+            TypeDefinitionHandle typeHandle,
+            MethodRef methodRef)
+        {
+            var typeDef = reader.GetTypeDefinition(typeHandle);
+            if (TryFindMethod(reader, typeDef, methodRef) is not { } methodHandle)
+                return null;
+
+            var method = reader.GetMethodDefinition(methodHandle);
+            var signature = GuardedSignatureText.MethodText(
+                reader,
+                method,
+                GenericContext.ForMethod(reader, typeDef, method));
+            return RequiredOperatorSibling(
+                reader,
+                typeDef,
+                CompileBackTypeIdentity.FromDefinition(reader, typeDef),
+                methodRef.Name,
+                signature);
         }
 
         public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(

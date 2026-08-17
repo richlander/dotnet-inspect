@@ -2276,13 +2276,16 @@ internal static class CSharpDeclarationWriter
         if (left is null || right is null)
             return true;
 
-        return left.EffectiveCanonicalReturnType == right.EffectiveCanonicalReturnType
+        return OperatorNames.OperatorPairingTypesMatch(
+                left.EffectiveCanonicalReturnType,
+                right.EffectiveCanonicalReturnType)
             && left.Parameters.Count == right.Parameters.Count
             && left.Parameters.Zip(
                 right.Parameters,
                 static (leftParameter, rightParameter) =>
-                    leftParameter.CanonicalTypeWithModifier
-                    == rightParameter.CanonicalTypeWithModifier)
+                    OperatorNames.OperatorPairingTypesMatch(
+                        leftParameter.EffectiveCanonicalType,
+                        rightParameter.EffectiveCanonicalType))
                 .All(static equal => equal);
     }
 

@@ -327,7 +327,7 @@ public class ResearchDiffTests
     }
 
     [Fact]
-    public void ResearchMemberIdentity_UnknownMemberReferenceDoesNotInventOperatorSelector()
+    public void ResearchMemberIdentity_UnknownMemberReferenceUsesMetadataOperatorFallback()
     {
         var widget = TypeRef.Definition("Asm", "Sample", "Widget");
         var member = new MemberRef(
@@ -338,6 +338,26 @@ public class ResearchDiffTests
             MemberKind.Method);
 
         Assert.Equal(MetadataOperatorFact.Unknown, member.IsOperator);
+        Assert.StartsWith(
+            "operator:op_Equality~",
+            ResearchMemberIdentity.SubjectFromMember(member).Id,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResearchMemberIdentity_ExactNegativeKeepsOrdinaryOperatorName()
+    {
+        var widget = TypeRef.Definition("Asm", "Sample", "Widget");
+        var member = new MemberRef(
+            widget,
+            "op_Equality",
+            [widget, widget],
+            TypeRef.CoreLib("System", "Boolean"),
+            MemberKind.Method)
+        {
+            IsOperator = MetadataOperatorFact.No
+        };
+
         Assert.StartsWith(
             "op_Equality~",
             ResearchMemberIdentity.SubjectFromMember(member).Id,

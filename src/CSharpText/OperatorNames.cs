@@ -461,6 +461,27 @@ public static class OperatorNames
         };
 
     /// <summary>
+    /// Whether two type spellings identify the same type for C#'s required
+    /// operator-pair rule. Nullability annotations, <c>dynamic</c>, and parameter
+    /// passing modifiers do not change that identity.
+    /// </summary>
+    public static bool OperatorPairingTypesMatch(string? left, string? right)
+    {
+        if (left is null || right is null)
+            return left == right;
+
+        return PairingType(left) == PairingType(right);
+    }
+
+    static string PairingType(string type)
+    {
+        string normalized = XmlDocumentationNotation.NormalizeParameterType(type);
+        return normalized.EndsWith('@') || normalized.EndsWith('&')
+            ? normalized[..^1]
+            : normalized;
+    }
+
+    /// <summary>
     /// The checked operator method name paired with an unchecked operator method
     /// name, or null when C# defines no checked sibling for that operator.
     /// </summary>

@@ -3427,6 +3427,46 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ClosurePairsOperatorsWithDifferentRefKinds()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(in Row left, in Row right) => true;
+                public static bool operator !=(Row left, Row right) => false;
+                public override bool Equals(object obj) => obj is Row;
+                public override int GetHashCode() => 0;
+            }
+
+            public static class Consumer
+            {
+                public static bool Same(Row left, Row right) => left == right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Consumer", "Same", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(
+                result.Source.Contains("operator ==(", StringComparison.Ordinal),
+                result.Source);
+            Assert.True(
+                result.Source.Contains("operator !=(", StringComparison.Ordinal),
+                result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ClosureDoesNotPairOrdinaryEqualityNamedMethod()
     {
         var assemblyPath = CompileFixture("""

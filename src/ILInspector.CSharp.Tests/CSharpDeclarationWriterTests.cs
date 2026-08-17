@@ -1384,6 +1384,78 @@ public sealed class CSharpDeclarationWriterTests
             CSharpDeclarationWriter.RenderMemberDeclaration(type, equality));
     }
 
+    [Theory]
+    [InlineData("in", "Samples.Widget", null, "Samples.Widget")]
+    [InlineData(null, "Samples.Widget?", null, "Samples.Widget")]
+    [InlineData(null, "dynamic", null, "object")]
+    public void MemberDeclaration_PairsOperatorsByCSharpTypeIdentity(
+        string? equalityModifier,
+        string equalityType,
+        string? inequalityModifier,
+        string inequalityType)
+    {
+        var equality = OperatorMember(
+            "op_Equality",
+            equalityModifier,
+            equalityType);
+        var inequality = OperatorMember(
+            "op_Inequality",
+            inequalityModifier,
+            inequalityType);
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members = [equality, inequality],
+        };
+
+        Assert.Contains(
+            " operator ==",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, equality),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " operator !=",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, inequality),
+            StringComparison.Ordinal);
+    }
+
+    static ApiMember OperatorMember(
+        string name,
+        string? firstParameterModifier,
+        string firstParameterType)
+    {
+        string firstParameter = string.IsNullOrEmpty(firstParameterModifier)
+            ? firstParameterType
+            : $"{firstParameterModifier} {firstParameterType}";
+        return new ApiMember
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = $"bool {name}({firstParameter} left, Samples.Widget right)",
+            IsStatic = true,
+            CSharpOperatorDeclaration = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "bool",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "left",
+                        Type = firstParameterType,
+                        Modifier = firstParameterModifier,
+                    },
+                    new ApiParameter
+                    {
+                        Name = "right",
+                        Type = "Samples.Widget",
+                    },
+                ],
+            },
+        };
+    }
+
     [Fact]
     public void MemberDeclaration_RequiresRepresentableOperatorSibling()
     {

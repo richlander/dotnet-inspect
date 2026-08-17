@@ -68,10 +68,10 @@ public static class ResearchMemberIdentity
 
     static BodyMemberIdentity BodyIdentityFromMethod(MethodIdentity method)
         => CreateBodyIdentity(
-            ApiMemberIdentity.GetMemberSelectorName(
+            GetMemberSelectorName(
                 method.Name,
                 method.IsExtension,
-                IsOperatorSelector(method.IsOperator)),
+                method.IsOperator),
             method.DeclaringType.ToQualifiedDisplayString(),
             method.Name == ".ctor" ? "#ctor" : method.Name,
             MethodGenericList(method),
@@ -85,10 +85,10 @@ public static class ResearchMemberIdentity
 
     static BodyMemberIdentity BodyIdentityFromMember(MemberRef member)
         => CreateBodyIdentity(
-            ApiMemberIdentity.GetMemberSelectorName(
+            GetMemberSelectorName(
                 member.Name,
                 isExtensionMethod: false,
-                IsOperatorSelector(member.IsOperator)),
+                member.IsOperator),
             BodyTypeName(
                 GenericMemberIdentity.OpenDeclaringType(
                     member.DeclaringType)),
@@ -105,15 +105,24 @@ public static class ResearchMemberIdentity
                 : "");
 
     /// <summary>
-    /// Whether a body subject takes the <c>operator:</c> selector prefix. A
-    /// MethodDef answers exactly, which is what makes an ordinary method named
-    /// <c>op_Multiply</c> join its API anchor instead of splitting off into an
-    /// operator-prefixed subject. An unresolved MemberRef has no
-    /// <c>SpecialName</c> flag to read, so unknown evidence remains ordinary
-    /// rather than becoming positive operator proof from its name.
+    /// The selector name for an exact or unresolved metadata operator fact.
+    /// Exact <see cref="MetadataOperatorFact.No"/> keeps an ordinary
+    /// <c>op_*</c>-named method ordinary; <see cref="MetadataOperatorFact.Unknown"/>
+    /// uses the metadata operator vocabulary so an external reference retains
+    /// the same identity as its API definition.
     /// </summary>
-    static bool IsOperatorSelector(MetadataOperatorFact fact)
-        => fact == MetadataOperatorFact.Yes;
+    static string GetMemberSelectorName(
+        string methodName,
+        bool isExtensionMethod,
+        MetadataOperatorFact fact)
+        => fact == MetadataOperatorFact.Unknown
+            ? ApiMemberIdentity.GetMemberSelectorName(
+                methodName,
+                isExtensionMethod)
+            : ApiMemberIdentity.GetMemberSelectorName(
+                methodName,
+                isExtensionMethod,
+                fact == MetadataOperatorFact.Yes);
 
     static BodyMemberIdentity BodyIdentityFromTarget(ResolvedMemberTarget target)
     {
