@@ -354,6 +354,40 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
+    public void Execute_RetainsEachUnavailableReferenceIdentity()
+    {
+        using var fixture = IntegrationFixture.Create(
+            multipleUnavailableReferenceBindings: true);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+
+        InspectionGraphFailure failure = Assert.Single(
+            document.Failures,
+            failure =>
+                failure.Target is
+                    {
+                        Kind: InspectionGraphTargetKind.Node,
+                    } target
+                && AssemblyName(document.Nodes[target.Id].Subject)
+                    == "UnavailableReferences");
+        var evidence =
+            Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
+                failure.Evidence);
+        Assert.Equal(
+            ["Bar", "Foo"],
+            evidence.Details
+                .Where(detail =>
+                    detail.Producer == "references"
+                    && detail.Kind
+                        == InspectionGraphIntegrationFailureKind
+                            .BindingUnavailable)
+                .Select(detail => Assert.IsType<
+                    AssemblyReferenceIdentity>(detail.Reference).Name)
+                .Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public void Execute_DeduplicatesEquivalentExtensionMethodRows()
     {
         using var fixture = IntegrationFixture.Create(
@@ -495,7 +529,8 @@ public sealed class InspectionGraphIntegrationsQueryTests
             bool includeRejectedParticipant = false,
             bool equivalentReferenceVariants = false,
             bool unavailableOpenAiBinding = false,
-            bool duplicateExtensionMethodRows = false)
+            bool duplicateExtensionMethodRows = false,
+            bool multipleUnavailableReferenceBindings = false)
         {
             (
                 PersistedAssemblyBuilder abstractions,
@@ -621,9 +656,15 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 assemblies.Add(DuplicateExtensionsAssembly());
                 packageIds.Add("dup.ext");
             }
+            if (multipleUnavailableReferenceBindings)
+            {
+                assemblies.Add(UnavailableReferencesAssembly());
+                packageIds.Add("unavailable.references");
+            }
             var policy = new FixtureBindingPolicy(
                 assemblies,
-                unavailableOpenAiBinding);
+                unavailableOpenAiBinding,
+                multipleUnavailableReferenceBindings);
             WorkspaceContextMember[] members =
             [
                 .. assemblies.Select((assembly, index) =>
@@ -956,6 +997,67 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     null));
         }
 
+        static ResolvedAssemblyReference UnavailableReferencesAssembly()
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString(
+                    "UnavailableReferences.dll"),
+                metadata.GetOrAddGuid(
+                    new Guid(
+                        "cb43032a-a2e5-481d-ab5b-da59a92460b9")),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("UnavailableReferences"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            foreach (string name in new[] { "Foo", "Bar" })
+            {
+                metadata.AddAssemblyReference(
+                    metadata.GetOrAddString(name),
+                    new Version(1, 0, 0, 0),
+                    metadata.GetOrAddString("neutral"),
+                    default,
+                    default,
+                    default);
+            }
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            var pe = new ManagedPEBuilder(
+                new PEHeaderBuilder(
+                    imageCharacteristics:
+                        Characteristics.Dll
+                        | Characteristics.ExecutableImage),
+                new MetadataRootBuilder(metadata),
+                new BlobBuilder());
+            var output = new BlobBuilder();
+            pe.Serialize(output);
+            byte[] bytes = output.ToArray();
+            return ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "UnavailableReferences",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(bytes, writable: false),
+                AssemblyResolutionProvenance.Package(
+                    "unavailable.references",
+                    "1.0.0",
+                    "net11.0",
+                    null));
+        }
+
         static WorkspaceContextMember Member(
             ResolvedAssemblyReference assembly,
             string packageId,
@@ -983,13 +1085,17 @@ public sealed class InspectionGraphIntegrationsQueryTests
     {
         readonly IReadOnlyList<ResolvedAssemblyReference> _assemblies;
         readonly bool _unavailableOpenAiBinding;
+        readonly bool _multipleUnavailableReferenceBindings;
 
         internal FixtureBindingPolicy(
             IReadOnlyList<ResolvedAssemblyReference> assemblies,
-            bool unavailableOpenAiBinding)
+            bool unavailableOpenAiBinding,
+            bool multipleUnavailableReferenceBindings)
         {
             _assemblies = assemblies;
             _unavailableOpenAiBinding = unavailableOpenAiBinding;
+            _multipleUnavailableReferenceBindings =
+                multipleUnavailableReferenceBindings;
         }
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
@@ -1006,6 +1112,14 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 && reference.Identity.Name.Equals(
                     "OpenAI",
                     StringComparison.OrdinalIgnoreCase))
+            {
+                return AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind
+                            .IdentityPolicyRequired));
+            }
+            if (_multipleUnavailableReferenceBindings
+                && reference.Identity.Name is "Foo" or "Bar")
             {
                 return AssemblyBindingSelection.CannotSelect(
                     new AssemblyBindingFailure(

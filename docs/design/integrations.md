@@ -224,7 +224,9 @@ remain outside the selected graph, while unavailable, ambiguous, rejected, or
 selected-outside-context bindings remain visible as failures.
 Multiple producer failures for one graph subject aggregate into one targeted
 failure with typed per-producer details, preserving the document's
-descriptor/target uniqueness contract without discarding evidence.
+descriptor/target uniqueness contract without discarding evidence. Reference
+binding details retain the exact metadata reference identity, including when
+multiple references fail with the same binding outcome.
 
 `InspectionGraphIntegrationsQueryTests.Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups`
 gates the locked topology and the absence of a fabricated call;

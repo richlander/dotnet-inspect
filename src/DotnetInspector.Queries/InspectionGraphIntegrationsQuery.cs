@@ -234,7 +234,8 @@ public sealed record InspectionGraphIntegrationFailureDetail(
     AssemblyAcquisitionRegistration Registration,
     InspectionGraphIntegrationFailureKind Kind,
     CandidateOpenFailure? AcquisitionFailure = null,
-    Exception? Error = null);
+    Exception? Error = null,
+    AssemblyReferenceIdentity? Reference = null);
 
 /// <summary>Typed evidence for incomplete contributions to one graph target.</summary>
 public sealed record InspectionGraphIntegrationFailureEvidence :
@@ -667,7 +668,8 @@ public static class InspectionGraphIntegrationsQuery
                                     AddFailure(
                                         "references",
                                         available.Subject.Registration,
-                                        bindingFailure);
+                                        bindingFailure,
+                                        reference: reference);
                                 }
                                 continue;
                             }
@@ -981,6 +983,7 @@ public static class InspectionGraphIntegrationsQuery
                             producer,
                             sourceRegistration,
                             bindingFailure,
+                            reference: assembly.Assembly,
                             target: source);
                         subject = null;
                         return false;
@@ -1187,6 +1190,7 @@ public static class InspectionGraphIntegrationsQuery
             InspectionGraphIntegrationFailureKind kind,
             CandidateOpenFailure? acquisitionFailure = null,
             Exception? error = null,
+            AssemblyReferenceIdentity? reference = null,
             InspectionGraphSubject? target = null)
         {
             int targetId = AddNode(
@@ -1196,7 +1200,8 @@ public static class InspectionGraphIntegrationsQuery
                 producer,
                 registration,
                 kind,
-                targetId);
+                targetId,
+                reference);
             if (!_failureKeys.Add(key))
                 return;
 
@@ -1214,7 +1219,8 @@ public static class InspectionGraphIntegrationsQuery
                     registration,
                     kind,
                     acquisitionFailure,
-                    error));
+                    error,
+                    reference));
         }
 
         InspectionGraphSubject.AssemblySubject AssemblySubject(
@@ -1300,7 +1306,8 @@ public static class InspectionGraphIntegrationsQuery
             string Producer,
             AssemblyAcquisitionRegistration Registration,
             InspectionGraphIntegrationFailureKind Kind,
-            int TargetId);
+            int TargetId,
+            AssemblyReferenceIdentity? Reference);
 
         readonly record struct TypeResolutionKey(
             AssemblyAcquisitionRegistration Source,
