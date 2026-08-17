@@ -370,6 +370,90 @@ public class StructuralCloneCensusTests
         Assert.Contains($"{option} requires a file path.", result.error);
     }
 
+    [Theory]
+    [InlineData(
+        "--diff-corpus-baseline",
+        "--corpus-list")]
+    [InlineData(
+        "--emit-corpus-snapshot",
+        "--corpus-list")]
+    [InlineData("--reference", "--paydirt-recall")]
+    [InlineData("--max-depth", "--caller-loop-census")]
+    [InlineData("--top", "does not apply")]
+    public async Task Command_RejectsOptionsOutsideOwningMode(
+        string option,
+        string expectedError)
+    {
+        (int exitCode, string output, string error) result =
+            await RunHarness(
+                "--clone-corpus",
+                FixturePath,
+                option,
+                option is "--max-depth" or "--top"
+                    ? "1"
+                    : FixturePath);
+
+        Assert.Equal(2, result.exitCode);
+        Assert.Equal("", result.output);
+        Assert.Contains(expectedError, result.error);
+    }
+
+    [Fact]
+    public async Task Command_RejectsKeepOutsideGeneratedFixtures()
+    {
+        (int exitCode, string output, string error) result =
+            await RunHarness(
+                "--clone-corpus",
+                FixturePath,
+                "--keep");
+
+        Assert.Equal(2, result.exitCode);
+        Assert.Equal("", result.output);
+        Assert.Contains(
+            "--keep requires --generated-fixtures.",
+            result.error);
+    }
+
+    [Fact]
+    public async Task Command_RejectsEarlierMissingDuplicateValues()
+    {
+        (int exitCode, string output, string error) reference =
+            await RunHarness(
+                "--paydirt-recall",
+                FixturePath,
+                "--reference",
+                "--reference",
+                FixturePath);
+        Assert.Equal(2, reference.exitCode);
+        Assert.Equal("", reference.output);
+        Assert.Contains(
+            "--reference requires a file path.",
+            reference.error);
+
+        (int exitCode, string output, string error) mode =
+            await RunHarness(
+                "--clone-census",
+                "--clone-census",
+                FixturePath);
+        Assert.Equal(2, mode.exitCode);
+        Assert.Equal("", mode.output);
+        Assert.Contains(
+            "--clone-census requires an assembly path.",
+            mode.error);
+
+        (int exitCode, string output, string error) seed =
+            await RunHarness(
+                "--clone-census",
+                FixturePath,
+                "--seed",
+                "--seed",
+                $"{FixtureType}::"
+                    + nameof(StructuralCloneFixture.ExactPositiveA));
+        Assert.Equal(2, seed.exitCode);
+        Assert.Equal("", seed.output);
+        Assert.Contains("--seed requires a selector.", seed.error);
+    }
+
     [Fact]
     public async Task Command_RejectsMultipleTopLevelModes()
     {
