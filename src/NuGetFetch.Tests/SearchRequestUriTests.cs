@@ -22,6 +22,7 @@ public class SearchRequestUriTests
         ("skip", "0"),
         ("take", "20"),
         ("prerelease", "false"),
+        ("semVerLevel", "2.0.0"),
     ];
 
     [Theory]
@@ -50,6 +51,7 @@ public class SearchRequestUriTests
         Assert.Equal("0", parameters["skip"]);
         Assert.Equal("20", parameters["take"]);
         Assert.Equal("false", parameters["prerelease"]);
+        Assert.Equal("2.0.0", parameters["semVerLevel"]);
 
         // Whatever the endpoint already carried survives as its own parameter.
         bool signed = endpoint.Contains("sig=", StringComparison.Ordinal);
@@ -79,6 +81,31 @@ public class SearchRequestUriTests
                 out string url));
 
         Assert.Contains($"?{existing}&q=", url, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("semVerLevel")]
+    [InlineData("SEMVERLEVEL")]
+    [InlineData("%73emVerLevel")]
+    public void TryCompose_ReplacesConflictingProductOwnedParameter(
+        string existingName)
+    {
+        Assert.True(
+            SearchRequestUri.TryCompose(
+                $"https://feed.test/v3/query?{existingName}=1.0.0&sig={Secret}",
+                SearchParameters,
+                out string url));
+
+        Assert.Contains($"?sig={Secret}&", url, StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            url.Split('&').Count(
+                pair => Uri.UnescapeDataString(
+                        pair.Split('=', 2)[0].TrimStart('?'))
+                    .Equals("semVerLevel", StringComparison.OrdinalIgnoreCase)));
+        Assert.Equal(
+            "2.0.0",
+            QueryParameters(new Uri(url))["semVerLevel"]);
     }
 
     [Fact]

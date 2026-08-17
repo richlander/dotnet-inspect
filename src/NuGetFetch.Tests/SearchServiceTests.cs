@@ -36,6 +36,31 @@ public class SearchServiceTests
     }
 
     [Fact]
+    public async Task SearchAsync_ReplacesExistingSemVerLevel()
+    {
+        var handler = new CapturingHandler("""{"data":[]}""");
+        using var client = new HttpClient(handler);
+        var service = new SearchService(
+            client,
+            SearchUrl + "?semVerLevel=1.0.0&sig=kept");
+
+        await service.SearchAsync(
+            "q",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        string url = handler.LastRequest!.RequestUri!.AbsoluteUri;
+        Assert.DoesNotContain("semVerLevel=1.0.0", url);
+        Assert.Contains("?sig=kept&", url);
+        Assert.Equal(
+            1,
+            url.Split('&').Count(
+                pair => pair.Contains(
+                    "semVerLevel=",
+                    StringComparison.OrdinalIgnoreCase)));
+        Assert.Contains("semVerLevel=2.0.0", url);
+    }
+
+    [Fact]
     public async Task SearchAsync_WithAuth_SendsAuthorizationHeader()
     {
         var handler = new CapturingHandler("""{"data":[]}""");
