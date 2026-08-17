@@ -6604,8 +6604,14 @@ public class SectionPipelineTests
             catalog.QueryRegistry.RegisteredQueries.ToHashSet(),
             pipeline.DeclaredQueries);
         Assert.Equal(
-            pipeline.SelectableSectionNames,
+            pipeline.SelectableSectionNames.Where(section =>
+                !section.Equals(
+                    SectionNames.InspectionFailures,
+                    StringComparison.OrdinalIgnoreCase)),
             pipeline.GetCategoryMap()[SectionCategoryNames.Surface]);
+        Assert.Contains(
+            SectionNames.InspectionFailures,
+            pipeline.GetCatalogHiddenSections());
         Assert.DoesNotContain(SectionPipeline<ApiSurface>.AllCategory, pipeline.GetCategoryMap());
         Assert.DoesNotContain(SectionPipeline<ApiSurface>.HiddenCategory, pipeline.GetCategoryMap());
     }
