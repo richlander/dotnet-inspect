@@ -2322,6 +2322,7 @@ public static class IrImporter
                 {
                     TypeArguments = methodArguments,
                     DefinitionParameterTypes = generic.ParameterTypes,
+                    DefinitionReturnType = generic.ReturnType,
                     ReturnType = returnType,
                     ReturnIsDynamic = generic.ReturnIsDynamic == MetadataFactState.No
                         && generic.ReturnType.Kind == TypeRefKind.MethodGenericParameter

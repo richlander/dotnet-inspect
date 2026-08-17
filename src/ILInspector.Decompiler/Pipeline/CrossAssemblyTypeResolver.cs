@@ -220,19 +220,18 @@ internal sealed class CrossAssemblyTypeResolver
     internal TypeRef UpgradeTypeReference(TypeRef type) => type.Kind switch
     {
         TypeRefKind.Definition => Upgrade(type),
-        TypeRefKind.GenericInstance => TypeRef.GenericInstance(
+        TypeRefKind.GenericInstance => type.WithComponents(
             UpgradeTypeReference(type.ElementType!),
             [.. type.TypeArguments.Select(UpgradeTypeReference)]),
-        TypeRefKind.SzArray => TypeRef.SzArray(UpgradeTypeReference(type.ElementType!)),
-        TypeRefKind.Array => TypeRef.MdArray(UpgradeTypeReference(type.ElementType!), type.Rank),
-        TypeRefKind.ByRef => TypeRef.ByRef(UpgradeTypeReference(type.ElementType!)),
-        TypeRefKind.Pointer => TypeRef.Pointer(UpgradeTypeReference(type.ElementType!)),
-        TypeRefKind.Pinned => TypeRef.Pinned(UpgradeTypeReference(type.ElementType!)),
-        TypeRefKind.FunctionPointer => TypeRef.FunctionPointer(
+        TypeRefKind.SzArray
+            or TypeRefKind.Array
+            or TypeRefKind.ByRef
+            or TypeRefKind.Pointer
+            or TypeRefKind.Pinned => type.WithComponents(
+                UpgradeTypeReference(type.ElementType!)),
+        TypeRefKind.FunctionPointer => type.WithComponents(
             UpgradeTypeReference(type.ElementType!),
-            [.. type.TypeArguments.Select(UpgradeTypeReference)],
-            type.CallingConvention,
-            type.FunctionPointerParameterRefKinds),
+            [.. type.TypeArguments.Select(UpgradeTypeReference)]),
         _ => type,
     };
 
@@ -326,7 +325,9 @@ internal sealed class CrossAssemblyTypeResolver
             && remainingWork-- > 0)
         {
             var (current, localAssembly) = pending.Pop();
-            if (TypeDefinitionIdentity.Create(current) is not { } currentIdentity)
+            if (TypeDefinitionIdentity.Create(
+                    current,
+                    localAssembly?.Identity) is not { } currentIdentity)
             {
                 unresolved = true;
                 continue;
@@ -407,14 +408,21 @@ internal sealed class CrossAssemblyTypeResolver
     {
         implements = false;
         bool unresolved = false;
-        var seen = new HashSet<TypeRef>();
+        var seen = new HashSet<TypeDefinitionIdentity>();
         var pending = new Stack<(TypeRef Type, ResolvedAssemblyReference? LocalAssembly)>();
         pending.Push((type, null));
 
         while (pending.Count > 0 && seen.Count < 256)
         {
             var (current, localAssembly) = pending.Pop();
-            if (!seen.Add(current))
+            if (TypeDefinitionIdentity.Create(
+                    current,
+                    localAssembly?.Identity) is not { } currentIdentity)
+            {
+                unresolved = true;
+                continue;
+            }
+            if (!seen.Add(currentIdentity))
                 continue;
 
             if (NamedDefinition(current) is not { } definition)
@@ -485,6 +493,9 @@ internal sealed class CrossAssemblyTypeResolver
             bool typeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, typeDef.GetCustomAttributes());
             bool typeRequiresUnsafe = MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, typeDef);
 
+            // Multiple full-signature matches are malformed or ambiguous.
+            // Returning no facts is safer than selecting by metadata order.
+            ResolvedMethodFacts? match = null;
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
@@ -503,8 +514,11 @@ internal sealed class CrossAssemblyTypeResolver
                     out var declaredReturnType))
                     continue;
 
+                if (match is not null)
+                    return null;
+
                 bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
-                return new ResolvedMethodFacts(
+                match = new ResolvedMethodFacts(
                     parameterRefKinds,
                     typeRequiresUnsafe || MethodDefinitionFacts.HasRequiresUnsafeAttribute(reader, method),
                     MethodDefinitionFacts.ReturnDynamicFact(
@@ -525,7 +539,7 @@ internal sealed class CrossAssemblyTypeResolver
                     MethodDefinitionFacts.ReadAccessorKind(reader, typeDef, methodHandle));
             }
 
-            return null;
+            return match;
         }
         catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
         {
@@ -644,9 +658,24 @@ internal sealed class CrossAssemblyTypeResolver
             ? callee.DeclaringType.TypeArguments
             : [];
         var methodArguments = callee.TypeArguments;
-        var returnType = signature.ReturnType.Instantiate(typeArguments, methodArguments);
         string localAssembly = TypeRefDecoder.CanonicalSelf(reader);
         var localAssemblyIdentity = AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+        if (callee.DefinitionReturnType is { } definitionReturnType)
+        {
+            var candidateDefinitionReturn = signature.ReturnType.Instantiate(typeArguments, []);
+            if (!SameSignatureType(
+                candidateDefinitionReturn,
+                definitionReturnType,
+                allowCoreLibraryAliases,
+                localAssembly,
+                localAssemblyIdentity,
+                resolvedLocalBindingIdentity))
+            {
+                return false;
+            }
+        }
+
+        var returnType = signature.ReturnType.Instantiate(typeArguments, methodArguments);
         if (!SameSignatureType(
             returnType,
             callee.ReturnType,
@@ -707,12 +736,23 @@ internal sealed class CrossAssemblyTypeResolver
     {
         if (resolved.Kind != expected.Kind)
             return false;
+        if (!SameCustomModifiers(
+            resolved,
+            expected,
+            allowCoreLibraryAliases,
+            resolvedLocalAssembly,
+            resolvedLocalAssemblyIdentity,
+            resolvedLocalBindingIdentity))
+        {
+            return false;
+        }
 
         switch (resolved.Kind)
         {
             case TypeRefKind.Definition:
                 if (resolved.Namespace != expected.Namespace
-                    || resolved.Name != expected.Name)
+                    || resolved.Name != expected.Name
+                    || !SameDefinitionName(resolved, expected))
                 {
                     return false;
                 }
@@ -812,6 +852,46 @@ internal sealed class CrossAssemblyTypeResolver
             default:
                 return resolved.Equals(expected);
         }
+    }
+
+    // Decoded metadata compares the authoritative segment structure. Legacy
+    // synthetic TypeRefs may fall back only for simple top-level names: a '+'
+    // could be either a literal character or a nesting delimiter.
+    static bool SameDefinitionName(TypeRef resolved, TypeRef expected)
+        => (resolved.DefinitionName, expected.DefinitionName) switch
+        {
+            ({ } actual, { } target) => actual.Equals(target),
+            (null, null) => !resolved.Name.Contains('+', StringComparison.Ordinal),
+            _ => false,
+        };
+
+    static bool SameCustomModifiers(
+        TypeRef resolved,
+        TypeRef expected,
+        bool allowCoreLibraryAliases,
+        string? resolvedLocalAssembly,
+        AssemblyReferenceIdentity? resolvedLocalAssemblyIdentity,
+        AssemblyReferenceIdentity? resolvedLocalBindingIdentity)
+    {
+        if (resolved.CustomModifiers.Length != expected.CustomModifiers.Length)
+            return false;
+        for (int i = 0; i < resolved.CustomModifiers.Length; i++)
+        {
+            var actual = resolved.CustomModifiers[i];
+            var target = expected.CustomModifiers[i];
+            if (actual.IsRequired != target.IsRequired
+                || !SameSignatureType(
+                    actual.Modifier,
+                    target.Modifier,
+                    allowCoreLibraryAliases,
+                    resolvedLocalAssembly,
+                    resolvedLocalAssemblyIdentity,
+                    resolvedLocalBindingIdentity))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// <summary>

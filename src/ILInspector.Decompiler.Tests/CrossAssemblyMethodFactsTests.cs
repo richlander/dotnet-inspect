@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -45,6 +49,56 @@ public class CrossAssemblyMethodFactsTests
         Assert.Contains(
             "ByRefLibrary.GenericCollision<object>(out V_0);",
             Print(source, "UseGenericOut"));
+    }
+
+    [Fact]
+    public void GenericReturnSignatureCollision_UsesDefinitionReturnType()
+    {
+        using var fixture = MethodCollisionFixture.Create();
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var callee = new MethodRef(
+            fixture.Type("C"),
+            "ReturnCollision",
+            objectType,
+            [],
+            HasThis: false)
+        {
+            TypeArguments = [objectType],
+            DefinitionReturnType = objectType,
+        };
+
+        Assert.False(fixture.Resolve(callee).RequiresUnsafe);
+    }
+
+    [Fact]
+    public void CustomModifierSignatureCollision_UsesExactModifiers()
+    {
+        using var fixture = MethodCollisionFixture.Create();
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var parameter = TypeRef.ByRef(intType)
+            .WithCustomModifier(fixture.Type("Marker"), isRequired: false);
+        var callee = new MethodRef(
+            fixture.Type("C"),
+            "ModifierCollision",
+            TypeRef.CoreLib("System", "Void"),
+            [parameter],
+            HasThis: false);
+
+        Assert.False(fixture.Resolve(callee).RequiresUnsafe);
+    }
+
+    [Fact]
+    public void AmbiguousMethodCandidates_KeepFactsUnknown()
+    {
+        using var fixture = MethodCollisionFixture.Create();
+        var callee = new MethodRef(
+            fixture.Type("C"),
+            "DuplicateCollision",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            HasThis: false);
+
+        Assert.False(fixture.Resolve(callee).RequiresUnsafe);
     }
 
     [Fact]
@@ -358,6 +412,300 @@ public class CrossAssemblyMethodFactsTests
         Assert.NotNull(function);
         function.CheckInvariant();
         return function!;
+    }
+
+    sealed class MethodCollisionFixture : IAssemblyReferenceResolver, IDisposable
+    {
+        readonly string _directory;
+        readonly string _library;
+        readonly IAssemblyReferenceResolver _runtime =
+            TestAssemblyReferenceResolvers.RuntimeAssemblies();
+
+        MethodCollisionFixture(string directory, string library)
+        {
+            _directory = directory;
+            _library = library;
+        }
+
+        public static MethodCollisionFixture Create()
+        {
+            string directory = Directory.CreateTempSubdirectory(
+                "dotnet-inspect-method-collisions-").FullName;
+            string library = Path.Combine(
+                directory,
+                "MethodCollisionLib.dll");
+            File.WriteAllBytes(library, BuildMethodCollisionLibrary());
+            return new MethodCollisionFixture(directory, library);
+        }
+
+        public TypeRef Type(string name)
+        {
+            var definitionName = MetadataTypeDefinitionName.Create("", [name]) switch
+            {
+                MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+                _ => throw new InvalidOperationException(
+                    "collision fixture metadata name is invalid"),
+            };
+            return TypeRef.DefinitionWithResolution(
+                "MethodCollisionLib",
+                "",
+                name,
+                ValueTypeHint.ReferenceType,
+                MetadataFactState.Unknown,
+                null,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "MethodCollisionLib",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null));
+        }
+
+        public MethodRef Resolve(MethodRef callee)
+        {
+            using var context = new MetadataContext(this);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                typeof(CrossAssemblyMethodFactsTests).Assembly.Location,
+                this,
+                context);
+            return source.CrossAssembly.Upgrade(
+                callee,
+                resolveRequiresUnsafe: true);
+        }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => identity.Name == "MethodCollisionLib"
+                ? ResolvedAssemblyReference.CreateFromPath(
+                    _library,
+                    AssemblyResolutionProvenance.Local(
+                        "CrossAssemblyMethodFactsTests"))
+                : _runtime.Resolve(identity, scope);
+
+        public void Dispose()
+            => Directory.Delete(_directory, recursive: true);
+
+        static byte[] BuildMethodCollisionLibrary()
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("MethodCollisionLib.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("MethodCollisionLib"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            var systemRuntime = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0xb0, 0x3f, 0x5f, 0x7f,
+                        0x11, 0xd5, 0x0a, 0x3a,
+                    }),
+                default,
+                default);
+            var objectType = metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+            var requiresUnsafe = metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Diagnostics.CodeAnalysis"),
+                metadata.GetOrAddString("RequiresUnsafeAttribute"));
+            var attributeConstructor = metadata.AddMemberReference(
+                requiresUnsafe,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x00, 0x01 }));
+            metadata.AddTypeDefinition(
+                default,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            var marker = metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("Marker"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                default,
+                metadata.GetOrAddString("C"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+            var genericReturn = AddMethod(
+                metadata,
+                "ReturnCollision",
+                GenericMethodSignature(
+                    metadata,
+                    returnType: null));
+            metadata.AddGenericParameter(
+                genericReturn,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            AddRequiresUnsafe(
+                metadata,
+                genericReturn,
+                attributeConstructor);
+            var objectReturn = AddMethod(
+                metadata,
+                "ReturnCollision",
+                GenericMethodSignature(
+                    metadata,
+                    objectType));
+            metadata.AddGenericParameter(
+                objectReturn,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+
+            var unmodified = AddMethod(
+                metadata,
+                "ModifierCollision",
+                ByRefIntSignature(
+                    metadata,
+                    modifier: default));
+            AddRequiresUnsafe(
+                metadata,
+                unmodified,
+                attributeConstructor);
+            AddMethod(
+                metadata,
+                "ModifierCollision",
+                ByRefIntSignature(
+                    metadata,
+                    marker));
+
+            var duplicate = AddMethod(
+                metadata,
+                "DuplicateCollision",
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x00, 0x00, 0x01 }));
+            AddRequiresUnsafe(
+                metadata,
+                duplicate,
+                attributeConstructor);
+            AddMethod(
+                metadata,
+                "DuplicateCollision",
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x00, 0x00, 0x01 }));
+
+            var pe = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                new BlobBuilder(),
+                flags: CorFlags.ILOnly);
+            var image = new BlobBuilder();
+            pe.Serialize(image);
+            return image.ToArray();
+        }
+
+        static MethodDefinitionHandle AddMethod(
+            MetadataBuilder metadata,
+            string name,
+            BlobHandle signature)
+            => metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                signature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+
+        static void AddRequiresUnsafe(
+            MetadataBuilder metadata,
+            MethodDefinitionHandle method,
+            MemberReferenceHandle constructor)
+            => metadata.AddCustomAttribute(
+                method,
+                constructor,
+                metadata.GetOrAddBlob(
+                    new byte[] { 1, 0, 0, 0 }));
+
+        static BlobHandle GenericMethodSignature(
+            MetadataBuilder metadata,
+            EntityHandle? returnType)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x10);
+            signature.WriteCompressedInteger(1);
+            signature.WriteCompressedInteger(0);
+            if (returnType is null)
+            {
+                signature.WriteByte(0x1e);
+                signature.WriteCompressedInteger(0);
+            }
+            else
+            {
+                WriteClass(signature, returnType.Value);
+            }
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        static BlobHandle ByRefIntSignature(
+            MetadataBuilder metadata,
+            EntityHandle modifier)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x00);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0x01);
+            if (!modifier.IsNil)
+            {
+                signature.WriteByte(0x20);
+                WriteTypeDefOrRef(signature, modifier);
+            }
+            signature.WriteByte(0x10);
+            signature.WriteByte(0x08);
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        static void WriteClass(
+            BlobBuilder signature,
+            EntityHandle type)
+        {
+            signature.WriteByte(0x12);
+            WriteTypeDefOrRef(signature, type);
+        }
+
+        static void WriteTypeDefOrRef(
+            BlobBuilder signature,
+            EntityHandle type)
+        {
+            int tag = type.Kind switch
+            {
+                HandleKind.TypeDefinition => 0,
+                HandleKind.TypeReference => 1,
+                HandleKind.TypeSpecification => 2,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(type)),
+            };
+            signature.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(type) << 2) | tag);
+        }
     }
 
     sealed class CrossAssemblyFixture : IDisposable

@@ -93,7 +93,7 @@ than becoming an empty inventory.
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
-| `Pipeline.TypeRef` | One imported pipeline/body | Symbolic body/codegen shape, function pointers, and the supported function-pointer modifier subset | Arbitrary declaration modifiers, Analysis identity, catalog correspondence, or API persistence |
+| `Pipeline.TypeRef` | One imported pipeline/body | Symbolic body/codegen shape, function pointers, and retained custom-modifier evidence for exact signature matching | Declaration-modifier rendering, Analysis identity, catalog correspondence, or API persistence |
 
 #### `ILInspector.Research`
 

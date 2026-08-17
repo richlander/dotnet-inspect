@@ -95,6 +95,14 @@ public sealed record MethodRef(
     public ImmutableArray<TypeRef> DefinitionParameterTypes { get; init; } = [];
 
     /// <summary>
+    /// The generic method definition's return type before MethodSpec
+    /// substitution. Populated with <see cref="DefinitionParameterTypes"/> so
+    /// return-only generic signature distinctions remain available during
+    /// cross-assembly method resolution.
+    /// </summary>
+    public TypeRef? DefinitionReturnType { get; init; }
+
+    /// <summary>
     /// Whether the method's return type, or a by-ref return's element type, was
     /// authored as <c>dynamic</c>. A dynamic return is encoded as
     /// <c>System.Object</c> plus <c>DynamicAttribute</c> on parameter sequence 0;

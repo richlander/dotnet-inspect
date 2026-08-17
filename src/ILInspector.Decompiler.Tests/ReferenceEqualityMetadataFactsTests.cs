@@ -7,10 +7,29 @@ using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+
 namespace ILInspector.Decompiler.Tests;
 
 public class ReferenceEqualityMetadataFactsTests
 {
+    [Fact]
+    public void StructuredDefinitionNames_DoNotShareExactIdentity()
+    {
+        var assembly = new AssemblyReferenceIdentity(
+            "Shapes",
+            new Version(1, 0, 0, 0),
+            null,
+            null);
+        var literal = Definition("Shapes", "N", "A+B", ["A+B"], assembly);
+        var nested = Definition("Shapes", "N", "A+B", ["A", "B"], assembly);
+
+        Assert.NotEqual(
+            TypeDefinitionIdentity.Create(literal),
+            TypeDefinitionIdentity.Create(nested));
+    }
+
     [Fact]
     public void DistinctAssemblyVersions_DoNotShareOperatorFacts()
     {
@@ -96,6 +115,90 @@ public class ReferenceEqualityMetadataFactsTests
         finally
         {
             Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void VersionedSiblingLocalHierarchyNodes_DoNotShareVisitedIdentity()
+    {
+        string directory = Directory.CreateTempSubdirectory("reference-equality-versioned-hierarchy-").FullName;
+        try
+        {
+            string v1 = Emit(
+                directory,
+                "v1",
+                "Twin",
+                """
+                using System.Reflection;
+
+                [assembly: AssemblyVersion("1.0.0.0")]
+
+                namespace N;
+
+                public interface Base<TSelf> : System.IDisposable
+                    where TSelf : Base<TSelf>
+                {
+                    static virtual bool operator ==(TSelf left, TSelf right)
+                        => false;
+                    static virtual bool operator !=(TSelf left, TSelf right)
+                        => true;
+                }
+
+                public interface I : Base<I>;
+                """);
+            string v2 = Emit(
+                directory,
+                "v2",
+                "Twin",
+                """
+                using System.Reflection;
+
+                [assembly: AssemblyVersion("2.0.0.0")]
+
+                namespace N;
+
+                public interface Base<TSelf>
+                    where TSelf : Base<TSelf>;
+
+                public interface I : Base<I>;
+                """);
+            string rootDirectory = Path.Combine(directory, "root");
+            Directory.CreateDirectory(rootDirectory);
+            string root = Path.Combine(rootDirectory, "Root.dll");
+            File.WriteAllBytes(root, BuildVersionedRootHierarchy());
+
+            var resolver = new VersionResolver(v1, v2, root);
+            using var context = new MetadataContext(resolver);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                typeof(ReferenceEqualityMetadataFactsTests).Assembly.Location,
+                resolver,
+                context);
+            var rootIdentity = new AssemblyReferenceIdentity(
+                "Root",
+                new Version(1, 0, 0, 0),
+                null,
+                null);
+            var rootType = Definition(
+                "Root",
+                "N",
+                "IRoot",
+                ["IRoot"],
+                rootIdentity);
+
+            Assert.Equal(
+                MetadataFactState.Yes,
+                source.HasOperatorInBindingHierarchy(
+                    rootType,
+                    "op_Equality"));
+            Assert.Equal(
+                MetadataFactState.Yes,
+                source.CrossAssembly.Implements(
+                    rootType,
+                    TypeRef.CoreLib("System", "IDisposable")));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 
@@ -305,6 +408,29 @@ public class ReferenceEqualityMetadataFactsTests
             [],
             new BlockContainer());
 
+    static TypeRef Definition(
+        string assembly,
+        string ns,
+        string flattenedName,
+        ImmutableArray<string> segments,
+        AssemblyReferenceIdentity resolutionAssembly)
+    {
+        var name = MetadataTypeDefinitionName.Create(ns, segments) switch
+        {
+            MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+            _ => throw new InvalidOperationException("invalid metadata name"),
+        };
+        return TypeRef.DefinitionWithResolution(
+            assembly,
+            ns,
+            flattenedName,
+            ValueTypeHint.ReferenceType,
+            MetadataFactState.Unknown,
+            null,
+            name,
+            resolutionAssembly);
+    }
+
     static void AssertOrder(
         string consumer,
         string v1,
@@ -472,9 +598,13 @@ public class ReferenceEqualityMetadataFactsTests
         return CSharpPrinter.Print(function).Output!;
     }
 
-    sealed class VersionResolver(string v1, string v2) : IAssemblyReferenceResolver
+    sealed class VersionResolver(
+        string v1,
+        string v2,
+        string? root = null) : IAssemblyReferenceResolver
     {
         readonly IAssemblyReferenceResolver _runtime = TestAssemblyReferenceResolvers.RuntimeAssemblies();
+        readonly string? _root = root;
         readonly Dictionary<Version, string> _paths = new()
         {
             [new Version(1, 0, 0, 0)] = v1,
@@ -484,13 +614,52 @@ public class ReferenceEqualityMetadataFactsTests
         public ResolvedAssemblyReference? Resolve(
             AssemblyReferenceIdentity identity,
             AssemblyResolutionScope scope)
-            => identity.Name == "Twin"
-                && identity.Version is { } version
-                && _paths.TryGetValue(version, out var path)
+            => identity.Name == "Root"
+                && _root is { } rootPath
+                    ? ResolvedAssemblyReference.CreateFromPath(
+                        rootPath,
+                        AssemblyResolutionProvenance.Local("ReferenceEqualityMetadataFactsTests"))
+                : identity.Name == "Twin"
+                    && identity.Version is { } version
+                    && _paths.TryGetValue(version, out var path)
                     ? ResolvedAssemblyReference.CreateFromPath(
                         path,
                         AssemblyResolutionProvenance.Local("ReferenceEqualityMetadataFactsTests"))
                     : _runtime.Resolve(identity, scope);
+    }
+
+    static string Emit(
+        string directory,
+        string subdirectory,
+        string assemblyName,
+        string source,
+        IEnumerable<MetadataReference>? additionalReferences = null)
+    {
+        string outputDirectory = Path.Combine(directory, subdirectory);
+        Directory.CreateDirectory(outputDirectory);
+        var references = ImmutableArray.CreateBuilder<MetadataReference>();
+        references.AddRange(RoslynTestReferences.TrustedPlatform);
+        if (additionalReferences is not null)
+            references.AddRange(additionalReferences);
+        var compilation = CSharpCompilation.Create(
+            assemblyName,
+            [CSharpSyntaxTree.ParseText(
+                source,
+                new CSharpParseOptions(LanguageVersion.Preview))],
+            references,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release));
+        string path = Path.Combine(outputDirectory, assemblyName + ".dll");
+        var result = compilation.Emit(path);
+        Assert.True(
+            result.Success,
+            "fixture compilation failed:\n"
+                + string.Join(
+                    "\n",
+                    result.Diagnostics.Select(
+                        diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}")));
+        return path;
     }
 
     static byte[] BuildTwin(Version version, bool hasEquality)
@@ -553,6 +722,65 @@ public class ReferenceEqualityMetadataFactsTests
                 firstParameter);
         }
 
+        return Serialize(metadata, new BlobBuilder());
+    }
+
+    static byte[] BuildVersionedRootHierarchy()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Root.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Root"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var v1 = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Twin"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var v2 = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Twin"),
+            new Version(2, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var iV1 = metadata.AddTypeReference(
+            v1,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("I"));
+        var iV2 = metadata.AddTypeReference(
+            v2,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("I"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var root = metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("IRoot"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddInterfaceImplementation(root, iV1);
+        metadata.AddInterfaceImplementation(root, iV2);
         return Serialize(metadata, new BlobBuilder());
     }
 

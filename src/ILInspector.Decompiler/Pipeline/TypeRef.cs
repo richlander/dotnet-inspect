@@ -23,7 +23,7 @@ public enum TypeRefKind
     MethodGenericParameter,
     /// <summary>A function pointer: <see cref="TypeRef.ElementType"/> is the return type, <see cref="TypeRef.TypeArguments"/> the parameters, rendered <c>delegate*&lt;...&gt;</c>.</summary>
     FunctionPointer,
-    /// <summary>A shape outside the supported core (function pointers, custom modifiers). Carries a reason; lowers fidelity, never lies.</summary>
+    /// <summary>A malformed or otherwise unsupported signature shape. Carries a reason; lowers fidelity, never lies.</summary>
     Unsupported,
 }
 
@@ -35,17 +35,30 @@ public enum TypeRefKind
 /// key instead. Exact AssemblyRef record identity is deliberately conservative:
 /// equivalent facade spellings may produce duplicate work or casts, but never
 /// collapse two distinct definitions into one fact.
+/// <c>ReferenceEqualityMetadataFactsTests.StructuredDefinitionNames_DoNotShareExactIdentity</c>
+/// and <c>DistinctAssemblyVersions_DoNotShareOperatorFacts</c> gate both exact
+/// identity dimensions.
 /// </summary>
 internal readonly record struct TypeDefinitionIdentity(
     TypeRef Definition,
+    MetadataTypeDefinitionName DefinitionName,
     AssemblyReferenceIdentity? ResolutionAssembly)
 {
-    public static TypeDefinitionIdentity? Create(TypeRef? type)
+    public static TypeDefinitionIdentity? Create(
+        TypeRef? type,
+        AssemblyReferenceIdentity? resolvedLocalAssembly = null)
     {
         if (type?.Kind == TypeRefKind.GenericInstance)
             type = type.ElementType;
-        return type is { Kind: TypeRefKind.Definition } definition
-            ? new TypeDefinitionIdentity(definition, definition.ResolutionAssembly)
+        return type is
+            {
+                Kind: TypeRefKind.Definition,
+                DefinitionName: { } definitionName,
+            } definition
+            ? new TypeDefinitionIdentity(
+                definition,
+                definitionName,
+                definition.ResolutionAssembly ?? resolvedLocalAssembly)
             : null;
     }
 
@@ -81,7 +94,7 @@ public enum ValueTypeHint
     ReferenceType,
 }
 
-readonly record struct TypeRefCustomModifier(bool IsRequired, string Namespace, string Name);
+readonly record struct TypeRefCustomModifier(bool IsRequired, TypeRef Modifier);
 
 /// <summary>
 /// Symbolic type identity for the pipeline (docs/decompiler-ir.md):
@@ -160,7 +173,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// <summary>Function-pointer parameter ref-kinds, aligned with <see cref="TypeArguments"/> when <see cref="Kind"/> is <see cref="TypeRefKind.FunctionPointer"/>.</summary>
     public ImmutableArray<ArgumentRefKind> FunctionPointerParameterRefKinds { get; private init; } = [];
 
-    ImmutableArray<TypeRefCustomModifier> CustomModifiers { get; init; } = [];
+    internal ImmutableArray<TypeRefCustomModifier> CustomModifiers { get; init; } = [];
 
     /// <summary>
     /// Whether the signature token that produced this type said struct or class
@@ -344,11 +357,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
             isRequired: false,
             "System.Runtime.CompilerServices",
             "CallConvSuppressGCTransition");
-        var cleanReturn = returnType.WithoutCustomModifiers();
-        var cleanParameters = ImmutableArray.CreateRange(parameters.Select(p => p.WithoutCustomModifiers()));
         var parameterRefKinds = FunctionPointerParameterRefKindsFor(parameters);
         string convention = AddSuppressGcTransition(callingConvention, suppressGcTransition);
-        return FunctionPointer(cleanReturn, cleanParameters, convention, parameterRefKinds);
+        return FunctionPointer(returnType, parameters, convention, parameterRefKinds);
     }
 
     internal static TypeRef FunctionPointer(
@@ -396,33 +407,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     internal TypeRef WithCustomModifier(TypeRef modifier, bool isRequired)
         => modifier is { Kind: TypeRefKind.Definition }
-            ? Copy(customModifiers: CustomModifiers.Add(new TypeRefCustomModifier(isRequired, modifier.Namespace, modifier.Name)))
+            ? Copy(customModifiers: CustomModifiers.Add(new TypeRefCustomModifier(isRequired, modifier)))
             : this;
-
-    TypeRef WithoutCustomModifiers()
-    {
-        TypeRef? element = ElementType?.WithoutCustomModifiers();
-        ImmutableArray<TypeRef> typeArguments = TypeArguments;
-        bool changed = !CustomModifiers.IsDefaultOrEmpty || !ReferenceEquals(element, ElementType);
-        if (!TypeArguments.IsDefaultOrEmpty)
-        {
-            var builder = ImmutableArray.CreateBuilder<TypeRef>(TypeArguments.Length);
-            foreach (var argument in TypeArguments)
-            {
-                var clean = argument.WithoutCustomModifiers();
-                changed |= !ReferenceEquals(clean, argument);
-                builder.Add(clean);
-            }
-            typeArguments = builder.MoveToImmutable();
-        }
-        return changed ? Copy(element, typeArguments, customModifiers: []) : this;
-    }
 
     static bool HasCustomModifier(TypeRef type, bool isRequired, string ns, string name)
         => type.CustomModifiers.Any(modifier =>
             modifier.IsRequired == isRequired
-            && modifier.Namespace == ns
-            && modifier.Name == name);
+            && modifier.Modifier.Namespace == ns
+            && modifier.Modifier.Name == name);
 
     TypeRef Copy(
         TypeRef? elementType = null,
@@ -451,6 +443,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
             CustomModifiers = customModifiers ?? CustomModifiers,
         };
 
+    internal TypeRef WithComponents(
+        TypeRef? elementType = null,
+        ImmutableArray<TypeRef>? typeArguments = null)
+        => Copy(elementType, typeArguments);
+
     /// <summary>
     /// Substitutes generic parameters with the given arguments (type
     /// parameters from a generic instantiation, method parameters from a
@@ -461,13 +458,15 @@ public sealed class TypeRef : IEquatable<TypeRef>
         switch (Kind)
         {
             case TypeRefKind.GenericParameter when GenericParameterIndex >= 0 && GenericParameterIndex < typeArguments.Length:
-                return typeArguments[GenericParameterIndex];
+                return ApplyCustomModifiersTo(typeArguments[GenericParameterIndex]);
             case TypeRefKind.MethodGenericParameter when GenericParameterIndex >= 0 && GenericParameterIndex < methodArguments.Length:
-                return methodArguments[GenericParameterIndex];
+                return ApplyCustomModifiersTo(methodArguments[GenericParameterIndex]);
             case TypeRefKind.SzArray or TypeRefKind.Array or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned:
             {
                 var element = ElementType!.Instantiate(typeArguments, methodArguments);
-                return ReferenceEquals(element, ElementType) ? this : new TypeRef(Kind) { ElementType = element, Rank = Rank };
+                return ReferenceEquals(element, ElementType)
+                    ? this
+                    : Copy(elementType: element);
             }
             case TypeRefKind.GenericInstance:
             {
@@ -481,7 +480,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
                     changed |= !ReferenceEquals(substituted, argument);
                     builder.Add(substituted);
                 }
-                return changed ? GenericInstance(definition, builder.MoveToImmutable()) : this;
+                return changed
+                    ? Copy(
+                        elementType: definition,
+                        typeArguments: builder.MoveToImmutable())
+                    : this;
             }
             case TypeRefKind.FunctionPointer:
             {
@@ -494,11 +497,22 @@ public sealed class TypeRef : IEquatable<TypeRef>
                     changed |= !ReferenceEquals(substituted, parameter);
                     builder.Add(substituted);
                 }
-                return changed ? FunctionPointer(returnType, builder.MoveToImmutable(), CallingConvention, FunctionPointerParameterRefKinds) : this;
+                return changed
+                    ? Copy(
+                        elementType: returnType,
+                        typeArguments: builder.MoveToImmutable())
+                    : this;
             }
             default:
                 return this;
         }
+    }
+
+    TypeRef ApplyCustomModifiersTo(TypeRef type)
+    {
+        foreach (var modifier in CustomModifiers)
+            type = type.WithCustomModifier(modifier.Modifier, modifier.IsRequired);
+        return type;
     }
 
     /// <summary>True if this type or any constituent shape cannot be represented as valid C# (feeds the fidelity computation).</summary>

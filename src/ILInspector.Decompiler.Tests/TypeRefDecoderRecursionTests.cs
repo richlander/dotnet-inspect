@@ -161,10 +161,10 @@ public class TypeRefDecoderRecursionTests
             MetadataTokens.TypeSpecificationHandle(1),
             0);
 
-        // The decompiler intentionally drops custom modifiers (GetModifiedType returns the
-        // unmodified type), so this modreq cycle degrades to the underlying I4 rather than
-        // Unsupported. The guard's contract here is purely crash-avoidance: reaching this
-        // assertion at all proves the decode terminated instead of overflowing the stack.
+        // The cyclic modifier decodes as Unsupported and therefore cannot attach
+        // to the underlying I4. The guard's contract here is crash-avoidance:
+        // reaching this assertion proves the decode terminated instead of
+        // overflowing the stack.
         Assert.NotNull(result);
         Assert.Equal("Int32", result.Name);
     }
