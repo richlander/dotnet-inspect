@@ -313,6 +313,15 @@ for (int i = 0; i < args.Length; i++)
     }
 }
 
+if (selectedModes.Count > 1)
+{
+    Console.Error.WriteLine(
+        "Analysis harness modes are mutually exclusive: "
+            + string.Join(", ", selectedModes)
+            + ".");
+    return 2;
+}
+
 if (cloneCorpusSpecified && cloneCorpusAssembly is null)
 {
     Console.Error.WriteLine("--clone-corpus requires an assembly path.");
@@ -352,15 +361,6 @@ if ((cloneCensusSeedSpecified
 if (!topArgumentValid || top < 1)
 {
     Console.Error.WriteLine("--top requires a positive integer.");
-    return 2;
-}
-
-if (selectedModes.Count > 1)
-{
-    Console.Error.WriteLine(
-        "Analysis harness modes are mutually exclusive: "
-            + string.Join(", ", selectedModes)
-            + ".");
     return 2;
 }
 
@@ -818,7 +818,7 @@ static int RunCorpus(string corpusList, string? diffBaseline, string? emitSnapsh
 }
 
 static string? NextValue(string[] args, ref int i)
-    => i + 1 < args.Length ? args[++i] : null;
+    => NextPathValue(args, ref i);
 
 static string? NextPathValue(string[] args, ref int i)
     => i + 1 < args.Length && !args[i + 1].StartsWith("--", StringComparison.Ordinal)
