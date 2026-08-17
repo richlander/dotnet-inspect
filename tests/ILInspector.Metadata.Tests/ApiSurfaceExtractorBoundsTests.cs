@@ -441,8 +441,40 @@ public sealed class ApiSurfaceExtractorBoundsTests
         byte[] image = BuildRepeatedEnumAttributeLookupImage(
             typeCount: 2_000,
             namedArgumentCount: 1,
-            attributeCount: 2_000);
+            attributeCount: 2_000,
+            poisonTypeDefinitionIndex: false);
         AssertEnumAttributeLookupsDoNotAllocateQuadratically(image);
+    }
+
+    [Fact]
+    public void FailedEnumAttributeIndexBuild_IsCachedAndVisible()
+    {
+        byte[] image = BuildRepeatedEnumAttributeLookupImage(
+            typeCount: 2_000,
+            namedArgumentCount: 1,
+            attributeCount: 2_000,
+            poisonTypeDefinitionIndex: true);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                peReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 100_000,
+                    maxMembers: 1_000_000,
+                    maxInspectionFailures: 1_024,
+                    maxTypeForwarders: 100_000,
+                    maxMetadataRows: 250_000,
+                    maxRetainedTextCharacters: 8_000_000)));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Single(extracted.Surface.InspectionFailures);
+        Assert.True(
+            allocated < 64L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
     }
 
     static void AssertEnumAttributeLookupsDoNotAllocateQuadratically(byte[] image)
@@ -2023,7 +2055,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
     static byte[] BuildRepeatedEnumAttributeLookupImage(
         int typeCount,
         int namedArgumentCount,
-        int attributeCount)
+        int attributeCount,
+        bool poisonTypeDefinitionIndex = false)
     {
         var metadata = Metadata("EnumAttributeLookupBomb");
         AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
@@ -2051,6 +2084,17 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddBlob(constructorSignature));
 
         AddModuleAndPublicType(metadata, "Host");
+        if (poisonTypeDefinitionIndex)
+        {
+            TypeDefinitionHandle poison = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("Poison"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddNestedType(poison, poison);
+        }
         for (int i = 0; i < typeCount; i++)
         {
             metadata.AddTypeDefinition(

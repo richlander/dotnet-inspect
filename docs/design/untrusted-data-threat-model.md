@@ -412,9 +412,12 @@ strong-name blobs read while proving a finalizer slot reaches the core library.
 TypeSpec-owned generic attribute constructors use the same guarded signature
 decoder and preserve bounded/unbounded parity. Enum-valued arguments build one
 charged type-name index per bounded extraction instead of rescanning every type
-for every argument or attribute; decode failures may skip malformed attributes,
-but a budget-observer failure must escape the decoder and produce typed
-truncation. The Browser separately applies the same bound while deriving
+for every argument or attribute. Both a successful index and its rejected
+outcome are cached, so malformed metadata is reported once rather than silently
+reallocating the index for each attribute. Enum-default classification also
+charges base-type names before resolving them. Decode failures may skip malformed
+attributes, but a budget-observer failure must escape the decoder and produce
+typed truncation. The Browser separately applies the same bound while deriving
 type/member transport records, including canonical signatures, documentation
 IDs, and graph selectors that repeat declaring-type identity. It preflights
 each source model against the budget remaining after committed and pending
@@ -438,6 +441,7 @@ pre-decoding rejection.
 `OneLargeCustomAttribute_StopsBeforeLargeAllocationAmplification`,
 `RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
 `SeparateEnumAttributes_ReuseTheChargedTypeNameIndex`,
+`FailedEnumAttributeIndexBuild_IsCachedAndVisible`,
 `GenericAttributeTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneArgumentNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
