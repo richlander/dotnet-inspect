@@ -237,7 +237,7 @@ multiple references fail with the same binding outcome.
 
 `InspectionGraphIntegrationsQueryTests.Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups`
 gates the locked topology and the absence of a fabricated call;
-`PackageAndTypeReadingsShareTheSameIntegrationOccurrences` gates the shared
+`PackageAndTypeModesShareSemanticIntegrationOccurrences` gates the shared
 dual-lens receipts; and
 `Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities` gates the close
 acquisition-identity case.

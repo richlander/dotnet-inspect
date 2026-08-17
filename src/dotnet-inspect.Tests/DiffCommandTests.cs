@@ -21,6 +21,7 @@ namespace DotnetInspector.Tests;
 /// <summary>
 /// Tests for DiffCommand output formatting and comparison logic.
 /// </summary>
+[Collection("Console")]
 public class DiffCommandTests
 {
     [Fact]

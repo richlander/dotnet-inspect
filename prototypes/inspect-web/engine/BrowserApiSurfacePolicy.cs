@@ -26,8 +26,10 @@ namespace InspectWeb.Engine;
 /// notice, so a truncated surface never reads as a complete one.
 /// </para>
 /// <para>
-/// <c>BrowserEngineBoundaryTests.ApiSurfaceProjection_IsBoundedAndReportsTruncation</c> gates both
-/// halves: the bound trips on an over-budget projection, and an ordinary one is untouched.
+/// <c>BrowserEngineBoundaryTests.ApiSurfaceProjection_IsBoundedAndReportsTruncation</c> gates
+/// extraction truncation, <c>SurfaceProjection_LongDeclaringTypeStopsIncrementally</c> gates
+/// derived transport identities, and <c>ApiSurfacePolicy_AcceptsCoreLibraryAtEveryBrowserScope</c>
+/// is the real-artifact policy canary.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
@@ -35,14 +37,15 @@ internal static class BrowserApiSurfacePolicy
 {
     // The participant bound is the workspace's own assembly-per-role limit, so declaring it here
     // refuses nothing the workspace already accepted; the remaining ceilings bound every retained
-    // row kind. They sit far above real packages and far below what a hostile artifact can encode
-    // within the scope's 64 MB retained-image budget.
+    // row kind. The text ceiling admits CoreLib at both scopes the Browser uses while remaining
+    // far below what a hostile artifact can amplify from the scope's 64 MB retained-image budget.
     internal const int MaxParticipants = BrowserInspectionScope.MaxAssembliesPerRole;
     internal const int MaxTypes = 100_000;
     internal const int MaxMembers = 1_000_000;
     internal const int MaxInspectionFailures = 1_024;
     internal const int MaxTypeForwarders = 100_000;
     internal const int MaxMetadataRows = 250_000;
+    internal const int MaxRetainedTextCharacters = 32_000_000;
 
     /// <summary>The bounds every browser API-surface projection runs under.</summary>
     internal static ApiSurfaceProjectionLimits Limits { get; } =
@@ -52,7 +55,8 @@ internal static class BrowserApiSurfacePolicy
             MaxMembers,
             MaxInspectionFailures,
             MaxTypeForwarders,
-            MaxMetadataRows);
+            MaxMetadataRows,
+            MaxRetainedTextCharacters);
 
     /// <summary>
     /// The visible notice for a truncated projection, or null when the projection was complete.
@@ -64,8 +68,18 @@ internal static class BrowserApiSurfacePolicy
                 + $"({truncation.Bound}): projected {truncation.ProjectedTypes} type(s) and "
                 + $"{truncation.ProjectedMembers} member(s), retained "
                 + $"{truncation.ProjectedInspectionFailures} inspection failure(s) and "
-                + $"{truncation.ProjectedTypeForwarders} type forwarder(s) after inspecting "
-                + $"{truncation.InspectedMetadataRows} metadata row(s) from "
+                + $"{truncation.ProjectedTypeForwarders} type forwarder(s), inspected "
+                + $"{truncation.InspectedMetadataRows} metadata row(s), and counted "
+                + $"{truncation.ProjectedRetainedTextCharacters} retained text character(s) across "
                 + $"{truncation.ProjectedParticipants} assembly(ies); "
                 + $"{truncation.OmittedParticipants} assembly(ies) were not projected.";
+
+    internal static string TransportTruncationNotice(
+        int projectedParticipants,
+        int omittedParticipants,
+        int retainedTextCharacters) =>
+        $"API surface transport truncated at the browser retained text bound "
+        + $"({MaxRetainedTextCharacters}): retained {retainedTextCharacters} text character(s) "
+        + $"from {projectedParticipants} assembly(ies); {omittedParticipants} assembly(ies) "
+        + "were not projected.";
 }
