@@ -123,6 +123,59 @@ public class GuardedDecodeTests
         Assert.Equal(TypeRefKind.Unsupported, result.Kind);
     }
 
+    [Theory]
+    [InlineData(0x06)]
+    [InlineData(0x07)]
+    [InlineData(0x0a)]
+    public void TypeSpecification_GenericInstanceFunctionPointerWithNonMethodHeader_DegradesToUnsupported(
+        int rawHeader)
+    {
+        // GENERICINST FNPTR <malformed-header> paramCount=0. The generic-type
+        // slot is not CLASS/VALUETYPE, so the guard must reject before SRM
+        // throws on the nested method header.
+        byte[] blob =
+        [
+            0x15, // GENERICINST
+            0x1b, // FNPTR
+            (byte)rawHeader,
+            0x00,
+        ];
+        var (reader, handle) = BuildTypeSpec(blob);
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(
+            reader,
+            GenericScope.Empty,
+            handle,
+            0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+    }
+
+    [Fact]
+    public void GetTypeFromSpecification_GenericInstanceSmuggledHugeArrayShape_DegradesToUnsupported()
+    {
+        // GENERICINST ARRAY I4 rank=4 sizesCount~536M. If the generic-type slot
+        // is walked as CLASS/VALUETYPE, the later array-shape bound never runs
+        // and SRM pre-allocates from the smuggled count.
+        byte[] blob =
+        [
+            0x15, // GENERICINST
+            0x14, // ARRAY
+            0x08, // I4
+            0x04, // rank
+            0xdf, 0xff, 0xff, 0xff, // sizesCount
+        ];
+        var (reader, handle) = BuildTypeSpec(blob);
+
+        var result = TypeRefDecoder.Instance.GetTypeFromSpecification(
+            reader,
+            GenericScope.Empty,
+            handle,
+            0);
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+    }
+
     static (MetadataReader Reader, TypeSpecificationHandle Handle) BuildTypeSpec(byte[] typeBlob)
     {
         var md = NewModule();

@@ -507,6 +507,9 @@ public class LambdaRaisingPassTests
         },
         { "rank-two MD array", TypeRef.MdArray(s_int, 2) },
         { "rank-thirty-two MD array", TypeRef.MdArray(s_int, 32) },
+        { "value TypedReference", TypeRef.CoreLib("System", "TypedReference") },
+        { "value ArgIterator", TypeRef.CoreLib("System", "ArgIterator") },
+        { "value RuntimeArgumentHandle", TypeRef.CoreLib("System", "RuntimeArgumentHandle") },
     };
 
     [Theory]
@@ -583,6 +586,26 @@ public class LambdaRaisingPassTests
         var host = RunSyntheticSiblingLambdaRaise(s_int);
 
         Assert.True(CSharpSpellability.CanSpellExplicitParameterType(type, host, refKind));
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            type,
+            host,
+            ArgumentRefKind.Ref));
+    }
+
+    public static TheoryData<string> RestrictedByRefTypeNames() => new()
+    {
+        "TypedReference",
+        "ArgIterator",
+        "RuntimeArgumentHandle",
+    };
+
+    [Theory]
+    [MemberData(nameof(RestrictedByRefTypeNames))]
+    public void RestrictedByRefParameterType_StaysLowered(string name)
+    {
+        var type = TypeRef.ByRef(TypeRef.CoreLib("System", name));
+        var host = RunSyntheticSiblingLambdaRaise(s_int);
+
         Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
             type,
             host,

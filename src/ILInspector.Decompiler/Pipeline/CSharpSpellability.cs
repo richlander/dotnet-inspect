@@ -500,6 +500,7 @@ internal static class CSharpSpellability
             case TypeRefKind.ByRef:
                 return AllowsByRef(context)
                     && type.ElementType is { } byRefElement
+                    && !IsRestrictedByRefType(byRefElement)
                     && HasExplicitParameterTypeShape(
                         byRefElement,
                         ExplicitTypeContext.Element,
@@ -722,6 +723,11 @@ internal static class CSharpSpellability
         => type.Assembly == TypeRef.CoreLibrary
             && type.Namespace == "System"
             && type.Name == "Void";
+
+    static bool IsRestrictedByRefType(TypeRef type)
+        => type.Assembly == TypeRef.CoreLibrary
+            && type.Namespace == "System"
+            && type.Name is "TypedReference" or "ArgIterator" or "RuntimeArgumentHandle";
 
     static string StripArity(string name)
     {

@@ -329,6 +329,22 @@ public class SignatureBlobGuardTests
         Assert.False(GuardTypeSpec(blob));
     }
 
+    [Theory]
+    [InlineData(0x06)]
+    [InlineData(0x07)]
+    [InlineData(0x0a)]
+    public void GenericInstanceFunctionPointerWithNonMethodHeader_IsUnsafe(int rawHeader)
+        => Assert.False(GuardTypeSpec([GenericInst, FnPtr, (byte)rawHeader, 0x00]));
+
+    [Fact]
+    public void GenericInstanceSmuggledHugeArrayShape_IsUnsafe()
+        => Assert.False(GuardTypeSpec(
+            [GenericInst, Array, I4, 0x04, 0xdf, 0xff, 0xff, 0xff]));
+
+    [Fact]
+    public void GenericInstanceClassArgument_IsSafe()
+        => Assert.True(GuardTypeSpec([GenericInst, Class, 0x06, 0x01, I4]));
+
     static bool GuardTypeSpec(byte[] typeBlob)
     {
         var (reader, handle) = BuildTypeSpec(typeBlob);
