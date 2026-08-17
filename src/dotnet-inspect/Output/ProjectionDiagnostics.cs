@@ -17,7 +17,7 @@ public static class ProjectionDiagnostics
     /// Returns false when a projection has no matches and the caller should stop before rendering.
     /// </summary>
     public static bool ValidateProjection(DocumentSchema schema, string? sectionName,
-        string[]? fields, string[]? columns)
+        string[]? fields, string[]? columns, bool strictKinds = false)
     {
         if (string.IsNullOrEmpty(sectionName))
             return true;
@@ -25,10 +25,10 @@ public static class ProjectionDiagnostics
         bool allValid = true;
 
         if (fields is { Length: > 0 })
-            allValid &= ValidateNames(schema, sectionName, fields, "field");
+            allValid &= ValidateNames(schema, sectionName, fields, "field", strictKinds);
 
         if (columns is { Length: > 0 })
-            allValid &= ValidateNames(schema, sectionName, columns, "column");
+            allValid &= ValidateNames(schema, sectionName, columns, "column", strictKinds);
 
         return allValid;
     }
@@ -44,7 +44,8 @@ public static class ProjectionDiagnostics
     /// only when a projection matches no selected section at all.
     /// </summary>
     public static bool ValidateProjection(DocumentSchema schema, IReadOnlyCollection<string>? sectionNames,
-        string[]? fields, string[]? columns, IReadOnlySet<string>? fieldLayoutSections = null)
+        string[]? fields, string[]? columns, IReadOnlySet<string>? fieldLayoutSections = null,
+        bool strictKinds = false)
     {
         if ((fields is not { Length: > 0 } && columns is not { Length: > 0 })
             || sectionNames is not { Count: > 0 })
@@ -54,10 +55,11 @@ public static class ProjectionDiagnostics
 
         var ok = true;
         if (fields is { Length: > 0 })
-            ok &= ValidateNamesAcrossSections(schema, sectionNames, fields, "field");
+            ok &= ValidateNamesAcrossSections(
+                schema, sectionNames, fields, "field", strictKinds: strictKinds);
         if (columns is { Length: > 0 })
             ok &= ValidateNamesAcrossSections(
-                schema, sectionNames, columns, "column", fieldLayoutSections);
+                schema, sectionNames, columns, "column", fieldLayoutSections, strictKinds);
 
         return ok;
     }
@@ -66,20 +68,25 @@ public static class ProjectionDiagnostics
         IReadOnlyCollection<string> sectionNames,
         string[] names,
         string kind,
-        IReadOnlySet<string>? fieldLayoutSections = null)
+        IReadOnlySet<string>? fieldLayoutSections = null,
+        bool strictKinds = false)
     {
         // A name is an error only when it resolves in NO selected section. Names that
         // resolve in any section drop out, so a valid graph field is not reported against a
         // companion table that happens to lack it (e.g. the Callers table implied by --bin).
         var resolvedSomewhere = ResolveNamesAcrossSections(
-            schema, sectionNames, names, kind, fieldLayoutSections);
+            schema, sectionNames, names, kind, fieldLayoutSections, strictKinds);
 
         // Warn (with the per-section discovery hint) only for names missing everywhere.
         foreach (var section in sectionNames)
         {
             var definition = schema.GetSection(section);
             var compatible = definition is not null
-                && string.Equals(definition.ItemKind, kind, StringComparison.OrdinalIgnoreCase);
+                && (!strictKinds
+                    || string.Equals(
+                        definition.ItemKind,
+                        kind,
+                        StringComparison.OrdinalIgnoreCase));
             var validation = compatible
                 ? schema.ValidateProjection(section, names)
                 : null;
@@ -110,9 +117,7 @@ public static class ProjectionDiagnostics
         string[]? columns,
         Action<TextWriter, IMarkoutFormatter, MarkoutWriterOptions> serialize,
         MarkoutWriterOptions writerOptions,
-        DocumentSchema schema,
-        IReadOnlyCollection<string>? sectionNames = null,
-        IReadOnlySet<string>? fieldLayoutSections = null)
+        DocumentSchema schema)
     {
         var actual = RenderManifestFormatter.Capture(serialize, writerOptions, schema);
         IReadOnlyList<string> emittedFields = [];
@@ -134,29 +139,9 @@ public static class ProjectionDiagnostics
             }
         }
 
-        var resolvedFields = sectionNames is { Count: > 0 }
-            ? ResolveNamesAcrossSections(
-                schema,
-                sectionNames,
-                fields ?? [],
-                "field",
-                fieldLayoutSections)
-            : null;
-        var resolvedColumns = sectionNames is { Count: > 0 }
-            ? ResolveNamesAcrossSections(
-                schema,
-                sectionNames,
-                columns ?? [],
-                "column",
-                fieldLayoutSections)
-            : null;
         DiagnoseEmitted(
-            resolvedFields is null
-                ? fields
-                : fields?.Where(resolvedFields.Contains).ToArray(),
-            resolvedColumns is null
-                ? columns
-                : columns?.Where(resolvedColumns.Contains).ToArray(),
+            fields,
+            columns,
             emittedFields,
             actual.TableColumns,
             schema);
@@ -173,7 +158,7 @@ public static class ProjectionDiagnostics
     {
         sectionNames ??= schema.SectionNames.ToArray();
         var resolvedFields = ResolveNamesAcrossSections(
-            schema, sectionNames, fields ?? [], "field", fieldLayoutSections);
+            schema, sectionNames, fields ?? [], "field", fieldLayoutSections, strictKinds: true);
         ReportMissing(
             UnmatchedRequests(
                 fields?.Where(resolvedFields.Contains).ToArray(),
@@ -181,7 +166,7 @@ public static class ProjectionDiagnostics
             "field");
 
         var resolvedColumns = ResolveNamesAcrossSections(
-            schema, sectionNames, columns ?? [], "column", fieldLayoutSections);
+            schema, sectionNames, columns ?? [], "column", fieldLayoutSections, strictKinds: true);
         ReportMissing(
             UnmatchedRequests(
                 columns?.Where(resolvedColumns.Contains).ToArray(),
@@ -194,14 +179,19 @@ public static class ProjectionDiagnostics
         IReadOnlyCollection<string> sectionNames,
         string[] names,
         string kind,
-        IReadOnlySet<string>? fieldLayoutSections)
+        IReadOnlySet<string>? fieldLayoutSections,
+        bool strictKinds)
     {
         var resolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var section in sectionNames)
         {
             var definition = schema.GetSection(section);
             var compatible = definition is not null
-                && string.Equals(definition.ItemKind, kind, StringComparison.OrdinalIgnoreCase);
+                && (!strictKinds
+                    || string.Equals(
+                        definition.ItemKind,
+                        kind,
+                        StringComparison.OrdinalIgnoreCase));
             var unresolved = compatible
                 ? new HashSet<string>(
                     schema.ValidateProjection(section, names).Unresolved,
@@ -234,7 +224,7 @@ public static class ProjectionDiagnostics
         ReportMissing(UnmatchedRequests(fields, emittedFields), "field");
         ReportMissing(
             UnmatchedRequests(columns, ExpandDisplayColumns(emittedColumns, schema)),
-            "column");
+            "field");
     }
 
     private static IReadOnlySet<string> ExpandDisplayColumns(
@@ -311,12 +301,20 @@ public static class ProjectionDiagnostics
         CommandError.WriteNote($"{missing.Length} {label} no data: {string.Join(", ", missing)}");
     }
 
-    private static bool ValidateNames(DocumentSchema schema, string sectionName,
-        string[] names, string kind)
+    private static bool ValidateNames(
+        DocumentSchema schema,
+        string sectionName,
+        string[] names,
+        string kind,
+        bool strictKinds)
     {
         var definition = schema.GetSection(sectionName);
         var compatible = definition is not null
-            && string.Equals(definition.ItemKind, kind, StringComparison.OrdinalIgnoreCase);
+            && (!strictKinds
+                || string.Equals(
+                    definition.ItemKind,
+                    kind,
+                    StringComparison.OrdinalIgnoreCase));
         var validation = compatible
             ? schema.ValidateProjection(sectionName, names)
             : null;

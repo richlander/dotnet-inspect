@@ -81,13 +81,37 @@ public class ProjectionDiagnosticsTests
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {
             result = ProjectionDiagnostics.ValidateProjection(
-                schema, "Methods", fields: ["Name"], columns: null);
+                schema, "Methods", fields: ["Name"], columns: null, strictKinds: true);
             return Task.FromResult(0);
         });
 
         Assert.False(result);
         Assert.Contains("field 'Name' not found", error, StringComparison.Ordinal);
         Assert.Contains("No fields matched projection: Name", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("field", "column")]
+    [InlineData("column", "field")]
+    public async Task ValidateProjection_DefaultPreservesCrossKindCompatibility(
+        string schemaKind,
+        string requestedKind)
+    {
+        var schema = new DocumentSchema().Add("Section", schemaKind, "Name");
+        bool result = false;
+
+        var (_, _, error) = await ConsoleCapture.RunAsync(() =>
+        {
+            result = requestedKind == "field"
+                ? ProjectionDiagnostics.ValidateProjection(
+                    schema, "Section", fields: ["Name"], columns: null)
+                : ProjectionDiagnostics.ValidateProjection(
+                    schema, "Section", fields: null, columns: ["Name"]);
+            return Task.FromResult(0);
+        });
+
+        Assert.True(result);
+        Assert.Empty(error);
     }
 
     [Fact]

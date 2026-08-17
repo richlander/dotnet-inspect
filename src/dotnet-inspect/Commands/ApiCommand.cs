@@ -868,7 +868,8 @@ public class ApiCommand
                 projectionSections,
                 options.Fields,
                 options.Columns,
-                SurfaceFieldLayoutSections))
+                SurfaceFieldLayoutSections,
+                strictKinds: true))
             {
                 return 1;
             }
@@ -983,8 +984,7 @@ public class ApiCommand
                 options.Columns,
                 tableSerialize,
                 tableDiagnosticOptions,
-                ApiViewContext.Default.GetSchemaInfo<ApiSurfaceTableView>()!.ToDocumentSchema(),
-                ["Types"]);
+                ApiViewContext.Default.GetSchemaInfo<ApiSurfaceTableView>()!.ToDocumentSchema());
             if (!TryReportEmptyProjection(rendered, options))
                 return 1;
             Console.Out.Write(OutputFormatter.LimitRenderedTableRows(rendered, options.Rows, !options.NoHeader));
@@ -1629,7 +1629,8 @@ public class ApiCommand
                 projectionSections,
                 options.Fields,
                 options.Columns,
-                TypeFieldLayoutSections))
+                TypeFieldLayoutSections,
+                strictKinds: true))
             {
                 return 1;
             }
@@ -1773,9 +1774,7 @@ public class ApiCommand
                     options.Columns,
                     serialize,
                     writerOpts,
-                    GetTypeDocumentSchema(options),
-                    writerOpts.IncludeSections,
-                    TypeFieldLayoutSections);
+                    GetTypeDocumentSchema(options));
             }
             else
             {
@@ -1805,8 +1804,7 @@ public class ApiCommand
                     options.Columns,
                     serialize,
                     diagnosticOptions,
-                    ApiViewContext.Default.GetSchemaInfo<ApiTypeTableView>()!.ToDocumentSchema(),
-                    ["Members"]);
+                    ApiViewContext.Default.GetSchemaInfo<ApiTypeTableView>()!.ToDocumentSchema());
             }
         }
         else

@@ -871,8 +871,7 @@ public class PackageCommand
                         options.Columns,
                         serialize,
                         writerOpts,
-                        InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema(),
-                        writerOpts.IncludeSections);
+                        InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema());
                     Console.Out.Write(rendered);
                 }
                 else
@@ -883,7 +882,7 @@ public class PackageCommand
             else
             {
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
-                if (hasProjection)
+                if (hasProjection && !options.JsonOutput)
                 {
                     var writerOpts = OutputFormatter.BuildWriterOptions(result, options, pipeline);
                     bool selectAll = SelectResolver.IsActiveAllSelector(
@@ -909,8 +908,7 @@ public class PackageCommand
                                 InspectionContext.Default,
                                 writerOptions),
                         writerOpts,
-                        InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema(),
-                        writerOpts.IncludeSections);
+                        InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema());
                 }
                 if (!string.IsNullOrEmpty(options.OutputPath))
                 {
@@ -1225,6 +1223,9 @@ public class PackageCommand
         {
             return true;
         }
+
+        if (options.JsonOutput && !options.Count)
+            return true;
 
         DocumentSchema schema = PackageDiscoverySchema();
         if (packageCount > 1
