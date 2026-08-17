@@ -19,6 +19,7 @@ using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public class SectionPipelineTests
 {
     // Simple test model
