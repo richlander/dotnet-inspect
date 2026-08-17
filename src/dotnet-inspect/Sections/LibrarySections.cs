@@ -20,7 +20,6 @@ public static class LibrarySections
     // Scanner keys identify data collection steps in LibraryMetadataService.
     // Every key here must be registered in CreateScannerRegistry and declared by at least one
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
-    public const string ScannerAuditSignals = "AuditSignals";
     public const string ScannerUnsafeMembers = "UnsafeMembers";
     public const string ScannerTopLeverage = "TopLeverage";
     public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
@@ -101,6 +100,7 @@ public static class LibrarySections
             .Add<Signals>(
                 [
                     AssemblyReferencesQuery.Definition,
+                    AuditMetadataQuery.Definition,
                     ClassifiedMethodsQuery.Definition,
                 ],
                 HasAssemblyInfo)
@@ -191,10 +191,6 @@ public static class LibrarySections
     public static ScannerRegistry CreateScannerRegistry()
     {
         return new ScannerRegistry()
-            .Add(ScannerAuditSignals, SectionCost.NetworkFree, ctx =>
-                ctx.Scan(
-                    session => AuditSignalBuilder.PopulateLibraryAudit(session, ctx.AssemblyPath, ctx.Model, ctx.Logger),
-                    () => AuditSignalBuilder.PopulateLibraryAudit(ctx.AssemblyPath, ctx.Model, ctx.Logger)))
             .Add(ScannerUnsafeMembers, SectionCost.Unbounded, ctx =>
                 ctx.Model.UnsafeMembers = LibraryMetadataService.ScanUnsafeMembers(ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger))
             .Add(ScannerTopLeverage, SectionCost.Unbounded, ctx =>
@@ -253,6 +249,10 @@ public static class LibrarySections
                             return new AssemblyReferencesResult.Failed(ex);
                         }
                     }))
+            .Add(AuditMetadataQuery.Definition, ctx =>
+                ctx.Query(
+                    AuditMetadataQuery.Execute,
+                    ex => new AuditMetadataResult.Failed(ex)))
             .Add(ClassifiedMethodsQuery.Definition, ctx =>
                 ctx.Query(
                     ClassifiedMethodsQuery.Execute,
@@ -454,7 +454,7 @@ public static class LibrarySections
         public static string Name => SectionNames.Signals;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => ScannerAuditSignals;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.AuditSignals is { Count: > 0 };
     }

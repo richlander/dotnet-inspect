@@ -31,7 +31,7 @@ public enum CSharpStructuralChangeKind
 /// Whether the correspondence owner determined that the logical node moved.
 /// Coordinates are not used to infer this relationship.
 /// </param>
-public sealed record CSharpNodeCorrespondence(
+internal sealed record CSharpNodeCorrespondence(
     int BeforeNodeId,
     int AfterNodeId,
     bool Moved = false);
@@ -145,7 +145,7 @@ public sealed record CSharpStructuralFidelityEvidence(
 /// nodes become removed or added rows.
 /// </param>
 /// <param name="Fidelity">Optional independent compile-back evidence.</param>
-public sealed record CSharpStructuralComparisonInput(
+internal sealed record CSharpStructuralComparisonInput(
     string Subject,
     AnnotatedSourceDocument Before,
     AnnotatedSourceDocument After,
@@ -421,7 +421,7 @@ public static partial class CSharpBodyDiff
     /// correspondence. Node ids are dereferenced only within the document that
     /// minted them; coordinates and display text never establish identity.
     /// </summary>
-    public static CSharpStructuralComparison CompareStructure(
+    internal static CSharpStructuralComparison CompareStructure(
         CSharpStructuralComparisonInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
