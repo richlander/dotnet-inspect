@@ -65,8 +65,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
     internal byte RawTypeKind { get; set; }
 
     /// <summary>
-    /// Decoder-retained origin and exact metadata name. It is excluded from
-    /// structural equality, hashing, and display.
+    /// Decoder-retained origin and exact metadata name. The origin is
+    /// provenance, while the name's segments participate in definition
+    /// identity so literal delimiter text cannot alias nesting.
     /// </summary>
     public ResolvableTypeReference? Resolution { get; private init; }
 
@@ -267,12 +268,24 @@ public sealed class TypeRef : IEquatable<TypeRef>
         if (Kind != other.Kind
             || Assembly != other.Assembly
             || Namespace != other.Namespace
-            || Name != other.Name
             || Rank != other.Rank
             || GenericParameterIndex != other.GenericParameterIndex
             || UnsupportedReason != other.UnsupportedReason
             || !Equals(ElementType, other.ElementType)
             || TypeArguments.Length != other.TypeArguments.Length)
+        {
+            return false;
+        }
+        if (Kind == TypeRefKind.Definition)
+        {
+            if (!MetadataNameSegments().SequenceEqual(
+                    other.MetadataNameSegments(),
+                    StringComparer.Ordinal))
+            {
+                return false;
+            }
+        }
+        else if (Name != other.Name)
         {
             return false;
         }
@@ -292,7 +305,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
         hash.Add(Kind);
         hash.Add(Assembly);
         hash.Add(Namespace);
-        hash.Add(Name);
+        if (Kind == TypeRefKind.Definition)
+        {
+            IReadOnlyList<string> segments = MetadataNameSegments();
+            hash.Add(segments.Count);
+            foreach (string segment in segments)
+                hash.Add(segment);
+        }
+        else
+        {
+            hash.Add(Name);
+        }
         hash.Add(Rank);
         hash.Add(GenericParameterIndex);
         hash.Add(UnsupportedReason);
@@ -307,7 +330,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
         if (Assembly == CoreLibrary && Namespace == "System" && PrimitiveTypeNames.TryToKeywordForSystemType(Name, out var keyword))
             return keyword;
         if (Resolution?.Type is { } exactName)
-            return string.Join('.', exactName.Segments.Select(StripArity));
+            return RenderExactSegments(
+                exactName.Segments,
+                stripArity: true);
         if (Name.IndexOfAny(['.', '+']) >= 0)
             return Name;
         return StripArity(Name);
@@ -336,7 +361,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
                     arguments,
                     out string rendered)
                 ? rendered
-                : string.Join('.', exactName.Segments);
+                : RenderExactSegments(
+                    exactName.Segments,
+                    stripArity: false);
             return qualified && exactName.Namespace.Length > 0
                 ? $"{exactName.Namespace}.{display}"
                 : display;
@@ -396,7 +423,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return false;
         }
 
-        string typeName = string.Join('.', segments.Select(StripArity));
+        string typeName = RenderExactSegments(
+            segments,
+            stripArity: true);
         if (ownArity == 0)
         {
             display = typeName;
@@ -415,6 +444,27 @@ public sealed class TypeRef : IEquatable<TypeRef>
         display = $"{typeName}<{string.Join(", ", ownArguments)}>";
         return true;
     }
+
+    IReadOnlyList<string> MetadataNameSegments()
+        => Resolution?.Type is { } exactName
+            ? exactName.Segments
+            : Name.Split('+');
+
+    static string RenderExactSegments(
+        IReadOnlyList<string> segments,
+        bool stripArity)
+        => string.Join(
+            '.',
+            segments.Select(segment =>
+            {
+                string value = stripArity
+                    ? StripArity(segment)
+                    : segment;
+                return value
+                    .Replace("\\", "\\\\", StringComparison.Ordinal)
+                    .Replace(".", "\\.", StringComparison.Ordinal)
+                    .Replace("+", "\\+", StringComparison.Ordinal);
+            }));
 
     static bool IsCompilerGeneratedName(string name)
     {

@@ -1382,10 +1382,58 @@ public sealed class CSharpFormatterTests
         };
 
         Assert.Equal("A`1.B", CSharpFormatter.FormatTypeName(legacy));
-        Assert.Equal("A`1.B", CSharpFormatter.FormatTypeName(exact));
+        Assert.Equal(@"A`1\.B", CSharpFormatter.FormatTypeName(exact));
         Assert.NotEqual(
             CSharpFormatter.FormatTypeName(legacy),
             CSharpFormatter.FormatTypeName(new ApiType { Name = "A.B" }));
+    }
+
+    [Fact]
+    public void FormatTypeName_DistributesExactNestedGenericParameters()
+    {
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "",
+                    ["Outer`1", "Inner`1"]))
+                .Name;
+        var type = new ApiType
+        {
+            Name = "Outer`1.Inner`1",
+            DefinitionName = exactName,
+            TypeParameters =
+            [
+                new TypeParameter { Name = "T" },
+                new TypeParameter { Name = "U" },
+            ],
+        };
+
+        Assert.Equal(
+            "Outer<T>.Inner<U>",
+            CSharpFormatter.FormatTypeName(type));
+    }
+
+    [Fact]
+    public void FormatTypeName_DistinguishesLiteralDotFromNesting()
+    {
+        static ApiType Exact(params string[] segments)
+            => new()
+            {
+                Name = string.Join('.', segments),
+                DefinitionName =
+                    Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                        MetadataTypeDefinitionName.Create(
+                            "",
+                            [.. segments]))
+                    .Name,
+            };
+
+        Assert.Equal(
+            @"A\.B",
+            CSharpFormatter.FormatTypeName(Exact("A.B")));
+        Assert.Equal(
+            "A.B",
+            CSharpFormatter.FormatTypeName(Exact("A", "B")));
     }
 
     /// <summary>

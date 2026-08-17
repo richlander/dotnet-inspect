@@ -463,13 +463,14 @@ public sealed class CSharpFormatter
     public static string FormatTypeName(ApiType type, bool includeVariance = false)
     {
         ArgumentNullException.ThrowIfNull(type);
-        bool hasExactSegments = type.DefinitionName is not null;
-        bool ambiguousLegacyName = !hasExactSegments && HasArityBeforeFlatBoundary(type.Name);
-        string typeName = hasExactSegments
-            ? string.Join(
-                ".",
-                type.DefinitionName!.Segments.Select(MetadataNameArity.StripFromSegment))
-            : ambiguousLegacyName
+        if (type.DefinitionName is { } exactName)
+            return FormatExactTypeName(
+                exactName,
+                type.TypeParameters,
+                includeVariance);
+
+        bool ambiguousLegacyName = HasArityBeforeFlatBoundary(type.Name);
+        string typeName = ambiguousLegacyName
                 ? type.Name
                 : MetadataNameArity.StripFromDottedChain(type.Name);
         string name = CSharpIdentifier.ContainIdentifierForDeclaration(
@@ -478,6 +479,50 @@ public sealed class CSharpFormatter
             ? name
             : $"{name}<{string.Join(", ", type.TypeParameters.Select(parameter => FormatTypeParameter(parameter, includeVariance)))}>";
     }
+
+    static string FormatExactTypeName(
+        MetadataTypeDefinitionName name,
+        IReadOnlyList<TypeParameter> typeParameters,
+        bool includeVariance)
+    {
+        long declaredArity = 0;
+        foreach (string segment in name.Segments)
+            declaredArity += MetadataNameArity.OfSegment(segment);
+
+        bool arityMatches = declaredArity == typeParameters.Count;
+        bool unboundDisplay = typeParameters.Count == 0;
+        int parameterIndex = 0;
+        var parts = new List<string>(name.Segments.Length);
+        foreach (string segment in name.Segments)
+        {
+            int arity = MetadataNameArity.OfSegment(segment);
+            string simpleName = arityMatches || unboundDisplay
+                ? MetadataNameArity.StripFromSegment(segment)
+                : segment;
+            simpleName = ContainExactSegment(simpleName);
+            if (arityMatches && arity > 0)
+            {
+                var parameters = typeParameters
+                    .Skip(parameterIndex)
+                    .Take(arity)
+                    .Select(parameter =>
+                        FormatTypeParameter(
+                            parameter,
+                            includeVariance));
+                simpleName += $"<{string.Join(", ", parameters)}>";
+                parameterIndex += arity;
+            }
+            parts.Add(simpleName);
+        }
+        return string.Join(".", parts);
+    }
+
+    static string ContainExactSegment(string segment)
+        => CSharpIdentifier.ContainIdentifierForDeclaration(
+            segment
+                .Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace(".", "\\.", StringComparison.Ordinal)
+                .Replace("+", "\\+", StringComparison.Ordinal));
 
     static bool HasArityBeforeFlatBoundary(string name)
     {

@@ -535,17 +535,19 @@ public static class MetadataDeclarationQuery
 
     public static string SelfTypeSignature(MetadataReader reader, TypeDefinition typeDef)
     {
-        var (typeNamespace, metadataNameSegments) = TypeNameParts(reader, typeDef);
+        MetadataTypeNameParts name =
+            TypeResolver.GetTypeNameParts(reader, typeDef);
         var directTypeParameters = TypeParameterNames(reader, typeDef);
-        var typeParameters = directTypeParameters.Count >= GenericArity(metadataNameSegments)
+        var typeParameters = directTypeParameters.Count
+                >= GenericArity(name.Segments)
             ? directTypeParameters
             : TypeAndDeclaringTypeParameters(reader, typeDef);
         string typeName = TypeResolver.ApplyGenericArguments(
-            metadataNameSegments,
+            name.Segments,
             typeParameters);
-        return typeNamespace.Length == 0
+        return name.Namespace.Length == 0
             ? typeName
-            : $"{typeNamespace}.{typeName}";
+            : $"{name.Namespace}.{typeName}";
     }
 
     public static IReadOnlyList<string> RenderMemberAttributes(
@@ -1358,9 +1360,23 @@ public static class MetadataDeclarationQuery
     static IReadOnlyList<string> TypeAndDeclaringTypeParameters(MetadataReader reader, TypeDefinition typeDef)
     {
         var parameters = new List<string>();
-        var declaringType = typeDef.GetDeclaringType();
+        TypeDefinitionHandle declaringType = typeDef.GetDeclaringType();
         if (!declaringType.IsNil)
-            parameters.AddRange(TypeAndDeclaringTypeParameters(reader, reader.GetTypeDefinition(declaringType)));
+        {
+            RelationshipChain<TypeDefinitionHandle> chain =
+                MetadataRelationshipTraversal
+                    .WalkTypeDefinitionDeclaringChain(
+                        reader,
+                        declaringType)
+                    .GetValueOrThrow();
+            foreach (TypeDefinitionHandle handle in chain.Handles)
+            {
+                parameters.AddRange(
+                    TypeParameterNames(
+                        reader,
+                        reader.GetTypeDefinition(handle)));
+            }
+        }
         parameters.AddRange(TypeParameterNames(reader, typeDef));
         return parameters;
     }
@@ -1375,27 +1391,6 @@ public static class MetadataDeclarationQuery
     /// Only a canonical <c>`N</c> counts (<see cref="MetadataNameArity"/>), so a
     /// digit run that is name text does not inflate the count.
     /// </summary>
-    static (string Namespace, IReadOnlyList<string> Segments) TypeNameParts(
-        MetadataReader reader,
-        TypeDefinition typeDef)
-    {
-        var declaringType = typeDef.GetDeclaringType();
-        if (declaringType.IsNil)
-        {
-            return (
-                reader.GetString(typeDef.Namespace),
-                [reader.GetString(typeDef.Name)]);
-        }
-
-        var (typeNamespace, declaringSegments) = TypeNameParts(
-            reader,
-            reader.GetTypeDefinition(declaringType));
-        var segments = new List<string>(declaringSegments.Count + 1);
-        segments.AddRange(declaringSegments);
-        segments.Add(reader.GetString(typeDef.Name));
-        return (typeNamespace, segments);
-    }
-
     static int GenericArity(IReadOnlyList<string> metadataNameSegments)
     {
         int arity = 0;

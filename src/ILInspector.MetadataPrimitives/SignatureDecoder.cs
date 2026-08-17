@@ -16,6 +16,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     // display-decoration characters are legal metadata-name text, so a flat
     // prefilter cannot prove that later generic parsing is safe.
     readonly ConditionalWeakTable<string, MetadataTypeNameParts> structuredNames = new();
+    readonly ConditionalWeakTable<MetadataReader, ReaderNameCache> readerNames = new();
 
     [ThreadStatic]
     static SignatureDecodeRejection? s_rejection;
@@ -49,10 +50,20 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     };
 
     public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-        => Retain(TypeResolver.GetTypeNamePartsFromDefinition(reader, handle));
+        => Retain(
+            reader,
+            handle,
+            () => TypeResolver.GetTypeNamePartsFromDefinition(
+                reader,
+                handle));
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-        => Retain(TypeResolver.GetTypeNamePartsFromReference(reader, handle));
+        => Retain(
+            reader,
+            handle,
+            () => TypeResolver.GetTypeNamePartsFromReference(
+                reader,
+                handle));
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
@@ -143,15 +154,41 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             : $"{structured.Namespace}.{typeName}";
     }
 
-    string Retain(MetadataTypeNameParts structured)
+    string Retain(
+        MetadataReader reader,
+        EntityHandle handle,
+        Func<MetadataTypeNameParts> create)
     {
-        string value = structured.ToDottedName();
-        string name = string.Create(
-            value.Length,
-            value,
-            static (destination, source) => source.AsSpan().CopyTo(destination));
-        structuredNames.Add(name, structured);
-        return name;
+        ReaderNameCache cache = readerNames.GetValue(
+            reader,
+            static _ => new ReaderNameCache());
+        lock (cache.Names)
+        {
+            if (cache.Names.TryGetValue(handle, out string? retained))
+                return retained;
+
+            MetadataTypeNameParts structured = create();
+            string value = structured.ToDottedName();
+            if (value.Length == 0)
+            {
+                cache.Names.Add(handle, value);
+                return value;
+            }
+
+            string name = string.Create(
+                value.Length,
+                value,
+                static (destination, source) =>
+                    source.AsSpan().CopyTo(destination));
+            structuredNames.Add(name, structured);
+            cache.Names.Add(handle, name);
+            return name;
+        }
+    }
+
+    sealed class ReaderNameCache
+    {
+        internal Dictionary<EntityHandle, string> Names { get; } = [];
     }
 
     public string GetGenericMethodParameter(GenericContext? context, int index)

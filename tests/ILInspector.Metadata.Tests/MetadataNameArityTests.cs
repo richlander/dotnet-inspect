@@ -252,6 +252,41 @@ public class MetadataNameArityTests
     }
 
     [Fact]
+    public void MemberAnchor_EscapesLiteralBoundariesAndUsesIntroducedArity()
+    {
+        byte[] image = BuildImageWithStructuredAnchorNames();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+
+        var anchors = reader.TypeDefinitions
+            .SelectMany(typeHandle =>
+                reader.GetTypeDefinition(typeHandle)
+                    .GetMethods()
+                    .Select(methodHandle =>
+                        ApiMemberIdentity.CreateMethodAnchor(
+                            reader,
+                            typeHandle,
+                            reader.GetMethodDefinition(methodHandle))))
+            .ToArray();
+
+        Assert.Contains(
+            anchors,
+            anchor => anchor.TypeFullName == @"Ns.A\.B");
+        Assert.Contains(
+            anchors,
+            anchor => anchor.TypeFullName == "Ns.A.B");
+        Assert.Contains(
+            anchors,
+            anchor => anchor.TypeFullName
+                == "Ns.Outer<T>.Inner<U>");
+        Assert.Equal(
+            anchors.Length,
+            anchors.Select(anchor => anchor.CanonicalSignature)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Fact]
     public void ExactDecorationLikeSegment_RemainsRawThroughGenericDecoders()
     {
         byte[] image = BuildImageWithDecorationLikeTypeName();
@@ -427,6 +462,83 @@ public class MetadataNameArityTests
             metadata.GetOrAddString("Inner`2[]"));
         return Serialize(metadata);
     }
+
+    static byte[] BuildImageWithStructuredAnchorNames()
+    {
+        var metadata = CreateMetadata("StructuredAnchorNames");
+        BlobHandle signature = AddVoidMethodSignature(metadata);
+        MethodDefinitionHandle literalMethod = AddMethod(metadata, signature);
+        MethodDefinitionHandle nestedMethod = AddMethod(metadata, signature);
+        MethodDefinitionHandle genericMethod = AddMethod(metadata, signature);
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("A.B"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: literalMethod);
+        TypeDefinitionHandle outer = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("A"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: nestedMethod);
+        TypeDefinitionHandle nested = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic,
+            default,
+            metadata.GetOrAddString("B"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: nestedMethod);
+        metadata.AddNestedType(nested, outer);
+
+        TypeDefinitionHandle genericOuter = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("Outer`1"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: genericMethod);
+        TypeDefinitionHandle genericInner = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic,
+            default,
+            metadata.GetOrAddString("Inner`1"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: genericMethod);
+        metadata.AddNestedType(genericInner, genericOuter);
+        metadata.AddGenericParameter(
+            genericOuter,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        metadata.AddGenericParameter(
+            genericInner,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("T"),
+            index: 0);
+        metadata.AddGenericParameter(
+            genericInner,
+            GenericParameterAttributes.None,
+            metadata.GetOrAddString("U"),
+            index: 1);
+        return Serialize(metadata);
+    }
+
+    static MethodDefinitionHandle AddMethod(
+        MetadataBuilder metadata,
+        BlobHandle signature)
+        => metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            signature,
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
 
     static MetadataBuilder CreateMetadata(string assemblyName)
     {

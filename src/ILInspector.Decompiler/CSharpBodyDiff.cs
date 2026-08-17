@@ -922,10 +922,15 @@ public static partial class CSharpBodyDiff
                 "A type identity key requires a TypeDef or TypeRef.",
                 nameof(handle)),
         };
+        return TypeIdentityKey(type)
+            ?? ResolveIdentityTypeName(reader, handle);
+    }
+
+    internal static string? TypeIdentityKey(TypeRef type)
+    {
         if (FindMetadataNameFailure(type) is { } failure)
             throw new MetadataIdentityResolutionException(failure);
-        return type.DefinitionName?.ToEscapedFullName()
-            ?? ResolveIdentityTypeName(reader, handle);
+        return type.DefinitionName?.ToEscapedFullName();
     }
 
     static MetadataTypeNameFailure? FindMetadataNameFailure(TypeRef type)
@@ -1333,9 +1338,13 @@ public static partial class CSharpBodyDiff
         if (definition.Assembly.Length > 0 && definition.Assembly != currentAssembly)
             return true;
 
-        string metadataName = definition.Namespace.Length == 0
-            ? definition.Name.Replace("+", ".", StringComparison.Ordinal)
-            : $"{definition.Namespace}.{definition.Name.Replace("+", ".", StringComparison.Ordinal)}";
+        string metadataName = TypeIdentityKey(definition)
+            ?? (definition.Namespace.Length == 0
+                ? definition.Name.Replace(
+                    "+",
+                    ".",
+                    StringComparison.Ordinal)
+                : $"{definition.Namespace}.{definition.Name.Replace("+", ".", StringComparison.Ordinal)}");
         if (typeDefinitionsByName.TryGetValue(metadataName, out var typeHandle))
             return IsVisibleInterfaceDefinition(reader, typeHandle, typeDefinitionsByName);
 

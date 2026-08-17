@@ -272,6 +272,54 @@ public class SignatureDecoderSafetyTests
     }
 
     [Fact]
+    public void SelfTypeSignature_RejectsCyclicDeclaringType()
+    {
+        TypeDefinitionHandle typeHandle = default;
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            typeHandle = metadata.AddTypeDefinition(
+                TypeAttributes.NestedPublic,
+                default,
+                metadata.GetOrAddString("Loop"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddNestedType(typeHandle, typeHandle);
+        });
+
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.SelfTypeSignature(
+                reader,
+                reader.GetTypeDefinition(typeHandle)));
+    }
+
+    [Fact]
+    public void SignatureDecoder_ReusesEmptyNameWithoutRetentionCollision()
+    {
+        TypeReferenceHandle first = default;
+        TypeReferenceHandle second = default;
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            first = metadata.AddTypeReference(
+                default,
+                default,
+                default);
+            second = metadata.AddTypeReference(
+                default,
+                default,
+                default);
+        });
+        var decoder = new SignatureDecoder();
+
+        Assert.Equal(
+            "",
+            decoder.GetTypeFromReference(reader, first, 0));
+        Assert.Equal(
+            "",
+            decoder.GetTypeFromReference(reader, second, 0));
+    }
+
+    [Fact]
     public void TypeSpec_AboveCumulativeBudget_IsRejected()
     {
         var reader = BuildTypeSpec(signature =>

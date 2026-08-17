@@ -642,6 +642,48 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void ShapeView_FinalizerUsesExactLiteralPlusLeaf()
+    {
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "",
+                    ["A+B"]))
+                .Name;
+        var type = new ApiType
+        {
+            Name = "A+B",
+            DefinitionName = exactName,
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Finalize",
+                    Kind = "finalizer",
+                    Signature = "void Finalize()",
+                    IsFinalizer = true,
+                },
+            ],
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(
+            type,
+            foundIn: null,
+            packageName: null,
+            packageVersion: null,
+            memberFilter: []);
+        var finalizer = Assert.Single(
+            view.Members,
+            node => node.Text.StartsWith(
+                "Finalizer",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            @"~A\+B()",
+            Assert.Single(finalizer.Children!).Text);
+    }
+
+    [Fact]
     public void TableView_Finalizer_BlanksReturnTypeSoVoidFinalizeNeverReconstructs()
     {
         // Regression guard (adversarial review): the table must blank the

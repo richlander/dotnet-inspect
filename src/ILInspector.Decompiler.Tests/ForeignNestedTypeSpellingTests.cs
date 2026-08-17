@@ -129,6 +129,8 @@ public class ForeignNestedTypeSpellingTests
             new LoadArgument(0, "x", nested)));
         Assert.Equal(@"N.A\+B", CSharpBodyDiff.CanonicalTypeName(literal));
         Assert.Equal("N.A+B", CSharpBodyDiff.CanonicalTypeName(nested));
+        Assert.Equal(@"N.A\+B", CSharpBodyDiff.TypeIdentityKey(literal));
+        Assert.Equal("N.A+B", CSharpBodyDiff.TypeIdentityKey(nested));
 
         TypeRef literalArrayText = ExactDefinition("A[]", "A[]");
         TypeRef arrayShape = TypeRef.SzArray(

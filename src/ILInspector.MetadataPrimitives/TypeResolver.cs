@@ -210,6 +210,64 @@ public static class TypeResolver
             },
             static current => current).GetValueOrThrow();
 
+    internal static MetadataTypeNameParts GetTypeNameParts(
+        MetadataReader reader,
+        TypeDefinition type)
+    {
+        TypeDefinitionHandle declaringType;
+        try
+        {
+            declaringType = type.GetDeclaringType();
+            if (declaringType.IsNil)
+            {
+                return new MetadataTypeNameParts(
+                    MetadataSafetyPolicy.ReadStructuralString(
+                        reader,
+                        type.Namespace),
+                    [
+                        MetadataSafetyPolicy.ReadStructuralString(
+                            reader,
+                            type.Name),
+                    ]);
+            }
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or ArgumentOutOfRangeException)
+        {
+            throw new BadImageFormatException(
+                "The type has an invalid declaring-type relationship.",
+                ex);
+        }
+
+        MetadataTypeNameParts declaring =
+            GetTypeNamePartsFromDefinition(reader, declaringType);
+        if (declaring.Segments.Count
+            >= MetadataSafetyPolicy.MaxRelationshipNodes)
+        {
+            throw new BadImageFormatException(
+                $"The metadata relationship exceeds "
+                + $"{MetadataSafetyPolicy.MaxRelationshipNodes} nodes.");
+        }
+
+        string leaf = MetadataSafetyPolicy.ReadStructuralString(
+            reader,
+            type.Name);
+        long totalLength = declaring.Namespace.Length + leaf.Length;
+        foreach (string segment in declaring.Segments)
+            totalLength += segment.Length;
+        if (totalLength
+            > MetadataSafetyPolicy.MaxStructuralSignatureChars)
+        {
+            throw new BadImageFormatException(
+                "The metadata type name exceeds the structural-name budget.");
+        }
+
+        return new MetadataTypeNameParts(
+            declaring.Namespace,
+            [.. declaring.Segments, leaf]);
+    }
+
     /// <summary>
     /// Resolves an ExportedType name through a bounded, cycle-aware
     /// implementation walk.
@@ -593,6 +651,12 @@ public static class TypeResolver
         }
 
         string rawName = string.Join('.', metadataNameSegments);
+        if (declaredArity == 0
+            && typeArguments.Count > 0
+            && !metadataNameSegments[^1].Contains('`'))
+        {
+            return $"{rawName}<{string.Join(", ", typeArguments)}>";
+        }
         bool completeCompilerGeneratedName =
             typeArguments.Count > 0
             && typeArguments.Count < declaredArity
