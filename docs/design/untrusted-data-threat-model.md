@@ -397,7 +397,17 @@ before the check. Composite type nodes carry non-materializing rendered-length
 estimates, and bounded decoding charges each constructed node's complete
 estimated output so repeated wrapping cannot reallocate an uncharged subtree.
 Structured nested type names are read once and enforce their cumulative limit
-before the remaining chain is materialized. Tuple-name, nullability, and dynamic
+before the remaining chain is materialized. Legacy `FormatChain`, `ReadChain`,
+and leaf-append readers preflight UTF-8 storage against that same 4,096-character
+budget, then recheck decoded length, and report `NameBudget` rather than
+malformed or success-shaped output. Shared #Strings entries, many individually
+small segments, and projected virtual strings whose blob length is obtained
+only after SRM materializes them are gated by
+`SharedOversizeHeapString_IsRejectedBeforeAggregateMaterialization`,
+`ManySmallSegments_AreRejectedOnAggregateEncodedLength`,
+`LeafAppendOverBudget_IsRejectedBeforeLeafMaterialization`,
+`StructuredRead_ReportsNameBudgetNotMalformed`, and
+`ProjectedVirtualStringLength_IsRecheckedAfterBlobReader`. Tuple-name, nullability, and dynamic
 transform arrays charge their encoded blob before allocating arrays, and one
 type generic context is reused across all of that type's members.
 Visibility probes use bounded blob readers rather than copying skipped

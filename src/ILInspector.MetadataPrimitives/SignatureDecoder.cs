@@ -54,10 +54,26 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     };
 
     public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-        => TypeResolver.GetTypeNameFromDefinition(reader, handle, _beforeMaterialize);
+        => ReadNameOrContinue(
+            TypeResolver.TryGetTypeNameFromDefinition(
+                reader,
+                handle,
+                _beforeMaterialize,
+                out string? name,
+                out var rejection),
+            name,
+            rejection);
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-        => TypeResolver.GetTypeNameFromReference(reader, handle, _beforeMaterialize);
+        => ReadNameOrContinue(
+            TypeResolver.TryGetTypeNameFromReference(
+                reader,
+                handle,
+                _beforeMaterialize,
+                out string? name,
+                out var rejection),
+            name,
+            rejection);
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
@@ -120,6 +136,29 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     {
         ArgumentNullException.ThrowIfNull(rejection);
         s_rejection ??= rejection;
+    }
+
+    static string ReadNameOrContinue(
+        bool resolved,
+        string? name,
+        RelationshipTraversalRejection? rejection)
+    {
+        if (resolved)
+            return name!;
+
+        ArgumentNullException.ThrowIfNull(rejection);
+        if (rejection.Kind == RelationshipTraversalRejectionKind.NameBudget)
+        {
+            Reject(
+                new SignatureDecodeRejection(
+                    SignatureDecodeRejectionKind.MalformedMetadata,
+                    rejection.Detail));
+            return Unresolved;
+        }
+
+        throw new BadImageFormatException(
+            $"Metadata relationship traversal rejected ({rejection.Kind}): "
+            + rejection.Detail);
     }
 
     static SignatureDecodeResult<T> Malformed<T>(Exception exception)
