@@ -813,9 +813,33 @@ internal static class CSharpSpellability
         var hostSegments = hostDefinition.Name.Split('+');
         if (qualified)
         {
-            string first = definition.Name.Split('+')[0];
+            var siblingSegments = definition.Name.Split('+');
+            string first = siblingSegments[0];
             string firstSimple = StripArity(first);
             int firstArity = ArityOf(first);
+
+            // A later sibling-chain segment with the same simple name and
+            // arity is a nested type of some prefix. When that prefix is the
+            // host or an ancestor, C# binds the leading identifier to the
+            // nested type (Outer.Mid.Outer.Deep inside Outer.Mid).
+            for (int k = 1; k < siblingSegments.Length; k++)
+            {
+                if (StripArity(siblingSegments[k]) != firstSimple
+                    || ArityOf(siblingSegments[k]) != firstArity)
+                {
+                    continue;
+                }
+
+                string prefix = string.Join("+", siblingSegments, 0, k);
+                if (definition.Assembly == hostDefinition.Assembly
+                    && definition.Namespace == hostDefinition.Namespace
+                    && (hostDefinition.Name == prefix
+                        || hostDefinition.Name.StartsWith(prefix + "+", StringComparison.Ordinal)))
+                {
+                    return true;
+                }
+            }
+
             for (int i = hostSegments.Length - 1; i >= 0; i--)
             {
                 if (StripArity(hostSegments[i]) != firstSimple

@@ -919,6 +919,51 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void QualifiedSiblingChainShadowingLeadingSegment_StaysLowered()
+    {
+        var nested = TypeRef.Definition("Synthetic", "Samples", "Outer+Mid+Outer+Deep");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer+Mid"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void QualifiedSiblingChainShadowingOnHostAncestor_StaysLowered()
+    {
+        var nested = TypeRef.Definition("Synthetic", "Samples", "Outer+Mid+Outer+Deep");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer+Mid+Q"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void QualifiedSiblingChainWithoutHostPrefixShadow_StillRaises()
+    {
+        var nested = TypeRef.Definition("Synthetic", "Samples", "Outer+Mid+Outer+Deep");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nested,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer"));
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            nested,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
     public void ForgedDynamicOnNonObjectSibling_StaysLowered()
     {
         var host = RunSyntheticSiblingLambdaRaise(s_int);
