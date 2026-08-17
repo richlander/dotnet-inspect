@@ -3544,30 +3544,40 @@ public class PackageCommand
         }
 
         var sections = GetAllLibrariesSections(inspections, libraryOptions, pipeline);
-        if (libraryOptions.TabularExplicitlySet && !libraryOptions.Count)
+        bool tabularOutput =
+            libraryOptions.TabularExplicitlySet
+            && !libraryOptions.Count;
+        if (tabularOutput
+            && libraryOptions.Select?.Any(
+                value => value.StartsWith("@", StringComparison.Ordinal)) == true)
         {
-            var candidateSections = pipeline.GetCandidateSections(
-                libraryOptions.Verbosity,
-                libraryOptions.IncludeSections,
-                libraryOptions.FixedOverview);
-            var requestedSections = pipeline.AllSectionNames
-                .Where(candidateSections.Contains)
-                .ToList();
-            if (!WriteAllLibrariesTable(
-                    packageName,
-                    version,
-                    inspections,
-                    requestedSections,
-                    libraryOptions,
-                    sections.Count == 0))
-            {
-                return 1;
-            }
-            return completionExitCode;
+            CommandError.Write($"--all-libraries row output requires one concrete section; category selectors such as {SectionCategoryNames.Integrations} produce multi-section documents.");
+            CommandError.WriteLine("Use Markdown output for categories, or select a section such as \"Integration: Configuration\" or Library Info.");
+            return 1;
         }
 
         if (sections.Count == 0)
         {
+            if (tabularOutput)
+            {
+                var candidateSections = pipeline.GetCandidateSections(
+                    libraryOptions.Verbosity,
+                    libraryOptions.IncludeSections,
+                    libraryOptions.FixedOverview);
+                if (candidateSections.Count == 1
+                    && BuildAllLibrariesTable(
+                        packageName,
+                        version,
+                        inspections,
+                        candidateSections.Single(),
+                        libraryOptions.Rows) is null)
+                {
+                    CommandError.Write($"--all-libraries row output does not support section: {candidateSections.Single()}.");
+                    CommandError.WriteLine("Use Markdown output, or select Library Info, Switches, Integration: Opportunities, or a focused Integration: section.");
+                    return 1;
+                }
+            }
+
             CommandError.WriteNote("matched sections have no data across all libraries.");
             // An empty match is still an answer to --count, and returning without projecting
             // would report the absence as unprojected output.
@@ -3596,6 +3606,20 @@ public class PackageCommand
                     libraryOptions.OutputPath,
                     libraryOptions.Rows,
                     static _ => { });
+            }
+            return completionExitCode;
+        }
+
+        if (tabularOutput)
+        {
+            if (!WriteAllLibrariesTable(
+                    packageName,
+                    version,
+                    inspections,
+                    sections,
+                    libraryOptions))
+            {
+                return 1;
             }
             return completionExitCode;
         }
@@ -3949,16 +3973,8 @@ public class PackageCommand
         string version,
         List<LibraryInspection> inspections,
         List<string> sections,
-        LibraryOptions options,
-        bool noDataAcrossAllLibraries)
+        LibraryOptions options)
     {
-        if (options.Select?.Any(value => value.StartsWith("@", StringComparison.Ordinal)) == true)
-        {
-            CommandError.Write($"--all-libraries row output requires one concrete section; category selectors such as {SectionCategoryNames.Integrations} produce multi-section documents.");
-            CommandError.WriteLine("Use Markdown output for categories, or select a section such as \"Integration: Configuration\" or Library Info.");
-            return false;
-        }
-
         if (sections.Count != 1)
         {
             CommandError.Write($"--all-libraries row output requires exactly one section; matched {sections.Count}: {string.Join(", ", sections)}.");
@@ -3981,10 +3997,7 @@ public class PackageCommand
 
         if (!table.HasRowsBeforeWindow)
         {
-            CommandError.WriteNote(
-                noDataAcrossAllLibraries
-                    ? "matched sections have no data across all libraries."
-                    : "matched section has no row data across all libraries.");
+            CommandError.WriteNote("matched section has no row data across all libraries.");
             WriteAllLibrariesOutput(
                 options.OutputPath,
                 options.Rows,

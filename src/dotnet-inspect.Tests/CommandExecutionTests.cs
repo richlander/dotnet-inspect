@@ -18724,6 +18724,38 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageCommand_AllLibraries_RowFormat_UsesEffectiveSelectionCardinality()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "-S",
+                "Switches",
+                "--table",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.NotEmpty(result.Output);
+            Assert.Contains("Library", result.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "requires exactly one section",
+                result.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_TsvRejectsIntegrationCategory()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage(
