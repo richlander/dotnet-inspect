@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
+using ILInspector.Decompiler;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 
 namespace InspectWeb.Engine.Tests;
@@ -36,6 +37,25 @@ public sealed class BrowserStyleOptionsTests
                     ? conflict.GetString()
                     : null);
         }
+    }
+
+    [Fact]
+    public void ListVocabulary_ProjectsProductOwnedBodyKinds()
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            BrowserInspectionEngine.ListVocabulary());
+        JsonElement actual = document.RootElement
+            .GetProperty("sections")
+            .EnumerateArray()
+            .Single(section =>
+                section.GetProperty("id").GetString()
+                    == "csharp.body-kinds")
+            .GetProperty("values");
+
+        Assert.Equal(
+            BodyShapeSearch.SupportedKinds,
+            actual.EnumerateArray()
+                .Select(value => value.GetProperty("id").GetString()));
     }
 
     [Fact]
