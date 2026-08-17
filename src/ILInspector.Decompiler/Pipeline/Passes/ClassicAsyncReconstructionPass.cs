@@ -38,6 +38,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return;
 
         context.Stepper.StepOver($"reconstruct classic async '{function.Name}' from {kickoff.StateMachineType.Name}.MoveNext");
+        function.MergeTypeFactsFrom(moveNext);
         function.ResetLocals(locals, localNames);
         function.RequiresAsyncBodyModifier = true;
         function.Body.DetachChildren();

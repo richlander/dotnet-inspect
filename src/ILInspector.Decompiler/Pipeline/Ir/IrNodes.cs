@@ -725,6 +725,121 @@ public sealed class IrFunction : IrNode
     internal IReadOnlySet<TypeDefinitionIdentity> InequalityOperatorFreeTypes { get; set; }
         = ImmutableHashSet<TypeDefinitionIdentity>.Empty;
 
+    internal void MergeTypeFactsFrom(IrFunction body)
+    {
+        var ambiguous = MergeSet(AmbiguousTypeFacts, body.AmbiguousTypeFacts).ToImmutableHashSet();
+        foreach (var (type, bodyIdentity) in body.TypeFactIdentities)
+        {
+            if (TypeFactIdentities.TryGetValue(type, out var outerIdentity)
+                && outerIdentity != bodyIdentity)
+            {
+                ambiguous = ambiguous.Add(type);
+            }
+        }
+
+        AmbiguousTypeFacts = ambiguous;
+        TypeFactIdentities = WithoutAmbiguous(
+            MergeMap(TypeFactIdentities, body.TypeFactIdentities),
+            ambiguous);
+        TypeShapes = WithoutAmbiguous(
+            MergeMap(TypeShapes, body.TypeShapes),
+            ambiguous,
+            keepUnknownSentinel: true);
+        EnumMembers = WithoutAmbiguous(
+            MergeMap(EnumMembers, body.EnumMembers),
+            ambiguous);
+        EnumUnderlyingTypes = WithoutAmbiguous(
+            MergeMap(EnumUnderlyingTypes, body.EnumUnderlyingTypes),
+            ambiguous);
+        CollectionInitializerTypes = WithoutAmbiguous(
+            MergeSet(CollectionInitializerTypes, body.CollectionInitializerTypes),
+            ambiguous);
+        UnionTypes = WithoutAmbiguous(
+            MergeSet(UnionTypes, body.UnionTypes),
+            ambiguous);
+        ByRefLikeTypes = WithoutAmbiguous(
+            MergeSet(ByRefLikeTypes, body.ByRefLikeTypes),
+            ambiguous);
+        InterfaceTypes = WithoutAmbiguous(
+            MergeSet(InterfaceTypes, body.InterfaceTypes),
+            ambiguous);
+        EqualityOperatorFreeTypes = MergeSet(
+            EqualityOperatorFreeTypes,
+            body.EqualityOperatorFreeTypes);
+        InequalityOperatorFreeTypes = MergeSet(
+            InequalityOperatorFreeTypes,
+            body.InequalityOperatorFreeTypes);
+    }
+
+    internal void CopyTypeFactsFrom(IrFunction source)
+    {
+        TypeShapes = source.TypeShapes;
+        TypeFactIdentities = source.TypeFactIdentities;
+        AmbiguousTypeFacts = source.AmbiguousTypeFacts;
+        EnumMembers = source.EnumMembers;
+        EnumUnderlyingTypes = source.EnumUnderlyingTypes;
+        CollectionInitializerTypes = source.CollectionInitializerTypes;
+        UnionTypes = source.UnionTypes;
+        ByRefLikeTypes = source.ByRefLikeTypes;
+        InterfaceTypes = source.InterfaceTypes;
+        EqualityOperatorFreeTypes = source.EqualityOperatorFreeTypes;
+        InequalityOperatorFreeTypes = source.InequalityOperatorFreeTypes;
+    }
+
+    static IReadOnlyDictionary<TKey, TValue> MergeMap<TKey, TValue>(
+        IReadOnlyDictionary<TKey, TValue> outer,
+        IReadOnlyDictionary<TKey, TValue> inner)
+        where TKey : notnull
+    {
+        if (inner.Count == 0)
+            return outer;
+        var result = outer as ImmutableDictionary<TKey, TValue>
+            ?? ImmutableDictionary.CreateRange(outer);
+        foreach (var (key, value) in inner)
+        {
+            if (!result.ContainsKey(key))
+                result = result.SetItem(key, value);
+        }
+        return result;
+    }
+
+    static IReadOnlySet<T> MergeSet<T>(IReadOnlySet<T> outer, IReadOnlySet<T> inner)
+        where T : notnull
+    {
+        if (inner.Count == 0)
+            return outer;
+        var result = outer as ImmutableHashSet<T> ?? ImmutableHashSet.CreateRange(outer);
+        return result.Union(inner);
+    }
+
+    static IReadOnlyDictionary<TypeRef, TValue> WithoutAmbiguous<TValue>(
+        IReadOnlyDictionary<TypeRef, TValue> values,
+        IReadOnlySet<TypeRef> ambiguous,
+        bool keepUnknownSentinel = false)
+    {
+        if (ambiguous.Count == 0)
+            return values;
+        var result = ImmutableDictionary.CreateBuilder<TypeRef, TValue>();
+        foreach (var (type, value) in values)
+        {
+            if (!ambiguous.Contains(type))
+                result.Add(type, value);
+        }
+        if (keepUnknownSentinel && typeof(TValue) == typeof(TypeShape))
+        {
+            foreach (var type in ambiguous)
+                result[type] = (TValue)(object)TypeShape.Unknown;
+        }
+        return result.ToImmutable();
+    }
+
+    static IReadOnlySet<TypeRef> WithoutAmbiguous(
+        IReadOnlySet<TypeRef> values,
+        IReadOnlySet<TypeRef> ambiguous)
+        => ambiguous.Count == 0
+            ? values
+            : values.Where(type => !ambiguous.Contains(type)).ToImmutableHashSet();
+
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
             .Append(Signature.ReturnType)

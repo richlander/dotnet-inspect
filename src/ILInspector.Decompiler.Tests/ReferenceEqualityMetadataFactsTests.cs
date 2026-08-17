@@ -285,7 +285,7 @@ public class ReferenceEqualityMetadataFactsTests
         };
         body.InterfaceTypes = ImmutableHashSet.Create(externalEnum);
 
-        LocalFunctionRaisingPass.MergeTypeFacts(host, body);
+        host.MergeTypeFactsFrom(body);
 
         Assert.Contains(externalEnum, host.AmbiguousTypeFacts);
         Assert.Equal(TypeShape.Unknown, host.TypeShapes[externalEnum]);

@@ -169,6 +169,15 @@ public class BoxedReferenceEqualityTests
     }
 
     [Fact]
+    public void ClassicAsyncBodyOnlyInterfaceFact_ReachesKickoffPrinter()
+    {
+        string output = PrintClassicAsync("InterfaceReceiver");
+
+        Assert.Contains("return ((IInterfaceValue)(await value)).GetValue();", output);
+        Assert.DoesNotContain("return (await value).GetValue();", output);
+    }
+
+    [Fact]
     public void DynamicSwitchExpressionReferenceEquality_PreservesObjectComparison()
     {
         string output = Print(nameof(BoxedReferenceEqualitySpecimens.DynamicSwitchExpressionReferenceEquals));

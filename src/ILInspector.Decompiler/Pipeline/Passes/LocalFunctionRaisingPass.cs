@@ -425,7 +425,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             // spells the same value correctly (issue #2983). Outer entries win
             // on collision: a definition the host already resolved keeps its
             // authoritative shape.
-            MergeTypeFacts(function, body);
+            function.MergeTypeFactsFrom(body);
             environment?.Elide();
         }
 
@@ -666,90 +666,4 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             yield return descendant;
     }
 
-    static IReadOnlyDictionary<TKey, TValue> MergeMap<TKey, TValue>(
-        IReadOnlyDictionary<TKey, TValue> outer, IReadOnlyDictionary<TKey, TValue> inner)
-        where TKey : notnull
-    {
-        if (inner.Count == 0)
-            return outer;
-        var result = outer as ImmutableDictionary<TKey, TValue> ?? ImmutableDictionary.CreateRange(outer);
-        foreach (var (key, value) in inner)
-            if (!result.ContainsKey(key))
-                result = result.SetItem(key, value);
-        return result;
-    }
-
-    static IReadOnlySet<TypeRef> MergeSet(IReadOnlySet<TypeRef> outer, IReadOnlySet<TypeRef> inner)
-    {
-        if (inner.Count == 0)
-            return outer;
-        var result = outer as ImmutableHashSet<TypeRef> ?? ImmutableHashSet.CreateRange(outer);
-        return result.Union(inner);
-    }
-
-    internal static void MergeTypeFacts(IrFunction function, IrFunction body)
-    {
-        var ambiguous = MergeSet(function.AmbiguousTypeFacts, body.AmbiguousTypeFacts)
-            .ToImmutableHashSet();
-        foreach (var (type, bodyIdentity) in body.TypeFactIdentities)
-        {
-            if (function.TypeFactIdentities.TryGetValue(type, out var outerIdentity)
-                && outerIdentity != bodyIdentity)
-            {
-                ambiguous = ambiguous.Add(type);
-            }
-        }
-
-        function.AmbiguousTypeFacts = ambiguous;
-        function.TypeFactIdentities = WithoutAmbiguous(
-            MergeMap(function.TypeFactIdentities, body.TypeFactIdentities),
-            ambiguous);
-        function.TypeShapes = WithoutAmbiguous(
-            MergeMap(function.TypeShapes, body.TypeShapes),
-            ambiguous,
-            keepUnknownSentinel: true);
-        function.EnumMembers = WithoutAmbiguous(
-            MergeMap(function.EnumMembers, body.EnumMembers),
-            ambiguous);
-        function.EnumUnderlyingTypes = WithoutAmbiguous(
-            MergeMap(function.EnumUnderlyingTypes, body.EnumUnderlyingTypes),
-            ambiguous);
-        function.UnionTypes = WithoutAmbiguous(
-            MergeSet(function.UnionTypes, body.UnionTypes),
-            ambiguous);
-        function.ByRefLikeTypes = WithoutAmbiguous(
-            MergeSet(function.ByRefLikeTypes, body.ByRefLikeTypes),
-            ambiguous);
-        function.InterfaceTypes = WithoutAmbiguous(
-            MergeSet(function.InterfaceTypes, body.InterfaceTypes),
-            ambiguous);
-    }
-
-    static IReadOnlyDictionary<TypeRef, TValue> WithoutAmbiguous<TValue>(
-        IReadOnlyDictionary<TypeRef, TValue> values,
-        IReadOnlySet<TypeRef> ambiguous,
-        bool keepUnknownSentinel = false)
-    {
-        if (ambiguous.Count == 0)
-            return values;
-        var result = ImmutableDictionary.CreateBuilder<TypeRef, TValue>();
-        foreach (var (type, value) in values)
-        {
-            if (!ambiguous.Contains(type))
-                result.Add(type, value);
-        }
-        if (keepUnknownSentinel && typeof(TValue) == typeof(TypeShape))
-        {
-            foreach (var type in ambiguous)
-                result[type] = (TValue)(object)TypeShape.Unknown;
-        }
-        return result.ToImmutable();
-    }
-
-    static IReadOnlySet<TypeRef> WithoutAmbiguous(
-        IReadOnlySet<TypeRef> values,
-        IReadOnlySet<TypeRef> ambiguous)
-        => ambiguous.Count == 0
-            ? values
-            : values.Where(type => !ambiguous.Contains(type)).ToImmutableHashSet();
 }

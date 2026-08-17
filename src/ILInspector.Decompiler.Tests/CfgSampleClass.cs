@@ -648,6 +648,12 @@ public class CfgSampleClass
     public static System.Func<int, int> LocalBodyLambda()
         => x => { int y = x + 1; return y * y; };
 
+    public static System.Func<CfgDimStructConsumer, int> InterfaceCastLambda()
+        => consumer => ((CfgDimFace)consumer).Value();
+
+    public static System.Func<CfgDimStructConsumer, int> InterfaceCastLocalBodyLambda()
+        => consumer => { int copy = 1; return copy + ((CfgDimFace)consumer).Value(); };
+
     // Capturing local-bearing body whose capture is an outer parameter. The
     // parameter name is stable in the nested lambda print scope, so this is now
     // recoverable.
@@ -4745,6 +4751,12 @@ public class CfgSampleClass
     {
         yield return "a";
         yield return "b";
+    }
+
+    public static System.Collections.Generic.IEnumerable<int> YieldInterfaceValue(
+        CfgDimStructConsumer consumer)
+    {
+        yield return ((CfgDimFace)consumer).Value();
     }
 
     // IEnumerator<T>-returning iterator (not IEnumerable<T>): the kickoff creates

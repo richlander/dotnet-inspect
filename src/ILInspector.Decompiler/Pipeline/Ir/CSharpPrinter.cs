@@ -1781,12 +1781,8 @@ public sealed partial class CSharpPrinter
             // by member name, not a bare int (issue #2983). LocalFunctionRaisingPass
             // merges each raised body's maps into the enclosing function, so these
             // include the definitions this local function references.
-            TypeShapes = _function.TypeShapes,
-            EnumMembers = _function.EnumMembers,
-            EnumUnderlyingTypes = _function.EnumUnderlyingTypes,
-            UnionTypes = _function.UnionTypes,
-            InterfaceTypes = _function.InterfaceTypes,
         };
+        function.CopyTypeFactsFrom(_function);
 
         string pad = new(' ', indent * 4);
         var nestedPrinter = new CSharpPrinter(

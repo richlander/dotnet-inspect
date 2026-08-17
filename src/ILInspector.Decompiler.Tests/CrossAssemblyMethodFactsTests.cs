@@ -36,6 +36,18 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void GenericInstantiatedSignatureCollision_UsesDefinitionSignature()
+    {
+        using var fixture = CrossAssemblyFixture.Create(versionDrift: true);
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        AssertCallRefKind(source, "UseGenericOut", "GenericCollision", ArgumentRefKind.Out);
+        Assert.Contains(
+            "ByRefLibrary.GenericCollision<object>(out V_0);",
+            Print(source, "UseGenericOut"));
+    }
+
+    [Fact]
     public void PlatformForwardedByRefMemberRef_RecoversParameterRefKinds()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -380,6 +392,8 @@ public class CrossAssemblyMethodFactsTests
                         public static void Read(in int value) { _ = value; }
                         public static void WriteExternalOut(out ExternalReference value) => value = new();
                         public static void MutateExternal(ref ExternalReference value) => value = new();
+                        public static void GenericCollision<T>(ref object value) { }
+                        public static void GenericCollision<T>(out T value) => value = default!;
                     }
 
                     public delegate int ExternalDelegate(int value);
@@ -508,6 +522,12 @@ public class CrossAssemblyMethodFactsTests
                         public static ExternalReference UseExternalRef(ExternalReference value)
                         {
                             ByRefLibrary.MutateExternal(ref value);
+                            return value;
+                        }
+
+                        public static object UseGenericOut()
+                        {
+                            ByRefLibrary.GenericCollision<object>(out var value);
                             return value;
                         }
 

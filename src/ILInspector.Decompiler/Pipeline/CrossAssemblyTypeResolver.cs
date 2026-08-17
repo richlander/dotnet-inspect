@@ -659,6 +659,25 @@ internal sealed class CrossAssemblyTypeResolver
 
         if (signature.ParameterTypes.Length != callee.ParameterTypes.Length)
             return false;
+        if (!callee.DefinitionParameterTypes.IsEmpty)
+        {
+            if (signature.ParameterTypes.Length != callee.DefinitionParameterTypes.Length)
+                return false;
+            for (int i = 0; i < signature.ParameterTypes.Length; i++)
+            {
+                var definitionParameter = signature.ParameterTypes[i].Instantiate(typeArguments, []);
+                if (!SameSignatureType(
+                    definitionParameter,
+                    callee.DefinitionParameterTypes[i],
+                    allowCoreLibraryAliases,
+                    localAssembly,
+                    localAssemblyIdentity,
+                    resolvedLocalBindingIdentity))
+                {
+                    return false;
+                }
+            }
+        }
         var parameters = ImmutableArray.CreateBuilder<TypeRef>(signature.ParameterTypes.Length);
         for (int i = 0; i < signature.ParameterTypes.Length; i++)
         {
