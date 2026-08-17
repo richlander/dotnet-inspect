@@ -88,21 +88,20 @@ bad-input-tolerance is diffuse and every new consumer re-litigates it.
 A rejecter still has to decide what to reject, and there are two ways to write
 that down. A **deny list** enumerates the bad forms; an **allow list**
 enumerates the permitted ones and refuses everything else. Where a field's
-grammar is externally defined and small — a package id, a version — use the
-allow list.
+grammar is externally defined — a package id, a version — use that grammar as
+the allow list rather than inventing a narrower substitute.
 
 The difference is not stylistic. A deny list is only ever as current as the
-last hazard someone thought of, and it cannot express the attacks that use
-*ordinary* characters. Cyrillic `а` (`U+0430`) and Latin `a` (`U+0061`) are the
-same glyph, different code points, and both are general category `Ll` — no
-hazard classification will ever separate them, because neither is a hazard.
-Homoglyph typosquatting is defeated by constraining the grammar and by nothing
-else.
+last hazard someone thought of. An allow list can still contain Unicode:
+NuGet's package-ID grammar uses Unicode word characters, and narrowing it to
+ASCII rejects legitimate packages. Cyrillic `а` (`U+0430`) and Latin `a`
+(`U+0061`) are the same glyph but both valid word characters, so homoglyph
+typosquatting is an identity-confusion signal rather than malformed syntax.
+Package and assembly signals report that separate concern below.
 
-An allow list is also the cheapest thing here to audit — one small set checked
-against one field — and the fastest to run, needing no Unicode tables. It is
-the same reject-over-sanitize rule applied one step earlier: at the point the
-value is admitted rather than the point it is printed.
+An allow list is also cheap to audit — one defined grammar checked against one
+field. It is the same reject-over-sanitize rule applied one step earlier: at
+the point the value is admitted rather than the point it is printed.
 
 Free-form fields cannot be treated this way. Assembly-derived type and member
 names are legitimately non-ASCII, and prose is legitimately international, so
@@ -431,6 +430,8 @@ Direct `NuGetApi` stream readers use the request deadline as their body-parse ti
 may configure a stricter metadata-body timeout. Header-first NuGet and package-layer requests also
 require Browser/Wasm streaming-response mode so the browser transport cannot buffer an unbounded
 body before the counting or deadline streams see it.
+`NuGetSearchSourcesTests.GetSearchQueryServiceAsync_ServiceIndexRequiresBrowserStreamingResponse`
+gates the mandatory search-discovery path.
 
 Oversize, request-timeout, operation-timeout, and optional body-timeout failures have dedicated
 exception types. They are not represented as `JsonException`, `HttpRequestException`, a null

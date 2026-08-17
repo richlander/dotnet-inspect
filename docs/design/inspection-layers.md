@@ -55,27 +55,30 @@ the ownership boundaries below, not the project count.
 `DotnetInspector.ResearchQueries` companion now implement metadata-image,
 direct-reference, extension-method, custom-attribute, manifest-resource,
 type-forwarder, union-type, switch, SourceLink audit, API-comparison, Analysis
-body-signal comparison, Implementation comparison, assembly-context
-Integrations, implementation relationships, type/member search, extension
-reachability, and progressive member call-graph slices. The API-comparison seam retains
-Metadata-owned Finding correspondence and compatibility classification over
-two host-resolved surfaces. The body-signal seam consumes already-acquired
+body-signal comparison, unsafe-evidence, Implementation comparison,
+assembly-context Integrations, implementation relationships, type/member
+search, extension reachability, progressive member call-graph slices, and
+group-scoped authored-or-decompiled type/member source. The API-comparison seam
+retains Metadata-owned Finding correspondence and compatibility classification
+over two host-resolved surfaces. The body-signal seam consumes already-acquired
 Analysis indexes and retains `ResearchComparison`; keeping that query in the
-companion assembly avoids imposing Research and Decompiler dependencies on
-core query consumers. The call-graph and extension-reachability seams compose
-evidence over workspace-owned immutable snapshots; call graphs retain one
-catalog generation for both traversal directions. These queries return typed
-results without choosing a renderer or output format.
+companion assembly avoids imposing Research on core query consumers. Core L1
+now intentionally references Decompiler for `AssemblyContextSourceQuery`,
+whose fallback is a product-owned whole-member or whole-type C# render. The
+call-graph and extension-reachability seams compose evidence over
+workspace-owned immutable snapshots; call graphs retain one catalog generation
+for both traversal directions. These queries return typed results without
+choosing a renderer or output format.
 The library CLI executes metadata-image, direct assembly-reference,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, method-classification, and audit-metadata queries, plus the
-Research-backed switch query through a typed, content-shaped registry over a host-owned
-`AssemblyInspectionSession`. The `References`, `Extension Methods`, `Custom
-Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union Types`,
-`P/Invoke Methods`, `Async Methods`, `Signals`, and `Library Info` sections
-bind to concrete query definitions rather than relying solely on string scanner
-keys, and the CLI and package convenience route lower section selection into
-that same registry.
+union-type, method-classification, audit-metadata, and unsafe-evidence queries,
+plus the Research-backed switch query through a typed, content-shaped registry
+over a host-owned `AssemblyInspectionSession`. The `References`, `Extension
+Methods`, `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`,
+`Union Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Signals`,
+and `Library Info` sections bind to concrete query definitions rather than
+relying solely on string scanner keys, and the CLI and package convenience
+route lower section selection into that same registry.
 Library and package SourceLink sections
 execute a shared document prerequisite plus availability or integrity query
 over a host-owned `SourceLinkService`. The library CLI and package
@@ -109,6 +112,17 @@ and IL producers; authored-source acquisition remains a separate explicit
 enrichment.
 `ImplementationComparisonQueryTests.Execute_UsesSuppliedAssemblyContentForCSharpAndIlEvidence`
 gates the stream-backed target-content path.
+
+`AssemblyContextSourceQuery` accepts one participant, an exact typed target,
+and explicit host capabilities for symbol and source acquisition. It opens the
+workspace snapshot as content, acquires a matching PDB through the supplied
+store, prefers checksum-verified authored source, and otherwise decompiles
+through the participant's `IAssemblyBindingPolicy`. It never accepts an
+assembly or PDB path. A pathless decompiler descriptor may use embedded symbols
+but cannot derive and probe an ambient sidecar path; this is gated by
+`AssemblyReferenceResolverTests.PathlessDescriptor_DoesNotProbeIdentityDerivedSidecarPath`.
+The query's in-memory host path and typed failure behavior are gated by
+`AssemblyContextSourceQueryTests`.
 
 This is an incremental boundary, not the completed split. The remaining
 library scanners still use the transitional string-keyed `ScannerRegistry`,
@@ -271,7 +285,7 @@ Metadata-image, direct-reference, assembly-context reference,
 package dependency-group, loaded dependency-coordinate match,
 extension-method, custom-attribute,
 manifest-resource, type-forwarder, union-type, classified-method,
-audit-metadata, switch,
+audit-metadata, unsafe-evidence, switch,
 SourceLink,
 API-comparison, Analysis body-signal comparison, Implementation comparison, and
 assembly-context Integrations inspection are the first vertical L1 canaries:
@@ -319,6 +333,11 @@ assembly-context Integrations inspection are the first vertical L1 canaries:
   `Available`, `NoMetadata`, or `Failed`. `Signals` composes those facts with
   direct references, classified methods, and later source evidence in the CLI;
   metadata acquisition no longer requires a mutable composition scanner.
+- `UnsafeEvidenceQuery` consumes an already-acquired `LibraryBodyIndex` and
+  returns immutable Analysis-owned unsafe evidence plus diagnostics. The CLI
+  adds path-scoped per-method Finding provenance, retains partial-census
+  diagnostics, and projects compatibility JSON, while Markdown rows contain raw
+  evidence only at the `UnsafeMemberRow` sink.
 - `SwitchesQuery` lives in the optional Research-backed query companion. It
   composes attribute-declared metadata with Research-owned AppContext IL
   evidence into one immutable ordered inventory. The CLI adds path-based
@@ -353,11 +372,10 @@ assembly-context Integrations inspection are the first vertical L1 canaries:
   is query-owned; the CLI retains only command hosting and projection.
 - Metadata sections, `References`, `Library Info`, `Extension Methods`,
   `Custom Attributes`, `Resources`, `Switches`, `Type Forwarders`, `Union
-  Types`, `P/Invoke Methods`, `Async Methods`, `Signals`, and the diff
-  `Changes`, `Analysis Diff`, and
-  `Implementation Diff` sections bind to query definitions by object identity.
-  A section may bind multiple definitions; diagnostic names are never lookup
-  keys.
+  Types`, `P/Invoke Methods`, `Async Methods`, `Unsafe Members`, `Signals`, and
+  the diff `Changes`, `Analysis Diff`, and `Implementation Diff` sections bind
+  to query definitions by object identity. A section may bind multiple
+  definitions; diagnostic names are never lookup keys.
 - An executor can read only its declared transitive prerequisite results. A
   hidden dependency therefore fails whether or not another requested query
   happened to populate the shared run, and cannot understate cost.

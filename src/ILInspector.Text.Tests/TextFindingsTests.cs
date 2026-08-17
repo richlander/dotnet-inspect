@@ -32,6 +32,27 @@ public class TextFindingsTests
     }
 
     [Fact]
+    public void BoundedInspect_RefusesExcessLinesBeforeProjection()
+    {
+        var accepted =
+            TextFindings.Inspect(
+                    "first\nsecond\nthird",
+                    Subject,
+                    maxLineCount: 3)
+                .ToArray();
+
+        Assert.Equal(3, accepted.Length);
+        var error =
+            Assert.Throws<TextFindingComplexityException>(
+                () => TextFindings.Inspect(
+                        "first\nsecond\nthird\n",
+                        Subject,
+                        maxLineCount: 3)
+                    .ToArray());
+        Assert.Equal(3, error.Limit);
+    }
+
+    [Fact]
     public void EmptyAndWhitespaceOnlyText_AreValidCensuses()
     {
         Assert.Empty(TextFindings.Inspect("", Subject));

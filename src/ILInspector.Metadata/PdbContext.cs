@@ -99,6 +99,8 @@ public sealed record PdbTypeDocumentInfo(
     string TypeSimpleName,
     IReadOnlyList<PdbDocumentReference> Documents)
 {
+    public MetadataTypeDefinitionName? DefinitionName { get; init; }
+
     public IReadOnlyList<string> FilePaths =>
         Documents.Select(static document => document.FilePath).ToArray();
 }
@@ -411,14 +413,22 @@ public class PdbContext : IDisposable
             (streamOptions & PEStreamOptions.PrefetchEntireImage) != 0,
             lastWriteTimeUtc);
 
-        if (!peReader.HasMetadata)
+        try
+        {
+            if (!peReader.HasMetadata)
+                return context;
+
+            context.ReadDebugDirectory();
+            if (loadLocalPdb)
+                context.TryLoadLocalPdb();
+
             return context;
-
-        context.ReadDebugDirectory();
-        if (loadLocalPdb)
-            context.TryLoadLocalPdb();
-
-        return context;
+        }
+        catch
+        {
+            context.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
@@ -492,74 +502,102 @@ public class PdbContext : IDisposable
 
         MetadataReaderProvider? provider = null;
         bool retained = false;
+        Exception? primaryFailure = null;
         try
         {
-            if (!pdbStream.CanRead || !pdbStream.CanSeek)
+            try
             {
-                throw new IOException(
-                    "Portable PDB content must be readable and seekable.");
-            }
-
-            // Check for Portable PDB magic header (BSJB)
-            byte[] header = new byte[4];
-            pdbStream.ReadExactly(header, 0, 4);
-            pdbStream.Position = 0;
-
-            if (header[0] != 'B' || header[1] != 'S' || header[2] != 'J' || header[3] != 'B')
-            {
-                bool isWindowsPdb = header[0] == 'M' && header[1] == 'i' && header[2] == 'c' && header[3] == 'r';
-                if (isWindowsPdb)
+                if (!pdbStream.CanRead || !pdbStream.CanSeek)
                 {
-                    WindowsPdbDetected = true;
-                    PdbFormat = "Windows";
-                    _log?.Invoke("Windows PDB detected (not supported)");
+                    throw new IOException(
+                        "Portable PDB content must be readable and seekable.");
                 }
-                return;
-            }
 
-            provider = MetadataReaderProvider.FromPortablePdbStream(
-                pdbStream,
-                MetadataStreamOptions.PrefetchMetadata);
-            var reader = provider.GetMetadataReader();
-            if (!PdbMatchesAssembly(reader))
+                // Check for Portable PDB magic header (BSJB)
+                byte[] header = new byte[4];
+                pdbStream.ReadExactly(header, 0, 4);
+                pdbStream.Position = 0;
+
+                if (header[0] != 'B' || header[1] != 'S' || header[2] != 'J' || header[3] != 'B')
+                {
+                    bool isWindowsPdb = header[0] == 'M' && header[1] == 'i' && header[2] == 'c' && header[3] == 'r';
+                    if (isWindowsPdb)
+                    {
+                        WindowsPdbDetected = true;
+                        PdbFormat = "Windows";
+                        _log?.Invoke("Windows PDB detected (not supported)");
+                    }
+                    return;
+                }
+
+                provider = MetadataReaderProvider.FromPortablePdbStream(
+                    pdbStream,
+                    MetadataStreamOptions.PrefetchMetadata);
+                var reader = provider.GetMetadataReader();
+                if (!PdbMatchesAssembly(reader))
+                {
+                    string suppliedName = portablePdbPath is null
+                        ? "supplied content"
+                        : Path.GetFileName(portablePdbPath);
+                    _log?.Invoke(
+                        $"Portable PDB identity mismatch: {suppliedName} does not match {_assemblyDisplayName}");
+                    return;
+                }
+
+                _disposables.Add(pdbStream);
+                _disposables.Add(provider);
+                _pdbProvider = provider;
+                _pdbReader = reader;
+                retained = true;
+
+                HasPdb = true;
+                PdbVersion++;
+                PdbFormat = "Portable";
+                PdbLocation = pdbLocation ?? "Standalone";
+                PortablePdbPath = portablePdbPath;
+                SymbolServer = symbolServer;
+
+                _log?.Invoke($"Loaded PDB: {PdbFormat}, {PdbLocation}");
+            }
+            catch (Exception ex)
+                when ((!throwOnReadFailure && ex is IOException)
+                    || ex is BadImageFormatException
+                    || ex is InvalidOperationException
+                    || ex is ArgumentException)
             {
-                string suppliedName = portablePdbPath is null
-                    ? "supplied content"
-                    : Path.GetFileName(portablePdbPath);
-                _log?.Invoke(
-                    $"Portable PDB identity mismatch: {suppliedName} does not match {_assemblyDisplayName}");
-                return;
+                _log?.Invoke($"Error loading PDB: {ex.Message}");
             }
-
-            _disposables.Add(pdbStream);
-            _disposables.Add(provider);
-            _pdbProvider = provider;
-            _pdbReader = reader;
-            retained = true;
-
-            HasPdb = true;
-            PdbVersion++;
-            PdbFormat = "Portable";
-            PdbLocation = pdbLocation ?? "Standalone";
-            PortablePdbPath = portablePdbPath;
-            SymbolServer = symbolServer;
-
-            _log?.Invoke($"Loaded PDB: {PdbFormat}, {PdbLocation}");
         }
         catch (Exception ex)
-            when ((!throwOnReadFailure && ex is IOException)
-                || ex is BadImageFormatException
-                || ex is InvalidOperationException
-                || ex is ArgumentException)
         {
-            _log?.Invoke($"Error loading PDB: {ex.Message}");
+            primaryFailure = ex;
+            throw;
         }
         finally
         {
             if (!retained)
             {
-                provider?.Dispose();
-                pdbStream.Dispose();
+                if (primaryFailure is null)
+                {
+                    provider?.Dispose();
+                    pdbStream.Dispose();
+                }
+                else
+                {
+                    DisposeSuppressingFailure(provider);
+                    DisposeSuppressingFailure(pdbStream);
+                }
+            }
+        }
+
+        static void DisposeSuppressingFailure(IDisposable? disposable)
+        {
+            try
+            {
+                disposable?.Dispose();
+            }
+            catch
+            {
             }
         }
     }
@@ -1162,38 +1200,76 @@ public class PdbContext : IDisposable
         {
             var type = metadata.GetTypeDefinition(typeHandle);
             string fullName = metadata.GetFullTypeName(type);
-            if (string.IsNullOrEmpty(fullName) || fullName == "<Module>")
+            if (fullName == "<Module>")
                 continue;
+            MetadataTypeDefinitionName definitionName =
+                MetadataTypeDefinitionNameReader.Read(
+                    metadata,
+                    typeHandle)
+                switch
+                {
+                    MetadataTypeDefinitionNameReadResult.Read read =>
+                        read.Name,
+                    MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                        throw new BadImageFormatException(
+                            rejected.Failure.Detail),
+                    _ => throw new InvalidOperationException(
+                        "Unknown metadata type-definition name result."),
+                };
 
             List<PdbDocumentReference> documents = [];
             HashSet<int> seenDocumentRows = [];
             foreach (var methodHandle in type.GetMethods())
             {
-                try
+                if (metadata.GetMethodDefinition(methodHandle).RelativeVirtualAddress == 0)
+                    continue;
+
+                var ranges =
+                    ReadVisibleSequencePointDocuments(
+                        methodHandle);
+                if (ranges.Count > 0)
                 {
-                    if (metadata.GetMethodDefinition(methodHandle).RelativeVirtualAddress == 0)
-                        continue;
-                    var debugInfo = _pdbReader.GetMethodDebugInformation(
-                        methodHandle.ToDebugInformationHandle());
-                    if (debugInfo.Document.IsNil)
-                        continue;
-                    var document = _pdbReader.GetDocument(debugInfo.Document);
-                    string path = _pdbReader.GetString(document.Name);
-                    int documentRowId = MetadataTokens.GetRowNumber(debugInfo.Document);
-                    if (!string.IsNullOrEmpty(path) && seenDocumentRows.Add(documentRowId))
-                        documents.Add(new PdbDocumentReference(documentRowId, path));
+                    foreach (var range in ranges)
+                        AddDocument(range.Document);
+                    continue;
                 }
-                catch (Exception ex) when (ex is BadImageFormatException
-                    or InvalidOperationException
-                    or ArgumentOutOfRangeException)
+
+                var debugInfo =
+                    _pdbReader.GetMethodDebugInformation(
+                        methodHandle.ToDebugInformationHandle());
+                if (!debugInfo.Document.IsNil)
+                    AddDocument(debugInfo.Document);
+
+                void AddDocument(DocumentHandle handle)
                 {
+                    var document =
+                        _pdbReader.GetDocument(handle);
+                    string path =
+                        _pdbReader.GetString(document.Name);
+                    if (string.IsNullOrEmpty(path))
+                    {
+                        throw new BadImageFormatException(
+                            "A portable-PDB source document has an empty path.");
+                    }
+                    int documentRowId =
+                        MetadataTokens.GetRowNumber(handle);
+                    if (seenDocumentRows.Add(documentRowId))
+                    {
+                        documents.Add(
+                            new PdbDocumentReference(
+                                documentRowId,
+                                path));
+                    }
                 }
             }
 
             yield return new PdbTypeDocumentInfo(
                 fullName,
                 metadata.GetString(type.Name),
-                documents);
+                documents)
+            {
+                DefinitionName = definitionName,
+            };
         }
     }
 
@@ -1445,20 +1521,43 @@ public class PdbContext : IDisposable
         => AssemblyDetailScanner.ScanPresenceFlagsWithoutIntegrations(
             _peReader);
 
-    public void Dispose()
+    public void Dispose() =>
+        _ = DisposeWithFailure();
+
+    /// <summary>
+    /// Disposes every owned resource and returns the first disposal failure.
+    /// </summary>
+    /// <remarks>
+    /// The compatibility <see cref="Dispose()"/> path suppresses the returned
+    /// failure. Strict ownership boundaries inspect it after all cleanup has
+    /// been attempted.
+    /// </remarks>
+    public Exception? DisposeWithFailure()
     {
         if (_disposed)
-            return;
+            return null;
         _disposed = true;
-        foreach (var d in _disposables)
-        {
-            try { d.Dispose(); } catch { }
-        }
+        Exception? failure = null;
+        foreach (IDisposable disposable in _disposables)
+            DisposeOwned(disposable);
         _disposables.Clear();
         _pdbProvider = null;
         _pdbReader = null;
-        try { _peReader.Dispose(); } catch { }
-        try { _peStream.Dispose(); } catch { }
+        DisposeOwned(_peReader);
+        DisposeOwned(_peStream);
+        return failure;
+
+        void DisposeOwned(IDisposable disposable)
+        {
+            try
+            {
+                disposable.Dispose();
+            }
+            catch (Exception ex)
+            {
+                failure ??= ex;
+            }
+        }
     }
 
     void EnsureAlive()

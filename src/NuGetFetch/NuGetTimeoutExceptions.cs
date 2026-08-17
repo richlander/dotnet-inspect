@@ -24,7 +24,7 @@ public sealed class NuGetRequestTimeoutException : TimeoutException
 /// </summary>
 public sealed class NuGetOperationTimeoutException : TimeoutException
 {
-    internal NuGetOperationTimeoutException(
+    public NuGetOperationTimeoutException(
         TimeSpan timeout,
         OperationCanceledException innerException)
         : base($"NuGet operation did not complete within {timeout}.", innerException)
