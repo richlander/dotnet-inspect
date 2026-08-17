@@ -487,12 +487,10 @@ that workspace scope. Its request-free overload explicitly produces a
 workspace-participant induced set; type and assembly seeds bind exact nodes,
 package seeds bind exact package groups in the detailed Integration lens, and
 mixed peers remain equal. Mode binding happens after the same deterministic
-producer plan, so it does not change occurrence identity or semantic edge
-direction. Integration relationship descriptors now declare whether a seed may
-enter as a logical edge endpoint, an original occurrence endpoint, or through
-strict typed ownership. Request-driven relationship selection and admission
-validation remain deferred, so these declarations do not change the
-deterministic sequential plan.
+full producer plan, so the existing mode-only overloads do not change
+occurrence identity or semantic edge direction. Integration relationship
+descriptors declare whether a seed may enter as a logical edge endpoint, an
+original occurrence endpoint, or through strict typed ownership.
 `Execute_DefaultsToWorkspaceInducedSetWithoutSeeds`,
 `Execute_BindsTypeSeedToExactNode`,
 `Execute_BindsAssemblySeedToExactNode`,
@@ -503,6 +501,31 @@ deterministic sequential plan.
 `RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`, and
 `AdmissionsMatchDeclaredEndpointDomains` gate the catalog declarations and
 their endpoint constraints.
+
+`InspectionGraphNeighborhoodRequest` now makes those declarations load-bearing
+for single-seed Integration graphs. The request keeps mode, selected
+relationships, semantic direction, and finite edge depth separate. Catalog and
+seed admission validation occur before the registry runs. The selected
+relationships request only extension, reference, Integration, or opportunity
+queries they require; the registry still expands typed prerequisites and runs
+them once in registration order. Opportunity activates both extension and
+Integration evidence because fulfillment suppression composes those results
+before projecting opportunity edges; it does not activate unrelated reference
+scans.
+
+The completed evidence is projected sequentially into a dense bounded document.
+Incoming traversal does not reverse stored semantic direction, original
+occurrence receipts and identity survive id remapping, and failures from the
+requested relationship producers and their required composition prerequisites
+remain visible beside reached topology.
+`Execute_SelectedRelationshipsControlProducerDemand`,
+`Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression`,
+`Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures`,
+`Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
+`Execute_PackageSeedExpandsThroughOwnedSourceSubjects`,
+`Execute_OpportunitySourceTypeUsesOccurrenceAdmission`, and
+`Execute_NeighborhoodRetainsSelectedProducerFailures` gate the planner,
+ownership, receipt, and failure contracts.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
 composition and the shared nonzero completion status used after Markdown,
 count, tabular, or JSON output.
