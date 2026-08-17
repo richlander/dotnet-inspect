@@ -66,6 +66,78 @@ public class SparseIntSwitchRaisingTests
         Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
     }
 
+    [Theory]
+    [InlineData(ComparisonKind.GreaterThan, false, -1, 2)]
+    [InlineData(ComparisonKind.LessThanOrEqual, false, 2, -1)]
+    [InlineData(ComparisonKind.LessThan, true, -1, 2)]
+    [InlineData(ComparisonKind.GreaterThan, true, 2, -1)]
+    [Trait("Area", "Pass")]
+    public void PartitionedComparisonDispatch_RaisesSwitch(
+        ComparisonKind pivotKind,
+        bool constantOnLeft,
+        int fallthroughCase,
+        int targetCase)
+    {
+        var function = PartitionedComparisonDispatch(
+            pivotKind,
+            constantOnLeft,
+            fallthroughCase,
+            targetCase);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<Switch>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+    }
+
+    [Theory]
+    [InlineData(ComparisonKind.GreaterThan, 1, 2)]
+    [InlineData(ComparisonKind.LessThan, -1, 2)]
+    [Trait("Area", "Pass")]
+    public void EqualityLeafOutsidePivotPartition_DeclinesSwitchRaise(
+        ComparisonKind pivotKind,
+        int fallthroughCase,
+        int targetCase)
+    {
+        var function = PartitionedComparisonDispatch(
+            pivotKind,
+            constantOnLeft: false,
+            fallthroughCase,
+            targetCase);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Equal(
+            3,
+            function.Descendants.OfType<ConditionalBranch>().Count());
+    }
+
+    [Fact]
+    [Trait("Area", "Pass")]
+    public void UnsignedRelationalPivot_DeclinesSwitchRaise()
+    {
+        var function = PartitionedComparisonDispatch(
+            ComparisonKind.GreaterThan,
+            constantOnLeft: false,
+            fallthroughCase: -1,
+            targetCase: 2,
+            isUnsigned: true);
+
+        function.CheckInvariant();
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
+        Assert.Equal(
+            3,
+            function.Descendants.OfType<ConditionalBranch>().Count());
+    }
+
     [Fact]
     [Trait("Area", "Pass")]
     public void NestedBranchEnteringSecondComparison_DeclinesSwitchRaise()
@@ -221,6 +293,65 @@ public class SparseIntSwitchRaisingTests
         }
 
         return InOuterLoop(loopBody);
+    }
+
+    static IrFunction PartitionedComparisonDispatch(
+        ComparisonKind pivotKind,
+        bool constantOnLeft,
+        int fallthroughCase,
+        int targetCase,
+        bool isUnsigned = false)
+    {
+        var body = new BlockContainer();
+        var value = new LoadArgument(0, "value", s_int);
+        var constant = new Constant(0, s_int);
+        var pivot = new Block(0x00);
+        pivot.Add(new ConditionalBranch(
+            new Comparison(
+                pivotKind,
+                isUnsigned,
+                constantOnLeft ? constant : value,
+                constantOnLeft ? value : constant),
+            0x20));
+        body.Add(pivot);
+
+        void AddEquality(int offset, int label, int target)
+        {
+            var block = new Block(offset);
+            block.Add(new ConditionalBranch(
+                new Comparison(
+                    ComparisonKind.Equal,
+                    isUnsigned: false,
+                    new LoadArgument(0, "value", s_int),
+                    new Constant(label, s_int)),
+                target));
+            body.Add(block);
+        }
+
+        AddEquality(0x10, fallthroughCase, 0x40);
+        AddEquality(0x20, targetCase, 0x50);
+
+        var dispatchDefault = new Block(0x30);
+        dispatchDefault.Add(new Branch(0x60));
+        body.Add(dispatchDefault);
+
+        foreach (int offset in new[] { 0x40, 0x50, 0x60 })
+        {
+            var section = new Block(offset);
+            section.Add(new Return(null));
+            body.Add(section);
+        }
+
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                s_void,
+                [new Parameter("value", s_int)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
     }
 
     static IrFunction InOuterLoop(BlockContainer loopBody)
