@@ -320,12 +320,19 @@ public sealed class InspectionGraphIntegrationsQueryTests
         ];
         InspectionGraphOccurrence[] packageOccurrences =
         [
-            .. packageInward.Occurrences
-                .Where(occurrence =>
-                    occurrence.Relationship
+            .. packageInward.Edges
+                .Where(edge =>
+                    edge.Relationship
                         == InspectionGraphIntegrationsCatalog
                             .IntegrationObserved
-                    && occurrence.TargetSubject == hub),
+                    && PackageId(
+                        packageInward,
+                        packageInward.Nodes[edge.FromNodeId])
+                        is "microsoft.extensions.ai.openai"
+                            or "awssdk.extensions.bedrock.meai")
+                .SelectMany(static edge => edge.OccurrenceIds)
+                .Order()
+                .Select(id => packageInward.Occurrences[id]),
         ];
 
         Assert.Equal(

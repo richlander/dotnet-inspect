@@ -972,7 +972,7 @@ when one exact member supplies both its extension and integration occurrences.
 This suppresses the OpenAI and Bedrock raw gaps without suppressing Azure or a
 same-spelled type from another acquisition.
 `InspectionGraphIntegrationsQueryTests.Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups`,
-`PackageAndTypeReadingsShareTheSameIntegrationOccurrences`, and
+`PackageAndTypeModesShareSemanticIntegrationOccurrences`, and
 `Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities` gate those claims.
 
 Aspire hosting package webs, an `AddOpenAI` seed graph, and a two-plane AppHost
