@@ -4307,10 +4307,7 @@ public class SectionPipelineTests
             "cheap",
             InspectionCost.NetworkFree);
         var registry = LibrarySections.CreateQueryRegistry()
-            .Add(query, ctx =>
-                LibrarySections.ExecuteTopLeverageQuery(
-                    hasMetadata: true,
-                    ctx.BodyIndex));
+            .Add(query, LibrarySections.ExecuteTopLeverageQuery);
         using var httpClient = new HttpClient();
 
         await Assert.ThrowsAsync<QueryCostDeclarationException>(() =>
@@ -5172,6 +5169,8 @@ public class SectionPipelineTests
         var bodyIndex = Assert.Single(trace.Resources, r => r.Resource == "body index");
         Assert.StartsWith("built in", bodyIndex.Detail.ToString());
         Assert.Contains("MethodEvidence", bodyIndex.Detail.ToString());
+        var drillMap = Assert.Single(trace.Resources, r => r.Resource == "drill map");
+        Assert.StartsWith("built in", drillMap.Detail.ToString());
     }
 
     [Fact]

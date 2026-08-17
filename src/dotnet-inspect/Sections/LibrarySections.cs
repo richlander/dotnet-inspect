@@ -303,10 +303,9 @@ public static class LibrarySections
                 ExecuteUnsafeEvidenceQuery(
                     ctx.MetadataContext?.HasMetadata != false,
                     ctx.BodyIndex))
-            .Add(TopLeverageQuery.Definition, ctx =>
-                ExecuteTopLeverageQuery(
-                    ctx.MetadataContext?.HasMetadata != false,
-                    ctx.BodyIndex))
+            .Add(
+                TopLeverageQuery.Definition,
+                ExecuteTopLeverageQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext);
     }
 
@@ -331,6 +330,17 @@ public static class LibrarySections
         {
             return new UnsafeEvidenceResult.Failed(ex);
         }
+    }
+
+    internal static TopLeverageResult ExecuteTopLeverageQuery(
+        ScannerContext context)
+    {
+        TopLeverageResult result = ExecuteTopLeverageQuery(
+            context.MetadataContext?.HasMetadata != false,
+            context.BodyIndex);
+        if (result is TopLeverageResult.Available)
+            _ = context.DrillMap();
+        return result;
     }
 
     internal static TopLeverageResult ExecuteTopLeverageQuery(
