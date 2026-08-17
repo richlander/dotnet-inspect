@@ -6,23 +6,18 @@ namespace ILInspector.DecompilerHarness;
 
 internal static class StructuralReview
 {
-    public static int Run(string path, string? afterPath = null)
+    public static int Run(string path, string? afterPath, bool json)
     {
         try
         {
-            if (afterPath is not null)
-            {
-                var before = ReadDocument(path);
-                var after = ReadDocument(afterPath);
-                var issued = CSharpBodyDiff.IssueCorrespondence(before, after);
-                Console.Write(RenderMarkdown(CSharpBodyDiff.CompareStructure(issued)));
-                return 0;
-            }
-
-            string json = File.ReadAllText(path);
-            var input = AnnotatedSourceJson.DeserializeStructuralComparison(json);
-            var comparison = CSharpBodyDiff.CompareStructure(input);
-            Console.Write(RenderMarkdown(comparison));
+            var document = afterPath is null
+                ? AnnotatedSourceJson.DeserializeStructuralDiff(File.ReadAllText(path))
+                : CSharpStructuralDiffDocument.Create(
+                    ReadDocument(path),
+                    ReadDocument(afterPath));
+            Console.Write(json
+                ? AnnotatedSourceJson.SerializeStructuralDiff(document)
+                : RenderMarkdown(document.ToComparison()));
             return 0;
         }
         catch (Exception ex) when (ex is IOException
@@ -33,7 +28,7 @@ internal static class StructuralReview
         {
             Console.Error.WriteLine(CSharpText.CSharpIdentifier.ContainRenderedText(
                 afterPath is null
-                    ? $"Error: Could not render structural review '{path}': {ex.Message}"
+                    ? $"Error: Could not render structural diff '{path}': {ex.Message}"
                     : $"Error: Could not render structural review '{path}' and '{afterPath}': {ex.Message}"));
             return 1;
         }

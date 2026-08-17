@@ -575,6 +575,41 @@ public class AssemblyDependencyResolverTests
     }
 
     [Fact]
+    public void AssemblyGroup_ExactRootIdentityUsesMetadataCaseSemantics()
+    {
+        string path = typeof(AssemblyDependencyResolverTests)
+            .Assembly.Location;
+        ResolvedAssemblyReference root =
+            ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "Dependency",
+                    new Version(1, 0, 0, 0),
+                    "en-US",
+                    "001122aabbccddee"),
+                path,
+                () => File.OpenRead(path),
+                AssemblyResolutionProvenance.Local(
+                    "case-equivalent group binding test"));
+        var group = new SourceRelativeAssemblyGroupBindingPolicy(
+            [(root, (IAssemblyBindingPolicy)MissingPolicy.Instance)]);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.Reference(
+                new AssemblyReferenceIdentity(
+                    "dependency",
+                    new Version(1, 0, 0, 0),
+                    "EN-us",
+                    "001122aabbccddee".ToUpperInvariant())),
+            AssemblyBindingOrigin.FromAssembly(root),
+            AssemblyResolutionScope.Any);
+
+        var selected = Assert.IsType<
+            AssemblyBindingSelection.Selected>(
+                group.Select(request));
+
+        Assert.Same(root, selected.Assembly);
+    }
+
+    [Fact]
     public void AssemblyGroup_SelectedRootIdentityPreservesPolicyRollForward()
     {
         string path = typeof(AssemblyDependencyResolverTests)

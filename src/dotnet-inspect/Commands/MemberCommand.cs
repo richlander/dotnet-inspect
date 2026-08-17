@@ -65,7 +65,7 @@ public static class MemberCommand
         {
             var loaded = ApiServices.LoadFullApi(
                 searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                apiSource, source.ApiVersion, selectedTfm, logger, options.IncludeAll);
+                apiSource, source.ApiVersion, selectedTfm, logger, options);
             if (loaded == null)
             {
                 CommandError.Write("Could not extract API from library.");
@@ -75,7 +75,6 @@ public static class MemberCommand
             var api = loaded.Api;
             var apiDllPath = loaded.ApiDllPath;
             var pdbLookupPath = loaded.PdbLookupPath;
-
             var lookupResult = ApiTypeLookupService.LookupType(api, typeName!);
             if (!lookupResult.Found)
             {
@@ -385,6 +384,11 @@ public static class MemberCommand
                     return 1;
             }
 
+            int selectedSurfaceExitCode =
+                ApiCommand.WriteSelectedSurfaceDiagnostics(
+                api,
+                apiType,
+                effectiveOptions.MemberFilter);
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
             if (writeExitCode != 0)
                 return writeExitCode;
@@ -425,7 +429,7 @@ public static class MemberCommand
                 Hints.WriteTips(effectiveOptions.TipLevel, [.. tips]);
             }
 
-            return 0;
+            return selectedSurfaceExitCode;
         }
         catch (Exception ex)
         {
