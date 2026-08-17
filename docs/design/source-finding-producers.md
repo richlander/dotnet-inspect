@@ -227,8 +227,8 @@ and
 gate the failure path, while
 `AssemblyContextSourceQueryTests.PostPdbCancellation_DisposesOpenedSourceLinkService`
 and
-`AssemblyContextSourceQueryTests.AuthoredSuccessStateChangeDuringPdbDisposal_IsObserved`
-gate ownership and the member/type success paths. Disposal cancellation remains
+`AssemblyContextSourceQueryTests.StateChangeDuringPdbStreamRelease_IsObserved`
+gate ownership and the member/type acquisition paths. Disposal cancellation remains
 exceptional and another disposal failure becomes typed inspection failure
 instead of authored success;
 `AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsAuthoredSuccess`

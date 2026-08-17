@@ -12,12 +12,14 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
+using System.Collections.Immutable;
 using System.Text.Json;
 using InertText;
 using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public class SectionPipelineTests
 {
     // Simple test model
@@ -488,7 +490,7 @@ public class SectionPipelineTests
             detailedQueries);
         Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerResourceTriage, detailedScanners);
-        Assert.DoesNotContain(LibrarySections.ScannerTopLeverage, detailedScanners);
+        Assert.DoesNotContain(TopLeverageQuery.Definition, detailedQueries);
     }
 
     [Fact]
@@ -502,7 +504,9 @@ public class SectionPipelineTests
 
         Assert.Contains(LibrarySections.ScannerOptimizationOpportunities, scanners);
         Assert.Contains(LibrarySections.ScannerResourceTriage, scanners);
-        Assert.Contains(LibrarySections.ScannerTopLeverage, scanners);
+        Assert.Contains(
+            TopLeverageQuery.Definition,
+            pipeline.GetRequiredQueries(Verbosity.Minimal, performance));
     }
 
     [Fact]
@@ -1190,9 +1194,14 @@ public class SectionPipelineTests
             include,
             excludeUnbounded: true);
 
-        Assert.Equal([LibrarySections.ScannerTopLeverage], renderScanners);
-        Assert.DoesNotContain(LibrarySections.ScannerTopLeverage, discoveryScanners);
+        Assert.Empty(renderScanners);
         Assert.Empty(discoveryScanners);
+        Assert.Equal(
+            [
+                ClassifiedMethodsQuery.Definition,
+                TopLeverageQuery.Definition,
+            ],
+            pipeline.GetRequiredQueries(Verbosity.Detailed, include));
         Assert.Equal(
             [ClassifiedMethodsQuery.Definition],
             pipeline.GetRequiredQueries(
@@ -1733,6 +1742,7 @@ public class SectionPipelineTests
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
                 SwitchesQuery.Definition,
+                TopLeverageQuery.Definition,
                 TypeForwardersQuery.Definition,
                 UnionTypesQuery.Definition,
                 UnsafeEvidenceQuery.Definition,
@@ -4314,9 +4324,8 @@ public class SectionPipelineTests
     {
         var registry = new ScannerRegistry()
             .Add("cheap", SectionCost.NetworkFree, ctx =>
-                LibraryMetadataService.ScanTopLeverage(
+                LibraryMetadataService.ScanOptimizationOpportunities(
                     ctx.BodyIndex,
-                    ctx.DrillMap,
                     ctx.AssemblyPath,
                     ctx.Logger));
 
@@ -4327,14 +4336,11 @@ public class SectionPipelineTests
     [Fact]
     public async Task ProductionQueryCatchBoundary_DoesNotSwallowDeclarationViolation()
     {
-        var query = new InspectionQuery<UnsafeEvidenceResult>(
+        var query = new InspectionQuery<TopLeverageResult>(
             "cheap",
             InspectionCost.NetworkFree);
         var registry = LibrarySections.CreateQueryRegistry()
-            .Add(query, ctx =>
-                LibrarySections.ExecuteUnsafeEvidenceQuery(
-                    hasMetadata: true,
-                    ctx.BodyIndex));
+            .Add(query, LibrarySections.ExecuteTopLeverageQuery);
         using var httpClient = new HttpClient();
 
         await Assert.ThrowsAsync<QueryCostDeclarationException>(() =>
@@ -4586,7 +4592,6 @@ public class SectionPipelineTests
             SectionNames.PerformanceEnumerators,
             SectionNames.PerformanceLoops,
             SectionNames.PerformanceOther,
-            SectionNames.TopLeverage,
         ];
 
         var scannerAboveCheap = pipeline.ScannerBoundSections
@@ -4606,6 +4611,7 @@ public class SectionPipelineTests
         string[] expectedAboveCheap =
         [
             .. expectedBodyIndexFamily,
+            SectionNames.TopLeverage,
             SectionNames.UnsafeMembers,
             .. LibraryIntegrationCatalog.CategorySections,
             IntegrationSectionNames.Opportunities,
@@ -5164,6 +5170,123 @@ public class SectionPipelineTests
 
         Assert.Null(inspection.UnsafeEvidenceInspection);
         Assert.Null(inspection.UnsafeMembers);
+        Assert.Null(inspection.InspectionFailures);
+    }
+
+    [Fact]
+    public void TopLeverageQuery_RecordsAndReturnsTheBodyIndexItBuilds()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
+            Trace = trace,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [TopLeverageQuery.Definition],
+            context,
+            trace.RecordQueryExecution);
+
+        var available = Assert.IsType<TopLeverageResult.Available>(
+            results.Get(TopLeverageQuery.Definition));
+        Assert.NotEmpty(available.Methods);
+        var bodyIndex = Assert.Single(trace.Resources, r => r.Resource == "body index");
+        Assert.StartsWith("built in", bodyIndex.Detail.ToString());
+        Assert.Contains("MethodEvidence", bodyIndex.Detail.ToString());
+        var drillMap = Assert.Single(trace.Resources, r => r.Resource == "drill map");
+        Assert.StartsWith("built in", drillMap.Detail.ToString());
+    }
+
+    [Fact]
+    public void TopLeverageQuery_BodyIndexFailureRemainsTyped()
+    {
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [TopLeverageQuery.Definition],
+            NullScannerContext());
+
+        var failed = Assert.IsType<TopLeverageResult.Failed>(
+            results.Get(TopLeverageQuery.Definition));
+        Assert.IsType<InvalidOperationException>(failed.Error);
+    }
+
+    [Fact]
+    public void TopLeverageQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    {
+        bool acquired = false;
+
+        TopLeverageResult result = LibrarySections.ExecuteTopLeverageQuery(
+            hasMetadata: false,
+            () =>
+            {
+                acquired = true;
+                throw new InvalidOperationException("must not acquire");
+            });
+
+        Assert.IsType<TopLeverageResult.NoMetadata>(result);
+        Assert.False(acquired);
+    }
+
+    [Fact]
+    public void TopLeverageQuery_FailureProjectsToInspectionFailure()
+    {
+        var inspection = new LibraryInspection();
+        var error = new IOException("body index failed");
+        bool acquiredDrillMap = false;
+
+        LibraryMetadataService.ApplyTopLeverageResult(
+            "broken.dll",
+            inspection,
+            new Output.VerboseLogger(false),
+            new TopLeverageResult.Failed(error),
+            () =>
+            {
+                acquiredDrillMap = true;
+                throw new InvalidOperationException("must not acquire");
+            });
+
+        var failed = Assert.IsType<TopLeverageResult.Failed>(
+            inspection.TopLeverageQueryResult);
+        Assert.Same(error, failed.Error);
+        var projected = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(SectionNames.TopLeverage, projected.Section);
+        Assert.Equal(TopLeverageQuery.Definition.Name, projected.Finding);
+        Assert.True(LibraryCommand.FailureAffectsSection(
+            projected.Section,
+            SectionNames.TopLeverage));
+        Assert.False(acquiredDrillMap);
+        Assert.Null(inspection.TopLeverage);
+    }
+
+    [Fact]
+    public void TopLeverageQuery_NoMetadata_DoesNotProjectFailureOrAcquireDrillMap()
+    {
+        var inspection = new LibraryInspection();
+        bool acquiredDrillMap = false;
+
+        LibraryMetadataService.ApplyTopLeverageResult(
+            "native.dll",
+            inspection,
+            new Output.VerboseLogger(false),
+            new TopLeverageResult.NoMetadata(),
+            () =>
+            {
+                acquiredDrillMap = true;
+                throw new InvalidOperationException("must not acquire");
+            });
+
+        Assert.IsType<TopLeverageResult.NoMetadata>(
+            inspection.TopLeverageQueryResult);
+        Assert.False(acquiredDrillMap);
+        Assert.Null(inspection.TopLeverage);
         Assert.Null(inspection.InspectionFailures);
     }
 
@@ -6434,6 +6557,25 @@ public class SectionPipelineTests
                 [new SwitchInfo("Feature Switch", "Switch", "Api")],
                 FindingTestData.Subject),
             UnsafeMembers = [new UnsafeMemberSummary { Member = "T.M()", Reason = "Unsafe signature", Detail = "int*", Kind = "signature" }],
+            TopLeverageQueryResult = new TopLeverageResult.Available(
+                [
+                    new Analysis.MethodLeverage(
+                        new Analysis.MethodIdentity(
+                            "Test",
+                            Guid.Empty,
+                            Analysis.TypeRef.Definition("Test", "", "T"),
+                            "M",
+                            [],
+                            Analysis.TypeRef.CoreLib("System", "Void"),
+                            0x06000001,
+                            IsStatic: true),
+                        DirectCallerCount: 1,
+                        Fanout: 0,
+                        MaxDepth: 1,
+                        LoopCallCount: 0)
+                ],
+                ImmutableHashSet<string>.Empty,
+                []),
             TopLeverage = [new MethodLeverageSummary { Member = "T.M()", Callers = 1 }],
             OptimizationOpportunities =
             [

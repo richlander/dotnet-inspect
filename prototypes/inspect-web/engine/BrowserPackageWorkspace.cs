@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
 using DotnetInspector.Packages;
@@ -34,6 +35,19 @@ namespace InspectWeb.Engine;
 /// <c>BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures</c>
 /// gates the aggregate package-cache and scope-retention budget.
 /// </para>
+/// <para>
+/// <c>BrowserEngineBoundaryTests.PackageResolution_StallBecomesVisibleOperationTimeout</c>
+/// and
+/// <c>BrowserEngineBoundaryTests.PackageAcquisition_StallBecomesVisibleOperationTimeout</c>
+/// gate the Browser operation deadline through shared coordinate resolution
+/// and payload acquisition.
+/// <c>BrowserEngineBoundaryTests.PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller</c>
+/// gates per-caller deadlines over a shared transfer, and
+/// <c>BrowserEngineBoundaryTests.PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent</c>
+/// gates the final monotonic check before cache publication, and
+/// <c>BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout</c>
+/// gates timeout classification after synchronous work overruns the deadline.
+/// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserPackageWorkspace
@@ -41,8 +55,13 @@ internal static class BrowserPackageWorkspace
     const int MaxCachedPackages = 12;
     const long MaxCachedPackageBytes = 128L * 1024 * 1024;
     const int MaxOpenScopes = 4;
+    internal static TimeSpan PackageOperationTimeout { get; } =
+        TimeSpan.FromSeconds(30);
 
-    static readonly HttpClient Http = new();
+    static readonly HttpClient Http = new()
+    {
+        Timeout = Timeout.InfiniteTimeSpan,
+    };
     static readonly UniformPackageSourceAuthorization SourceAuthorization =
         new([PackageSource.NuGetOrg]);
     static readonly BrowserSessionPackageStore Store = new();
@@ -78,8 +97,39 @@ internal static class BrowserPackageWorkspace
             Cache.Values.Sum(entry => entry.Bytes.LongLength)
                 + Reservations.Values.Sum(reservation => reservation.ReservedBytes));
 
-    /// <summary>Resolves and acquires one package through the shared product owners.</summary>
-    public static async Task<BrowserPackage> AcquireAsync(string packageId, string? version)
+    /// <summary>
+    /// Resolves and acquires one package through the shared product owners
+    /// within the Browser operation deadline.
+    /// </summary>
+    public static Task<BrowserPackage> AcquireAsync(
+        string packageId,
+        string? version) =>
+        RunPackageOperationAsync(
+            deadline => AcquireCoreAsync(
+                packageId,
+                version,
+                Http,
+                deadline),
+            PackageOperationTimeout);
+
+    internal static Task<BrowserPackage> AcquireAsync(
+        string packageId,
+        string? version,
+        HttpClient client,
+        TimeSpan operationTimeout) =>
+        RunPackageOperationAsync(
+            deadline => AcquireCoreAsync(
+                packageId,
+                version,
+                client,
+                deadline),
+            operationTimeout);
+
+    static async Task<BrowserPackage> AcquireCoreAsync(
+        string packageId,
+        string? version,
+        HttpClient client,
+        BrowserPackageOperationDeadline deadline)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
@@ -89,25 +139,43 @@ internal static class BrowserPackageWorkspace
                 ? null
                 : version;
         ResolvedPackageCoordinate coordinate = await ResolveCoordinateAsync(
-            new PackageCoordinate(packageId, requestedVersion));
+            new PackageCoordinate(packageId, requestedVersion),
+            client,
+            deadline.Token);
 
         string key = PackageKey(coordinate.PackageId, coordinate.Version);
+        bool ownsPendingAcquisition = false;
         if (!PendingAcquisitions.TryGetValue(
                 key,
                 out Task<AcquiredPackagePayload>? pending))
         {
-            pending = AcquirePayloadAsync(coordinate);
+            pending = AcquirePayloadWithinOperationAsync(
+                coordinate,
+                client,
+                deadline);
             PendingAcquisitions.Add(key, pending);
+            ownsPendingAcquisition = true;
         }
 
         AcquiredPackagePayload payload;
         try
         {
-            payload = await pending;
+            payload = ownsPendingAcquisition
+                ? await pending.ConfigureAwait(false)
+                : await pending
+                    .WaitAsync(deadline.Token)
+                    .ConfigureAwait(false);
         }
         finally
         {
-            PendingAcquisitions.Remove(key);
+            if (ownsPendingAcquisition
+                && PendingAcquisitions.TryGetValue(
+                    key,
+                    out Task<AcquiredPackagePayload>? active)
+                && ReferenceEquals(active, pending))
+            {
+                PendingAcquisitions.Remove(key);
+            }
         }
 
         if (!Cache.TryGetValue(key, out CacheEntry? cached)
@@ -129,7 +197,9 @@ internal static class BrowserPackageWorkspace
     }
 
     static async Task<ResolvedPackageCoordinate> ResolveCoordinateAsync(
-        PackageCoordinate request)
+        PackageCoordinate request,
+        HttpClient client,
+        CancellationToken cancellationToken)
     {
         if (PackageCoordinateResolver.Validate(request) is { } invalid)
             throw new InvalidOperationException(invalid.Message);
@@ -139,11 +209,12 @@ internal static class BrowserPackageWorkspace
             SourceAuthorization.AuthorizeSourcesFor(canonicalId);
         PackageCoordinateResolution resolution =
             await PackageCoordinateResolver.ResolveAsync(
-                Http,
+                client,
                 request,
                 authorization.Sources,
                 useVersionCache: false,
-                requireStableFloating: true);
+                requireStableFloating: true,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         ResolvedPackageCoordinate coordinate = resolution switch
         {
             PackageCoordinateResolution.Resolved resolved => resolved.Coordinate,
@@ -295,14 +366,18 @@ internal static class BrowserPackageWorkspace
     }
 
     static async Task<AcquiredPackagePayload> AcquirePayloadAsync(
-        ResolvedPackageCoordinate coordinate)
+        ResolvedPackageCoordinate coordinate,
+        HttpClient client,
+        CancellationToken cancellationToken,
+        IPackagePayloadTransferPolicy transferPolicy)
     {
         PackagePayloadResult result = await PackagePayloadAcquisition.AcquireAsync(
-            Http,
+            client,
             coordinate,
             Store,
             limits: PayloadLimits,
-            transferPolicy: Store);
+            cancellationToken: cancellationToken,
+            transferPolicy: transferPolicy).ConfigureAwait(false);
         return result switch
         {
             PackagePayloadResult.Acquired acquired => acquired.Payload,
@@ -313,7 +388,38 @@ internal static class BrowserPackageWorkspace
         };
     }
 
-    internal static async Task<string[]> GetVersionsAsync(string packageId)
+    static async Task<AcquiredPackagePayload> AcquirePayloadWithinOperationAsync(
+        ResolvedPackageCoordinate coordinate,
+        HttpClient client,
+        BrowserPackageOperationDeadline deadline)
+    {
+        try
+        {
+            return await AcquirePayloadAsync(
+                coordinate,
+                client,
+                deadline.Token,
+                new BrowserPackageOperationTransferPolicy(
+                    Store,
+                    deadline)).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception)
+            when (deadline.HasExpired)
+        {
+            throw deadline.Timeout(exception);
+        }
+    }
+
+    internal static Task<string[]> GetVersionsAsync(string packageId) =>
+        RunPackageOperationAsync(
+            deadline => GetVersionsCoreAsync(
+                packageId,
+                deadline.Token),
+            PackageOperationTimeout);
+
+    static async Task<string[]> GetVersionsCoreAsync(
+        string packageId,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         if (PackageCoordinateResolver.Validate(new PackageCoordinate(packageId))
@@ -330,7 +436,8 @@ internal static class BrowserPackageWorkspace
                 packageId,
                 authorization.Sources,
                 includePrerelease: true,
-                useVersionCache: false);
+                useVersionCache: false,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         return result switch
         {
             PackageVersionListingResult.Available available =>
@@ -344,24 +451,142 @@ internal static class BrowserPackageWorkspace
         };
     }
 
-    internal static async Task<string> ResolveDependencyVersionAsync(
+    internal static Task<string> ResolveDependencyVersionAsync(
         string packageId,
-        string? declaredRange)
+        string? declaredRange) =>
+        RunPackageOperationAsync(
+            deadline => ResolveDependencyVersionCoreAsync(
+                packageId,
+                declaredRange,
+                deadline.Token),
+            PackageOperationTimeout);
+
+    static async Task<string> ResolveDependencyVersionCoreAsync(
+        string packageId,
+        string? declaredRange,
+        CancellationToken cancellationToken)
     {
         if (PackageDependencyVersionRange.GetExactVersion(declaredRange)
             is { } exactVersion)
         {
             ResolvedPackageCoordinate coordinate =
                 await ResolveCoordinateAsync(
-                    new PackageCoordinate(packageId, exactVersion));
+                    new PackageCoordinate(packageId, exactVersion),
+                    Http,
+                    cancellationToken).ConfigureAwait(false);
             return coordinate.Version;
         }
 
-        string[] versions = await GetVersionsAsync(packageId);
+        string[] versions = await GetVersionsCoreAsync(
+            packageId,
+            cancellationToken).ConfigureAwait(false);
         return SelectDependencyVersion(versions, declaredRange)
             ?? throw new InvalidOperationException(
                 $"Package '{packageId}' has no published version satisfying "
                 + $"the declared range '{declaredRange}'.");
+    }
+
+    internal static async Task<T> RunPackageOperationAsync<T>(
+        Func<BrowserPackageOperationDeadline, Task<T>> operation,
+        TimeSpan timeout)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (timeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(timeout),
+                timeout,
+                "The Browser package-operation timeout must be positive.");
+        }
+
+        using var deadline = new BrowserPackageOperationDeadline(timeout);
+        try
+        {
+            T result = await operation(deadline).ConfigureAwait(false);
+            deadline.ThrowIfExpired();
+            return result;
+        }
+        catch (OperationCanceledException exception)
+            when (deadline.HasExpired)
+        {
+            throw deadline.Timeout(exception);
+        }
+        catch (TimeoutException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+            when (deadline.HasExpired)
+        {
+            throw deadline.Timeout(exception);
+        }
+    }
+
+    internal sealed class BrowserPackageOperationDeadline : IDisposable
+    {
+        readonly CancellationTokenSource _cancellation;
+        readonly long _started = Stopwatch.GetTimestamp();
+        readonly TimeSpan _timeout;
+
+        internal BrowserPackageOperationDeadline(TimeSpan timeout)
+        {
+            _timeout = timeout;
+            _cancellation = new CancellationTokenSource(timeout);
+        }
+
+        internal CancellationToken Token => _cancellation.Token;
+
+        internal bool HasExpired =>
+            _cancellation.IsCancellationRequested
+            || Stopwatch.GetElapsedTime(_started) >= _timeout;
+
+        internal void ThrowIfExpired()
+        {
+            if (HasExpired)
+            {
+                throw Timeout(
+                    new OperationCanceledException(
+                        "Browser package operation deadline expired.",
+                        Token));
+            }
+        }
+
+        internal TimeoutException Timeout(Exception exception) =>
+            new(
+                $"The Browser package operation exceeded its {_timeout.TotalSeconds:g}-second deadline.",
+                exception);
+
+        public void Dispose() => _cancellation.Dispose();
+    }
+
+    internal sealed class BrowserPackageOperationTransferPolicy(
+        IPackagePayloadTransferPolicy inner,
+        BrowserPackageOperationDeadline deadline)
+        : IPackagePayloadTransferPolicy
+    {
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer) =>
+            ApplyDeadline(inner.Reserve(transfer));
+
+        internal IPackagePayloadReservation ApplyDeadline(
+            IPackagePayloadReservation reservation) =>
+            new DeadlineReservation(
+                reservation,
+                deadline);
+
+        sealed class DeadlineReservation(
+            IPackagePayloadReservation inner,
+            BrowserPackageOperationDeadline deadline)
+            : IPackagePayloadReservation
+        {
+            public void Complete()
+            {
+                deadline.ThrowIfExpired();
+                inner.Complete();
+            }
+
+            public void Dispose() => inner.Dispose();
+        }
     }
 
     internal static string? SelectDependencyVersion(

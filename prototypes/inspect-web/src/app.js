@@ -42,8 +42,7 @@ import { loadPlatformIndex } from "/src/platform-index.js";
 let initializeEngine;
 let inspectBuildIdentity;
 let inspectExpandPlatformCallGraph;
-let inspectListStyleOptions;
-let inspectListStyleTiers;
+let inspectVocabulary;
 let inspectLoadRuntimePack;
 let inspectLoadRuntimePackAssembly;
 let inspectMemberAnnotatedSource;
@@ -80,8 +79,7 @@ async function loadEngineModule() {
     initializeEngine,
     inspectBuildIdentity,
     inspectExpandPlatformCallGraph,
-    inspectListStyleOptions,
-    inspectListStyleTiers,
+    inspectVocabulary,
     inspectLoadRuntimePack,
     inspectLoadRuntimePackAssembly,
     inspectMemberAnnotatedSource,
@@ -7477,14 +7475,14 @@ function styleCatalogGroupsHtml() {
       <div class="taste-group">
         <div class="taste-group-head">
           <div class="taste-group-title">${escapeHtml(tier.title)}</div>
-          ${tier.byteDivergent ? '<em class="taste-badge divergent">byte-divergent</em>' : ""}
+          ${tier.byte_divergent ? '<em class="taste-badge divergent">byte-divergent</em>' : ""}
         </div>
         <div class="taste-group-summary">${escapeHtml(tier.summary)}</div>
         ${options.filter(option => option.tier === tier.id).map(option => `
           <label class="taste-item">
             <input type="checkbox" data-taste="${escapeHtml(option.id)}" ${state.taste.includes(option.id) ? "checked" : ""} />
             <span class="taste-item-text">
-              <span class="taste-item-title">${escapeHtml(option.title)}${option.oracleEndorsed ? '<em class="taste-badge oracle">oracle</em>' : ""}</span>
+              <span class="taste-item-title">${escapeHtml(option.title)}${option.oracle_endorsed ? '<em class="taste-badge oracle">oracle</em>' : ""}</span>
               <span class="taste-item-summary">${escapeHtml(option.summary)}</span>
             </span>
           </label>`).join("")}
@@ -7532,9 +7530,9 @@ function toggleTaste(id) {
   if (state.taste.includes(id)) {
     state.taste = state.taste.filter(item => item !== id);
   } else {
-    if (option?.conflictGroup) {
+    if (option?.conflict_group) {
       const groupIds = (state.styleOptions || [])
-        .filter(item => item.conflictGroup === option.conflictGroup)
+        .filter(item => item.conflict_group === option.conflict_group)
         .map(item => item.id);
       state.taste = state.taste.filter(item => !groupIds.includes(item));
     }
@@ -8301,10 +8299,10 @@ async function bootstrap() {
     state.buildIdentity = inspectBuildIdentity();
     const tEngine = performance.now();
     try {
-      [state.styleTiers, state.styleOptions] = await Promise.all([
-        inspectListStyleTiers(),
-        inspectListStyleOptions()
-      ]);
+      const vocabulary = await inspectVocabulary();
+      const sections = vocabulary?.sections || [];
+      state.styleTiers = sections.find(section => section.id === "csharp.style-tiers")?.values || [];
+      state.styleOptions = sections.find(section => section.id === "csharp.style-choices")?.values || [];
     } catch (error) {
       state.styleTiers = [];
       state.styleOptions = [];

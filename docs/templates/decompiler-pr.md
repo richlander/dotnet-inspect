@@ -129,8 +129,11 @@ selected text, labels, and display order never establish correspondence.
 Fidelity and retained IL notes are independent evidence, not claims inferred
 from the C# transition.
 
-When either document lacks product provenance, the physical method identities
-differ, or the changed nodes are unsupported or ambiguous, write:
+If the generated review reports `Partial`, explicitly determine whether the
+claimed changed structure has a unique matched row. Incidental matched rows do
+not prove a change represented only by unsupported or ambiguous gaps. In that
+case, or when either document lacks product provenance or the physical method
+identities differ, write:
 
 Not generated — unsupported or ambiguous product correspondence: {detail}
 

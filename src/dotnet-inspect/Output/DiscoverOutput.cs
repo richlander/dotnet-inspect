@@ -32,7 +32,8 @@ public static class DiscoverOutput
         string? outputPath = null,
         bool applyLineWindow = false,
         bool? showHeader = null,
-        bool tabularExplicitlySet = false)
+        bool tabularExplicitlySet = false,
+        bool plainText = false)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -61,7 +62,7 @@ public static class DiscoverOutput
         bool hasTabularProjection =
             columns is { Length: > 0 } || fields is { Length: > 0 };
         bool structuredOutput =
-            json || tsv || jsonl || tabularExplicitlySet;
+            json || tsv || jsonl || plainText || tabularExplicitlySet;
 
         // Auto-promote to tree when discovering items from multiple sections
         if (!tree && !structuredOutput && !hasTabularProjection && rows is null
@@ -119,6 +120,15 @@ public static class DiscoverOutput
                 view,
                 output,
                 new MarkdownFormatter(),
+                DiscoveryContext.Default,
+                OutputFormatter.CreateProjectedWriterOptions(projectedColumns));
+        }
+        else if (plainText)
+        {
+            MarkoutSerializer.Serialize(
+                view,
+                output,
+                new PlainTextFormatter(),
                 DiscoveryContext.Default,
                 OutputFormatter.CreateProjectedWriterOptions(projectedColumns));
         }

@@ -12,11 +12,28 @@ namespace ILInspector.AnalysisHarness;
 public sealed record StructuralCloneCorpusDocument(
     [property: JsonRequired] int SchemaVersion,
     [property: JsonRequired] ImmutableArray<StructuralCloneCorpusCase> Cases,
-    [property: JsonRequired] StructuralCloneCorpusDiscovery Discovery);
+    [property: JsonRequired] StructuralCloneCorpusDiscovery Discovery,
+    [property: JsonRequired] StructuralCloneCorpusRetrieval Retrieval);
 
 public sealed record StructuralCloneCorpusDiscovery(
     [property: JsonRequired]
     ImmutableArray<StructuralCloneCorpusMethod> Population);
+
+public sealed record StructuralCloneCorpusRetrieval(
+    [property: JsonRequired]
+    ImmutableArray<StructuralCloneCorpusRetrievalQuery> Queries);
+
+public sealed record StructuralCloneCorpusRetrievalQuery(
+    [property: JsonRequired] string Id,
+    [property: JsonRequired] StructuralCloneCorpusMethod Seed,
+    [property: JsonRequired]
+    ImmutableArray<StructuralCloneCorpusRetrievalExpectation> Expectations);
+
+public sealed record StructuralCloneCorpusRetrievalExpectation(
+    [property: JsonRequired] StructuralCloneCorpusMethod Candidate,
+    [property: JsonRequired] int MaximumRank,
+    [property: JsonRequired]
+    ImmutableArray<StructuralCloneCorpusMethod> ScoresAbove);
 
 public sealed record StructuralCloneCorpusCase(
     [property: JsonRequired] string Id,
@@ -72,17 +89,44 @@ public sealed record StructuralCloneCorpusDiscoveryResult(
     StructuralCloneDiscoveryReceipt Receipt,
     bool Passed);
 
+public sealed record StructuralCloneCorpusRankedCandidate(
+    StructuralCloneCorpusMethod Method,
+    int Rank,
+    StructuralCloneSimilarityEvidence Similarity);
+
+public sealed record StructuralCloneCorpusRetrievalExpectationResult(
+    StructuralCloneCorpusRetrievalExpectation Expectation,
+    StructuralCloneCorpusRankedCandidate? Actual,
+    ImmutableArray<StructuralCloneCorpusRankedCandidate> Contrasts,
+    bool Passed);
+
+public sealed record StructuralCloneCorpusRetrievalQueryResult(
+    string Id,
+    StructuralCloneCorpusMethod Seed,
+    StructuralCloneRetrievalDisposition Disposition,
+    ImmutableArray<StructuralCloneCorpusRetrievalExpectationResult>
+        Expectations,
+    ImmutableArray<StructuralCloneRetrievalBlocker> Blockers,
+    StructuralCloneRetrievalReceipt Receipt,
+    bool Passed);
+
+public sealed record StructuralCloneCorpusRetrievalResult(
+    ImmutableArray<StructuralCloneCorpusRetrievalQueryResult> Queries,
+    bool Passed);
+
 public sealed record StructuralCloneCorpusReport(
     string Assembly,
     int Total,
     int Passed,
     ImmutableArray<StructuralCloneCorpusCaseResult> Cases,
-    StructuralCloneCorpusDiscoveryResult Discovery)
+    StructuralCloneCorpusDiscoveryResult Discovery,
+    StructuralCloneCorpusRetrievalResult Retrieval)
 {
     public bool Success =>
         Total > 0
         && Passed == Total
-        && Discovery.Passed;
+        && Discovery.Passed
+        && Retrieval.Passed;
 }
 
 public static class StructuralCloneCorpus
@@ -246,8 +290,96 @@ public static class StructuralCloneCorpus
                     actualClusters.Select(ClusterKey),
                     StringComparer.Ordinal);
 
+        ImmutableArray<StructuralCloneCorpusRetrievalQueryResult>.Builder
+            retrievalResults =
+                ImmutableArray.CreateBuilder<
+                    StructuralCloneCorpusRetrievalQueryResult>(
+                    corpus.Retrieval.Queries.Length);
+        foreach (StructuralCloneCorpusRetrievalQuery query
+            in corpus.Retrieval.Queries)
+        {
+            MethodDefinitionHandle seed = Resolve(reader, query.Seed);
+            StructuralCloneRetrievalResult retrieval =
+                StructuralCloneAnalysis.RetrieveSimilar(
+                    image,
+                    seed,
+                    population.ToImmutable(),
+                    new StructuralCloneRetrievalLimits(
+                        MaximumMethods: population.Count,
+                        MaximumResults: population.Count));
+            var rankedByMethod =
+                new Dictionary<string, StructuralCloneCorpusRankedCandidate>(
+                    StringComparer.Ordinal);
+            foreach (StructuralCloneRetrievalCandidate candidate
+                in retrieval.Candidates)
+            {
+                StructuralCloneCorpusMethod method =
+                    methodsByHandle[candidate.Method.Handle];
+                rankedByMethod.Add(
+                    MethodKey(method),
+                    new StructuralCloneCorpusRankedCandidate(
+                        method,
+                        candidate.Rank,
+                        candidate.Similarity));
+            }
+
+            ImmutableArray<
+                StructuralCloneCorpusRetrievalExpectationResult>.Builder
+                    expectations =
+                        ImmutableArray.CreateBuilder<
+                            StructuralCloneCorpusRetrievalExpectationResult>(
+                            query.Expectations.Length);
+            foreach (StructuralCloneCorpusRetrievalExpectation expectation
+                in query.Expectations)
+            {
+                rankedByMethod.TryGetValue(
+                    MethodKey(expectation.Candidate),
+                    out StructuralCloneCorpusRankedCandidate? actual);
+                ImmutableArray<StructuralCloneCorpusRankedCandidate> contrasts =
+                [
+                    .. expectation.ScoresAbove
+                        .Select(method =>
+                            rankedByMethod.GetValueOrDefault(
+                                MethodKey(method)))
+                        .Where(static candidate => candidate is not null)
+                        .Select(static candidate => candidate!),
+                ];
+                bool passed =
+                    retrieval.Disposition
+                        == StructuralCloneRetrievalDisposition.Completed
+                    && actual is not null
+                    && actual.Rank <= expectation.MaximumRank
+                    && contrasts.Length == expectation.ScoresAbove.Length
+                    && contrasts.All(contrast =>
+                        actual.Similarity.Score
+                            > contrast.Similarity.Score);
+                expectations.Add(
+                    new StructuralCloneCorpusRetrievalExpectationResult(
+                        expectation,
+                        actual,
+                        contrasts,
+                        passed));
+            }
+            ImmutableArray<
+                StructuralCloneCorpusRetrievalExpectationResult>
+                    queryExpectations = expectations.ToImmutable();
+            retrievalResults.Add(
+                new StructuralCloneCorpusRetrievalQueryResult(
+                    query.Id,
+                    query.Seed,
+                    retrieval.Disposition,
+                    queryExpectations,
+                    retrieval.Blockers,
+                    retrieval.Receipt,
+                    retrieval.Disposition
+                        == StructuralCloneRetrievalDisposition.Completed
+                    && queryExpectations.All(static item => item.Passed)));
+        }
+
         ImmutableArray<StructuralCloneCorpusCaseResult> cases =
             results.ToImmutable();
+        ImmutableArray<StructuralCloneCorpusRetrievalQueryResult>
+            retrievalQueries = retrievalResults.ToImmutable();
         return new StructuralCloneCorpusReport(
             Path.GetFullPath(assemblyPath),
             cases.Length,
@@ -260,7 +392,10 @@ public static class StructuralCloneCorpus
                 discovery.SuppressedBuckets,
                 discovery.Blockers,
                 discovery.Receipt,
-                discoveryPassed));
+                discoveryPassed),
+            new StructuralCloneCorpusRetrievalResult(
+                retrievalQueries,
+                retrievalQueries.All(static query => query.Passed)));
     }
 
     public static string ToJson(StructuralCloneCorpusReport report)
@@ -319,15 +454,42 @@ public static class StructuralCloneCorpus
                 cluster.Members.Select(static member =>
                     $"{member.Type}::{member.Method}")));
         }
+        foreach (StructuralCloneCorpusRetrievalQueryResult query
+            in report.Retrieval.Queries)
+        {
+            output.Append(query.Passed ? "PASS " : "FAIL ");
+            output.Append("fuzzy retrieval ");
+            output.Append(query.Id);
+            output.Append(": seed ");
+            output.Append(query.Seed.Type);
+            output.Append("::");
+            output.AppendLine(query.Seed.Method);
+            foreach (StructuralCloneCorpusRetrievalExpectationResult expectation
+                in query.Expectations)
+            {
+                output.Append(expectation.Passed ? "  PASS " : "  FAIL ");
+                output.Append(expectation.Expectation.Candidate.Type);
+                output.Append("::");
+                output.Append(expectation.Expectation.Candidate.Method);
+                output.Append(" rank=");
+                output.Append(
+                    expectation.Actual?.Rank.ToString()
+                    ?? "<missing>");
+                output.Append(" score=");
+                output.AppendLine(
+                    expectation.Actual?.Similarity.Score.ToString()
+                    ?? "<missing>");
+            }
+        }
         return output.ToString();
     }
 
     static void Validate(StructuralCloneCorpusDocument document)
     {
-        if (document.SchemaVersion != 3)
+        if (document.SchemaVersion != 4)
         {
             throw new InvalidDataException(
-                $"Unsupported structural clone corpus schema {document.SchemaVersion}; expected 3.");
+                $"Unsupported structural clone corpus schema {document.SchemaVersion}; expected 4.");
         }
         if (document.Cases.IsDefaultOrEmpty)
             throw new InvalidDataException(
@@ -337,6 +499,12 @@ public static class StructuralCloneCorpus
         {
             throw new InvalidDataException(
                 "The structural clone relationship ledger has no closed-world discovery population.");
+        }
+        if (document.Retrieval is null
+            || document.Retrieval.Queries.IsDefaultOrEmpty)
+        {
+            throw new InvalidDataException(
+                "The structural clone relationship ledger has no retrieval queries.");
         }
 
         HashSet<string> ids = new(StringComparer.Ordinal);
@@ -410,6 +578,78 @@ public static class StructuralCloneCorpus
         {
             throw new InvalidDataException(
                 "The closed-world discovery population must equal the distinct methods declared by relationship cases.");
+        }
+
+        HashSet<string> queryIds = new(StringComparer.Ordinal);
+        foreach (StructuralCloneCorpusRetrievalQuery query
+            in document.Retrieval.Queries)
+        {
+            if (string.IsNullOrWhiteSpace(query.Id)
+                || !queryIds.Add(query.Id))
+            {
+                throw new InvalidDataException(
+                    $"Retrieval query ids must be non-empty and unique: "
+                        + $"'{query.Id}'.");
+            }
+            ValidateMethod(query.Id, "seed", query.Seed);
+            string seed = MethodKey(query.Seed);
+            if (!population.Contains(seed))
+            {
+                throw new InvalidDataException(
+                    $"Retrieval query '{query.Id}' seed is outside the "
+                        + "discovery population.");
+            }
+            if (query.Expectations.IsDefaultOrEmpty)
+            {
+                throw new InvalidDataException(
+                    $"Retrieval query '{query.Id}' has no expectations.");
+            }
+            HashSet<string> expected = new(StringComparer.Ordinal);
+            foreach (StructuralCloneCorpusRetrievalExpectation expectation
+                in query.Expectations)
+            {
+                ValidateMethod(
+                    query.Id,
+                    "candidate",
+                    expectation.Candidate);
+                string candidate = MethodKey(expectation.Candidate);
+                if (candidate == seed
+                    || !population.Contains(candidate)
+                    || !expected.Add(candidate))
+                {
+                    throw new InvalidDataException(
+                        $"Retrieval query '{query.Id}' has an invalid or "
+                            + $"duplicate candidate '{candidate}'.");
+                }
+                if (expectation.MaximumRank < 1)
+                {
+                    throw new InvalidDataException(
+                        $"Retrieval query '{query.Id}' maximum rank must be "
+                            + "positive.");
+                }
+                if (expectation.ScoresAbove.IsDefault)
+                {
+                    throw new InvalidDataException(
+                        $"Retrieval query '{query.Id}' scoresAbove must be "
+                            + "initialized.");
+                }
+                HashSet<string> contrasts = new(StringComparer.Ordinal);
+                foreach (StructuralCloneCorpusMethod contrast
+                    in expectation.ScoresAbove)
+                {
+                    ValidateMethod(query.Id, "contrast", contrast);
+                    string key = MethodKey(contrast);
+                    if (key == candidate
+                        || key == seed
+                        || !population.Contains(key)
+                        || !contrasts.Add(key))
+                    {
+                        throw new InvalidDataException(
+                            $"Retrieval query '{query.Id}' has an invalid "
+                                + $"contrast '{key}'.");
+                    }
+                }
+            }
         }
     }
 
