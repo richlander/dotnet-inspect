@@ -13,9 +13,19 @@ namespace ILInspector.Metadata;
 public sealed class AssemblyInspectionSession : IDisposable
 {
     readonly AssemblyImage _image;
+    readonly Lazy<MetadataTypeDeclarationProbe.Index>
+        _declarationIndex;
     MethodBodySource? _methodBodies;
 
-    AssemblyInspectionSession(AssemblyImage image) => _image = image;
+    AssemblyInspectionSession(AssemblyImage image)
+    {
+        _image = image;
+        _declarationIndex =
+            new Lazy<MetadataTypeDeclarationProbe.Index>(
+                () => MetadataTypeDeclarationProbe.CreateIndex(
+                    _image.GetMetadataReader()),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+    }
 
     /// <summary>Opens a session from a file path.</summary>
     public static AssemblyInspectionSession Open(string path) => new(AssemblyImage.Open(path));
@@ -59,7 +69,14 @@ public sealed class AssemblyInspectionSession : IDisposable
         => new(AssemblyImage.Borrow(context.BorrowedPEReader, context.EnsureAliveForBorrower));
 
     /// <summary>Whether the image contains managed metadata (false for a native binary).</summary>
-    public bool HasMetadata => _image.HasMetadata;
+    public bool HasMetadata
+    {
+        get
+        {
+            _image.EnsureAlive();
+            return _image.HasMetadata;
+        }
+    }
 
     /// <summary>
     /// Session-bound method-body and operand access without exposing raw readers.
@@ -99,6 +116,20 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// <summary>The public (or, with <paramref name="includeAll"/>, full) API surface.</summary>
     public ApiSurface ApiSurface(bool includeAll = false, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
+
+    internal ApiSurface ApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        bool includeAll,
+        bool typesOnly) =>
+        ApiSurfaceExtractor.Extract(
+            _image.PEReader,
+            source,
+            catalog,
+            bindingPolicy,
+            includeAll,
+            typesOnly);
 
     /// <summary>The API surface at one explicit extraction scope.</summary>
     public ApiSurface ApiSurface(ApiSurfaceExtractionScope scope, bool typesOnly = false)
@@ -210,7 +241,10 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     /// <summary>Assembly audit metadata (P-Invoke counts, flags, …).</summary>
     public AssemblyAuditMetadata AuditMetadata()
-        => AssemblyDetailScanner.ScanAuditMetadata(_image.PEReader);
+    {
+        _image.EnsureAlive();
+        return AssemblyDetailScanner.ScanAuditMetadata(_image.PEReader);
+    }
 
     /// <summary>Presence flags for assembly-level features.</summary>
     public PresenceFlags PresenceFlags()
@@ -300,8 +334,11 @@ public sealed class AssemblyInspectionSession : IDisposable
     /// Probes one exact structured type name in this immutable assembly image.
     /// </summary>
     public TypeDeclarationResult ProbeDeclaration(
-        MetadataTypeDefinitionName name) =>
-        MetadataTypeDeclarationProbe.Probe(_image.GetMetadataReader(), name);
+        MetadataTypeDefinitionName name)
+    {
+        _image.EnsureAlive();
+        return _declarationIndex.Value.Probe(name);
+    }
 
     public void Dispose() => _image.Dispose();
 }

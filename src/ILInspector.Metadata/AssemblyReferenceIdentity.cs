@@ -18,6 +18,12 @@ public sealed record AssemblyReferenceIdentity(
         EquivalentComparer { get; } =
             new EquivalentIdentityComparer();
 
+    static readonly System.Runtime.CompilerServices
+        .ConditionalWeakTable<
+            MetadataReader,
+            AssemblyReferenceProjectionCache>
+        s_retainedProjections = new();
+
     /// <summary>
     /// Whether another identity names the same ECMA assembly. Name, culture, and public-key token
     /// comparisons are case-insensitive; null, empty, and <c>neutral</c> cultures are equivalent.
@@ -85,11 +91,30 @@ public sealed record AssemblyReferenceIdentity(
     public static AssemblyReferenceIdentity From(MetadataReader reader, AssemblyReferenceHandle handle)
     {
         var reference = reader.GetAssemblyReference(handle);
+        return Create(
+            reader,
+            reference,
+            TokenOrNull(
+                reader,
+                reference.PublicKeyOrToken,
+                (reference.Flags & AssemblyFlags.PublicKey) != 0));
+    }
+
+    internal static AssemblyReferenceIdentity From(
+        AssemblyReferenceHandle handle,
+        AssemblyReferenceProjectionCache cache) =>
+        cache.Project(handle);
+
+    internal static AssemblyReferenceIdentity Create(
+        MetadataReader reader,
+        System.Reflection.Metadata.AssemblyReference reference,
+        string? publicKeyToken)
+    {
         return new AssemblyReferenceIdentity(
             reader.GetString(reference.Name),
             reference.Version,
             StringOrNull(reader, reference.Culture),
-            TokenOrNull(reader, reference.PublicKeyOrToken, (reference.Flags & AssemblyFlags.PublicKey) != 0));
+            publicKeyToken);
     }
 
     public static AssemblyReferenceIdentity FromAssemblyDefinition(MetadataReader reader)
@@ -105,7 +130,16 @@ public sealed record AssemblyReferenceIdentity(
             TokenOrNull(reader, definition.PublicKey, isPublicKey: true));
     }
 
-    static string? StringOrNull(MetadataReader reader, StringHandle handle)
+    internal static AssemblyReferenceProjectionCache
+        RetainedProjection(MetadataReader reader) =>
+        s_retainedProjections.GetValue(
+            reader,
+            static current => new AssemblyReferenceProjectionCache(
+                current));
+
+    internal static string? StringOrNull(
+        MetadataReader reader,
+        StringHandle handle)
         => handle.IsNil ? null : reader.GetString(handle);
 
     static string NormalizeCulture(string? value) =>
@@ -124,10 +158,20 @@ public sealed record AssemblyReferenceIdentity(
             StringComparison.OrdinalIgnoreCase);
     }
 
-    static string? TokenOrNull(MetadataReader reader, BlobHandle handle, bool isPublicKey)
+    internal static string? TokenOrNull(
+        MetadataReader reader,
+        BlobHandle handle,
+        bool isPublicKey)
     {
         if (handle.IsNil)
             return null;
+
+        if (!isPublicKey
+            && reader.GetBlobReader(handle).Length != 8)
+        {
+            throw new BadImageFormatException(
+                "An assembly-reference public-key token must contain exactly 8 bytes.");
+        }
 
         var bytes = reader.GetBlobBytes(handle);
         return isPublicKey
@@ -175,6 +219,77 @@ public sealed record AssemblyReferenceIdentity(
         for (int i = 0; i < token.Length; i++)
             token[i] = hash[hash.Length - 1 - i];
         return Convert.ToHexString(token).ToLowerInvariant();
+    }
+}
+
+internal readonly record struct AssemblyReferenceKeyBlob(
+    BlobHandle Handle,
+    bool IsPublicKey);
+
+internal readonly record struct AssemblyReferenceRowKey(
+    StringHandle Name,
+    Version Version,
+    StringHandle Culture,
+    BlobHandle PublicKeyOrToken,
+    bool IsPublicKey);
+
+internal sealed class AssemblyReferenceProjectionCache
+{
+    readonly MetadataReader _reader;
+    // RetainedProjection shares one cache per MetadataReader, so lookups and
+    // first-write population must stay serialized.
+    readonly object _gate = new();
+    readonly Dictionary<
+        AssemblyReferenceRowKey,
+        AssemblyReferenceIdentity> _identities = [];
+    readonly Dictionary<
+        AssemblyReferenceKeyBlob,
+        string?> _tokens = [];
+
+    internal AssemblyReferenceProjectionCache(
+        MetadataReader reader) =>
+        _reader = reader;
+
+    internal AssemblyReferenceIdentity Project(
+        AssemblyReferenceHandle handle)
+    {
+        var reference = _reader.GetAssemblyReference(handle);
+        bool isPublicKey =
+            (reference.Flags & AssemblyFlags.PublicKey) != 0;
+        var rowKey = new AssemblyReferenceRowKey(
+            reference.Name,
+            reference.Version,
+            reference.Culture,
+            reference.PublicKeyOrToken,
+            isPublicKey);
+        lock (_gate)
+        {
+            if (_identities.TryGetValue(
+                    rowKey,
+                    out AssemblyReferenceIdentity? identity))
+            {
+                return identity;
+            }
+
+            var key = new AssemblyReferenceKeyBlob(
+                reference.PublicKeyOrToken,
+                isPublicKey);
+            if (!_tokens.TryGetValue(key, out string? token))
+            {
+                token = AssemblyReferenceIdentity.TokenOrNull(
+                    _reader,
+                    reference.PublicKeyOrToken,
+                    isPublicKey);
+                _tokens.Add(key, token);
+            }
+
+            identity = AssemblyReferenceIdentity.Create(
+                _reader,
+                reference,
+                token);
+            _identities.Add(rowKey, identity);
+            return identity;
+        }
     }
 }
 

@@ -11,3 +11,7 @@ internal sealed class HiddenReferenceType
 public sealed class VisibleReferenceType
 {
 }
+
+public class VisibleGeneric<T>
+{
+}
