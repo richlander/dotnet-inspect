@@ -369,10 +369,11 @@ public sealed class ResolvedAssemblyReference
 
     /// <summary>
     /// Returns this descriptor with the same acquisition registration and an
-    /// observer for cancellation raised while opening or reading its content.
+    /// observer for cancellation raised while opening or using its content
+    /// stream.
     /// </summary>
     /// <remarks>
-    /// `InspectionAcquisitionPlanTests.ObserveOpenReadCancellation_PreservesRegistrationAndReportsOpenOrReadCancellation`
+    /// `InspectionAcquisitionPlanTests.ObserveOpenReadCancellation_PreservesRegistrationAndReportsStreamOperationCancellation`
     /// gates both properties.
     /// </remarks>
     public ResolvedAssemblyReference ObserveOpenReadCancellation(
@@ -435,15 +436,30 @@ public sealed class ResolvedAssemblyReference
         Action<OperationCanceledException> observer)
         : Stream
     {
-        public override bool CanRead => inner.CanRead;
-        public override bool CanSeek => inner.CanSeek;
-        public override bool CanWrite => inner.CanWrite;
+        public override bool CanRead =>
+            Observe(() => inner.CanRead);
+        public override bool CanSeek =>
+            Observe(() => inner.CanSeek);
+        public override bool CanWrite =>
+            Observe(() => inner.CanWrite);
+        public override bool CanTimeout =>
+            Observe(() => inner.CanTimeout);
         public override long Length =>
             Observe(() => inner.Length);
         public override long Position
         {
             get => Observe(() => inner.Position);
             set => Observe(() => inner.Position = value);
+        }
+        public override int ReadTimeout
+        {
+            get => Observe(() => inner.ReadTimeout);
+            set => Observe(() => inner.ReadTimeout = value);
+        }
+        public override int WriteTimeout
+        {
+            get => Observe(() => inner.WriteTimeout);
+            set => Observe(() => inner.WriteTimeout = value);
         }
 
         public override void Flush() =>
@@ -452,7 +468,7 @@ public sealed class ResolvedAssemblyReference
         public override Task FlushAsync(
             CancellationToken cancellationToken) =>
             ObserveAsync(
-                inner.FlushAsync(cancellationToken));
+                () => inner.FlushAsync(cancellationToken));
 
         public override int Read(
             byte[] buffer,
@@ -474,13 +490,16 @@ public sealed class ResolvedAssemblyReference
             }
         }
 
+        public override int ReadByte() =>
+            Observe(inner.ReadByte);
+
         public override Task<int> ReadAsync(
             byte[] buffer,
             int offset,
             int count,
             CancellationToken cancellationToken) =>
             ObserveAsync(
-                inner.ReadAsync(
+                () => inner.ReadAsync(
                     buffer,
                     offset,
                     count,
@@ -490,7 +509,9 @@ public sealed class ResolvedAssemblyReference
             Memory<byte> buffer,
             CancellationToken cancellationToken = default) =>
             ObserveAsync(
-                inner.ReadAsync(buffer, cancellationToken));
+                () => inner.ReadAsync(
+                    buffer,
+                    cancellationToken));
 
         public override long Seek(
             long offset,
@@ -527,7 +548,7 @@ public sealed class ResolvedAssemblyReference
             int count,
             CancellationToken cancellationToken) =>
             ObserveAsync(
-                inner.WriteAsync(
+                () => inner.WriteAsync(
                     buffer,
                     offset,
                     count,
@@ -537,7 +558,12 @@ public sealed class ResolvedAssemblyReference
             ReadOnlyMemory<byte> buffer,
             CancellationToken cancellationToken = default) =>
             ObserveAsync(
-                inner.WriteAsync(buffer, cancellationToken));
+                () => inner.WriteAsync(
+                    buffer,
+                    cancellationToken));
+
+        public override void WriteByte(byte value) =>
+            Observe(() => inner.WriteByte(value));
 
         protected override void Dispose(bool disposing)
         {
@@ -586,11 +612,11 @@ public sealed class ResolvedAssemblyReference
             }
         }
 
-        async Task ObserveAsync(Task operation)
+        async Task ObserveAsync(Func<Task> operation)
         {
             try
             {
-                await operation.ConfigureAwait(false);
+                await operation().ConfigureAwait(false);
             }
             catch (OperationCanceledException ex)
             {
@@ -599,11 +625,12 @@ public sealed class ResolvedAssemblyReference
             }
         }
 
-        async Task<int> ObserveAsync(Task<int> operation)
+        async Task<int> ObserveAsync(
+            Func<Task<int>> operation)
         {
             try
             {
-                return await operation.ConfigureAwait(false);
+                return await operation().ConfigureAwait(false);
             }
             catch (OperationCanceledException ex)
             {
@@ -612,11 +639,12 @@ public sealed class ResolvedAssemblyReference
             }
         }
 
-        async ValueTask ObserveAsync(ValueTask operation)
+        async ValueTask ObserveAsync(
+            Func<ValueTask> operation)
         {
             try
             {
-                await operation.ConfigureAwait(false);
+                await operation().ConfigureAwait(false);
             }
             catch (OperationCanceledException ex)
             {
@@ -626,11 +654,11 @@ public sealed class ResolvedAssemblyReference
         }
 
         async ValueTask<int> ObserveAsync(
-            ValueTask<int> operation)
+            Func<ValueTask<int>> operation)
         {
             try
             {
-                return await operation.ConfigureAwait(false);
+                return await operation().ConfigureAwait(false);
             }
             catch (OperationCanceledException ex)
             {

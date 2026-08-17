@@ -196,9 +196,9 @@ gate the entry identity boundaries, while
 and
 `AssemblyContextSourceQueryTests.BindingPolicyVersionChangeDuringFallback_IsRejected`
 gate the in-flight boundaries. Cancellation raised by the binding policy or a
-selected dependency descriptor while opening or reading its content during
-decompiler fallback remains exceptional, as does cancellation requested through
-the query token while selection returns normally;
+selected dependency descriptor while opening, validating, or reading its
+content during decompiler fallback remains exceptional, as does cancellation
+requested through the query token while selection returns normally;
 `AssemblyContextSourceQueryTests.BindingPolicyCancellation_PropagatesFromDecompilerFallback`
 `AssemblyContextSourceQueryTests.SelectedDescriptorCancellation_PropagatesFromFallback`,
 and

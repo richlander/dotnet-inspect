@@ -675,13 +675,16 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
     public async Task SelectedDescriptorCancellation_PropagatesFromFallback(
         bool typeQuery,
-        bool cancelDuringRead)
+        bool cancelDuringRead,
+        bool cancelDuringCapabilityCheck)
     {
         byte[] bytes =
             WithoutDebugDirectory(
@@ -712,6 +715,10 @@ public sealed class AssemblyContextSourceQueryTests
                             {
                                 return new CancellationOnReadStream(
                                     coreLibraryBytes);
+                            }
+                            if (cancelDuringCapabilityCheck)
+                            {
+                                return new CancellationOnCanReadStream();
                             }
                             throw new OperationCanceledException(
                                 "Synthetic selected-descriptor cancellation.");
@@ -2430,6 +2437,41 @@ public sealed class AssemblyContextSourceQueryTests
         public override int Read(Span<byte> buffer) =>
             throw new OperationCanceledException(
                 "Synthetic selected-descriptor read cancellation.");
+    }
+
+    sealed class CancellationOnCanReadStream : Stream
+    {
+        public override bool CanRead =>
+            throw new OperationCanceledException(
+                "Synthetic selected-descriptor capability cancellation.");
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => 1;
+        public override long Position { get; set; }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            0;
+
+        public override long Seek(
+            long offset,
+            SeekOrigin origin) =>
+            0;
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
     }
 
     sealed class DisposeCountingStream(Stream inner)
