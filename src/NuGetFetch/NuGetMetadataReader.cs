@@ -2,16 +2,6 @@ namespace NuGetFetch;
 
 internal static class NuGetMetadataReader
 {
-    private static readonly HttpRequestOptionsKey<bool> BrowserStreamingResponse =
-        new("WebAssemblyEnableStreamingResponse");
-
-    public static HttpRequestMessage CreateGetRequest(string requestUri)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Options.Set(BrowserStreamingResponse, true);
-        return request;
-    }
-
     public static async ValueTask<T> ReadResponseAsync<T>(
         HttpResponseMessage response,
         Func<Stream, CancellationToken, ValueTask<T>> deserialize,
@@ -55,7 +45,7 @@ internal static class NuGetMetadataReader
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(deserialize);
-        options = NuGetFetchOptions.Validate(options);
+        options = NuGetFetchOptions.ForStream(options);
 
         return await RunWithBodyTimeoutAsync(
             bodyToken => ReadStreamCoreAsync(
@@ -83,13 +73,20 @@ internal static class NuGetMetadataReader
         NuGetFetchOptions options,
         CancellationToken cancellationToken)
     {
+        if (options.MetadataBodyTimeout == Timeout.InfiniteTimeSpan)
+        {
+            return await operation(cancellationToken).ConfigureAwait(false);
+        }
+
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
         timeout.CancelAfter(options.MetadataBodyTimeout);
 
         try
         {
-            return await operation(timeout.Token).ConfigureAwait(false);
+            T result = await operation(timeout.Token).ConfigureAwait(false);
+            timeout.Token.ThrowIfCancellationRequested();
+            return result;
         }
         catch (OperationCanceledException ex)
             when (!cancellationToken.IsCancellationRequested
@@ -99,7 +96,25 @@ internal static class NuGetMetadataReader
                 options.MetadataBodyTimeout,
                 ex);
         }
+        catch (Exception ex)
+            when (!cancellationToken.IsCancellationRequested
+                && timeout.IsCancellationRequested
+                && IsDeadlineAbort(ex))
+        {
+            var cancellation = new OperationCanceledException(
+                "NuGet metadata body was aborted after its deadline expired.",
+                ex,
+                timeout.Token);
+            throw new NuGetMetadataBodyTimeoutException(
+                options.MetadataBodyTimeout,
+                cancellation);
+        }
     }
+
+    private static bool IsDeadlineAbort(Exception exception) =>
+        exception is IOException
+            or HttpRequestException
+            or ObjectDisposedException;
 
     private sealed class MaximumReadStream(
         Stream inner,

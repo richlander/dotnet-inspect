@@ -52,13 +52,16 @@ public static class NuGetSearchService
         int take = 20,
         bool prerelease = false,
         Action<string>? log = null,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        NuGetFetchOptions? fetchOptions = null)
     {
         List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
         PackageSourceMapping mapping =
             NuGetSourceResolver.ResolvePackageSourceMapping(sourceOptions);
+        fetchOptions ??= new NuGetFetchOptions();
         return await SearchResolvedAsync(
             client,
+            fetchOptions,
             sources,
             mapping,
             query,
@@ -70,6 +73,7 @@ public static class NuGetSearchService
 
     private static async Task<NuGetSearchOutcome> SearchResolvedAsync(
         HttpClient client,
+        NuGetFetchOptions fetchOptions,
         List<NuGetSource> sources,
         PackageSourceMapping mapping,
         string query,
@@ -92,7 +96,10 @@ public static class NuGetSearchService
             && only.IsNuGetOrg)
         {
             log?.Invoke($"Searching NuGet: {query}");
-            SearchService service = new(client);
+            SearchService service = new(
+                client,
+                searchUrl: null,
+                options: fetchOptions);
             IReadOnlyList<SearchResult> results = resultFilter is null
                 ? await service.SearchAsync(query, take, prerelease)
                 : await service.SearchByPrefixAsync(query, take, prerelease);
@@ -119,6 +126,7 @@ public static class NuGetSearchService
 
         return await SearchSourcesAsync(
             client,
+            fetchOptions,
             sources,
             mapping,
             query,
@@ -130,6 +138,7 @@ public static class NuGetSearchService
 
     private static async Task<NuGetSearchOutcome> SearchSourcesAsync(
         HttpClient client,
+        NuGetFetchOptions fetchOptions,
         List<NuGetSource> sources,
         PackageSourceMapping mapping,
         string query,
@@ -142,6 +151,9 @@ public static class NuGetSearchService
         List<string> failures = [];
         HashSet<(string Id, string Version)> seen = new(SearchResultKeyComparer.Instance);
         int searched = 0;
+        TimeSpan requestTimeout = NuGetFetchOptions.RequestTimeoutForClient(
+            fetchOptions,
+            client.Timeout);
 
         foreach (NuGetSource source in sources)
         {
@@ -149,9 +161,28 @@ public static class NuGetSearchService
             string? searchUrl;
             try
             {
-                searchUrl = await PackageExtractor.GetSearchQueryServiceAsync(client, source, log);
+                using var requestCancellation = new CancellationTokenSource(
+                    requestTimeout);
+                try
+                {
+                    searchUrl = await PackageExtractor.GetSearchQueryServiceAsync(
+                        client,
+                        source,
+                        log,
+                        requestCancellation.Token,
+                        Timeout.InfiniteTimeSpan);
+                }
+                catch (OperationCanceledException ex)
+                    when (requestCancellation.IsCancellationRequested)
+                {
+                    throw new NuGetRequestTimeoutException(
+                        requestTimeout,
+                        ex);
+                }
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            catch (Exception ex) when (ex is HttpRequestException
+                or TaskCanceledException
+                or TimeoutException)
             {
                 failures.Add(
                     $"{PackageSourceDisplay.ForDiagnostics(source)}: service index unavailable "
@@ -178,7 +209,7 @@ public static class NuGetSearchService
             IReadOnlyList<SearchResult> found;
             try
             {
-                SearchService service = new(client, searchUrl);
+                SearchService service = new(client, searchUrl, fetchOptions);
                 found = resultFilter is null
                     ? await service.SearchAsync(query, take, prerelease, auth)
                     : await service.SearchByPrefixAsync(
@@ -276,14 +307,17 @@ public static class NuGetSearchService
         int take = 100,
         bool prerelease = false,
         Action<string>? log = null,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        NuGetFetchOptions? fetchOptions = null)
     {
         log?.Invoke($"Searching packages by prefix: {prefix}");
         List<NuGetSource> sources = NuGetSourceResolver.ResolveSources(sourceOptions);
         PackageSourceMapping mapping =
             NuGetSourceResolver.ResolvePackageSourceMapping(sourceOptions);
+        fetchOptions ??= new NuGetFetchOptions();
         NuGetSearchOutcome outcome = await SearchResolvedAsync(
             client,
+            fetchOptions,
             sources,
             mapping,
             prefix,
