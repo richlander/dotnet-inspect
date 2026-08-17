@@ -129,14 +129,29 @@ public static class MetadataSafetyPolicy
         return value;
     }
 
-    /// <summary>Counts a metadata string's decoded UTF-16 characters without materializing it.</summary>
+    /// <summary>
+    /// Counts a metadata string's decoded UTF-16 characters without materializing it.
+    /// </summary>
+    /// <remarks>
+    /// Streams UTF-8 through <see cref="Decoder.Convert"/>. <c>GetCharCount</c> does
+    /// not retain incomplete multi-byte sequences across calls, so a 3-byte name that
+    /// straddles the 4 KiB window (for example U+202E) would false-reject as invalid
+    /// UTF-8 and skip the retained-text budget. Gated by
+    /// <c>GetStringCharacterCount_MultiByteUtf8AcrossWindow_MatchesGetString</c> and
+    /// <c>ExpandingMethodName_IsStoppedBeforeContainedSpellingMaterialization</c>.
+    /// </remarks>
     public static long GetStringCharacterCount(
         MetadataReader reader,
         StringHandle handle)
     {
         var blob = reader.GetBlobReader(handle);
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(
-            Math.Max(1, Math.Min(blob.Length, 4096)));
+        if (blob.Length == 0)
+            return 0;
+
+        const int Window = 4096;
+        byte[] byteBuffer = ArrayPool<byte>.Shared.Rent(
+            Math.Max(1, Math.Min(blob.Length, Window)));
+        char[] charBuffer = ArrayPool<char>.Shared.Rent(Window);
         try
         {
             Decoder decoder = new UTF8Encoding(
@@ -145,11 +160,28 @@ public static class MetadataSafetyPolicy
             long characters = 0;
             while (blob.RemainingBytes > 0)
             {
-                int count = Math.Min(blob.RemainingBytes, buffer.Length);
-                blob.ReadBytes(count, buffer, 0);
-                characters += decoder.GetCharCount(
-                    buffer.AsSpan(0, count),
-                    flush: blob.RemainingBytes == 0);
+                int byteCount = Math.Min(blob.RemainingBytes, byteBuffer.Length);
+                blob.ReadBytes(byteCount, byteBuffer, 0);
+                bool flush = blob.RemainingBytes == 0;
+                int byteOffset = 0;
+                bool completed;
+                do
+                {
+                    decoder.Convert(
+                        byteBuffer,
+                        byteOffset,
+                        byteCount - byteOffset,
+                        charBuffer,
+                        0,
+                        charBuffer.Length,
+                        flush,
+                        out int bytesUsed,
+                        out int charsUsed,
+                        out completed);
+                    characters += charsUsed;
+                    byteOffset += bytesUsed;
+                }
+                while (!completed);
             }
             return characters;
         }
@@ -161,7 +193,8 @@ public static class MetadataSafetyPolicy
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            ArrayPool<byte>.Shared.Return(byteBuffer);
+            ArrayPool<char>.Shared.Return(charBuffer);
         }
     }
 }

@@ -13,6 +13,10 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class AttributeReader
 {
+    // Matches the Browser per-model retained-text ceiling. Preflight may materialize
+    // an enum type name only when it fits one model; larger names fail closed.
+    private const int MaxPreflightMaterializedStringCharacters = 1_000_000;
+
     private const string EditorBrowsableAttributeName = "System.ComponentModel.EditorBrowsableAttribute";
     private const string ExtensionMarkerAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerAttribute";
     private const string ExtensionMarkerNameAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerNameAttribute";
@@ -647,9 +651,12 @@ public static class AttributeReader
             for (int i = 0; i < namedCount; i++)
             {
                 byte kind = blob.ReadByte();
+                // Named field/property names are retained as "Name = value", so
+                // charge them here. Skipping them let DecodeValue allocate a
+                // multi-MB name under a lower bound of 0.
                 if (kind is not (0x53 or 0x54)
                     || !TryReadSerializedType(ref blob, out var type)
-                    || !TrySkipSerializedString(ref blob)
+                    || !TryCountSerializedString(ref blob, ref lowerBound)
                     || !TryScanAttributeValue(reader, ref blob, type, ref lowerBound))
                 {
                     return false;
@@ -715,12 +722,18 @@ public static class AttributeReader
         if (byteCount < 0)
             return true;
 
+        // DecodeValue materializes the full assembly-qualified string, while
+        // retained typeof() text uses only the pre-comma simple name. Charge the
+        // retained slice into lowerBound, but refuse names whose full decoded size
+        // exceeds one model so a giant assembly suffix cannot allocate first.
         byte[] bytes = ArrayPool<byte>.Shared.Rent(Math.Min(byteCount, 4096));
         char[] chars = ArrayPool<char>.Shared.Rent(bytes.Length + 1);
         try
         {
             Decoder decoder = Encoding.UTF8.GetDecoder();
             int remaining = byteCount;
+            long materializeCharacters = 0;
+            long retainedCharacters = 0;
             bool beforeAssemblyName = true;
             while (remaining > 0)
             {
@@ -734,6 +747,9 @@ public static class AttributeReader
                 for (int index = 0; index < charCount; index++)
                 {
                     char character = chars[index];
+                    materializeCharacters++;
+                    if (materializeCharacters > MaxPreflightMaterializedStringCharacters)
+                        return false;
                     if (beforeAssemblyName && character == ',')
                     {
                         beforeAssemblyName = false;
@@ -742,10 +758,11 @@ public static class AttributeReader
                     {
                         if (character is '`' or '[')
                             return false;
-                        lowerBound++;
+                        retainedCharacters++;
                     }
                 }
             }
+            lowerBound += retainedCharacters;
             return true;
         }
         finally
@@ -759,6 +776,17 @@ public static class AttributeReader
         var code = blob.ReadSerializationTypeCode();
         if (code == SerializationTypeCode.Enum)
         {
+            // Count first so a multi-MB enum type name cannot allocate during
+            // preflight. Only materialize names that fit one model budget.
+            int start = blob.Offset;
+            long nameCharacters = 0;
+            if (!TryCountSerializedString(ref blob, ref nameCharacters)
+                || nameCharacters > MaxPreflightMaterializedStringCharacters)
+            {
+                type = AttributeValueType.Invalid;
+                return false;
+            }
+            blob.Offset = start;
             string? name = blob.ReadSerializedString();
             if (name is null)
             {
@@ -772,9 +800,24 @@ public static class AttributeReader
         if (code == SerializationTypeCode.SZArray)
         {
             var elementCode = blob.ReadSerializationTypeCode();
-            bool validElement = elementCode == SerializationTypeCode.Enum
-                ? blob.ReadSerializedString() is not null
-                : AttributeValueType.For(elementCode).Code != SerializationTypeCode.Invalid;
+            bool validElement;
+            if (elementCode == SerializationTypeCode.Enum)
+            {
+                int start = blob.Offset;
+                long nameCharacters = 0;
+                validElement = TryCountSerializedString(ref blob, ref nameCharacters)
+                    && nameCharacters <= MaxPreflightMaterializedStringCharacters;
+                if (validElement)
+                {
+                    blob.Offset = start;
+                    validElement = blob.ReadSerializedString() is not null;
+                }
+            }
+            else
+            {
+                validElement = AttributeValueType.For(elementCode).Code
+                    != SerializationTypeCode.Invalid;
+            }
             type = AttributeValueType.Array;
             return elementCode != SerializationTypeCode.SZArray && validElement;
         }

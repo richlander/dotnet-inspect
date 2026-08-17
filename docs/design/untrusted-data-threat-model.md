@@ -389,9 +389,13 @@ and charges signature components as it constructs them, before composite
 signature strings exist. It scans string constants and custom-attribute string
 arguments for a proven retained lower bound before SRM decodes them; enum-typed
 attribute arguments use the same underlying-primitive classification as the
-decoder (including variable-length `value__ : string`), and a successful
-lower-bound scan must consume the whole attribute blob. Exact rendered text is
-still charged afterward, so the preflight cannot reject a model that fits.
+decoder (including variable-length `value__ : string`); named-argument names are
+charged; assembly-qualified `typeof` payloads fail closed before decode; and a
+successful lower-bound scan must consume the whole attribute blob. Metadata
+member names are character-counted before `GetString`. Rejected types abandon
+provisional pending text so forwarders are not falsely starved. Exact rendered
+text is still charged afterward, so the preflight cannot reject a model that
+fits.
 Forwarder count and full-name text are admitted before the full name is built.
 Repeated signature references share decoded metadata names.
 Complete type headers, members and nested signature models, failures,
@@ -424,8 +428,11 @@ shared-string and single-signature amplification shapes.
 `TypeSpecificationPreflight_DoesNotExpandHostileNestedArity`,
 `TypeForwarderCount_IsCheckedBeforeFullNameMaterialization`,
 `TypeForwarderText_IsCheckedBeforeFullNameMaterialization`,
-`RenderAttributes_StringBackedEnum_PreflightsWithoutMaterializingString`, and
-`RenderAttributes_StringBackedEnum_OrdinaryValueMatchesUnbounded` cover the
+`RenderAttributes_StringBackedEnum_PreflightsWithoutMaterializingString`,
+`RenderAttributes_StringBackedEnum_OrdinaryValueMatchesUnbounded`,
+`RenderAttributes_GiantNamedArgumentName_PreflightsWithoutMaterializingString`,
+`RenderAttributes_AssemblyQualifiedType_SkipsWithoutMaterializingSuffix`, and
+`GetStringCharacterCount_MultiByteUtf8AcrossWindow_MatchesGetString` cover the
 pre-materialization paths above.
 `AssemblyContextApiSurfaceQueryTests.ExecuteBounded_SpendsRetainedTextAcrossParticipants`
 and `ExecuteBounded_ReportsPerModelTextLimit` gate cross-assembly spending and

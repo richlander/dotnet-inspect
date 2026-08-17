@@ -141,6 +141,60 @@ public class AttributeReaderTests
     }
 
     [Fact]
+    public void RenderAttributes_GiantNamedArgumentName_PreflightsWithoutMaterializingString()
+    {
+        const int characterCount = 20_000_000;
+        using var provider = BuildSyntheticNamedStringAttribute(
+            value => WriteRepeatedString(value, characterCount));
+        var reader = provider.GetMetadataReader();
+        var attributes = reader.GetTypeDefinition(
+            reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name) == "Target"))
+            .GetCustomAttributes();
+        long observedLowerBound = -1;
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.Throws<StopPreflightException>(() => AttributeReader.RenderAttributes(
+            reader,
+            attributes,
+            preflight: lowerBound =>
+            {
+                observedLowerBound = lowerBound;
+                throw new StopPreflightException();
+            }));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        // Name characters plus the short retained field value ("x").
+        Assert.Equal(characterCount + 1, observedLowerBound);
+        Assert.True(allocated < 8_000_000, $"Preflight allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void RenderAttributes_AssemblyQualifiedType_SkipsWithoutMaterializingSuffix()
+    {
+        const int suffixCharacters = 20_000_000;
+        using var provider = BuildSyntheticTypeAttributeWithAssemblySuffix(suffixCharacters);
+        var reader = provider.GetMetadataReader();
+        TypeDefinitionHandle target = reader.TypeDefinitions.Single(
+            handle => reader.GetString(
+                reader.GetTypeDefinition(handle).Name) == "Target");
+        CustomAttributeHandleCollection attributes =
+            reader.GetTypeDefinition(target).GetCustomAttributes();
+        bool callbackInvoked = false;
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var rendered = AttributeReader.RenderAttributes(
+            reader,
+            attributes,
+            preflight: _ => callbackInvoked = true);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Empty(rendered);
+        Assert.False(callbackInvoked);
+        Assert.True(allocated < 8_000_000, $"Preflight allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void RenderAttributes_StringBackedEnum_PreflightsWithoutMaterializingString()
     {
         // Hostile metadata can declare value__ : string. The decoder then treats
@@ -366,6 +420,155 @@ public class AttributeReaderTests
         var image = new BlobBuilder();
         new MetadataRootBuilder(metadata, suppressValidation: true).Serialize(image, 0, 0);
         return MetadataReaderProvider.FromMetadataImage(ImmutableArray.Create(image.ToArray()));
+    }
+
+    static MetadataReaderProvider BuildSyntheticNamedStringAttribute(
+        Action<BlobBuilder> writeNamedName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("SyntheticNamed.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("SyntheticNamed"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var attributeType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Synthetic"),
+            metadata.GetOrAddString("LargeAttribute"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var targetType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Synthetic"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        // Parameterless ctor; one named field argument carries the giant name.
+        var ctorSignature = new BlobBuilder();
+        ctorSignature.WriteByte(0x20);
+        ctorSignature.WriteCompressedInteger(0);
+        ctorSignature.WriteByte((byte)SignatureTypeCode.Void);
+        var constructor = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(ctorSignature),
+            -1,
+            MetadataTokens.ParameterHandle(1));
+
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16(1); // one named arg
+        value.WriteByte(0x53); // field
+        value.WriteByte((byte)SerializationTypeCode.String);
+        writeNamedName(value);
+        value.WriteCompressedInteger(1);
+        value.WriteByte((byte)'x'); // short string value
+        metadata.AddCustomAttribute(targetType, constructor, metadata.GetOrAddBlob(value));
+
+        var image = new BlobBuilder();
+        new MetadataRootBuilder(metadata, suppressValidation: true).Serialize(image, 0, 0);
+        return MetadataReaderProvider.FromMetadataImage(ImmutableArray.Create(image.ToArray()));
+    }
+
+    static MetadataReaderProvider BuildSyntheticTypeAttributeWithAssemblySuffix(
+        int suffixCharacters)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("SyntheticTypeSuffix.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("SyntheticTypeSuffix"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle coreLib = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle systemType = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Type"));
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            coreLib,
+            metadata.GetOrAddString("Synthetic"),
+            metadata.GetOrAddString("TypeAttribute"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle target = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Synthetic"),
+            metadata.GetOrAddString("Target"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte((byte)SignatureTypeCode.Void);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(
+            CodedIndex.TypeDefOrRefOrSpec(systemType));
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(signature));
+
+        // "T," + giant assembly suffix — renderer cannot retain it; preflight must
+        // fail closed before DecodeValue materializes the suffix.
+        int total = 2 + suffixCharacters;
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteCompressedInteger(total);
+        value.WriteByte((byte)'T');
+        value.WriteByte((byte)',');
+        value.WriteBytes((byte)'a', suffixCharacters);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            target,
+            constructor,
+            metadata.GetOrAddBlob(value));
+
+        var image = new BlobBuilder();
+        new MetadataRootBuilder(
+            metadata,
+            suppressValidation: true).Serialize(image, 0, 0);
+        return MetadataReaderProvider.FromMetadataImage(
+            ImmutableArray.Create(image.ToArray()));
     }
 
     static MetadataReaderProvider BuildSyntheticStringBackedEnumAttribute(

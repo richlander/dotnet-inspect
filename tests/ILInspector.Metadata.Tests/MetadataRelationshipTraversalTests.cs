@@ -441,6 +441,46 @@ public class MetadataRelationshipTraversalTests
         }
     }
 
+    [Fact]
+    public void GetStringCharacterCount_MultiByteUtf8AcrossWindow_MatchesGetString()
+    {
+        // U+202E is three UTF-8 bytes. A 4 KiB streaming window ends mid-sequence for
+        // long repeats; the count path must keep decoder state across chunks instead of
+        // false-rejecting continuation bytes as invalid UTF-8.
+        const int nameCharacters = 2000;
+        string name = new('\u202e', nameCharacters);
+        using var image = BuildMetadata(metadata =>
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(name),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        });
+
+        TypeDefinitionHandle handle = default;
+        foreach (var candidate in image.Reader.TypeDefinitions)
+        {
+            var definition = image.Reader.GetTypeDefinition(candidate);
+            if (image.Reader.GetString(definition.Name) == name)
+            {
+                handle = candidate;
+                break;
+            }
+        }
+
+        Assert.False(handle.IsNil);
+        StringHandle nameHandle = image.Reader.GetTypeDefinition(handle).Name;
+        Assert.Equal(
+            image.Reader.GetString(nameHandle).Length,
+            MetadataSafetyPolicy.GetStringCharacterCount(image.Reader, nameHandle));
+        Assert.Equal(
+            nameCharacters,
+            MetadataSafetyPolicy.GetStringCharacterCount(image.Reader, nameHandle));
+    }
+
     static void AssertRejected<T>(
         RelationshipTraversalResult<T> result,
         RelationshipTraversalRejectionKind kind,

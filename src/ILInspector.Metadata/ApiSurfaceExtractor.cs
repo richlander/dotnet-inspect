@@ -462,7 +462,14 @@ public static class ApiSurfaceExtractor
             if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
                 continue;
 
-            string metadataName = reader.GetString(typeDef.Name);
+            // Open the type budget before reading the metadata name so a multi-MB
+            // type name cannot allocate under an unbounded GetString.
+            TextMaterializationBudget? typeMaterialization =
+                budget?.BeginTypeMaterialization();
+            string metadataName = ReadBudgetedString(
+                reader,
+                typeDef.Name,
+                typeMaterialization);
 
             // Skip compiler-generated types unless explicitly requested. The opt-in
             // surfaces closure/display/state-machine types and their real fields so
@@ -486,8 +493,6 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
-            TextMaterializationBudget? typeMaterialization =
-                budget?.BeginTypeMaterialization();
             var (typeNamespace, typeName) = GetApiTypeNameParts(
                 reader,
                 typeDefHandle,
@@ -642,7 +647,12 @@ public static class ApiSurfaceExtractor
                 if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
                     continue;
 
-                string methodName = reader.GetString(method.Name);
+                TextMaterializationBudget? materialization =
+                    budget?.BeginModelMaterialization();
+                string methodName = ReadBudgetedString(
+                    reader,
+                    method.Name,
+                    materialization);
 
                 // Skip property accessors and event accessors
                 if (methodName.StartsWith("get_") || methodName.StartsWith("set_") ||
@@ -659,8 +669,6 @@ public static class ApiSurfaceExtractor
                     && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
                     continue;
 
-                TextMaterializationBudget? materialization =
-                    budget?.BeginModelMaterialization();
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(
                     reader,
                     method.GetCustomAttributes(),
@@ -831,7 +839,10 @@ public static class ApiSurfaceExtractor
                     materialization);
                 var member = new ApiMember
                 {
-                    Name = reader.GetString(prop.Name),
+                    Name = ReadBudgetedString(
+                        reader,
+                        prop.Name,
+                        materialization),
                     Kind = "property",
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
@@ -877,7 +888,12 @@ public static class ApiSurfaceExtractor
                 if (fieldAccess != FieldAttributes.Public && !includeAll)
                     continue;
 
-                string fieldName = reader.GetString(field.Name);
+                TextMaterializationBudget? materialization =
+                    budget?.BeginModelMaterialization();
+                string fieldName = ReadBudgetedString(
+                    reader,
+                    field.Name,
+                    materialization);
                 if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
                     continue; // Skip compiler-generated (<...>) fields unless opted in
 
@@ -891,8 +907,6 @@ public static class ApiSurfaceExtractor
                 if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
                     continue;
 
-                TextMaterializationBudget? materialization =
-                    budget?.BeginModelMaterialization();
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(
                     reader,
                     field.GetCustomAttributes(),
@@ -1091,7 +1105,10 @@ public static class ApiSurfaceExtractor
                 }
 
                 materialization?.Retain(eventType);
-                string eventName = reader.GetString(evt.Name);
+                string eventName = ReadBudgetedString(
+                    reader,
+                    evt.Name,
+                    materialization);
                 materialization?.Retain(eventName);
                 string eventDisplayName = SanitizeIdentifier(eventName);
                 materialization?.EnsureCanMaterialize(
@@ -1145,6 +1162,9 @@ public static class ApiSurfaceExtractor
             {
                 if (constraintCheckpoint is { } checkpoint)
                     constraintResolution!.Rollback(checkpoint);
+                // Pending member/text is only committed by RetainType. Drop it so a
+                // rejected type cannot shrink later forwarder/materialization budgets.
+                budget?.AbandonType();
                 surface.PublicMethodCount = publicMethodCount;
                 surface.PublicPropertyCount = publicPropertyCount;
                 surface.PublicEventCount = publicEventCount;
@@ -1162,6 +1182,7 @@ public static class ApiSurfaceExtractor
             {
                 if (constraintCheckpoint is { } checkpoint)
                     constraintResolution!.Rollback(checkpoint);
+                budget?.AbandonType();
                 surface.PublicMethodCount = publicMethodCount;
                 surface.PublicPropertyCount = publicPropertyCount;
                 surface.PublicEventCount = publicEventCount;
@@ -1564,6 +1585,24 @@ public static class ApiSurfaceExtractor
             : constraintTypeName;
     }
 
+    /// <summary>
+    /// Counts a metadata string before materializing it so a multi-MB name cannot
+    /// allocate under an open model budget.
+    /// </summary>
+    static string ReadBudgetedString(
+        MetadataReader reader,
+        StringHandle handle,
+        TextMaterializationBudget? materialization)
+    {
+        if (materialization is not null)
+        {
+            materialization.EnsureCanMaterialize(
+                MetadataSafetyPolicy.GetStringCharacterCount(reader, handle));
+        }
+
+        return reader.GetString(handle);
+    }
+
     private static (string? Namespace, string Name) GetApiTypeNameParts(
         MetadataReader reader,
         TypeDefinitionHandle handle,
@@ -1580,16 +1619,20 @@ public static class ApiSurfaceExtractor
         }
 
         var chain = ((RelationshipTraversalResult<RelationshipChain<TypeDefinitionHandle>>.Completed)result).Value;
-        var rootNamespace = reader.GetString(
-            reader.GetTypeDefinition(chain.Handles[0]).Namespace);
+        var rootNamespace = ReadBudgetedString(
+            reader,
+            reader.GetTypeDefinition(chain.Handles[0]).Namespace,
+            materialization);
         materialization?.Retain(rootNamespace);
         var names = new List<string>(chain.Handles.Count());
         foreach (TypeDefinitionHandle current in chain.Handles)
         {
             if (names.Count > 0)
                 materialization?.Retain(1);
-            string currentName = reader.GetString(
-                reader.GetTypeDefinition(current).Name);
+            string currentName = ReadBudgetedString(
+                reader,
+                reader.GetTypeDefinition(current).Name,
+                materialization);
             materialization?.Retain(currentName);
             names.Add(currentName);
         }
@@ -1620,8 +1663,10 @@ public static class ApiSurfaceExtractor
         {
             if (names.Count > 0)
                 materialization?.Retain(1);
-            string currentName = reader.GetString(
-                reader.GetTypeDefinition(current).Name);
+            string currentName = ReadBudgetedString(
+                reader,
+                reader.GetTypeDefinition(current).Name,
+                materialization);
             materialization?.Retain(currentName);
             names.Add(currentName);
         }
@@ -3858,9 +3903,17 @@ public static class ApiSurfaceExtractor
 
         public TextMaterializationBudget BeginTypeMaterialization()
         {
+            AbandonType();
+            return BeginModelMaterialization();
+        }
+
+        /// <summary>
+        /// Drops provisional member/text charges for a type that will not be retained.
+        /// </summary>
+        public void AbandonType()
+        {
             _pendingMembers = 0;
             _pendingTextCharacters = 0;
-            return BeginModelMaterialization();
         }
 
         void RetainModel(long characters)
