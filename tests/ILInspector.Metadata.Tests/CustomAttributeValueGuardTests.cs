@@ -252,6 +252,55 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
+    public void FnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount()
+    {
+        using var image = Open(
+            BuildGenericEarlierThenArrayImage(
+                earlier: EarlierGenericArg.FnPtr,
+                elementCount: 100_000_000));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count)));
+        Assert.Equal(
+            100_000_000 * CustomAttributeValueGuard.DeclaredSlotCharge,
+            charged);
+        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
+    }
+
+    [Fact]
+    public void PtrFnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount()
+    {
+        using var image = Open(
+            BuildGenericEarlierThenArrayImage(
+                earlier: EarlierGenericArg.PtrFnPtr,
+                elementCount: 100_000_000));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        int charged = 0;
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(
+                image.Reader,
+                attribute,
+                count => charged = checked(charged + count)));
+        Assert.Equal(
+            100_000_000 * CustomAttributeValueGuard.DeclaredSlotCharge,
+            charged);
+    }
+
+    [Fact]
+    public void SelfReferentialGenericVar_IsUnsafe()
+    {
+        using var image = Open(BuildSelfReferentialGenericVarImage());
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+        Assert.Null(AttributeDecoder.TryDecode(image.Reader, attribute));
+    }
+
+    [Fact]
     public void ObserverFailureDuringNamedEnumLookup_EscapesTryDecode()
     {
         using var image = Open(BuildNamedEnumInt32Image());
@@ -702,6 +751,135 @@ public sealed class CustomAttributeValueGuardTests
         value.WriteInt32(elementCount);
         value.WriteUInt16(0);
         AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    enum EarlierGenericArg
+    {
+        FnPtr,
+        PtrFnPtr,
+    }
+
+    static byte[] BuildGenericEarlierThenArrayImage(
+        EarlierGenericArg earlier,
+        int elementCount)
+    {
+        var metadata = CreateMetadata("FnPtrDesync");
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributeType = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("MyAttr`2"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x15);
+        typeSpecSignature.WriteByte(0x12);
+        WriteTypeDefOrRef(typeSpecSignature, attributeType);
+        typeSpecSignature.WriteCompressedInteger(2);
+        WriteEarlierGenericArg(typeSpecSignature, earlier);
+        typeSpecSignature.WriteByte(0x1d);
+        typeSpecSignature.WriteByte(0x08);
+        TypeSpecificationHandle typeSpec = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(typeSpecSignature));
+        var constructorSignature = new BlobBuilder();
+        constructorSignature.WriteByte(0x20);
+        constructorSignature.WriteCompressedInteger(1);
+        constructorSignature.WriteByte(0x01);
+        constructorSignature.WriteByte(0x13);
+        constructorSignature.WriteCompressedInteger(1);
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            typeSpec,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(elementCount);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static void WriteEarlierGenericArg(
+        BlobBuilder signature,
+        EarlierGenericArg earlier)
+    {
+        if (earlier == EarlierGenericArg.PtrFnPtr)
+            signature.WriteByte(0x0f);
+        signature.WriteByte(0x1b);
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(0);
+        signature.WriteByte(0x01);
+    }
+
+    static byte[] BuildSelfReferentialGenericVarImage()
+    {
+        var metadata = CreateMetadata("VarSo");
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributeType = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("MyAttr`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x15);
+        typeSpecSignature.WriteByte(0x12);
+        WriteTypeDefOrRef(typeSpecSignature, attributeType);
+        typeSpecSignature.WriteCompressedInteger(1);
+        typeSpecSignature.WriteByte(0x13);
+        typeSpecSignature.WriteCompressedInteger(0);
+        TypeSpecificationHandle typeSpec = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(typeSpecSignature));
+        var constructorSignature = new BlobBuilder();
+        constructorSignature.WriteByte(0x20);
+        constructorSignature.WriteCompressedInteger(1);
+        constructorSignature.WriteByte(0x01);
+        constructorSignature.WriteByte(0x13);
+        constructorSignature.WriteCompressedInteger(0);
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            typeSpec,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Attributed"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(0);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
         return Serialize(metadata);
     }
 

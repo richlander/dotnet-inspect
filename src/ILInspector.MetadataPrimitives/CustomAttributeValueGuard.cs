@@ -112,7 +112,8 @@ public static class CustomAttributeValueGuard
                 ref value,
                 beforeMaterialize,
                 enumUnderlyingType,
-                depth: 1);
+                depth: 1,
+                substituteGenerics: true);
             if (result != Result.Safe)
                 return result;
         }
@@ -146,7 +147,8 @@ public static class CustomAttributeValueGuard
         ref BlobReader value,
         Action<int>? beforeMaterialize,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType,
-        int depth)
+        int depth,
+        bool substituteGenerics)
     {
         if (depth > MaxSerializedDepth)
             return Result.Unsafe;
@@ -183,7 +185,8 @@ public static class CustomAttributeValueGuard
                 ref value,
                 beforeMaterialize,
                 enumUnderlyingType,
-                depth),
+                depth,
+                substituteGenerics),
             ElementTypeClass or ElementTypeValueType => SkipNamedType(
                 reader,
                 signature.ReadTypeHandle(),
@@ -191,15 +194,17 @@ public static class CustomAttributeValueGuard
                 beforeMaterialize,
                 enumUnderlyingType,
                 depth),
-            ElementTypeVar or ElementTypeMVar => SkipGenericParameter(
-                reader,
-                constructor,
-                ref signature,
-                ref value,
-                beforeMaterialize,
-                enumUnderlyingType,
-                depth,
-                methodParameter: code == ElementTypeMVar),
+            ElementTypeVar or ElementTypeMVar => substituteGenerics
+                ? SkipGenericParameter(
+                    reader,
+                    constructor,
+                    ref signature,
+                    ref value,
+                    beforeMaterialize,
+                    enumUnderlyingType,
+                    depth,
+                    methodParameter: code == ElementTypeMVar)
+                : Result.Unsafe,
             _ => Result.Unsafe,
         };
     }
@@ -211,7 +216,8 @@ public static class CustomAttributeValueGuard
         ref BlobReader value,
         Action<int>? beforeMaterialize,
         Func<string, PrimitiveTypeCode>? enumUnderlyingType,
-        int depth)
+        int depth,
+        bool substituteGenerics)
     {
         if (depth > MaxSerializedDepth)
             return Result.Unsafe;
@@ -241,7 +247,8 @@ public static class CustomAttributeValueGuard
                 ref value,
                 beforeMaterialize,
                 enumUnderlyingType,
-                depth + 1);
+                depth + 1,
+                substituteGenerics);
             if (result != Result.Safe)
             {
                 signature.Offset = elementEnd;
@@ -604,10 +611,15 @@ public static class CustomAttributeValueGuard
             return Result.Unsafe;
         for (int index = 0; index < parameterIndex; index++)
         {
+            // A failed skip leaves the substituted value unconsumed.
+            // Fail closed: Safe here would let SRM allocate the next count.
             if (!TrySkipSignatureType(ref instantiation))
-                return Result.Safe;
+                return Result.Unsafe;
         }
 
+        // SRM substitutes once, then recurses with an empty generic
+        // context. Re-entering this method on the same TypeSpec is a
+        // stack overflow; a substituted VAR/MVAR is therefore Unsafe.
         return SkipFixedArg(
             reader,
             constructor,
@@ -615,7 +627,8 @@ public static class CustomAttributeValueGuard
             ref value,
             beforeMaterialize,
             enumUnderlyingType,
-            depth);
+            depth + 1,
+            substituteGenerics: false);
     }
 
     static bool TryGetConstructorTypeSpec(
@@ -710,10 +723,58 @@ public static class CustomAttributeValueGuard
                 signature.ReadCompressedInteger();
                 return true;
             case ElementTypeFnPtr:
-                return false;
+                return TrySkipFnPtrSignature(ref signature);
             default:
                 return true;
         }
+    }
+
+    static bool TrySkipFnPtrSignature(ref BlobReader signature)
+    {
+        if (signature.RemainingBytes < 1)
+            return false;
+        var header = signature.ReadSignatureHeader();
+        if (header.IsGeneric)
+        {
+            if (signature.RemainingBytes < 1)
+                return false;
+            signature.ReadCompressedInteger();
+        }
+
+        if (signature.RemainingBytes < 1)
+            return false;
+        int parameterCount = signature.ReadCompressedInteger();
+        if (parameterCount < 0
+            || (long)parameterCount + 1 > signature.RemainingBytes)
+            return false;
+        if (!TrySkipSignatureType(ref signature))
+            return false;
+
+        bool allowsSentinel =
+            header.CallingConvention == SignatureCallingConvention.VarArgs;
+        bool sentinelSeen = false;
+        for (int index = 0; index < parameterCount; index++)
+        {
+            if (signature.RemainingBytes > 0)
+            {
+                int offset = signature.Offset;
+                if (signature.ReadByte() == ElementTypeSentinel)
+                {
+                    if (!allowsSentinel || sentinelSeen)
+                        return false;
+                    sentinelSeen = true;
+                }
+                else
+                {
+                    signature.Offset = offset;
+                }
+            }
+
+            if (!TrySkipSignatureType(ref signature))
+                return false;
+        }
+
+        return true;
     }
 
     static bool TryGetConstructorSignature(
@@ -827,6 +888,7 @@ public static class CustomAttributeValueGuard
     const byte ElementTypeMVar = 0x1e;
     const byte ElementTypeCmodReqd = 0x1f;
     const byte ElementTypeCmodOpt = 0x20;
+    const byte ElementTypeSentinel = 0x41;
     const byte ElementTypePinned = 0x45;
     const byte SerializedType = 0x50;
     const byte SerializedBoxed = 0x51;

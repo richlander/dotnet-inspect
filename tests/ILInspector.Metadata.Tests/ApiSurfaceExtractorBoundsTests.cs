@@ -909,6 +909,46 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void FnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildGenericEarlierThenArrayImage(pointerToFnPtr: false, elementCount: 100_000_000));
+    }
+
+    [Fact]
+    public void PtrFnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildGenericEarlierThenArrayImage(pointerToFnPtr: true, elementCount: 100_000_000));
+    }
+
+    [Fact]
+    public void SelfReferentialGenericVar_StopsBeforeStackOverflow()
+    {
+        byte[] image = BuildSelfReferentialGenericVarImage();
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 100_000,
+                maxMembers: 1_000_000,
+                maxInspectionFailures: 1_024,
+                maxTypeForwarders: 100_000,
+                maxMetadataRows: 250_000,
+                maxRetainedTextCharacters: 32_000_000));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+        Assert.True(
+            allocated < 64L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
     public void LegalNestedLongEnumNamedArgument_HasBoundedUnboundedParity()
     {
         AssertCompilerAttributeParity(
@@ -2656,6 +2696,122 @@ public sealed class ApiSurfaceExtractorBoundsTests
         value.WriteByte(0x08);
         value.WriteSerializedString("V");
         value.WriteInt32(elementCount);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildGenericEarlierThenArrayImage(
+        bool pointerToFnPtr,
+        int elementCount)
+    {
+        var metadata = Metadata("FnPtrDesync");
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributeType = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("MyAttr`2"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x15);
+        typeSpecSignature.WriteByte(0x12);
+        WriteTypeDefOrRef(typeSpecSignature, attributeType);
+        typeSpecSignature.WriteCompressedInteger(2);
+        if (pointerToFnPtr)
+            typeSpecSignature.WriteByte(0x0f);
+        typeSpecSignature.WriteByte(0x1b);
+        typeSpecSignature.WriteByte(0x00);
+        typeSpecSignature.WriteCompressedInteger(0);
+        typeSpecSignature.WriteByte(0x01);
+        typeSpecSignature.WriteByte(0x1d);
+        typeSpecSignature.WriteByte(0x08);
+        TypeSpecificationHandle typeSpec = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(typeSpecSignature));
+        var constructorSignature = new BlobBuilder();
+        constructorSignature.WriteByte(0x20);
+        constructorSignature.WriteCompressedInteger(1);
+        constructorSignature.WriteByte(0x01);
+        constructorSignature.WriteByte(0x13);
+        constructorSignature.WriteCompressedInteger(1);
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            typeSpec,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Host"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(elementCount);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildSelfReferentialGenericVarImage()
+    {
+        var metadata = Metadata("VarSo");
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributeType = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("MyAttr`1"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x15);
+        typeSpecSignature.WriteByte(0x12);
+        WriteTypeDefOrRef(typeSpecSignature, attributeType);
+        typeSpecSignature.WriteCompressedInteger(1);
+        typeSpecSignature.WriteByte(0x13);
+        typeSpecSignature.WriteCompressedInteger(0);
+        TypeSpecificationHandle typeSpec = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(typeSpecSignature));
+        var constructorSignature = new BlobBuilder();
+        constructorSignature.WriteByte(0x20);
+        constructorSignature.WriteCompressedInteger(1);
+        constructorSignature.WriteByte(0x01);
+        constructorSignature.WriteByte(0x13);
+        constructorSignature.WriteCompressedInteger(0);
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            typeSpec,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Host"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(0);
+        value.WriteUInt16(0);
         metadata.AddCustomAttribute(
             attributed,
             constructor,

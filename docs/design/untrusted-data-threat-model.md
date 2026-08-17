@@ -420,7 +420,11 @@ index). `CLASS`/`VALUETYPE` constructor parameters special-case only
 `System.Type`; other tokens use the enum-width oracle so a
 `class System.String` argument cannot shift later counts. Generic
 attribute constructors whose parameter is a `VAR` resolve that
-argument through the owning TypeSpec. A budget observer failure
+argument through the owning TypeSpec. Earlier generic arguments
+that cannot be skipped, including `FNPTR` and `PTR`+`FNPTR`, fail
+closed instead of leaving the substituted value unconsumed. A
+substituted type is not itself re-substituted, so a self-referential
+`GENERICINST` `!0` cannot recurse the guard. A budget observer failure
 raised while the guard consults the enum index unwraps to the same
 typed truncation `DecodeValue` already propagated. Every bounded member-name decode and every namespace/name
 segment used to resolve an attribute type is also charged before SRM
@@ -485,7 +489,13 @@ pre-decoding rejection.
 `CustomAttributeValueGuardTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.GenericAttributeTypeParameterInt32_IsSafe`,
+`CustomAttributeValueGuardTests.FnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.PtrFnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.SelfReferentialGenericVar_IsUnsafe`,
 `CustomAttributeValueGuardTests.ObserverFailureDuringNamedEnumLookup_EscapesTryDecode`,
+`FnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification`,
+`PtrFnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification`,
+`SelfReferentialGenericVar_StopsBeforeStackOverflow`,
 `AssemblyQualifiedNamedEnum_StopsBeforeLargeAllocationAmplification`,
 `ClassSystemStringFixedArgument_StopsBeforeLargeAllocationAmplification`,
 `LegalNestedLongEnumNamedArgument_HasBoundedUnboundedParity`,
