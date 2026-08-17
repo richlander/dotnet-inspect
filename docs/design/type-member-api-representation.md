@@ -252,7 +252,7 @@ successfully. These properties are gated by
 `MetadataAdapter_RefusesMethodGenericPositionOutsideHeaderArity`,
 `MetadataAdapter_RefusesMissingDeclaringTypeGenericRows`,
 `MetadataAdapter_AllowsCumulativeNestedTypeGenericRows`,
-`MetadataAdapter_RefusesNoncanonicalTypeReferenceArity`, and
+`MetadataAdapter_RefusesNoncanonicalTypeReferenceArity`,
 `MetadataAdapter_RefusesUnrepresentableFunctionPointerHeaders`,
 `MetadataAdapter_RefusesMultidimensionalArrayBounds`, and
 `MetadataAdapter_RefusesUnavailableErasedModifier`.
