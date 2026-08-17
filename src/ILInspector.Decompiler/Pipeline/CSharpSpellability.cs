@@ -43,7 +43,9 @@ internal static class CSharpSpellability
             && (!isDynamic || IsDynamicParameterType(type, host))
             && type.ExplicitParameterModifiersAreExact(refKind)
             && HasExplicitParameterTypeShape(type, ExplicitTypeContext.Parameter, host)
-            && TypeIssue(type) is null;
+            && TypeIssue(type) is null
+            && !AnyConstituentLeadingSegmentShadowed(type, host, [type])
+            && !AnyPrintedAliasInTypeShadowed(type, isDynamic, host, [type]);
 
     internal static NameIssue? InspectUnrepresentableMetadataName(IrNode node)
     {
@@ -788,6 +790,7 @@ internal static class CSharpSpellability
             && definition.Assembly == TypeRef.CoreLibrary
             && definition.Namespace == "System"
             && PrimitiveTypeNames.TryToKeywordForSystemType(definition.Name, out string? keyword)
+            && IsContextualTypeKeyword(keyword)
             && IsInScopeGenericParameterName(keyword, host))
         {
             return true;
@@ -803,7 +806,22 @@ internal static class CSharpSpellability
     {
         for (int i = 0; i < parameterTypes.Count; i++)
         {
-            if (CollidesWithVisibleNestedName(parameterTypes[i], host, parameterTypes))
+            if (AnyConstituentLeadingSegmentShadowed(parameterTypes[i], host, parameterTypes))
+                return true;
+        }
+
+        return false;
+    }
+
+    internal static bool AnyPrintedAliasShadowedByKnownTypes(
+        IReadOnlyList<TypeRef> parameterTypes,
+        IReadOnlyList<bool> isDynamic,
+        IrFunction host)
+    {
+        for (int i = 0; i < parameterTypes.Count; i++)
+        {
+            bool parameterIsDynamic = i < isDynamic.Count && isDynamic[i];
+            if (AnyPrintedAliasInTypeShadowed(parameterTypes[i], parameterIsDynamic, host, parameterTypes))
                 return true;
         }
 
@@ -912,7 +930,180 @@ internal static class CSharpSpellability
         => definition.Assembly == TypeRef.CoreLibrary
             && definition.Namespace == "System"
             && PrimitiveTypeNames.TryToKeywordForSystemType(definition.Name, out string? keyword)
+            && IsContextualTypeKeyword(keyword)
             && IsInScopeName(keyword, host);
+
+    static bool IsContextualTypeKeyword(string keyword)
+        => keyword is "nint" or "nuint";
+
+    static bool AnyConstituentLeadingSegmentShadowed(
+        TypeRef type,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        if (CollidesWithVisibleNestedName(type, host, knownTypes))
+            return true;
+
+        switch (type.Kind)
+        {
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is { } definition
+                    && AnyConstituentLeadingSegmentShadowed(definition, host, knownTypes))
+                {
+                    return true;
+                }
+
+                return AnyTypeListLeadingSegmentShadowed(type.TypeArguments, host, knownTypes);
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && AnyConstituentLeadingSegmentShadowed(element, host, knownTypes);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && AnyConstituentLeadingSegmentShadowed(returnType, host, knownTypes))
+                {
+                    return true;
+                }
+
+                return AnyTypeListLeadingSegmentShadowed(type.TypeArguments, host, knownTypes);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool AnyTypeListLeadingSegmentShadowed(
+        IReadOnlyList<TypeRef> types,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        for (int i = 0; i < types.Count; i++)
+        {
+            if (AnyConstituentLeadingSegmentShadowed(types[i], host, knownTypes))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool AnyPrintedAliasInTypeShadowed(
+        TypeRef type,
+        bool isDynamic,
+        IrFunction host,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        var hostDefinition = HostDefinition(host);
+        return hostDefinition is not null
+            && WalkPrintedAlias(type, isDynamic, hostDefinition, knownTypes);
+    }
+
+    static bool WalkPrintedAlias(
+        TypeRef type,
+        bool isDynamic,
+        TypeRef hostDefinition,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        if (TryGetPrintedContextualAlias(type, isDynamic, out string? alias)
+            && alias is not null
+            && KnownTypesProveVisibleNestedName(knownTypes, hostDefinition, alias, arity: 0))
+        {
+            return true;
+        }
+
+        switch (type.Kind)
+        {
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is { } definition
+                    && WalkPrintedAlias(definition, isDynamic: false, hostDefinition, knownTypes))
+                {
+                    return true;
+                }
+
+                return WalkPrintedAliasList(type.TypeArguments, hostDefinition, knownTypes);
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && WalkPrintedAlias(element, isDynamic: false, hostDefinition, knownTypes);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && WalkPrintedAlias(returnType, isDynamic: false, hostDefinition, knownTypes))
+                {
+                    return true;
+                }
+
+                return WalkPrintedAliasList(type.TypeArguments, hostDefinition, knownTypes);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool WalkPrintedAliasList(
+        IReadOnlyList<TypeRef> types,
+        TypeRef hostDefinition,
+        IReadOnlyList<TypeRef> knownTypes)
+    {
+        for (int i = 0; i < types.Count; i++)
+        {
+            if (WalkPrintedAlias(types[i], isDynamic: false, hostDefinition, knownTypes))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool TryGetPrintedContextualAlias(TypeRef type, bool isDynamic, out string? alias)
+    {
+        var underlying = type.Kind == TypeRefKind.ByRef && type.ElementType is { } byRefElement
+            ? byRefElement
+            : type;
+        if (isDynamic && IsCoreLibObject(underlying))
+        {
+            alias = "dynamic";
+            return true;
+        }
+
+        var definition = underlying.Kind == TypeRefKind.GenericInstance
+            ? underlying.ElementType
+            : underlying;
+        if (definition is { Kind: TypeRefKind.Definition }
+            && definition.Assembly == TypeRef.CoreLibrary
+            && definition.Namespace == "System"
+            && PrimitiveTypeNames.TryToKeywordForSystemType(definition.Name, out string? keyword)
+            && IsContextualTypeKeyword(keyword))
+        {
+            alias = keyword;
+            return true;
+        }
+
+        alias = null;
+        return false;
+    }
+
+    static bool KnownTypesProveVisibleNestedName(
+        IReadOnlyList<TypeRef> knownTypes,
+        TypeRef hostDefinition,
+        string simpleName,
+        int arity)
+    {
+        for (int i = 0; i < knownTypes.Count; i++)
+        {
+            if (TypeTreeProvesVisibleNestedName(knownTypes[i], hostDefinition, simpleName, arity))
+                return true;
+        }
+
+        return false;
+    }
 
     static bool CollidesWithVisibleNestedName(
         TypeRef type,

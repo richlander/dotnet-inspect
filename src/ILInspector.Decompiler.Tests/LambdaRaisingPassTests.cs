@@ -1100,6 +1100,135 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void ConstituentCandidateShadowedBySiblingTypeArgument_StaysLowered()
+    {
+        var sibling = TypeRef.GenericInstance(
+            TypeRef.Definition("Synthetic", "Samples", "Pair`2"),
+            [
+                TypeRef.Definition("Synthetic", "Samples", "Foo+Bar"),
+                TypeRef.Definition("Synthetic", "Samples", "Outer+Mid+Foo"),
+            ]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            sibling,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer+Mid"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            sibling,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void ConstituentCandidateWithoutHostPrefixProof_StillRaises()
+    {
+        var sibling = TypeRef.GenericInstance(
+            TypeRef.Definition("Synthetic", "Samples", "Pair`2"),
+            [
+                TypeRef.Definition("Synthetic", "Samples", "Foo+Bar"),
+                TypeRef.Definition("Synthetic", "Samples", "Zed+Foo"),
+            ]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            sibling,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer+Mid"));
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            sibling,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NintKeywordShadowedBySiblingNestedType_StaysLowered()
+    {
+        var nint = TypeRef.CoreLib("System", "IntPtr");
+        var host = RunSyntheticSiblingLambdaRaise(
+            nint,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            additionalSiblings: [TypeRef.Definition("Synthetic", "Samples", "Outer+nint")]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void NintKeywordShadowedByConstituentNestedType_StaysLowered()
+    {
+        var nint = TypeRef.CoreLib("System", "IntPtr");
+        var proof = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "List`1"),
+            [TypeRef.Definition("Synthetic", "Samples", "Outer+nint")]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            nint,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            additionalSiblings: [proof]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void DynamicKeywordShadowedBySiblingNestedType_StaysLowered()
+    {
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var host = RunSyntheticSiblingLambdaRaise(
+            objectType,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer"),
+            additionalSiblings: [TypeRef.Definition("Synthetic", "Samples", "Outer+dynamic")],
+            siblingIsDynamic: true);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void PairOfNintAndNestedNint_StaysLowered()
+    {
+        var sibling = TypeRef.GenericInstance(
+            TypeRef.Definition("Synthetic", "Samples", "Pair`2"),
+            [
+                TypeRef.CoreLib("System", "IntPtr"),
+                TypeRef.Definition("Synthetic", "Samples", "Outer+nint"),
+            ]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            sibling,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "Outer"));
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            sibling,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void ReservedIntKeywordWithDeclaringTypeNamedInt_StillRaises()
+    {
+        var host = RunSyntheticSiblingLambdaRaise(
+            s_int,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "int"));
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            s_int,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void ReservedStringKeywordWithDeclaringTypeNamedString_StillRaises()
+    {
+        var stringType = TypeRef.CoreLib("System", "String");
+        var host = RunSyntheticSiblingLambdaRaise(
+            stringType,
+            declaringType: TypeRef.Definition("Synthetic", "Samples", "string"));
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            stringType,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
     public void DynamicObjectSiblingCollidingWithHostGenericParameter_StaysLowered()
     {
         var objectType = TypeRef.CoreLib("System", "Object");

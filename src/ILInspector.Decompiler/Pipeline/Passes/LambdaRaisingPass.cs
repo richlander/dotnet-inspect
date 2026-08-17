@@ -417,20 +417,23 @@ public sealed class LambdaRaisingPass : IIrPass
         IrFunction host)
     {
         var parameterTypes = new TypeRef[body.Signature.Parameters.Length];
+        var isDynamic = new bool[body.Signature.Parameters.Length];
         for (int i = 0; i < body.Signature.Parameters.Length; i++)
         {
             parameterTypes[i] = body.Signature.Parameters[i].Type;
+            isDynamic[i] = body.Signature.Parameters[i].IsDynamic;
             if (!CSharpSpellability.CanSpellExplicitParameterType(
                     parameterTypes[i],
                     host,
                     creation.Method.ParameterRefKinds[i],
-                    body.Signature.Parameters[i].IsDynamic))
+                    isDynamic[i]))
             {
                 return false;
             }
         }
 
-        return !CSharpSpellability.AnyLeadingSegmentShadowedByKnownTypes(parameterTypes, host);
+        return !CSharpSpellability.AnyLeadingSegmentShadowedByKnownTypes(parameterTypes, host)
+            && !CSharpSpellability.AnyPrintedAliasShadowedByKnownTypes(parameterTypes, isDynamic, host);
     }
 
     static IEnumerable<IrNode> Self(IrNode node)
