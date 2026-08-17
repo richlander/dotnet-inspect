@@ -131,7 +131,8 @@ public static class CSharpStructuralDiffPrinter
                 int result = left.Extent.Column.CompareTo(right.Extent.Column);
                 return result != 0 ? result : right.Extent.Length.CompareTo(left.Extent.Length);
             });
-            if (HasTabBeforeExtent(line.Text, entries)
+            if (memberIndent.Contains('\t')
+                || HasTabBeforeExtent(line.Text, entries)
                 || !CanRenderInCommentGutter(entries, memberIndent.Length))
             {
                 output.AddRange(RenderExactFallback(line.Text, entries));

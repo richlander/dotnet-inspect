@@ -629,6 +629,49 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void RenderAnnotatedBody_TabbedMemberIndentUsesExactFallback()
+    {
+        const string beforeText = "\tvoid M()\n    return;";
+        const string afterText = "\tvoid M()\n    break;";
+        int beforeStart = beforeText.IndexOf("    return;", StringComparison.Ordinal);
+        int afterStart = afterText.IndexOf("    break;", StringComparison.Ordinal);
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [new AnnotatedSourceNode(
+                0,
+                "ReturnStatement",
+                SourceLineKind.CSharp,
+                [new(beforeStart, "    return;".Length)])],
+            [],
+            [],
+            []);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [new AnnotatedSourceNode(
+                0,
+                "BreakStatement",
+                SourceLineKind.CSharp,
+                [new(afterStart, "    break;".Length)])],
+            [],
+            [],
+            []);
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string[] rendered = CSharpStructuralDiffPrinter
+            .RenderAnnotatedBody(comparison, CSharpStructuralSide.Before)
+            .Split('\n');
+
+        Assert.Equal("    return;", rendered[1]);
+        Assert.StartsWith("    ^^^^^^^ raise: Return", rendered[2], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RenderAnnotatedBody_EarlyColumnSpansUseExactGutterFreeCarets()
     {
         const string beforeText = "a(b);";
