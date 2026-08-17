@@ -236,12 +236,22 @@ public class ExplicitFilterGuardTests
                 + (OperatingSystem.IsWindows() ? ".exe" : string.Empty));
         Assert.True(File.Exists(appHostPath), $"Test apphost not found: {appHostPath}");
 
+        string aliasDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"filter-guard-host-alias-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(aliasDirectory);
+        string aliasPath = Path.Combine(
+            aliasDirectory,
+            Path.GetFileName(appHostPath));
+        if (!OperatingSystem.IsWindows())
+        {
+            File.CreateSymbolicLink(aliasPath, appHostPath);
+        }
+
         var environment = new Dictionary<string, string?>
         {
-            ["PATH"] = Path.Combine(
-                Path.GetTempPath(),
-                $"filter-guard-empty-path-{Guid.NewGuid():N}"),
-            ["DOTNET_HOST_PATH"] = null,
+            ["PATH"] = aliasDirectory,
+            ["DOTNET_HOST_PATH"] = aliasPath,
         };
         string? dotnetHostPath =
             Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
@@ -250,7 +260,19 @@ public class ExplicitFilterGuardTests
             environment["DOTNET_ROOT"] = Path.GetDirectoryName(dotnetHostPath);
         }
 
-        return await RunProcessAsync(appHostPath, null, environment, arguments);
+        try
+        {
+            return await RunProcessAsync(appHostPath, null, environment, arguments);
+        }
+        finally
+        {
+            if (File.Exists(aliasPath))
+            {
+                File.Delete(aliasPath);
+            }
+
+            Directory.Delete(aliasDirectory);
+        }
     }
 
     private static async Task<ProcessResult> RunHostAsync(

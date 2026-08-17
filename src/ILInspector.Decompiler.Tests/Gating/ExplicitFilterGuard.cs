@@ -98,20 +98,6 @@ internal static class ExplicitFilterGuard
         string assemblyPath)
     {
         string? processPath = Environment.ProcessPath;
-        string? dotnetHostPath =
-            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
-        if (!string.IsNullOrEmpty(dotnetHostPath))
-        {
-            var result = new ProcessStartInfo(dotnetHostPath);
-            if (!PathsEqual(dotnetHostPath, processPath)
-                || IsDotnetMuxer(dotnetHostPath))
-            {
-                result.ArgumentList.Add(assemblyPath);
-            }
-
-            return result;
-        }
-
         if (string.IsNullOrEmpty(processPath))
         {
             return null;
@@ -131,31 +117,6 @@ internal static class ExplicitFilterGuard
             Path.GetFileNameWithoutExtension(path),
             "dotnet",
             StringComparison.OrdinalIgnoreCase);
-
-    private static bool PathsEqual(string left, string? right)
-    {
-        if (right is null)
-        {
-            return false;
-        }
-
-        try
-        {
-            return string.Equals(
-                Path.GetFullPath(left),
-                Path.GetFullPath(right),
-                OperatingSystem.IsWindows()
-                    ? StringComparison.OrdinalIgnoreCase
-                    : StringComparison.Ordinal);
-        }
-        catch (Exception ex) when (
-            ex is ArgumentException
-            or NotSupportedException
-            or PathTooLongException)
-        {
-            return false;
-        }
-    }
 
     internal static async ValueTask<int> RunPreflightAsync(
         string[] args,
