@@ -328,6 +328,8 @@ public static class CallGraphInspectionGraphAdapter
                 callSite.Identity.IsPortable)
                 ? InspectionGraphDocumentScope.Portable
                 : InspectionGraphDocumentScope.SessionBound,
+            InspectionGraphModeRequest.SingleSeed(
+                nodes[projection.Focus.Id].Subject),
             nodes,
             [],
             edges,
