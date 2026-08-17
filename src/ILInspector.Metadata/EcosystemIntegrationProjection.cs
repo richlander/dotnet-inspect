@@ -168,23 +168,23 @@ internal static class EcosystemIntegrationProjection
             EcosystemIntegrationApiEvidence? evidence = null;
             if (definitionName is not null)
             {
-                ExtensionMemberAnchorInfo anchor;
                 try
                 {
-                    anchor = ApiMemberIdentity.CreateExtensionMethodAnchorInfo(
-                        reader,
-                        typeDefinitionHandle,
-                        method);
+                    ExtensionMemberAnchorInfo anchor =
+                        ApiMemberIdentity.CreateExtensionMethodAnchorInfo(
+                            reader,
+                            typeDefinitionHandle,
+                            method);
+                    evidence = new EcosystemIntegrationApiEvidence(
+                        anchor.Anchor,
+                        definitionName,
+                        anchor.ExtendedTypeReference,
+                        anchor.ReturnTypeReference);
                 }
                 catch (BadImageFormatException)
                 {
-                    continue;
+                    evidence = null;
                 }
-                evidence = new EcosystemIntegrationApiEvidence(
-                    anchor.Anchor,
-                    definitionName,
-                    anchor.ExtendedTypeReference,
-                    anchor.ReturnTypeReference);
             }
             if (EcosystemIntegrationClassifier.TryClassifyAspireStarterMethod(typeName, methodName, signature, out var aspireKind))
                 AddApi(buckets.Aspire, api, aspireKind, evidence);
