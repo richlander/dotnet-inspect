@@ -42,6 +42,18 @@ public static class StructuralCloneFixture
     public static string MetadataOperandsB(object item)
         => string.Concat("clone", item);
 
+    public static int NearConstantA(int value) => value + 1;
+
+    public static int NearConstantB(int value) => value + 2;
+
+    public static int NearCallTargetA(int value) => CallTargetA(value);
+
+    public static int NearCallTargetB(int value) => CallTargetB(value);
+
+    public static int NearHardNegativeA(int value) => value * 3 + 1;
+
+    public static int NearHardNegativeB(int value) => value / 2 - 2;
+
     public static int ExceptionHandlingA(int value)
     {
         try
@@ -66,6 +78,9 @@ public static class StructuralCloneFixture
         }
     }
 
+    static int CallTargetA(int value) => value;
+
+    static int CallTargetB(int value) => value;
 }
 
 public static class StructuralCloneUserStringFixture
