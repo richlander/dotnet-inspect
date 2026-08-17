@@ -22,6 +22,10 @@ public sealed class InspectionGraphDocumentTests
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Member],
+            [
+                MemberAdmission(InspectionGraphEndpointRole.Source),
+                MemberAdmission(InspectionGraphEndpointRole.Target),
+            ],
             InspectionGraphEndpointProjection.Exact,
             new TestOccurrenceIdentityProjection(),
             [TestEvidence]);
@@ -550,6 +554,336 @@ public sealed class InspectionGraphDocumentTests
     }
 
     [Fact]
+    public void NeighborhoodRequest_ValidatesAndSnapshotsSelection()
+    {
+        InspectionGraphSubject member = Subject("Member");
+        var relationships =
+            new List<InspectionGraphRelationshipDescriptor>
+            {
+                CallGraphInspectionGraphCatalog.Call,
+            };
+        InspectionGraphNeighborhoodRequest request =
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                relationships,
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 2);
+
+        relationships.Clear();
+
+        Assert.Equal(
+            [CallGraphInspectionGraphCatalog.Call],
+            request.Relationships);
+        Assert.Equal(member, request.Seed);
+        Assert.Equal(2, request.MaxDepth);
+        Assert.Equal(
+            InspectionGraphTraversalDirection.Outgoing,
+            request.Direction);
+        Assert.Throws<ArgumentException>(
+            () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                [],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1));
+        Assert.Throws<ArgumentException>(
+            () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                default(ImmutableArray<
+                    InspectionGraphRelationshipDescriptor>),
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1));
+        Assert.Throws<ArgumentException>(
+            () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                [
+                    CallGraphInspectionGraphCatalog.Call,
+                    CallGraphInspectionGraphCatalog.Call,
+                ],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                [CallGraphInspectionGraphCatalog.Call],
+                (InspectionGraphTraversalDirection)42,
+                maxDepth: 1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                member,
+                [CallGraphInspectionGraphCatalog.Call],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: -1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new InspectionGraphNeighborhoodDepthBoundEvidence(-1));
+    }
+
+    [Fact]
+    public void NeighborhoodRequest_RequiresDirectionalSeedAdmission()
+    {
+        InspectionGraphSubject package =
+            InspectionGraphSubject.ForRealizedPackage(
+                new RealizedMemberCoordinate.Package(
+                    "sample.package",
+                    "1.0.0",
+                    "feed",
+                    "net11.0",
+                    null));
+
+        InspectionQueryException unsupported = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                    package,
+                    [CallGraphInspectionGraphCatalog.Call],
+                    InspectionGraphTraversalDirection.Outgoing,
+                    maxDepth: 1));
+        InspectionQueryException wrongDirection = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphNeighborhoodRequest.SingleSeed(
+                    package,
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved,
+                    ],
+                    InspectionGraphTraversalDirection.Incoming,
+                    maxDepth: 1));
+        InspectionGraphNeighborhoodRequest outgoing =
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                package,
+                [
+                    InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved,
+                ],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth: 1);
+
+        Assert.Contains("package seed", unsupported.Message);
+        Assert.Contains("call", unsupported.Message);
+        Assert.Contains("incoming", wrongDirection.Message);
+        Assert.Equal(package, outgoing.Seed);
+    }
+
+    [Fact]
+    public void RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions()
+    {
+        static InspectionGraphRelationshipDescriptor Descriptor(
+            IEnumerable<InspectionGraphSeedAdmission> admissions) =>
+            new(
+                "test.seed-admission",
+                InspectionGraphOwner.Queries,
+                InspectionGraphRelationshipSemantics.Observed,
+                [InspectionGraphSubjectKind.Member],
+                [InspectionGraphSubjectKind.Member],
+                [InspectionGraphSubjectKind.Member],
+                [InspectionGraphSubjectKind.Member],
+                admissions,
+                InspectionGraphEndpointProjection.Exact,
+                new TestOccurrenceIdentityProjection(),
+                [TestEvidence]);
+
+        var admissions = new List<InspectionGraphSeedAdmission>
+        {
+            MemberAdmission(InspectionGraphEndpointRole.Source),
+            MemberAdmission(InspectionGraphEndpointRole.Target),
+        };
+        InspectionGraphRelationshipDescriptor descriptor =
+            Descriptor(admissions);
+
+        admissions.Clear();
+
+        Assert.Equal(2, descriptor.SeedAdmissions.Length);
+        Assert.Equal(
+            descriptor.SeedAdmissions,
+            descriptor.GetSeedAdmissions(
+                InspectionGraphSubjectKind.Member));
+        Assert.Empty(descriptor.GetSeedAdmissions(
+            InspectionGraphSubjectKind.Package));
+        Assert.Throws<ArgumentException>(
+            () => Descriptor([]));
+        Assert.Throws<ArgumentException>(
+            () => Descriptor(
+                default(ImmutableArray<InspectionGraphSeedAdmission>)));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => Descriptor(
+                [
+                    Admission(
+                        InspectionGraphSubjectKind.Member,
+                        (InspectionGraphSeedAdmissionKind)42,
+                        InspectionGraphEndpointRole.Source),
+                ]));
+        Assert.Throws<ArgumentException>(
+            () => Descriptor(
+                [
+                    Admission(
+                        InspectionGraphSubjectKind.Package,
+                        InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                        InspectionGraphEndpointRole.Source),
+                ]));
+        Assert.Throws<ArgumentException>(
+            () => Descriptor(
+                [
+                    MemberAdmission(InspectionGraphEndpointRole.Source),
+                    MemberAdmission(InspectionGraphEndpointRole.Source),
+                ]));
+    }
+
+    [Fact]
+    public void RelationshipCatalogsDeclareCurrentSeedAdmissions()
+    {
+        InspectionGraphSeedAdmission[] outwardIntegrationAdmissions =
+        [
+            Admission(
+                InspectionGraphSubjectKind.Member,
+                InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                InspectionGraphEndpointRole.Source),
+            Admission(
+                InspectionGraphSubjectKind.Type,
+                InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                InspectionGraphEndpointRole.Target),
+            Admission(
+                InspectionGraphSubjectKind.Assembly,
+                InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                InspectionGraphEndpointRole.Source),
+            Admission(
+                InspectionGraphSubjectKind.Package,
+                InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                InspectionGraphEndpointRole.Source),
+        ];
+
+        Assert.Equal(
+            [
+                MemberAdmission(InspectionGraphEndpointRole.Source),
+                MemberAdmission(InspectionGraphEndpointRole.Target),
+            ],
+            CallGraphInspectionGraphCatalog.Call.SeedAdmissions);
+        Assert.Equal(
+            outwardIntegrationAdmissions,
+            InspectionGraphIntegrationsCatalog.Extension.SeedAdmissions);
+        Assert.Equal(
+            outwardIntegrationAdmissions,
+            InspectionGraphIntegrationsCatalog
+                .IntegrationObserved.SeedAdmissions);
+        Assert.Equal(
+            [
+                Admission(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                Admission(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+                Admission(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+                Admission(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Target),
+            ],
+            InspectionGraphIntegrationsCatalog
+                .MetadataReference.SeedAdmissions);
+        Assert.Equal(
+            [
+                Admission(
+                    InspectionGraphSubjectKind.Assembly,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                Admission(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.OccurrenceEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                Admission(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+                Admission(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
+            ],
+            InspectionGraphIntegrationsCatalog
+                .IntegrationOpportunity.SeedAdmissions);
+    }
+
+    [Fact]
+    public void AdmissionsMatchDeclaredEndpointDomains()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphRelationshipDescriptor(
+                "test.wrong-occurrence-endpoint",
+                InspectionGraphOwner.Queries,
+                InspectionGraphRelationshipSemantics.Observed,
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Type],
+                [InspectionGraphSubjectKind.Type],
+                [InspectionGraphSubjectKind.Type],
+                [
+                    Admission(
+                        InspectionGraphSubjectKind.Assembly,
+                        InspectionGraphSeedAdmissionKind.OccurrenceEndpoint,
+                        InspectionGraphEndpointRole.Source),
+                ],
+                InspectionGraphEndpointProjection.Exact,
+                new TestOccurrenceIdentityProjection(),
+                [TestEvidence]));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphRelationshipDescriptor(
+                "test.wrong-edge-role",
+                InspectionGraphOwner.Queries,
+                InspectionGraphRelationshipSemantics.Observed,
+                [InspectionGraphSubjectKind.Member],
+                [InspectionGraphSubjectKind.Type],
+                [InspectionGraphSubjectKind.Member],
+                [InspectionGraphSubjectKind.Type],
+                [
+                    Admission(
+                        InspectionGraphSubjectKind.Member,
+                        InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                        InspectionGraphEndpointRole.Target),
+                ],
+                InspectionGraphEndpointProjection.Exact,
+                new TestOccurrenceIdentityProjection(),
+                [TestEvidence]));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphRelationshipDescriptor(
+                "test.invalid-owned-endpoint",
+                InspectionGraphOwner.Queries,
+                InspectionGraphRelationshipSemantics.Observed,
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [
+                    Admission(
+                        InspectionGraphSubjectKind.Member,
+                        InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                        InspectionGraphEndpointRole.Source),
+                ],
+                InspectionGraphEndpointProjection.Exact,
+                new TestOccurrenceIdentityProjection(),
+                [TestEvidence]));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphRelationshipDescriptor(
+                "test.self-owned-endpoint",
+                InspectionGraphOwner.Queries,
+                InspectionGraphRelationshipSemantics.Observed,
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [InspectionGraphSubjectKind.Assembly],
+                [
+                    Admission(
+                        InspectionGraphSubjectKind.Assembly,
+                        InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                        InspectionGraphEndpointRole.Source),
+                ],
+                InspectionGraphEndpointProjection.Exact,
+                new TestOccurrenceIdentityProjection(),
+                [TestEvidence]));
+    }
+
+    [Fact]
     public void Document_RequiresModeRequestAndSeedBindingsToAgree()
     {
         InspectionGraphSubject first = Subject("First");
@@ -721,6 +1055,10 @@ public sealed class InspectionGraphDocumentTests
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Member],
+            [
+                MemberAdmission(InspectionGraphEndpointRole.Source),
+                MemberAdmission(InspectionGraphEndpointRole.Target),
+            ],
             InspectionGraphEndpointProjection.Exact,
             InspectionGraphOccurrenceIdentityProjection
                 .SyntheticNoOccurrence,
@@ -815,6 +1153,24 @@ public sealed class InspectionGraphDocumentTests
             [InspectionGraphSubjectKind.Package],
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Member],
+            [
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+                new(
+                    InspectionGraphSubjectKind.Member,
+                    InspectionGraphSeedAdmissionKind.OccurrenceEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Member,
+                    InspectionGraphSeedAdmissionKind.OccurrenceEndpoint,
+                    InspectionGraphEndpointRole.Target),
+            ],
             new TestRollupEndpointProjection(),
             new TestOccurrenceIdentityProjection(),
             [TestEvidence]);
@@ -926,6 +1282,10 @@ public sealed class InspectionGraphDocumentTests
                 [InspectionGraphSubjectKind.Member],
                 [InspectionGraphSubjectKind.Member],
                 [InspectionGraphSubjectKind.Member],
+                [
+                    MemberAdmission(InspectionGraphEndpointRole.Source),
+                    MemberAdmission(InspectionGraphEndpointRole.Target),
+                ],
                 InspectionGraphEndpointProjection.Exact,
                 new TestOccurrenceIdentityProjection(),
                 [TestEvidence]);
@@ -968,6 +1328,10 @@ public sealed class InspectionGraphDocumentTests
                 [InspectionGraphSubjectKind.Member],
                 [InspectionGraphSubjectKind.Member],
                 [InspectionGraphSubjectKind.Member],
+                [
+                    MemberAdmission(InspectionGraphEndpointRole.Source),
+                    MemberAdmission(InspectionGraphEndpointRole.Target),
+                ],
                 InspectionGraphEndpointProjection.Exact,
                 new TestOccurrenceIdentityProjection(),
                 [TestEvidence]);
@@ -1241,6 +1605,10 @@ public sealed class InspectionGraphDocumentTests
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Member],
+            [
+                MemberAdmission(InspectionGraphEndpointRole.Source),
+                MemberAdmission(InspectionGraphEndpointRole.Target),
+            ],
             InspectionGraphEndpointProjection.Exact,
             InspectionGraphOccurrenceIdentityProjection
                 .SyntheticNoOccurrence,
@@ -1285,6 +1653,19 @@ public sealed class InspectionGraphDocumentTests
             [],
             [],
             []);
+
+    static InspectionGraphSeedAdmission Admission(
+        InspectionGraphSubjectKind subjectKind,
+        InspectionGraphSeedAdmissionKind kind,
+        InspectionGraphEndpointRole role) =>
+        new(subjectKind, kind, role);
+
+    static InspectionGraphSeedAdmission MemberAdmission(
+        InspectionGraphEndpointRole role) =>
+        Admission(
+            InspectionGraphSubjectKind.Member,
+            InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+            role);
 
     sealed record TestOccurrenceEvidence(int Identity)
         : IInspectionGraphOccurrenceEvidence

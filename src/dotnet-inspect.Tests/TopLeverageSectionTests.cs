@@ -1,7 +1,9 @@
 using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
 
@@ -291,14 +293,19 @@ public class TopLeverageSectionTests
         var context = service.Context;
         var drillMap =
             LibraryMetadataService.BuildLibraryDrillMap(context, logger);
-        return LibraryMetadataService.ScanTopLeverage(
-            () => LibraryBodyIndex.OpenFromPrefetchedImage(
+        var result = TopLeverageQuery.Execute(
+            LibraryBodyIndex.OpenFromPrefetchedImage(
                 path,
                 context.GetPrefetchedImage(),
-                LibraryBodyAnalysisFeatures.Default),
-            () => drillMap,
+                LibraryBodyAnalysisFeatures.Default));
+        var inspection = new LibraryInspection();
+        LibraryMetadataService.ApplyTopLeverageResult(
             path,
-            logger);
+            inspection,
+            logger,
+            result,
+            () => drillMap);
+        return inspection.TopLeverage;
     }
 
     private static MethodIdentity CreateRuntimeConverterHelper(string name)

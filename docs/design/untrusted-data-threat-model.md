@@ -380,9 +380,219 @@ reservations and retained cache entries share the same 12-package/128 MB limit.
 Before assembly identity decoding, each workspace role also rejects more than
 256 selected assemblies or a declared expanded total above that role's 32/64 MB
 retained-image budget.
+Browser API-surface projection additionally spends one shared
+32,000,000-character retained-text budget across its selected assemblies. The
+extractor charges every string-bearing model field as it retains each member,
+type, inspection failure, type forwarder, and late canonical identity; repeated
+references are charged per field. It observes text incrementally while decoding
+type nodes, parameters, attributes, generic constraints, and interfaces. A
+separate extraction-wide work ledger charges encoded names, signature nodes,
+and custom-attribute blobs before materializing their expanded forms. It grants
+one fixed decode floor, then only bounded credit for retained model text;
+accepted or rejected type candidates cannot rearm the floor. The exact
+retained-character total therefore remains unchanged while one wide signature,
+deeply nested generic head or argument, nested or high-rank array, default value,
+hidden signature, or attribute cannot allocate its complete amplified model
+before the check. Composite type nodes carry non-materializing rendered-length
+estimates, and bounded decoding charges each constructed node's complete
+estimated output so repeated wrapping cannot reallocate an uncharged subtree.
+Structured nested type names are read once and enforce their cumulative limit
+before the remaining chain is materialized. Legacy `FormatChain`, `ReadChain`,
+and leaf-append readers preflight UTF-8 storage against three times that
+4,096-character budget (the UTF-8 worst case), then recheck decoded length,
+and report `NameBudget` rather than malformed or success-shaped output.
+Display string APIs (`GetFullName`, `GetTypeNameFrom*`) keep only the encoded
+cap so a 5,030-character classifier fixture can still be spelled;
+`Resolve*`/`Read` remain on the 4,096-character policy.
+`AppendLeaf` continues the declaring walk's live encoded and character
+ledgers rather than reseeding them from rendered text. Shared #Strings entries, many individually
+small segments, projected WinRT virtual strings, TypeSpec `NameBudget` kind
+preservation, and the display/structured split are gated by
+`SharedOversizeHeapString_IsRejectedBeforeAggregateMaterialization`,
+`ManySmallSegments_AreRejectedOnAggregateEncodedLength`,
+`LeafAppendOverBudget_IsRejectedBeforeLeafMaterialization`,
+`StructuredRead_ReportsNameBudgetNotMalformed`,
+`ProjectedVirtualStringLength_IsRecheckedAfterBlobReader`,
+`TypeSpecNameBudget_IsPreservedAsTypedEvidence`,
+`TypeSpecNameBudget_SurvivesLaterMalformedArgument`,
+`AppendLeaf_PreflightsActualUtf8OfMaterializedDeclaringName`,
+`DisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`,
+`NestedDisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`,
+`TypeSpecDisplayNameApis_AdmitCharacterOverBudgetNamesUnderTheEncodedCap`,
+`EmptyLeadingNameSegment_DoesNotCollideWithTopLevelName`,
+`EmptyNamespaceExactCharacterBudget_AgreesWithCreate`,
+`EmptyNamespaceNestedResolveFullName_AgreesWithCreate`, and
+`NilNameAfterEncodedCap_IsRejectedOnDisplayPath`. Tuple-name, nullability, and dynamic
+transform arrays charge their encoded blob before allocating arrays, and one
+type generic context is reused across all of that type's members.
+Visibility probes use bounded blob readers rather than copying skipped
+attribute values. Declared custom-attribute SZArray and named-argument counts
+are checked against remaining value-blob bytes before SRM allocates builders
+from those counts, and each declared slot is charged as decode work so a
+hostile four-byte count cannot become a gigabyte-scale argument array or a
+swallowed OOM. The same walk covers each named argument's
+`FieldOrPropType`, name, and value — a named SZArray count or a nested
+named array type is not left for `DecodeValue` to allocate or recurse
+on. Boxed and nested SZArray encodings are depth-bounded before
+decode so a chain of tags cannot overflow the native stack. Enum-typed
+fixed and named arguments use one shared underlying-width oracle, so a
+TypeRef that resolves to a local non-`int32` enum, or an over-deep
+`value__` field signature, cannot desynchronize later count reads.
+Serialized enum names are normalized the same way SRM's provider sees
+them (assembly suffix stripped, nested `+` matched to the metadata
+index). `CLASS`/`VALUETYPE` constructor parameters special-case only
+`System.Type`; other tokens use the enum-width oracle so a
+`class System.String` argument cannot shift later counts. Generic
+attribute constructors whose parameter is a `VAR` resolve that
+argument through the owning TypeSpec. Earlier generic arguments
+that cannot be skipped, including `FNPTR` and `PTR`+`FNPTR`, fail
+closed instead of leaving the substituted value unconsumed. Earlier
+`CLASS`/`VALUETYPE` arguments are skipped the same way SRM
+`CustomAttributeDecoder.SkipType` does — including treating a
+TypeDefOrRef coded index as another type code — so a TypeDef row 4
+or TypeRef row 4 cannot hide a later SZArray count. A
+substituted type is not itself re-substituted, so a self-referential
+`GENERICINST` `!0` cannot recurse the guard. A budget observer failure
+raised while the guard consults the enum index unwraps to the same
+typed truncation `DecodeValue` already propagated. Every bounded member-name decode and every namespace/name
+segment used to resolve an attribute type is also charged before SRM
+materializes it, including names inspected only to skip an accessor,
+compiler-generated field, or hidden member. Property-accessor nullable-context
+probes use the same observer as method attributes, so a TypeSpec constructor
+parent on a getter is charged before its rank string is rendered. Property
+`ref` return spelling charges every SequenceNumber-0 Param row the same way
+the method path does, so extra return-parameter rows cannot multiply an
+uncharged TypeSpec decode. This includes every enclosing
+TypeDef or TypeRef segment reached from a signature, skipped enum names scanned
+while formatting defaults, forwarded type and target-assembly names, and
+strong-name blobs read while proving a finalizer slot reaches the core library.
+TypeSpec-owned generic attribute constructors use the same guarded signature
+decoder and preserve bounded/unbounded parity. Enum-valued arguments build one
+charged type-name index per extraction instead of rescanning every type
+for every argument or attribute. That includes parameter attributes and the
+DecimalConstant/DateTimeConstant default-materialization path, which reuses the
+same extraction-wide observer even though those attributes are not re-emitted
+in the surface. Both a successful index and its rejected
+outcome are cached, so malformed metadata is reported once rather than silently
+reallocating the index for each attribute. The same cache is used on the
+unbounded path, which is the public `AssemblyReader.ExtractApiSurface` route. Enum-default classification also
+charges base-type names before resolving them. Decode failures may skip malformed
+attributes, but a budget-observer failure must escape the decoder and produce
+typed truncation. The Browser separately applies the same bound while deriving
+type/member transport records, including canonical signatures, documentation
+IDs, and graph selectors that repeat declaring-type identity. It preflights
+each source model against the budget remaining after committed and pending
+participants before creating those derived strings, and collision-qualified
+IDs are created and charged before their participant commits. An assembly that
+would exceed either remaining retained-text budget is abandoned whole, and the
+Browser reports truncation rather than presenting a shortened surface as
+complete.
 `BrowserEngineBoundaryTests.WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures`
 gates aggregate ownership and eviction; its oversized-role case gates
 pre-decoding rejection.
+`ApiSurfaceExtractorBoundsTests.RetainedTextBudget_IsExact`,
+`RepeatedLongMemberName_StopsBeforeLargeAllocationAmplification`,
+`RepeatedLongSkippedAccessorName_StopsBeforeLargeAllocationAmplification`,
+`RepeatedLongSkippedFieldName_StopsBeforeLargeAllocationAmplification`,
+`RepeatedLongVisibilityAttributeTypeName_StopsBeforeLargeAllocationAmplification`,
+`OneWideSignature_StopsBeforeLargeAllocationAmplification`,
+`OneInterfaceHeavyType_StopsBeforeLargeAllocationAmplification`,
+`OneWideFieldSignature_StopsBeforeLargeAllocationAmplification`,
+`OneWideTypeSpec_StopsBeforeLargeAllocationAmplification`,
+`OneLargeCustomAttribute_StopsBeforeLargeAllocationAmplification`,
+`OneHugeCustomAttributeArrayCount_StopsBeforeLargeAllocationAmplification`,
+`RepeatedNamedArgumentCount_StopsBeforeLargeAllocationAmplification`,
+`PropertyAccessorNullableContextTypeSpec_StopsBeforeLargeAllocationAmplification`,
+`PropertyRefReturnDuplicateSeq0Attributes_StopsBeforeLargeAllocationAmplification`,
+`LegalNamedAttribute_HasBoundedUnboundedParity`,
+`DeepBoxedCustomAttribute_StopsBeforeStackOverflow`,
+`OneHugeNamedArgumentArrayCount_StopsBeforeLargeAllocationAmplification`,
+`DeepNamedNestedArrayCustomAttribute_StopsBeforeStackOverflow`,
+`TypeRefEnumWidthDesync_StopsBeforeLargeAllocationAmplification`,
+`OverDeepEnumFieldModifiers_StopsBeforeLargeAllocationAmplification`,
+`CustomAttributeValueGuardTests.HugeNamedArgumentArrayCount_IsUnsafe`,
+`CustomAttributeValueGuardTests.NamedArrayNestingJustOverLimit_IsUnsafe`,
+`CustomAttributeValueGuardTests.TypeRefEnumMatchingLocalInt64_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.OverDeepEnumFieldModifiers_UseInt32WidthAndSeeFollowingArrayCount`,
+`CustomAttributeValueGuardTests.AssemblyQualifiedNamedEnum_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.ClassSystemStringFixedArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.GenericAttributeTypeParameterInt32_IsSafe`,
+`CustomAttributeValueGuardTests.FnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.PtrFnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.ClassTypeDefRow4EarlierArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.ValueTypeTypeRefRow4EarlierArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.SelfReferentialGenericVar_IsUnsafe`,
+`ClassTypeDefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification`,
+`ValueTypeTypeRefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification`,
+`CustomAttributeValueGuardTests.ObserverFailureDuringNamedEnumLookup_EscapesTryDecode`,
+`FnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification`,
+`PtrFnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification`,
+`SelfReferentialGenericVar_StopsBeforeStackOverflow`,
+`AssemblyQualifiedNamedEnum_StopsBeforeLargeAllocationAmplification`,
+`ClassSystemStringFixedArgument_StopsBeforeLargeAllocationAmplification`,
+`LegalNestedLongEnumNamedArgument_HasBoundedUnboundedParity`,
+`LegalGenericCtorAttribute_HasBoundedUnboundedParity`,
+`RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
+`SeparateEnumAttributes_ReuseTheChargedTypeNameIndex`,
+`FailedEnumAttributeIndexBuild_IsCachedAndVisible`,
+`FailedEnumAttributeIndexBuild_IsCachedOnTheUnboundedPath`,
+`ParameterEnumAttributes_ReuseTheChargedTypeNameIndex`,
+`ParameterEnumAttributes_ReuseTheChargedTypeNameIndexOnTheUnboundedPath`,
+`DecimalConstantParameterAttributes_ReuseTheChargedTypeNameIndex`,
+`DecimalConstantParameterAttributes_ReuseTheChargedTypeNameIndexOnTheUnboundedPath`,
+`GenericAttributeTypeSpec_StopsBeforeLargeAllocationAmplification`,
+`OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
+`OneArgumentNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
+`OneNestedArrayType_StopsBeforeLargeAllocationAmplification`,
+`EnclosingTypeNameChain_StopsBeforeLargeAllocationAmplification`,
+`EnclosingTypeReferenceChain_StopsBeforeLargeAllocationAmplification`,
+`RejectedTypes_SpendDecodeWorkAcrossTheExtraction`,
+`LargeTransformArray_StopsBeforeLargeAllocationAmplification`,
+`RepeatedMethodGenericContext_ReusesTypeParameterNames`,
+`OneHugeArrayRank_StopsBeforeLargeAllocationAmplification`,
+`HiddenAutoPropertySignature_StopsBeforeLargeAllocationAmplification`,
+`HugeParameterDefault_StopsBeforeLargeAllocationAmplification`,
+`EnumDefaultScan_ChargesSkippedEnclosingTypeNames`,
+`EnumDefaultScan_ChargesRejectedBaseTypeNames`,
+`EnumDefaultScan_ChargesTypeSpecArrayRank`,
+`AttributeTypeSpec_ChargesArrayRankBeforeRendering`,
+`LocalExtensionAttachment_DoesNotAllocateQuadratically`,
+`FinalizerScan_ChargesCoreLibraryPublicKeyBeforeCopying`,
+`PropertyAccessorReturnAttribute_StopsBeforeLargeAllocationAmplification`,
+`EventAccessorReturnAttribute_StopsBeforeLargeAllocationAmplification`,
+`LargeVisibilityAttribute_StopsBeforeDecodingItsMessage`,
+`RepeatedHiddenAttributeProbe_DoesNotCopyTheValueBlob`,
+`ExhaustedForwarderBudgetStopsBeforeDecodingItsName`,
+`ForwarderTargetAssemblyIsChargedBeforeDecoding`,
+`ExtensionReceiverIdentityContributesItsOwnRetainedText`,
+`GenericAttributeConstructorHasBoundedUnboundedParity`,
+`AssemblyContextApiSurfaceQueryTests.ExecuteBounded_SpendsRetainedTextAcrossParticipants`,
+and
+`BrowserEngineBoundaryTests.ApiSurfaceProjection_IsBoundedAndReportsTruncation`
+gate exact extraction, metadata allocation-amplification shapes,
+shared-budget spending, and host reporting. The original allocation gate uses a
+146 KB synthetic PE containing 10,000 methods with one repeated 4,000-character
+name: unbounded extraction allocated approximately 335 MB on the measuring
+host, while the bounded path allocated approximately 22 MB and returned typed
+truncation. The wide-signature and interface-heavy gates concentrate repeated
+4,000-character names inside one member and one type respectively and require
+each bounded path to allocate less than 64 MB. The skipped-accessor canary uses
+a 92 KB image whose 10,000 repeated 4,000-character names allocated
+approximately 200 MB while escaping both retained text and member counts; the
+bounded path now returns typed truncation after approximately 4 MB.
+`BrowserEngineBoundaryTests.SurfaceProjection_LongDeclaringTypeStopsIncrementally`
+gates the derived-identity transport budget.
+`SurfaceProjection_OneHugeTypeStopsBeforeDerivedIdentities` and
+`SurfaceProjection_OneHugeMemberStopsBeforeDerivedIdentities` gate
+pre-materialization rejection for one amplified transport record.
+`SurfaceProjection_PreflightUsesTheRemainingSharedBudget` gates preflight after
+earlier participants have committed most of that shared budget.
+`QueryPackage_FirstTransportTruncationReturnsTypedNotice` gates typed
+zero-participant truncation, and
+`SurfaceProjection_QualifiedCollisionIdIsAccountedBeforeCommit` gates final-ID
+accounting before participant commit. Finally,
+`ApiSurfacePolicy_AcceptsCoreLibraryAtEveryBrowserScope` pins the 32-million
+policy against CoreLib at both Browser extraction scopes.
 `PackageArchiveEntryFlood_IsRejectedBeforeArchiveEnumeration` gates the
 host-specific central-directory entry limit.
 `PackagePayloadAcquisitionTests.TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit`,

@@ -355,17 +355,7 @@ public class EvilPoolPinTests
     /// </summary>
     static HashSet<string> PinRuleNamesFromSweep(string root)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host
-                ? host
-                : "dotnet",
-            WorkingDirectory = root,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        startInfo.ArgumentList.Add("run");
-        startInfo.ArgumentList.Add(Path.Combine(root, "eng", "prepare-decompiler-package-sweep.cs"));
+        var startInfo = EvilPoolSweepProcess.Create(root, root);
         startInfo.ArgumentList.Add("--");
         startInfo.ArgumentList.Add("--list-pin-rules");
 
@@ -466,17 +456,7 @@ public class EvilPoolPinTests
     static (int ExitCode, string Output, string Errors) RunSweep(
         string root, string workingDirectory, string outputDirectory)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host
-                ? host
-                : "dotnet",
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        startInfo.ArgumentList.Add("run");
-        startInfo.ArgumentList.Add(Path.Combine(root, "eng", "prepare-decompiler-package-sweep.cs"));
+        var startInfo = EvilPoolSweepProcess.Create(root, workingDirectory);
         startInfo.ArgumentList.Add("--");
         startInfo.ArgumentList.Add(outputDirectory);
         startInfo.ArgumentList.Add("1");
@@ -519,17 +499,7 @@ public class EvilPoolPinTests
     /// </summary>
     static PinVerdict[] ValidateWithSweep(string root, string[] paths)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host
-                ? host
-                : "dotnet",
-            WorkingDirectory = root,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        startInfo.ArgumentList.Add("run");
-        startInfo.ArgumentList.Add(Path.Combine(root, "eng", "prepare-decompiler-package-sweep.cs"));
+        var startInfo = EvilPoolSweepProcess.Create(root, root);
         startInfo.ArgumentList.Add("--");
         startInfo.ArgumentList.Add("--validate-pin");
         foreach (string path in paths)

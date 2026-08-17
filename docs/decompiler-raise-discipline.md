@@ -68,11 +68,14 @@ gaps verbatim. Add `--json` when the revision-bound diff document itself must be
 retained or replayed; never replace it with caller-authored correspondence.
 
 Never hand-place carets or recover correspondence from equal ids, coordinates,
-text, labels, or display order. When the documents predate provenance support,
-describe different method bodies, or leave the changed nodes unsupported or
-ambiguous, record
+text, labels, or display order. A generated `Partial` status is a decline
+boundary, not qualified proof: state whether the PR's claimed changed structure
+has a unique matched row. When it appears only among unsupported or ambiguous
+gaps, treat any matched rows as incidental and record
 `Not generated — unsupported or ambiguous product correspondence: {detail}`
-and retain the standalone Before and After bodies.
+for the claimed structural review. The same decline applies when the documents
+predate provenance support or describe different method bodies. Retain the
+standalone Before and After bodies.
 
 The structural review explains *what changed*; it is not a correctness oracle.
 Keep the independent validity, correctness, compile-back fidelity, and exact

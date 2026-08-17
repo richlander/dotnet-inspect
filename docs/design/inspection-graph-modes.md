@@ -16,10 +16,17 @@ also binds mixed peer seeds without selecting a primary and declares its
 request-free workspace projection as an induced set over workspace
 participants.
 
-This first executable mode slice binds request intent to graph subjects without
-changing producer demand or topology. Request-driven neighborhood construction,
-relationship-specific admission, traversal bounds, induced explicit-subject
-sets, and command/presentation surfaces remain design targets.
+The current executable mode slices bind request intent to graph subjects and
+make seed admission a descriptor-owned relationship contract. An
+`InspectionGraphNeighborhoodRequest` now composes one seed with an explicit
+relationship set, semantic traversal direction, and finite edge-depth bound.
+The Integration query validates that relationship set before execution,
+requests only its required producers and prerequisites, and projects the
+bounded neighborhood without reversing stored edges or changing occurrence
+identity. The call session exposes the same request envelope for an outgoing,
+call-only member neighborhood while retaining its Analysis-owned node budget.
+Peer connecting neighborhoods, induced explicit-subject sets, and
+command/presentation surfaces remain design targets.
 
 `CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap`,
 `PackageSeed_BindsToNodeOrGroupSelectedByLens`,
@@ -27,8 +34,15 @@ sets, and command/presentation surfaces remain design targets.
 `Execute_BindsAssemblySeedToExactNode`,
 `Execute_BindsPackageSeedToDetailedLensGroup`,
 `Execute_BindsPeerSeedsWithoutChoosingPrimary`, and
-`Execute_DefaultsToWorkspaceInducedSetWithoutSeeds` gate the implemented
-contract.
+`Execute_DefaultsToWorkspaceInducedSetWithoutSeeds` gate mode binding.
+`RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`,
+`AdmissionsMatchDeclaredEndpointDomains`, and
+`RelationshipCatalogsDeclareCurrentSeedAdmissions` gate descriptor admission.
+`Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
+`Execute_PackageSeedExpandsThroughOwnedSourceSubjects`,
+`Execute_OpportunitySourceTypeUsesOccurrenceAdmission`, and
+`Execute_SelectedRelationshipsControlProducerDemand` gate the first
+load-bearing neighborhood.
 
 | Mode | Focus | Input | Primary question |
 | --- | --- | --- | --- |
@@ -88,11 +102,28 @@ lens, characteristic selection, and bounds.
 admitted by the request. Walking an incoming edge never reverses its semantic
 direction.
 
+The current Integration implementation accepts an explicit relationship set,
+`Outgoing`, `Incoming`, or `Both`, and a non-negative maximum edge depth.
+Depth zero retains the bound seed and failures from requested producers and
+their required composition prerequisites without traversing an edge, including
+when those producers emit no relationship for the seed. Every result carries
+the request and a typed depth-bound limit.
+
 ### Member seed
 
 The current `member -S "Call Graph"` path is the worked example. The member is
 the focus, while caller scopes widen evidence coverage without becoming seeds.
 The `call` relationship remains directed caller to callee.
+
+`CrossLibraryCalleeNeighborhood` is the bounded L1 form: one member seed,
+`call` as its only selected relationship, outgoing traversal, and finite depth
+and node bounds. Depth zero and a node budget exhausted at the seed both retain
+the seed without fabricating an edge. Depth truncation, node truncation,
+external targets, and incomplete catalog correspondence remain typed limits or
+node roles rather than changing the seed role. The
+`CrossLibraryCalleeNeighborhood_*` tests gate these contracts and prove that an
+acquired callee can continue into another assembly while every retained edge
+keeps its physical call-site receipt.
 
 ### Type seed
 
@@ -168,16 +199,26 @@ single-seed default.
 
 Mode does not impose one expansion algorithm on every producer:
 
-| Relationship | Example seed admission |
+| Current relationship | Declared seed admission |
 | --- | --- |
-| Call | Member directly; type/assembly/package through typed owned-member admission |
-| Metadata reference | Member/type/assembly directly, with descriptor-approved roll-up |
-| Extension or implementation | Type/member directly; package through owned API evidence |
-| Integration or opportunity | API/type/package according to producer-issued subjects |
-| Dependency or ownership | Assembly/package directly |
+| `call` | Member at either logical edge endpoint |
+| `api.extension`, `integration.observed` | Member at the logical source, type at the logical target, assembly/package through source-owned subjects |
+| `metadata.reference` | Assembly at either logical endpoint, package through source- or target-owned subjects |
+| `integration.opportunity` | Assembly at the logical source, type at the original occurrence source or logical target, package through source-owned subjects |
 
-Unsupported combinations fail discovery or execution with guidance. They do
-not drop the seed, relabel it, or substitute a different relationship.
+`EdgeEndpoint` and `OccurrenceEndpoint` admissions must name a subject kind in
+the descriptor's corresponding semantic source or target domain.
+`OwnedSubjects` must name a strict typed owner of at least one subject kind in
+that semantic endpoint domain; it does not fabricate an edge at the owner's
+subject kind.
+
+The Integration neighborhood consumes these capabilities. Unsupported
+seed/direction/relationship combinations fail while constructing the request;
+relationships outside the Integration catalog fail before any producer runs.
+Selected relationships determine registry demand, including declared
+prerequisites. Opportunity demand includes extension and Integration evidence
+because fulfillment suppression composes both before projection. Induced-set
+requests have no seeds and therefore need no seed admission.
 
 ## Shared contract
 
@@ -212,12 +253,18 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
 1. **Implemented:** preserve and name the current member-seeded call behavior.
 2. **Implemented:** add generic typed seed roles to the inspection-graph mode
    request and document.
-3. **Partially implemented:** bind type, assembly, and realized-package seeds
-   to existing Integration/package graph subjects. Descriptor-owned producer
-   admission remains.
-4. **Partially implemented:** bind peer-seed requests without choosing a hero
+3. **Implemented:** bind type, assembly, and realized-package seeds to existing
+   Integration/package graph subjects, declare direct endpoint and
+   strict typed owned-subject admission on each relationship descriptor, and
+   construct finite single-seed Integration neighborhoods from explicit
+   relationship, direction, and depth axes. Selected relationships drive
+   deterministic producer demand.
+4. **Implemented:** expose the existing Analysis-owned cross-library callee
+   traversal as a finite outgoing member-seeded `call` neighborhood with
+   explicit depth and node bounds.
+5. **Partially implemented:** bind peer-seed requests without choosing a hero
    node. Connecting-neighborhood construction remains.
-5. **Partially implemented:** declare workspace-participant and
+6. **Partially implemented:** declare workspace-participant and
    document-subject induced-set rules. Explicit-subject admission and bounds
    remain.
 

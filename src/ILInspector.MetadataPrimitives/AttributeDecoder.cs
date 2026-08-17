@@ -1,6 +1,7 @@
-using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Runtime.ExceptionServices;
 
 namespace ILInspector.Metadata;
 
@@ -12,20 +13,101 @@ namespace ILInspector.Metadata;
 /// </summary>
 public static class AttributeDecoder
 {
+    internal sealed class MaterializationContext(Action<int> observe)
+    {
+        Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
+        ExceptionDispatchInfo? _typeDefinitionsByNameFailure;
+        MetadataTypeNameFailure? _typeDefinitionsByNameFailureModel;
+        bool _typeDefinitionsByNameObserverFailure;
+
+        public void Observe(int characters) => observe(characters);
+
+        public bool TryGetCachedIndexFailure(
+            [NotNullWhen(true)] out MetadataTypeNameFailure? failure)
+        {
+            if (_typeDefinitionsByNameFailureModel is not null
+                && !_typeDefinitionsByNameObserverFailure)
+            {
+                failure = _typeDefinitionsByNameFailureModel;
+                return true;
+            }
+
+            failure = null;
+            return false;
+        }
+
+        public Dictionary<string, TypeDefinitionHandle> GetOrCreateTypeDefinitionsByName(
+            Func<Dictionary<string, TypeDefinitionHandle>> create)
+        {
+            if (_typeDefinitionsByName is not null)
+                return _typeDefinitionsByName;
+            if (_typeDefinitionsByNameFailure is not null)
+            {
+                if (_typeDefinitionsByNameObserverFailure)
+                {
+                    throw new MaterializationObserverException(
+                        _typeDefinitionsByNameFailure);
+                }
+                _typeDefinitionsByNameFailure.Throw();
+            }
+
+            try
+            {
+                return _typeDefinitionsByName = create();
+            }
+            catch (MaterializationObserverException ex)
+            {
+                _typeDefinitionsByNameFailure = ex.Failure;
+                _typeDefinitionsByNameObserverFailure = true;
+                throw;
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                _typeDefinitionsByNameFailure =
+                    ExceptionDispatchInfo.Capture(ex);
+                _typeDefinitionsByNameFailureModel =
+                    ex is TypeDefinitionIndexException index
+                        ? index.Failure
+                        : MetadataTypeNameFailure.Malformed(default, ex.Message);
+                throw;
+            }
+        }
+    }
+
     /// <summary>
     /// The fully qualified type name of an attribute, from its constructor handle.
     /// </summary>
-    public static string? GetAttributeTypeName(MetadataReader reader, EntityHandle constructorHandle)
+    public static string? GetAttributeTypeName(
+        MetadataReader reader,
+        EntityHandle constructorHandle)
+        => GetAttributeTypeName(
+            reader,
+            constructorHandle,
+            beforeMaterialize: null);
+
+    public static string? GetAttributeTypeName(
+        MetadataReader reader,
+        EntityHandle constructorHandle,
+        Action<int>? beforeMaterialize)
     {
         if (constructorHandle.Kind == HandleKind.MemberReference)
         {
             var memberRef = reader.GetMemberReference((MemberReferenceHandle)constructorHandle);
-            return TypeResolver.GetTypeName(reader, memberRef.Parent);
+            return TypeResolver.GetTypeName(
+                reader,
+                memberRef.Parent,
+                context: null,
+                beforeMaterialize);
         }
         if (constructorHandle.Kind == HandleKind.MethodDefinition)
         {
             var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)constructorHandle);
-            return TypeResolver.GetTypeNameFromDefinition(reader, methodDef.GetDeclaringType());
+            TypeDefinitionHandle declaringType = methodDef.GetDeclaringType();
+            return TypeResolver.GetTypeNameFromDefinition(
+                reader,
+                declaringType,
+                beforeMaterialize);
         }
         return null;
     }
@@ -42,7 +124,18 @@ public static class AttributeDecoder
         => TryDecode(
             reader,
             attribute,
-            preserveSerializedTypeNames: false);
+            preserveSerializedTypeNames: false,
+            beforeMaterialize: null);
+
+    public static CustomAttributeValue<string>? TryDecode(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        Action<int>? beforeMaterialize)
+        => TryDecode(
+            reader,
+            attribute,
+            preserveSerializedTypeNames: false,
+            beforeMaterialize);
 
     /// <summary>
     /// Decodes an attribute while preserving the complete serialized names of
@@ -54,17 +147,47 @@ public static class AttributeDecoder
         => TryDecode(
             reader,
             attribute,
-            preserveSerializedTypeNames: true);
+            preserveSerializedTypeNames: true,
+            beforeMaterialize: null);
 
     static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,
         CustomAttribute attribute,
-        bool preserveSerializedTypeNames)
+        bool preserveSerializedTypeNames,
+        Action<int>? beforeMaterialize)
     {
+        var provider = new ArgTypeProvider(
+            reader,
+            preserveSerializedTypeNames,
+            beforeMaterialize);
         try
         {
-            return attribute.DecodeValue(
-                new ArgTypeProvider(reader, preserveSerializedTypeNames));
+            if (!CustomAttributeValueGuard.IsSafeToDecode(
+                    reader,
+                    attribute,
+                    beforeMaterialize,
+                    provider.GetUnderlyingEnumType))
+                return null;
+        }
+        catch (MaterializationObserverException ex)
+        {
+            ex.Rethrow();
+            throw;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+
+        try
+        {
+            return attribute.DecodeValue(provider);
+        }
+        catch (MaterializationObserverException ex)
+        {
+            ex.Rethrow();
+            throw;
         }
         catch
         {
@@ -75,8 +198,13 @@ public static class AttributeDecoder
     /// <summary>Type provider for attribute-blob decoding: primitives as C# keywords, everything else as its full name (enums and typeof targets).</summary>
     sealed class ArgTypeProvider(
         MetadataReader reader,
-        bool preserveSerializedTypeNames) : ICustomAttributeTypeProvider<string>
+        bool preserveSerializedTypeNames,
+        Action<int>? beforeMaterialize) : ICustomAttributeTypeProvider<string>
     {
+        Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
+        readonly MaterializationContext? _materializationContext =
+            beforeMaterialize?.Target as MaterializationContext;
+
         public string GetPrimitiveType(PrimitiveTypeCode code) => code switch
         {
             PrimitiveTypeCode.Boolean => "bool",
@@ -99,9 +227,13 @@ public static class AttributeDecoder
         public bool IsSystemType(string type) => type == "System.Type";
         public string GetSZArrayType(string elementType) => elementType + "[]";
         public string GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle handle, byte rawTypeKind)
-            => TypeResolver.GetTypeNameFromDefinition(r, handle);
+            => TypeResolver.GetTypeNameFromDefinition(r, handle, ObserveBeforeMaterialize);
         public string GetTypeFromReference(MetadataReader r, TypeReferenceHandle handle, byte rawTypeKind)
-            => TypeResolver.GetTypeName(r, handle) ?? "object";
+            => TypeResolver.GetTypeName(
+                r,
+                handle,
+                context: null,
+                beforeMaterialize: ObserveBeforeMaterialize) ?? "object";
         public string GetTypeFromSerializedName(string name)
         {
             if (preserveSerializedTypeNames)
@@ -111,46 +243,72 @@ public static class AttributeDecoder
         }
 
         public PrimitiveTypeCode GetUnderlyingEnumType(string type)
+            => TypeDefinitionsByName.TryGetValue(
+                    EnumUnderlyingPrimitive.NormalizeSerializedName(type),
+                    out var handle)
+                ? EnumUnderlyingPrimitive.FromDefinition(reader, handle)
+                : PrimitiveTypeCode.Int32;
+
+        Dictionary<string, TypeDefinitionHandle> TypeDefinitionsByName =>
+            _materializationContext?.GetOrCreateTypeDefinitionsByName(
+                BuildTypeDefinitionIndex)
+            ?? (_typeDefinitionsByName ??= BuildTypeDefinitionIndex());
+
+        Dictionary<string, TypeDefinitionHandle> BuildTypeDefinitionIndex()
         {
+            ObserveBeforeMaterialize(reader.TypeDefinitions.Count);
+            var result = new Dictionary<string, TypeDefinitionHandle>(
+                reader.TypeDefinitions.Count,
+                StringComparer.Ordinal);
             foreach (var handle in reader.TypeDefinitions)
             {
-                var def = reader.GetTypeDefinition(handle);
-                if (TypeResolver.GetTypeNameFromDefinition(reader, handle) != type)
-                    continue;
-                foreach (var fieldHandle in def.GetFields())
+                string name;
+                try
                 {
-                    var field = reader.GetFieldDefinition(fieldHandle);
-                    if ((field.Attributes & FieldAttributes.Static) != 0)
-                        continue;
-
-                    // SRM decodes this field signature on the native stack before the
-                    // first provider callback, so an over-deep enum field blob would
-                    // overflow uncatchably. Prescan and fail closed to Int32.
-                    return SignatureBlobGuard.IsSafeToDecode(reader, field.Signature, SignatureBlobGuard.Kind.Field)
-                        ? field.DecodeSignature(new PrimitiveCodeProvider(), null)
-                        : PrimitiveTypeCode.Int32;
+                    name = TypeResolver.GetTypeNameFromDefinition(
+                        reader,
+                        handle,
+                        ObserveBeforeMaterialize);
                 }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException or ArgumentOutOfRangeException)
+                {
+                    throw new TypeDefinitionIndexException(
+                        MetadataTypeNameFailure.Malformed(handle, ex.Message));
+                }
+
+                result.TryAdd(name, handle);
             }
-            return PrimitiveTypeCode.Int32;
+            return result;
+        }
+
+        void ObserveBeforeMaterialize(int characters)
+        {
+            try
+            {
+                beforeMaterialize?.Invoke(characters);
+            }
+            catch (Exception ex)
+            {
+                throw new MaterializationObserverException(
+                    ExceptionDispatchInfo.Capture(ex));
+            }
         }
     }
 
-    /// <summary>Minimal signature provider that reports an enum's underlying primitive type code.</summary>
-    sealed class PrimitiveCodeProvider : ISignatureTypeProvider<PrimitiveTypeCode, object?>
+    sealed class TypeDefinitionIndexException(MetadataTypeNameFailure failure)
+        : BadImageFormatException(failure.Detail)
     {
-        public PrimitiveTypeCode GetPrimitiveType(PrimitiveTypeCode code) => code;
-        public PrimitiveTypeCode GetTypeFromDefinition(MetadataReader r, TypeDefinitionHandle h, byte k) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetTypeFromReference(MetadataReader r, TypeReferenceHandle h, byte k) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetSZArrayType(PrimitiveTypeCode e) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetArrayType(PrimitiveTypeCode e, ArrayShape s) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetByReferenceType(PrimitiveTypeCode e) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetPointerType(PrimitiveTypeCode e) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetGenericInstantiation(PrimitiveTypeCode g, ImmutableArray<PrimitiveTypeCode> a) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetGenericMethodParameter(object? ctx, int i) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetGenericTypeParameter(object? ctx, int i) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetModifiedType(PrimitiveTypeCode m, PrimitiveTypeCode u, bool r) => u;
-        public PrimitiveTypeCode GetPinnedType(PrimitiveTypeCode e) => e;
-        public PrimitiveTypeCode GetFunctionPointerType(MethodSignature<PrimitiveTypeCode> s) => PrimitiveTypeCode.Int32;
-        public PrimitiveTypeCode GetTypeFromSpecification(MetadataReader r, object? ctx, TypeSpecificationHandle h, byte k) => PrimitiveTypeCode.Int32;
+        public MetadataTypeNameFailure Failure { get; } = failure;
     }
+
+    sealed class MaterializationObserverException(ExceptionDispatchInfo failure)
+        : Exception(null, failure.SourceException)
+    {
+        public ExceptionDispatchInfo Failure { get; } = failure;
+
+        public void Rethrow() =>
+            Failure.Throw();
+    }
+
 }

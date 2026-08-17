@@ -215,6 +215,40 @@ public class TypeReferenceOriginTests
                 moduleScoped.Resolution.Origin).ModuleName);
     }
 
+    [Fact]
+    public void CurrentAssemblyIdentity_IsCachedPerReader()
+    {
+        using MetadataReaderProvider provider = BuildMetadata(
+            metadata => metadata.AddTypeReference(
+                default,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Type")));
+        MetadataReader reader = provider.GetMetadataReader();
+
+        TypeRef first =
+            TypeRefDecoder.Instance.GetTypeFromDefinition(
+                reader,
+                MetadataTokens.TypeDefinitionHandle(1),
+                0);
+        TypeRef second =
+            TypeRefDecoder.Instance.GetTypeFromDefinition(
+                reader,
+                MetadataTokens.TypeDefinitionHandle(1),
+                0);
+        var firstOrigin =
+            Assert.IsType<
+                TypeReferenceOrigin.CurrentAssembly>(
+                first.Resolution?.Origin);
+        var secondOrigin =
+            Assert.IsType<
+                TypeReferenceOrigin.CurrentAssembly>(
+                second.Resolution?.Origin);
+
+        Assert.Same(
+            firstOrigin.Assembly,
+            secondOrigin.Assembly);
+    }
+
     static MetadataReaderProvider BuildMetadata(
         Func<MetadataBuilder, TypeReferenceHandle> addTypeReference)
     {

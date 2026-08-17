@@ -25,6 +25,16 @@ public static class CallGraphInspectionGraphCatalog
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Member],
             [InspectionGraphSubjectKind.Member],
+            [
+                new(
+                    InspectionGraphSubjectKind.Member,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Member,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+            ],
             InspectionGraphEndpointProjection.Exact,
             CallOccurrenceIdentity,
             [CallSiteEvidence, LogicalEdgeEvidence]);
@@ -131,6 +141,29 @@ public static class CallGraphInspectionGraphCatalog
     public static InspectionGraphLimitDescriptor TraversalIncomplete { get; } =
         new("call.traversal-incomplete", InspectionGraphOwner.CallGraph);
 
+    public static InspectionGraphEvidenceDescriptor
+        TraversalNodeBoundEvidence { get; } =
+        new("call.traversal-node-bound", InspectionGraphOwner.CallGraph);
+
+    public static InspectionGraphLimitDescriptor TraversalNodeBound { get; } =
+        new(
+            "call.traversal-node-bound",
+            InspectionGraphOwner.CallGraph,
+            [TraversalNodeBoundEvidence]);
+
+    public static InspectionGraphEvidenceDescriptor
+        CorrespondenceIncompleteEvidence { get; } =
+        new(
+            "call.correspondence-incomplete",
+            InspectionGraphOwner.CallGraph);
+
+    public static InspectionGraphLimitDescriptor
+        CorrespondenceIncomplete { get; } =
+        new(
+            "call.correspondence-incomplete",
+            InspectionGraphOwner.CallGraph,
+            [CorrespondenceIncompleteEvidence]);
+
     public static InspectionGraphLimitDescriptor
         PhysicalOccurrencesUnavailable { get; } =
         new(
@@ -188,6 +221,56 @@ public sealed record CallGraphCallSiteEvidence(
         CallGraphInspectionGraphCatalog.CallSiteEvidence;
 }
 
+/// <summary>The maximum topology nodes admitted by one call traversal.</summary>
+public sealed record CallGraphTraversalNodeBoundEvidence
+    : IInspectionGraphDiagnosticEvidence
+{
+    public CallGraphTraversalNodeBoundEvidence(int maxNodes)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxNodes, 1);
+        MaxNodes = maxNodes;
+    }
+
+    public int MaxNodes { get; }
+
+    public InspectionGraphEvidenceDescriptor Descriptor =>
+        CallGraphInspectionGraphCatalog.TraversalNodeBoundEvidence;
+}
+
+/// <summary>Counts of call correspondence that could not be completed.</summary>
+public sealed record CallGraphCorrespondenceIncompleteEvidence
+    : IInspectionGraphDiagnosticEvidence
+{
+    public CallGraphCorrespondenceIncompleteEvidence(
+        int incompleteNodeCount,
+        int incompleteEdgeCount,
+        int bindingIdentityConflictCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(incompleteNodeCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(incompleteEdgeCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            bindingIdentityConflictCount);
+        if (incompleteNodeCount == 0
+            && incompleteEdgeCount == 0
+            && bindingIdentityConflictCount == 0)
+        {
+            throw new ArgumentException(
+                "Incomplete correspondence evidence requires a nonzero count.");
+        }
+
+        IncompleteNodeCount = incompleteNodeCount;
+        IncompleteEdgeCount = incompleteEdgeCount;
+        BindingIdentityConflictCount = bindingIdentityConflictCount;
+    }
+
+    public int IncompleteNodeCount { get; }
+    public int IncompleteEdgeCount { get; }
+    public int BindingIdentityConflictCount { get; }
+
+    public InspectionGraphEvidenceDescriptor Descriptor =>
+        CallGraphInspectionGraphCatalog.CorrespondenceIncompleteEvidence;
+}
+
 /// <summary>
 /// Adapts the current member call projection without changing its acquisition
 /// or presentation behavior.
@@ -198,7 +281,72 @@ public static class CallGraphInspectionGraphAdapter
         CallGraphProjection projection)
     {
         ArgumentNullException.ThrowIfNull(projection);
+        InspectionGraphSubject seed = FocusSubject(projection);
+        return Create(
+            projection,
+            InspectionGraphModeRequest.SingleSeed(seed),
+            []);
+    }
 
+    internal static InspectionGraphDocument CreateOutgoingNeighborhood(
+        CallGraphProjection projection,
+        int maxDepth,
+        int maxNodes,
+        CatalogCallGraphDiagnostics diagnostics)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(diagnostics);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxDepth);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxNodes, 1);
+
+        InspectionGraphSubject seed = FocusSubject(projection);
+        InspectionGraphNeighborhoodRequest request =
+            InspectionGraphNeighborhoodRequest.SingleSeed(
+                seed,
+                [CallGraphInspectionGraphCatalog.Call],
+                InspectionGraphTraversalDirection.Outgoing,
+                maxDepth);
+        var limits = new List<InspectionGraphLimit>
+        {
+            new(
+                CallGraphInspectionGraphCatalog.TraversalNodeBound,
+                InspectionGraphTarget.Node(projection.Focus.Id),
+                new CallGraphTraversalNodeBoundEvidence(maxNodes)),
+        };
+        if (diagnostics.IsIncomplete)
+        {
+            limits.Add(
+                new InspectionGraphLimit(
+                    CallGraphInspectionGraphCatalog
+                        .CorrespondenceIncomplete,
+                    InspectionGraphTarget.Node(
+                        projection.Focus.Id),
+                    new CallGraphCorrespondenceIncompleteEvidence(
+                        diagnostics.IncompleteNodeCount,
+                        diagnostics.IncompleteEdgeCount,
+                        diagnostics.BindingIdentityConflictCount)));
+        }
+
+        InspectionGraphDocument source = Create(
+            projection,
+            request.ModeRequest,
+            limits);
+        return InspectionGraphNeighborhoodProjection.Project(
+            source,
+            request);
+    }
+
+    static InspectionGraphSubject FocusSubject(
+        CallGraphProjection projection) =>
+        InspectionGraphSubject.ForMember(
+            projection.Focus.Identity,
+            projection.Focus.Member);
+
+    static InspectionGraphDocument Create(
+        CallGraphProjection projection,
+        InspectionGraphModeRequest modeRequest,
+        IEnumerable<InspectionGraphLimit> additionalLimits)
+    {
         InspectionGraphNode[] nodes =
         [
             .. projection.Nodes.Select(node =>
@@ -320,6 +468,7 @@ public static class CallGraphInspectionGraphAdapter
                             .AnalysisIncomplete),
                 ]
                 : [];
+        limits.AddRange(additionalLimits);
 
         return new InspectionGraphDocument(
             projection.Nodes.All(static node =>
@@ -328,8 +477,7 @@ public static class CallGraphInspectionGraphAdapter
                 callSite.Identity.IsPortable)
                 ? InspectionGraphDocumentScope.Portable
                 : InspectionGraphDocumentScope.SessionBound,
-            InspectionGraphModeRequest.SingleSeed(
-                nodes[projection.Focus.Id].Subject),
+            modeRequest,
             nodes,
             [],
             edges,
