@@ -454,6 +454,28 @@ public sealed class ApiSurfaceExtractorBoundsTests
     public void FailedEnumAttributeIndexBuild_IsCachedOnTheUnboundedPath()
         => AssertFailedEnumAttributeIndexIsCachedAndVisible(bounded: false);
 
+    [Fact]
+    public void ParameterEnumAttributes_ReuseTheChargedTypeNameIndex()
+        => AssertParameterEnumAttributesReuseTheChargedTypeNameIndex(bounded: true);
+
+    [Fact]
+    public void ParameterEnumAttributes_ReuseTheChargedTypeNameIndexOnTheUnboundedPath()
+        => AssertParameterEnumAttributesReuseTheChargedTypeNameIndex(bounded: false);
+
+    [Fact]
+    public void DecimalConstantParameterAttributes_ReuseTheChargedTypeNameIndex()
+        => AssertParameterEnumAttributesReuseTheChargedTypeNameIndex(
+            bounded: true,
+            attributeNamespace: "System.Runtime.CompilerServices",
+            attributeName: "DecimalConstantAttribute");
+
+    [Fact]
+    public void DecimalConstantParameterAttributes_ReuseTheChargedTypeNameIndexOnTheUnboundedPath()
+        => AssertParameterEnumAttributesReuseTheChargedTypeNameIndex(
+            bounded: false,
+            attributeNamespace: "System.Runtime.CompilerServices",
+            attributeName: "DecimalConstantAttribute");
+
     static void AssertFailedEnumAttributeIndexIsCachedAndVisible(bool bounded)
     {
         byte[] image = BuildRepeatedEnumAttributeLookupImage(
@@ -495,6 +517,49 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Assert.True(
             allocated < 64L * 1024 * 1024,
             $"{(bounded ? "bounded" : "unbounded")} extraction allocated {allocated:N0} bytes");
+    }
+
+    static void AssertParameterEnumAttributesReuseTheChargedTypeNameIndex(
+        bool bounded,
+        string attributeNamespace = "Samples",
+        string attributeName = "SampleAttribute")
+    {
+        byte[] image = BuildRepeatedParameterEnumAttributeLookupImage(
+            typeCount: 2_000,
+            methodCount: 2_000,
+            attributeNamespace,
+            attributeName);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurface surface;
+        if (bounded)
+        {
+            var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+                ApiSurfaceExtractor.ExtractBounded(
+                    peReader,
+                    ApiSurfaceExtractionScope.Public,
+                    new ApiSurfaceExtractionBounds(
+                        maxTypes: 100_000,
+                        maxMembers: 1_000_000,
+                        maxInspectionFailures: 1_024,
+                        maxTypeForwarders: 100_000,
+                        maxMetadataRows: 250_000,
+                        maxRetainedTextCharacters: 8_000_000)));
+            surface = extracted.Surface;
+        }
+        else
+        {
+            surface = ApiSurfaceExtractor.Extract(peReader);
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        ApiType host = Assert.Single(surface.Types, type => type.Name == "Host");
+        Assert.Equal(2_000, host.Members.Count);
+        Assert.True(
+            allocated < 64L * 1024 * 1024,
+            $"{(bounded ? "bounded" : "unbounded")} parameter-attribute extraction allocated {allocated:N0} bytes");
     }
 
     static void AssertEnumAttributeLookupsDoNotAllocateQuadratically(byte[] image)
@@ -2387,6 +2452,88 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 constructor,
                 valueHandle);
         }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildRepeatedParameterEnumAttributeLookupImage(
+        int typeCount,
+        int methodCount,
+        string attributeNamespace,
+        string attributeName)
+    {
+        var metadata = Metadata("ParamEnumAttributeLookupBomb");
+        AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString(attributeNamespace),
+            metadata.GetOrAddString(attributeName));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+
+        AddModuleAndPublicType(metadata, "Host");
+        for (int i = 0; i < typeCount; i++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                metadata.GetOrAddString("Samples.Decoys.Namespace"),
+                metadata.GetOrAddString($"Decoy{i}"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(methodCount + 1));
+        }
+
+        var methodSignature = new BlobBuilder();
+        new BlobEncoder(methodSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: false).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Int32());
+        BlobHandle methodSignatureHandle = metadata.GetOrAddBlob(methodSignature);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteUInt16(1);
+        value.WriteByte(0x54);
+        value.WriteByte(0x55);
+        value.WriteSerializedString("NoSuchEnumType");
+        value.WriteSerializedString("P");
+        value.WriteInt32(1);
+        BlobHandle valueHandle = metadata.GetOrAddBlob(value);
+        for (int i = 0; i < methodCount; i++)
+        {
+            ParameterHandle parameter = metadata.AddParameter(
+                ParameterAttributes.None,
+                metadata.GetOrAddString("arg"),
+                sequenceNumber: 1);
+            metadata.AddCustomAttribute(parameter, constructor, valueHandle);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"M{i}"),
+                methodSignatureHandle,
+                bodyOffset: -1,
+                parameter);
+        }
+
         return Serialize(metadata);
     }
 

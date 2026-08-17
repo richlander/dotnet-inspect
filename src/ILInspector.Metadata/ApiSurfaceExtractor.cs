@@ -737,7 +737,8 @@ public static class ApiSurfaceExtractor
                     isExtensionMethod,
                     observeText,
                     observeDecodeWork,
-                    constraintResolution);
+                    constraintResolution,
+                    observeAttributeMaterialize);
                 var isOperator = IsOperatorMethodName(methodName);
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
                 var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
@@ -898,7 +899,8 @@ public static class ApiSurfaceExtractor
                     typeNullableContext,
                     includeAll,
                     observeText,
-                    observeDecodeWork);
+                    observeDecodeWork,
+                    observeAttributeMaterialize);
                 var member = new ApiMember
                 {
                     Name = DecodeString(
@@ -2652,8 +2654,11 @@ public static class ApiSurfaceExtractor
         bool captureExtensionReceiver = false,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null,
-        TypeParameterConstraintResolution? constraintResolution = null)
+        TypeParameterConstraintResolution? constraintResolution = null,
+        Action<int>? beforeAttributeMaterialize = null)
     {
+        Action<int>? attributeMaterialize =
+            beforeAttributeMaterialize ?? beforeDecodeWork;
         string name = DecodeString(
             reader,
             method.Name,
@@ -2753,7 +2758,7 @@ public static class ApiSurfaceExtractor
                     paramHandles,
                     i + 1,
                     beforeRetainText,
-                    beforeDecodeWork);
+                    attributeMaterialize);
             paramName ??= $"arg{i}";
 
             var isByRef = type.StartsWith("ref ", StringComparison.Ordinal);
@@ -2816,7 +2821,7 @@ public static class ApiSurfaceExtractor
             reader,
             paramHandles,
             beforeRetainText,
-            beforeDecodeWork);
+            attributeMaterialize);
         var methodTypeParameters = GenericParameters(
             reader,
             method.GetGenericParameters(),
@@ -3049,14 +3054,18 @@ public static class ApiSurfaceExtractor
         foreach (var attributeHandle in attributes)
         {
             var attribute = reader.GetCustomAttribute(attributeHandle);
-            var attributeTypeName = AttributeReader.GetAttributeTypeName(reader, attribute.Constructor);
+            var attributeTypeName = AttributeReader.GetAttributeTypeName(
+                reader,
+                attribute.Constructor,
+                beforeMaterialize);
             if (attributeTypeName == KnownAttributeNames.DecimalConstantAttribute)
             {
                 ObserveAttributeValue(reader, attribute, beforeMaterialize);
                 if (TryReadDecimalConstantAttribute(
                     reader,
                     attribute,
-                    out var decimalValue))
+                    out var decimalValue,
+                    beforeMaterialize))
                 {
                     defaultValue = decimalValue;
                     return true;
@@ -3069,7 +3078,8 @@ public static class ApiSurfaceExtractor
                 if (TryReadDateTimeConstantAttribute(
                     reader,
                     attribute,
-                    out var ticks))
+                    out var ticks,
+                    beforeMaterialize))
                 {
                     defaultValue = new DateTimeConstantDefault(ticks);
                     return true;
@@ -3091,9 +3101,10 @@ public static class ApiSurfaceExtractor
     private static bool TryReadDecimalConstantAttribute(
         MetadataReader reader,
         CustomAttribute attribute,
-        out decimal value)
+        out decimal value,
+        Action<int>? beforeMaterialize = null)
     {
-        if (AttributeDecoder.TryDecode(reader, attribute) is not { } decoded
+        if (AttributeDecoder.TryDecode(reader, attribute, beforeMaterialize) is not { } decoded
             || decoded.FixedArguments.Length != 5
             || decoded.FixedArguments[0].Value is not byte scale
             || decoded.FixedArguments[1].Value is not byte sign
@@ -3135,9 +3146,10 @@ public static class ApiSurfaceExtractor
     private static bool TryReadDateTimeConstantAttribute(
         MetadataReader reader,
         CustomAttribute attribute,
-        out long ticks)
+        out long ticks,
+        Action<int>? beforeMaterialize = null)
     {
-        if (AttributeDecoder.TryDecode(reader, attribute) is { FixedArguments.Length: 1 } decoded
+        if (AttributeDecoder.TryDecode(reader, attribute, beforeMaterialize) is { FixedArguments.Length: 1 } decoded
             && decoded.FixedArguments[0].Value is long value)
         {
             ticks = value;
@@ -3620,8 +3632,11 @@ public static class ApiSurfaceExtractor
         byte typeNullableContext,
         bool includeAll = false,
         Action<string>? beforeRetainText = null,
-        Action<int>? beforeDecodeWork = null)
+        Action<int>? beforeDecodeWork = null,
+        Action<int>? beforeAttributeMaterialize = null)
     {
+        Action<int>? attributeMaterialize =
+            beforeAttributeMaterialize ?? beforeDecodeWork;
         string name = DecodeString(
             reader,
             prop.Name,
@@ -3693,7 +3708,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         reader.GetMethodDefinition(accessors.Getter).GetParameters(),
                         beforeRetainText,
-                        beforeDecodeWork)
+                        attributeMaterialize)
                 });
             if (hasSetter)
                 accessorModels.Add(new ApiAccessor
@@ -3704,7 +3719,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
                         beforeRetainText,
-                        beforeDecodeWork)
+                        attributeMaterialize)
                 });
             accessorStr = (getStr, setStr) switch
             {
@@ -3726,7 +3741,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         reader.GetMethodDefinition(accessors.Getter).GetParameters(),
                         beforeRetainText,
-                        beforeDecodeWork)
+                        attributeMaterialize)
                 });
                 accessorModels.Add(new ApiAccessor
                 {
@@ -3735,7 +3750,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
                         beforeRetainText,
-                        beforeDecodeWork)
+                        attributeMaterialize)
                 });
             }
             else if (hasPublicGetter && hasSetter)
@@ -3748,7 +3763,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         reader.GetMethodDefinition(accessors.Getter).GetParameters(),
                         beforeRetainText,
-                        beforeDecodeWork)
+                        attributeMaterialize)
                 });
                 accessorModels.Add(new ApiAccessor
                 {
@@ -3758,7 +3773,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
                         beforeRetainText,
-                        beforeDecodeWork)
+                        attributeMaterialize)
                 });
             }
             else if (hasPublicGetter)
@@ -3771,7 +3786,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         reader.GetMethodDefinition(accessors.Getter).GetParameters(),
                         beforeRetainText,
-                        beforeDecodeWork)
+                        attributeMaterialize)
                 });
             }
             else if (hasPublicSetter)
@@ -3784,7 +3799,7 @@ public static class ApiSurfaceExtractor
                         reader,
                         reader.GetMethodDefinition(accessors.Setter).GetParameters(),
                         beforeRetainText,
-                        beforeDecodeWork)
+                        attributeMaterialize)
                 });
             }
             else
@@ -3850,7 +3865,7 @@ public static class ApiSurfaceExtractor
                     paramHandles,
                     i + 1,
                     beforeRetainText,
-                    beforeDecodeWork);
+                    attributeMaterialize);
             paramName ??= $"arg{i}";
 
             var isByRef = paramType.StartsWith("ref ", StringComparison.Ordinal);

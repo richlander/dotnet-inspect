@@ -412,7 +412,10 @@ strong-name blobs read while proving a finalizer slot reaches the core library.
 TypeSpec-owned generic attribute constructors use the same guarded signature
 decoder and preserve bounded/unbounded parity. Enum-valued arguments build one
 charged type-name index per extraction instead of rescanning every type
-for every argument or attribute. Both a successful index and its rejected
+for every argument or attribute. That includes parameter attributes and the
+DecimalConstant/DateTimeConstant default-materialization path, which reuses the
+same extraction-wide observer even though those attributes are not re-emitted
+in the surface. Both a successful index and its rejected
 outcome are cached, so malformed metadata is reported once rather than silently
 reallocating the index for each attribute. The same cache is used on the
 unbounded path, which is the public `AssemblyReader.ExtractApiSurface` route. Enum-default classification also
@@ -444,6 +447,10 @@ pre-decoding rejection.
 `SeparateEnumAttributes_ReuseTheChargedTypeNameIndex`,
 `FailedEnumAttributeIndexBuild_IsCachedAndVisible`,
 `FailedEnumAttributeIndexBuild_IsCachedOnTheUnboundedPath`,
+`ParameterEnumAttributes_ReuseTheChargedTypeNameIndex`,
+`ParameterEnumAttributes_ReuseTheChargedTypeNameIndexOnTheUnboundedPath`,
+`DecimalConstantParameterAttributes_ReuseTheChargedTypeNameIndex`,
+`DecimalConstantParameterAttributes_ReuseTheChargedTypeNameIndexOnTheUnboundedPath`,
 `GenericAttributeTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `OneArgumentNestedTypeSpec_StopsBeforeLargeAllocationAmplification`,
