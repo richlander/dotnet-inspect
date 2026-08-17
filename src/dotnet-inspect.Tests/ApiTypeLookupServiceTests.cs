@@ -61,6 +61,23 @@ public class ApiTypeLookupServiceTests
         Assert.Equal("Serialize<TValue>", result.ImpliedMember);
     }
 
+    [Theory]
+    [InlineData(".ctor")]
+    [InlineData(".cctor")]
+    public void LookupType_ConstructorMember_PreservesSpecialName(
+        string memberName)
+    {
+        var api = CreateSurface();
+
+        var result = ApiTypeLookupService.LookupType(
+            api,
+            $"System.Text.Json.JsonSerializer.{memberName}");
+
+        Assert.True(result.Found);
+        Assert.Equal("System.Text.Json.JsonSerializer", result.Match);
+        Assert.Equal(memberName, result.ImpliedMember);
+    }
+
     [Fact]
     public void LookupType_GenericContainingTypeAndGenericMember_PeelsTrailingMember()
     {

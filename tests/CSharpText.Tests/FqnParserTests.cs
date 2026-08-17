@@ -247,6 +247,15 @@ public class FqnParserTests
         Assert.Null(FqnParser.GetMemberGenericArity(malformed));
     }
 
+    [Theory]
+    [InlineData("operatorApply")]
+    [InlineData("OperatorApply")]
+    public void NormalizeMemberName_UnrecognizedOperatorPrefixIsPreserved(
+        string memberName)
+    {
+        Assert.Equal(memberName, FqnParser.NormalizeMemberName(memberName));
+    }
+
     // ── ParseMemberFilter tests ──────────────────────────────────────────
 
     [Theory]

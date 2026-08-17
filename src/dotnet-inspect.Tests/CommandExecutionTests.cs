@@ -3270,11 +3270,12 @@ public partial class CommandExecutionTests
             error);
     }
 
-    [Fact]
-    public async Task Router_ExplicitLibraryGenericTypeUsesAssemblySource()
+    [Theory]
+    [InlineData("DotnetInspector.Tests.SampleGenericClass<T>")]
+    [InlineData("SampleGenericClass<T>")]
+    public async Task Router_ExplicitLibraryGenericTypeUsesAssemblySource(
+        string target)
     {
-        const string target =
-            "DotnetInspector.Tests.SampleGenericClass<T>";
         string[] arguments =
         [
             target,
@@ -3289,6 +3290,116 @@ public partial class CommandExecutionTests
 
         var direct = await RunAppAsync(["type", .. arguments]);
         var routed = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredMemberOverloadSuffixSurvivesMetadataBoundary()
+    {
+        const string typeName =
+            "DotnetInspector.Tests.Operators<T>";
+        const string target =
+            $"{typeName}.Convert<TResult>:1";
+        string[] projection =
+        [
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(
+        [
+            "member",
+            typeName,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "Convert<TResult>:1",
+            .. projection
+        ]);
+        var routed = await RunAppAsync(
+        [
+            target,
+            "--library",
+            TestAssemblyPath,
+            .. projection
+        ]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Router_DeferredMemberDigestSurvivesMetadataBoundary()
+    {
+        const string typeName =
+            "DotnetInspector.Tests.Operators<T>";
+        var inventory = await RunAppAsync(
+            "member",
+            typeName,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "Convert",
+            "-S",
+            "Member Index",
+            "--columns",
+            "Stable",
+            "--tsv",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, inventory.Exit);
+        Assert.Empty(inventory.Error);
+        var stableSelector = inventory.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .First();
+        Assert.StartsWith("Convert~", stableSelector);
+
+        var (exit, output, error) = await RunAppAsync(
+            $"{typeName}.{stableSelector}",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredConstructorSuffixUsesMemberRendering()
+    {
+        const string typeName =
+            "DotnetInspector.Tests.Operators<T>";
+        string[] projection = ["--table", "--tips", "q"];
+        var direct = await RunAppAsync(
+        [
+            "member",
+            typeName,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            ".ctor",
+            .. projection
+        ]);
+        var routed = await RunAppAsync(
+        [
+            $"{typeName}..ctor",
+            "--library",
+            TestAssemblyPath,
+            .. projection
+        ]);
 
         Assert.Equal(direct, routed);
         Assert.Equal(0, routed.Exit);
@@ -19908,6 +20019,27 @@ public partial class CommandExecutionTests
         Assert.Equal(0, routed.Exit);
     }
 
+    [Theory]
+    [InlineData("operatorApply")]
+    [InlineData("OperatorApply")]
+    public async Task Router_UnrecognizedOperatorPrefixDoesNotBroaden(
+        string memberName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            $"DotnetInspector.Tests.Operators<T>.{memberName}",
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(memberName, error);
+    }
+
     [Fact]
     public async Task Member_GenericTypeName_DoesNotAdmitMemberDetailSections()
     {
@@ -23884,6 +24016,8 @@ public sealed class MemberGenericSelectorFixture
 public sealed class Operators<T>
 {
     public T Apply(T value) => value;
+    public TResult Convert<TResult>(T value) => default!;
+    public TResult Convert<TResult>(IEnumerable<T> values) => default!;
 }
 
 public sealed class CommandExecutionSourceDiffFixture

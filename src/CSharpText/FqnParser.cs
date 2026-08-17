@@ -238,8 +238,13 @@ public static class FqnParser
             || memberName.Equals("[]", StringComparison.OrdinalIgnoreCase))
             return "this[]";
 
+        var requestedMemberName = memberName;
+        var hasOperatorPrefix = false;
         if (memberName.StartsWith("operator", StringComparison.OrdinalIgnoreCase))
+        {
+            hasOperatorPrefix = true;
             memberName = memberName["operator".Length..].Trim();
+        }
         else if (memberName.StartsWith("op_", StringComparison.OrdinalIgnoreCase))
             return memberName;
 
@@ -278,7 +283,7 @@ public static class FqnParser
             ">>>" => "op_UnsignedRightShift",
             "true" => "op_True",
             "false" => "op_False",
-            _ => memberName
+            _ => hasOperatorPrefix ? requestedMemberName : memberName
         };
     }
 

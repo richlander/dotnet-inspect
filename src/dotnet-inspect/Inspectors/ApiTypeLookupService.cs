@@ -91,7 +91,17 @@ internal static class ApiTypeLookupService
         if (dot > 0)
         {
             var member = typeName[(dot + 1)..];
-            var typeCandidate = typeName[..dot];
+            var typeEnd = dot;
+            if (dot > 1
+                && typeName[dot - 1] == '.'
+                && (member.Equals("ctor", StringComparison.OrdinalIgnoreCase)
+                    || member.Equals("cctor", StringComparison.OrdinalIgnoreCase)))
+            {
+                member = $".{member}";
+                typeEnd--;
+            }
+
+            var typeCandidate = typeName[..typeEnd];
             var prefixLookup = TypeMatcher.Lookup(api.Types.Select(t => t.FullName), typeCandidate);
             if (prefixLookup.Match != null)
                 return new ApiTypeLookupResult(

@@ -132,7 +132,13 @@ public static class MemberCommand
                 mergeOptions = mergeOptions with
                 {
                     MemberFilter = mergedFilter,
-                    MemberGenericArity = mergedArity
+                    MemberGenericArity = mergedArity,
+                    OverloadIndex =
+                        mergeOptions.OverloadIndex
+                        ?? impliedSelector.OverloadIndex,
+                    MemberDigest =
+                        mergeOptions.MemberDigest
+                        ?? impliedSelector.DigestPrefix
                 };
                 if (options.RouterDeferredTypeOrMember)
                     unresolvedOptions = mergeOptions;

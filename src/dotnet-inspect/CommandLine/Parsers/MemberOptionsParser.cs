@@ -234,9 +234,12 @@ public static class MemberOptionsParser
         // Plain explicit-source dotted names are left whole so the type/member boundary is
         // resolved against real metadata in ApiTypeLookupService, because "System.String" is a
         // type while "System" is only a namespace.
+        // Router-deferred targets also stay whole so overload, digest, and special-member syntax
+        // crosses that same metadata boundary instead of forcing a syntactic type/member guess.
         // Skip if the right part contains '<' — that's a generic type name (e.g., Generic.List<T>),
         // not a type.member pair.
-        bool explicitSourceSelectorSplit = sourceInputs.HasExplicitSource
+        bool explicitSourceSelectorSplit = !routerDeferredTypeOrMember
+            && sourceInputs.HasExplicitSource
             && sourceInputs.Args.Length == 1
             && typeName != null
             && HasMemberSelectorSuffix(typeName);

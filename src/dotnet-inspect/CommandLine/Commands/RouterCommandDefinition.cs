@@ -268,10 +268,11 @@ public static class RouterCommandDefinition
             }
 
             if (hasExplicitApiSource
-                && TypeMatcher.HasExplicitGenericNotation(target)
-                && target.Contains('.'))
+                && TypeMatcher.HasExplicitGenericNotation(target))
             {
-                return RouteDeferredTypeOrMember(target, tail);
+                return target.Contains('.')
+                    ? RouteDeferredTypeOrMember(target, tail)
+                    : ["type", target, .. tail];
             }
 
             var frameworkSpec = GetOptionValue(tail, "--framework");
