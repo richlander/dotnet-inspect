@@ -240,11 +240,17 @@ public static class RouterCommandDefinition
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
             if (TryResolveExactGenericPlatformType(target) is not null)
+                return ["type", target, .. tail];
+
+            if (TryResolveExactGenericPlatformMember(target)
+                is { } exactMember)
             {
                 return
                 [
-                    "type",
-                    target,
+                    "member",
+                    exactMember.TypeTarget,
+                    "-m",
+                    exactMember.MemberSelector,
                     .. tail
                 ];
             }
@@ -406,8 +412,10 @@ public static class RouterCommandDefinition
                 return null;
 
             var normalizedTarget = FqnParser.NormalizeTypeName(target).Replace('+', '.');
-            if (PlatformResolver.LookupType(target)
-                is not PlatformTypeLookupOutcome.Resolved resolved)
+            var lookup = PlatformResolver.LookupType(target);
+            if (lookup is not PlatformTypeLookupOutcome.Resolved)
+                lookup = PlatformResolver.LookupTypeAcrossFrameworks(target);
+            if (lookup is not PlatformTypeLookupOutcome.Resolved resolved)
                 return null;
 
             var normalizedCandidate = resolved.Candidate.Type
@@ -425,6 +433,21 @@ public static class RouterCommandDefinition
                     StringComparison.OrdinalIgnoreCase);
             return exactMatch || unqualifiedMatch
                 ? resolved
+                : null;
+        }
+
+        private static (
+            string TypeTarget,
+            string MemberSelector)? TryResolveExactGenericPlatformMember(
+                string target)
+        {
+            var lastDot = FqnParser.LastTopLevelDot(target);
+            if (lastDot <= 0 || lastDot == target.Length - 1)
+                return null;
+
+            var typeTarget = target[..lastDot];
+            return TryResolveExactGenericPlatformType(typeTarget) is not null
+                ? (typeTarget, target[(lastDot + 1)..])
                 : null;
         }
     }

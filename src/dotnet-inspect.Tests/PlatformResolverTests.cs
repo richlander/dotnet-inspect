@@ -366,6 +366,40 @@ public class PlatformResolverTests
     }
 
     [Fact]
+    public void LookupTypeAcrossFrameworks_ResolvesAspNetCoreNestedGenericType()
+    {
+        var (referencePath, _, _) =
+            PlatformResolver.ResolveFramework("aspnetcore");
+        Assert.SkipUnless(
+            referencePath is not null,
+            "ASP.NET Core reference pack is not available.");
+
+        var resolved = Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+            PlatformResolver.LookupTypeAcrossFrameworks(
+                "Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter<T1,T2,T3>.PooledBuffer"));
+
+        Assert.Equal(
+            "Microsoft.AspNetCore.Components.Endpoints",
+            resolved.Candidate.Assembly.Identity.Name);
+        Assert.Equal(
+            "Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter`3.PooledBuffer",
+            resolved.Candidate.Type.ToMetadataFullName());
+    }
+
+    [Fact]
+    public void LookupTypeAcrossFrameworks_PreservesDistinctTypeAmbiguity()
+    {
+        var ambiguous = Assert.IsType<PlatformTypeLookupOutcome.Ambiguous>(
+            PlatformResolver.LookupTypeAcrossFrameworks("Enumerator"));
+
+        Assert.True(
+            ambiguous.Candidates
+                .Select(candidate => candidate.Type.ToMetadataFullName())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() > 1);
+    }
+
+    [Fact]
     public void LookupType_EmptyPattern_ReturnsRejected()
     {
         var rejected = Assert.IsType<PlatformTypeLookupOutcome.Rejected>(

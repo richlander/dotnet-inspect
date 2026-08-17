@@ -2608,6 +2608,20 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("No members matched", error);
     }
 
+    [Theory]
+    [InlineData("ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>.TryAdd")]
+    [InlineData("ConcurrentDictionary`2.AlternateLookup`1.TryAdd")]
+    public async Task Router_GenericNestedTypeMember_UsesLongestExactTypePrefix(string target)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            target, "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("TryAdd", output);
+        Assert.Contains("TAlternateKey key", output);
+    }
+
     [Fact]
     public async Task Router_VoidKeyword_UsesPlatformFindIfMiss()
     {
@@ -3825,6 +3839,23 @@ public partial class CommandExecutionTests
         Assert.Contains("# Microsoft.AspNetCore.Builder.WebApplication", output);
         Assert.Contains("Library: Microsoft.AspNetCore", output);
         Assert.Contains("Source: Platform", output);
+    }
+
+    [Theory]
+    [InlineData("Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter<T1,T2,T3>.PooledBuffer")]
+    [InlineData("Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter`3.PooledBuffer")]
+    public async Task BareQualifiedGenericAspNetCoreType_RoutesAcrossPlatformFrameworks(string target)
+    {
+        SkipUnlessAspNetCoreAvailable();
+
+        var (exit, output, error) = await RunAppAsync(
+            target, "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ArrayPoolBufferAdapter&lt;", output);
+        Assert.Contains(".PooledBuffer", output);
+        Assert.Contains("Library: Microsoft.AspNetCore.Components.Endpoints", output);
     }
 
     [Fact]
