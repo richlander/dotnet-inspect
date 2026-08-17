@@ -2593,6 +2593,21 @@ public partial class CommandExecutionTests
         Assert.Contains("Note: Type 'List<T>' resolved via platform find", error);
     }
 
+    [Theory]
+    [InlineData("Dictionary<TKey,TValue>.KeyCollection")]
+    [InlineData("Dictionary`2.KeyCollection")]
+    public async Task Router_UnqualifiedNestedGenericType_RoutesAsExactType(string typeName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            typeName, "--shape", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "sealed class System.Collections.Generic.Dictionary<TKey, TValue>.KeyCollection",
+            output);
+        Assert.DoesNotContain("No members matched", error);
+    }
+
     [Fact]
     public async Task Router_VoidKeyword_UsesPlatformFindIfMiss()
     {
@@ -2710,6 +2725,20 @@ public partial class CommandExecutionTests
         Assert.Contains("Deserialize", output);
         Assert.Contains("Deserialize<TValue>", output);
         Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData("AsSpan<T>")]
+    [InlineData("AsSpan`1")]
+    public async Task Type_GenericMemberFilter_RejectsUnsupportedArity(string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "MemoryExtensions", "--platform", "System.Memory",
+            "-m", selector, "--table", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("does not support generic arity selectors", error);
     }
 
     [Fact]
@@ -17566,6 +17595,30 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("GenericChoice<T>(T value)", output);
         Assert.DoesNotContain("GenericChoice(string value)", output);
+    }
+
+    [Fact]
+    public async Task Member_ImpliedGenericSelector_RejectsConflictingOptionArity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "MemoryExtensions.AsSpan<T>", "--platform", "System.Memory",
+            "-m", "AsSpan`0", "--table", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("cannot combine different generic arities", error);
+    }
+
+    [Fact]
+    public async Task Member_ImpliedGenericSelector_RejectsSecondMemberName()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "List<T>.ConvertAll<TOutput>", "--platform", "System.Private.CoreLib",
+            "-m", "Add", "--table", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("requires exactly one member name", error);
     }
 
     [Fact]

@@ -413,9 +413,17 @@ public static class RouterCommandDefinition
             var normalizedCandidate = resolved.Candidate.Type
                 .ToMetadataFullName()
                 .Replace('+', '.');
-            return normalizedCandidate.Equals(
+            var exactMatch = normalizedCandidate.Equals(
                 normalizedTarget,
-                StringComparison.OrdinalIgnoreCase)
+                StringComparison.OrdinalIgnoreCase);
+            var suffixStart = normalizedCandidate.Length - normalizedTarget.Length;
+            var unqualifiedMatch = normalizedTarget.Contains('.')
+                && suffixStart > 0
+                && normalizedCandidate[suffixStart - 1] == '.'
+                && normalizedCandidate.EndsWith(
+                    normalizedTarget,
+                    StringComparison.OrdinalIgnoreCase);
+            return exactMatch || unqualifiedMatch
                 ? resolved
                 : null;
         }

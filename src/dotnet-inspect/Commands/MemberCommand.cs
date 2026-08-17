@@ -92,14 +92,29 @@ public static class MemberCommand
             if (lookupResult.ImpliedMember is { } impliedMember)
             {
                 var impliedSelector = MemberTargetSelector.Parse(impliedMember);
+                if (options.MemberGenericArity is { } explicitArity
+                    && impliedSelector.GenericArity is { } impliedArity
+                    && explicitArity != impliedArity)
+                {
+                    CommandError.Write("A member selection cannot combine different generic arities.");
+                    return 1;
+                }
+
                 var mergedFilter = new HashSet<string>(options.MemberFilter, StringComparer.OrdinalIgnoreCase)
                 {
                     impliedSelector.Name
                 };
+                var mergedArity = options.MemberGenericArity ?? impliedSelector.GenericArity;
+                if (mergedArity.HasValue && mergedFilter.Count != 1)
+                {
+                    CommandError.Write("A generic arity selector requires exactly one member name.");
+                    return 1;
+                }
+
                 options = options with
                 {
                     MemberFilter = mergedFilter,
-                    MemberGenericArity = options.MemberGenericArity ?? impliedSelector.GenericArity
+                    MemberGenericArity = mergedArity
                 };
             }
             else if (options.MemberFilter.Count == 0 && options.Select is { Length: > 0 })

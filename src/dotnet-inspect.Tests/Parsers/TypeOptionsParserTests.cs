@@ -133,6 +133,23 @@ public class TypeOptionsParserTests
         Assert.Null(typeOptions.MemberLimit);
     }
 
+    [Theory]
+    [InlineData("AsSpan<T>")]
+    [InlineData("AsSpan`1")]
+    public async Task GenericArityMemberFilter_IsRejected(string selector)
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+        var parseResult = root.Parse(
+            ["type", "MemoryExtensions", "--platform", "System.Memory", "-m", selector]);
+        Assert.Empty(parseResult.Errors);
+
+        var result = await TypeOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
+
+        var error = Assert.IsType<TypeOptionsParser.VersionError>(result);
+        Assert.Contains("does not support generic arity selectors", error.Error.Message);
+    }
+
     [Fact]
     public async Task ProjectCannotCombineWithExplicitSource()
     {
