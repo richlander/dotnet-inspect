@@ -94,16 +94,27 @@ public sealed record PackageSearchResult(
 /// <summary>
 /// Typed result of one source-scoped version enumeration.
 /// </summary>
-public sealed record PackageVersionResult(
-    IReadOnlyList<PackageCandidateObservation> Candidates)
+public sealed record PackageVersionResult
 {
+    /// <summary>Creates one source-scoped version result.</summary>
+    public PackageVersionResult(
+        IReadOnlyList<PackageCandidateObservation> candidates,
+        bool hasAuthoritativeListingState)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        Candidates = candidates;
+        HasAuthoritativeListingState =
+            hasAuthoritativeListingState;
+    }
+
+    /// <summary>Gets the source-reported package candidates.</summary>
+    public IReadOnlyList<PackageCandidateObservation> Candidates { get; }
+
     /// <summary>
-    /// Gets whether every candidate has authoritative listing information.
+    /// Gets whether the result has authoritative listing information,
+    /// including when the candidate set is empty.
     /// </summary>
-    public bool HasAuthoritativeListingState =>
-        Candidates.All(
-            candidate => candidate.ListingState
-                is not PackageListingState.Unknown);
+    public bool HasAuthoritativeListingState { get; }
 }
 
 /// <summary>The kind of payload returned by a package source.</summary>

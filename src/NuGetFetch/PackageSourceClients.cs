@@ -67,6 +67,14 @@ public sealed record PackageSourceIdentity
     /// </summary>
     public static PackageSourceIdentity ForHttpEndpoint(Uri endpoint)
     {
+        PackageSourceIdentity identity = ForProducerEndpoint(endpoint);
+        return new PackageSourceIdentity(
+            $"{identity.Value}{NormalizeEscapes(endpoint.Query)}"
+            + NormalizeEscapes(endpoint.Fragment));
+    }
+
+    internal static PackageSourceIdentity ForProducerEndpoint(Uri endpoint)
+    {
         ArgumentNullException.ThrowIfNull(endpoint);
         if (!endpoint.IsAbsoluteUri
             || (endpoint.Scheme != Uri.UriSchemeHttp
@@ -306,7 +314,7 @@ public static class PackageSourceClientFactory
         }
 
         return new NuGetV3PackageSourceClient(
-            PackageSourceIdentity.ForHttpEndpoint(endpoint),
+            PackageSourceIdentity.ForProducerEndpoint(endpoint),
             endpoint,
             client,
             options ?? new NuGetFetchOptions(),
@@ -467,7 +475,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
                         PackageListingState.Unknown);
                 }
 
-                return new PackageVersionResult(candidates);
+                return new PackageVersionResult(
+                    candidates,
+                    hasAuthoritativeListingState: false);
             },
             cancellationToken).ConfigureAwait(false);
     }

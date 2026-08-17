@@ -125,7 +125,11 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         }).ConfigureAwait(false);
 
                 if (!found)
-                    return new PackageVersionResult([]);
+                {
+                    return new PackageVersionResult(
+                        [],
+                        hasAuthoritativeListingState: false);
+                }
 
                 IReadOnlyList<string> versions = index?.Versions
                     ?? throw new NuGetSourceResponseException(
@@ -149,7 +153,9 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         PackageListingState.Unknown);
                 }
 
-                return new PackageVersionResult(candidates);
+                return new PackageVersionResult(
+                    candidates,
+                    hasAuthoritativeListingState: false);
             },
             cancellationToken).ConfigureAwait(false);
     }

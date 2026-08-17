@@ -51,14 +51,12 @@ Source identity has two parts with different purposes:
 - the canonical HTTP endpoint or local directory identifies the producer in
   caches.
 
-Names do not prove two feeds are the same. HTTP endpoint canonicalization folds
-scheme and host case plus exactly one optional trailing path slash because
-`/feed` and `/feed/` are alternate spellings of one endpoint. Path case remains
-significant. Query and fragment components are transport-only runtime
-configuration and never enter durable producer identity because they may carry
-rotating credentials. Portable descriptors reject them. Two immutable content
-domains therefore need distinct endpoint paths rather than query-only
-distinction.
+Names do not prove two feeds are the same. HTTP endpoint canonicalization does
+not make path or query case-insensitive. It folds exactly one optional trailing
+path slash because `/feed` and `/feed/` are alternate spellings of one endpoint;
+repeated trailing slashes and fragments remain distinct. This endpoint identity
+is shared by credential scoping and legacy cache keys, where folding a query or
+fragment could let one configured endpoint answer for another.
 Local sources use a separate identity: config-relative paths resolve from the
 declaring config's directory, CLI-relative paths resolve from the working
 directory, and path and `file://` spellings normalize to one absolute directory.
@@ -79,6 +77,14 @@ immutable-source assumption; it needs distinct source endpoints to keep those
 content domains separate. Credentials selected for a configured endpoint may
 be sent to package resources discovered on the same origin (scheme, host, and
 port), but never to a cross-origin resource advertised by the feed.
+
+The typed source-client compatibility adapter therefore derives producer
+identity from a query-bearing legacy service index's origin and path while
+retaining its query and fragment only in runtime transport configuration. This
+does not change the stricter endpoint identity used for credential adoption or
+legacy caches. Portable descriptors reject queries and fragments. Two immutable
+content domains that need distinct producer identities require distinct
+endpoint paths rather than a query-only distinction.
 
 Package-source identity is broader than a NuGet v3 service-index URL. A
 standard v3 feed, the built-in NuGet Gallery browser implementation, and a

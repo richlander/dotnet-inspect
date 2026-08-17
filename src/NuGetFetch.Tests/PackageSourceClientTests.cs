@@ -57,7 +57,7 @@ public sealed class PackageSourceClientTests
                 new Uri("https://feed.example/V3/index.json?tenant=a"));
 
         Assert.NotEqual(upperPath, lowerPath);
-        Assert.Equal(upperPath, query);
+        Assert.NotEqual(upperPath, query);
         Assert.Equal(
             "https://feed.example:443/v3/index.json",
             lowerPath.Value);
@@ -230,7 +230,7 @@ public sealed class PackageSourceClientTests
             await reader.ReadToEndAsync(
                 TestContext.Current.CancellationToken));
         Assert.Equal(
-            ["user:token", "user:token", "user:token"],
+            ["user:token", "user:token", "user:token", "user:token"],
             handler.Authentication.Select(DecodeBasic));
     }
 
@@ -277,7 +277,7 @@ public sealed class PackageSourceClientTests
             StringComparison.OrdinalIgnoreCase);
         Assert.Equal(
             runtime.Identity,
-            PackageSourceIdentity.ForHttpEndpoint(
+            PackageSourceIdentity.ForProducerEndpoint(
                 new Uri(ServiceIndex + "?sig=other")));
         Assert.Equal(
             [signedServiceIndex, Versions],
@@ -496,7 +496,96 @@ public sealed class PackageSourceClientTests
         await payload.Content.DisposeAsync();
 
         Assert.Equal(
-            [ServiceIndex, signedVersions, signedPackage],
+            [
+                ServiceIndex,
+                signedVersions,
+                ServiceIndex,
+                signedPackage,
+            ],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3EscapesUnicodePackageIdsAsPathSegments()
+    {
+        const string unicodeVersions =
+            "https://feed.example/v3/flat/caf%C3%A9/index.json";
+        const string unicodePackage =
+            "https://feed.example/v3/flat/caf%C3%A9/1.0.0/caf%C3%A9.1.0.0.nupkg";
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = $$"""
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "{{FlatContainer}}",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [unicodeVersions] = """{"versions":["1.0.0"]}""",
+            [unicodePackage] = "package bytes",
+        };
+        using var client = new HttpClient(handler);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("unicode", ServiceIndex),
+                client);
+
+        Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "Caf\u00E9",
+                    TestContext.Current.CancellationToken))
+                .Candidates);
+        PackageSourcePayload payload = Succeeded(
+            await runtime.GetPackageAsync(
+                "Caf\u00E9",
+                "1.0.0",
+                TestContext.Current.CancellationToken));
+        await payload.Content.DisposeAsync();
+
+        Assert.Equal(
+            [ServiceIndex, unicodeVersions, unicodePackage],
+            handler.Requested);
+    }
+
+    [Fact]
+    public async Task V3NormalizesIdnPackageBaseAddress()
+    {
+        const string idnVersions =
+            "https://xn--bcher-kva.example/flat/contoso/index.json";
+        var handler = new RecordingHandler
+        {
+            [ServiceIndex] = """
+                {
+                  "version": "3.0.0",
+                  "resources": [
+                    {
+                      "@id": "https://bücher.example/flat/",
+                      "@type": "PackageBaseAddress/3.0.0"
+                    }
+                  ]
+                }
+                """,
+            [idnVersions] = """{"versions":["1.0.0"]}""",
+        };
+        using var client = new HttpClient(handler);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.Create(
+                new PackageSource("idn", ServiceIndex),
+                client);
+
+        Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+                .Candidates);
+        Assert.Equal(
+            [ServiceIndex, idnVersions],
             handler.Requested);
     }
 
@@ -863,12 +952,13 @@ public sealed class PackageSourceClientTests
         using IPackageSourceClient runtime =
             PackageSourceClientFactory.CreateGallery(handler);
 
-        Assert.Empty(
-            Succeeded(
-                await runtime.GetVersionsAsync(
-                    "contoso",
-                    TestContext.Current.CancellationToken))
-                .Candidates);
+        PackageVersionResult versions = Succeeded(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Empty(versions.Candidates);
+        Assert.False(versions.HasAuthoritativeListingState);
         Assert.Equal([GalleryVersions], handler.Requested);
     }
 

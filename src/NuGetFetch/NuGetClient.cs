@@ -15,7 +15,8 @@ public class NuGetClient(HttpClient client)
     internal const string NuGetOrgSearchUrl = "https://azuresearch-usnc.nuget.org/query";
 
     private readonly NuGetFetchOptions _options = new();
-    private readonly ConcurrentDictionary<string, string> _baseAddressCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _baseAddressCache =
+        new(StringComparer.Ordinal);
 
     /// <summary>
     /// Creates a NuGet client with configured resource limits and deadlines.
@@ -50,9 +51,10 @@ public class NuGetClient(HttpClient client)
             sourceUrl,
             credential,
             operation).ConfigureAwait(false);
+        string normalizedId = packageId.ToLowerInvariant();
         string url = AppendBaseAddressPath(
             baseAddress,
-            $"{packageId.ToLowerInvariant()}/index.json");
+            $"{Uri.EscapeDataString(normalizedId)}/index.json");
         PackageSourceCredential? endpointCredential =
             CredentialForEndpoint(sourceUrl, url, credential);
 
@@ -181,7 +183,8 @@ public class NuGetClient(HttpClient client)
             string ver = NormalizeVersion(version);
             string url = AppendBaseAddressPath(
                 baseAddress,
-                $"{id}/{ver}/{id}.{ver}.nupkg");
+                $"{Uri.EscapeDataString(id)}/{Uri.EscapeDataString(ver)}/"
+                + $"{Uri.EscapeDataString($"{id}.{ver}.nupkg")}");
             PackageSourceCredential? endpointCredential =
                 CredentialForEndpoint(sourceUrl, url, credential);
 
@@ -348,7 +351,13 @@ public class NuGetClient(HttpClient client)
             return NuGetOrgFlatContainer;
         }
 
-        if (_baseAddressCache.TryGetValue(sourceUrl, out string? cached))
+        bool cacheableSource =
+            credential is null
+            && Uri.TryCreate(sourceUrl, UriKind.Absolute, out Uri? source)
+            && source.Query.Length == 0
+            && source.Fragment.Length == 0;
+        if (cacheableSource
+            && _baseAddressCache.TryGetValue(sourceUrl, out string? cached))
         {
             return cached;
         }
@@ -360,7 +369,14 @@ public class NuGetClient(HttpClient client)
             ?? throw new NuGetSourceResponseException(
                 "The source service index did not advertise PackageBaseAddress.");
 
-        _baseAddressCache.TryAdd(sourceUrl, baseAddress);
+        if (cacheableSource
+            && Uri.TryCreate(baseAddress, UriKind.Absolute, out Uri? resource)
+            && resource.Query.Length == 0
+            && resource.Fragment.Length == 0)
+        {
+            _baseAddressCache.TryAdd(sourceUrl, baseAddress);
+        }
+
         return baseAddress;
     }
 
@@ -377,15 +393,41 @@ public class NuGetClient(HttpClient client)
         }
 
         int queryStart = baseAddress.IndexOf('?', StringComparison.Ordinal);
-        string path = queryStart >= 0
+        string pathAndOrigin = queryStart >= 0
             ? baseAddress[..queryStart]
             : baseAddress;
-        if (path.EndsWith("/", StringComparison.Ordinal))
-            return baseAddress;
+        string query = queryStart >= 0
+            ? baseAddress[queryStart..]
+            : "";
+        if (pathAndOrigin.Any(character => character > 0x7F))
+        {
+            string escapedPath = endpoint.GetComponents(
+                UriComponents.Path,
+                UriFormat.UriEscaped);
+            string origin =
+                $"{endpoint.Scheme}://{endpoint.IdnHost}"
+                + (endpoint.IsDefaultPort
+                    ? ""
+                    : $":{endpoint.Port}");
+            pathAndOrigin =
+                origin
+                + (escapedPath.StartsWith("/", StringComparison.Ordinal)
+                    ? escapedPath
+                    : "/" + escapedPath);
+        }
 
-        return queryStart >= 0
-            ? $"{path}/{baseAddress[queryStart..]}"
-            : baseAddress + "/";
+        if (query.Any(character => character > 0x7F))
+        {
+            query = endpoint.Query.Length == 0
+                ? ""
+                : "?" + endpoint.GetComponents(
+                    UriComponents.Query,
+                    UriFormat.UriEscaped);
+        }
+
+        return pathAndOrigin.EndsWith("/", StringComparison.Ordinal)
+            ? pathAndOrigin + query
+            : $"{pathAndOrigin}/{query}";
     }
 
     private static string AppendBaseAddressPath(
