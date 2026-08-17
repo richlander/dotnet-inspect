@@ -107,7 +107,12 @@ public static class MetadataSafetyPolicy
     /// arbitrary length, so a malformed image can encode a name of hundreds of megabytes within
     /// the depth budget. Real names are far smaller — the deepest generated names in the .NET
     /// libraries are a few hundred characters — so this ceiling only trips on input that was
-    /// never a name.
+    /// never a name. Legacy readers preflight UTF-8 storage then recheck decoded length;
+    /// gated by
+    /// <c>SharedOversizeHeapString_IsRejectedBeforeAggregateMaterialization</c>,
+    /// <c>ManySmallSegments_AreRejectedOnAggregateEncodedLength</c>,
+    /// <c>LeafAppendOverBudget_IsRejectedBeforeLeafMaterialization</c>, and
+    /// <c>StructuredRead_ReportsNameBudgetNotMalformed</c>.
     /// </remarks>
     public const int MaxTypeNameCharacters = 4096;
 

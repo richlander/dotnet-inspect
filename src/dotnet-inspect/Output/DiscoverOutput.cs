@@ -25,7 +25,8 @@ public static class DiscoverOutput
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
         IProjectionOptions? projection = null,
-        bool? scopedMachineRowsOverride = null)
+        bool? scopedMachineRowsOverride = null,
+        bool plainText = false)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -108,6 +109,10 @@ public static class DiscoverOutput
         else if (markdown)
         {
             context.Serialize(view, Console.Out, new MarkdownFormatter());
+        }
+        else if (plainText)
+        {
+            context.Serialize(view, Console.Out, new PlainTextFormatter());
         }
         else
         {

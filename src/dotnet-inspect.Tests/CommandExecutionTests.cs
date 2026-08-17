@@ -1008,6 +1008,30 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir)
+        CreateLocalMultiLibraryIntegrationOpportunityPackage()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libDir = Path.Combine(packageRoot, "lib", "net10.0");
+        Directory.CreateDirectory(libDir);
+        string assemblyPath = typeof(Npgsql.NpgsqlConnection).Assembly.Location;
+        File.Copy(
+            assemblyPath,
+            Path.Combine(libDir, "IntegrationOpportunity.One.dll"));
+        File.Copy(
+            assemblyPath,
+            Path.Combine(libDir, "IntegrationOpportunity.Two.dll"));
+
+        var packagePath = Path.Combine(
+            tempDir,
+            "Test.MultiLibraryIntegrationOpportunity.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalLibPackage()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -1454,7 +1478,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("\"shape\": \"allocation-fanout\"", output);
         Assert.Contains("\"provenance\": \"aggregate\"", output);
         Assert.Contains("\"direct_sites\": 1", output);
@@ -1472,7 +1496,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.DoesNotContain("\"shape\": \"allocation-fanout\"", output);
     }
 
@@ -1586,7 +1610,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("\"shape\": \"box-value-type\"", output);
         Assert.Contains("\"allocation\": \"boxed System.Int32\"", output);
         Assert.Contains("\"path\": \"straight-line\"", output);
@@ -1606,11 +1630,13 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("\"candidate\": \"pt~", output);
         Assert.Contains("\"finding\": \"analysis.allocation\"", output);
         Assert.Contains("\"provenance\": \"exact\"", output);
         Assert.Contains("\"operation\": \"box\"", output);
+        Assert.Contains("\"assembly\": \"", output);
+        Assert.Contains("\"method_token\": \"0x06", output);
         Assert.Contains("\"token\": \"0x", output);
     }
 
@@ -1657,6 +1683,161 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PerformanceTriage_ReportsIncompleteAnalysisAcrossScopes(
+        string command)
+    {
+        const string typeName =
+            "ILInspector.Analysis.AsyncSiblingFriendFixtures."
+            + "MalformedAsyncSourceFixture";
+        string assemblyPath =
+            FixtureCatalog.AnalysisAsyncSiblingFriend
+                .AssemblyPath();
+        string[] sourceArgs = command switch
+        {
+            "library" => [command, assemblyPath],
+            "type" =>
+            [
+                command,
+                typeName,
+                "--library",
+                assemblyPath,
+            ],
+            "member" =>
+            [
+                command,
+                typeName,
+                "AnalyzeAsync",
+                "--library",
+                assemblyPath,
+            ],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(command),
+                command,
+                null),
+        };
+
+        var result = await RunAppAsync(
+        [
+            .. sourceArgs,
+            "-S",
+            command == "library"
+                ? SectionNames.PerformanceAsync
+                : SectionNames.PerformanceTriage,
+            "--tips",
+            "q",
+        ]);
+
+        Assert.Contains(
+            "warning: performance analysis incomplete",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "MalformedAsyncSourceFixture::AnalyzeAsync",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PerformanceTriage_SuppressesDiagnosticsOutsideSelectedScope(
+        string command)
+    {
+        const string typeName =
+            "ILInspector.Analysis.AsyncSiblingFriendFixtures."
+            + "FriendProtectedReceiver";
+        string assemblyPath =
+            FixtureCatalog.AnalysisAsyncSiblingFriend
+                .AssemblyPath();
+        string[] sourceArgs = command == "type"
+            ?
+            [
+                command,
+                typeName,
+                "--library",
+                assemblyPath,
+            ]
+            :
+            [
+                command,
+                typeName,
+                "PublicAnalyzeAsync",
+                "--library",
+                assemblyPath,
+            ];
+
+        var result = await RunAppAsync(
+        [
+            .. sourceArgs,
+            "-S",
+            SectionNames.PerformanceTriage,
+            "--tips",
+            "q",
+        ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        if (command == "member")
+        {
+            Assert.Contains(
+                "PublicAnalyzeAsync",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.DoesNotContain(
+                "PublicAnalyzeAsync",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PerformanceTriage_DocumentJsonRejectsUnsupportedAnalysis(
+        string command)
+    {
+        const string typeName =
+            "ILInspector.Analysis.AsyncSiblingFriendFixtures."
+            + "MalformedAsyncSourceFixture";
+        string assemblyPath =
+            FixtureCatalog.AnalysisAsyncSiblingFriend
+                .AssemblyPath();
+        string[] sourceArgs = command == "type"
+            ? [command, typeName, "--library", assemblyPath]
+            :
+            [
+                command,
+                typeName,
+                "AnalyzeAsync",
+                "--library",
+                assemblyPath,
+            ];
+
+        var result = await RunAppAsync(
+        [
+            .. sourceArgs,
+            "-S",
+            SectionNames.PerformanceTriage,
+            "--json",
+            "--tips",
+            "q",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Document --json cannot represent Performance Triage analysis.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("asc")]
     [InlineData("desc")]
     public async Task PerformanceTriageOrderByCallerLoopDepth_PutsMissingEvidenceLast(string direction)
@@ -1688,7 +1869,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, baseline.Exit);
-        Assert.Empty(baseline.Error);
+        AssertOnlyPerformanceAnalysisWarnings(baseline.Error);
         string token = FirstPerformanceRow(baseline.Output).GetProperty("token").GetString()!;
         string unpaddedToken = $"0x{token[2..].TrimStart('0')}";
 
@@ -1700,7 +1881,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, filtered.Exit);
-        Assert.Empty(filtered.Error);
+        AssertOnlyPerformanceAnalysisWarnings(filtered.Error);
         Assert.Contains($"\"token\": \"{token}\"", filtered.Output);
     }
 
@@ -1734,7 +1915,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         using var document = JsonDocument.Parse(output.Trim());
         var boxing = document.RootElement.GetProperty("performance").GetProperty("boxing");
         Assert.Equal(1, boxing.GetArrayLength());
@@ -1754,7 +1935,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         var rows = output.TrimEnd().Split('\n');
         Assert.Single(rows.Skip(1));
     }
@@ -1770,7 +1951,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.StartsWith("member\t", output);
         Assert.Single(output.TrimEnd().Split('\n').Skip(1));
     }
@@ -1787,7 +1968,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         var rows = PerformanceRows(output);
         Assert.NotEmpty(rows);
         Assert.All(rows, row => Assert.Equal(
@@ -1807,7 +1988,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.True(int.TryParse(output.Trim(), out var count), output);
         Assert.True(count > 1, $"expected post-filter count before --top, got {count}");
     }
@@ -1859,6 +2040,28 @@ public partial class CommandExecutionTests
         Assert.Equal(0, tsvExit);
         Assert.Contains("async state-machine allocation (<", tsv);
         Assert.DoesNotContain("&lt;", tsv);
+    }
+
+    [Fact]
+    public async Task PerformanceAsync_FindsSyncCallsWithAsyncSiblings()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Async",
+            "--triage-shape",
+            "sync-call-in-async",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        Assert.Contains("## Performance: Async", output);
+        Assert.Contains("CallsSyncSiblingFromAsync", output);
+        Assert.Contains("ReadValueAsync", output);
+        Assert.Contains("CallsFileReadLinesFromAsync", output);
+        Assert.Contains("System.IO.File::ReadLinesAsync", output);
     }
 
     [Fact]
@@ -1916,14 +2119,14 @@ public partial class CommandExecutionTests
         // A tiny fixture assembly with no async candidates: the async kind must be absent, not an
         // empty section (il-offset gating parity).
         var (exit, output, error) = await RunAppAsync(
-            "library", FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+            "library", FixtureCatalog.AnalysisLookalike.AssemblyPath(),
             "-S", "Performance: Async", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Equal(
-            "This section (Performance: Async) produced no output.",
-            error.Trim());
+        AssertOnlyPerformanceAnalysisWarnings(
+            error,
+            "This section (Performance: Async) produced no output.");
     }
 
     [Fact]
@@ -7972,7 +8175,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Discover_FilteredUnboundedSection_DoesNotExecuteItsScanner()
+    public async Task Discover_FilteredUnboundedSection_DoesNotExecuteItsQuery()
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
@@ -7985,7 +8188,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
         Assert.Contains("trace: library", error);
-        Assert.DoesNotContain(LibrarySections.ScannerTopLeverage, error);
+        Assert.DoesNotContain(TopLeverageQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
         Assert.DoesNotContain("drill map", error);
     }
@@ -15310,7 +15513,7 @@ public partial class CommandExecutionTests
         Assert.Equal("10", countOutput.Trim());
 
         Assert.Equal(0, effectiveExit);
-        Assert.Empty(effectiveError);
+        AssertOnlyPerformanceAnalysisWarnings(effectiveError);
         Assert.Contains("| Performance: Boxing | section", effectiveOutput);
     }
 
@@ -17147,6 +17350,39 @@ public partial class CommandExecutionTests
         return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
     }
 
+    private static void AssertOnlyPerformanceAnalysisWarnings(
+        string error,
+        string? terminalMessage = null)
+    {
+        string[] lines = error.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries
+                | StringSplitOptions.TrimEntries);
+        int warningCount = terminalMessage is null
+            ? lines.Length
+            : lines.Length - 1;
+
+        Assert.True(warningCount > 0, error);
+        if (terminalMessage is not null)
+        {
+            Assert.Equal(terminalMessage, lines[^1]);
+        }
+
+        Assert.All(
+            lines.Take(warningCount),
+            line =>
+            {
+                Assert.StartsWith(
+                    "Warning: performance analysis incomplete for ",
+                    line,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    ": BadImageFormatException: ",
+                    line,
+                    StringComparison.Ordinal);
+            });
+    }
+
     private static JsonElement FirstPerformanceRow(string json)
     {
         var rows = PerformanceRows(json);
@@ -17254,17 +17490,17 @@ public partial class CommandExecutionTests
         // Both runs select by name and therefore share a verbosity, isolating prerequisite
         // sufficiency from verbosity-dependent rendering.
         //
-        // Body-index-backed scanners are excluded for run time only, not correctness: each costs
-        // seconds and this test does one run per section. A new body-index scanner added here
+        // Body-index-backed producers are excluded for run time only, not correctness: each costs
+        // seconds and this test does one run per section. A new body-index producer added here
         // would only make the test slower, never wrong.
         string[] bodyIndexScanners =
         [
-            LibrarySections.ScannerTopLeverage,
             LibrarySections.ScannerOptimizationOpportunities,
             LibrarySections.ScannerResourceTriage,
         ];
         InspectionQueryDefinition[] bodyIndexQueries =
         [
+            TopLeverageQuery.Definition,
             UnsafeEvidenceQuery.Definition,
         ];
 
@@ -19265,6 +19501,384 @@ public partial class CommandExecutionTests
             Assert.Contains("package\tversion\tlibrary\ttfm\tkind\tapi", output);
             Assert.Contains("Microsoft.Extensions.Configuration.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
+            Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Singular all-libraries sections remain one table per library for row selection even when a
+    /// row format flattens them into one provenance-bearing stream. The count is the independent
+    /// Markdown oracle: two rows from each of two selected libraries must produce four rows in
+    /// every representation.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--count",
+                "--tips",
+                "q");
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--tsv",
+                "--tips",
+                "q");
+            var (jsonlExit, jsonlOutput, jsonlError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--jsonl",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, countExit);
+            Assert.Equal(0, tsvExit);
+            Assert.Equal(0, jsonlExit);
+            Assert.Equal(4, int.Parse(
+                countOutput.Trim(),
+                CultureInfo.InvariantCulture));
+
+            var tsvRows = SplitOutputLines(tsvOutput).Skip(1).ToArray();
+            Assert.Equal(4, tsvRows.Length);
+            Assert.Equal(
+                [2, 2],
+                tsvRows
+                    .GroupBy(row => row.Split('\t')[2])
+                    .Select(group => group.Count())
+                    .Order()
+                    .ToArray());
+
+            var jsonlRows = SplitOutputLines(jsonlOutput)
+                .Select(line => JsonDocument.Parse(line))
+                .ToArray();
+            Assert.Equal(4, jsonlRows.Length);
+            Assert.Equal(
+                [2, 2],
+                jsonlRows
+                    .GroupBy(document => document.RootElement
+                        .GetProperty("library")
+                        .GetString())
+                    .Select(group => group.Count())
+                    .Order()
+                    .ToArray());
+            Assert.DoesNotContain("Tip:", countError);
+            Assert.DoesNotContain("Tip:", tsvError);
+            Assert.DoesNotContain("Tip:", jsonlError);
+
+            foreach (var document in jsonlRows)
+                document.Dispose();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_RowFormats_TailWindowMatchesMarkdownRows()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--tail",
+                "--tips",
+                "q");
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--tail",
+                "--tsv",
+                "--tips",
+                "q");
+            var (jsonlExit, jsonlOutput, jsonlError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--tail",
+                "--jsonl",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Equal(0, tsvExit);
+            Assert.Equal(0, jsonlExit);
+
+            var markdownFields = SplitOutputLines(markdownOutput)
+                .Where(line =>
+                    line.StartsWith("| Union Types |", StringComparison.Ordinal)
+                    || line.StartsWith("| Version |", StringComparison.Ordinal))
+                .Select(line => line.Split('|')[1].Trim())
+                .ToArray();
+            var tsvFields = SplitOutputLines(tsvOutput)
+                .Skip(1)
+                .Select(line => line.Split('\t')[4])
+                .ToArray();
+            var jsonlRows = SplitOutputLines(jsonlOutput)
+                .Select(line => JsonDocument.Parse(line))
+                .ToArray();
+            var jsonlFields = jsonlRows
+                .Select(document => document.RootElement
+                    .GetProperty("field")
+                    .GetString())
+                .ToArray();
+
+            Assert.Equal(
+                ["Union Types", "Version", "Union Types", "Version"],
+                markdownFields);
+            Assert.Equal(markdownFields, tsvFields);
+            Assert.Equal(markdownFields, jsonlFields);
+            Assert.DoesNotContain("Tip:", markdownError);
+            Assert.DoesNotContain("Tip:", tsvError);
+            Assert.DoesNotContain("Tip:", jsonlError);
+
+            foreach (var document in jsonlRows)
+                document.Dispose();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregateRowFormats_WindowAcrossRolledUpSection()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "Microsoft.Extensions.Configuration",
+            "Microsoft.Extensions.Configuration.Json");
+        try
+        {
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--rows",
+                "1",
+                "--count",
+                "--tips",
+                "q");
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Configuration",
+                "--rows",
+                "1",
+                "--tsv",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, countExit);
+            Assert.Equal(0, tsvExit);
+            Assert.Equal(
+                1,
+                int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
+            Assert.Single(SplitOutputLines(tsvOutput).Skip(1));
+            Assert.DoesNotContain("Tip:", countError);
+            Assert.DoesNotContain("Tip:", tsvError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregateRowFormats_WindowSameRowsAsMarkdown()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "System.Text.Json",
+            "System.Linq.Expressions");
+        try
+        {
+            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Switches",
+                "--rows",
+                "1",
+                "--tips",
+                "q");
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Switches",
+                "--rows",
+                "1",
+                "--tsv",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Equal(0, tsvExit);
+
+            var markdownRow = SplitOutputLines(markdownOutput)
+                .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+                .Skip(2)
+                .First()
+                .Split('|', StringSplitOptions.RemoveEmptyEntries)
+                .Select(cell => System.Net.WebUtility.HtmlDecode(
+                    cell.Trim().Trim('`')))
+                .ToArray();
+            var tsvRow = SplitOutputLines(tsvOutput)
+                .Skip(1)
+                .Single()
+                .Split('\t');
+            var tsvProjection = new[]
+            {
+                tsvRow[2],
+                tsvRow[4],
+                tsvRow[5],
+                tsvRow[6]
+            };
+
+            Assert.Equal(markdownRow, tsvProjection);
+            Assert.DoesNotContain("Tip:", markdownError);
+            Assert.DoesNotContain("Tip:", tsvError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_OpportunityRowFormat_WindowSameRowAsMarkdown()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalMultiLibraryIntegrationOpportunityPackage();
+        try
+        {
+            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--rows",
+                "2",
+                "--tips",
+                "q");
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--rows",
+                "2",
+                "--tsv",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Equal(0, tsvExit);
+
+            var markdownRows = SplitOutputLines(markdownOutput)
+                .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+                .Skip(2)
+                .Select(line => line
+                    .Split('|', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(cell => System.Net.WebUtility.HtmlDecode(
+                        cell.Trim().Trim('`'))))
+                .Select(cells => string.Join('\t', cells))
+                .ToArray();
+            var tsvRows = SplitOutputLines(tsvOutput)
+                .Skip(1)
+                .Select(line => line.Split('\t'))
+                .Select(row => string.Join(
+                    '\t',
+                    row[2],
+                    row[4],
+                    row[5],
+                    row[6],
+                    row[7]))
+                .ToArray();
+
+            Assert.Equal(markdownRows, tsvRows);
+            Assert.DoesNotContain("Tip:", markdownError);
+            Assert.DoesNotContain("Tip:", tsvError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_RowFormat_WindowMissPreservesHeader()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "100..",
+                "--tsv",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Equal(
+                "package\tversion\tlibrary\ttfm\tfield\tvalue",
+                output.Trim());
+            Assert.DoesNotContain(
+                "matched section has no row data",
+                error,
+                StringComparison.Ordinal);
             Assert.DoesNotContain("Tip:", error);
         }
         finally

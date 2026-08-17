@@ -24,12 +24,18 @@ public static class TupleElementNamesReader
     /// positions) from custom attributes. Returns null when the attribute is
     /// absent or its <c>string[]</c> argument is itself null.
     /// </summary>
-    public static string?[]? GetTupleElementNames(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    public static string?[]? GetTupleElementNames(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = AttributeReader.GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName != KnownAttributeNames.TupleElementNamesAttribute) continue;
 
             var blob = reader.GetBlobReader(attr.Value);
@@ -42,6 +48,7 @@ public static class TupleElementNamesReader
             // Each serialized string is at least one byte (length or 0xFF null marker).
             if (count > (uint)blob.RemainingBytes) return null;
 
+            beforeMaterialize?.Invoke(blob.Length);
             var names = new string?[count];
             for (uint i = 0; i < count; i++)
                 names[i] = blob.ReadSerializedString();
@@ -55,13 +62,19 @@ public static class TupleElementNamesReader
     /// number. Sequence 0 = return type, 1+ = parameters.
     /// </summary>
     public static string?[]? GetParameterTupleElementNames(
-        MetadataReader reader, ParameterHandleCollection paramHandles, int sequenceNumber)
+        MetadataReader reader,
+        ParameterHandleCollection paramHandles,
+        int sequenceNumber,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var handle in paramHandles)
         {
             var param = reader.GetParameter(handle);
             if (param.SequenceNumber == sequenceNumber)
-                return GetTupleElementNames(reader, param.GetCustomAttributes());
+                return GetTupleElementNames(
+                    reader,
+                    param.GetCustomAttributes(),
+                    beforeMaterialize);
         }
         return null;
     }
