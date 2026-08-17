@@ -8959,8 +8959,17 @@ public partial class CommandExecutionTests
 
         var nodes = root.GetProperty("nodes").EnumerateArray().ToArray();
         var regions = root.GetProperty("regions").EnumerateArray().ToArray();
+        var source = root.GetProperty("source");
         Assert.NotEmpty(nodes);
         Assert.NotEmpty(regions);
+        Assert.Equal(
+            typeof(CommandCaretGestureFixture).Assembly.GetName().Name,
+            source.GetProperty("assembly_name").GetString());
+        Assert.Equal(64, source.GetProperty("body_fingerprint").GetString()!.Length);
+        Assert.StartsWith(
+            "0x06",
+            $"0x{source.GetProperty("method_token").GetInt32():X8}",
+            StringComparison.Ordinal);
         Assert.Contains(nodes, node => node.GetProperty("medium").GetString() == "CSharp");
         Assert.Contains(nodes, node => node.GetProperty("medium").GetString() == "Il");
         var csharpKinds = nodes
@@ -8974,6 +8983,24 @@ public partial class CommandExecutionTests
         Assert.Contains("ObjectCreationExpression", csharpKinds);
         Assert.DoesNotContain("ForLoop", csharpKinds);
         Assert.DoesNotContain("NewObject", csharpKinds);
+        var csharpProvenance = nodes
+            .Where(node =>
+                node.GetProperty("medium").GetString() == "CSharp"
+                && node.TryGetProperty("provenance", out _))
+            .Select(node => node.GetProperty("provenance"))
+            .ToArray();
+        Assert.NotEmpty(csharpProvenance);
+        Assert.All(csharpProvenance, provenance =>
+        {
+            int[] offsets = provenance
+                .GetProperty("il_offsets")
+                .EnumerateArray()
+                .Select(offset => offset.GetInt32())
+                .ToArray();
+            Assert.NotEmpty(offsets);
+            Assert.Equal(offsets.Order(), offsets);
+            Assert.Equal(offsets.Length, offsets.Distinct().Count());
+        });
 
         // Every coordinate is an absolute, end-exclusive UTF-16 span into that
         // text, so a consumer slices it directly -- no medium filter, no
@@ -16408,6 +16435,105 @@ public partial class CommandExecutionTests
             "Warning: Array Pool Escapes inspection failed "
             + "(Resource lifecycle occurrence): fixture failure",
             singleError.Trim());
+    }
+
+    [Fact]
+    public async Task LibraryCommand_ExactEmptyFailedSectionNamesFailure()
+    {
+        LibraryInspection inspection =
+            FailedResourceTriageInspection();
+        var options = new LibraryOptions
+        {
+            IncludeSections = [SectionNames.ArrayPoolEscapes],
+            ExactIncludeSectionsOverride =
+                [SectionNames.ArrayPoolEscapes],
+        };
+
+        bool rejected = false;
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => rejected =
+                LibraryCommand.RejectEmptyExactSection(
+                    inspection,
+                    options,
+                    LibrarySections.CreatePipeline()));
+
+        Assert.True(rejected);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Array Pool Escapes inspection failed "
+            + "(Resource lifecycle occurrence): fixture failure",
+            error);
+        Assert.DoesNotContain(
+            "produced no output",
+            output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_CountStillNamesFailedSection()
+    {
+        var options = new LibraryOptions
+        {
+            Count = true,
+            IncludeSections = [SectionNames.ArrayPoolEscapes],
+        };
+
+        var (output, error) = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.WarnEmptySections(
+                [FailedResourceTriageInspection()],
+                options,
+                LibrarySections.CreatePipeline()));
+
+        Assert.Empty(output);
+        Assert.Contains(
+            "Array Pool Escapes inspection failed "
+            + "(Resource lifecycle occurrence): fixture failure",
+            error);
+        Assert.Equal(
+            1,
+            LibraryCommand.SelectedInspectionFailureExitCode(
+                options,
+                LibrarySections.CreatePipeline(),
+                FailedResourceTriageInspection()));
+        Assert.Equal(
+            0,
+            LibraryCommand.SelectedInspectionFailureExitCode(
+                new LibraryOptions
+                {
+                    IncludeSections = [SectionNames.Signals],
+                },
+                LibrarySections.CreatePipeline(),
+                FailedResourceTriageInspection()));
+        Assert.Equal(
+            0,
+            LibraryCommand.SelectedInspectionFailureExitCode(
+                new LibraryOptions
+                {
+                    IncludeSections = [SectionNames.LibraryInfo],
+                },
+                LibrarySections.CreatePipeline(),
+                FailedResourceTriageInspection()));
+        Assert.Equal(
+            1,
+            PackageCommand.AllLibrariesCompletionExitCode(
+                incomplete: false,
+                options,
+                LibrarySections.CreatePipeline(),
+                FailedResourceTriageInspection()));
+    }
+
+    static LibraryInspection FailedResourceTriageInspection()
+    {
+        var subject = new FindingSubject("fixture", "fixture");
+        return new LibraryInspection
+        {
+            FileName = "Lib.dll",
+            ResourceLifecycleInspection =
+                new FindingInspection<ResourceLifecycleOccurrence>.Failed(
+                    new InspectionError(
+                        subject,
+                        AnalysisFindings.ResourceLifecycleDescriptor,
+                        "fixture failure")),
+        };
     }
 
     [Fact]

@@ -303,14 +303,17 @@ public sealed class IteratorReconstructionPass : IIrPass
             if (!sections.TryGetValue(state, out var statements))
                 return false;
 
-            switch (Classify(statements, out var value, out var nextState, out var offset))
+            switch (Classify(statements, out var value, out var nextState))
             {
                 case StateKind.Yield:
                     if (!IsSelfContained(value))
                         return false;
-                    var yield = new YieldReturn((IrExpression)value.Clone());
-                    if (offset >= 0)
-                        yield.SetSourceOffset(offset);
+                    var clonedValue = (IrExpression)value.Clone();
+                    // This subtree came from MoveNext. Numeric equality with a
+                    // kickoff offset cannot make that foreign coordinate local.
+                    foreach (var node in clonedValue.Descendants.Prepend(clonedValue))
+                        node.SetSourceOffset(-1);
+                    var yield = new YieldReturn(clonedValue);
                     yields.Add(yield);
                     state = nextState;
                     continue;
@@ -334,11 +337,10 @@ public sealed class IteratorReconstructionPass : IIrPass
 
     enum StateKind { Unrecognized, Yield, Terminal }
 
-    static StateKind Classify(List<IrNode> statements, out IrExpression value, out int nextState, out int offset)
+    static StateKind Classify(List<IrNode> statements, out IrExpression value, out int nextState)
     {
         value = null!;
         nextState = -1;
-        offset = -1;
 
         // The lowered state body ends in `return true` (a yield point) or
         // `return false` (the iterator terminates).
@@ -379,7 +381,6 @@ public sealed class IteratorReconstructionPass : IIrPass
                 return StateKind.Unrecognized;
             value = current.Value;
             nextState = advance;
-            offset = current.SourceOffset;
             return StateKind.Yield;
         }
 

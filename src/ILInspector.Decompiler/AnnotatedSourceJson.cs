@@ -152,6 +152,18 @@ public static class AnnotatedSourceJson
         {
             ValidateObjectArray(nodes, $"{name}.nodes", "id", "kind", "medium", "spans");
             ValidateSpans(nodes, $"{name}.nodes");
+            if (nodes.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var node in nodes.EnumerateArray())
+                {
+                    if (node.ValueKind == JsonValueKind.Object
+                        && node.TryGetProperty("provenance", out var provenance)
+                        && provenance.ValueKind == JsonValueKind.Object)
+                    {
+                        RequireProperties(provenance, ["il_offsets"], $"{name}.nodes.provenance");
+                    }
+                }
+            }
         }
         if (document.TryGetProperty("regions", out var regions))
         {
@@ -173,6 +185,20 @@ public static class AnnotatedSourceJson
         if (document.TryGetProperty("targets", out var targets))
         {
             ValidateObjectArray(targets, $"{name}.targets", "fact_id", "node_id");
+        }
+        if (document.TryGetProperty("source", out var source)
+            && source.ValueKind == JsonValueKind.Object)
+        {
+            RequireProperties(
+                source,
+                [
+                    "assembly_name",
+                    "module_version_id",
+                    "method_token",
+                    "body_fingerprint",
+                    "subject",
+                ],
+                $"{name}.source");
         }
     }
 

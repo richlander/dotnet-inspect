@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text.Json;
 using ILInspector.Instructions;
 
 namespace ILInspector.Decompiler;
@@ -33,6 +35,87 @@ public sealed record CSharpNodeCorrespondence(
     int BeforeNodeId,
     int AfterNodeId,
     bool Moved = false);
+
+/// <summary>Exact identity of one serialized annotated-source revision.</summary>
+public sealed record CSharpDocumentRevision
+{
+    /// <summary>Creates a validated SHA-256 document identity.</summary>
+    public CSharpDocumentRevision(string Sha256)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(Sha256);
+        if (Sha256.Length != 64 || Sha256.Any(static character => !Uri.IsHexDigit(character)))
+        {
+            throw new ArgumentException(
+                "Document revision must be a 64-character SHA-256 hexadecimal value.",
+                nameof(Sha256));
+        }
+        this.Sha256 = Sha256.ToUpperInvariant();
+    }
+
+    /// <summary>SHA-256 of the canonical compact document serialization.</summary>
+    public string Sha256 { get; }
+
+    internal static CSharpDocumentRevision Create(AnnotatedSourceDocument document)
+    {
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(
+            document,
+            AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument);
+        return new CSharpDocumentRevision(Convert.ToHexString(SHA256.HashData(json)));
+    }
+}
+
+/// <summary>Document-scoped identity of one syntax node.</summary>
+public sealed record CSharpDocumentNodeIdentity(
+    CSharpDocumentRevision Document,
+    int NodeId);
+
+/// <summary>Evidence mechanism used to issue one cross-document match.</summary>
+public enum CSharpNodeMatchProvenance
+{
+    /// <summary>Unique equality of a product-owned IL-origin set.</summary>
+    IlOriginSet,
+}
+
+/// <summary>Why one node received no cross-document match.</summary>
+public enum CSharpUnmatchedNodeReason
+{
+    /// <summary>The producer retained no supported identity evidence.</summary>
+    Unsupported,
+
+    /// <summary>The evidence key is non-unique on at least one side.</summary>
+    Ambiguous,
+
+    /// <summary>The unique evidence key exists on this side only.</summary>
+    NoCounterpart,
+}
+
+/// <summary>One product-issued cross-document node match.</summary>
+public sealed record CSharpNodeMatch(
+    CSharpDocumentNodeIdentity Before,
+    CSharpDocumentNodeIdentity After,
+    CSharpNodeMatchProvenance Provenance,
+    AnnotatedSourceNodeProvenance Evidence,
+    bool Moved = false);
+
+/// <summary>One explicitly unmatched syntax node.</summary>
+public sealed record CSharpUnmatchedNode(
+    CSharpDocumentNodeIdentity Node,
+    CSharpUnmatchedNodeReason Reason,
+    AnnotatedSourceNodeProvenance? Evidence = null);
+
+/// <summary>
+/// Product-issued, revision-bound correspondence over every C# node in two
+/// annotated-source documents.
+/// </summary>
+public sealed record CSharpNodeCorrespondenceResult(
+    string Subject,
+    AnnotatedSourceDocument Before,
+    AnnotatedSourceDocument After,
+    CSharpDocumentRevision BeforeRevision,
+    CSharpDocumentRevision AfterRevision,
+    ImmutableArray<CSharpNodeMatch> Matches,
+    ImmutableArray<CSharpUnmatchedNode> UnmatchedBefore,
+    ImmutableArray<CSharpUnmatchedNode> UnmatchedAfter);
 
 /// <summary>
 /// Independently supplied compile-back fidelity evidence for the two rendered
@@ -110,14 +193,229 @@ public sealed record CSharpStructuralComparison(
     AnnotatedSourceDocument Before,
     AnnotatedSourceDocument After,
     ImmutableArray<CSharpStructuralDiffRow> Rows,
-    CSharpStructuralFidelityEvidence? Fidelity = null)
+    CSharpStructuralFidelityEvidence? Fidelity = null,
+    CSharpNodeCorrespondenceResult? Correspondence = null)
 {
     /// <summary>Whether the selected structure is unchanged.</summary>
-    public bool IsExact => Rows.IsEmpty;
+    public bool IsExact => Rows.IsEmpty && IsCorrespondenceComplete;
+
+    /// <summary>Whether every C# node had enough unique evidence for a verdict.</summary>
+    public bool IsCorrespondenceComplete => Correspondence is null
+        || Correspondence.UnmatchedBefore.All(static node =>
+            node.Reason == CSharpUnmatchedNodeReason.NoCounterpart)
+        && Correspondence.UnmatchedAfter.All(static node =>
+            node.Reason == CSharpUnmatchedNodeReason.NoCounterpart);
 }
 
 public static partial class CSharpBodyDiff
 {
+    /// <summary>
+    /// Issues trusted correspondence from product-owned IL provenance. The
+    /// documents must describe the same exact physical method body.
+    /// </summary>
+    public static CSharpNodeCorrespondenceResult IssueCorrespondence(
+        AnnotatedSourceDocument before,
+        AnnotatedSourceDocument after)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+        if (before.Source is null || after.Source is null)
+        {
+            throw new ArgumentException(
+                "Trusted correspondence requires physical method provenance on both documents.");
+        }
+        if (!SamePhysicalMethod(before.Source, after.Source))
+        {
+            throw new ArgumentException(
+                "Trusted correspondence requires both documents to describe the same exact method body.");
+        }
+
+        var beforeRevision = CSharpDocumentRevision.Create(before);
+        var afterRevision = CSharpDocumentRevision.Create(after);
+        var beforeNodes = before.Nodes
+            .Where(static node => node.Medium == SourceLineKind.CSharp)
+            .ToArray();
+        var afterNodes = after.Nodes
+            .Where(static node => node.Medium == SourceLineKind.CSharp)
+            .ToArray();
+        var beforeGroups = GroupByProvenance(beforeNodes);
+        var afterGroups = GroupByProvenance(afterNodes);
+        bool beforePopulationComplete = beforeNodes.All(static node => node.Provenance is not null);
+        bool afterPopulationComplete = afterNodes.All(static node => node.Provenance is not null);
+        var matches = ImmutableArray.CreateBuilder<CSharpNodeMatch>();
+        var unmatchedBefore = ImmutableArray.CreateBuilder<CSharpUnmatchedNode>();
+        var unmatchedAfter = ImmutableArray.CreateBuilder<CSharpUnmatchedNode>();
+
+        foreach (var node in beforeNodes)
+        {
+            var identity = new CSharpDocumentNodeIdentity(beforeRevision, node.Id);
+            if (node.Provenance is null)
+            {
+                unmatchedBefore.Add(new(identity, CSharpUnmatchedNodeReason.Unsupported));
+                continue;
+            }
+
+            var origins = OriginSet.From(node.Provenance);
+            var beforeCandidates = beforeGroups[origins];
+            afterGroups.TryGetValue(origins, out var afterCandidates);
+            if (beforeCandidates.Count == 1
+                && afterCandidates is { Count: 1 })
+            {
+                var afterNode = afterCandidates[0];
+                matches.Add(new CSharpNodeMatch(
+                    identity,
+                    new CSharpDocumentNodeIdentity(afterRevision, afterNode.Id),
+                    CSharpNodeMatchProvenance.IlOriginSet,
+                    node.Provenance));
+            }
+            else
+            {
+                unmatchedBefore.Add(new CSharpUnmatchedNode(
+                    identity,
+                    beforeCandidates.Count == 1
+                        && (afterCandidates is null or { Count: 0 })
+                        && afterPopulationComplete
+                        ? CSharpUnmatchedNodeReason.NoCounterpart
+                        : CSharpUnmatchedNodeReason.Ambiguous,
+                    node.Provenance));
+            }
+        }
+
+        foreach (var node in afterNodes)
+        {
+            var identity = new CSharpDocumentNodeIdentity(afterRevision, node.Id);
+            if (node.Provenance is null)
+            {
+                unmatchedAfter.Add(new(identity, CSharpUnmatchedNodeReason.Unsupported));
+                continue;
+            }
+
+            var origins = OriginSet.From(node.Provenance);
+            var afterCandidates = afterGroups[origins];
+            beforeGroups.TryGetValue(origins, out var beforeCandidates);
+            if (afterCandidates.Count == 1
+                && beforeCandidates is { Count: 1 })
+                continue;
+
+            unmatchedAfter.Add(new CSharpUnmatchedNode(
+                identity,
+                afterCandidates.Count == 1
+                    && (beforeCandidates is null or { Count: 0 })
+                    && beforePopulationComplete
+                    ? CSharpUnmatchedNodeReason.NoCounterpart
+                    : CSharpUnmatchedNodeReason.Ambiguous,
+                node.Provenance));
+        }
+
+        return new CSharpNodeCorrespondenceResult(
+            before.Source.Subject,
+            before,
+            after,
+            beforeRevision,
+            afterRevision,
+            ClassifyMovement(matches),
+            unmatchedBefore
+                .OrderBy(static unmatched => unmatched.Node.NodeId)
+                .ToImmutableArray(),
+            unmatchedAfter
+                .OrderBy(static unmatched => unmatched.Node.NodeId)
+                .ToImmutableArray());
+    }
+
+    static ImmutableArray<CSharpNodeMatch> ClassifyMovement(
+        IEnumerable<CSharpNodeMatch> matches)
+    {
+        var ordered = matches
+            .OrderBy(static match => match.Before.NodeId)
+            .ToArray();
+        if (ordered.Length < 2)
+            return [.. ordered];
+
+        var lengths = new int[ordered.Length];
+        var previous = new int[ordered.Length];
+        Array.Fill(previous, -1);
+        int longestEnd = 0;
+        for (int current = 0; current < ordered.Length; current++)
+        {
+            lengths[current] = 1;
+            for (int candidate = 0; candidate < current; candidate++)
+            {
+                if (ordered[candidate].After.NodeId >= ordered[current].After.NodeId
+                    || lengths[candidate] + 1 <= lengths[current])
+                {
+                    continue;
+                }
+
+                lengths[current] = lengths[candidate] + 1;
+                previous[current] = candidate;
+            }
+            if (lengths[current] > lengths[longestEnd])
+                longestEnd = current;
+        }
+
+        var retained = new bool[ordered.Length];
+        for (int current = longestEnd; current >= 0; current = previous[current])
+        {
+            retained[current] = true;
+            if (previous[current] < 0)
+                break;
+        }
+
+        return
+        [
+            .. ordered.Select(
+                (match, index) => retained[index]
+                    ? match
+                    : match with { Moved = true })
+        ];
+    }
+
+    /// <summary>
+    /// Feeds a validated product-issued correspondence result into the existing
+    /// structural comparison consumer.
+    /// </summary>
+    public static CSharpStructuralComparison CompareStructure(
+        CSharpNodeCorrespondenceResult correspondence,
+        CSharpStructuralFidelityEvidence? fidelity = null)
+    {
+        ArgumentNullException.ThrowIfNull(correspondence);
+        ValidateIssuedCorrespondence(correspondence);
+
+        var before = CSharpAnnotatedSourceProjection.Create(correspondence.Before);
+        var after = CSharpAnnotatedSourceProjection.Create(correspondence.After);
+        int[] beforeNodeIds =
+        [
+            .. correspondence.Matches.Select(match => before.NodeIds[match.Before.NodeId]),
+            .. correspondence.UnmatchedBefore
+                .Where(static unmatched => unmatched.Reason == CSharpUnmatchedNodeReason.NoCounterpart)
+                .Select(unmatched => before.NodeIds[unmatched.Node.NodeId])
+        ];
+        int[] afterNodeIds =
+        [
+            .. correspondence.Matches.Select(match => after.NodeIds[match.After.NodeId]),
+            .. correspondence.UnmatchedAfter
+                .Where(static unmatched => unmatched.Reason == CSharpUnmatchedNodeReason.NoCounterpart)
+                .Select(unmatched => after.NodeIds[unmatched.Node.NodeId])
+        ];
+        CSharpNodeCorrespondence[] matches =
+        [
+            .. correspondence.Matches.Select(match => new CSharpNodeCorrespondence(
+                before.NodeIds[match.Before.NodeId],
+                after.NodeIds[match.After.NodeId],
+                match.Moved))
+        ];
+
+        var comparison = CompareStructure(new CSharpStructuralComparisonInput(
+            correspondence.Subject,
+            before.Document,
+            after.Document,
+            beforeNodeIds,
+            afterNodeIds,
+            matches,
+            fidelity));
+        return comparison with { Correspondence = correspondence };
+    }
+
     /// <summary>
     /// Compares selected C# nodes using owner-issued cross-document
     /// correspondence. Node ids are dereferenced only within the document that
@@ -246,6 +544,66 @@ public static partial class CSharpBodyDiff
             input.Fidelity);
     }
 
+    static Dictionary<OriginSet, List<AnnotatedSourceNode>> GroupByProvenance(
+        IReadOnlyList<AnnotatedSourceNode> nodes)
+    {
+        var groups = new Dictionary<OriginSet, List<AnnotatedSourceNode>>();
+        foreach (var node in nodes)
+        {
+            if (node.Provenance is null)
+                continue;
+            var key = OriginSet.From(node.Provenance);
+            if (!groups.TryGetValue(key, out var values))
+                groups[key] = values = [];
+            values.Add(node);
+        }
+        return groups;
+    }
+
+    static bool SamePhysicalMethod(
+        AnnotatedSourceDocumentSource before,
+        AnnotatedSourceDocumentSource after)
+        => before.ModuleVersionId == after.ModuleVersionId
+            && before.MethodToken == after.MethodToken
+            && string.Equals(
+                before.BodyFingerprint,
+                after.BodyFingerprint,
+                StringComparison.Ordinal);
+
+    static void ValidateIssuedCorrespondence(CSharpNodeCorrespondenceResult correspondence)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(correspondence.Subject);
+        ArgumentNullException.ThrowIfNull(correspondence.Before);
+        ArgumentNullException.ThrowIfNull(correspondence.After);
+        ArgumentNullException.ThrowIfNull(correspondence.BeforeRevision);
+        ArgumentNullException.ThrowIfNull(correspondence.AfterRevision);
+        if (correspondence.Matches.IsDefault
+            || correspondence.UnmatchedBefore.IsDefault
+            || correspondence.UnmatchedAfter.IsDefault)
+        {
+            throw new ArgumentException("Issued correspondence arrays must be initialized.", nameof(correspondence));
+        }
+
+        var expected = IssueCorrespondence(correspondence.Before, correspondence.After);
+        if (correspondence.Subject != expected.Subject
+            || correspondence.BeforeRevision != expected.BeforeRevision
+            || correspondence.AfterRevision != expected.AfterRevision
+            || !correspondence.Matches.SequenceEqual(expected.Matches)
+            || !correspondence.UnmatchedBefore.SequenceEqual(expected.UnmatchedBefore)
+            || !correspondence.UnmatchedAfter.SequenceEqual(expected.UnmatchedAfter))
+        {
+            throw new ArgumentException(
+                "Correspondence does not match the product-issued result for its exact document revisions.",
+                nameof(correspondence));
+        }
+    }
+
+    readonly record struct OriginSet(string Offsets)
+    {
+        public static OriginSet From(AnnotatedSourceNodeProvenance provenance)
+            => new(string.Join(",", provenance.IlOffsets));
+    }
+
     static void ValidateCSharpDocument(AnnotatedSourceDocument document, string parameterName)
     {
         if (document.Nodes.Any(static node => node.Medium != SourceLineKind.CSharp))
@@ -286,14 +644,48 @@ public static partial class CSharpBodyDiff
         AnnotatedSourceNode beforeNode,
         AnnotatedSourceDocument afterDocument,
         AnnotatedSourceNode afterNode)
+        => SelectedTextEqual(
+            beforeDocument,
+            beforeNode.Spans,
+            afterDocument,
+            afterNode.Spans);
+
+    internal static bool SelectedTextEqual(
+        AnnotatedSourceDocument beforeDocument,
+        IReadOnlyList<AnnotatedSourceSpan> beforeSpans,
+        AnnotatedSourceDocument afterDocument,
+        IReadOnlyList<AnnotatedSourceSpan> afterSpans)
     {
-        if (beforeNode.Spans.Count != afterNode.Spans.Count)
+        if (beforeSpans.Count != afterSpans.Count)
             return false;
 
-        for (int index = 0; index < beforeNode.Spans.Count; index++)
+        for (int index = 0; index < beforeSpans.Count; index++)
         {
-            var beforeSpan = beforeNode.Spans[index];
-            var afterSpan = afterNode.Spans[index];
+            var beforeSpan = beforeSpans[index];
+            var afterSpan = afterSpans[index];
+            if (!beforeDocument.Text.AsSpan(beforeSpan.Start, beforeSpan.Length)
+                .SequenceEqual(afterDocument.Text.AsSpan(afterSpan.Start, afterSpan.Length)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    internal static bool SelectedTextEqual(
+        AnnotatedSourceDocument beforeDocument,
+        ImmutableArray<AnnotatedSourceSpan> beforeSpans,
+        AnnotatedSourceDocument afterDocument,
+        ImmutableArray<AnnotatedSourceSpan> afterSpans)
+    {
+        if (beforeSpans.Length != afterSpans.Length)
+            return false;
+
+        for (int index = 0; index < beforeSpans.Length; index++)
+        {
+            var beforeSpan = beforeSpans[index];
+            var afterSpan = afterSpans[index];
             if (!beforeDocument.Text.AsSpan(beforeSpan.Start, beforeSpan.Length)
                 .SequenceEqual(afterDocument.Text.AsSpan(afterSpan.Start, afterSpan.Length)))
             {
