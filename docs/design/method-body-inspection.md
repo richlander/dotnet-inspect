@@ -296,11 +296,27 @@ evidence, and diagnostics surviving a later recoverable failure;
 `LibraryBodyIndex_PrefetchedImageScopeSkipsMalformedUnselectedBody` gates
 scoped decode with an excluded malformed-body close negative. The assembly
 builder retains the metadata-ordered work list, parallel scheduling,
-assembly-level projections, and result aggregation.
+and service lifetime composition. `LibraryBodyAnalysisAccumulator` receives
+the completed method-local result array in metadata order, merges all topic
+collections and partial diagnostics, computes the call-derived non-heap and
+exception-type assembly projections, and constructs the immutable
+`LibraryBodyAnalysisResult`.
+`ParallelBuild_IsOrderStable_AcrossRepeatedOpens` gates deterministic ordered
+output, while `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` also
+gates partial-result accumulation.
 `LibraryBodyPrimaryMetadataResolver` owns primary-image method identity,
 unsafe/generated attribute judgments, token/member/type/field/calli/value-type
 and delegate facts, async-state-machine caching, and the narrow resolver
-adapters. `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
+adapters. `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped
+structural signature and generic-scope identities, canonical
+`MemberRef`/`MethodSpec` resolution caches, and their shared assembly work
+budgets. The primary resolver adapters and lifted-source-owner reference index
+consume that same resolution authority.
+`OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
+`OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
+`LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
+sharing and scope-aware identity.
+`CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
 `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
 `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
 representative identity, cached classification, and token-shape behavior.

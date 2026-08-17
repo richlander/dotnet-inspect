@@ -81,6 +81,27 @@ public class LibraryCommand
         }
     }
 
+    /// <summary>
+    /// Converts bare <c>-S</c> into the library pipeline's fixed, network-free overview while
+    /// preserving explicit selectors and higher user-selected verbosity.
+    /// </summary>
+    internal static LibraryOptions NormalizeBareSelect(
+        LibraryOptions options)
+    {
+        if (options.Discover != null || !options.SelectDefault)
+            return options;
+
+        options = options with { SelectDefault = false };
+        return options.Select is null
+            && options.Verbosity == Verbosity.Minimal
+                ? options with
+                {
+                    Verbosity = Verbosity.Normal,
+                    FixedOverview = true,
+                }
+                : options;
+    }
+
     private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
     {
         var assemblyPath = options.AssemblyName;
@@ -162,12 +183,7 @@ public class LibraryCommand
         // the user asked for, in which case the normal curated ladder applies instead of the fixed
         // overview). Combined with an explicit selector the explicit selection wins and the marker
         // is dropped. See #3547.
-        if (options.Discover == null && options.SelectDefault)
-        {
-            options = options with { SelectDefault = false };
-            if (options.Select is null && options.Verbosity == Verbosity.Minimal)
-                options = options with { Verbosity = Verbosity.Normal, FixedOverview = true };
-        }
+        options = NormalizeBareSelect(options);
 
         bool discoveryInspection = options.Discover != null && !options.Schema && hasInputSource;
         bool fullEffectiveDiscovery = discoveryInspection && options.Effective;
@@ -212,55 +228,11 @@ public class LibraryCommand
         if (SelectOutput.WriteUnresolved(selectResult)) return 1;
         if (selectResult.Sections != null)
         {
-            const string ilCoordinateRequired =
-                "IL coordinate sections require --il-offset <token>+<offset>.";
-            var heapCoordinateRequired =
-                $"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".";
-            var removedILCoordinateSections = false;
-            var removedHeapSection = false;
-
-            if (selectResult.Sections.Overlaps(ILCoordinateSections)
-                && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
+            if (ApplyCoordinateSectionRequirements(
+                    options,
+                    selectResult) is { } coordinateError)
             {
-                if (!selectResult.ExactSections.Overlaps(ILCoordinateSections))
-                {
-                    var count = selectResult.Sections.Count;
-                    selectResult.Sections.ExceptWith(ILCoordinateSections);
-                    removedILCoordinateSections = selectResult.Sections.Count != count;
-                }
-                else if (options.Discover == null)
-                {
-                    CommandError.Write(ilCoordinateRequired);
-                    return 1;
-                }
-            }
-
-            if (selectResult.Sections.Contains(MetadataSectionNames.Heap)
-                && string.IsNullOrWhiteSpace(options.HeapParameter))
-            {
-                // Same discipline as the IL coordinate sections above: reached through the
-                // @Metadata door the section is simply dropped, because a category selection is a
-                // request for whatever applies; reached by an exact name or compatible alias it is
-                // an error, because the caller asked for a specific section that cannot exist
-                // without its coordinate.
-                if (!selectResult.ExactSections.Contains(MetadataSectionNames.Heap))
-                {
-                    removedHeapSection = selectResult.Sections.Remove(MetadataSectionNames.Heap);
-                }
-                else if (options.Discover == null)
-                {
-                    CommandError.Write(heapCoordinateRequired);
-                    return 1;
-                }
-            }
-
-            if (selectResult.Sections.Count == 0
-                && (removedILCoordinateSections || removedHeapSection))
-            {
-                if (removedILCoordinateSections)
-                    CommandError.Write(ilCoordinateRequired);
-                else if (removedHeapSection)
-                    CommandError.Write(heapCoordinateRequired);
+                CommandError.Write(coordinateError);
                 return 1;
             }
 
@@ -628,7 +600,10 @@ public class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
-                    return 0;
+                    return SelectedInspectionFailureExitCode(
+                        options,
+                        pipeline,
+                        inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -638,7 +613,12 @@ public class LibraryCommand
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(resolvedPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
-                return IntegrityExitCode(inspection);
+                return Math.Max(
+                    IntegrityExitCode(inspection),
+                    SelectedInspectionFailureExitCode(
+                        options,
+                        pipeline,
+                        inspection));
             }
             else if (!string.IsNullOrEmpty(options.PackagePath))
             {
@@ -767,10 +747,15 @@ public class LibraryCommand
                             reportIdentifierFailures:
                                 !identifierAuditIncomplete));
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
-                    return IntegrityExitCode(
-                        identifierAuditExitCode,
-                        !identifierAuditIncomplete,
-                        inspections[0]);
+                    return Math.Max(
+                        IntegrityExitCode(
+                            identifierAuditExitCode,
+                            !identifierAuditIncomplete,
+                            inspections[0]),
+                        SelectedInspectionFailureExitCode(
+                            options,
+                            pipeline,
+                            inspections[0]));
                 if (options.Print)
                     return IntegrityExitCode(
                         Math.Max(
@@ -804,10 +789,15 @@ public class LibraryCommand
                     OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
                 }
 
-                return IntegrityExitCode(
-                    identifierAuditExitCode,
-                    !identifierAuditIncomplete,
-                    [.. inspections]);
+                return Math.Max(
+                    IntegrityExitCode(
+                        identifierAuditExitCode,
+                        !identifierAuditIncomplete,
+                        [.. inspections]),
+                    SelectedInspectionFailureExitCode(
+                        options,
+                        pipeline,
+                        [.. inspections]));
             }
             else
             {
@@ -893,7 +883,10 @@ public class LibraryCommand
                         cache: useEffectiveDiscoveryCache,
                         inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
-                    return 0;
+                    return SelectedInspectionFailureExitCode(
+                        options,
+                        pipeline,
+                        inspection);
                 if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
@@ -903,7 +896,12 @@ public class LibraryCommand
                 WarnEmptySections(inspection, options, pipeline);
                 ExtractResourcesIfRequested(assemblyPath!, options);
                 OutputFormatter.WriteLibraryResult(inspection, options, pipeline);
-                return IntegrityExitCode(inspection);
+                return Math.Max(
+                    IntegrityExitCode(inspection),
+                    SelectedInspectionFailureExitCode(
+                        options,
+                        pipeline,
+                        inspection));
             }
         }
         catch (Exception ex)
@@ -972,6 +970,30 @@ public class LibraryCommand
                 inspection =>
                     inspection.SourceIntegrityMismatches is { Count: > 0 })
             || identifierFailures.Count > 0
+            ? 1
+            : 0;
+    }
+
+    internal static int SelectedInspectionFailureExitCode(
+        LibraryOptions options,
+        SectionPipeline<LibraryInspection> pipeline,
+        params LibraryInspection[] inspections)
+    {
+        if (options.IncludeSections is not { Count: > 0 })
+            return 0;
+
+        return inspections.Any(inspection =>
+        {
+            var empty = pipeline.GetEmptySections(
+                inspection,
+                options.Verbosity,
+                options.IncludeSections).Empty;
+            return (inspection.InspectionFailures ?? []).Any(failure =>
+                empty.Any(section =>
+                    FailureAffectsSection(
+                        failure.Section,
+                        section)));
+        })
             ? 1
             : 0;
     }
@@ -1262,6 +1284,66 @@ public class LibraryCommand
         }, null);
     }
 
+    internal static string? ApplyCoordinateSectionRequirements(
+        LibraryOptions options,
+        SelectResult selectResult)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(selectResult);
+        if (selectResult.Sections is not { } sections)
+            return null;
+
+        const string ilCoordinateRequired =
+            "IL coordinate sections require --il-offset <token>+<offset>.";
+        var heapCoordinateRequired =
+            $"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".";
+        var removedILCoordinateSections = false;
+        var removedHeapSection = false;
+
+        if (sections.Overlaps(ILCoordinateSections)
+            && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
+        {
+            if (!selectResult.ExactSections.Overlaps(ILCoordinateSections))
+            {
+                var count = sections.Count;
+                sections.ExceptWith(ILCoordinateSections);
+                removedILCoordinateSections = sections.Count != count;
+            }
+            else if (options.Discover == null)
+            {
+                return ilCoordinateRequired;
+            }
+        }
+
+        if (sections.Contains(MetadataSectionNames.Heap)
+            && string.IsNullOrWhiteSpace(options.HeapParameter))
+        {
+            // Reached through @Metadata the section is dropped because a category selects whatever
+            // applies. An exact selector is an error because the section cannot exist without its
+            // coordinate.
+            if (!selectResult.ExactSections.Contains(
+                    MetadataSectionNames.Heap))
+            {
+                removedHeapSection = sections.Remove(
+                    MetadataSectionNames.Heap);
+            }
+            else if (options.Discover == null)
+            {
+                return heapCoordinateRequired;
+            }
+        }
+
+        if (sections.Count != 0
+            || (!removedILCoordinateSections && !removedHeapSection))
+        {
+            return null;
+        }
+
+        return removedILCoordinateSections
+            ? ilCoordinateRequired
+            : heapCoordinateRequired;
+    }
+
     // Catalog-hidden set for the effective (real-assembly) -D flows. Base-category
     // members form the flat catalog; separate domains remain behind their category
     // doors even when a coordinate or other explicit input makes a member effective.
@@ -1269,13 +1351,16 @@ public class LibraryCommand
         => pipeline.GetCatalogHiddenSections();
 
     /// <summary>
-    /// Rejects rendered metadata-lens rows when a package resolved to more than one assembly.
-    /// The lens renders raw ECMA-335 tables of one image: row ids are image-relative and section
-    /// names carry no assembly, so several assemblies would emit repeated
+    /// Rejects direct-library metadata-lens rows when a package resolved to more than one assembly.
+    /// That renderer carries no per-image provenance: several assemblies would emit repeated
     /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
     /// whose row numbering restarts without saying so. Aggregate counts remain safe because they
-    /// do not expose image-relative row identities; the rejection and count allowance are gated by
-    /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in dotnet-inspect.Tests.
+    /// do not expose image-relative row identities. Package <c>--all-libraries</c> is a separate
+    /// renderer that suffixes each metadata heading with the package-relative assembly path. The
+    /// direct-library rejection and count allowance are gated by
+    /// <c>MetadataLens_MultipleAssemblies_IsRejected</c> in dotnet-inspect.Tests; all-libraries
+    /// provenance is gated by
+    /// <c>PackageCommand_AllLibraries_BareSelectCount_MapDescribesBareSelectRender</c>.
     /// </summary>
     private static bool RejectMultiAssemblyMetadataSelection(
         IReadOnlyCollection<LibraryInspection> inspections, LibraryOptions options)
@@ -2400,9 +2485,6 @@ public class LibraryCommand
     internal static void WarnEmptySections(IReadOnlyList<LibraryInspection> inspections, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline, bool writeEmptyNote = true)
     {
-        if (options.Count)
-            return;
-
         var emptyResults = inspections
             .Select(inspection => pipeline.GetEmptySections(
                 inspection, options.Verbosity, options.IncludeSections))
@@ -2437,7 +2519,10 @@ public class LibraryCommand
             .Where(section => !relevantFailures.Any(
                 entry => FailureAffectsSection(entry.Failure.Section, section)))
             .ToList();
-        if (writeEmptyNote && unexplained.Count > 0 && empty.Count == requested)
+        if (!options.Count
+            && writeEmptyNote
+            && unexplained.Count > 0
+            && empty.Count == requested)
         {
             var label = unexplained.Count == 1 ? "section has" : "sections have";
             CommandError.WriteNote(
@@ -2445,7 +2530,7 @@ public class LibraryCommand
         }
     }
 
-    private static bool RejectEmptyExactSection(LibraryInspection inspection, LibraryOptions options,
+    internal static bool RejectEmptyExactSection(LibraryInspection inspection, LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline) =>
         RejectEmptyExactSection([inspection], options, pipeline);
 
@@ -2471,6 +2556,21 @@ public class LibraryCommand
         }
         if (emptySection is null)
             return false;
+
+        bool explainedByFailure = inspections.Any(inspection =>
+            (inspection.InspectionFailures ?? []).Any(failure =>
+                FailureAffectsSection(
+                    failure.Section,
+                    emptySection)));
+        if (explainedByFailure)
+        {
+            WarnEmptySections(
+                inspections,
+                options,
+                pipeline,
+                writeEmptyNote: false);
+            return true;
+        }
 
         CommandError.WriteLine($"This section ({emptySection}) produced no output.");
         return true;

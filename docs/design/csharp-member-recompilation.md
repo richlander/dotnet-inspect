@@ -252,7 +252,7 @@ ReturnToSender is one consumer, not the general abstraction.
   and fidelity grade. Its current public API returns composed source; the plan
   must add a handle-addressed result that exposes a typed `CSharpMemberBody` plus
   fidelity and failure provenance before tools consume individual bodies.
-- **Instructions** owns `IlBodyDiff`, its normalization mechanics, and its total
+- **ILDiff** owns `IlBodyDiff`, its normalization mechanics, and its total
   exact/different/unavailable outcome.
 - **Research** owns `ImplementationDiff`, joining product C# and IL evidence.
 

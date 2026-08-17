@@ -17,6 +17,7 @@ namespace DotnetInspector.Tests;
 /// 1, 3, and 4 carry no value) because contiguous rows cannot tell a correct
 /// implementation from a positional one.
 /// </summary>
+[Collection("Console")]
 public class RowSelectionNumberingTests
 {
     private static IReadOnlyList<ShapeProjectionRow> GappedRows() =>

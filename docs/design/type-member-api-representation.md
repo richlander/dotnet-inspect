@@ -57,20 +57,33 @@ of repeated in every row.
 | `MetadataMethodAddress` | MVID plus validated MethodDef handle/token | Where to re-locate a method after reopening and revalidating its module | Cryptographic artifact identity or cross-module correspondence |
 | `MemberAnchor` | Canonical API member signature and stable selector | Which API member a persisted selector or digest denotes | Physical module identity or body-evidence identity by itself |
 
+#### `CSharpText`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `MemberSignatureShape` | One same-named source/metadata candidate set | Whether generic arity, parameter type shapes, and a conversion return shape discriminate one candidate | Member identity, named-type binding through using/alias context, or proof that source belongs to a MethodDef |
+| `MemberSignatureShapeResult` and `MemberSignatureCorrespondence<T>` | One shape projection or candidate comparison | Available, unique, ambiguous, or unavailable evidence without collapsing refusal into absence | Permission to treat a unique shape match as authoritative identity |
+
 #### `ILInspector.Metadata`
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | Raw MethodDef token | One independently known physical module | Which MethodDef row to address | Assembly identity or durable location by itself |
 | `TypeNode` | One API extraction operation | Rich signature facts and inputs to display or identity projections | Cross-layer public currency or definition correspondence |
+| `MetadataMemberSignatureShape` adapter | One MethodDef signature | How an SRM signature projects into the model-free `CSharpText` correspondence shape | Source binding, authoritative identity, or ordinal fallback policy |
 | `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
+| `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 
 #### `DotnetInspector.Queries`
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `ApiFacetDescriptor`, `ApiTypeInventoryResult`, `ApiMemberInventoryResult` | One materialized API inventory query | Stable filter identity, labels, ordering, defaults, counts, and the selected projection | Raw metadata kind or member identity |
+| `InspectionGraphMemberIdentity.AcquiredApi` | One loaded workspace context | Which acquisition registration and `MemberAnchor` own a Metadata API member subject | Portable artifact identity or body evidence |
+| `InspectionGraphTypeIdentity.AcquiredDefinition` | One loaded workspace context | Which acquisition registration and exact `MetadataTypeDefinitionName` own a type subject | Cross-context correspondence or structural signature shape |
+| `InspectionGraphAssemblyIdentity.Acquired` | One loaded workspace context | Which acquisition registration, assembly identity, and provenance own an assembly subject in a session-bound graph | Portable artifact identity or correspondence outside that acquisition |
+| `InspectionGraphPackageIdentity.Realized` | One portable inspection-graph subject | Which exact package version, producer, framework, and RID own the package subject | Assembly membership without the workspace package-boundary projection |
 
 `ApiType.Kind` and `ApiMember.Kind` remain raw product facts. Consumers do not
 parse them or own a parallel grouping vocabulary: `ApiInventoryQuery` maps each
@@ -209,6 +222,9 @@ Conversions are operations with an owner, not implicit casts:
 | `ResolvedTypeDefinitionKey` | `DefinitionJoinTokenProjection` | `TypeResolutionCatalog.ProjectDefinitionJoinToken` issues a token only for a current-generation key; cross-catalog and stale keys remain typed result arms |
 | `UnresolvedBindingReference` | `UnresolvedBindingKeyProjection` | `TypeResolutionCatalog.ProjectUnresolvedBindingKey` issues a key only for a current-generation reference minted on `UnboundBinding` or genuine policy `Unavailable`; cross-catalog and stale references remain typed result arms |
 | `TypeNode` | display, canonical, XML-doc, or digest spelling | The owning projection chooses its erasure policy; no projection is recovered from another |
+| C# declaration text | `MemberSignatureShapeResult` | `CSharpText.SourceMemberSignatureShape` parses the bounded declaration header and refuses unresolved named types |
+| MethodDef signature | `MemberSignatureShapeResult` | Metadata decodes with SRM and projects positional generics, arrays, pointers, nullable/tuple shapes, and function pointers into the shared leaf model |
+| Target plus candidate signature shapes | `MemberSignatureCorrespondence<T>` | `CSharpText.MemberSignatureShapeMatcher` returns unique, ambiguous, or unavailable; one unavailable candidate prevents a false unique result |
 | `ApiMember` | `MemberAnchor` | `ApiMemberIdentity` owns canonical signature and digest construction |
 | `MemberTargetSelector` | `ResolvedMemberTarget` | `MemberTargetResolver` returns the anchor, API handle, body target, or typed diagnostic |
 | `ResolvedMemberTarget` / `MethodIdentity` | Research subject | `ResearchMemberIdentity` owns API-to-body aliasing |
@@ -216,6 +232,45 @@ Conversions are operations with an owner, not implicit casts:
 No generic converter should turn one `TypeRef` into the other, an address into
 correspondence, a display string into identity, or a `MemberAnchor` into body
 identity without the owning resolver and scope.
+
+Only canonical `mss1:` transport participates in candidate correspondence.
+Legacy signature text is accepted solely to validate an already selected
+exact-token record; it is not candidate-selection currency.
+
+Metadata projection fails closed when a generic signature header is
+noncanonical, when a MethodDef header and its owned contiguous GenericParam rows
+disagree, or when a declaring TypeDef chain's canonical name arities and
+cumulative owned rows disagree. Positional generic references must also fit
+those validated bounds. Metadata arity suffixes accept only nonzero canonical
+ASCII decimal, and function-pointer headers carrying instance, explicit-this,
+generic, or vararg semantics are unavailable because the shared shape cannot
+represent them. Multidimensional array sizes and nonzero lower bounds are
+likewise unavailable because C# array syntax carries rank but not those
+signature facts.
+An erased custom modifier is accepted only when its modifier type was decoded
+successfully. These properties are gated by
+`MetadataAdapter_RefusesGenericHeaderWithoutOwnedRows`,
+`MetadataAdapter_RefusesNonContiguousGenericParameterRows`,
+`MetadataAdapter_RefusesZeroArityGenericHeader`,
+`MetadataAdapter_RefusesMethodGenericPositionOutsideHeaderArity`,
+`MetadataAdapter_RefusesMissingDeclaringTypeGenericRows`,
+`MetadataAdapter_AllowsCumulativeNestedTypeGenericRows`,
+`MetadataAdapter_RefusesNoncanonicalTypeReferenceArity`,
+`MetadataAdapter_RefusesUnrepresentableFunctionPointerHeaders`,
+`MetadataAdapter_RefusesMultidimensionalArrayBounds`, and
+`MetadataAdapter_RefusesUnavailableErasedModifier`.
+
+One cumulative work budget covers the full metadata projection, including
+custom-modifier subtrees erased from the final shape and generic-parameter names
+read for legacy exact-token validation.
+`MetadataAdapter_RefusesErasedModifierAmplificationBeforeLargeAllocation` and
+`LegacyCompatibility_RefusesGenericNameAmplificationBeforeLargeAllocation`
+gate those properties.
+
+Source declaration parsing computes parenthesis correspondence in one bounded
+linear pass rather than rescanning nested candidate lists.
+`SourceShape_NestedParameterListCandidatesStayWithinLinearTime` gates the
+accepted-input time ceiling.
 
 ## Motivating scenarios
 
@@ -299,10 +354,10 @@ types, in different assemblies, with **two distinct `public enum TypeRefKind`**:
 
 | | `ILInspector.Analysis` | `ILInspector.Decompiler.Pipeline` |
 | --- | --- | --- |
-| Class | `src/ILInspector.Analysis/TypeRef.cs:26` | `src/ILInspector.Decompiler/Pipeline/TypeRef.cs:63` |
-| Kind enum | `src/ILInspector.Analysis/TypeRef.cs:8` | `src/ILInspector.Decompiler/Pipeline/TypeRef.cs:6` |
-| Contract | "Semantic type identity for IL analysis. Display names are for humans; equality is structural." (`:23`) | "Symbolic type identity for the pipeline… Equality is semantic — structural over the shape, never textual." |
-| `FunctionPointer` kind | **absent** | **present** (`src/ILInspector.Decompiler/Pipeline/TypeRef.cs:24`) |
+| Class | `src/ILInspector.Analysis/TypeRef.cs` | `src/ILInspector.Decompiler/Pipeline/TypeRef.cs` |
+| Kind enum | Analysis `TypeRefKind` | Decompiler `TypeRefKind` |
+| Contract | "Semantic type identity for IL analysis. Display names are for humans; equality is structural." | "Symbolic type identity for the pipeline… Equality is semantic — structural over the shape, never textual." |
+| `FunctionPointer` kind | **absent** | **present** |
 | Provenance excluded from equality | `TrustedFrameworkAssembly`, `TrustedProtobufAssembly` | `ValueTypeHint` |
 | Corelib canonicalization | `CoreLibrary = "corelib"` | `CoreLibrary = "corelib"` |
 
@@ -311,10 +366,8 @@ the same order, and the same *discipline* — both deliberately exclude advisory
 provenance from structural equality, each documenting the reasoning
 independently. They differ in exactly the capability that decides which
 consumers may use which: Analysis's decoder resolves function pointers and
-custom modifiers to `Unsupported` —
-`src/ILInspector.Analysis/TypeRefDecoder.cs:232` returns
-`TypeRef.Unsupported("function pointer")` and `:233-234` returns
-`TypeRef.Unsupported($"custom modifier (…)")`. The Decompiler carries
+custom modifiers to `Unsupported` through
+`TypeRefDecoder.GetFunctionPointerType` and `GetModifiedType`. The Decompiler carries
 `FunctionPointer` as a first-class kind and has `TypeRefCustomModifier` storage,
 but its decoder sees through ordinary declaration-site modifiers. It retains
 only the focused modifier subset needed for supported function-pointer
@@ -340,40 +393,29 @@ typed one" without checking the operation is a real hazard, and grepping
 
 A third, unrelated `sealed record TypeRef(string FullName, string Namespace,
 string SimpleName)` is private to
-`src/ILInspector.CSharp/CSharpDeclarationWriter.cs:1783`.
+`CSharpDeclarationWriter`.
 
-**The duplication is a committed decision, not drift.** `docs/architecture.md:691`
-records it as principle 9, and `docs/metadata-primitives.md` ("Decision (2026-06):
-stop after step 3") records the evidence:
-
-> **TypeRef unification is decisively wrong.** The detector's pointer-signature
-> check needs `TypeRefKind.Pointer` — *semantic* structure. `Metadata.TypeResolver`
-> produces display **strings** and cannot answer "is there a pointer in this
-> signature." […] A shared model would have forced `Analysis` to keep its own
-> anyway.
-
-Counting `Metadata`'s string-producing `SignatureDecoder` as the third, there are
-**three** signature-decoding models answering three different questions — display
-string, evidence matching, and codegen IR (`docs/metadata-primitives.md:14-15`) — and
-`Non-goals` lists "A unified `TypeRef`" outright.
+**The model duplication is a committed decision, not drift.**
+`docs/architecture.md` records it as principle 9, and
+`docs/metadata-primitives.md` preserves the evidence while reopening only the
+bounded mechanics below the models. Analysis needs semantic structure for
+evidence matching; Metadata produces API/display projections; Decompiler
+retains code-generation and fidelity facts. A repository-wide `TypeRef` would
+erase required distinctions or become a union of unrelated owner policy.
 
 The boundary is capability-based, not dependency-count-based. Analysis already
 references Metadata for acquisition, structured binding, and definition
 correspondence, while retaining its own structural decoder. That decoder cannot
-represent the shapes a shared model would have to carry
-(`src/ILInspector.Analysis/TypeRefDecoder.cs:232-234`), so a shared model "would
-have forced `Analysis` to keep its own anyway."
+represent the shapes a shared model would have to carry:
+`TypeRefDecoder.GetFunctionPointerType` and `GetModifiedType` produce explicit
+unsupported outcomes. A shared model would have forced Analysis to keep its own
+anyway.
 
-There is exactly one documented condition that reopens it, and it is narrow:
-
-> **Trip-wire (the only condition to revisit):** if the Decompiler `Pipeline`
-> also needs attribute-name reads, that is rule-of-three across projects — at
-> that point share `GetAttributeTypeName` *only* (the name walk, never
-> `TryDecode`, never a `TypeRef`).
-
-So: **use your own layer's `TypeRef`, never assume the other layer's has the same
-shape, and do not open a consolidation PR.** The residual cost is a search
-collision, not a design defect.
+The earlier rule-of-three trip-wire applied to one small attribute-name walk.
+It has been superseded by concrete shared-guard adoption in Analysis and
+Decompiler, not by evidence for model unification. So: **use your own layer's
+`TypeRef`, never assume the other layer's has the same shape, and consolidate
+only neutral mechanics with one bounded answer.**
 
 ### Member identity — two vocabularies, on purpose
 
@@ -381,8 +423,8 @@ collision, not a design defect.
 | --- | --- | --- |
 | Owner | `ILInspector.Metadata.ApiMemberIdentity` | `ILInspector.Research.ResearchMemberIdentity` |
 | Value | `MemberAnchor` | `MethodIdentity` |
-| Type identity | `string TypeFullName` (`src/ILInspector.MetadataPrimitives/MemberAnchor.cs:18`) | `TypeRef DeclaringType` (`src/ILInspector.Analysis/MemberIdentity.cs:65`) |
-| Nested types | `Outer.Inner` (`src/ILInspector.Metadata/MetadataReaderExtensions.cs:33`) | `Outer+Inner` (`src/ILInspector.Analysis/LibraryBodyIndex.cs:3201`) |
+| Type identity | `MemberAnchor.TypeFullName` | `MethodIdentity.DeclaringType` |
+| Nested types | `Outer.Inner` (`MetadataReaderExtensions.GetFullTypeName`) | `Outer+Inner` (`MetadataTypeDefinitionName.ToNestedMetadataName`) |
 
 `member-target-resolution.md` states the divergence is deliberate: "Body identity
 deliberately has a different type-name vocabulary from API identity because it
@@ -394,18 +436,20 @@ nested ones. A predicate written as `type => type == typeof(Outer.Inner).FullNam
 produces `Outer+Inner`, matches nothing against the API vocabulary, and — absent a
 zero-match guard — passes vacuously.
 
-The split is enforced, not merely observed. `docs/design/implementation-diff.md:113-116`
+The split is enforced, not merely observed. The
+[Implementation Diff row currency contract](implementation-diff.md#row-currency-contract)
 records that the body substrate *could* embed a `MemberAnchor` and
 **deliberately does not**; the two carriers stay separate (`MemberAnchor` /
 `StableMemberKey` for API rows, `ResearchSubjectKey` for body rows), and
-`docs/design/implementation-diff.md:119` notes that reconstructing member
-identity from display text "would duplicate identity the wrapper already owns."
+reconstructing member identity from display text "would duplicate identity the
+wrapper already owns."
 
-**An anchor is not self-sufficient.** Per
-`docs/design/csharp-member-recompilation.md:313`, "`ModuleIdentity` includes module name and
-MVID so a member anchor is never interpreted without its physical metadata scope.
-Display text is not identity." A member identity is a *pair*: the anchor plus the
-module scope it was resolved in.
+**An anchor is not self-sufficient.** The
+[C# assembly round-trip design](csharp-member-recompilation.md) requires
+`ModuleIdentity` to include module name and MVID so a member anchor is never
+interpreted without its physical metadata scope. Display text is not identity.
+A member identity is a *pair*: the anchor plus the module scope it was resolved
+in.
 
 ### Selector vs. anchor
 
@@ -556,7 +600,7 @@ This document is the map. Each document below keeps its own mechanics.
 | Document | Owns |
 | --- | --- |
 | `type-spelling-identity-display.md` | Identity-vs-display conflation; `RenderCanonical()`; the multi-projection model and its two review rounds |
-| `metadata-primitives.md` | The three signature-decoding models; the 2026-06 decision not to unify `TypeRef`, and its trip-wire |
+| `metadata-primitives.md` | Shared bounded SRM mechanics; why semantic `TypeRef` models remain local; convergence sequencing |
 | `architecture.md` (principle 9) | Analysis's local structural type model and its Metadata-owned correspondence boundary |
 | `finding-coordinates.md` | Finding coordinate axes; why there is no generic anchor |
 | `member-target-resolution.md` | Selector → resolver → anchor; API vs body identity ownership |

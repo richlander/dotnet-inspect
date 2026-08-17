@@ -1,5 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
@@ -769,19 +771,13 @@ public class LibraryInspectionView
 
     [MarkoutIgnore]
     public bool HasUnsafeMembers =>
-        _data.UnsafeMembers is { Count: > 0 }
+        (_data.UnsafeEvidenceInspection is null
+            ? _data.UnsafeMembers is { Count: > 0 }
+            : _data.UnsafeEvidenceInspection.HasFindings())
         || _data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded;
 
     [MarkoutSection(Name = "Unsafe Members", ShowWhenProperty = nameof(HasUnsafeMembers))]
-    public List<UnsafeMemberRow>? UnsafeMembersSection =>
-        (_data.UnsafeMembers ?? [])
-            .OrderBy(m => m.Member, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.IL, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Reason, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Detail, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new UnsafeMemberRow(
-                MarkoutInline.Code(m.Member), m.Reason, MarkoutInline.Code(m.Detail), m.Kind,
-                m.IL is null ? null : MarkoutInline.Code(m.IL), m.Token is null ? null : MarkoutInline.Code(m.Token)))
+    public List<UnsafeMemberRow>? UnsafeMembersSection => UnsafeMemberRows()
             .Concat(_data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded
                 ? [new UnsafeMemberRow(
                     MarkoutInline.Code("signature scan"),
@@ -793,28 +789,88 @@ public class LibraryInspectionView
                 : [])
             .ToList();
 
-    public bool HasTopLeverage => _data.TopLeverage is { Count: > 0 };
+    private IEnumerable<UnsafeMemberRow> UnsafeMemberRows()
+    {
+        if (_data.UnsafeEvidenceInspection is not null)
+        {
+            return _data.UnsafeEvidenceInspection.PayloadsForRendering()
+                .OrderBy(
+                    evidence => ApiOutputFormatter.FormatMethod(evidence.Member),
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(
+                    evidence => evidence.ILOffset is { } offset
+                        ? $"IL_{offset:X4}"
+                        : null,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(evidence => evidence.Reason, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(evidence => evidence.Detail, StringComparer.OrdinalIgnoreCase)
+                .Select(evidence =>
+                    ApiOutputFormatter.ToUnsafeMemberRow(
+                        evidence,
+                        includeDeclaringType: true));
+        }
 
-    // Rows arrive pre-ranked from the scanner; preserve that order (most leveraged first).
+        return (_data.UnsafeMembers ?? [])
+            .OrderBy(m => m.Member, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(m => m.IL, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(m => m.Reason, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(m => m.Detail, StringComparer.OrdinalIgnoreCase)
+            .Select(m => new UnsafeMemberRow(
+                MarkoutInline.Code(m.Member),
+                m.Reason,
+                MarkoutInline.Code(m.Detail),
+                m.Kind,
+                m.IL is null ? null : MarkoutInline.Code(m.IL),
+                m.Token is null ? null : MarkoutInline.Code(m.Token)));
+    }
+
+    public bool HasTopLeverage =>
+        _data.TopLeverageQueryResult is TopLeverageResult.Available
+            { Methods.IsEmpty: false };
+
+    // Rows arrive pre-ranked from Analysis; preserve that order (most leveraged first).
     [MarkoutSection(Name = "Top Leverage", ShowWhenProperty = nameof(HasTopLeverage))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageVisibilityEmpty), nameof(TopLeverageRow.Visibility))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageGeneratedEmpty), nameof(TopLeverageRow.Generated))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageStableEmpty), nameof(TopLeverageRow.Stable))]
     [MarkoutIgnoreColumnWhen(nameof(TopLeverageSelectorEmpty), nameof(TopLeverageRow.Selector))]
-    public List<TopLeverageRow>? TopLeverageSection =>
-        _data.TopLeverage?
-            .Select(m => new TopLeverageRow(
-                MarkoutInline.Code(m.Member),
-                m.Callers.ToString(),
-                m.RootReach.ToString(),
-                m.Fanout.ToString(),
-                m.Depth.ToString(),
-                m.LoopCalls.ToString(),
-                m.Visibility,
-                Generated: m.Generated ? "generated" : null,
-                Stable: m.Stable is { } stable ? MarkoutInline.Code(stable) : null,
-                Selector: m.Selector is { } selector ? MarkoutInline.Code(selector) : null))
-            .ToList();
+    public List<TopLeverageRow>? TopLeverageSection
+    {
+        get
+        {
+            if (_data.TopLeverageQueryResult is not TopLeverageResult.Available available)
+                return null;
+
+            var drillByToken = _data.TopLeverageDrillMap;
+            var rows = available.Methods
+                .Select(entry =>
+                {
+                    (string? Stable, string Visibility, string Selector) drill = default;
+                    drillByToken?.TryGetValue(entry.Method.MetadataToken, out drill);
+                    return new TopLeverageRow(
+                        MarkoutInline.Code(ApiOutputFormatter.FormatMethod(entry.Method)),
+                        entry.DirectCallerCount.ToString(),
+                        entry.RootReach.ToString(),
+                        entry.Fanout.ToString(),
+                        entry.MaxDepth.ToString(),
+                        entry.LoopCallCount.ToString(),
+                        drill.Visibility,
+                        Generated: LibraryMetadataService.IsGeneratedMethod(
+                            entry.Method,
+                            available.GeneratedFrameworkTypeNames)
+                                ? "generated"
+                                : null,
+                        Stable: drill.Stable is { } stable
+                            ? MarkoutInline.Code(stable)
+                            : null,
+                        Selector: drill.Selector is { } selector
+                            ? MarkoutInline.Code(selector)
+                            : null);
+                })
+                .ToList();
+            return rows.Count > 0 ? rows : null;
+        }
+    }
 
     // Kind-scoped performance sections. The optimization-opportunity scan is holistic; each
     // section renders the subset whose shape maps to it (see PerformanceKinds) with a tight,

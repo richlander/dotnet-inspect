@@ -133,6 +133,12 @@ Formatters decide presentation, not content:
   tree or diagram, a table row) and have no verbosity dial — they either show a
   thing or they do not (see [rendering-model.md](rendering-model.md)).
 
+An incomplete comparison is not narrowed into a clean result. Diff document
+formats include typed inspection-failure rows. Single-shape diff formats
+(`--table`, `--tsv`, `--jsonl`, and `--name-only`) cannot append a second
+failure table, so they emit an explicit incomplete-comparison diagnostic and
+exit nonzero.
+
 ## How dotnet-inspect flags select a shape
 
 Flags are how the user (or an agent) walks the ladder. The important distinction
@@ -253,6 +259,17 @@ its value sets the count or the rows, and `--head`/`--tail` set the direction.
 - `--rows 2..10` keeps the rows numbered 2 through 10 inclusive — nine rows.
 - `--rows 2+10` keeps ten rows starting at row 2.
 - `--rows 10..` keeps row 10 through the last row.
+
+In `package --all-libraries`, singular sections retain one table per library
+for windowing even when a row format flattens them with provenance; aggregate
+sections window the rolled-up table once. The paired
+`PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount` and
+`PackageCommand_AllLibraries_AggregateRowFormats_WindowAcrossRolledUpSection`
+tests gate both scopes and their count/row-format parity.
+`PackageCommand_AllLibraries_RowFormats_TailWindowMatchesMarkdownRows`,
+`PackageCommand_AllLibraries_AggregateRowFormats_WindowSameRowsAsMarkdown`,
+and `PackageCommand_AllLibraries_OpportunityRowFormat_WindowSameRowAsMarkdown`
+gate selected-row identity at the window boundary.
 
 A count and a range are different kinds, not two spellings of one: a count
 anchors to an end and a range does not, so `--rows 2..10 --tail` is rejected

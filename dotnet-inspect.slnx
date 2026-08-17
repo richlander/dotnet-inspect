@@ -14,10 +14,12 @@
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <Project Path="src/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
+    <Project Path="src/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
     <Project Path="src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
     <Project Path="src/DotnetInspector.Services.Tests/DotnetInspector.Services.Tests.csproj" />
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
+    <Project Path="src/DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
     <Project Path="src/DotnetInspector.SourceLinkMalformedFixtures/DotnetInspector.SourceLinkMalformedFixtures.csproj" />
     <Project Path="src/DotnetInspector.SourceLinkNormalizedFixtures/DotnetInspector.SourceLinkNormalizedFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
@@ -46,6 +48,8 @@
     <Project Path="src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
     <Project Path="src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj" />
     <Project Path="src/ILInspector.Findings/ILInspector.Findings.csproj" />
+    <Project Path="src/ILInspector.ILDiff.Tests/ILInspector.ILDiff.Tests.csproj" />
+    <Project Path="src/ILInspector.ILDiff/ILInspector.ILDiff.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.CheckedArithmetic/ILInspector.Decompiler.Fixtures.CheckedArithmetic.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.ClassicAsync/ILInspector.Decompiler.Fixtures.ClassicAsync.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.CrossAssemblyEnums/ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.csproj" />

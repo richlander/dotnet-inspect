@@ -40,6 +40,17 @@ public static class MetadataSafetyPolicy
         MaxStructuralSignatureWorkChars;
 
     /// <summary>
+    /// Maximum metadata-name and type-node work used to project one MethodDef
+    /// into a member signature shape, including names from erased custom
+    /// modifiers and legacy generic-parameter compatibility. Gated by
+    /// <c>MetadataAdapter_RefusesErasedModifierAmplificationBeforeLargeAllocation</c>
+    /// and
+    /// <c>LegacyCompatibility_RefusesGenericNameAmplificationBeforeLargeAllocation</c>.
+    /// </summary>
+    public const int MaxMemberSignatureShapeWorkChars =
+        MaxStructuralSignatureWorkChars;
+
+    /// <summary>
     /// Maximum type nodes examined before decoding one metadata signature.
     /// This bounds the iterative guard stack and SRM's decoded parameter/type
     /// materialization for structurally shallow but hostile signatures. Gated by
@@ -96,7 +107,12 @@ public static class MetadataSafetyPolicy
     /// arbitrary length, so a malformed image can encode a name of hundreds of megabytes within
     /// the depth budget. Real names are far smaller — the deepest generated names in the .NET
     /// libraries are a few hundred characters — so this ceiling only trips on input that was
-    /// never a name.
+    /// never a name. Legacy readers preflight UTF-8 storage then recheck decoded length;
+    /// gated by
+    /// <c>SharedOversizeHeapString_IsRejectedBeforeAggregateMaterialization</c>,
+    /// <c>ManySmallSegments_AreRejectedOnAggregateEncodedLength</c>,
+    /// <c>LeafAppendOverBudget_IsRejectedBeforeLeafMaterialization</c>, and
+    /// <c>StructuredRead_ReportsNameBudgetNotMalformed</c>.
     /// </remarks>
     public const int MaxTypeNameCharacters = 4096;
 

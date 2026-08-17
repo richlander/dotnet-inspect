@@ -70,19 +70,19 @@ interface IPackageSourceClient
     PackageSourceIdentity Identity { get; }
     PackageSourceCapabilities Capabilities { get; }
 
-    Task<PackageSearchResult> SearchAsync(...);
-    Task<PackageVersionResult> GetVersionsAsync(...);
-    Task<PackagePayloadResult> GetPackageAsync(...);
-    Task<SymbolPayloadResult> TryGetSymbolsAsync(...);
+    Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(...);
+    Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(...);
+    Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(...);
+    Task<PackageSourceOperationResult<PackageSourcePayload>> TryGetSymbolsAsync(...);
 }
 ```
 
-The exact API may differ, but the boundary must preserve these properties:
+The boundary preserves these properties:
 
 - source identity is typed and stable;
 - capabilities are explicit rather than inferred from a URL string;
 - every candidate retains the source that reported it;
-- every payload retains its producer and payload location;
+- every payload retains its producer and serving transport;
 - absence, unsupported capability, timeout, authentication failure, and
   transport failure are distinct results; and
 - no consumer above NuGetFetch constructs protocol URLs.
@@ -558,23 +558,125 @@ The existing NuGetFetch shape is a useful base:
 - it resolves multiple configured sources;
 - it implements package source mapping;
 - it source-scopes candidates and payload provenance; and
-- it already special-cases NuGet.org search internally.
+- its v3 primitives already own service-index, version, and package requests.
 
-The remaining structural problem is that `PackageSource` and `NuGetClient`
-largely equate a source with a v3 service-index URL. The implementation should:
+The first two implementation slices establish the typed source identity,
+credential-free descriptor, capability, runtime-client, and factory contracts
+in NuGetFetch. It adapts the existing desktop `PackageSource` input to a NuGet
+v3 client without migrating current consumers, and centralizes canonical HTTP
+producer identity so credential scope and future transports use the same key.
+Portable descriptors reject user information, queries, and fragments. The
+desktop compatibility adapter keeps established query-bearing signed service
+indexes as runtime-only configuration rather than admitting them into a
+portable descriptor. Query and fragment components do not enter producer
+identity because signed credentials rotate; feeds that represent distinct
+immutable content domains require distinct endpoint paths.
+The Gallery descriptor creates a runtime client that uses the known search,
+flat-container, package, and symbol CDN routes without requesting the NuGet.org
+service index. The factory creates an isolated credential-free `HttpClient`
+owned by the Gallery client; it does not accept a shared mutable client whose
+defaults could carry authorization, cookies, or API keys to the fixed public
+hosts. The transport timeout is infinite so the finite NuGetFetch request and
+operation deadlines remain authoritative. Disposing the source client disposes
+that transport.
 
-1. Split source descriptors from runtime source clients.
-2. Replace URL-based NuGet.org branching with an explicit Gallery source kind.
-3. Move URL construction into the owning source clients.
-4. Return common candidate, payload, symbol, and failure contracts.
-5. Thread validated timeout policy through every client.
-6. Let desktop and browser hosts choose transport implementations without
+The v3 compatibility adapter also owns an isolated credential-free
+`HttpClient`; it does not accept a shared client or opaque caller handler that
+could inject ambient credentials into feed-advertised resources. Its default
+desktop handler disables cookies, default credentials, and preauthentication.
+Browser/Wasm avoids unsupported handler credential properties and instead marks
+each request with `BrowserRequestCredentials.Omit`; explicit source
+authorization remains a request header. Source credentials are passed
+separately and are adopted only for same-origin resources.
+Desktop automatic redirects are disabled. A bounded source-owned redirect
+handler reapplies explicit authorization only when the target remains on the
+credential's original origin and strips it from cross-origin hops. Exceeding
+the five-redirect ceiling is a typed `response-rejected` failure. Redirect
+targets with malformed raw text, unusable IDNA hosts, or embedded user
+information are typed invalid responses rather than normalized requests.
+`RuntimeFactoriesDoNotAcceptSharedHttpClient`,
+`DefaultV3TransportHasNoAmbientCredentialMechanisms`, and
+`BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate transport
+construction. `BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch
+credential option, and
+`DesktopRedirectsScopeAuthorizationToOriginalOrigin` gates redirect authority.
+`DesktopRedirectLimitAllowsFiveAndRejectsSix` and
+`RedirectLimitIsResponseRejected` gate the redirect safety bound.
+`MalformedRedirectTargetIsInvalidResponse` gates redirect-target admission.
+The `NuGetFetch` `browser-wasm` build is the browser-target compilation gate.
+Candidate projection remains inside the same operation deadline as the metadata
+request.
+
+Source operations now return typed outcomes. Search and version results carry
+normalized package coordinates, producer identity, discovery contract, and
+source-relative listing state. Payload results carry the exact coordinate,
+producer, transport profile, payload kind, and caller-owned stream. Expected
+source failures before a payload stream is returned retain the producer,
+transport profile, capability, and exact coordinate when applicable, and
+distinguish unsupported capability, exact payload absence, authentication,
+timeout, malformed metadata, bounded-response rejection, and transport
+failure. Their retained messages are source-safe summaries rather than
+transport URLs or response text. A returned payload stream remains deadline
+bound, but timeout or transport failure during its later consumption is an
+exception because the operation result has already been returned. Invalid
+caller coordinates and caller cancellation likewise remain exceptions rather
+than being misreported as source failures.
+
+The Gallery version-enumeration result is still the complete raw flat-container
+list, so every candidate currently carries `unknown` listing state. Canonical
+NuGet.org and custom v3 enumeration also report `unknown`, because a raw
+flat-container list can include unlisted versions without carrying their
+state. `not-applicable` remains available for source kinds that genuinely have
+no listing concept. Gallery search reports `listed`, because unlisted
+coordinates do not appear in that search surface. `PackageVersionResult`
+exposes whether all listing states are authoritative, so raw Gallery and v3
+results cannot be admitted into a listing-aware cache. Registration joining
+remains follow-up work. No existing package-resolution consumer has moved to
+this client yet.
+
+The v3 compatibility adapter initially exposes version and package-payload
+operations only, and validates package coordinates before any service-index or
+payload request. Search remains on the existing package-layer service-index
+discovery path until that resource discovery moves into the typed client; the
+adapter does not restore the retired NuGet.org-only search shortcut.
+The local-folder descriptor remains modeled without a runtime client.
+`PackageSourceClientTests.GalleryAndCanonicalV3ShareProducerIdentity`,
+`HttpProducerIdentityFoldsIdnAndPercentEscapeSpelling`,
+`LegacyPackageSourceCreatesV3Client`,
+`GalleryClientUsesKnownEndpointsWithoutServiceIndex`,
+`GalleryEscapesUnicodePackageIdsAsOneSegment`,
+`GalleryRequestsUseLibraryDeadlines`,
+`CanonicalV3EnumerationReportsUnknownListingState`,
+`V3InvalidVersionMetadataIsTypedFailure`,
+`V3UnusablePackageBaseAddressIsInvalidResponse`,
+`V3SignedPackageBaseAddressPreservesQuery`,
+`V3EscapesUnicodePackageIdsAsPathSegments`,
+`V3NormalizesIdnPackageBaseAddress`,
+`V3PreservesIpv6BracketsWhenEscapingBasePath`,
+`GalleryMissingPackageIsTypedAbsence`,
+`GalleryClassifiesBoundedMetadataRejection`,
+`GalleryClassifiesHttpFailures`,
+`GalleryCallerCancellationRemainsCancellation`,
+`CanonicalNuGetOrgV3DoesNotReintroduceSearchShortcut`, and
+`LegacyLocalSourceRemainsAnExplicitUnsupportedKind` gate these boundaries.
+The existing `NuGetSearchSourcesTests` continue to gate the package-layer
+service-index search behavior and credential-scope canonicalization.
+
+The remaining structural problem is that existing package-resolution consumers
+still largely equate a source with a v3 service-index URL. The implementation
+should:
+
+1. Move v3 resource discovery and URL construction fully into its source client.
+2. Join Gallery registration metadata so complete enumeration reports
+   authoritative per-version listing state.
+3. Migrate package resolution from direct `PackageSource`/`NuGetClient` use to
+   the source-client boundary.
+4. Add environment-scoped availability observations without mutating durable
+   candidate observations.
+5. Let desktop and browser hosts choose transport implementations without
    changing producer identity above the acquisition layer.
-7. Replace the browser's singleton `default versus mirror` state with a source
+6. Replace the browser's singleton `default versus mirror` state with a source
    registry and selected source set.
-8. Replace boolean-only NuGet.org listing state with a typed
-   `listed`/`unlisted`/`unknown`/`not-applicable` result so partial enumeration
-   cannot look authoritative.
 
 The product libraries must own these contracts. A browser harness may present
 configuration and cancellation, but it must not reconstruct package resolution,

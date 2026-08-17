@@ -12,13 +12,14 @@ identity and provenance, owner-issued correspondence, and safe presentation
 boundaries. Typed query-planning slices are implemented for library
 metadata-image, direct-reference, assembly-context reference,
 package dependency-group, loaded dependency-coordinate match,
-extension-method, custom-attribute,
-manifest-resource, type-forwarder, union-type, classified-method, switch,
-SourceLink, Integrations, implementation relationships, type/member search,
+extension-method, custom-attribute, manifest-resource, type-forwarder,
+union-type, classified-method, audit-metadata, unsafe-evidence, top-leverage,
+switch, SourceLink, Integrations, implementation relationships, type/member search,
 extension reachability, API-comparison, Analysis body-signal comparison, and
-Implementation comparison inspection. The `diff` Changes, Analysis Diff, and
-Implementation Diff sections consume producer-owned comparison results over
-host-resolved surfaces, body indexes, and retained assembly content.
+Implementation comparison inspection, plus group-scoped
+authored-or-decompiled type/member source. The `diff` Changes, Analysis Diff,
+and Implementation Diff sections consume producer-owned comparison results
+over host-resolved surfaces, body indexes, and retained assembly content.
 The library CLI, package `--all-libraries`, `extensions`, `implements`, and
 `find` now host workspace-backed queries. Independent search fan-out remains
 sequential and bounded to one retained participant at a time; group-scoped
@@ -32,14 +33,17 @@ substrates, and inspection producers that will extend that space.
   and content-shaped metadata, reference, package dependency-group,
   loaded dependency-coordinate match,
   extension-method, custom-attribute, manifest-resource, type-forwarder,
-  union-type, classified-method, SourceLink, implementation-relationship,
-  type/member search, extension-reachability, API-comparison, and progressive
-  call-graph queries. It has no Markout, console, or filesystem-path dependency.
+  union-type, classified-method, audit-metadata, unsafe-evidence, top-leverage,
+  SourceLink,
+  implementation-relationship, type/member search, extension-reachability,
+  API-comparison, progressive call-graph, and group-scoped source queries. The
+  source query owns a Decompiler fallback over retained assembly content. The
+  project has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
   implementation assembly content, returning typed results without pulling
-  Research or Decompiler dependencies into the core query assembly.
+  Research into the core query assembly.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
@@ -53,6 +57,9 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Analysis.App/` is a temporary console harness for exercising Analysis queries until CLI wiring exists.
 - `src/ILInspector.ControlFlow/` contains shared block-edge, dominance, and dataflow kernels used below Analysis and Decompiler without depending on either.
 - `src/ILInspector.Findings/` contains the domain-free observation, inspection, matching, transition, comparison, whole-census correlation, and exact-identity correlation contracts shared by product producers. The `timeline` command composes Metadata and Analysis producers over those same correlation contracts.
+- `src/ILInspector.ILDiff/` owns IL body and assembly comparison over decoded
+  instruction streams: canonicalization, alignment, Finding projection, typed
+  failures, and producer-owned diff presentation.
 - `src/ILInspector.Instructions/` is the shared IL decode + EH-aware basic-block substrate (one decoder the analyzer and decompiler converge onto); see [instruction substrate](design/instruction-substrate.md).
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction, package/source caches, feeds, symbol package acquisition, and version resolution.
@@ -103,6 +110,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   discovery budgets, `-D`/`-S`, capabilities, and limiter behavior.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
 - [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
+- [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
 - [IL coordinate workflows](design/il-coordinate-workflows.md): prototype workflows for explaining sparse runtime coordinates from debugger, profiler, or analyzer artifacts.
 - [IL Diff canonicalization](design/il-diff-canonicalization.md): current `CanonicalIlOperation` guarantees, boundaries, and extension points.

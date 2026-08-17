@@ -13,12 +13,26 @@ public static class NullabilityReader
     /// Gets the NullableContextAttribute default byte from custom attributes.
     /// Returns null if the attribute is not present.
     /// </summary>
-    public static byte? GetNullableContext(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    public static byte? GetNullableContext(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes)
+        => GetNullableContext(
+            reader,
+            attributes,
+            beforeMaterialize: null);
+
+    public static byte? GetNullableContext(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize)
     {
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = AttributeReader.GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName != KnownAttributeNames.NullableContextAttribute) continue;
 
             var blob = reader.GetBlobReader(attr.Value);
@@ -36,6 +50,15 @@ public static class NullabilityReader
     public static byte GetTypeNullableContext(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle)
+        => GetTypeNullableContext(
+            reader,
+            typeHandle,
+            beforeMaterialize: null);
+
+    public static byte GetTypeNullableContext(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        Action<int>? beforeMaterialize)
     {
         Span<TypeDefinitionHandle> chain =
             stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -53,7 +76,10 @@ public static class NullabilityReader
         for (int index = count - 1; index >= 0; index--)
         {
             var type = reader.GetTypeDefinition(chain[index]);
-            if (GetNullableContext(reader, type.GetCustomAttributes()) is { } context)
+            if (GetNullableContext(
+                    reader,
+                    type.GetCustomAttributes(),
+                    beforeMaterialize) is { } context)
                 return context;
         }
 
@@ -65,12 +91,18 @@ public static class NullabilityReader
     /// Returns null if the attribute is not present.
     /// Single-byte constructor returns a one-element array.
     /// </summary>
-    public static byte[]? GetNullableBytes(MetadataReader reader, CustomAttributeHandleCollection attributes)
+    public static byte[]? GetNullableBytes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var attrHandle in attributes)
         {
             var attr = reader.GetCustomAttribute(attrHandle);
-            var attrTypeName = AttributeReader.GetAttributeTypeName(reader, attr.Constructor);
+            var attrTypeName = AttributeReader.GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
             if (attrTypeName != KnownAttributeNames.NullableAttribute) continue;
 
             var blob = reader.GetBlobReader(attr.Value);
@@ -87,6 +119,7 @@ public static class NullabilityReader
             {
                 int count = blob.ReadInt32();
                 if (count < 0 || count > blob.RemainingBytes - 2) return null;
+                beforeMaterialize?.Invoke(blob.Length);
                 var bytes = new byte[count];
                 for (int i = 0; i < count; i++)
                     bytes[i] = blob.ReadByte();
@@ -103,13 +136,19 @@ public static class NullabilityReader
     /// Sequence 0 = return type, 1+ = parameters.
     /// </summary>
     public static byte[]? GetParameterNullableBytes(
-        MetadataReader reader, ParameterHandleCollection paramHandles, int sequenceNumber)
+        MetadataReader reader,
+        ParameterHandleCollection paramHandles,
+        int sequenceNumber,
+        Action<int>? beforeMaterialize = null)
     {
         foreach (var handle in paramHandles)
         {
             var param = reader.GetParameter(handle);
             if (param.SequenceNumber == sequenceNumber)
-                return GetNullableBytes(reader, param.GetCustomAttributes());
+                return GetNullableBytes(
+                    reader,
+                    param.GetCustomAttributes(),
+                    beforeMaterialize);
         }
         return null;
     }

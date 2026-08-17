@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Text.Json;
 using DotnetInspector.CommandLine;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
@@ -12,12 +13,15 @@ using ILInspector.Text;
 using DotnetInspector.Commands;
 using DotnetInspector.Output;
 using DotnetInspector.Views;
+using InertText;
+using Markout;
 
 namespace DotnetInspector.Tests;
 
 /// <summary>
 /// Tests for DiffCommand output formatting and comparison logic.
 /// </summary>
+[Collection("Console")]
 public class DiffCommandTests
 {
     [Fact]
@@ -102,6 +106,182 @@ public class DiffCommandTests
     }
 
     [Fact]
+    public void Views_CarryConcernProvenanceAcrossMarkdownTablesAndDocumentJson()
+    {
+        const string hostile = "Name\u202E\n";
+        TextConcern expectedConcerns =
+            TextConcern.Format | TextConcern.Control;
+        var change = new ApiChange(
+            ChangeKind.MemberSignatureChanged,
+            ChangeClassification.Breaking,
+            hostile,
+            hostile,
+            hostile);
+        var typeDiffs = new[]
+        {
+            new TypeDiff($"Sample.{hostile}", [change]),
+        };
+        DiffDetailedChangesView changes =
+            DiffOutputFormatter.BuildDetailedChangesView(
+                hostile,
+                typeDiffs,
+                hostile,
+                hostile);
+        AnalysisDiffView analysis =
+            DiffOutputFormatter.BuildAnalysisDiffView(
+                hostile,
+                [
+                    new AnalysisDiffRow(
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile),
+                ],
+                hostile,
+                hostile,
+                hostile,
+                decorateMember: false);
+        var implementation = new ImplementationDiffView(
+            new InertString(TextPolicy.Field, hostile),
+            new InertString(TextPolicy.Field, hostile),
+            new InertString(TextPolicy.Field, hostile))
+        {
+            Status = new Callout(CalloutSeverity.Note, hostile),
+            Rows =
+            [
+                new ImplementationDiffRow(
+                    hostile,
+                    hostile,
+                    hostile,
+                    hostile,
+                    hostile),
+            ],
+        };
+        FindingTransitionsView transitions =
+            DiffOutputFormatter.BuildFindingTransitionsView(
+                hostile,
+                [
+                    new FindingTransitionRow(
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile,
+                        hostile),
+                ],
+                hostile,
+                hostile);
+        DiffDocumentView document =
+            DiffOutputFormatter.BuildDocumentView(
+                hostile,
+                hostile,
+                hostile,
+                changes,
+                analysis,
+                implementation,
+                transitions,
+                []);
+        DiffFullView full =
+            DiffOutputFormatter.BuildFullView(
+                hostile,
+                typeDiffs,
+                hostile,
+                hostile);
+
+        DiffDetailedChangeRow changeRow = Assert.Single(changes.Rows!);
+        AnalysisDiffRow analysisRow = Assert.Single(analysis.Rows!);
+        ImplementationDiffRow implementationRow =
+            Assert.Single(implementation.Rows!);
+        FindingTransitionRow transitionRow =
+            Assert.Single(transitions.Rows!);
+        DiffChangeRow fullRow = Assert.Single(full.BreakingChanges!);
+
+        Assert.Equal(expectedConcerns, changes.TitleText.Concerns);
+        Assert.Equal(expectedConcerns, changes.VersionsText.Concerns);
+        Assert.Equal(expectedConcerns, changeRow.DetailText.Concerns);
+        Assert.Equal(expectedConcerns, changeRow.TypeText.Concerns);
+        Assert.Equal(expectedConcerns, analysisRow.MemberText.Concerns);
+        Assert.Equal(
+            expectedConcerns,
+            implementationRow.EvidenceText.Concerns);
+        Assert.Equal(expectedConcerns, transitionRow.TargetText.Concerns);
+        Assert.Equal(expectedConcerns, fullRow.TypeNameText.Concerns);
+        Assert.Equal(
+            expectedConcerns,
+            document.AnalysisDiffSummaryText!.Value.Concerns);
+
+        string markdown = MarkoutSerializer.Serialize(
+            changes,
+            DiffViewContext.Default);
+        string tsv = RenderDetailedChangesTable(
+            changes,
+            tsv: true,
+            jsonl: false);
+        string jsonl = RenderDetailedChangesTable(
+            changes,
+            tsv: false,
+            jsonl: true);
+        string json = JsonSerializer.Serialize(
+            document,
+            DiffJsonContext.Default.DiffDocumentView);
+
+        Assert.DoesNotContain("\u202E", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", tsv, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", jsonl, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u202E", json, StringComparison.Ordinal);
+        Assert.Contains(@"\u202E", markdown, StringComparison.Ordinal);
+        Assert.Contains(@"\^J", markdown, StringComparison.Ordinal);
+        Assert.Contains(@"\u202E", tsv, StringComparison.Ordinal);
+        Assert.Contains(@"\^J", tsv, StringComparison.Ordinal);
+
+        string jsonlRow = Assert.Single(
+            jsonl.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries),
+            line => line.Contains("\"type\"", StringComparison.Ordinal));
+        using var jsonlDocument = JsonDocument.Parse(jsonlRow);
+        Assert.Equal(
+            @"Name\u202E\^J",
+            jsonlDocument.RootElement.GetProperty("type").GetString());
+
+        using var jsonDocument = JsonDocument.Parse(json);
+        string[] names =
+        [
+            .. jsonDocument.RootElement
+                .EnumerateObject()
+                .Select(property => property.Name),
+        ];
+        Assert.Equal(
+            [
+                "title",
+                "versions",
+                "changes_summary",
+                "analysis_diff_summary",
+                "analysis_diff_note",
+                "implementation_diff_summary",
+                "implementation_diff_note",
+                "finding_transitions_summary",
+                "changes",
+                "analysis_diff",
+                "implementation_diff",
+                "finding_transitions",
+            ],
+            names);
+        Assert.DoesNotContain(names, name => name.EndsWith("_text", StringComparison.Ordinal));
+        Assert.Equal(
+            @"Name\u202E\^J",
+            jsonDocument.RootElement
+                .GetProperty("analysis_diff")[0]
+                .GetProperty("member")
+                .GetString());
+    }
+
+    [Fact]
     public void BuildDetailedChangesView_RendersMemberLevelRowsForJsonl()
     {
         var oldType = DiffType("Sample", "Widget", DiffMember("Echo", signature: "string Echo(string value)"));
@@ -129,6 +309,68 @@ public class DiffCommandTests
         Assert.Equal("string Echo(string value)", row.Old);
         Assert.Equal("string Echo(string value, int repeat)", row.New);
     }
+
+    [Fact]
+    public void ApiChangeText_WithLiteralEscapeSpellings_RemainsRenderable()
+    {
+        const string literalEscapes = @"C:\x\t\u0041";
+        var change = new ApiChange(
+            ChangeKind.MemberSignatureChanged,
+            ChangeClassification.Breaking,
+            $"Member changed to '{literalEscapes}'",
+            "void Go(string p = \"a\")",
+            $"void Go(string p = \"{literalEscapes}\")");
+        var typeDiffs = new[]
+        {
+            new TypeDiff("Sample.Widget", [change]),
+        };
+
+        DiffDetailedChangeRow detailed = Assert.Single(
+            DiffOutputFormatter.BuildDetailedChangesView(
+                "Sample",
+                typeDiffs,
+                "1.0.0",
+                "2.0.0").Rows!);
+        string markdown = DiffOutputFormatter.RenderFullMarkdown(
+            "Sample",
+            typeDiffs,
+            "1.0.0",
+            "2.0.0");
+
+        Assert.Equal(@"Member changed to 'C:\\x\\t\\u0041'", detailed.Detail);
+        Assert.Equal(
+            @"void Go(string p = ""C:\\x\\t\\u0041"")",
+            detailed.New);
+        Assert.Contains(@"C:\\x\\t\\u0041", markdown, StringComparison.Ordinal);
+
+        ApiChange updated = change with
+        {
+            Message = "Updated\u202E",
+            OldValue = null,
+            NewValue = "next\nline",
+        };
+        Assert.Equal(TextConcern.Format, updated.GetMessageText().Concerns);
+        Assert.Null(updated.GetOldValueText());
+        Assert.Equal(
+            TextConcern.Control,
+            updated.GetNewValueText()!.Value.Concerns);
+    }
+
+    private static string RenderDetailedChangesTable(
+        DiffDetailedChangesView view,
+        bool tsv,
+        bool jsonl) =>
+        OutputFormatter.RenderTable(
+            showHeader: true,
+            (writer, formatter) => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                formatter,
+                DiffViewContext.Default,
+                OutputFormatter.ConfigureTableWriterOptions(
+                    new MarkoutWriterOptions(),
+                    tsv,
+                    jsonl)));
 
     [Fact]
     public void RenderFullMarkdown_GenericType_UsesCSharpFriendlyHeading()
@@ -169,6 +411,179 @@ public class DiffCommandTests
 
         Assert.Contains("**1.0.0** → **2.0.0**", markdown);
         Assert.DoesNotContain("**1.0.0** -> **2.0.0**", markdown);
+    }
+
+    [Fact]
+    public void RenderDiff_FailureOnlyComparisonIsNotClean()
+    {
+        var diff = new ApiDiff
+        {
+            InspectionFailures =
+            [
+                new ApiDiffInspectionFailure(
+                    "new",
+                    "resolve generic parameter constraints",
+                    0x02000002,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "MalformedMetadata",
+                    "Dependency resolution failed.",
+                    new AssemblyReferenceIdentity(
+                        "Subject",
+                        new Version(1, 2, 3, 4),
+                        null,
+                        "0011223344556677"),
+                    new AssemblyReferenceIdentity(
+                        "Dependency",
+                        new Version(4, 3, 2, 1),
+                        null,
+                        null)),
+            ],
+        };
+
+        string markdown = DiffCommand.RenderDiff(
+            "Sample",
+            diff,
+            "1.0.0",
+            "2.0.0",
+            new DiffOptions());
+
+        Assert.Contains(
+            "API comparison is incomplete",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "## Inspection Failures",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Subject, Version=1.2.3.4",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Dependency, Version=4.3.2.1",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Dependency resolution failed.",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "No API changes detected.",
+            markdown,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FilterApiDiffByMemberTargets_PreservesInspectionFailures()
+    {
+        ApiType oldType =
+            DiffType(
+                "Sample",
+                "Widget",
+                DiffMember("Echo"));
+        ApiType newType =
+            DiffType(
+                "Sample",
+                "Widget",
+                DiffMember("Echo"));
+        var failure = new ApiDiffInspectionFailure(
+            "old",
+            "resolve generic parameter constraints",
+            0x02000002,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MissingAssembly",
+            "Dependency was not found.");
+        var diff = new ApiDiff
+        {
+            InspectionFailures = [failure],
+        };
+
+        ApiDiff filtered =
+            DiffCommand.FilterApiDiffByMemberTargets(
+                diff,
+                DiffSurface(oldType),
+                DiffSurface(newType),
+                new DiffOptions
+                {
+                    TypeFilter = ["Sample.Widget"],
+                    MemberFilter = ["Echo"],
+                });
+
+        Assert.Same(
+            failure,
+            Assert.Single(filtered.InspectionFailures));
+    }
+
+    [Fact]
+    public void BuildDocumentView_ProjectsInspectionFailuresToJson()
+    {
+        var failure = new ApiDiffInspectionFailure(
+            "new",
+            "inventory assembly adjacency",
+            0,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "InvalidImage",
+            "Adjacency inventory failed.\n| injected",
+            DependencyAssembly:
+                new AssemblyReferenceIdentity(
+                    "Dependency",
+                    new Version(2, 0, 0, 0),
+                    null,
+                    null))
+        {
+            SourceAssemblyPath =
+                "/private/cache/NewImage.dll",
+        };
+        DiffDocumentView view =
+            DiffOutputFormatter.BuildDocumentView(
+                "Sample",
+                "1.0.0",
+                "2.0.0",
+                changes: null,
+                analysisDiff: null,
+                implementationDiff: null,
+                findingTransitions: null,
+                inspectionFailures: [failure]);
+
+        Assert.Contains(
+            "incomplete",
+            view.InspectionFailuresSummary!,
+            StringComparison.Ordinal);
+        DiffInspectionFailureRow row =
+            Assert.Single(view.InspectionFailures!);
+        Assert.Equal("NewImage.dll", row.Assembly);
+        Assert.Equal(
+            "Dependency, Version=2.0.0.0, "
+                + "Culture=neutral, PublicKeyToken=null",
+            row.DependencyAssembly);
+        Assert.DoesNotContain('\n', row.Detail);
+        Assert.Contains("injected", row.Detail, StringComparison.Ordinal);
+        string json = JsonSerializer.Serialize(
+            view,
+            DiffJsonContext.Default.DiffDocumentView);
+        Assert.Contains(
+            "Adjacency inventory failed.",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "NewImage.dll",
+            json,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "/private/cache",
+            json,
+            StringComparison.Ordinal);
+        string markdown =
+            DiffOutputFormatter.RenderDocumentView(view);
+        Assert.Contains(
+            "| Dependency Assembly |",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Dependency, Version=2.0.0.0, "
+                + "Culture=neutral, PublicKeyToken=null",
+            markdown,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1766,7 +2181,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_InvalidLibraryReportsSurfaceFailure()
+    public async Task ExecuteAsync_InvalidLibraryReportsTypedSurfaceFailure()
     {
         var directory = Directory.CreateTempSubdirectory("diff-invalid-library-test").FullName;
         var invalidAssembly = Path.Combine(directory, "Invalid.dll");
@@ -1781,12 +2196,19 @@ public class DiffCommandTests
                 }));
 
             Assert.Equal(1, exitCode);
-            Assert.Empty(output);
+            Assert.Empty(error);
             Assert.Contains(
-                "Failed to extract API surface from one or both libraries",
-                error,
+                "API comparison is incomplete",
+                output,
                 StringComparison.Ordinal);
-            Assert.DoesNotContain("File not found", error, StringComparison.Ordinal);
+            Assert.Contains(
+                "## Inspection Failures",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Invalid.dll",
+                output,
+                StringComparison.Ordinal);
         }
         finally
         {

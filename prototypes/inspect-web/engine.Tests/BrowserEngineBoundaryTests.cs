@@ -1,5 +1,9 @@
 using System.IO.Compression;
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using System.Xml;
 using System.Text.Json;
@@ -439,12 +443,319 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(projected.DefinitionId, qualified.DefinitionId);
     }
 
+    [Fact]
+    public void SurfaceProjection_LongDeclaringTypeStopsIncrementally()
+    {
+        var type = new ApiType
+        {
+            Namespace = new string('N', 4_000),
+            Name = "Amplifier",
+            Kind = "class",
+            Members =
+            [
+                .. Enumerable.Range(0, 10_000).Select(index => new ApiMember
+                {
+                    Name = $"M{index}",
+                    Kind = "method",
+                    Signature = $"void M{index}()",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = "void",
+                        MemberName = $"M{index}",
+                    },
+                }),
+            ],
+        };
+        var budget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(8_000_000);
+        budget.BeginParticipant();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException>(
+            () => BrowserSurfaceProjection.Type(
+                type,
+                "Amplifier.dll",
+                "asset:amplifier",
+                "Amplifier",
+                budget));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(
+            allocated < 64L * MiB,
+            $"bounded Browser projection allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void SurfaceProjection_OneHugeTypeStopsBeforeDerivedIdentities()
+    {
+        var type = new ApiType
+        {
+            Namespace = new string('N', 4_000_000),
+            Name = "Amplifier",
+            MetadataName = "Amplifier",
+            Kind = "class",
+        };
+        var budget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(32_000_000);
+        budget.BeginParticipant();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException>(
+            () => BrowserSurfaceProjection.Type(
+                type,
+                "Amplifier.dll",
+                "asset:amplifier",
+                "Amplifier",
+                budget));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(
+            allocated < 4L * MiB,
+            $"Browser projection preflight allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void SurfaceProjection_OneHugeMemberStopsBeforeDerivedIdentities()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Amplifier",
+            MetadataName = "Amplifier",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "M",
+                    Kind = "method",
+                    Signature = new string('S', 4_000_000),
+                },
+            ],
+        };
+        var budget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(32_000_000);
+        budget.BeginParticipant();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException>(
+            () => BrowserSurfaceProjection.Type(
+                type,
+                "Amplifier.dll",
+                "asset:amplifier",
+                "Amplifier",
+                budget));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(
+            allocated < 4L * MiB,
+            $"Browser projection preflight allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void SurfaceProjection_PreflightUsesTheRemainingSharedBudget()
+    {
+        var budget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(1_000_000);
+        budget.BeginParticipant();
+        _ = BrowserSurfaceProjection.Type(
+            new ApiType
+            {
+                Namespace = new string('C', 10_000),
+                Name = "Committed",
+                MetadataName = "Committed",
+                Kind = "class",
+            },
+            "Committed.dll",
+            "asset:committed",
+            "Committed",
+            budget);
+        budget.CommitParticipant();
+        Assert.True(budget.CommittedCharacters > 40_000);
+
+        budget.BeginParticipant();
+        Assert.Throws<BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException>(
+            () => BrowserSurfaceProjection.Type(
+                new ApiType
+                {
+                    Namespace = new string('P', 80_000),
+                    Name = "Pending",
+                    MetadataName = "Pending",
+                    Kind = "class",
+                },
+                "Pending.dll",
+                "asset:pending",
+                "Pending",
+                budget));
+    }
+
+    [Fact]
+    public async Task QueryPackage_FirstTransportTruncationReturnsTypedNotice()
+    {
+        const string packageId = "First.Transport.Truncation";
+        byte[] image = BuildTransportAmplificationImage(
+            packageId,
+            typeCount: 10_000,
+            namespaceLength: 1_000);
+        _ = Coordinate(
+            packageId,
+            Package(image, $"lib/net11.0/{packageId}.dll"));
+
+        string json = await BrowserInspectionEngine.QueryPackage(
+            packageId,
+            "1.0.0",
+            "net11.0");
+        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
+            JsonSerializer.Deserialize(
+                json,
+                BrowserJsonContext.Default.BrowserPackageSurface));
+
+        Assert.Empty(surface.Assemblies);
+        Assert.Contains(
+            "truncated",
+            surface.InspectionError,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SurfaceProjection_QualifiedCollisionIdIsAccountedBeforeCommit()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Value",
+            MetadataName = "Value",
+            Kind = "class",
+        };
+        const string assembly = "Collision.Assembly.dll";
+        var unqualifiedBudget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(10_000);
+        unqualifiedBudget.BeginParticipant();
+        _ = BrowserSurfaceProjection.Type(
+            type,
+            assembly,
+            "asset:collision",
+            "Collision.Assembly",
+            unqualifiedBudget);
+        unqualifiedBudget.CommitParticipant();
+
+        var qualifiedBudget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(10_000);
+        qualifiedBudget.BeginParticipant();
+        BrowserTypeSurface qualified = BrowserSurfaceProjection.Type(
+            type,
+            assembly,
+            "asset:collision",
+            "Collision.Assembly",
+            qualifiedBudget,
+            qualifyId: true);
+        qualifiedBudget.CommitParticipant();
+
+        Assert.Equal($"{assembly}:{qualified.DefinitionId}", qualified.Id);
+        Assert.Equal(
+            unqualifiedBudget.CommittedCharacters + assembly.Length + 1,
+            qualifiedBudget.CommittedCharacters);
+    }
+
+    [Fact]
+    public void ApiSurfacePolicy_AcceptsCoreLibraryAtEveryBrowserScope()
+    {
+        using var stream = File.OpenRead(typeof(object).Assembly.Location);
+        using var reader = new PEReader(stream);
+
+        foreach (ApiSurfaceExtractionScope scope in
+            new[]
+            {
+                ApiSurfaceExtractionScope.PublicWithNonPublicTypes,
+                ApiSurfaceExtractionScope.IncludeAll,
+            })
+        {
+            stream.Position = 0;
+            var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+                ApiSurfaceExtractor.ExtractBounded(
+                    reader,
+                    scope,
+                    new ApiSurfaceExtractionBounds(
+                        BrowserApiSurfacePolicy.MaxTypes,
+                        BrowserApiSurfacePolicy.MaxMembers,
+                        BrowserApiSurfacePolicy.MaxInspectionFailures,
+                        BrowserApiSurfacePolicy.MaxTypeForwarders,
+                        BrowserApiSurfacePolicy.MaxMetadataRows,
+                        BrowserApiSurfacePolicy.MaxRetainedTextCharacters)));
+            if (scope == ApiSurfaceExtractionScope.PublicWithNonPublicTypes)
+            {
+                var transportBudget =
+                    new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
+                        BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
+                transportBudget.BeginParticipant();
+                foreach (ApiType type in extracted.Surface.Types)
+                {
+                    BrowserSurfaceProjection.Type(
+                        type,
+                        "System.Private.CoreLib.dll",
+                        "runtime:corelib",
+                        "System.Private.CoreLib",
+                        transportBudget);
+                }
+                transportBudget.CommitParticipant();
+            }
+        }
+    }
+
     static string NestedDocumentation(int depth)
     {
         string nested = string.Concat(Enumerable.Repeat("<b>", depth));
         string close = string.Concat(Enumerable.Repeat("</b>", depth));
         return $"<doc><members><member name=\"M:Example.M\"><summary>{nested}x{close}</summary>"
             + "</member></members></doc>";
+    }
+
+    static byte[] BuildTransportAmplificationImage(
+        string assemblyName,
+        int typeCount,
+        int namespaceLength)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString($"{assemblyName}.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        StringHandle @namespace =
+            metadata.GetOrAddString(new string('N', namespaceLength));
+        for (int index = 0; index < typeCount; index++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                @namespace,
+                metadata.GetOrAddString($"T{index}"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     [Fact]
@@ -796,6 +1107,26 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(
             notice,
             BrowserSurfaceProjection.Notice(truncated.Assemblies.Assemblies, notice));
+
+        AssemblyContextApiSurfaceResult textTruncated = scope.UseSurface(group =>
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                new ApiSurfaceProjectionLimits(
+                    1,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    int.MaxValue,
+                    1)));
+        Assert.Equal(
+            ApiSurfaceProjectionLimit.RetainedTextCharacters,
+            textTruncated.Truncation!.Limit);
+        Assert.Contains(
+            "retained text character",
+            BrowserApiSurfacePolicy.TruncationNotice(textTruncated.Truncation),
+            StringComparison.Ordinal);
     }
 
     // A nested Outer+Inner and a type whose own metadata name is literally "Outer+Inner" share a
