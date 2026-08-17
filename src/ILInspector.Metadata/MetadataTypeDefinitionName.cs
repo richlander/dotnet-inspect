@@ -547,8 +547,7 @@ internal static class MetadataTypeDefinitionNameReader
     {
         var segments = ImmutableArray.CreateBuilder<string>(rootToLeaf.Length);
         string? @namespace = null;
-        long encodedBytes = 0;
-        long characters = 0;
+        var budget = new MetadataTypeNameBudget();
 
         for (int i = 0; i < rootToLeaf.Length; i++)
         {
@@ -558,32 +557,27 @@ internal static class MetadataTypeDefinitionNameReader
                 var (namespaceHandle, nameHandle) = TRow.GetName(reader, handle);
                 if (i == 0)
                 {
-                    int encodedNamespaceLength =
-                        reader.GetBlobReader(namespaceHandle).Length;
-                    beforeMaterialize?.Invoke(encodedNamespaceLength);
-                    encodedBytes += encodedNamespaceLength;
-                    if (encodedBytes
-                        > MetadataSafetyPolicy.MaxTypeNameCharacters * 4L)
+                    if (!budget.TryRead(
+                            reader,
+                            namespaceHandle,
+                            delimiterChars: 0,
+                            beforeMaterialize,
+                            out @namespace))
                     {
-                        return NameTooLong(TRow.ToEntity(handle));
+                        return NameTooLong(TRow.ToEntity(handle), i + 1);
                     }
-                    @namespace = reader.GetString(namespaceHandle);
-                    characters = @namespace.Length;
                 }
 
-                int encodedNameLength = reader.GetBlobReader(nameHandle).Length;
-                beforeMaterialize?.Invoke(encodedNameLength);
-                encodedBytes += encodedNameLength + 1L;
-                if (encodedBytes
-                    > MetadataSafetyPolicy.MaxTypeNameCharacters * 4L)
+                if (!budget.TryRead(
+                        reader,
+                        nameHandle,
+                        delimiterChars: 1,
+                        beforeMaterialize,
+                        out string segment))
                 {
-                    return NameTooLong(TRow.ToEntity(handle));
+                    return NameTooLong(TRow.ToEntity(handle), i + 1);
                 }
 
-                string segment = reader.GetString(nameHandle);
-                characters += segment.Length + 1L;
-                if (characters > MetadataSafetyPolicy.MaxTypeNameCharacters)
-                    return NameTooLong(TRow.ToEntity(handle));
                 segments.Add(segment);
             }
             catch (BadImageFormatException ex)
@@ -611,12 +605,17 @@ internal static class MetadataTypeDefinitionNameReader
                 $"Invalid structured metadata type name: {invalid.Kind}."));
     }
 
-    static MetadataTypeDefinitionNameReadResult NameTooLong(EntityHandle subject) =>
+    static MetadataTypeDefinitionNameReadResult NameTooLong(
+        EntityHandle subject,
+        int consumedNodes) =>
         new MetadataTypeDefinitionNameReadResult.Rejected(
-            MetadataTypeNameFailure.Malformed(
-                subject,
-                $"Invalid structured metadata type name: "
-                    + $"{MetadataTypeNameRejectionKind.SegmentsTooLong}."));
+            MetadataTypeNameFailure.From(
+                new RelationshipTraversalRejection(
+                    RelationshipTraversalRejectionKind.NameBudget,
+                    $"The structured type name exceeds "
+                    + $"{MetadataSafetyPolicy.MaxTypeNameCharacters} characters.",
+                    subject,
+                    consumedNodes)));
 
     static MetadataTypeDefinitionNameReadResult RejectedTraversal(
         RelationshipTraversalRejection rejection) =>

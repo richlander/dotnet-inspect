@@ -772,6 +772,15 @@ Research overlay bridge, and the application layer:
   source's evidence body;
   `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`
   gates member-, type-, and combined-scope projection.
+  `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped structural
+  signature and generic-scope identities, canonical `MemberRef`/`MethodSpec`
+  resolution caches, and their shared assembly work budgets. The primary
+  metadata resolver and lifted-source-owner reference index consume that same
+  resolution authority.
+  `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
+  `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
+  `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
+  sharing and scope-aware identity.
   `LibraryBodyAnalysisAccumulator` receives the completed per-method result
   array in metadata order, merges every topic and partial diagnostic, computes
   the call-derived non-heap and exception-type assembly projections, and
