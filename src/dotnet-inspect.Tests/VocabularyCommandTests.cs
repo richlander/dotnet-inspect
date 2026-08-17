@@ -332,6 +332,35 @@ public sealed class VocabularyCommandTests
         Assert.DoesNotContain("| Section |", result.Output);
     }
 
+    [Fact]
+    public async Task Command_CountUsesRowCardinalityBeforeColumnProjection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select =
+                [
+                    VocabularyCatalog.AccessibilitySection,
+                    VocabularyCatalog.StyleTiersSection,
+                ],
+                Count = true,
+                Columns = ["byte_divergent"],
+            })));
+        VocabularySection accessibility =
+            VocabularyCatalog.GetById("api.accessibility");
+        VocabularySection tiers =
+            VocabularyCatalog.GetById("csharp.style-tiers");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"| Accessibility | {accessibility.Values.Length} |",
+            result.Output);
+        Assert.Contains(
+            $"| C# Style Tiers | {tiers.Values.Length} |",
+            result.Output);
+    }
+
     private static string ValueId(VocabularyRow row) =>
         row.GetRequired("id").Text!;
 }
