@@ -911,6 +911,10 @@ public partial class CommandExecutionTests
     }
 
     private static (string AssemblyPath, string FixtureDir) CreateNoSourceLinkDiscoveryAssembly()
+        => CreateSourceLinkDiscoveryAssembly(includeSourceLink: false);
+
+    private static (string AssemblyPath, string FixtureDir) CreateSourceLinkDiscoveryAssembly(
+        bool includeSourceLink)
     {
         const string source =
             """
@@ -925,12 +929,16 @@ public partial class CommandExecutionTests
 
         var fixtureDir = Path.Combine(
             AppContext.BaseDirectory,
-            $"no-sourcelink-discovery-{Guid.NewGuid():N}");
+            $"{(includeSourceLink ? "sourcelink" : "no-sourcelink")}-discovery-{Guid.NewGuid():N}");
         Directory.CreateDirectory(fixtureDir);
 
         try
         {
-            var assemblyPath = Path.Combine(fixtureDir, "NoSourceLinkDiscovery.dll");
+            var assemblyPath = Path.Combine(
+                fixtureDir,
+                includeSourceLink
+                    ? "SourceLinkDiscovery.dll"
+                    : "NoSourceLinkDiscovery.dll");
             var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
             var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
                 .Split(Path.PathSeparator)
@@ -951,19 +959,26 @@ public partial class CommandExecutionTests
 
             using (var assembly = File.Create(assemblyPath))
             using (var pdb = File.Create(pdbPath))
+            using (var sourceLinkStream = includeSourceLink
+                ? new MemoryStream(Encoding.UTF8.GetBytes(
+                    """
+                    {"documents":{"/_/*":"https://raw.githubusercontent.com/example/repo/0123456789abcdef0123456789abcdef01234567/*"}}
+                    """))
+                : null)
             {
                 var result = compilation.Emit(
                     assembly,
                     pdbStream: pdb,
                     options: new EmitOptions(
                         debugInformationFormat: DebugInformationFormat.PortablePdb,
-                        pdbFilePath: Path.GetFileName(pdbPath)));
+                        pdbFilePath: Path.GetFileName(pdbPath)),
+                    sourceLinkStream: sourceLinkStream);
                 Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
             }
 
             using var sourceLink = SourceLinkService.Open(assemblyPath);
             Assert.True(sourceLink.HasPdb);
-            Assert.False(sourceLink.HasSourceLink);
+            Assert.Equal(includeSourceLink, sourceLink.HasSourceLink);
             return (assemblyPath, fixtureDir);
         }
         catch
@@ -5655,7 +5670,16 @@ public partial class CommandExecutionTests
         {
             Types =
             [
-                new() { Name = "Widget", Kind = "class" },
+                new()
+                {
+                    Name = "Widget",
+                    Kind = "class",
+                    Members =
+                    [
+                        new() { Name = "Run", Kind = "method" },
+                        new() { Name = "Run", Kind = "extension-method" },
+                    ]
+                },
                 new() { Name = "Status", Kind = "enum" },
             ],
             TypeForwarders = forwarders,
@@ -5670,6 +5694,7 @@ public partial class CommandExecutionTests
         Assert.Same(failures, projected.InspectionFailures);
         Assert.Single(projected.Types);
         Assert.Equal("class", projected.Types[0].Kind);
+        Assert.Equal(1, projected.PublicMethodCount);
     }
 
     [Fact]
@@ -6452,6 +6477,148 @@ public partial class CommandExecutionTests
         Assert.Contains(rows, row =>
             row.GetProperty("section").GetString() == "Properties"
             && row.GetProperty("name").GetString() == "Name");
+    }
+
+    [Fact]
+    public async Task Type_Listing_LimitAppliesAfterKindProjectionAcrossFormats()
+    {
+        var (markdownExit, markdown, markdownError) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json",
+            "-S", "Interfaces", "-t", "1", "--tips", "q");
+        var (tsvExit, tsv, tsvError) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json",
+            "-S", "Interfaces", "-t", "1", "--tsv", "--tips", "q");
+        var (jsonExit, json, jsonError) = await RunAppAsync(
+            "type", "--platform", "System.Text.Json",
+            "-S", "Interfaces", "-t", "1", "--json", "--tips", "q");
+
+        Assert.Equal(0, markdownExit);
+        Assert.Equal(0, tsvExit);
+        Assert.Equal(0, jsonExit);
+        Assert.Empty(markdownError);
+        Assert.Empty(tsvError);
+        Assert.Empty(jsonError);
+        Assert.Equal(1, CountOutput.CountMarkdownTableRows(markdown));
+        Assert.Equal(2, tsv.Split(
+            '\n', StringSplitOptions.RemoveEmptyEntries).Length);
+
+        using var document = JsonDocument.Parse(json);
+        var types = document.RootElement.GetProperty("types");
+        Assert.Equal(1, types.GetArrayLength());
+        Assert.Equal(
+            "interface",
+            types[0].GetProperty("kind").GetString());
+    }
+
+    [Fact]
+    public async Task Type_DuplicateDiscoverySelectorsUseOneCanonicalScope()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "-D", "Classes;Classes", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            row => Assert.False(row.TryGetProperty("section", out _)));
+        Assert.Equal(
+            rows.Length,
+            rows.Select(row => row.GetProperty("name").GetString())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count());
+    }
+
+    [Fact]
+    public async Task Type_EffectiveMultiSectionDiscoveryPreservesScopedMachineShape()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Runtime",
+            "-D", "Methods;Values", "--effective", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "section 'Values' has no data for this query",
+            error,
+            StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.NotEmpty(rows);
+        Assert.All(
+            rows,
+            row => Assert.Equal(
+                "Methods",
+                row.GetProperty("section").GetString()));
+    }
+
+    [Fact]
+    public async Task Type_BareEffectiveDiscoveryProbesSourceLink()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateSourceLinkDiscoveryAssembly(includeSourceLink: true);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "type", "DiscoveryFixtures.NoSourceLink",
+                "--library", assemblyPath,
+                "-D", "--effective", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("| @SourceLink | category |", output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_NonExactSingletonEmptySelectionsReportNoData()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            foreach (var selector in new[] { "Value*", "@SourceLink" })
+            {
+                var (exit, _, error) = await RunAppAsync(
+                    "type", "DiscoveryFixtures.NoSourceLink",
+                    "--library", assemblyPath,
+                    "-S", selector, "--tips", "q");
+
+                Assert.Equal(0, exit);
+                Assert.Contains(
+                    "has no data for DiscoveryFixtures.NoSourceLink",
+                    error,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Type_IdentityFilterPreservesApiInfoCounts()
+    {
+        string assemblyPath = typeof(CacheInfo).Assembly.Location;
+        var (baselineExit, baseline, baselineError) = await RunAppAsync(
+            "type", "--library", assemblyPath,
+            "-S", "API Info", "--tsv", "--tips", "q");
+        var (filteredExit, filtered, filteredError) = await RunAppAsync(
+            "type", "--library", assemblyPath,
+            "-t", "*", "-S", "API Info", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, baselineExit);
+        Assert.Equal(0, filteredExit);
+        Assert.Empty(baselineError);
+        Assert.Empty(filteredError);
+        Assert.Equal(baseline, filtered);
+        Assert.Contains("Methods\t", baseline, StringComparison.Ordinal);
     }
 
     [Fact]

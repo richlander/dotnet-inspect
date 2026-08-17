@@ -24,7 +24,8 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
         IReadOnlySet<string>? catalogHiddenSections = null,
         IReadOnlySet<string>? listedCategoryDoors = null,
-        IProjectionOptions? projection = null)
+        IProjectionOptions? projection = null,
+        bool? scopedMachineRowsOverride = null)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -45,7 +46,8 @@ public static class DiscoverOutput
         bool machineReadable = json || tsv || jsonl;
         bool scopedMachineRows = machineReadable
             && discover is { Length: > 0 }
-            && ResolvedSectionCount(discover, schema, sectionCategories) > 1;
+            && (scopedMachineRowsOverride
+                ?? ResolvedSectionCount(discover, schema, sectionCategories) > 1);
 
         // Auto-promote to tree when discovering items from multiple sections
         if (!tree
@@ -132,6 +134,12 @@ public static class DiscoverOutput
         IReadOnlySet<string>? listedCategoryDoors = null,
         IProjectionOptions? projection = null)
     {
+        bool? scopedMachineRows = fullSchema is not null
+            && discover is { Length: > 0 }
+                ? ResolvedSectionCount(
+                    discover, fullSchema, sectionCategories) > 1
+                : null;
+
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
         foreach (var name in effectiveSections)
@@ -165,7 +173,11 @@ public static class DiscoverOutput
             discover = remaining;
         }
 
-        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors, projection);
+        return Execute(
+            discover, filtered, tree, markdown, json, tsv, jsonl,
+            verbosity, rootLabel, sectionCostAnnotations, sectionCategories,
+            catalogHiddenSections, listedCategoryDoors, projection,
+            scopedMachineRows);
     }
 
     /// <summary>
@@ -470,15 +482,19 @@ public static class DiscoverOutput
 
         // -D SectionName: list items within section
         var rows = new List<DiscoveryRow>();
+        var resolvedSelectors = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
         foreach (var name in discover)
         {
             if (SelectResolver.TryResolveCategory(
                     name,
                     sectionCategories,
                     schema.SectionNames,
-                    out _,
+                    out var categoryName,
                     out var categorySections))
             {
+                if (!resolvedSelectors.Add($"category:{categoryName}"))
+                    continue;
                 foreach (var sectionName in categorySections.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))
                     rows.Add(new DiscoveryRow(sectionName, AnnotateKind("section", sectionName, sectionCostAnnotations)));
                 continue;
@@ -493,6 +509,8 @@ public static class DiscoverOutput
             var resolved = ResolveDiscoverSection(name, schema);
             if (resolved == null)
                 return null;
+            if (!resolvedSelectors.Add($"section:{resolved}"))
+                continue;
 
             var items = schema.Discover(resolved);
             if (items != null)
@@ -515,15 +533,19 @@ public static class DiscoverOutput
         IReadOnlyDictionary<string, string[]>? sectionCategories)
     {
         var rows = new List<ScopedDiscoveryRow>();
+        var resolvedSelectors = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase);
         foreach (var name in discover)
         {
             if (SelectResolver.TryResolveCategory(
                     name,
                     sectionCategories,
                     schema.SectionNames,
-                    out _,
+                    out var categoryName,
                     out var categorySections))
             {
+                if (!resolvedSelectors.Add($"category:{categoryName}"))
+                    continue;
                 foreach (var sectionName in categorySections.OrderBy(
                              section => section, StringComparer.OrdinalIgnoreCase))
                 {
@@ -544,6 +566,8 @@ public static class DiscoverOutput
             var resolved = ResolveDiscoverSection(name, schema);
             if (resolved == null)
                 return null;
+            if (!resolvedSelectors.Add($"section:{resolved}"))
+                continue;
 
             var items = schema.Discover(resolved);
             if (items != null)
@@ -595,7 +619,7 @@ public static class DiscoverOutput
         DocumentSchema schema,
         IReadOnlyDictionary<string, string[]>? sectionCategories)
     {
-        int count = 0;
+        var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var name in discover)
         {
             if (SelectResolver.TryResolveCategory(
@@ -605,15 +629,15 @@ public static class DiscoverOutput
                     out _,
                     out var categorySections))
             {
-                count += categorySections.Length;
+                sections.UnionWith(categorySections);
                 continue;
             }
 
             var (matches, _) = SelectResolver.ResolveSingle(name, schema.SectionNames, singleGlob: true);
             if (matches.Count == 1)
-                count++;
+                sections.Add(matches[0]);
         }
-        return count;
+        return sections.Count;
     }
 
     /// <summary>

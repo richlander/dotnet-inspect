@@ -107,7 +107,7 @@ var result = schema.Discover("Package Info");
 // → [("Version", "field"), ("Type", "field"), ...]
 ```
 
-The result is a list of `(Name, Kind)` pairs. The consumer renders them however it wants — table, TSV, markdown, tree, JSON. Machine-readable discovery of more than one section adds a `Section` field to every item row; duplicate field names such as `Name` therefore retain their owning-section identity.
+The result is a list of `(Name, Kind)` pairs. The consumer renders them however it wants — table, TSV, markdown, tree, JSON. Machine-readable discovery of more than one distinct canonical section adds a `Section` field to every item row; duplicate field names such as `Name` therefore retain their owning-section identity. Effective discovery preserves that original resolved scope when empty sections are omitted, so filtering data cannot change the machine schema.
 
 ### Selection
 

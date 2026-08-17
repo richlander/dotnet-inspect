@@ -277,8 +277,10 @@ public static class TypeCommand
                     if (effectiveOptions.EffectiveDiscovery)
                     {
                         if (effectiveOptions.DllPath is { } discoveryDllPath
-                            && ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
-                                .Contains(SectionNames.SourceFiles))
+                            && (effectiveOptions is TypeOptions
+                                    { Effective: true, Discover: null or { Length: 0 } }
+                                || ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
+                                    .Contains(SectionNames.SourceFiles)))
                         {
                             await SourceEnricher.EnrichTypeWithSourceInfoAsync(
                                 apiType,
@@ -352,8 +354,7 @@ public static class TypeCommand
                             return writeExitCode;
                     }
 
-                    if (!effectiveOptions.Tabular
-                        && effectiveOptions is not TypeOptions { ShapeOutput: true })
+                    if (effectiveOptions is not TypeOptions { ShapeOutput: true })
                     {
                         ApiCommand.WarnEmptySelectedSections(
                             apiType, effectiveOptions, memberPipeline);
@@ -996,7 +997,8 @@ public static class TypeCommand
     private static void RecomputeSurfaceCounts(ApiSurface api)
     {
         api.PublicTypeCount = api.Types.Count;
-        api.PublicMethodCount = api.Types.Sum(t => t.Members.Count(ApiMemberSectionDescriptors.IsMethodLike));
+        api.PublicMethodCount = api.Types.Sum(
+            t => t.Members.Count(ApiMemberSectionDescriptors.IsDeclaredMethodLike));
         api.PublicPropertyCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "property"));
         api.PublicFieldCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "field"));
         api.PublicEventCount = api.Types.Sum(t => t.Members.Count(m => m.Kind == "event"));

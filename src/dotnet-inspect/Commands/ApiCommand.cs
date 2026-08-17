@@ -862,7 +862,7 @@ public class ApiCommand
     {
         api.PublicTypeCount = api.Types.Count;
         api.PublicMethodCount = api.Types.Sum(
-            type => type.Members.Count(ApiMemberSectionDescriptors.IsMethodLike));
+            type => type.Members.Count(ApiMemberSectionDescriptors.IsDeclaredMethodLike));
         api.PublicPropertyCount = api.Types.Sum(
             type => type.Members.Count(member => member.Kind == "property"));
         api.PublicFieldCount = api.Types.Sum(
@@ -875,19 +875,16 @@ public class ApiCommand
         ApiSurface api,
         HashSet<string>? sections)
     {
-        if (sections is not { Count: > 0 })
-            return api;
-
         var selectedKinds = new HashSet<string>(StringComparer.Ordinal);
-        if (sections.Contains(SectionNames.Classes))
+        if (sections?.Contains(SectionNames.Classes) == true)
             selectedKinds.Add("class");
-        if (sections.Contains(SectionNames.Structs))
+        if (sections?.Contains(SectionNames.Structs) == true)
             selectedKinds.Add("struct");
-        if (sections.Contains(SectionNames.Interfaces))
+        if (sections?.Contains(SectionNames.Interfaces) == true)
             selectedKinds.Add("interface");
-        if (sections.Contains(SectionNames.Enums))
+        if (sections?.Contains(SectionNames.Enums) == true)
             selectedKinds.Add("enum");
-        if (sections.Contains(SectionNames.Delegates))
+        if (sections?.Contains(SectionNames.Delegates) == true)
             selectedKinds.Add("delegate");
 
         var projected = new ApiSurface
@@ -895,7 +892,10 @@ public class ApiCommand
             Name = api.Name,
             Version = api.Version,
             Source = api.Source,
-            Types = api.Types.Where(type => selectedKinds.Contains(type.Kind)).ToList(),
+            Types = selectedKinds.Count > 0
+                ? api.Types.Where(
+                    type => selectedKinds.Contains(type.Kind)).ToList()
+                : [.. api.Types],
             InspectionFailures = api.InspectionFailures,
             Library = api.Library,
             Tfm = api.Tfm,
@@ -1219,6 +1219,10 @@ public class ApiCommand
     internal static int WriteFullApiOutput(ApiSurface api, ApiOptions options, string? selectedTfm = null)
     {
         ApplySurfaceFilters(api, options, (options as TypeOptions)?.TypeFilter);
+        api = ProjectSurfaceToSections(api, options.IncludeSections);
+        if (options.Limit is int limit && limit < api.Types.Count)
+            api.Types = api.Types.Take(limit).ToList();
+
         var pipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var exactSection = GetExactSelectedSection(options, pipeline);
         if (!options.Count
@@ -1280,12 +1284,14 @@ public class ApiCommand
             // facility, so the combination is rejected rather than silently dropped.
             if (IsColumnProjectionRequested(options))
                 return RejectColumnProjectionUnderJson(suggestPayloadProjection: false);
-            var outputApi = ProjectSurfaceToSections(api, options.IncludeSections);
-            Console.WriteLine(JsonSerializer.Serialize(outputApi, ApiJsonContext.Default.ApiSurface));
+            Console.WriteLine(JsonSerializer.Serialize(api, ApiJsonContext.Default.ApiSurface));
             return successExitCode;
         }
 
-        var (view, _) = ApiOutputFormatter.BuildFullApiView(api, options);
+        var renderingOptions = options.Limit.HasValue
+            ? options with { Limit = null }
+            : options;
+        var (view, _) = ApiOutputFormatter.BuildFullApiView(api, renderingOptions);
 
         if (options.Count)
         {
@@ -1356,7 +1362,8 @@ public class ApiCommand
                 return successExitCode;
             }
 
-            var (tableView, _) = ApiOutputFormatter.BuildSurfaceTableView(api, options);
+            var (tableView, _) = ApiOutputFormatter.BuildSurfaceTableView(
+                api, renderingOptions);
             var rendered = OutputFormatter.RenderProjectedTable(!options.NoHeader, options.Tsv, options.Jsonl,
                 options.Columns, options.Fields,
                 (writer, formatter, writerOptions) =>
@@ -1857,7 +1864,7 @@ public class ApiCommand
         ApiOptions options,
         SectionPipeline<ApiType> pipeline)
     {
-        if (options.IncludeSections is not { Count: > 1 })
+        if (options.IncludeSections is not { Count: > 0 })
             return;
         if (SelectResolver.IsActiveInfoSelector(options.SelectDefault, options.IncludeSections)
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections))

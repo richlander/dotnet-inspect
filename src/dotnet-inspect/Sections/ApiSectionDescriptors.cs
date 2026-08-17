@@ -686,6 +686,10 @@ public static class ApiMemberSectionDescriptors
     internal static bool IsMethodLike(ApiMember member) =>
         member.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method";
 
+    // Extension-method rows are projected onto the extended type in addition to their declaration.
+    internal static bool IsDeclaredMethodLike(ApiMember member) =>
+        member.Kind != "extension-method" && IsMethodLike(member);
+
     /// <summary>
     /// True when the member carries executable IL that a body section can analyze.
     /// A method-like member is its own body; a property/event (including an indexer)

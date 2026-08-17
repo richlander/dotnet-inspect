@@ -527,7 +527,7 @@ internal static class ApiServices
             api.PublicMethodCount +=
                 type.Members.Count(
                     DotnetInspector.Sections
-                        .ApiMemberSectionDescriptors.IsMethodLike);
+                        .ApiMemberSectionDescriptors.IsDeclaredMethodLike);
             api.PublicPropertyCount +=
                 type.Members.Count(
                     static member => member.Kind == "property");
@@ -863,7 +863,7 @@ internal static class ApiServices
         type.SourceAssemblyPath = sourceAssemblyPath;
         api.Types.Add(type);
         api.PublicMethodCount += type.Members.Count(
-            DotnetInspector.Sections.ApiMemberSectionDescriptors.IsMethodLike);
+            DotnetInspector.Sections.ApiMemberSectionDescriptors.IsDeclaredMethodLike);
         api.PublicPropertyCount += type.Members.Count(m => m.Kind == "property");
         api.PublicEventCount += type.Members.Count(m => m.Kind == "event");
         api.PublicFieldCount += type.Members.Count(m => m.Kind == "field");
