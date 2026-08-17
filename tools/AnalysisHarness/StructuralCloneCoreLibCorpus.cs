@@ -74,7 +74,7 @@ public sealed record StructuralCloneCoreLibMethodResult(
     int Token,
     string Type,
     string Method,
-    string Signature);
+    string? ReviewedSignature);
 
 public sealed record StructuralCloneCoreLibScoreContrastResult(
     StructuralCloneCoreLibMethodResult Method,
@@ -95,8 +95,8 @@ public sealed record StructuralCloneCoreLibTopCandidate(
     int Rank,
     StructuralCloneCoreLibMethodResult Method,
     StructuralCloneSimilarityEvidence Similarity,
-    StructuralCloneReviewRelevance Relevance,
-    StructuralCloneDisposition ActualDisposition,
+    StructuralCloneReviewRelevance? Relevance,
+    StructuralCloneDisposition? ActualDisposition,
     StructuralCloneRelation? ActualRelation);
 
 public sealed record StructuralCloneCoreLibQueryResult(
@@ -112,7 +112,7 @@ public sealed record StructuralCloneCoreLibQueryResult(
     ImmutableArray<StructuralCloneCoreLibLabelResult> Labels,
     int RelevantAtK,
     int RelevantLabels,
-    int PrecisionBasisPoints,
+    int? PrecisionBasisPoints,
     int? RecallBasisPoints,
     int StructuralMatchesAtK,
     int SemanticHazardsAtK,
@@ -132,7 +132,7 @@ public sealed record StructuralCloneCoreLibCorpusReport(
     int ReviewedCandidates,
     int RelevantAtK,
     int RelevantLabels,
-    int PrecisionBasisPoints,
+    int? PrecisionBasisPoints,
     int? RecallBasisPoints,
     int StructuralMatchesAtK,
     int SemanticHazardsAtK,
@@ -372,22 +372,28 @@ public static class StructuralCloneCoreLibCorpus
                 int token =
                     MetadataTokens.GetToken(
                         candidate.Method.Handle);
-                if (!labels.TryGetValue(
+                labels.TryGetValue(
+                    token,
+                    out StructuralCloneCoreLibLabel? label);
+                comparisons.TryGetValue(
+                    token,
+                    out StructuralCloneComparison? comparison);
+                StructuralCloneCoreLibMethodResult method =
+                    methods.TryGetValue(
                         token,
-                        out StructuralCloneCoreLibLabel? label))
-                {
-                    continue;
-                }
-                StructuralCloneComparison comparison =
-                    comparisons[token];
+                        out var declared)
+                    ? Project(declared.Declaration)
+                    : Project(
+                        reader,
+                        candidate.Method.Handle);
                 topCandidates.Add(
                     new StructuralCloneCoreLibTopCandidate(
                         candidate.Rank,
-                        Project(methods[token].Declaration),
+                        method,
                         candidate.Similarity,
-                        label.Relevance,
-                        comparison.Disposition,
-                        comparison.Relation));
+                        label?.Relevance,
+                        comparison?.Disposition,
+                        comparison?.Relation));
             }
 
             ImmutableArray<StructuralCloneCoreLibTopCandidate>
@@ -410,10 +416,17 @@ public static class StructuralCloneCoreLibCorpus
                         out StructuralCloneRetrievalCandidate?
                             candidate)
                     && candidate.Rank <= query.ReviewedTopK);
-            int precisionBasisPoints =
-                BasisPoints(relevantAtK, query.ReviewedTopK);
+            int? precisionBasisPoints =
+                topKFullyReviewed
+                    ? BasisPoints(
+                        relevantAtK,
+                        query.ReviewedTopK)
+                    : null;
             int? recallBasisPoints =
                 relevantLabels == 0
+                    || retrieval.Disposition
+                        != StructuralCloneRetrievalDisposition
+                            .Completed
                     ? null
                     : BasisPoints(
                         recoveredRelevant,
@@ -448,7 +461,8 @@ public static class StructuralCloneCoreLibCorpus
                 && topKFullyReviewed
                 && queryLabelResults.All(static label =>
                     label.Passed)
-                && precisionBasisPoints
+                && precisionBasisPoints is { } precision
+                && precision
                     >= query.MinimumPrecisionBasisPoints
                 && (recallBasisPoints ?? 0)
                     >= query.MinimumRecallBasisPoints;
@@ -495,8 +509,16 @@ public static class StructuralCloneCoreLibCorpus
             reviewedCandidates,
             aggregateRelevantAtK,
             aggregateRelevantLabels,
-            BasisPoints(aggregateRelevantAtK, reviewedCandidates),
+            queries.All(static query =>
+                query.PrecisionBasisPoints is not null)
+                ? BasisPoints(
+                    aggregateRelevantAtK,
+                    reviewedCandidates)
+                : null,
             aggregateRelevantLabels == 0
+                || queries.Any(static query =>
+                    query.RelevantLabels > 0
+                    && query.RecallBasisPoints is null)
                 ? null
                 : BasisPoints(
                     queries.Sum(query =>
@@ -605,9 +627,13 @@ public static class StructuralCloneCoreLibCorpus
                 output.Append(" score=");
                 output.Append(candidate.Similarity.Score);
                 output.Append(' ');
-                output.Append(candidate.Relevance);
+                output.Append(
+                    candidate.Relevance?.ToString()
+                        ?? "Unreviewed");
                 output.Append(' ');
-                output.Append(candidate.ActualDisposition);
+                output.Append(
+                    candidate.ActualDisposition?.ToString()
+                        ?? "-");
                 output.Append('/');
                 output.Append(candidate.ActualRelation?.ToString()
                     ?? "-");
@@ -656,6 +682,24 @@ public static class StructuralCloneCoreLibCorpus
                     label.Label.MaximumRank?.ToString(
                         CultureInfo.InvariantCulture)
                     ?? "-");
+                foreach (
+                    StructuralCloneCoreLibScoreContrastResult
+                        contrast in label.Contrasts)
+                {
+                    output.Append("    contrast score=");
+                    output.Append(
+                        label.Similarity?.Score.ToString(
+                            CultureInfo.InvariantCulture)
+                        ?? "unranked");
+                    output.Append(" must exceed score=");
+                    output.Append(
+                        contrast.Similarity?.Score.ToString(
+                            CultureInfo.InvariantCulture)
+                        ?? "unranked");
+                    output.Append(' ');
+                    output.AppendLine(
+                        MethodDisplay(contrast.Method));
+                }
             }
         }
         return output.ToString();
@@ -679,6 +723,7 @@ public static class StructuralCloneCoreLibCorpus
                     + "and limit declarations.");
         }
         if (string.IsNullOrWhiteSpace(document.Artifact.FileName)
+            || document.Artifact.Sha256 is null
             || document.Artifact.Sha256.Length != 64
             || !document.Artifact.Sha256.All(
                 static character =>
@@ -693,6 +738,7 @@ public static class StructuralCloneCoreLibCorpus
                     + "provenance.");
         }
         if (string.IsNullOrWhiteSpace(document.Source.Repository)
+            || document.Source.Commit is null
             || document.Source.Commit.Length != 40
             || !document.Source.Commit.All(
                 static character =>
@@ -721,6 +767,11 @@ public static class StructuralCloneCoreLibCorpus
         foreach (StructuralCloneCoreLibMethod method
             in document.Methods)
         {
+            if (method is null)
+            {
+                throw new InvalidDataException(
+                    "The CoreLib method catalog contains null.");
+            }
             int token = ParseToken(method.Token);
             if (!methods.TryAdd(token, method)
                 || string.IsNullOrWhiteSpace(method.Type)
@@ -742,6 +793,11 @@ public static class StructuralCloneCoreLibCorpus
         foreach (StructuralCloneCoreLibQuery query
             in document.Queries)
         {
+            if (query is null)
+            {
+                throw new InvalidDataException(
+                    "The CoreLib query catalog contains null.");
+            }
             int seed = ParseToken(query.Seed);
             if (string.IsNullOrWhiteSpace(query.Id)
                 || !queryIds.Add(query.Id)
@@ -763,6 +819,12 @@ public static class StructuralCloneCoreLibCorpus
             foreach (StructuralCloneCoreLibLabel label
                 in query.Labels)
             {
+                if (label is null)
+                {
+                    throw new InvalidDataException(
+                        $"CoreLib query '{query.Id}' contains a "
+                            + "null label.");
+                }
                 int candidate = ParseToken(label.Candidate);
                 if (candidate == seed
                     || !methods.ContainsKey(candidate)
@@ -883,6 +945,21 @@ public static class StructuralCloneCoreLibCorpus
             method.Method,
             method.Signature);
 
+    static StructuralCloneCoreLibMethodResult Project(
+        MetadataReader reader,
+        MethodDefinitionHandle handle)
+    {
+        MethodDefinition method =
+            reader.GetMethodDefinition(handle);
+        return new StructuralCloneCoreLibMethodResult(
+            MetadataTokens.GetToken(handle),
+            StructuralCloneCensus.TypeName(
+                reader,
+                method.GetDeclaringType()),
+            reader.GetString(method.Name),
+            ReviewedSignature: null);
+    }
+
     static int BasisPoints(int numerator, int denominator)
         => denominator == 0
             ? 0
@@ -891,11 +968,16 @@ public static class StructuralCloneCoreLibCorpus
 
     static void AppendPercent(
         StringBuilder output,
-        int basisPoints)
+        int? basisPoints)
     {
-        output.Append(basisPoints / 100);
+        if (basisPoints is not { } value)
+        {
+            output.Append("n/a");
+            return;
+        }
+        output.Append(value / 100);
         output.Append('.');
-        output.Append((basisPoints % 100).ToString(
+        output.Append((value % 100).ToString(
             "00",
             CultureInfo.InvariantCulture));
         output.Append('%');
@@ -903,5 +985,8 @@ public static class StructuralCloneCoreLibCorpus
 
     static string MethodDisplay(
         StructuralCloneCoreLibMethodResult method)
-        => $"0x{method.Token:X8} {method.Type}::{method.Signature}";
+        => method.ReviewedSignature is { } signature
+            ? $"0x{method.Token:X8} {method.Type}::{method.Method} "
+                + $"[reviewed-signature: {signature}]"
+            : $"0x{method.Token:X8} {method.Type}::{method.Method}";
 }

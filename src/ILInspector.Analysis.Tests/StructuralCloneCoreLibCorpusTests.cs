@@ -76,6 +76,28 @@ public class StructuralCloneCoreLibCorpusTests
             lowerCase.Similarity.Score
                 > contrast.Similarity.Score,
             "The committed score contrast must be strict.");
+        StructuralCloneCoreLibLabelResult failedLabel =
+            lowerCase with { Passed = false };
+        StructuralCloneCoreLibQueryResult failedQuery =
+            convert with
+            {
+                Labels = convert.Labels.Replace(
+                    lowerCase,
+                    failedLabel),
+                Passed = false,
+            };
+        string failedContrastCard =
+            StructuralCloneCoreLibCorpus.Format(
+                report with
+                {
+                    PassedQueries = report.PassedQueries - 1,
+                    Queries = report.Queries.Replace(
+                        convert,
+                        failedQuery),
+                });
+        Assert.Contains(
+            "contrast score=9847 must exceed score=9695",
+            failedContrastCard);
 
         StructuralCloneCoreLibLabelResult[] misses =
         [
@@ -105,6 +127,47 @@ public class StructuralCloneCoreLibCorpusTests
                     StructuralCloneRelation.Exact,
                     candidate.ActualRelation);
             });
+    }
+
+    [Fact]
+    public void Run_PreservesUnreviewedTopKCandidateAsUnknown()
+    {
+        StructuralCloneCoreLibCorpusDocument corpus = LoadCorpus();
+        StructuralCloneCoreLibQuery guid =
+            corpus.Queries.Single(
+                static query =>
+                    query.Id == "guid-relational-operators");
+        StructuralCloneCoreLibCorpusReport report =
+            StructuralCloneCoreLibCorpus.Run(
+                typeof(object).Assembly.Location,
+                corpus with
+                {
+                    Queries = corpus.Queries.Replace(
+                        guid,
+                        guid with { ReviewedTopK = 4 }),
+                });
+
+        StructuralCloneCoreLibQueryResult query =
+            report.Queries.Single(
+                static result =>
+                    result.Id == "guid-relational-operators");
+        Assert.False(query.Passed);
+        Assert.False(query.TopKFullyReviewed);
+        Assert.Equal(4, query.TopCandidates.Length);
+        StructuralCloneCoreLibTopCandidate unreviewed =
+            query.TopCandidates.Single(
+                static candidate =>
+                    candidate.Relevance is null);
+        Assert.Equal(4, unreviewed.Rank);
+        Assert.Null(unreviewed.ActualDisposition);
+        Assert.Null(query.PrecisionBasisPoints);
+        Assert.Null(report.PrecisionBasisPoints);
+        Assert.Contains(
+            $"#{unreviewed.Rank} score=",
+            StructuralCloneCoreLibCorpus.Format(report));
+        Assert.Contains(
+            "Unreviewed",
+            StructuralCloneCoreLibCorpus.Format(report));
     }
 
     [Theory]
@@ -225,6 +288,18 @@ public class StructuralCloneCoreLibCorpusTests
         Assert.Throws<JsonException>(() =>
             StructuralCloneCoreLibCorpus.Load(
                 integerEnum.ToJsonString()));
+
+        JsonObject nullMethod = CorpusJson();
+        nullMethod["methods"]![0] = null;
+        Assert.Throws<InvalidDataException>(() =>
+            StructuralCloneCoreLibCorpus.Load(
+                nullMethod.ToJsonString()));
+
+        JsonObject nullLabel = CorpusJson();
+        nullLabel["queries"]![0]!["labels"]![0] = null;
+        Assert.Throws<InvalidDataException>(() =>
+            StructuralCloneCoreLibCorpus.Load(
+                nullLabel.ToJsonString()));
     }
 
     [Fact]

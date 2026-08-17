@@ -350,6 +350,9 @@ unknown, never negatives. Therefore "labeled precision" is relevant rows
 divided by reviewed top-K rows, while "labeled recall" is relevant rows
 recovered at K divided by all relevant labels declared for that query. Neither
 metric estimates all possible relationships in CoreLib.
+If a top-K row lacks a label, the query fails, the row remains visible as
+`Unreviewed`, and precision is unavailable rather than treating the unknown row
+as a negative.
 
 `analysis-harness --clone-corelib-corpus` enumerates the full pinned MethodDef
 population, calls product `RetrieveSimilar`, and separately calls product

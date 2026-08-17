@@ -212,7 +212,7 @@
       "signature": "Equals(object)",
       "source": {
         "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Comparer.cs",
-        "line": 142
+        "line": 141
       }
     },
     {
@@ -232,7 +232,7 @@
       "signature": "Equals(object)",
       "source": {
         "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/EqualityComparer.cs",
-        "line": 197
+        "line": 199
       }
     },
     {
@@ -242,7 +242,7 @@
       "signature": "Equals(object)",
       "source": {
         "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/EqualityComparer.cs",
-        "line": 226
+        "line": 228
       }
     },
     {
@@ -372,7 +372,7 @@
       "signature": "Subtract<T>(void*, int)",
       "source": {
         "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/Unsafe.cs",
-        "line": 858
+        "line": 857
       }
     },
     {
