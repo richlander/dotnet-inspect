@@ -662,6 +662,32 @@ only when the post-dominator machinery is proven.
    back-edge regions in untouched tail ranges do not veto an eligible forward
    region; unresolved loop regions remain represented but flat.
 
+   *Status: first canonical retained-loop slice implemented (2026-08-17).*
+   After whole-container structuring declines, the retained planner may widen
+   one range to a rotated-entry `while` only when the existing loop recognizer's
+   proof is complete: one preheader branch to one conditional latch, one
+   back-edge source and head, a non-crossing region, and the real
+   post-dominator equal to the block immediately after the latch. The range
+   rejects overlapping loops, external entries, EH, switches, and nested
+   transfers. Every forward merge carried by the loop must independently prove
+   that ordinary validation fails and retained-merge validation succeeds; all
+   such merges are then validated and built transactionally with the loop.
+   Retained gotos remain gotos inside the new loop, while the existing
+   generated-transfer ownership check guards `break`/`continue` binding.
+
+   `CanonicalWhileWithRetainedBodyMergeRaises` and
+   `CoreLibUrlDecodeWithRetainedBodyMergeRaises` gate the accepted synthetic
+   multi-merge and compiler-produced paths.
+   `RetainedBodyMergeWithoutRotatedEntryStaysFlat`,
+   `RetainedBodyMergeWithMultipleLatchesStaysFlat`,
+   `RetainedBodyMergeWithNoncanonicalExitStaysFlat`,
+   `RetainedBodyMergeWithExternalInteriorEntryStaysFlat`, and
+   `RetainedBodyMergeWithSwitchStaysFlat` gate the declined boundary. Against
+   exact base `5b808cde1`, the slice moved CoreLib from 11,786 to 11,793
+   structured containers (752 to 745 flat) and the pinned corpus from 30,046
+   to 30,082 (2,677 to 2,641 flat), with zero pass bugs in both
+   `--structuring-stops` sweeps.
+
    *Finding — the acyclic residual splits three ways, and the return-tail merge
    is NOT a terminator-duplication win.* Of the ~1,208 `conditional-branch`
    residuals, **691 contain loop back-edges** (recorded here as out of scope
@@ -784,12 +810,12 @@ than something to emit speculatively now.
   `FindWhileShape`-recognizable while killed by all-or-nothing on its body's
   merge. Step 4 without a back-edge rule recovers zero loops; a loop track
   without step 4 recovers only ~15% of the bucket — the tracks multiply. Step
-  4's join primitive should serve back-edge regions ("back-edges target the
-  head → while; postdom-LCA exit → break target") from day one. Loop-*specific*
-  machinery (continue placement, condition hoisting for effectful latches,
-  labeled break, conditional rotated entries) remains follow-on scope. (The
-  old "`cond-backward-branch`, 61" framing understated the population — see
-  the denominator warning above.)
+  4's join primitive now serves the first canonical retained-loop subset:
+  rotated-entry, single-latch `while` regions with one real immediate exit.
+  Retained `while (true)`, continue placement, multi-latch loops, condition
+  hoisting for effectful latches, labeled break, and conditional rotated
+  entries remain follow-on scope. (The old "`cond-backward-branch`, 61"
+  framing understated the population — see the denominator warning above.)
 - EH (`unconsumed-regions`, 108) — the EH pass leaving regions flat is a distinct
   gap; the CFG-DA's `Leave` bail (#631) is the related printer-side residue.
 - Switch jump tables (`SwitchRaisingPass`) and comparison trees (#640) — done.
@@ -1040,10 +1066,11 @@ add to the step-4 plan:
 1. **Merge selection**: deepest-valid post-dominator plus recursive
    re-application to the tail — nearest-first structures only a prefix of
    multi-merge containers (readable but visibly half-done).
-2. **Back-edge regions are represented and classified from day one**; the first
-   production behavior slice declines unresolved loop regions while allowing an
-   unrelated loop in an untouched tail (see the corrected loop entry under
-   *Out of scope*).
+2. **Back-edge regions are represented and classified from day one**; the
+   canonical rotated-entry/single-latch subset is consumed transactionally,
+   while unsupported loop regions remain flat and an unrelated loop in an
+   untouched tail does not veto an eligible forward region (see the corrected
+   loop entry under *Out of scope*).
 3. **Definite assignment**: the production slice extends the #631 analysis with
    a forward structured-goto walk, so assignments reaching a retained merge are
    intersected with lexical fallthrough instead of flooding locals to

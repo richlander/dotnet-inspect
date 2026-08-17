@@ -224,7 +224,12 @@ public sealed class StructuringPass : IIrPass
         /// </summary>
         public required HashSet<int> ScatteredReturnDispatchTargets { get; init; }
         public int? RegionExitLeaveTarget { get; init; }
-        public int? RetainedMergeIndex { get; init; }
+        public required HashSet<int> RetainedMergeIndices { get; init; }
+        /// <summary>
+        /// Permits retained gotos before the end of a range only after the
+        /// canonical loop planner proves their targets stay inside that loop.
+        /// </summary>
+        public bool AllowRetainedMergeWithinLoop { get; init; }
         public bool CandidateOwnershipUnsafe { get; set; }
 
         /// <summary>
@@ -244,7 +249,11 @@ public sealed class StructuringPass : IIrPass
     }
 
     readonly record struct WhileShape(int ContinueAt, ConditionalBranch BackBranch, ConditionalBranch? ExitBranch);
-    readonly record struct RetainedRange(int Start, int Merge);
+    readonly record struct RetainedRange(
+        int Start,
+        int Stop,
+        int[] RetainedMerges,
+        bool AllowRetainedMergeWithinLoop = false);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -370,7 +379,7 @@ public sealed class StructuringPass : IIrPass
             IsComparisonTree = isComparisonTree,
             ScatteredReturnDispatchTargets = scatteredReturnDispatchTargets,
             RegionExitLeaveTarget = NormalEhContinuationTarget(container),
-            RetainedMergeIndex = null,
+            RetainedMergeIndices = [],
             Recorder = recorder,
         };
 
@@ -386,7 +395,7 @@ public sealed class StructuringPass : IIrPass
         var buildCtx = CreateRetainedCtx(
             ctx,
             buildBlocks,
-            retainedMergeIndex: null,
+            retainedMergeIndices: null,
             recorder);
         if (!Validate(buildCtx, 0, buildBlocks.Count, joinIndex: buildBlocks.Count, breakTarget: null, continueTarget: null))
         {
@@ -451,9 +460,12 @@ public sealed class StructuringPass : IIrPass
         }
 
         var clonedBlocks = sourceCtx.Blocks.Select(CloneBlock).ToList();
-        var template = CreateRetainedCtx(sourceCtx, clonedBlocks, retainedMergeIndex: null);
+        var template = CreateRetainedCtx(sourceCtx, clonedBlocks, retainedMergeIndices: null);
         var buildContexts = ranges
-            .Select(range => CopyRetainedCtx(template, range.Merge))
+            .Select(range => CopyRetainedCtx(
+                template,
+                range.RetainedMerges,
+                range.AllowRetainedMergeWithinLoop))
             .ToList();
 
         context.Stepper.StepOver(
@@ -474,8 +486,8 @@ public sealed class StructuringPass : IIrPass
             var built = BuildRegion(
                 buildContexts[rangeIndex],
                 range.Start,
-                range.Merge,
-                joinIndex: range.Merge,
+                range.Stop,
+                joinIndex: range.Stop,
                 breakTarget: null,
                 continueTarget: null);
             if (buildContexts[rangeIndex].CandidateOwnershipUnsafe
@@ -483,14 +495,14 @@ public sealed class StructuringPass : IIrPass
                     buildContexts[rangeIndex],
                     built,
                     range.Start,
-                    range.Merge))
+                    range.Stop))
             {
                 context.StructuringDiagnostics?.RecordRetainedDecline(
                     "retained-loop-changes-control-flow-owner");
                 return false;
             }
             replacement.Add(built);
-            cursor = range.Merge;
+            cursor = range.Stop;
             context.StructuringDiagnostics?.RecordRetainedRegion();
         }
 
@@ -519,12 +531,22 @@ public sealed class StructuringPass : IIrPass
             if (start < 0)
                 break;
 
-            StructuringJoinRegion? selected = null;
+            RetainedRange? selected = null;
             foreach (var candidate in plan.ForwardRegions
                 .Where(region => region.Start == start)
                 .OrderByDescending(region => region.Merge))
             {
                 string? decline = RetainedCandidateDecline(sourceCtx, candidate);
+                if (decline == "retained-back-edge-entangled"
+                    && TryPlanRetainedLoopRange(sourceCtx, plan, candidate, cursor) is { } loopRange)
+                {
+                    if (ValidateRetainedLoopCandidate(sourceCtx, loopRange))
+                    {
+                        selected = loopRange;
+                        break;
+                    }
+                    decline = "retained-loop-validation-failed";
+                }
                 if (decline is null
                     && ValidateRetainedCandidate(sourceCtx, candidate, retained: false))
                 {
@@ -538,7 +560,7 @@ public sealed class StructuringPass : IIrPass
 
                 if (decline is null)
                 {
-                    selected = candidate;
+                    selected = new(candidate.Start, candidate.Merge, [candidate.Merge]);
                     break;
                 }
 
@@ -547,8 +569,8 @@ public sealed class StructuringPass : IIrPass
 
             if (selected is { } accepted)
             {
-                ranges.Add(new RetainedRange(accepted.Start, accepted.Merge));
-                cursor = accepted.Merge;
+                ranges.Add(accepted);
+                cursor = accepted.Stop;
             }
             else
             {
@@ -559,13 +581,127 @@ public sealed class StructuringPass : IIrPass
         return ranges;
     }
 
-    static string? RetainedCandidateDecline(Ctx ctx, StructuringJoinRegion candidate)
+    static RetainedRange? TryPlanRetainedLoopRange(
+        Ctx ctx,
+        StructuringJoinPlan plan,
+        StructuringJoinRegion retainedMerge,
+        int cursor)
+    {
+        var loops = plan.BackEdgeRegions
+            .Where(loop => loop.Start <= retainedMerge.Start
+                && retainedMerge.Merge < loop.End)
+            .ToArray();
+        if (loops.Length != 1)
+            return null;
+
+        var loop = loops[0];
+        if (!retainedMerge.IsNonCrossing
+            || !loop.IsNonCrossing
+            || loop.BackEdgeSources.Length != 1
+            || loop.Merge != loop.End
+            || loop.Merge >= ctx.Blocks.Count)
+        {
+            return null;
+        }
+
+        int entry = loop.Start - 1;
+        int latch = loop.BackEdgeSources[0];
+        int overlappingLoops = plan.BackEdgeRegions.Count(other =>
+            other.Start < loop.End && loop.Start < other.End);
+        if (overlappingLoops != 1
+            || entry < cursor
+            || ctx.Blocks[entry].Children.LastOrDefault() is not Branch entryBranch
+            || entryBranch.TargetOffset != ctx.Blocks[latch].StartOffset
+            || ctx.Blocks[latch].Children.LastOrDefault() is not ConditionalBranch latchBranch
+            || latchBranch.TargetOffset != ctx.Blocks[loop.Start].StartOffset
+            || RegionHasExternalEntry(ctx, entry, loop.Merge)
+            || RetainedLoopHasUnsupportedControlFlow(ctx, entry, loop.Merge))
+        {
+            return null;
+        }
+
+        var retainedMerges = plan.ForwardRegions
+            .Where(region =>
+                loop.Start <= region.Start
+                && region.Merge < loop.End
+                && region.IsNonCrossing
+                && region.IsBackEdgeEntangled
+                && RetainedCandidateDecline(ctx, region, allowBackEdgeEntanglement: true) is null
+                && !ValidateRetainedCandidate(ctx, region, retained: false)
+                && ValidateRetainedCandidate(ctx, region, retained: true))
+            .Select(region => region.Merge)
+            .Distinct()
+            .Order()
+            .ToArray();
+        if (retainedMerges.Length == 0)
+            return null;
+
+        return new(
+            entry,
+            loop.Merge,
+            retainedMerges,
+            AllowRetainedMergeWithinLoop: true);
+    }
+
+    static bool RetainedLoopHasUnsupportedControlFlow(Ctx ctx, int start, int stop)
+    {
+        for (int source = start; source < stop; source++)
+        {
+            foreach (var node in ctx.Blocks[source].DescendantsOutsideNestedFunctions)
+            {
+                if (node is TryCatch or TryFinally or Leave or EndFinally or EndFilter or SwitchBranch)
+                    return true;
+                if (!ReferenceEquals(node.Parent, ctx.Blocks[source])
+                    && node is Branch or ConditionalBranch)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    static bool ValidateRetainedLoopCandidate(Ctx sourceCtx, RetainedRange range)
+    {
+        var clonedBlocks = sourceCtx.Blocks.Select(CloneBlock).ToList();
+        var ctx = CreateRetainedCtx(
+            sourceCtx,
+            clonedBlocks,
+            range.RetainedMerges,
+            recorder: null,
+            allowRetainedMergeWithinLoop: range.AllowRetainedMergeWithinLoop);
+        if (!Validate(
+                ctx,
+                range.Start,
+                range.Stop,
+                joinIndex: range.Stop,
+                breakTarget: null,
+                continueTarget: null))
+        {
+            return false;
+        }
+
+        var built = BuildRegion(
+            ctx,
+            range.Start,
+            range.Stop,
+            joinIndex: range.Stop,
+            breakTarget: null,
+            continueTarget: null);
+        return !ctx.CandidateOwnershipUnsafe
+            && !HasDanglingInternalLeaveTarget(ctx, built, range.Start, range.Stop);
+    }
+
+    static string? RetainedCandidateDecline(
+        Ctx ctx,
+        StructuringJoinRegion candidate,
+        bool allowBackEdgeEntanglement = false)
     {
         if (RegionHasExternalEntry(ctx, candidate.Start, candidate.Merge))
             return "retained-external-entry";
         if (!candidate.IsNonCrossing)
             return "retained-crossing";
-        if (candidate.IsBackEdgeEntangled)
+        if (candidate.IsBackEdgeEntangled && !allowBackEdgeEntanglement)
             return "retained-back-edge-entangled";
         if (candidate.Merge <= candidate.Start || candidate.Merge >= ctx.Blocks.Count)
             return "retained-merge-outside-container";
@@ -670,7 +806,7 @@ public sealed class StructuringPass : IIrPass
         var ctx = CreateRetainedCtx(
             sourceCtx,
             clonedBlocks,
-            retained ? candidate.Merge : null);
+            retained ? [candidate.Merge] : null);
         if (!Validate(
                 ctx,
                 candidate.Start,
@@ -696,8 +832,9 @@ public sealed class StructuringPass : IIrPass
     static Ctx CreateRetainedCtx(
         Ctx sourceCtx,
         IReadOnlyList<Block> blocks,
-        int? retainedMergeIndex,
-        StopRecorder? recorder = null)
+        IEnumerable<int>? retainedMergeIndices,
+        StopRecorder? recorder = null,
+        bool allowRetainedMergeWithinLoop = false)
     {
         var flowFacts = StructuringFlowFacts.Collect(blocks);
         var fallenInto = new HashSet<int>();
@@ -738,12 +875,16 @@ public sealed class StructuringPass : IIrPass
             IsComparisonTree = sourceCtx.IsComparisonTree,
             ScatteredReturnDispatchTargets = sourceCtx.ScatteredReturnDispatchTargets,
             RegionExitLeaveTarget = sourceCtx.RegionExitLeaveTarget,
-            RetainedMergeIndex = retainedMergeIndex,
+            RetainedMergeIndices = retainedMergeIndices is null ? [] : [.. retainedMergeIndices],
+            AllowRetainedMergeWithinLoop = allowRetainedMergeWithinLoop,
             Recorder = recorder,
         };
     }
 
-    static Ctx CopyRetainedCtx(Ctx template, int retainedMergeIndex) => new()
+    static Ctx CopyRetainedCtx(
+        Ctx template,
+        IReadOnlyList<int> retainedMergeIndices,
+        bool allowRetainedMergeWithinLoop) => new()
     {
         Blocks = template.Blocks,
         FlowFacts = template.FlowFacts,
@@ -756,7 +897,8 @@ public sealed class StructuringPass : IIrPass
         IsComparisonTree = template.IsComparisonTree,
         ScatteredReturnDispatchTargets = template.ScatteredReturnDispatchTargets,
         RegionExitLeaveTarget = template.RegionExitLeaveTarget,
-        RetainedMergeIndex = retainedMergeIndex,
+        RetainedMergeIndices = [.. retainedMergeIndices],
+        AllowRetainedMergeWithinLoop = allowRetainedMergeWithinLoop,
         Recorder = null,
     };
 
@@ -900,7 +1042,7 @@ public sealed class StructuringPass : IIrPass
                     // A branch to the retained merge from a nested lexical range
                     // remains an explicit goto. The enclosing selected range owns
                     // the merge label.
-                    if (ctx.RetainedMergeIndex == branchTarget)
+                    if (ctx.RetainedMergeIndices.Contains(branchTarget))
                     {
                         i++;
                         break;
@@ -958,7 +1100,7 @@ public sealed class StructuringPass : IIrPass
                         i = stop;
                         break;
                     }
-                    if (ctx.RetainedMergeIndex == target)
+                    if (ctx.RetainedMergeIndices.Contains(target))
                     {
                         i++;
                         break;
@@ -1585,7 +1727,7 @@ public sealed class StructuringPass : IIrPass
             IsComparisonTree = isComparisonTree,
             ScatteredReturnDispatchTargets = scatteredReturnDispatchTargets,
             RegionExitLeaveTarget = null,
-            RetainedMergeIndex = null,
+            RetainedMergeIndices = [],
             Recorder = null,
         };
     }
@@ -2204,9 +2346,9 @@ public sealed class StructuringPass : IIrPass
                         i = stop;  // the region-exit goto disappears into structure
                         break;
                     }
-                    if (ctx.RetainedMergeIndex == branchTarget)
+                    if (ctx.RetainedMergeIndices.Contains(branchTarget))
                     {
-                        if (i + 1 != stop)
+                        if (i + 1 != stop && !ctx.AllowRetainedMergeWithinLoop)
                             ctx.CandidateOwnershipUnsafe = true;
                         result.Add(last);
                         i++;
@@ -2259,7 +2401,7 @@ public sealed class StructuringPass : IIrPass
                         i = stop;
                         break;
                     }
-                    if (ctx.RetainedMergeIndex == target)
+                    if (ctx.RetainedMergeIndices.Contains(target))
                     {
                         var gotoArm = new Block(block.StartOffset);
                         var retainedBranch = new Branch(conditional.TargetOffset);

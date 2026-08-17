@@ -56,29 +56,144 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
-    public void ForwardRegionEntangledWithBackEdgeIsRepresentedButNotStructured()
+    public void CanonicalWhileWithRetainedBodyMergeRaises()
     {
-        var blocks = new[]
-        {
-            Term(0, new StoreLocal(0, I32, new Constant(0, I32))),
-            Term(1, Cond(3)),
-            Term(2, new Branch(3)),
-            Term(3, new StoreLocal(0, I32, new Constant(1, I32))),
-            Term(4, Cond(1)),
-            Term(5, new Return(new LoadLocal(0, I32))),
-        };
+        var blocks = RetainedLoopBlocks();
 
         var plan = StructuringJoinAnalysis.Analyze(blocks);
         Assert.Contains(plan.ForwardRegions, region =>
-            region.Start == 1 && region.Merge == 3 && region.IsBackEdgeEntangled);
+            region.Start == 1 && region.Merge == 6 && region.IsBackEdgeEntangled);
+        Assert.Contains(plan.ForwardRegions, region =>
+            region.Start == 6 && region.Merge == 11 && region.IsBackEdgeEntangled);
         Assert.NotEmpty(plan.BackEdgeRegions);
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.True(
+            diagnostics.RetainedRegions == 1,
+            string.Join(", ", diagnostics.RetainedDeclines));
+        Assert.Contains("retained-back-edge-region", diagnostics.RetainedDeclines);
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(loop.Body.Descendants.OfType<Break>());
+        Assert.DoesNotContain(
+            loop.Body.Descendants.OfType<Branch>(),
+            branch => branch.TargetOffset == 1);
+        Assert.Contains(
+            loop.Body.Descendants.OfType<Branch>(),
+            branch => branch.TargetOffset == 6);
+        Assert.Contains(
+            loop.Body.Descendants.OfType<Branch>(),
+            branch => branch.TargetOffset == 11);
+    }
+
+    [Fact]
+    public void RetainedBodyMergeWithoutRotatedEntryStaysFlat()
+    {
+        var blocks = RetainedLoopBlocks();
+        blocks[0] = Term(0, new StoreLocal(0, I32, new Constant(0, I32)));
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Contains("retained-external-entry", diagnostics.RetainedDeclines);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void RetainedBodyMergeWithMultipleLatchesStaysFlat()
+    {
+        var blocks = RetainedLoopBlocks();
+        blocks[3] = Term(3, new Branch(1));
+
+        var plan = StructuringJoinAnalysis.Analyze(blocks);
+        Assert.Contains(
+            plan.BackEdgeRegions,
+            region => region.Start == 1 && region.BackEdgeSources.Length == 2);
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Contains("retained-external-entry", diagnostics.RetainedDeclines);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void RetainedBodyMergeWithNoncanonicalExitStaysFlat()
+    {
+        var blocks = RetainedLoopBlocks().ToList();
+        blocks[11] = Block(
+            11,
+            new StoreLocal(0, I32, new Constant(4, I32)),
+            Cond(14));
+        blocks[13] = Term(13, new Branch(14));
+        blocks.Add(Term(14, new Return(new LoadLocal(0, I32))));
+
+        var plan = StructuringJoinAnalysis.Analyze(blocks);
+        Assert.Contains(
+            plan.BackEdgeRegions,
+            region => region.Start == 1 && region.Merge != region.End);
+
+        var (function, diagnostics) = Structure([.. blocks]);
+
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Contains("retained-external-entry", diagnostics.RetainedDeclines);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void RetainedBodyMergeWithExternalInteriorEntryStaysFlat()
+    {
+        var blocks = RetainedLoopBlocks().ToList();
+        blocks.Add(Term(14, new Branch(2)));
+
+        var (function, diagnostics) = Structure([.. blocks]);
+
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Contains("retained-back-edge-entangled", diagnostics.RetainedDeclines);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void RetainedBodyMergeWithSwitchStaysFlat()
+    {
+        var blocks = RetainedLoopBlocks();
+        blocks[8] = Term(
+            8,
+            new SwitchBranch(new Constant(0, I32), [10]));
 
         var (function, diagnostics) = Structure(blocks);
 
         Assert.Equal(0, diagnostics.RetainedRegions);
         Assert.Contains("retained-back-edge-entangled", diagnostics.RetainedDeclines);
-        Assert.Contains("retained-back-edge-region", diagnostics.RetainedDeclines);
-        Assert.Equal(blocks.Length, function.Body.Blocks.Count);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void CoreLibUrlDecodeWithRetainedBodyMergeRaises()
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            "System.Net.WebUtility",
+            "UrlDecodeInternal",
+            overloadIndex: 0);
+        Assert.NotNull(function);
+        var diagnostics = new StructuringDiagnostics();
+
+        IrPasses.Run(
+            function!,
+            IrPasses.Default,
+            new PassContext(new Stepper(enabled: false), diagnostics));
+        function!.CheckInvariant();
+
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Contains(
+            loop.Body.Descendants.OfType<Branch>(),
+            branch => branch.TargetOffset == 0xB5);
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("while (", output);
+        Assert.Contains("goto IL_00B5;", output);
     }
 
     [Fact]
@@ -236,6 +351,33 @@ public class RetainedMergeStructuringTests
         Term(64, new StoreLocal(0, I32, new Constant(8, I32))),
         Term(72, new Branch(80)),
         Term(80, new Return(new LoadLocal(0, I32))),
+    ];
+
+    static Block[] RetainedLoopBlocks() =>
+    [
+        Term(0, new Branch(12)),
+        Term(1, Cond(4)),
+        Term(2, Cond(6)),
+        Block(
+            3,
+            new StoreLocal(0, I32, new Constant(2, I32)),
+            new Branch(5)),
+        Term(4, new StoreLocal(0, I32, new Constant(3, I32))),
+        Term(5, new Branch(6)),
+        Term(6, Cond(9)),
+        Term(7, Cond(11)),
+        Block(
+            8,
+            new StoreLocal(0, I32, new Constant(5, I32)),
+            new Branch(10)),
+        Term(9, new StoreLocal(0, I32, new Constant(6, I32))),
+        Term(10, new Branch(11)),
+        Block(
+            11,
+            new StoreLocal(0, I32, new Constant(7, I32)),
+            Cond(13)),
+        Term(12, Cond(1)),
+        Term(13, new Return(new LoadLocal(0, I32))),
     ];
 
     static (IrFunction Function, StructuringDiagnostics Diagnostics) Structure(Block[] blocks)
