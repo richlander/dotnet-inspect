@@ -1682,6 +1682,72 @@ public sealed class AssemblyContextSourceQueryTests
         Assert.Equal(0, assembly.Policy.SelectionCount);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NonStandardPdbDisposalFailure_IsTyped(
+        bool memberQuery)
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        var disposalFailure =
+            new HttpRequestException(
+                "Synthetic host-specific PDB disposal failure.");
+        var pdbStore =
+            new StateChangingPdbStore(
+                afterLocalPath: null,
+                disposeFailure: disposalFailure);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        Exception error;
+        if (memberQuery)
+        {
+            var unavailable =
+                Assert.IsType<
+                    AssemblyMemberSourceEntry.Unavailable>(
+                        await AssemblyContextSourceQuery
+                            .ExecuteMemberAsync(
+                                group,
+                                assembly.Participant,
+                                assembly.MemberRequest(
+                                    nameof(SourceFixture.Describe)),
+                                host.Context,
+                                TestContext.Current.CancellationToken));
+            error = unavailable.Failure.Error!;
+        }
+        else
+        {
+            var unavailable =
+                Assert.IsType<
+                    AssemblyTypeSourceEntry.Unavailable>(
+                        await AssemblyContextSourceQuery
+                            .ExecuteTypeAsync(
+                                group,
+                                assembly.Participant,
+                                assembly.TypeRequest(
+                                    typeof(SourceFixture).Name),
+                                host.Context,
+                                TestContext.Current.CancellationToken));
+            error = unavailable.Failure.Error!;
+        }
+
+        var typed = Assert.IsType<InvalidOperationException>(error);
+        Assert.Same(disposalFailure, typed.InnerException);
+        Assert.Equal(
+            2,
+            Assert.IsType<BlockingDisposeStream>(
+                    pdbStore.AuthoritativeStream)
+                .DisposeCount);
+        Assert.Single(host.SourceRequests);
+        Assert.Equal(0, assembly.Policy.SelectionCount);
+    }
+
     [Fact]
     public async Task MalformedPdbDocument_PreservesAuthoredFailureAndFallsBackForType()
     {

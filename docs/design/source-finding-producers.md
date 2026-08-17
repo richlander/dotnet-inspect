@@ -230,7 +230,9 @@ gate ownership and the member/type success paths. Disposal cancellation remains
 exceptional and another disposal failure becomes typed inspection failure
 instead of authored success;
 `AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsAuthoredSuccess`
-gates both outcomes.
+gates both outcomes, and
+`AssemblyContextSourceQueryTests.NonStandardPdbDisposalFailure_IsTyped`
+gates host-specific non-fatal exception types.
 
 Conditional branch liveness is composed only at the member slicing boundary:
 Metadata reports point lines, CSharpText reports lexical branch ranges, and the

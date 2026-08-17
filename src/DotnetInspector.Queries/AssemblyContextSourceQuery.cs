@@ -715,7 +715,7 @@ public static class AssemblyContextSourceQuery
         AssemblyContextSourceQueryContext context,
         CancellationToken cancellationToken)
     {
-        SourceLinkService? source = null;
+        SourceLinkService source;
         try
         {
             source =
@@ -723,17 +723,6 @@ public static class AssemblyContextSourceQuery
                     retained,
                     context.Log,
                     context.SourceLinkCache);
-            await AcquirePdbAsync(
-                    source,
-                    retained,
-                    context,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            SourceLinkService opened = source;
-            source = null;
-            return new SourceLinkOpenResult(
-                opened,
-                Failure: null);
         }
         catch (Exception ex) when (IsPdbAcquisitionFailure(ex))
         {
@@ -741,9 +730,39 @@ public static class AssemblyContextSourceQuery
                 Source: null,
                 ex);
         }
+
+        bool ownershipEnded = false;
+        try
+        {
+            try
+            {
+                await AcquirePdbAsync(
+                        source,
+                        retained,
+                        context,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (IsPdbAcquisitionFailure(ex))
+            {
+                Exception? disposalFailure =
+                    source.DisposeWithFailure();
+                ownershipEnded = true;
+                cancellationToken.ThrowIfCancellationRequested();
+                ThrowSourceDisposalFailure(disposalFailure);
+                return new SourceLinkOpenResult(
+                    Source: null,
+                    ex);
+            }
+            ownershipEnded = true;
+            return new SourceLinkOpenResult(
+                source,
+                Failure: null);
+        }
         finally
         {
-            source?.Dispose();
+            if (!ownershipEnded)
+                source.Dispose();
         }
     }
 
@@ -850,8 +869,25 @@ public static class AssemblyContextSourceQuery
         EnsureBindingPolicyVersion(
             participant,
             expectedVersion);
-        if (disposalFailure is not null)
+        ThrowSourceDisposalFailure(disposalFailure);
+    }
+
+    static void ThrowSourceDisposalFailure(
+        Exception? disposalFailure)
+    {
+        if (disposalFailure is null)
+            return;
+        if (disposalFailure is OperationCanceledException cancellation)
+            ExceptionDispatchInfo.Capture(cancellation).Throw();
+        if (IsInspectionFailure(disposalFailure))
             ExceptionDispatchInfo.Capture(disposalFailure).Throw();
+        if (IsPdbAcquisitionFailure(disposalFailure))
+        {
+            throw new InvalidOperationException(
+                "PDB disposal failed.",
+                disposalFailure);
+        }
+        ExceptionDispatchInfo.Capture(disposalFailure).Throw();
     }
 
     sealed class CancellationObservingBindingPolicy(

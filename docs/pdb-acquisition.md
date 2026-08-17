@@ -71,7 +71,9 @@ behavior. Strict query ownership uses `DisposeWithFailure`, which attempts
 every owned resource and reports the first cleanup failure; source queries
 therefore cannot publish authored success after PDB disposal failed.
 `AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsAuthoredSuccess`
-gates cancellation and operational failure for member and type queries.
+gates cancellation and operational failure for member and type queries;
+`AssemblyContextSourceQueryTests.NonStandardPdbDisposalFailure_IsTyped`
+gates host-specific non-fatal exceptions outside the common I/O types.
 
 ### 1. Embedded PDB
 
