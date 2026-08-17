@@ -88,6 +88,9 @@ public sealed record StructuralCloneCoreLibLabelResult(
     StructuralCloneSimilarityEvidence? Similarity,
     StructuralCloneDisposition ActualDisposition,
     StructuralCloneRelation? ActualRelation,
+    ImmutableArray<StructuralCloneBlocker> ActualBlockers,
+    StructuralCloneVerificationReceipt ActualReceipt,
+    StructuralCloneAlignmentReceipt? ActualAlignmentReceipt,
     ImmutableArray<StructuralCloneCoreLibScoreContrastResult> Contrasts,
     bool Passed);
 
@@ -151,6 +154,7 @@ public static class StructuralCloneCoreLibCorpus
     {
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        AllowDuplicateProperties = false,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         WriteIndented = true,
         Converters =
@@ -342,6 +346,9 @@ public static class StructuralCloneCoreLibCorpus
                         actual?.Similarity,
                         comparison.Disposition,
                         comparison.Relation,
+                        comparison.Blockers,
+                        comparison.Receipt,
+                        comparison.AlignmentReceipt,
                         contrasts.ToImmutable(),
                         relationPassed
                             && rankPassed
@@ -613,6 +620,15 @@ public static class StructuralCloneCoreLibCorpus
             output.Append(')');
             output.Append(" disposition=");
             output.AppendLine(query.RetrievalDisposition.ToString());
+            foreach (
+                StructuralCloneRetrievalBlocker blocker
+                    in query.RetrievalBlockers)
+            {
+                output.Append("  retrieval blocker ");
+                output.Append(blocker.Kind);
+                output.Append(": ");
+                output.AppendLine(blocker.Detail);
+            }
             if (!query.TopKFullyReviewed)
             {
                 output.AppendLine(
@@ -682,6 +698,25 @@ public static class StructuralCloneCoreLibCorpus
                     label.Label.MaximumRank?.ToString(
                         CultureInfo.InvariantCulture)
                     ?? "-");
+                foreach (
+                    StructuralCloneBlocker blocker
+                        in label.ActualBlockers)
+                {
+                    output.Append("    comparison blocker ");
+                    output.Append(blocker.Kind);
+                    output.Append(' ');
+                    output.Append(blocker.Side);
+                    output.Append(": ");
+                    output.AppendLine(blocker.Detail);
+                }
+                output.Append("    comparison receipt: ");
+                output.AppendLine(
+                    label.ActualReceipt.ToString());
+                if (label.ActualAlignmentReceipt is { } receipt)
+                {
+                    output.Append("    alignment receipt: ");
+                    output.AppendLine(receipt.ToString());
+                }
                 foreach (
                     StructuralCloneCoreLibScoreContrastResult
                         contrast in label.Contrasts)

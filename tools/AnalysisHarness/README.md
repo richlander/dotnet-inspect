@@ -128,6 +128,16 @@ source-reviewed ledger only, not broad CoreLib precision or recall estimates.
 `StructuralCloneCoreLibCorpusTests.CommittedCorpus_GradesPinnedCoreLib` gates
 the artifact, coverage, metric, miss, contrast, and hazard card.
 
+The real-artifact tests search the current .NET installation and
+`DOTNET_INSPECT_CORELIB_CORPUS_ARTIFACT` for the pinned SHA-256. They explicitly
+skip the product run when that external artifact is absent rather than binding
+the byte-pinned ledger to CI's floating preview runtime. The always-running
+`CommittedCorpus_PinsNonVacuousReviewCoverage` test still gates the ledger's
+artifact/source pins, method inventory, query count, reviewed K, label count,
+and relevant-label count. The harness maintainer who re-pins this corpus owns
+updating the artifact/source declaration, source review, expected card, and
+these coverage counts together.
+
 The worksheet projects one product-owned ranking for source review:
 
 ```bash

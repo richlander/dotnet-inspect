@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -12,10 +13,11 @@ public class StructuralCloneCoreLibCorpusTests
     [Fact]
     public void CommittedCorpus_GradesPinnedCoreLib()
     {
+        StructuralCloneCoreLibCorpusDocument corpus = LoadCorpus();
         StructuralCloneCoreLibCorpusReport report =
             StructuralCloneCoreLibCorpus.Run(
-                typeof(object).Assembly.Location,
-                LoadCorpus());
+                PinnedCoreLib(corpus),
+                corpus);
 
         Assert.True(
             report.Success,
@@ -130,6 +132,36 @@ public class StructuralCloneCoreLibCorpusTests
     }
 
     [Fact]
+    public void CommittedCorpus_PinsNonVacuousReviewCoverage()
+    {
+        StructuralCloneCoreLibCorpusDocument corpus = LoadCorpus();
+
+        Assert.Equal("System.Private.CoreLib.dll", corpus.Artifact.FileName);
+        Assert.Equal(
+            "6c14b54d28c604613aef5a690fa10aa768e584556e90a736b506f40022f8afea",
+            corpus.Artifact.Sha256);
+        Assert.Equal(
+            "e2c1e00b3d0f96afb892fb261d5921565b400246",
+            corpus.Source.Commit);
+        Assert.Equal(38, corpus.Methods.Length);
+        Assert.Equal(6, corpus.Queries.Length);
+        Assert.Equal(
+            27,
+            corpus.Queries.Sum(
+                static query => query.ReviewedTopK));
+        Assert.Equal(
+            32,
+            corpus.Queries.Sum(
+                static query => query.Labels.Length));
+        Assert.Equal(
+            20,
+            corpus.Queries.Sum(query =>
+                query.Labels.Count(static label =>
+                    label.Relevance
+                        == StructuralCloneReviewRelevance.Relevant)));
+    }
+
+    [Fact]
     public void Run_PreservesUnreviewedTopKCandidateAsUnknown()
     {
         StructuralCloneCoreLibCorpusDocument corpus = LoadCorpus();
@@ -139,7 +171,7 @@ public class StructuralCloneCoreLibCorpusTests
                     query.Id == "guid-relational-operators");
         StructuralCloneCoreLibCorpusReport report =
             StructuralCloneCoreLibCorpus.Run(
-                typeof(object).Assembly.Location,
+                PinnedCoreLib(corpus),
                 corpus with
                 {
                     Queries = corpus.Queries.Replace(
@@ -167,6 +199,42 @@ public class StructuralCloneCoreLibCorpusTests
             StructuralCloneCoreLibCorpus.Format(report));
         Assert.Contains(
             "Unreviewed",
+            StructuralCloneCoreLibCorpus.Format(report));
+    }
+
+    [Fact]
+    public void Run_PreservesComparisonFailureEvidence()
+    {
+        StructuralCloneCoreLibCorpusDocument corpus = LoadCorpus();
+        StructuralCloneCoreLibCorpusReport report =
+            StructuralCloneCoreLibCorpus.Run(
+                PinnedCoreLib(corpus),
+                corpus with
+                {
+                    Limits = corpus.Limits with
+                    {
+                        MaximumBlocks = 1,
+                    },
+                });
+
+        StructuralCloneCoreLibLabelResult failed =
+            report.Queries
+                .SelectMany(static query => query.Labels)
+                .First(static label =>
+                    label.ActualDisposition
+                        == StructuralCloneDisposition.LimitReached);
+        Assert.NotEmpty(failed.ActualBlockers);
+        Assert.Contains(
+            "comparison blocker",
+            StructuralCloneCoreLibCorpus.Format(report));
+        Assert.Contains(
+            "comparison receipt",
+            StructuralCloneCoreLibCorpus.Format(report));
+        Assert.Contains(
+            report.Queries,
+            static query => !query.RetrievalBlockers.IsEmpty);
+        Assert.Contains(
+            "retrieval blocker",
             StructuralCloneCoreLibCorpus.Format(report));
     }
 
@@ -233,7 +301,7 @@ public class StructuralCloneCoreLibCorpusTests
 
         Assert.Throws<InvalidDataException>(() =>
             StructuralCloneCoreLibCorpus.Run(
-                typeof(object).Assembly.Location,
+                PinnedCoreLib(corpus),
                 altered));
     }
 
@@ -300,6 +368,27 @@ public class StructuralCloneCoreLibCorpusTests
         Assert.Throws<InvalidDataException>(() =>
             StructuralCloneCoreLibCorpus.Load(
                 nullLabel.ToJsonString()));
+
+        string duplicateProperty =
+            CorpusJson()
+                .ToJsonString()
+                .Replace(
+                    "\"schemaVersion\":1",
+                    "\"schemaVersion\":1,\"schemaVersion\":1",
+                    StringComparison.Ordinal);
+        Assert.Throws<JsonException>(() =>
+            StructuralCloneCoreLibCorpus.Load(
+                duplicateProperty));
+
+        string caseAlias =
+            CorpusJson()
+                .ToJsonString()
+                .Replace(
+                    "\"schemaVersion\":1",
+                    "\"schemaVersion\":1,\"SchemaVersion\":1",
+                    StringComparison.Ordinal);
+        Assert.Throws<JsonException>(() =>
+            StructuralCloneCoreLibCorpus.Load(caseAlias));
     }
 
     [Fact]
@@ -345,5 +434,63 @@ public class StructuralCloneCoreLibCorpusTests
             "corpus",
             "structural-clone-corelib.json");
         return JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+    }
+
+    static string PinnedCoreLib(
+        StructuralCloneCoreLibCorpusDocument corpus)
+    {
+        var candidates = new HashSet<string>(
+            StringComparer.Ordinal);
+        AddCandidate(
+            candidates,
+            Environment.GetEnvironmentVariable(
+                "DOTNET_INSPECT_CORELIB_CORPUS_ARTIFACT"));
+        string current = typeof(object).Assembly.Location;
+        AddCandidate(candidates, current);
+        string? sharedRuntime = Directory.GetParent(
+            Path.GetDirectoryName(current)!)?.FullName;
+        if (sharedRuntime is not null
+            && Directory.Exists(sharedRuntime))
+        {
+            foreach (string directory
+                in Directory.EnumerateDirectories(sharedRuntime))
+            {
+                AddCandidate(
+                    candidates,
+                    Path.Combine(
+                        directory,
+                        corpus.Artifact.FileName));
+            }
+        }
+
+        string? pinned = candidates.FirstOrDefault(path =>
+            StringComparer.Ordinal.Equals(
+                Hash(path),
+                corpus.Artifact.Sha256));
+        Assert.SkipWhen(
+            pinned is null,
+            $"Pinned CoreLib {corpus.Artifact.Sha256} is not "
+                + "installed. Set "
+                + "DOTNET_INSPECT_CORELIB_CORPUS_ARTIFACT to run "
+                + "the real-artifact corpus gate.");
+        return pinned!;
+    }
+
+    static void AddCandidate(
+        HashSet<string> candidates,
+        string? path)
+    {
+        if (!string.IsNullOrWhiteSpace(path)
+            && File.Exists(path))
+        {
+            candidates.Add(Path.GetFullPath(path));
+        }
+    }
+
+    static string Hash(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        return Convert.ToHexStringLower(
+            SHA256.HashData(stream));
     }
 }

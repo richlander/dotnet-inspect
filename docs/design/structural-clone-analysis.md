@@ -371,6 +371,13 @@ ledger. `StructuralCloneCoreLibCorpusTests.CommittedCorpus_GradesPinnedCoreLib`
 gates the fixed artifact, top-K label coverage, aggregate card, known misses,
 strict contrast, and semantic-hazard separation. The same test class gates
 strict schema, catalog completeness, and artifact/method identity drift.
+Real-artifact tests locate the pinned hash in the installed runtimes or through
+`DOTNET_INSPECT_CORELIB_CORPUS_ARTIFACT` and explicitly skip when it is absent;
+they do not bind the pin to CI's floating preview host. The always-running
+`CommittedCorpus_PinsNonVacuousReviewCoverage` test gates the artifact/source
+pins and declared review-set counts. Re-pinning is one corpus-maintainer
+operation: artifact and source pins, source labels, expected metrics, and
+coverage counts move together.
 
 ## Census and demo projection
 
