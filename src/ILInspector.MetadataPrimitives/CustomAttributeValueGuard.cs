@@ -611,9 +611,10 @@ public static class CustomAttributeValueGuard
             return Result.Unsafe;
         for (int index = 0; index < parameterIndex; index++)
         {
-            // A failed skip leaves the substituted value unconsumed.
-            // Fail closed: Safe here would let SRM allocate the next count.
-            if (!TrySkipSignatureType(ref instantiation))
+            // Match SRM CustomAttributeDecoder.SkipType, including its
+            // CLASS/VALUETYPE recurse-as-type-code, so the remaining
+            // argument is the one DecodeValue will decode.
+            if (!TrySkipSrmAttributeType(ref instantiation, depth: 1))
                 return Result.Unsafe;
         }
 
@@ -727,6 +728,131 @@ public static class CustomAttributeValueGuard
             default:
                 return true;
         }
+    }
+
+    /// <summary>
+    /// Skips one Type the way SRM <c>CustomAttributeDecoder.SkipType</c>
+    /// does when walking earlier generic-attribute arguments. That helper
+    /// treats a CLASS/VALUETYPE token's TypeDefOrRef coded index as another
+    /// type code, so a TypeDef row 4 (coded 16 / BYREF) or TypeRef row 4
+    /// (coded 17 / VALUETYPE) consumes the next official argument.
+    /// </summary>
+    static bool TrySkipSrmAttributeType(ref BlobReader signature, int depth)
+    {
+        if (depth > MaxSerializedDepth)
+            return false;
+        try
+        {
+            if (signature.RemainingBytes < 1)
+                return false;
+            int typeCode = signature.ReadCompressedInteger();
+            switch (typeCode)
+            {
+                case ElementTypeVoid:
+                case ElementTypeBoolean:
+                case ElementTypeChar:
+                case ElementTypeI1:
+                case ElementTypeU1:
+                case ElementTypeI2:
+                case ElementTypeU2:
+                case ElementTypeI4:
+                case ElementTypeU4:
+                case ElementTypeI8:
+                case ElementTypeU8:
+                case ElementTypeR4:
+                case ElementTypeR8:
+                case ElementTypeString:
+                case ElementTypeObject:
+                case ElementTypeTypedByRef:
+                case ElementTypeI:
+                case ElementTypeU:
+                    return true;
+                case ElementTypePtr:
+                case ElementTypeByRef:
+                case ElementTypePinned:
+                case ElementTypeSzArray:
+                    return TrySkipSrmAttributeType(ref signature, depth + 1);
+                case ElementTypeFnPtr:
+                    return TrySkipSrmFnPtrSignature(ref signature, depth + 1);
+                case ElementTypeArray:
+                    if (!TrySkipSrmAttributeType(ref signature, depth + 1))
+                        return false;
+                    signature.ReadCompressedInteger();
+                    int sizes = signature.ReadCompressedInteger();
+                    if (sizes < 0 || sizes > signature.RemainingBytes)
+                        return false;
+                    for (int index = 0; index < sizes; index++)
+                        signature.ReadCompressedInteger();
+                    int bounds = signature.ReadCompressedInteger();
+                    if (bounds < 0 || bounds > signature.RemainingBytes)
+                        return false;
+                    for (int index = 0; index < bounds; index++)
+                        signature.ReadCompressedSignedInteger();
+                    return true;
+                case ElementTypeCmodReqd:
+                case ElementTypeCmodOpt:
+                    signature.ReadTypeHandle();
+                    return TrySkipSrmAttributeType(ref signature, depth + 1);
+                case ElementTypeGenericInst:
+                    if (!TrySkipSrmAttributeType(ref signature, depth + 1))
+                        return false;
+                    int arguments = signature.ReadCompressedInteger();
+                    if (arguments < 0 || arguments > signature.RemainingBytes)
+                        return false;
+                    for (int index = 0; index < arguments; index++)
+                    {
+                        if (!TrySkipSrmAttributeType(ref signature, depth + 1))
+                            return false;
+                    }
+
+                    return true;
+                case ElementTypeVar:
+                    signature.ReadCompressedInteger();
+                    return true;
+                case ElementTypeClass:
+                case ElementTypeValueType:
+                    return TrySkipSrmAttributeType(ref signature, depth + 1);
+                default:
+                    return false;
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            return false;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
+    static bool TrySkipSrmFnPtrSignature(ref BlobReader signature, int depth)
+    {
+        if (signature.RemainingBytes < 1)
+            return false;
+        var header = signature.ReadSignatureHeader();
+        if (header.IsGeneric)
+        {
+            if (signature.RemainingBytes < 1)
+                return false;
+            signature.ReadCompressedInteger();
+        }
+
+        if (signature.RemainingBytes < 1)
+            return false;
+        int parameterCount = signature.ReadCompressedInteger();
+        if (parameterCount < 0
+            || (long)parameterCount + 1 > signature.RemainingBytes)
+            return false;
+        if (!TrySkipSrmAttributeType(ref signature, depth))
+            return false;
+        for (int index = 0; index < parameterCount; index++)
+        {
+            if (!TrySkipSrmAttributeType(ref signature, depth))
+                return false;
+        }
+
+        return true;
     }
 
     static bool TrySkipFnPtrSignature(ref BlobReader signature)
@@ -862,6 +988,7 @@ public static class CustomAttributeValueGuard
         Unsafe,
     }
 
+    const byte ElementTypeVoid = 0x01;
     const byte ElementTypeBoolean = 0x02;
     const byte ElementTypeChar = 0x03;
     const byte ElementTypeI1 = 0x04;
@@ -882,6 +1009,9 @@ public static class CustomAttributeValueGuard
     const byte ElementTypeVar = 0x13;
     const byte ElementTypeArray = 0x14;
     const byte ElementTypeGenericInst = 0x15;
+    const byte ElementTypeTypedByRef = 0x16;
+    const byte ElementTypeI = 0x18;
+    const byte ElementTypeU = 0x19;
     const byte ElementTypeObject = 0x1c;
     const byte ElementTypeFnPtr = 0x1b;
     const byte ElementTypeSzArray = 0x1d;

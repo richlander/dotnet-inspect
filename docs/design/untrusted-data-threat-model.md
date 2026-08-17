@@ -422,7 +422,11 @@ index). `CLASS`/`VALUETYPE` constructor parameters special-case only
 attribute constructors whose parameter is a `VAR` resolve that
 argument through the owning TypeSpec. Earlier generic arguments
 that cannot be skipped, including `FNPTR` and `PTR`+`FNPTR`, fail
-closed instead of leaving the substituted value unconsumed. A
+closed instead of leaving the substituted value unconsumed. Earlier
+`CLASS`/`VALUETYPE` arguments are skipped the same way SRM
+`CustomAttributeDecoder.SkipType` does — including treating a
+TypeDefOrRef coded index as another type code — so a TypeDef row 4
+or TypeRef row 4 cannot hide a later SZArray count. A
 substituted type is not itself re-substituted, so a self-referential
 `GENERICINST` `!0` cannot recurse the guard. A budget observer failure
 raised while the guard consults the enum index unwraps to the same
@@ -491,7 +495,11 @@ pre-decoding rejection.
 `CustomAttributeValueGuardTests.GenericAttributeTypeParameterInt32_IsSafe`,
 `CustomAttributeValueGuardTests.FnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.PtrFnPtrEarlierGenericArgumentThenArray_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.ClassTypeDefRow4EarlierArgument_SeesFollowingArrayCount`,
+`CustomAttributeValueGuardTests.ValueTypeTypeRefRow4EarlierArgument_SeesFollowingArrayCount`,
 `CustomAttributeValueGuardTests.SelfReferentialGenericVar_IsUnsafe`,
+`ClassTypeDefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification`,
+`ValueTypeTypeRefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification`,
 `CustomAttributeValueGuardTests.ObserverFailureDuringNamedEnumLookup_EscapesTryDecode`,
 `FnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification`,
 `PtrFnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification`,

@@ -923,6 +923,20 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void ClassTypeDefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildClassTypeDefRow4DesyncImage(elementCount: 100_000_000));
+    }
+
+    [Fact]
+    public void ValueTypeTypeRefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildValueTypeTypeRefRow4DesyncImage(elementCount: 100_000_000));
+    }
+
+    [Fact]
     public void SelfReferentialGenericVar_StopsBeforeStackOverflow()
     {
         byte[] image = BuildSelfReferentialGenericVarImage();
@@ -2733,6 +2747,157 @@ public sealed class ApiSurfaceExtractorBoundsTests
         typeSpecSignature.WriteByte(0x00);
         typeSpecSignature.WriteCompressedInteger(0);
         typeSpecSignature.WriteByte(0x01);
+        typeSpecSignature.WriteByte(0x1d);
+        typeSpecSignature.WriteByte(0x08);
+        TypeSpecificationHandle typeSpec = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(typeSpecSignature));
+        var constructorSignature = new BlobBuilder();
+        constructorSignature.WriteByte(0x20);
+        constructorSignature.WriteCompressedInteger(1);
+        constructorSignature.WriteByte(0x01);
+        constructorSignature.WriteByte(0x13);
+        constructorSignature.WriteCompressedInteger(1);
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            typeSpec,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Host"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(elementCount);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildClassTypeDefRow4DesyncImage(int elementCount)
+    {
+        var metadata = Metadata("ClassDesync");
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributeType = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("MyAttr`2"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Pad"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle dummy = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Dummy"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x15);
+        typeSpecSignature.WriteByte(0x12);
+        WriteTypeDefOrRef(typeSpecSignature, attributeType);
+        typeSpecSignature.WriteCompressedInteger(3);
+        typeSpecSignature.WriteByte(0x12);
+        WriteTypeDefOrRef(typeSpecSignature, dummy);
+        typeSpecSignature.WriteByte(0x08);
+        typeSpecSignature.WriteByte(0x1d);
+        typeSpecSignature.WriteByte(0x08);
+        TypeSpecificationHandle typeSpec = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(typeSpecSignature));
+        var constructorSignature = new BlobBuilder();
+        constructorSignature.WriteByte(0x20);
+        constructorSignature.WriteCompressedInteger(1);
+        constructorSignature.WriteByte(0x01);
+        constructorSignature.WriteByte(0x13);
+        constructorSignature.WriteCompressedInteger(1);
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            typeSpec,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        TypeDefinitionHandle attributed = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("Host"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        value.WriteInt32(elementCount);
+        value.WriteUInt16(0);
+        metadata.AddCustomAttribute(
+            attributed,
+            constructor,
+            metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildValueTypeTypeRefRow4DesyncImage(int elementCount)
+    {
+        var metadata = Metadata("VtDesync");
+        AssemblyReferenceHandle other = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("A"),
+            metadata.GetOrAddString("T1"));
+        metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("A"),
+            metadata.GetOrAddString("T2"));
+        metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("A"),
+            metadata.GetOrAddString("T3"));
+        TypeReferenceHandle typeRef4 = metadata.AddTypeReference(
+            other,
+            metadata.GetOrAddString("A"),
+            metadata.GetOrAddString("T4"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle attributeType = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Samples"),
+            metadata.GetOrAddString("MyAttr`2"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var typeSpecSignature = new BlobBuilder();
+        typeSpecSignature.WriteByte(0x15);
+        typeSpecSignature.WriteByte(0x12);
+        WriteTypeDefOrRef(typeSpecSignature, attributeType);
+        typeSpecSignature.WriteCompressedInteger(3);
+        typeSpecSignature.WriteByte(0x11);
+        WriteTypeDefOrRef(typeSpecSignature, typeRef4);
+        typeSpecSignature.WriteByte(0x08);
         typeSpecSignature.WriteByte(0x1d);
         typeSpecSignature.WriteByte(0x08);
         TypeSpecificationHandle typeSpec = metadata.AddTypeSpecification(
