@@ -278,20 +278,10 @@ internal static class DependencyGraphService
         }
 
         ResolvedPackageCoordinate coordinate = resolved.Coordinate;
-        string[] reportingSourceUrls =
-        [
-            .. coordinate.Sources.Select(source => source.Url),
-        ];
-        NuGetSourceOptions? reportingRestriction =
-            NuGetSourceResolver.RestrictToSources(
-                sourceOptions,
-                reportingSourceUrls);
         NuGetSourceOptions reportingSources =
-            (sourceOptions ?? NuGetSourceOptions.Default) with
-            {
-                Sources = reportingSourceUrls,
-                AdditionalSources = [],
-            };
+            NuGetSourceResolver.RestrictToResolvedSources(
+                sourceOptions,
+                coordinate.Sources);
         string? nuspecXml = await PackageExtractor.TryGetNuspecXmlAsync(
             httpClient,
             coordinate.PackageId,
@@ -313,7 +303,7 @@ internal static class DependencyGraphService
                 httpClient,
                 $"{coordinate.PackageId}@{coordinate.Version}",
                 packageName,
-                reportingRestriction,
+                reportingSources,
                 logger).ConfigureAwait(false);
         }
 

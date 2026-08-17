@@ -281,6 +281,102 @@ public class DependencyGraphServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task BuildPackageDependencyTreeAsync_ReporterDoesNotReactivateDisabledAlias()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Depends.Alias.{suffix}";
+        string serviceIndex =
+            $"https://feed.example.test/{suffix}/v3/index.json";
+        string flatContainer =
+            $"https://content.example.test/{suffix}/flat/";
+        Directory.CreateDirectory(_testRoot);
+        string configPath = Path.Combine(
+            _testRoot,
+            $"NuGet-{suffix}.Config");
+        File.WriteAllText(
+            configPath,
+            $$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="active" value="{{serviceIndex}}" />
+                <add key="disabled" value="{{serviceIndex}}" />
+              </packageSources>
+              <packageSourceCredentials>
+                <disabled>
+                  <add key="Username" value="disabled-user" />
+                  <add key="ClearTextPassword" value="disabled-password" />
+                </disabled>
+              </packageSourceCredentials>
+              <packageSourceMapping>
+                <packageSource key="active">
+                  <package pattern="Depends.*" />
+                </packageSource>
+                <packageSource key="disabled">
+                  <package pattern="Depends.*" />
+                </packageSource>
+              </packageSourceMapping>
+              <disabledPackageSources>
+                <add key="disabled" value="true" />
+              </disabledPackageSources>
+            </configuration>
+            """);
+        var handler = new ManifestOnlyHandler(
+            serviceIndex,
+            flatContainer,
+            $"https://other.example.test/{suffix}/v3/index.json",
+            $"https://other-content.example.test/{suffix}/flat/",
+            packageId);
+        using var httpClient = new HttpClient(handler);
+        var logger = new VerboseLogger(enabled: false);
+        var sourceOptions =
+            new NuGetSourceOptions { ConfigFile = configPath };
+
+        PackageDependencyGraphResult result =
+            await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                httpClient,
+                packageId,
+                requestedTfm: null,
+                sourceOptions,
+                logger);
+
+        Assert.IsType<PackageDependencyGraphResult.Empty>(result);
+        Assert.Contains(
+            handler.Requests,
+            uri => uri.AbsolutePath.EndsWith(
+                $"/{packageId.ToLowerInvariant()}.nuspec",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ResolvedSourceRestriction_ReleasesAmbientSources()
+    {
+        const string FeedA = "https://feed-a.example/v3/index.json";
+        const string FeedB = "https://feed-b.example/v3/index.json";
+        var original = new NuGetSourceOptions
+        {
+            Sources = [FeedA, FeedB],
+        };
+        NuGetSourceOptions restricted =
+            NuGetSourceResolver.RestrictToResolvedSources(
+                original,
+                [new NuGetFetch.PackageSource(FeedA, FeedA)]);
+
+        Assert.Equal(
+            [FeedA],
+            NuGetSourceResolver.ResolveSources(restricted)
+                .Select(source => source.Url));
+
+        NuGetSourceOptions? unrestricted =
+            NuGetSourceResolver.WithoutSourceRestriction(restricted);
+        Assert.Equal(
+            [FeedA, FeedB],
+            NuGetSourceResolver.ResolveSources(unrestricted)
+                .Select(source => source.Url));
+    }
+
+    [Fact]
     public async Task BuildPackageDependencyTreeAsync_ToolPackageUsesArchive()
     {
         string suffix = Guid.NewGuid().ToString("N");
