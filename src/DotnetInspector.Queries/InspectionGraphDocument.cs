@@ -434,6 +434,24 @@ public abstract class InspectionGraphOccurrenceIdentityProjection
 }
 
 /// <summary>
+/// The ways a typed seed may enter a directed relationship.
+/// </summary>
+public enum InspectionGraphSeedAdmissionKind
+{
+    EdgeEndpoint,
+    OccurrenceEndpoint,
+    OwnedSubjects,
+}
+
+/// <summary>
+/// How one seed subject kind enters a relationship in semantic direction.
+/// </summary>
+public sealed record InspectionGraphSeedAdmission(
+    InspectionGraphSubjectKind SubjectKind,
+    InspectionGraphSeedAdmissionKind Kind,
+    InspectionGraphEndpointRole Role);
+
+/// <summary>
 /// The L1 semantic contract for one directed relationship family.
 /// </summary>
 public sealed class InspectionGraphRelationshipDescriptor
@@ -446,6 +464,7 @@ public sealed class InspectionGraphRelationshipDescriptor
         IEnumerable<InspectionGraphSubjectKind> edgeTargetKinds,
         IEnumerable<InspectionGraphSubjectKind> occurrenceSourceKinds,
         IEnumerable<InspectionGraphSubjectKind> occurrenceTargetKinds,
+        IEnumerable<InspectionGraphSeedAdmission> seedAdmissions,
         InspectionGraphEndpointProjection endpointProjection,
         InspectionGraphOccurrenceIdentityProjection occurrenceIdentity,
         IEnumerable<InspectionGraphEvidenceDescriptor> evidence)
@@ -472,6 +491,9 @@ public sealed class InspectionGraphRelationshipDescriptor
         OccurrenceTargetKinds = InspectionGraphCollections.Snapshot(
             occurrenceTargetKinds,
             nameof(occurrenceTargetKinds));
+        SeedAdmissions = InspectionGraphCollections.Snapshot(
+            seedAdmissions,
+            nameof(seedAdmissions));
         Evidence = InspectionGraphCollections.Snapshot(
             evidence,
             nameof(evidence));
@@ -487,6 +509,67 @@ public sealed class InspectionGraphRelationshipDescriptor
         InspectionGraphCollections.RequireDefined(
             OccurrenceTargetKinds,
             nameof(occurrenceTargetKinds));
+        if (SeedAdmissions.IsEmpty)
+        {
+            throw new ArgumentException(
+                "At least one seed admission is required.",
+                nameof(seedAdmissions));
+        }
+        foreach (InspectionGraphSeedAdmission admission in SeedAdmissions)
+        {
+            ArgumentNullException.ThrowIfNull(admission);
+            InspectionGraphCollections.RequireDefined(
+                admission.SubjectKind,
+                nameof(seedAdmissions));
+            InspectionGraphCollections.RequireDefined(
+                admission.Kind,
+                nameof(seedAdmissions));
+            InspectionGraphCollections.RequireDefined(
+                admission.Role,
+                nameof(seedAdmissions));
+            ImmutableArray<InspectionGraphSubjectKind>? endpointKinds =
+                (admission.Kind, admission.Role) switch
+                {
+                    (
+                        InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                        InspectionGraphEndpointRole.Source) =>
+                        EdgeSourceKinds,
+                    (
+                        InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                        InspectionGraphEndpointRole.Target) =>
+                        EdgeTargetKinds,
+                    (
+                        InspectionGraphSeedAdmissionKind.OccurrenceEndpoint,
+                        InspectionGraphEndpointRole.Source) =>
+                        OccurrenceSourceKinds,
+                    (
+                        InspectionGraphSeedAdmissionKind.OccurrenceEndpoint,
+                        InspectionGraphEndpointRole.Target) =>
+                        OccurrenceTargetKinds,
+                    (InspectionGraphSeedAdmissionKind.OwnedSubjects, _) =>
+                        null,
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(seedAdmissions)),
+                };
+            if (endpointKinds is { } kinds
+                && !kinds.Contains(admission.SubjectKind))
+            {
+                throw new ArgumentException(
+                    "A direct seed admission must use a subject kind admitted by that endpoint.",
+                    nameof(seedAdmissions));
+            }
+            if (admission.Kind
+                    == InspectionGraphSeedAdmissionKind.OwnedSubjects
+                && !OwnedEndpointKinds(admission.Role).Any(
+                    endpointKind => StrictlyOwns(
+                        admission.SubjectKind,
+                        endpointKind)))
+            {
+                throw new ArgumentException(
+                    "An owned-subject seed admission must strictly own a subject kind in that semantic endpoint domain.",
+                    nameof(seedAdmissions));
+            }
+        }
         if (EdgeSourceKinds.IsEmpty)
             throw new ArgumentException("At least one edge source subject kind is required.", nameof(edgeSourceKinds));
         if (EdgeTargetKinds.IsEmpty)
@@ -505,6 +588,12 @@ public sealed class InspectionGraphRelationshipDescriptor
             throw new ArgumentException("Occurrence source subject kinds must be distinct.", nameof(occurrenceSourceKinds));
         if (OccurrenceTargetKinds.Distinct().Count() != OccurrenceTargetKinds.Length)
             throw new ArgumentException("Occurrence target subject kinds must be distinct.", nameof(occurrenceTargetKinds));
+        if (SeedAdmissions.Distinct().Count() != SeedAdmissions.Length)
+        {
+            throw new ArgumentException(
+                "Seed admissions must be distinct.",
+                nameof(seedAdmissions));
+        }
         if (Evidence.Distinct().Count() != Evidence.Length)
             throw new ArgumentException("Evidence descriptors must be distinct.", nameof(evidence));
         if (Evidence.Select(static item => item.Id)
@@ -528,6 +617,7 @@ public sealed class InspectionGraphRelationshipDescriptor
         { get; }
     public ImmutableArray<InspectionGraphSubjectKind> OccurrenceTargetKinds
         { get; }
+    public ImmutableArray<InspectionGraphSeedAdmission> SeedAdmissions { get; }
     public InspectionGraphEndpointProjection EndpointProjection { get; }
     public InspectionGraphOccurrenceIdentityProjection OccurrenceIdentity
         { get; }
@@ -547,9 +637,56 @@ public sealed class InspectionGraphRelationshipDescriptor
         InspectionGraphSubject subject) =>
         OccurrenceTargetKinds.Contains(subject.Kind);
 
+    public ImmutableArray<InspectionGraphSeedAdmission> GetSeedAdmissions(
+        InspectionGraphSubjectKind subjectKind)
+    {
+        InspectionGraphCollections.RequireDefined(
+            subjectKind,
+            nameof(subjectKind));
+        return
+        [
+            .. SeedAdmissions.Where(
+                admission => admission.SubjectKind == subjectKind),
+        ];
+    }
+
     internal bool AdmitsEvidence(
         IInspectionGraphOccurrenceEvidence evidence) =>
         Evidence.Contains(evidence.Descriptor);
+
+    IEnumerable<InspectionGraphSubjectKind> OwnedEndpointKinds(
+        InspectionGraphEndpointRole role) =>
+        role switch
+        {
+            InspectionGraphEndpointRole.Source =>
+                EdgeSourceKinds.Concat(OccurrenceSourceKinds),
+            InspectionGraphEndpointRole.Target =>
+                EdgeTargetKinds.Concat(OccurrenceTargetKinds),
+            _ => throw new ArgumentOutOfRangeException(nameof(role)),
+        };
+
+    static bool StrictlyOwns(
+        InspectionGraphSubjectKind owner,
+        InspectionGraphSubjectKind subject) =>
+        (owner, subject) switch
+        {
+            (
+                InspectionGraphSubjectKind.Type,
+                InspectionGraphSubjectKind.Member) =>
+                true,
+            (
+                InspectionGraphSubjectKind.Assembly,
+                InspectionGraphSubjectKind.Type
+                    or InspectionGraphSubjectKind.Member) =>
+                true,
+            (
+                InspectionGraphSubjectKind.Package,
+                InspectionGraphSubjectKind.Assembly
+                    or InspectionGraphSubjectKind.Type
+                    or InspectionGraphSubjectKind.Member) =>
+                true,
+            _ => false,
+        };
 }
 
 /// <summary>Document-local node classification.</summary>
@@ -1062,6 +1199,7 @@ public sealed class InspectionGraphDocument
 {
     public InspectionGraphDocument(
         InspectionGraphDocumentScope scope,
+        InspectionGraphModeRequest modeRequest,
         IEnumerable<InspectionGraphNode> nodes,
         IEnumerable<InspectionGraphGroup> groups,
         IEnumerable<InspectionGraphEdge> edges,
@@ -1072,7 +1210,9 @@ public sealed class InspectionGraphDocument
         IEnumerable<InspectionGraphFailure> failures)
     {
         InspectionGraphCollections.RequireDefined(scope, nameof(scope));
+        ArgumentNullException.ThrowIfNull(modeRequest);
         Scope = scope;
+        ModeRequest = modeRequest;
         Nodes = InspectionGraphCollections.Snapshot(nodes, nameof(nodes));
         Groups = InspectionGraphCollections.Snapshot(groups, nameof(groups));
         Edges = InspectionGraphCollections.Snapshot(edges, nameof(edges));
@@ -1135,6 +1275,7 @@ public sealed class InspectionGraphDocument
     }
 
     public InspectionGraphDocumentScope Scope { get; }
+    public InspectionGraphModeRequest ModeRequest { get; }
     public ImmutableArray<InspectionGraphNode> Nodes { get; }
     public ImmutableArray<InspectionGraphGroup> Groups { get; }
     public ImmutableArray<InspectionGraphEdge> Edges { get; }
@@ -1179,7 +1320,8 @@ public sealed class InspectionGraphDocument
                         occurrence.SourceSubject,
                         occurrence.TargetSubject,
                     }))
-                .Concat(Seeds.Select(static seed => seed.Subject));
+                .Concat(Seeds.Select(static seed => seed.Subject))
+                .Concat(ModeRequest.Seeds);
         if (subjects.Any(static subject => !subject.IsPortable))
         {
             throw new ArgumentException(
@@ -1499,6 +1641,45 @@ public sealed class InspectionGraphDocument
 
         if (primaryCount > 1)
             throw new ArgumentException("A graph can have at most one primary seed.", nameof(Seeds));
+
+        switch (ModeRequest.Mode)
+        {
+            case InspectionGraphMode.SingleSeed:
+                InspectionGraphSeed primary = Seeds.SingleOrDefault(
+                    static seed =>
+                        seed.Role == InspectionGraphSeedRole.Primary)
+                    ?? throw new ArgumentException(
+                        "Single-seed mode requires one primary seed binding.",
+                        nameof(Seeds));
+                if (Seeds.Length != 1
+                    || primary.Subject != ModeRequest.Seeds[0])
+                {
+                    throw new ArgumentException(
+                        "The primary seed binding must match the single-seed request.",
+                        nameof(Seeds));
+                }
+                break;
+            case InspectionGraphMode.PeerSeeds:
+                if (Seeds.Length != ModeRequest.Seeds.Length
+                    || Seeds.Any(static seed =>
+                        seed.Role != InspectionGraphSeedRole.Peer)
+                    || !Seeds.Select(static seed => seed.Subject)
+                        .SequenceEqual(ModeRequest.Seeds))
+                {
+                    throw new ArgumentException(
+                        "Peer seed bindings must preserve every requested peer in request order.",
+                        nameof(Seeds));
+                }
+                break;
+            case InspectionGraphMode.InducedSet:
+                if (!Seeds.IsEmpty)
+                {
+                    throw new ArgumentException(
+                        "An induced-set graph cannot contain seed bindings.",
+                        nameof(Seeds));
+                }
+                break;
+        }
     }
 
     private void ValidateDiagnostics()
