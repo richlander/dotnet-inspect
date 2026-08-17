@@ -10,6 +10,7 @@ using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public sealed class TimelineCommandTests
 {
     [Fact]

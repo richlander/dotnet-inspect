@@ -11,16 +11,18 @@ namespace DotnetInspector.Tests;
 /// order-dependent flake in #3416, where the failing member of the pair varied per run.
 /// </para>
 /// <para>
-/// Every capture therefore goes through the same semaphore. Redirecting the console
-/// anywhere else in this assembly re-opens the race even if this type is used correctly
-/// everywhere else, so
+/// Every capture therefore goes through the same semaphore. Callers must run in an
+/// assembly-exclusive collection; the <c>Console</c> collection contract is gated by
+/// <c>CacheIsolationTests.ConsoleCollection_IsAssemblyExclusive</c>. Redirecting the
+/// console anywhere else in this assembly re-opens the race even if this type is used
+/// correctly everywhere else, so
 /// <c>ConsoleCaptureTests.TestAssemblyRedirectsConsoleOnlyThroughConsoleCapture</c>
 /// fails if another file does it.
 /// </para>
 /// </summary>
 static class ConsoleCapture
 {
-    // Serialize access to Console.Out/Error to prevent parallel test interference
+    // Serialize captures within the assembly-exclusive collections.
     private static readonly SemaphoreSlim _lock = new(1, 1);
 
     public static async Task<(int ExitCode, string Output, string Error)> RunAsync(Func<Task<int>> action)

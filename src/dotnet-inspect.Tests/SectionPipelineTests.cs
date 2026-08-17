@@ -17,6 +17,7 @@ using InertText;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public class SectionPipelineTests
 {
     // Simple test model
