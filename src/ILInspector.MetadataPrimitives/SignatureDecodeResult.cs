@@ -14,6 +14,12 @@ public enum SignatureDecodeRejectionKind
 
     /// <summary>SRM rejected malformed metadata during the bounded decode.</summary>
     MalformedMetadata,
+
+    /// <summary>
+    /// A TypeDef/TypeRef/ExportedType name in the signature exceeds
+    /// <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>.
+    /// </summary>
+    NameBudget,
 }
 
 /// <summary>Inspectable detail for a rejected guarded signature decode.</summary>
@@ -124,9 +130,26 @@ public static class GuardedSignatureDecoder
     public static SignatureDecodeResult<string> DecodeTypeSpecification(
         MetadataReader reader,
         TypeSpecificationHandle handle,
-        GenericContext? context = null)
+        GenericContext? context = null,
+        Action<int>? beforeMaterialize = null)
+        => DecodeTypeSpecification(
+            reader,
+            handle,
+            context,
+            beforeMaterialize,
+            enforceCharacterBudget: true);
+
+    public static SignatureDecodeResult<string> DecodeTypeSpecification(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        GenericContext? context,
+        Action<int>? beforeMaterialize,
+        bool enforceCharacterBudget)
         => SignatureDecoder.Decode(() =>
         {
+            beforeMaterialize?.Invoke(
+                reader.GetBlobReader(
+                    reader.GetTypeSpecification(handle).Signature).Length);
             if (!TypeSpecGuard.TryEnter(
                 reader,
                 handle,
@@ -144,8 +167,12 @@ public static class GuardedSignatureDecoder
 
             using (scope)
             {
-                return reader.GetTypeSpecification(handle)
-                    .DecodeSignature(SignatureDecoder.Instance, context);
+                SignatureDecoder decoder = beforeMaterialize is null && enforceCharacterBudget
+                    ? SignatureDecoder.Instance
+                    : new SignatureDecoder(beforeMaterialize, enforceCharacterBudget);
+                return reader.GetTypeSpecification(handle).DecodeSignature(
+                    decoder,
+                    context);
             }
         });
 }

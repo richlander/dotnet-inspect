@@ -235,7 +235,7 @@ public sealed record PackageSourceDescriptor
 /// <summary>
 /// Protocol-independent package source operations.
 /// </summary>
-public interface IPackageSourceClient
+public interface IPackageSourceClient : IDisposable
 {
     /// <summary>Gets the producer represented by this transport.</summary>
     PackageSourceIdentity Identity { get; }
@@ -342,6 +342,18 @@ public static class PackageSourceClientFactory
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(client);
         options ??= new NuGetFetchOptions();
+        if (descriptor.Kind == PackageSourceKind.NuGetGallery)
+        {
+            if (credential is not null)
+            {
+                throw new ArgumentException(
+                    "The built-in NuGet Gallery source does not accept credentials.",
+                    nameof(credential));
+            }
+
+            throw new InvalidOperationException(
+                "The NuGet Gallery source requires its isolated transport. Use CreateGallery instead.");
+        }
 
         return descriptor.Kind switch
         {
@@ -354,6 +366,32 @@ public static class PackageSourceClientFactory
             _ => throw new PackageSourceClientUnavailableException(
                 descriptor.Kind),
         };
+    }
+
+    /// <summary>
+    /// Creates the built-in Gallery client with an isolated, credential-free
+    /// transport owned by the returned client.
+    /// </summary>
+    public static IPackageSourceClient CreateGallery(
+        NuGetFetchOptions? options = null) =>
+        new NuGetGalleryPackageSourceClient(
+            new HttpClient
+            {
+                Timeout = Timeout.InfiniteTimeSpan,
+            },
+            options ?? new NuGetFetchOptions());
+
+    internal static IPackageSourceClient CreateGallery(
+        HttpMessageHandler transport,
+        NuGetFetchOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(transport);
+        return new NuGetGalleryPackageSourceClient(
+            new HttpClient(transport, disposeHandler: true)
+            {
+                Timeout = Timeout.InfiniteTimeSpan,
+            },
+            options ?? new NuGetFetchOptions());
     }
 }
 
@@ -448,6 +486,9 @@ internal sealed class NuGetV3PackageSourceClient : IPackageSourceClient
             Kind,
             PackageSourceCapabilities.SymbolPayload);
 
+    public void Dispose()
+    {
+    }
 }
 
 internal static partial class PackageCoordinateValidation

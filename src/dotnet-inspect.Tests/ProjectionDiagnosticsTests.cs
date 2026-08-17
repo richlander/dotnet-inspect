@@ -3,6 +3,7 @@ using Markout;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public class ProjectionDiagnosticsTests
 {
     // Mirrors the member detail schema: a graph section that carries the projected fields
