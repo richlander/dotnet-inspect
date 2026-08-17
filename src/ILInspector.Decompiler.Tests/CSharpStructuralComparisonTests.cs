@@ -527,6 +527,156 @@ public class CSharpStructuralComparisonTests
     }
 
     [Fact]
+    public void RenderAnnotatedBody_IndentedExtentAlignsCaretToFirstCoveredToken()
+    {
+        const string beforeText =
+            "int value = 0;\n" +
+            "    if (value == 0)\n" +
+            "    {\n" +
+            "        return value;\n" +
+            "    }";
+        const string afterText =
+            "int value = 0;\n" +
+            "    if (value == 0)\n" +
+            "    {\n" +
+            "        break;\n" +
+            "    }";
+        int beforeStart = beforeText.IndexOf("        return value;", StringComparison.Ordinal);
+        int afterStart = afterText.IndexOf("        break;", StringComparison.Ordinal);
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [new AnnotatedSourceNode(
+                0,
+                "ReturnStatement",
+                SourceLineKind.CSharp,
+                [new(beforeStart, "        return value;".Length)])],
+            [],
+            [],
+            []);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [new AnnotatedSourceNode(
+                0,
+                "BreakStatement",
+                SourceLineKind.CSharp,
+                [new(afterStart, "        break;".Length)])],
+            [],
+            [],
+            []);
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+        Assert.Equal(
+            new AnnotatedSourceSpan(beforeStart, "        return value;".Length),
+            Assert.Single(Assert.Single(comparison.Rows).BeforeSpans));
+
+        string[] rendered = CSharpStructuralDiffPrinter
+            .RenderAnnotatedBody(comparison, CSharpStructuralSide.Before)
+            .Split('\n');
+        int sourceLineIndex = Array.FindIndex(
+            rendered,
+            static line => line.Contains("return value;", StringComparison.Ordinal));
+
+        Assert.True(sourceLineIndex >= 0);
+        Assert.Equal(
+            rendered[sourceLineIndex].IndexOf("return", StringComparison.Ordinal),
+            rendered[sourceLineIndex + 1].IndexOf('^'));
+    }
+
+    [Fact]
+    public void RenderAnnotatedBody_TabIndentedExtentPreservesTabAlignment()
+    {
+        const string beforeText = "int value = 0;\n\t\t\treturn value;";
+        const string afterText = "int value = 0;\n\t\t\tbreak;";
+        int beforeStart = beforeText.IndexOf("\t\t\treturn value;", StringComparison.Ordinal);
+        int afterStart = afterText.IndexOf("\t\t\tbreak;", StringComparison.Ordinal);
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [new AnnotatedSourceNode(
+                0,
+                "ReturnStatement",
+                SourceLineKind.CSharp,
+                [new(beforeStart, "\t\t\treturn value;".Length)])],
+            [],
+            [],
+            []);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [new AnnotatedSourceNode(
+                0,
+                "BreakStatement",
+                SourceLineKind.CSharp,
+                [new(afterStart, "\t\t\tbreak;".Length)])],
+            [],
+            [],
+            []);
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string[] rendered = CSharpStructuralDiffPrinter
+            .RenderAnnotatedBody(comparison, CSharpStructuralSide.Before)
+            .Split('\n');
+
+        Assert.Equal("\t\t\treturn value;", rendered[1]);
+        Assert.StartsWith(
+            "\t\t\t^^^^^^^^^^^^^ raise: Return",
+            rendered[2],
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderAnnotatedBody_TabbedMemberIndentUsesExactFallback()
+    {
+        const string beforeText = "\tvoid M()\n    return;";
+        const string afterText = "\tvoid M()\n    break;";
+        int beforeStart = beforeText.IndexOf("    return;", StringComparison.Ordinal);
+        int afterStart = afterText.IndexOf("    break;", StringComparison.Ordinal);
+        var before = new AnnotatedSourceDocument(
+            beforeText,
+            [new AnnotatedSourceNode(
+                0,
+                "ReturnStatement",
+                SourceLineKind.CSharp,
+                [new(beforeStart, "    return;".Length)])],
+            [],
+            [],
+            []);
+        var after = new AnnotatedSourceDocument(
+            afterText,
+            [new AnnotatedSourceNode(
+                0,
+                "BreakStatement",
+                SourceLineKind.CSharp,
+                [new(afterStart, "    break;".Length)])],
+            [],
+            [],
+            []);
+        var comparison = CSharpBodyDiff.CompareStructure(new(
+            "M",
+            before,
+            after,
+            [0],
+            [0],
+            [new CSharpNodeCorrespondence(0, 0)]));
+
+        string[] rendered = CSharpStructuralDiffPrinter
+            .RenderAnnotatedBody(comparison, CSharpStructuralSide.Before)
+            .Split('\n');
+
+        Assert.Equal("    return;", rendered[1]);
+        Assert.StartsWith("    ^^^^^^^ raise: Return", rendered[2], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RenderAnnotatedBody_EarlyColumnSpansUseExactGutterFreeCarets()
     {
         const string beforeText = "a(b);";

@@ -30,6 +30,9 @@ public sealed class NuGetMetadataResponseTooLargeException : IOException
     public long? AdvertisedBytes { get; }
 }
 
+internal sealed class NuGetRedirectLimitExceededException()
+    : IOException("The package source response exceeded the redirect limit.");
+
 /// <summary>
 /// Thrown when a NuGet metadata response body does not complete within its configured
 /// body-phase timeout.

@@ -120,7 +120,7 @@ public sealed class OptimizationOpportunityAnalysisTests
     }
 
     [Fact]
-    public void LaterResolverFailurePublishesNoPartialResult()
+    public void LaterResolverFailurePreservesIndependentResult()
     {
         byte[] il =
         [
@@ -135,14 +135,15 @@ public sealed class OptimizationOpportunityAnalysisTests
             il,
             throwOnToken: EnumeratorToken);
 
-        var exception = Assert.Throws<BadImageFormatException>(
-            () => OptimizationOpportunityAnalysis.Collect(
+        var opportunities =
+            OptimizationOpportunityAnalysis.Collect(
                 MethodAllocationFacts.Create(context),
-                resolver));
+                resolver);
 
+        Assert.Single(opportunities);
         Assert.Equal(
-            "Malformed member token.",
-            exception.Message);
+            "temporary-byte-array-copy",
+            opportunities[0].Shape);
         Assert.Equal(
             [BitConverterToken, EnumeratorToken],
             resolver.ResolvedTokens);
