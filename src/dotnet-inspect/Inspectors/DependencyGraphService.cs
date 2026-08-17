@@ -126,24 +126,42 @@ internal static class DependencyGraphService
         string packageRef,
         string? requestedTfm,
         NuGetSourceOptions? sourceOptions,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        bool includePrerelease = false,
+        bool allowCompatibleFallbackForRequestedTfm = true)
     {
         PackageNuspecResolution resolution =
             await ResolvePackageNuspecAsync(
                 httpClient,
                 packageRef,
                 sourceOptions,
-                logger).ConfigureAwait(false);
+                logger,
+                includePrerelease).ConfigureAwait(false);
         if (resolution.ErrorMessage is { } error)
             return new PackageDependencyGraphResult.Error(error);
 
         NuspecData? nuspec = resolution.Nuspec;
         if (nuspec == null)
-            return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
+        {
+            return new PackageDependencyGraphResult.Empty(
+                resolution.PackageName,
+                resolution.Version,
+                "No dependencies declared in package.",
+                PackageDependencyGraphResult.EmptyKind.NoDependencyGroups);
+        }
 
-        var selection = DependencyResolutionService.SelectDependencyGroup(nuspec.DependencyGroups, requestedTfm);
+        var selection = DependencyResolutionService.SelectDependencyGroup(
+            nuspec.DependencyGroups,
+            requestedTfm,
+            allowCompatibleFallbackForRequestedTfm);
         if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups)
-            return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
+        {
+            return new PackageDependencyGraphResult.Empty(
+                resolution.PackageName,
+                resolution.Version,
+                "No dependencies declared in package.",
+                PackageDependencyGraphResult.EmptyKind.NoDependencyGroups);
+        }
         if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework)
         {
             return new PackageDependencyGraphResult.Error(
@@ -154,7 +172,13 @@ internal static class DependencyGraphService
         var group = selection.Group!;
         var tfm = selection.TargetFramework ?? group.TargetFramework;
         if (group.Dependencies.Count == 0)
-            return new PackageDependencyGraphResult.Empty($"No additional dependencies for {tfm}.");
+        {
+            return new PackageDependencyGraphResult.Empty(
+                resolution.PackageName,
+                resolution.Version,
+                $"No additional dependencies for {tfm}.",
+                PackageDependencyGraphResult.EmptyKind.SelectedGroup);
+        }
 
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
@@ -166,7 +190,8 @@ internal static class DependencyGraphService
             sourceOptions);
 
         return new PackageDependencyGraphResult.Graph(
-            $"{resolution.PackageName} ({resolution.Version})",
+            resolution.PackageName,
+            resolution.Version,
             depNodes);
     }
 
@@ -174,7 +199,8 @@ internal static class DependencyGraphService
         HttpClient httpClient,
         string packageRef,
         NuGetSourceOptions? sourceOptions,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        bool includePrerelease)
     {
         // Package dependency mode inspects nuspec dependency groups, not assembly sets.
         var (packageName, version) =
@@ -230,6 +256,7 @@ internal static class DependencyGraphService
                         floatingSelector ? null : version),
                     sourceOptions,
                     logger.Log,
+                    includePrerelease,
                     useVersionCache: !forceLatest,
                     cancellationToken: latestTimeout?.Token ?? default)
                     .ConfigureAwait(false);
@@ -308,8 +335,8 @@ internal static class DependencyGraphService
         }
 
         return new PackageNuspecResolution(
-            packageName,
-            coordinate.Version,
+            nuspec.PackageName ?? packageName,
+            nuspec.Version ?? coordinate.Version,
             nuspec,
             ErrorMessage: null);
     }
@@ -339,10 +366,16 @@ internal static class DependencyGraphService
         PackageExtractionResult extracted = outcome.Result!;
         try
         {
+            NuspecData? nuspec =
+                NuspecParser.FindAndParse(extracted.ExtractPath);
             return new PackageNuspecResolution(
-                packageName,
-                extracted.Version ?? "",
-                NuspecParser.FindAndParse(extracted.ExtractPath),
+                nuspec?.PackageName
+                    ?? extracted.PackageName
+                    ?? packageName,
+                nuspec?.Version
+                    ?? extracted.Version
+                    ?? "",
+                nuspec,
                 ErrorMessage: null);
         }
         finally
@@ -452,7 +485,25 @@ internal abstract record LibraryDependencyGraphResult
 
 internal abstract record PackageDependencyGraphResult
 {
-    public sealed record Graph(string Title, List<DependencyNode> Dependencies) : PackageDependencyGraphResult;
-    public sealed record Empty(string Message) : PackageDependencyGraphResult;
+    public enum EmptyKind
+    {
+        NoDependencyGroups,
+        SelectedGroup,
+    }
+
+    public sealed record Graph(
+        string PackageName,
+        string Version,
+        List<DependencyNode> Dependencies) : PackageDependencyGraphResult
+    {
+        public string Title => $"{PackageName} ({Version})";
+    }
+
+    public sealed record Empty(
+        string PackageName,
+        string Version,
+        string Message,
+        EmptyKind Kind) : PackageDependencyGraphResult;
+
     public sealed record Error(string Message, string? Detail = null) : PackageDependencyGraphResult;
 }

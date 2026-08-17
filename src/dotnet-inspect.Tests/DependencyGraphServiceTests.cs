@@ -1,6 +1,8 @@
 using System.IO.Compression;
 using System.Net;
+using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
@@ -281,6 +283,110 @@ public class DependencyGraphServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageDependencies_AcquiresOnlyPrereleaseRootNuspec()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Package.Dependencies.{suffix}";
+        string serviceIndex =
+            $"https://feed.example.test/{suffix}/v3/index.json";
+        string flatContainer =
+            $"https://content.example.test/{suffix}/flat/";
+        const string PreviewVersion = "2.0.0-preview.1";
+        var handler = new ManifestOnlyHandler(
+            serviceIndex,
+            flatContainer,
+            $"https://other.example.test/{suffix}/v3/index.json",
+            $"https://other-content.example.test/{suffix}/flat/",
+            packageId,
+            reportingVersions: ["1.0.0", PreviewVersion],
+            manifestVersion: PreviewVersion);
+        using var httpClient = new HttpClient(handler);
+
+        var rendered = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                new InspectionOptions
+                {
+                    PackageArgs = [packageId],
+                    ShowDependencies = true,
+                    IncludePrerelease = true,
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = [serviceIndex],
+                    },
+                },
+                new CommandContext(
+                    verbose: false,
+                    httpClient)));
+
+        Assert.Equal(0, rendered.ExitCode);
+        Assert.Contains(
+            "Tip: use 'depends --package' for dependency trees.",
+            rendered.Error);
+        Assert.Contains(
+            "No dependencies declared in package.",
+            rendered.Error);
+        Assert.Contains(
+            handler.Requests,
+            uri => uri.AbsolutePath.EndsWith(
+                $"/{PreviewVersion}/{packageId.ToLowerInvariant()}.nuspec",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            handler.Requests,
+            uri => uri.AbsolutePath.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PackageDependencies_RequestedTfmRequiresExactRootGroup()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Package.Dependencies.Tfm.{suffix}";
+        string serviceIndex =
+            $"https://feed.example.test/{suffix}/v3/index.json";
+        var handler = new ManifestOnlyHandler(
+            serviceIndex,
+            $"https://content.example.test/{suffix}/flat/",
+            $"https://other.example.test/{suffix}/v3/index.json",
+            $"https://other-content.example.test/{suffix}/flat/",
+            packageId,
+            dependenciesXml:
+                """
+                <dependencies>
+                  <group targetFramework="net8.0" />
+                </dependencies>
+                """);
+        using var httpClient = new HttpClient(handler);
+
+        var rendered = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                new InspectionOptions
+                {
+                    PackageArgs = [$"{packageId}@1.0.0"],
+                    ShowDependencies = true,
+                    Tfm = "net9.0",
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = [serviceIndex],
+                    },
+                },
+                new CommandContext(
+                    verbose: false,
+                    httpClient)));
+
+        Assert.Equal(1, rendered.ExitCode);
+        Assert.Contains(
+            "No dependencies found for TFM 'net9.0'.",
+            rendered.Error);
+        Assert.Contains("Available TFMs: net8.0", rendered.Error);
+        Assert.DoesNotContain(
+            handler.Requests,
+            uri => uri.AbsolutePath.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task BuildPackageDependencyTreeAsync_ReporterDoesNotReactivateDisabledAlias()
     {
         string suffix = Guid.NewGuid().ToString("N");
@@ -462,7 +568,10 @@ public class DependencyGraphServiceTests : IDisposable
         string otherServiceIndex,
         string otherFlatContainer,
         string packageId,
-        bool isToolPackage = false) : HttpMessageHandler
+        bool isToolPackage = false,
+        IReadOnlyList<string>? reportingVersions = null,
+        string manifestVersion = "1.0.0",
+        string dependenciesXml = "") : HttpMessageHandler
     {
         public List<Uri> Requests { get; } = [];
 
@@ -494,7 +603,12 @@ public class DependencyGraphServiceTests : IDisposable
                 StringComparison.Ordinal))
             {
                 return Task.FromResult(Response(
-                    """{"versions":["1.0.0"]}"""));
+                    System.Text.Json.JsonSerializer.Serialize(
+                        new
+                        {
+                            versions =
+                                reportingVersions ?? ["1.0.0"],
+                        })));
             }
             if (uri.AbsoluteUri.Equals(
                 $"{otherFlatContainer}{normalizedPackageId}/index.json",
@@ -505,7 +619,7 @@ public class DependencyGraphServiceTests : IDisposable
             }
 
             if (uri.AbsolutePath.EndsWith(
-                $"/1.0.0/{normalizedPackageId}.nuspec",
+                $"/{manifestVersion}/{normalizedPackageId}.nuspec",
                 StringComparison.Ordinal))
             {
                 return Task.FromResult(Response(
@@ -515,8 +629,9 @@ public class DependencyGraphServiceTests : IDisposable
                     <package>
                       <metadata>
                         <id>{{packageId}}</id>
-                        <version>1.0.0</version>
+                        <version>{{manifestVersion}}</version>
                         {{(isToolPackage ? "<packageTypes><packageType name=\"DotnetTool\" /></packageTypes>" : "")}}
+                        {{dependenciesXml}}
                       </metadata>
                     </package>
                     """));
