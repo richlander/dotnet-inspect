@@ -1011,13 +1011,16 @@ public static class PackageExtractor
     public static Task<string?> GetSearchQueryServiceAsync(
         HttpClient client,
         NuGetSource source,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default,
+        TimeSpan? responseBodyTimeout = null)
         => GetServiceIndexResourceAsync(
             client,
             source,
             "SearchQueryService",
             log,
-            cancellationToken: default);
+            cancellationToken,
+            responseBodyTimeout);
 
     /// <summary>
     /// Reads all resources advertised by a V3 service index.
@@ -1030,7 +1033,8 @@ public static class PackageExtractor
         HttpClient client,
         NuGetSource source,
         Action<string>? log = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        TimeSpan? responseBodyTimeout = null)
     {
         if (!IsHttpSource(source))
         {
@@ -1061,7 +1065,8 @@ public static class PackageExtractor
             indexUrl,
             auth: NuGetCredentialScope.AuthFor(source, indexUrl, log),
             cancellationToken: cancellationToken,
-            trafficKind: NetworkTrafficKind.PackageSourceDiscovery).ConfigureAwait(false);
+            trafficKind: NetworkTrafficKind.PackageSourceDiscovery,
+            responseBodyTimeout: responseBodyTimeout).ConfigureAwait(false);
         if (json == null)
             return null;
 
@@ -1188,14 +1193,16 @@ public static class PackageExtractor
         NuGetSource source,
         string resourceTypePrefix,
         Action<string>? log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? responseBodyTimeout = null)
     {
         IReadOnlyList<ServiceResource>? resources =
             await GetServiceIndexResourcesAsync(
                 client,
                 source,
                 log,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                responseBodyTimeout).ConfigureAwait(false);
         if (resources is null)
             return null;
 

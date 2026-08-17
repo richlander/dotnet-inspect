@@ -56,6 +56,7 @@ public class DiffDocumentView
     public string? ImplementationDiffSummary { get; set; }
     public string? ImplementationDiffNote { get; set; }
     public string? FindingTransitionsSummary { get; set; }
+    public string? InspectionFailuresSummary { get; set; }
 
     [MarkoutSection(Name = "Changes")]
     public List<DiffDetailedChangeRow>? Changes { get; set; }
@@ -68,6 +69,9 @@ public class DiffDocumentView
 
     [MarkoutSection(Name = "Finding Transitions")]
     public List<FindingTransitionRow>? FindingTransitions { get; set; }
+
+    [MarkoutSection(Name = "Inspection Failures")]
+    public List<DiffInspectionFailureRow>? InspectionFailures { get; set; }
 }
 
 [MarkoutSerializable(
@@ -148,6 +152,42 @@ public class DiffFullView
 
     [MarkoutSection(Name = "Additive Changes", GroupBy = nameof(DiffChangeRow.TypeName))]
     public List<DiffChangeRow>? AdditiveChanges { get; set; }
+
+    [MarkoutSection(Name = "Inspection Failures")]
+    public List<DiffInspectionFailureRow>? InspectionFailures { get; set; }
+}
+
+[MarkoutSerializable]
+public record DiffInspectionFailureRow(
+    string Side,
+    string Assembly,
+    string Operation,
+    string Subject,
+    string Mechanism,
+    string Kind,
+    string Detail,
+    string? DependencyAssembly = null)
+{
+    public string Side { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Side);
+    public string Assembly { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Assembly);
+    public string Operation { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Operation);
+    public string Subject { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Subject);
+    public string Mechanism { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Mechanism);
+    public string Kind { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Kind);
+    public string Detail { get; init; } =
+        CSharpIdentifier.ContainRenderedText(Detail);
+    [MarkoutSkipNull]
+    public string? DependencyAssembly { get; init; } =
+        DependencyAssembly is null
+            ? null
+            : CSharpIdentifier.ContainRenderedText(
+                DependencyAssembly);
 }
 
 [MarkoutSerializable(
@@ -234,6 +274,7 @@ public record DiffChangeRow(
 [MarkoutContext(typeof(FindingTransitionRow))]
 [MarkoutContext(typeof(DiffFullView))]
 [MarkoutContext(typeof(DiffChangeRow))]
+[MarkoutContext(typeof(DiffInspectionFailureRow))]
 [MarkoutContext(typeof(AnalysisDiffView))]
 [MarkoutContext(typeof(AnalysisDiffRow))]
 [MarkoutContext(typeof(ImplementationDiffView))]

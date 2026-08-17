@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -152,6 +153,190 @@ public class MetadataTypeDeclarationProbeTests
             MetadataTypeDeclarationProbe.Probe(image.Reader, Name("N", "Type")));
 
         Assert.Equal(MetadataTokens.GetToken(expected), defined.Definition.Value);
+        Assert.False(defined.IsInterface);
+        Assert.False(defined.DeclaringAssemblyDefinesCoreLibraryRoot);
+    }
+
+    [Fact]
+    public void Probe_MaterializesDefinitionKindAndCoreLibraryRoot()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "System",
+                "Object");
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                "N",
+                "Contract");
+        });
+
+        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                Name("N", "Contract")));
+
+        Assert.True(defined.IsInterface);
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Interface,
+            defined.Kind);
+        Assert.True(defined.DeclaringAssemblyDefinesCoreLibraryRoot);
+    }
+
+    [Fact]
+    public void Probe_MaterializesValueTypeKind()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle objectType =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "System",
+                    "Object");
+            TypeDefinitionHandle valueType =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "System",
+                    "ValueType",
+                    objectType);
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public
+                    | TypeAttributes.Sealed
+                    | TypeAttributes.SequentialLayout,
+                "N",
+                "Value",
+                valueType);
+        });
+
+        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                Name("N", "Value")));
+
+        Assert.Equal(
+            MetadataTypeDefinitionKind.ValueType,
+            defined.Kind);
+        Assert.True(defined.IsValueType);
+        Assert.True(defined.DeclaringAssemblyDefinesCoreLibraryRoot);
+    }
+
+    [Fact]
+    public void Probe_MaterializesCoreEnumAsSpecialClass()
+    {
+        using var pe =
+            new PEReader(File.OpenRead(typeof(object).Assembly.Location));
+
+        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.Probe(
+                pe.GetMetadataReader(),
+                Name("System", "Enum")));
+
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Class,
+            defined.Kind);
+        Assert.False(defined.IsValueType);
+        Assert.True(defined.DeclaringAssemblyDefinesCoreLibraryRoot);
+    }
+
+    [Fact]
+    public void Probe_RejectsForgedClassMarkerOnConstructedValueTypeBase()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            TypeDefinitionHandle objectType =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "System",
+                    "Object");
+            TypeDefinitionHandle valueType =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public,
+                    "System",
+                    "ValueType",
+                    objectType);
+            TypeDefinitionHandle genericValue =
+                AddTypeDefinition(
+                    metadata,
+                    TypeAttributes.Public
+                        | TypeAttributes.Sealed
+                        | TypeAttributes.SequentialLayout,
+                    "N",
+                    "Value`1",
+                    valueType);
+            metadata.AddGenericParameter(
+                genericValue,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x15); // GENERICINST
+            signature.WriteByte(0x12); // forged CLASS marker
+            signature.WriteCompressedInteger(
+                MetadataTokens.GetRowNumber(genericValue) << 2);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0x08); // I4
+            TypeSpecificationHandle constructedValue =
+                metadata.AddTypeSpecification(
+                    metadata.GetOrAddBlob(signature));
+
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Derived",
+                constructedValue);
+        });
+
+        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.Probe(
+                image.Reader,
+                Name("N", "Derived")));
+
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Unknown,
+            defined.Kind);
+    }
+
+    [Fact]
+    public void Probe_ConstructedBaseClassificationDoesNotWalkTypeArguments()
+    {
+        const int Depth = 26;
+        string path = EmitConstructedBaseLadder(Depth);
+        try
+        {
+            using var pe =
+                new PEReader(File.OpenRead(path));
+
+            var stopwatch = Stopwatch.StartNew();
+            var defined =
+                Assert.IsType<TypeDeclarationResult.Defined>(
+                    MetadataTypeDeclarationProbe.Probe(
+                        pe.GetMetadataReader(),
+                        Name("N", "L0`1")));
+            stopwatch.Stop();
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+                $"Constructed-base classification took {stopwatch.Elapsed}.");
+            Assert.Equal(
+                MetadataTypeDefinitionKind.Class,
+                defined.Kind);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -204,6 +389,33 @@ public class MetadataTypeDeclarationProbeTests
             MetadataTypeDeclarationProbe.ProbeDefinition(
                 image.Reader,
                 Name("N0", leaf)));
+    }
+
+    [Fact]
+    public void ProbeDefinition_ReturnsCurrentDefinitionProjection()
+    {
+        TypeDefinitionHandle handle = default;
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            handle = AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Target");
+        });
+
+        var defined = Assert.IsType<TypeDeclarationResult.Defined>(
+            MetadataTypeDeclarationProbe.ProbeDefinition(
+                image.Reader,
+                Name("N", "Target")));
+
+        Assert.Equal(
+            MetadataTokens.GetToken(handle),
+            defined.Definition.Value);
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Class,
+            defined.Kind);
+        Assert.Equal(0, defined.GenericParameterCount);
     }
 
     [Fact]
@@ -545,6 +757,39 @@ public class MetadataTypeDeclarationProbeTests
         Assert.All(
             ambiguous.Candidates,
             candidate => Assert.IsType<TypeDeclarationCandidate.Forwarder>(candidate));
+    }
+
+    [Fact]
+    public void IndexedProbe_PreservesMetadataOrderForAmbiguousCandidates()
+    {
+        using MetadataImage image = BuildMetadata(metadata =>
+        {
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Type");
+            AddTypeDefinition(
+                metadata,
+                TypeAttributes.Public,
+                "N",
+                "Type");
+        });
+        MetadataTypeDefinitionName name = Name("N", "Type");
+
+        var direct = Assert.IsType<TypeDeclarationResult.Ambiguous>(
+            MetadataTypeDeclarationProbe.Probe(image.Reader, name));
+        var indexed = Assert.IsType<TypeDeclarationResult.Ambiguous>(
+            MetadataTypeDeclarationProbe.CreateIndex(image.Reader)
+                .Probe(name));
+
+        Assert.Equal(
+            direct.Candidates
+                .Cast<TypeDeclarationCandidate.Definition>()
+                .Select(candidate => candidate.Token.Value),
+            indexed.Candidates
+                .Cast<TypeDeclarationCandidate.Definition>()
+                .Select(candidate => candidate.Token.Value));
     }
 
     [Fact]
@@ -938,12 +1183,13 @@ public class MetadataTypeDeclarationProbeTests
         MetadataBuilder metadata,
         TypeAttributes attributes,
         string @namespace,
-        string name) =>
+        string name,
+        EntityHandle baseType = default) =>
         metadata.AddTypeDefinition(
             attributes,
             @namespace.Length == 0 ? default : metadata.GetOrAddString(@namespace),
             metadata.GetOrAddString(name),
-            baseType: default,
+            baseType,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
 
@@ -958,6 +1204,52 @@ public class MetadataTypeDeclarationProbeTests
             publicKeyOrToken: default,
             flags: default,
             hashValue: default);
+
+    static string EmitConstructedBaseLadder(int depth)
+    {
+        var assembly =
+            new System.Reflection.Emit.PersistedAssemblyBuilder(
+                new System.Reflection.AssemblyName(
+                    $"ConstructedBaseLadder{Guid.NewGuid():N}"),
+                typeof(object).Assembly);
+        var module =
+            assembly.DefineDynamicModule(
+                "ConstructedBaseLadder");
+        var genericBase = module.DefineType(
+            "N.G`2",
+            TypeAttributes.Public | TypeAttributes.Class);
+        genericBase.DefineGenericParameters("T1", "T2");
+        System.Reflection.Emit.TypeBuilder[] levels =
+        [
+            .. Enumerable.Range(0, depth + 1)
+                .Select(index =>
+                    module.DefineType(
+                        $"N.L{index}`1",
+                        TypeAttributes.Public
+                            | TypeAttributes.Class)),
+        ];
+        foreach (var level in levels)
+            level.DefineGenericParameters("T");
+        for (int i = 0; i < depth; i++)
+        {
+            Type nestedArgument =
+                levels[i + 1].MakeGenericType(typeof(int));
+            levels[i].SetParent(
+                genericBase.MakeGenericType(
+                    nestedArgument,
+                    nestedArgument));
+        }
+
+        genericBase.CreateType();
+        for (int i = depth; i >= 0; i--)
+            levels[i].CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"constructed-base-ladder-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
 
     static ExportedTypeHandle AddForwarder(
         MetadataBuilder metadata,
