@@ -690,9 +690,9 @@ only when the post-dominator machinery is proven.
    `RetainedBodyMergeWithEmptyLandingPadStaysFlat` and
    `RetainedBodyMergeNestedBelowItsGotoStaysFlat` prove every surviving goto
    still has a printable, lexically visible target label. Against
-   exact base `5b808cde1`, the slice moved CoreLib from 11,786 to 11,793
+   exact base `6f4d8f73f`, the slice moved CoreLib from 11,786 to 11,793
    structured containers (752 to 745 flat) and the pinned corpus from 30,046
-   to 30,082 (2,677 to 2,641 flat), with zero pass bugs in both
+   to 30,068 (2,677 to 2,655 flat), with zero pass bugs in both
    `--structuring-stops` sweeps.
 
    *Finding — the acyclic residual splits three ways, and the return-tail merge
