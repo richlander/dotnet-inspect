@@ -83,6 +83,54 @@ public sealed class InspectionGraphPackageBoundaryTests
     }
 
     [Fact]
+    public void PackageSeed_BindsToNodeOrGroupSelectedByLens()
+    {
+        RealizedMemberCoordinate.Package package =
+            Package("sample.package", "feed-a");
+        WorkspaceContextMember member =
+            PackageMember(package, "Sample");
+        InspectionGraphPackageBoundary boundary =
+            InspectionGraphPackageBoundary.Create([member]);
+        Assert.True(
+            boundary.TryGetPackageSubject(
+                member.Participant.Assembly.Registration,
+                out InspectionGraphSubject.PackageSubject? subject));
+        InspectionGraphModeRequest request =
+            InspectionGraphModeRequest.SingleSeed(subject);
+
+        InspectionGraphDocument packageNodes = boundary.Project(
+            InspectionGraphPackageBoundaryLens.PackageNodes,
+            request);
+        InspectionGraphSeed nodeSeed =
+            Assert.Single(packageNodes.Seeds);
+        Assert.Equal(
+            InspectionGraphTargetKind.Node,
+            nodeSeed.Target.Kind);
+        Assert.Same(
+            packageNodes.Nodes[nodeSeed.Target.Id].Subject,
+            nodeSeed.Subject);
+
+        InspectionGraphDocument packageGroups = boundary.Project(
+            InspectionGraphPackageBoundaryLens.PackageGroups,
+            request);
+        InspectionGraphSeed groupSeed =
+            Assert.Single(packageGroups.Seeds);
+        Assert.Equal(
+            InspectionGraphTargetKind.Group,
+            groupSeed.Target.Kind);
+        Assert.Same(
+            packageGroups.Groups[groupSeed.Target.Id].Subject,
+            groupSeed.Subject);
+
+        InspectionGraphDocument mixed = boundary.Project(
+            InspectionGraphPackageBoundaryLens.Mixed,
+            request);
+        Assert.Equal(
+            InspectionGraphTargetKind.Node,
+            Assert.Single(mixed.Seeds).Target.Kind);
+    }
+
+    [Fact]
     public void PackageGroupsLens_DoesNotCollapseMatchingAssemblyMetadata()
     {
         RealizedMemberCoordinate.Package firstPackage =
