@@ -31,13 +31,14 @@ public static class MemberCommand
             return 1;
         }
 
-        // Shared preamble: section validation, discovery, verbosity promotion
-        var (preamble, error) = ApiCommand.RunPreamble(options);
-        if (error.HasValue) return error.Value;
-
-        options = (MemberOptions)preamble.Options;
         var unresolvedOptions = options;
-        var memberPipeline = preamble.MemberPipeline;
+        if (!options.RouterDeferredTypeOrMember)
+        {
+            // Shared preamble: section validation, discovery, verbosity promotion
+            var (preamble, error) = ApiCommand.RunPreamble(options);
+            if (error.HasValue) return error.Value;
+            options = (MemberOptions)preamble.Options;
+        }
 
         var (source, sourceError) = await ApiSourceResolver.ResolveAsync(options);
         if (sourceError.HasValue) return sourceError.Value;
@@ -89,6 +90,25 @@ public static class MemberCommand
             {
                 return await TypeCommand.ExecuteAsync(
                     ApiCommand.ToTypeOptions(unresolvedOptions));
+            }
+
+            if (options.RouterDeferredTypeOrMember)
+            {
+                if (options.ShapeExplicitlySet)
+                {
+                    CommandError.Write("--shape is only valid for type targets.");
+                    return 1;
+                }
+
+                var (preamble, error) =
+                    ApiCommand.RunPreamble(unresolvedOptions);
+                if (error.HasValue) return error.Value;
+                options = (MemberOptions)preamble.Options with
+                {
+                    PackagePath = source.ResolvedPackagePath,
+                    PackageRangeAddress = null,
+                    ProjectAssetsPath = projectAssetsPath,
+                };
             }
 
             // If the type resolved by peeling a trailing Type.Member suffix (e.g.

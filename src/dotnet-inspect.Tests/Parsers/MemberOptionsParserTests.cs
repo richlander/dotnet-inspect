@@ -48,8 +48,10 @@ public class MemberOptionsParserTests
         var callerProjectOption = new Option<string[]>("--project") { AllowMultipleArgumentsPerToken = true };
         var callerPackageOption = new Option<string[]>("--caller-package") { AllowMultipleArgumentsPerToken = true };
         var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = true };
+        var shapeOption = new Option<bool>("--shape") { Hidden = true };
         var routerDeferredTargetOption =
-            new Option<bool>("--router-deferred-type-or-member")
+            new Option<string?>(
+                RouterCommandDefinition.DeferredTypeOrMemberOptionName)
             {
                 Hidden = true
             };
@@ -75,6 +77,7 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(callerProjectOption);
         memberCommand.Options.Add(callerPackageOption);
         memberCommand.Options.Add(repoOption);
+        memberCommand.Options.Add(shapeOption);
         memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Mermaid);
@@ -93,7 +96,7 @@ public class MemberOptionsParserTests
             allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
             unsafeOption, indexOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
-            routerDeferredTargetOption);
+            shapeOption, routerDeferredTargetOption);
 
         return (root, opts, args);
     }

@@ -69,6 +69,8 @@ public class ApiCommand
             Select = options.Select, SelectDefault = options.SelectDefault,
             Columns = options.Columns, Fields = options.Fields,
             Discover = options.Discover, Tree = options.Tree,
+            ShapeOutput = options.ShapeOutput,
+            ShapeExplicitlySet = options.ShapeExplicitlySet,
             Schema = options.Schema, Count = options.Count, Rows = options.Rows,
             JsonArray = options.JsonArray,
             PerformanceTriage = options.PerformanceTriage,

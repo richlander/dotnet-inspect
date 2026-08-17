@@ -136,10 +136,16 @@ public static class FqnParser
             var closeIdx = FindMatchingAngleBracket(typeName, angleIdx);
             if (closeIdx < 0)
                 return typeName;
+            if (!TryCountTypeParameters(
+                    typeName.AsSpan((angleIdx + 1)..closeIdx),
+                    out var arity))
+            {
+                return typeName;
+            }
 
             normalized.Append(typeName, segmentStart, angleIdx - segmentStart);
             normalized.Append('`');
-            normalized.Append(CountTypeParameters(typeName.AsSpan((angleIdx + 1)..closeIdx)));
+            normalized.Append(arity);
             segmentStart = closeIdx + 1;
             angleIdx = typeName.IndexOf('<', segmentStart);
         }
@@ -249,19 +255,74 @@ public static class FqnParser
     }
 
     internal static int CountTypeParameters(ReadOnlySpan<char> typeParams)
-    {
-        if (typeParams.IsEmpty || typeParams.IsWhiteSpace())
-            return 0;
+        => TryCountTypeParameters(typeParams, out var count) ? count : 0;
 
-        int count = 1;
-        int depth = 0;
-        foreach (char c in typeParams)
+    private static bool TryCountTypeParameters(
+        ReadOnlySpan<char> typeParams,
+        out int count)
+    {
+        count = 0;
+        if (typeParams.IsEmpty || typeParams.IsWhiteSpace())
+            return false;
+
+        count = 1;
+        var segmentStart = 0;
+        for (var i = 0; i < typeParams.Length; i++)
         {
-            if (c == '<') depth++;
-            else if (c == '>') depth--;
-            else if (c == ',' && depth == 0) count++;
+            switch (typeParams[i])
+            {
+                case '<':
+                    var close = FindMatchingAngleBracket(typeParams, i);
+                    if (close < 0
+                        || !TryCountTypeParameters(
+                            typeParams[(i + 1)..close],
+                            out _))
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    i = close;
+                    break;
+                case '>':
+                    count = 0;
+                    return false;
+                case ',':
+                    if (typeParams[segmentStart..i].IsWhiteSpace())
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    count++;
+                    segmentStart = i + 1;
+                    break;
+            }
         }
-        return count;
+
+        if (typeParams[segmentStart..].IsWhiteSpace())
+        {
+            count = 0;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static int FindMatchingAngleBracket(
+        ReadOnlySpan<char> value,
+        int openIndex)
+    {
+        var depth = 0;
+        for (var i = openIndex; i < value.Length; i++)
+        {
+            if (value[i] == '<')
+                depth++;
+            else if (value[i] == '>' && --depth == 0)
+                return i;
+        }
+
+        return -1;
     }
 
     /// <summary>

@@ -212,8 +212,14 @@ public static class ApiCommandDefinitions
             AllowMultipleArgumentsPerToken = false
         };
         kindOption.Aliases.Add("--kind");
+        var shapeOption = new Option<bool>("--shape")
+        {
+            Description = "Output type shape when the routed target resolves as a type",
+            Hidden = true
+        };
         var routerDeferredTargetOption =
-            new Option<bool>("--router-deferred-type-or-member")
+            new Option<string?>(
+                RouterCommandDefinition.DeferredTypeOrMemberOptionName)
             {
                 Hidden = true
             };
@@ -241,6 +247,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(callerPackageOption);
         memberCommand.Options.Add(repoOption);
         memberCommand.Options.Add(kindOption);
+        memberCommand.Options.Add(shapeOption);
         memberCommand.Options.Add(routerDeferredTargetOption);
         opts.AddSectionOptionsTo(memberCommand);
         opts.AddCountOptionTo(memberCommand);
@@ -263,7 +270,7 @@ public static class ApiCommandDefinitions
             compactOption, opts.NoHeaders,
             unsafeOption, indexOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
-            routerDeferredTargetOption);
+            shapeOption, routerDeferredTargetOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {

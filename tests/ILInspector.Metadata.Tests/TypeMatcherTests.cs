@@ -38,6 +38,7 @@ public class TypeMatcherTests
     [Theory]
     [InlineData("Option<>")]
     [InlineData("Option<  >")]
+    [InlineData("Option<T,>")]
     public void GetPatternArity_returns_negative_one_for_empty_type_args(string pattern)
         => Assert.Equal(-1, TypeMatcher.GetPatternArity(pattern));
 
@@ -128,6 +129,16 @@ public class TypeMatcherTests
         var result = TypeMatcher.Lookup(
             ["MyNamespace.Option`1"],
             pattern);
+
+        Assert.Null(result.Match);
+    }
+
+    [Fact]
+    public void Lookup_does_not_normalize_malformed_same_arity_pattern()
+    {
+        var result = TypeMatcher.Lookup(
+            ["MyNamespace.Option`2"],
+            "Option<T,>");
 
         Assert.Null(result.Match);
     }

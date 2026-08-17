@@ -51,8 +51,6 @@ public sealed class PlatformTypeLookupPattern
                     StringComparison.OrdinalIgnoreCase));
     }
 
-    internal int GenericArity => TypeMatcher.GetPatternArity(Normalized);
-
     static string NormalizeLookup(string value) =>
         FqnParser.NormalizeTypeName(value).Replace('+', '.');
 }
@@ -221,21 +219,6 @@ internal sealed class PlatformTypeCatalog
         ];
         ImmutableArray<PlatformTypeLookupCandidate> selected =
             definitions.IsEmpty ? matches : definitions;
-        if (pattern.GenericArity >= 0)
-        {
-            ImmutableArray<PlatformTypeLookupCandidate> sameArity =
-            [
-                .. selected.Where(candidate =>
-                    TypeMatcher.GetGenericArity(
-                        candidate.Type.ToMetadataFullName())
-                    == pattern.GenericArity),
-            ];
-            selected = sameArity;
-        }
-
-        if (selected.IsEmpty)
-            return new PlatformTypeLookupOutcome.Missing();
-
         ImmutableArray<PlatformTypeLookupCandidate> exact =
         [
             .. selected.Where(candidate => pattern.IsExact(candidate.Type)),

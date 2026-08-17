@@ -171,6 +171,14 @@ public partial record ApiOptions : IProjectionOptions
     public HashSet<string>? IncludeSections { get; init; }
     public string[]? Discover { get; init; }
     public bool Tree { get; init; }
+
+    /// <summary>
+    /// Whether type-shape output was requested and whether that request was
+    /// explicit. Shared so the router can preserve the option until metadata
+    /// establishes whether an explicit-source target is a type or member.
+    /// </summary>
+    public bool ShapeOutput { get; init; }
+    public bool ShapeExplicitlySet { get; init; }
     public string[]? Select { get; init; }
 
     /// <summary>
@@ -260,13 +268,6 @@ public record TypeOptions : ApiOptions
     public string? OriginalTypeQuery { get; init; }
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
-    public bool ShapeOutput { get; init; }
-
-    /// <summary>
-    /// Whether the user explicitly set --shape.
-    /// When false and resolving a single type, shape is the default view.
-    /// </summary>
-    public bool ShapeExplicitlySet { get; init; }
 
     /// <summary>
     /// True when no explicit output format was selected (default invocation).

@@ -404,6 +404,27 @@ public class PlatformResolverTests
     }
 
     [Fact]
+    public void LookupType_UnqualifiedNestedGenericUsesLeafArity()
+    {
+        var outcome =
+            PlatformResolver.LookupType("AlternateLookup<TAlternateKey>");
+        IReadOnlyList<PlatformTypeLookupCandidate> candidates = outcome switch
+        {
+            PlatformTypeLookupOutcome.Resolved resolved =>
+                [resolved.Candidate],
+            PlatformTypeLookupOutcome.Ambiguous ambiguous =>
+                ambiguous.Candidates,
+            _ => []
+        };
+
+        Assert.Contains(
+            candidates,
+            candidate => candidate.Type.ToMetadataFullName().Equals(
+                "System.Collections.Concurrent.ConcurrentDictionary`2.AlternateLookup`1",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void LookupTypeAcrossFrameworks_ResolvesAspNetCoreNestedGenericType()
     {
         var (referencePath, _, _) =

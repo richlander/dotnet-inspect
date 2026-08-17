@@ -2987,6 +2987,9 @@ public partial class CommandExecutionTests
     [InlineData("System.Collections.Generic.List`0.Add")]
     [InlineData("System.Collections.Generic.List`.Add")]
     [InlineData("System.Collections.Generic.List`999999999999999999999.Add")]
+    [InlineData("System.Collections.Generic.Dictionary<TKey,>")]
+    [InlineData("System.Collections.Generic.Dictionary<,TValue>")]
+    [InlineData("System.Collections.Generic.Dictionary<List<>,TValue>")]
     [InlineData("System.Threading.Tasks.Task<T1,T2>")]
     public async Task Router_ExplicitMissingGenericArity_DoesNotBroaden(
         string target)
@@ -3092,9 +3095,7 @@ public partial class CommandExecutionTests
     public async Task Member_RouterDeferredTarget_UsesMetadataMemberBoundary()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member",
             "System.Collections.Immutable.ImmutableArray<T>.Builder.Capacity",
-            "--router-deferred-type-or-member",
             "--platform",
             "System.Collections.Immutable",
             "--markdown",
@@ -3111,9 +3112,7 @@ public partial class CommandExecutionTests
     public async Task Member_RouterDeferredTarget_ExactTypeKeepsTypeRendering()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member",
             "System.Collections.Immutable.ImmutableArray<T>.Builder",
-            "--router-deferred-type-or-member",
             "--platform",
             "System.Collections.Immutable",
             "--markdown",
@@ -3142,9 +3141,7 @@ public partial class CommandExecutionTests
             "--tips",
             "q");
         var deferred = await RunAppAsync(
-            "member",
             target,
-            "--router-deferred-type-or-member",
             "--platform",
             "System.Collections.Immutable",
             "-v:n",
@@ -3153,6 +3150,87 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, deferred);
         Assert.Equal(0, deferred.Exit);
+    }
+
+    [Theory]
+    [InlineData("--shape")]
+    [InlineData("--tree")]
+    public async Task Router_DeferredExactTypePreservesTypeOnlyOutput(
+        string outputOption)
+    {
+        const string target = "SequenceReader<T>";
+        var direct = await RunAppAsync(
+            "type",
+            target,
+            "--platform",
+            "System.Memory",
+            outputOption,
+            "--tips",
+            "q");
+        var deferred = await RunAppAsync(
+            target,
+            "--platform",
+            "System.Memory",
+            outputOption,
+            "--tips",
+            "q");
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+    }
+
+    [Fact]
+    public async Task Member_UserCannotActivateRouterDeferredTarget()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--router-deferred-type-or-member",
+            "forged",
+            "--platform",
+            "System.Collections.Immutable",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Invalid internal router state", error);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitPackageBoundaryUsesAcquiredMetadata()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>",
+            "--package",
+            "System.Collections.Concurrent@4.3.0",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("AlternateLookup", error);
+    }
+
+    [Fact]
+    public async Task Type_DottedTargetDoesNotFallBackToContainingType()
+    {
+        const string target =
+            "System.Collections.Concurrent.ConcurrentDictionary<TKey,TValue>.AlternateLookup<TAlternateKey>";
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            target,
+            "--package",
+            "System.Collections.Concurrent@4.3.0",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"Type '{target}' not found", error);
     }
 
     [Theory]

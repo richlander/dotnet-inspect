@@ -19,6 +19,15 @@ namespace DotnetInspector.CommandLine;
 /// </summary>
 public static class RouterCommandDefinition
 {
+    internal const string DeferredTypeOrMemberOptionName =
+        "--router-deferred-type-or-member";
+
+    private static readonly string DeferredTypeOrMemberCapability =
+        Guid.NewGuid().ToString("N");
+
+    internal static bool IsDeferredTypeOrMemberCapability(string? value) =>
+        value == DeferredTypeOrMemberCapability;
+
     public static Command Create(RootCommand rootCommand, SharedOptions opts)
     {
         var routerCommand = new Command("router", "Auto-route bare input to a real command")
@@ -240,6 +249,13 @@ public static class RouterCommandDefinition
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
             bool hasExplicitApiSource = HasExplicitApiSource(tail);
+            if (hasExplicitApiSource
+                && TypeMatcher.HasExplicitGenericNotation(target)
+                && FqnParser.LastTopLevelDot(target) > 0)
+            {
+                return RouteDeferredTypeOrMember(target, tail);
+            }
+
             var exactTypeLookup = LookupExactGenericPlatformType(target);
             if (exactTypeLookup is PlatformTypeLookupOutcome.Resolved exactType)
                 return RouteExactGenericPlatformType(exactType, target, tail);
@@ -258,30 +274,14 @@ public static class RouterCommandDefinition
                 }
 
                 if (hasExplicitApiSource)
-                {
-                    return
-                    [
-                        "member",
-                        target,
-                        "--router-deferred-type-or-member",
-                        .. tail
-                    ];
-                }
+                    return RouteDeferredTypeOrMember(target, tail);
 
                 if (WritePlatformTypeLookupFailure(exactMember.Lookup))
                     return tokens;
             }
 
             if (hasExplicitApiSource && exactTypeLookup is not null)
-            {
-                return
-                [
-                    "member",
-                    target,
-                    "--router-deferred-type-or-member",
-                    .. tail
-                ];
-            }
+                return RouteDeferredTypeOrMember(target, tail);
             if (WritePlatformTypeLookupFailure(exactTypeLookup))
                 return tokens;
 
@@ -386,6 +386,17 @@ public static class RouterCommandDefinition
         private static bool ContainsOption(string[] tokens, string option)
             => tokens.Any(token => token.Equals(option, StringComparison.Ordinal)
                                    || token.StartsWith(option + "=", StringComparison.Ordinal));
+
+        private static string[] RouteDeferredTypeOrMember(
+            string target,
+            string[] tail) =>
+        [
+            "member",
+            target,
+            DeferredTypeOrMemberOptionName,
+            DeferredTypeOrMemberCapability,
+            .. tail
+        ];
 
         private static string[] FrameworkArgs(string source)
             => string.IsNullOrWhiteSpace(source) ? [] : ["--framework", source];

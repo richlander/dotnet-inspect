@@ -84,7 +84,7 @@ public class GenericTypeNameTests
     }
 
     [Theory]
-    [InlineData("List<>", "List`0")]  // Empty type params
+    [InlineData("List<>", "List<>")]  // Empty type params remain visibly malformed
     [InlineData("Bad<", "Bad<")]      // Malformed - no closing bracket
     [InlineData("Bad>", "Bad>")]      // Malformed - no opening bracket
     [InlineData(">Bad<", ">Bad<")]    // Malformed - wrong order

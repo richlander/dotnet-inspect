@@ -37,7 +37,8 @@ public static class MemberOptionsParser
         Option<string[]> CallerPackageOption,
         Option<string[]> RepoOption,
         Option<string?> AtOption,
-        Option<bool> RouterDeferredTargetOption);
+        Option<bool> ShapeOption,
+        Option<string?> RouterDeferredTargetOption);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -95,6 +96,20 @@ public static class MemberOptionsParser
             ? projectValues[0]
             : null;
         var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+        var deferredRouteValue =
+            parseResult.GetValue(args.RouterDeferredTargetOption);
+        if (deferredRouteValue is not null
+            && !RouterCommandDefinition.IsDeferredTypeOrMemberCapability(
+                deferredRouteValue))
+        {
+            return new VersionError("Invalid internal router state.");
+        }
+
+        bool routerDeferredTypeOrMember = deferredRouteValue is not null;
+        bool shapeExplicitlySet =
+            parseResult.GetResult(args.ShapeOption) is { Implicit: false };
+        if (shapeExplicitlySet && !routerDeferredTypeOrMember)
+            return new VersionError("--shape is only valid for type targets.");
 
         // Handle projection discovery or help
         if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && projectSourcePath is null)
@@ -350,6 +365,8 @@ public static class MemberOptionsParser
             SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
+            ShapeOutput = parseResult.GetValue(args.ShapeOption),
+            ShapeExplicitlySet = shapeExplicitlySet,
             Select = select,
             SelectDefault = selectDefault,
             Columns = opts.ParseColumns(parseResult),
@@ -361,8 +378,7 @@ public static class MemberOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = sourceOptions,
-            RouterDeferredTypeOrMember =
-                parseResult.GetValue(args.RouterDeferredTargetOption)
+            RouterDeferredTypeOrMember = routerDeferredTypeOrMember
         };
 
         options = options with

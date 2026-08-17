@@ -176,6 +176,11 @@ public static class TypeCommand
                 var apiDllPath = loaded.ApiDllPath;
 
                 var lookupResult = ApiTypeLookupService.LookupType(api, typeName);
+                if (lookupResult.ImpliedMember is not null)
+                {
+                    lookupResult.WriteNotFoundError();
+                    return 1;
+                }
 
                 if (lookupResult.Found)
                 {
