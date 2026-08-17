@@ -40,6 +40,17 @@ public static class MetadataSafetyPolicy
         MaxStructuralSignatureWorkChars;
 
     /// <summary>
+    /// Maximum metadata-name and type-node work used to project one MethodDef
+    /// into a member signature shape, including names from erased custom
+    /// modifiers and legacy generic-parameter compatibility. Gated by
+    /// <c>MetadataAdapter_RefusesErasedModifierAmplificationBeforeLargeAllocation</c>
+    /// and
+    /// <c>LegacyCompatibility_RefusesGenericNameAmplificationBeforeLargeAllocation</c>.
+    /// </summary>
+    public const int MaxMemberSignatureShapeWorkChars =
+        MaxStructuralSignatureWorkChars;
+
+    /// <summary>
     /// Maximum type nodes examined before decoding one metadata signature.
     /// This bounds the iterative guard stack and SRM's decoded parameter/type
     /// materialization for structurally shallow but hostile signatures. Gated by

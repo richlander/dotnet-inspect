@@ -60,6 +60,22 @@ public static class NuGetSourceResolver
     }
 
     /// <summary>
+    /// Restricts follow-on metadata or payload acquisition to an already
+    /// resolved producer set without reselecting configured aliases.
+    /// </summary>
+    public static NuGetSourceOptions RestrictToResolvedSources(
+        NuGetSourceOptions? original,
+        IReadOnlyList<NuGetSource> sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+        return (original ?? NuGetSourceOptions.Default) with
+        {
+            AuthorizedSourceKeys = [.. SourceKeys(sources)],
+            ResolvedSources = [.. sources],
+        };
+    }
+
+    /// <summary>
     /// Restricts payload or metadata fulfillment to canonical producer identities established
     /// by an earlier package acquisition.
     /// </summary>
@@ -95,9 +111,15 @@ public static class NuGetSourceResolver
 
     internal static NuGetSourceOptions? WithoutSourceRestriction(
         NuGetSourceOptions? options)
-        => options?.AuthorizedSourceKeys is null
+        => options is null
+            || options.AuthorizedSourceKeys is null
+                && options.ResolvedSources is null
             ? options
-            : options with { AuthorizedSourceKeys = null };
+            : options with
+            {
+                AuthorizedSourceKeys = null,
+                ResolvedSources = null,
+            };
 
     /// <summary>
     /// Resolves sources and reduces them to the identities the package content
@@ -154,6 +176,8 @@ public static class NuGetSourceResolver
         {
             ValidateExplicitConfig(options.ConfigFile);
         }
+        if (options.ResolvedSources is { } resolvedSources)
+            return [.. resolvedSources];
 
         IReadOnlyList<NuGetSource> configured = SourceResolver.ResolveSources(
             explicitSource: null,

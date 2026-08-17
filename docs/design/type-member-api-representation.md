@@ -58,20 +58,31 @@ of repeated in every row.
 | `MemberAnchor` | Canonical API member signature and stable selector | Which API member a persisted selector or digest denotes | Physical module identity or body-evidence identity by itself |
 | `MetadataNameArity` | One metadata-name segment, or a name in a stated nesting spelling | Whether a trailing `` `N `` is the canonical CLR generic-arity suffix, and the simple name left once it is removed | Whether the remaining name is spellable, unique, or resolvable, or where a namespace ends |
 
+#### `CSharpText`
+
+| Currency | Scope | Answers | Does not answer |
+| --- | --- | --- | --- |
+| `MemberSignatureShape` | One same-named source/metadata candidate set | Whether generic arity, parameter type shapes, and a conversion return shape discriminate one candidate | Member identity, named-type binding through using/alias context, or proof that source belongs to a MethodDef |
+| `MemberSignatureShapeResult` and `MemberSignatureCorrespondence<T>` | One shape projection or candidate comparison | Available, unique, ambiguous, or unavailable evidence without collapsing refusal into absence | Permission to treat a unique shape match as authoritative identity |
+
 #### `ILInspector.Metadata`
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | Raw MethodDef token | One independently known physical module | Which MethodDef row to address | Assembly identity or durable location by itself |
 | `TypeNode` | One API extraction operation | Rich signature facts and inputs to display or identity projections | Cross-layer public currency or definition correspondence |
+| `MetadataMemberSignatureShape` adapter | One MethodDef signature | How an SRM signature projects into the model-free `CSharpText` correspondence shape | Source binding, authoritative identity, or ordinal fallback policy |
 | `ApiType`, `ApiMember`, `ApiParameter` | Materialized, JSON-capable API output | API inventory, presentation fields, and persisted identity projections | Reader-local resolution or body identity |
 | `MemberTargetSelector` | One member-selection request | The user's member question, including overload and digest syntax | Evidence that selection succeeded |
+| `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 
 #### `DotnetInspector.Queries`
 
 | Currency | Scope | Answers | Does not answer |
 | --- | --- | --- | --- |
 | `ApiFacetDescriptor`, `ApiTypeInventoryResult`, `ApiMemberInventoryResult` | One materialized API inventory query | Stable filter identity, labels, ordering, defaults, counts, and the selected projection | Raw metadata kind or member identity |
+| `InspectionGraphMemberIdentity.AcquiredApi` | One loaded workspace context | Which acquisition registration and `MemberAnchor` own a Metadata API member subject | Portable artifact identity or body evidence |
+| `InspectionGraphTypeIdentity.AcquiredDefinition` | One loaded workspace context | Which acquisition registration and exact `MetadataTypeDefinitionName` own a type subject | Cross-context correspondence or structural signature shape |
 | `InspectionGraphAssemblyIdentity.Acquired` | One loaded workspace context | Which acquisition registration, assembly identity, and provenance own an assembly subject in a session-bound graph | Portable artifact identity or correspondence outside that acquisition |
 | `InspectionGraphPackageIdentity.Realized` | One portable inspection-graph subject | Which exact package version, producer, framework, and RID own the package subject | Assembly membership without the workspace package-boundary projection |
 
@@ -214,6 +225,9 @@ Conversions are operations with an owner, not implicit casts:
 | `ResolvedTypeDefinitionKey` | `DefinitionJoinTokenProjection` | `TypeResolutionCatalog.ProjectDefinitionJoinToken` issues a token only for a current-generation key; cross-catalog and stale keys remain typed result arms |
 | `UnresolvedBindingReference` | `UnresolvedBindingKeyProjection` | `TypeResolutionCatalog.ProjectUnresolvedBindingKey` issues a key only for a current-generation reference minted on `UnboundBinding` or genuine policy `Unavailable`; cross-catalog and stale references remain typed result arms |
 | `TypeNode` | display, canonical, XML-doc, or digest spelling | The owning projection chooses its erasure policy; no projection is recovered from another |
+| C# declaration text | `MemberSignatureShapeResult` | `CSharpText.SourceMemberSignatureShape` parses the bounded declaration header and refuses unresolved named types |
+| MethodDef signature | `MemberSignatureShapeResult` | Metadata decodes with SRM and projects positional generics, arrays, pointers, nullable/tuple shapes, and function pointers into the shared leaf model |
+| Target plus candidate signature shapes | `MemberSignatureCorrespondence<T>` | `CSharpText.MemberSignatureShapeMatcher` returns unique, ambiguous, or unavailable; one unavailable candidate prevents a false unique result |
 | `ApiMember` | `MemberAnchor` | `ApiMemberIdentity` owns canonical signature and digest construction |
 | `MemberTargetSelector` | `ResolvedMemberTarget` | `MemberTargetResolver` returns the anchor, API handle, body target, or typed diagnostic |
 | `ResolvedMemberTarget` / `MethodIdentity` | Research subject | `ResearchMemberIdentity` owns API-to-body aliasing |
@@ -221,6 +235,45 @@ Conversions are operations with an owner, not implicit casts:
 No generic converter should turn one `TypeRef` into the other, an address into
 correspondence, a display string into identity, or a `MemberAnchor` into body
 identity without the owning resolver and scope.
+
+Only canonical `mss1:` transport participates in candidate correspondence.
+Legacy signature text is accepted solely to validate an already selected
+exact-token record; it is not candidate-selection currency.
+
+Metadata projection fails closed when a generic signature header is
+noncanonical, when a MethodDef header and its owned contiguous GenericParam rows
+disagree, or when a declaring TypeDef chain's canonical name arities and
+cumulative owned rows disagree. Positional generic references must also fit
+those validated bounds. Metadata arity suffixes accept only nonzero canonical
+ASCII decimal, and function-pointer headers carrying instance, explicit-this,
+generic, or vararg semantics are unavailable because the shared shape cannot
+represent them. Multidimensional array sizes and nonzero lower bounds are
+likewise unavailable because C# array syntax carries rank but not those
+signature facts.
+An erased custom modifier is accepted only when its modifier type was decoded
+successfully. These properties are gated by
+`MetadataAdapter_RefusesGenericHeaderWithoutOwnedRows`,
+`MetadataAdapter_RefusesNonContiguousGenericParameterRows`,
+`MetadataAdapter_RefusesZeroArityGenericHeader`,
+`MetadataAdapter_RefusesMethodGenericPositionOutsideHeaderArity`,
+`MetadataAdapter_RefusesMissingDeclaringTypeGenericRows`,
+`MetadataAdapter_AllowsCumulativeNestedTypeGenericRows`,
+`MetadataAdapter_RefusesNoncanonicalTypeReferenceArity`,
+`MetadataAdapter_RefusesUnrepresentableFunctionPointerHeaders`,
+`MetadataAdapter_RefusesMultidimensionalArrayBounds`, and
+`MetadataAdapter_RefusesUnavailableErasedModifier`.
+
+One cumulative work budget covers the full metadata projection, including
+custom-modifier subtrees erased from the final shape and generic-parameter names
+read for legacy exact-token validation.
+`MetadataAdapter_RefusesErasedModifierAmplificationBeforeLargeAllocation` and
+`LegacyCompatibility_RefusesGenericNameAmplificationBeforeLargeAllocation`
+gate those properties.
+
+Source declaration parsing computes parenthesis correspondence in one bounded
+linear pass rather than rescanning nested candidate lists.
+`SourceShape_NestedParameterListCandidatesStayWithinLinearTime` gates the
+accepted-input time ceiling.
 
 ## Motivating scenarios
 

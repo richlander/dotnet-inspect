@@ -22,6 +22,14 @@ public record ExtensionMethodInfo(
     public MemberAnchor? Anchor { get; init; }
     public string? ReturnType { get; init; }
     public string? CanonicalExtendedType { get; init; }
+    internal MetadataNamedTypeReference? ReturnTypeReference { get; init; }
+    internal MetadataNamedTypeReference? ExtendedTypeReference { get; init; }
+
+    public MetadataNamedTypeReference? GetReturnTypeReference() =>
+        ReturnTypeReference;
+
+    public MetadataNamedTypeReference? GetExtendedTypeReference() =>
+        ExtendedTypeReference;
 
     // Preserve the original seven-field record contract. The structured fields
     // are derived from the same metadata and intentionally do not affect equality.
@@ -165,6 +173,10 @@ public static class ExtensionMethodScanner
                             Anchor = anchorInfo.Anchor,
                             ReturnType = anchorInfo.ReturnType,
                             CanonicalExtendedType = anchorInfo.ExtendedType,
+                            ReturnTypeReference =
+                                anchorInfo.ReturnTypeReference,
+                            ExtendedTypeReference =
+                                anchorInfo.ExtendedTypeReference,
                         };
                     }
                 }
@@ -262,6 +274,10 @@ public static class ExtensionMethodScanner
                         Anchor = anchorInfo.Anchor,
                         ReturnType = anchorInfo.ReturnType,
                         CanonicalExtendedType = anchorInfo.ExtendedType,
+                        ReturnTypeReference =
+                            anchorInfo.ReturnTypeReference,
+                        ExtendedTypeReference =
+                            anchorInfo.ExtendedTypeReference,
                     };
                 }
             }
