@@ -1290,8 +1290,8 @@ public sealed class StructuringPass : IIrPass
     {
         var survivingLabels = root.DescendantsAndSelfOutsideNestedFunctions
             .Where(static node => node.OwnsSourceLabel && node.SourceOffset >= 0)
-            .Select(static node => node.SourceOffset)
-            .ToHashSet();
+            .GroupBy(static node => node.SourceOffset)
+            .ToDictionary(static group => group.Key, static group => group.ToArray());
         var targetOffsets = retainedMerges
             .Select(index => ctx.Blocks[index].StartOffset)
             .ToHashSet();
@@ -1299,7 +1299,37 @@ public sealed class StructuringPass : IIrPass
             .OfType<Branch>()
             .Any(branch =>
                 targetOffsets.Contains(branch.TargetOffset)
-                && !survivingLabels.Contains(branch.TargetOffset));
+                && (!survivingLabels.TryGetValue(branch.TargetOffset, out var owners)
+                    || !owners.Any(owner => LabelIsVisibleFrom(owner, branch, root))));
+    }
+
+    static bool LabelIsVisibleFrom(IrNode labelOwner, IrNode branch, IrNode root)
+    {
+        Block? targetScope = EnclosingBlock(labelOwner, root);
+        Block? sourceScope = EnclosingBlock(branch, root);
+        if (targetScope is null || sourceScope is null)
+            return false;
+
+        for (IrNode? scope = sourceScope; scope is not null; scope = scope.Parent)
+        {
+            if (ReferenceEquals(scope, targetScope))
+                return true;
+            if (ReferenceEquals(scope, root))
+                break;
+        }
+        return false;
+    }
+
+    static Block? EnclosingBlock(IrNode node, IrNode root)
+    {
+        for (IrNode? ancestor = node.Parent; ancestor is not null; ancestor = ancestor.Parent)
+        {
+            if (ancestor is Block block)
+                return block;
+            if (ReferenceEquals(ancestor, root))
+                break;
+        }
+        return root as Block;
     }
 
     static bool HasOwnerBeforeRoot(IrNode node, IrNode root, Func<IrNode, bool> isOwner)
