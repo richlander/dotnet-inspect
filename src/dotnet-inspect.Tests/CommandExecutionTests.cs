@@ -993,6 +993,30 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir)
+        CreateLocalMultiLibraryIntegrationOpportunityPackage()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libDir = Path.Combine(packageRoot, "lib", "net10.0");
+        Directory.CreateDirectory(libDir);
+        string assemblyPath = typeof(Npgsql.NpgsqlConnection).Assembly.Location;
+        File.Copy(
+            assemblyPath,
+            Path.Combine(libDir, "IntegrationOpportunity.One.dll"));
+        File.Copy(
+            assemblyPath,
+            Path.Combine(libDir, "IntegrationOpportunity.Two.dll"));
+
+        var packagePath = Path.Combine(
+            tempDir,
+            "Test.MultiLibraryIntegrationOpportunity.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalLibPackage()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -18409,6 +18433,89 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageCommand_AllLibraries_RowFormats_TailWindowMatchesMarkdownRows()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--tail",
+                "--tips",
+                "q");
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--tail",
+                "--tsv",
+                "--tips",
+                "q");
+            var (jsonlExit, jsonlOutput, jsonlError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--rows",
+                "2",
+                "--tail",
+                "--jsonl",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Equal(0, tsvExit);
+            Assert.Equal(0, jsonlExit);
+
+            var markdownFields = SplitOutputLines(markdownOutput)
+                .Where(line =>
+                    line.StartsWith("| Union Types |", StringComparison.Ordinal)
+                    || line.StartsWith("| Version |", StringComparison.Ordinal))
+                .Select(line => line.Split('|')[1].Trim())
+                .ToArray();
+            var tsvFields = SplitOutputLines(tsvOutput)
+                .Skip(1)
+                .Select(line => line.Split('\t')[4])
+                .ToArray();
+            var jsonlRows = SplitOutputLines(jsonlOutput)
+                .Select(line => JsonDocument.Parse(line))
+                .ToArray();
+            var jsonlFields = jsonlRows
+                .Select(document => document.RootElement
+                    .GetProperty("field")
+                    .GetString())
+                .ToArray();
+
+            Assert.Equal(
+                ["Union Types", "Version", "Union Types", "Version"],
+                markdownFields);
+            Assert.Equal(markdownFields, tsvFields);
+            Assert.Equal(markdownFields, jsonlFields);
+            Assert.DoesNotContain("Tip:", markdownError);
+            Assert.DoesNotContain("Tip:", tsvError);
+            Assert.DoesNotContain("Tip:", jsonlError);
+
+            foreach (var document in jsonlRows)
+                document.Dispose();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_AggregateRowFormats_WindowAcrossRolledUpSection()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage(
@@ -18446,6 +18553,132 @@ public partial class CommandExecutionTests
                 int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
             Assert.Single(SplitOutputLines(tsvOutput).Skip(1));
             Assert.DoesNotContain("Tip:", countError);
+            Assert.DoesNotContain("Tip:", tsvError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregateRowFormats_WindowSameRowsAsMarkdown()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "System.Text.Json",
+            "System.Linq.Expressions");
+        try
+        {
+            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Switches",
+                "--rows",
+                "1",
+                "--tips",
+                "q");
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Switches",
+                "--rows",
+                "1",
+                "--tsv",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Equal(0, tsvExit);
+
+            var markdownRow = SplitOutputLines(markdownOutput)
+                .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+                .Skip(2)
+                .First()
+                .Split('|', StringSplitOptions.RemoveEmptyEntries)
+                .Select(cell => System.Net.WebUtility.HtmlDecode(
+                    cell.Trim().Trim('`')))
+                .ToArray();
+            var tsvRow = SplitOutputLines(tsvOutput)
+                .Skip(1)
+                .Single()
+                .Split('\t');
+            var tsvProjection = new[]
+            {
+                tsvRow[2],
+                tsvRow[4],
+                tsvRow[5],
+                tsvRow[6]
+            };
+
+            Assert.Equal(markdownRow, tsvProjection);
+            Assert.DoesNotContain("Tip:", markdownError);
+            Assert.DoesNotContain("Tip:", tsvError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_OpportunityRowFormat_WindowSameRowAsMarkdown()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalMultiLibraryIntegrationOpportunityPackage();
+        try
+        {
+            var (markdownExit, markdownOutput, markdownError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--rows",
+                "2",
+                "--tips",
+                "q");
+            var (tsvExit, tsvOutput, tsvError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--rows",
+                "2",
+                "--tsv",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Equal(0, tsvExit);
+
+            var markdownRows = SplitOutputLines(markdownOutput)
+                .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+                .Skip(2)
+                .Select(line => line
+                    .Split('|', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(cell => System.Net.WebUtility.HtmlDecode(
+                        cell.Trim().Trim('`'))))
+                .Select(cells => string.Join('\t', cells))
+                .ToArray();
+            var tsvRows = SplitOutputLines(tsvOutput)
+                .Skip(1)
+                .Select(line => line.Split('\t'))
+                .Select(row => string.Join(
+                    '\t',
+                    row[2],
+                    row[4],
+                    row[5],
+                    row[6],
+                    row[7]))
+                .ToArray();
+
+            Assert.Equal(markdownRows, tsvRows);
+            Assert.DoesNotContain("Tip:", markdownError);
             Assert.DoesNotContain("Tip:", tsvError);
         }
         finally

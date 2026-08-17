@@ -266,6 +266,10 @@ sections window the rolled-up table once. The paired
 `PackageCommand_AllLibraries_RowFormats_WindowPerLibraryLikeMarkdownCount` and
 `PackageCommand_AllLibraries_AggregateRowFormats_WindowAcrossRolledUpSection`
 tests gate both scopes and their count/row-format parity.
+`PackageCommand_AllLibraries_RowFormats_TailWindowMatchesMarkdownRows`,
+`PackageCommand_AllLibraries_AggregateRowFormats_WindowSameRowsAsMarkdown`,
+and `PackageCommand_AllLibraries_OpportunityRowFormat_WindowSameRowAsMarkdown`
+gate selected-row identity at the window boundary.
 
 A count and a range are different kinds, not two spellings of one: a count
 anchors to an end and a range does not, so `--rows 2..10 --tail` is rejected

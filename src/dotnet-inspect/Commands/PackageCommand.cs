@@ -3994,14 +3994,25 @@ public class PackageCommand
         {
             var opportunityRows = inspections
                 .SelectMany(inspection => (inspection.IntegrationOpportunities ?? [])
-                    .Select(opportunity => WithProvenance(
-                        packageName,
-                        version,
-                        inspection,
-                        opportunity.Integration,
-                        opportunity.Api,
-                        opportunity.IntegrationType,
-                        opportunity.LookFor)))
+                    .Select(opportunity => new
+                    {
+                        Inspection = inspection,
+                        Opportunity = opportunity
+                    }))
+                .OrderBy(
+                    row => row.Opportunity.Integration,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    row => CodeCell(row.Opportunity.Api),
+                    StringComparer.Ordinal)
+                .Select(row => WithProvenance(
+                    packageName,
+                    version,
+                    row.Inspection,
+                    row.Opportunity.Integration,
+                    row.Opportunity.Api,
+                    row.Opportunity.IntegrationType,
+                    row.Opportunity.LookFor))
                 .ToArray();
             return new(
                 ["Package", "Version", "Library", "TFM", "Integration", "API", "Integration Type", "Look For"],
@@ -4014,13 +4025,24 @@ public class PackageCommand
         {
             var switchRows = inspections
                 .SelectMany(inspection => inspection.SwitchInspection.PayloadsForRendering()
-                    .Select(switchInfo => WithProvenance(
-                        packageName,
-                        version,
-                        inspection,
-                        switchInfo.Kind,
-                        switchInfo.Switch,
-                        switchInfo.Api)))
+                    .Select(switchInfo => new
+                    {
+                        Inspection = inspection,
+                        SwitchInfo = switchInfo
+                    }))
+                .OrderBy(
+                    row => row.SwitchInfo.Kind,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    row => CodeCell(row.SwitchInfo.Switch),
+                    StringComparer.Ordinal)
+                .Select(row => WithProvenance(
+                    packageName,
+                    version,
+                    row.Inspection,
+                    row.SwitchInfo.Kind,
+                    row.SwitchInfo.Switch,
+                    row.SwitchInfo.Api))
                 .ToArray();
             return new(
                 ["Package", "Version", "Library", "TFM", "Kind", "Switch", "API"],
@@ -4077,6 +4099,12 @@ public class PackageCommand
                      ("Custom Attributes", info.CustomAttributes),
                      ("Deterministic", info.Deterministic ? "Yes" : "No"),
                      ("Extension Methods", info.ExtensionMethods),
+                     ("Facade", info.Facade switch
+                     {
+                         true => "Yes",
+                         false => "No",
+                         null => null
+                     }),
                      ("File Size", info.FileSize),
                      ("Informational Version", info.InformationalVersion),
                      ("Integrations", info.Integrations),
@@ -4093,6 +4121,7 @@ public class PackageCommand
                      ("Target Framework", info.TargetFramework),
                      ("Type Forwarders", info.TypeForwarders),
                      ("Types", info.Types),
+                     ("Union Types", info.UnionTypes),
                      ("Version", info.Version)
                  })
         {
