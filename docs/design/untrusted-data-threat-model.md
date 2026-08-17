@@ -406,7 +406,8 @@ attribute values. Declared custom-attribute SZArray and named-argument counts
 are checked against remaining value-blob bytes before SRM allocates builders
 from those counts, and each declared slot is charged as decode work so a
 hostile four-byte count cannot become a gigabyte-scale argument array or a
-swallowed OOM. Every bounded member-name decode and every namespace/name
+swallowed OOM. Boxed and nested SZArray encodings are depth-bounded before
+decode so a chain of tags cannot overflow the native stack. Every bounded member-name decode and every namespace/name
 segment used to resolve an attribute type is also charged before SRM
 materializes it, including names inspected only to skip an accessor,
 compiler-generated field, or hidden member. Property-accessor nullable-context
@@ -457,6 +458,7 @@ pre-decoding rejection.
 `PropertyAccessorNullableContextTypeSpec_StopsBeforeLargeAllocationAmplification`,
 `PropertyRefReturnDuplicateSeq0Attributes_StopsBeforeLargeAllocationAmplification`,
 `LegalNamedAttribute_HasBoundedUnboundedParity`,
+`DeepBoxedCustomAttribute_StopsBeforeStackOverflow`,
 `RepeatedEnumAttributeLookups_DoNotAllocateQuadratically`,
 `SeparateEnumAttributes_ReuseTheChargedTypeNameIndex`,
 `FailedEnumAttributeIndexBuild_IsCachedAndVisible`,

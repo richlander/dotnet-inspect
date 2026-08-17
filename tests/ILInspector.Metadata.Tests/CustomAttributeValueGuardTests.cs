@@ -62,6 +62,26 @@ public sealed class CustomAttributeValueGuardTests
     }
 
     [Fact]
+    public void BoxedNestingAtLimit_IsSafe()
+    {
+        using var image = Open(
+            BuildBoxedNestingImage(CustomAttributeValueGuard.MaxSerializedDepth - 1));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.True(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+    }
+
+    [Fact]
+    public void BoxedNestingJustOverLimit_IsUnsafe()
+    {
+        using var image = Open(
+            BuildBoxedNestingImage(CustomAttributeValueGuard.MaxSerializedDepth));
+        CustomAttribute attribute = FirstAttribute(image.Reader);
+        Assert.False(
+            CustomAttributeValueGuard.IsSafeToDecode(image.Reader, attribute));
+    }
+
+    [Fact]
     public void DeclaredArrayCount_IsChargedBeforeRefusal()
     {
         using var image = Open(
@@ -125,6 +145,24 @@ public sealed class CustomAttributeValueGuardTests
         var value = new BlobBuilder();
         value.WriteUInt16(1);
         value.WriteSerializedString(text);
+        value.WriteUInt16(0);
+        AddAttributedType(metadata, constructor, value);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildBoxedNestingImage(int depth)
+    {
+        var metadata = CreateMetadata("BoxedNest");
+        MemberReferenceHandle constructor = AddConstructor(
+            metadata,
+            parameters => parameters.AddParameter().Type().Object(),
+            parameterCount: 1);
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        for (int index = 0; index < depth; index++)
+            value.WriteByte(0x51);
+        value.WriteByte(0x08);
+        value.WriteInt32(1);
         value.WriteUInt16(0);
         AddAttributedType(metadata, constructor, value);
         return Serialize(metadata);

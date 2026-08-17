@@ -820,6 +820,32 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void DeepBoxedCustomAttribute_StopsBeforeStackOverflow()
+    {
+        byte[] image = BuildDeepBoxedAttributeImage(depth: 80_000);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 100_000,
+                maxMembers: 1_000_000,
+                maxInspectionFailures: 1_024,
+                maxTypeForwarders: 100_000,
+                maxMetadataRows: 250_000,
+                maxRetainedTextCharacters: 32_000_000));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+        Assert.True(
+            allocated < 64L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
     public void PropertyRefReturnDuplicateSeq0Attributes_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
@@ -2192,6 +2218,44 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 bodyOffset: -1,
                 parameter);
         }
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDeepBoxedAttributeImage(int depth)
+    {
+        var metadata = Metadata("BoxedNest");
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle attributeType = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("SampleAttribute"));
+        var constructorSignature = new BlobBuilder();
+        new BlobEncoder(constructorSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Object());
+        MemberReferenceHandle constructor = metadata.AddMemberReference(
+            attributeType,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        var value = new BlobBuilder();
+        value.WriteUInt16(1);
+        for (int index = 0; index < depth; index++)
+            value.WriteByte(0x51);
+        value.WriteByte(0x08);
+        value.WriteInt32(1);
+        value.WriteUInt16(0);
+        TypeDefinitionHandle type = AddModuleAndPublicType(metadata, "Host");
+        metadata.AddCustomAttribute(type, constructor, metadata.GetOrAddBlob(value));
         return Serialize(metadata);
     }
 

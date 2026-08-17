@@ -14,11 +14,13 @@ namespace ILInspector.Metadata;
 /// bytes can therefore request a gigabyte-scale builder. The blob-length charge
 /// on the value heap does not see that amplification.
 ///
-/// This guard walks the constructor MethodSig and value blob iteratively,
-/// refusing decode when a declared count exceeds the remaining bytes, and
-/// charging each declared slot through <c>beforeMaterialize</c> so a hostile
-/// count becomes typed truncation rather than a swallowed
-/// <c>OutOfMemoryException</c>.
+/// This guard walks the constructor MethodSig and value blob, refusing decode
+/// when a declared count exceeds the remaining bytes or when boxed / SZArray
+/// nesting exceeds <see cref="MaxSerializedDepth"/>. Declared slots are charged
+/// through <c>beforeMaterialize</c> so a hostile count becomes typed truncation
+/// rather than a swallowed <c>OutOfMemoryException</c>. Nesting is bounded so a
+/// chain of boxed tags cannot overflow the native stack the way SRM's recursive
+/// decoder would.
 /// </summary>
 public static class CustomAttributeValueGuard
 {
@@ -29,11 +31,19 @@ public static class CustomAttributeValueGuard
     public const int DeclaredSlotCharge = 16;
 
     /// <summary>
+    /// Maximum boxed / SZArray nesting allowed while skipping a value blob.
+    /// Matches <see cref="SignatureBlobGuard.DefaultMaxDepth"/>: far above legal
+    /// attributes, far below a default managed thread stack.
+    /// </summary>
+    public const int MaxSerializedDepth = SignatureBlobGuard.DefaultMaxDepth;
+
+    /// <summary>
     /// Returns <see langword="true"/> when the value blob is safe to hand to
     /// <c>DecodeValue</c>. Truncated or unrecognized blobs return
     /// <see langword="true"/> so SRM's catchable failure remains the decoder
     /// result. Returns <see langword="false"/> when a declared count would
-    /// allocate more slots than the remaining bytes can describe.
+    /// allocate more slots than the remaining bytes can describe, or when
+    /// serialized nesting exceeds <see cref="MaxSerializedDepth"/>.
     /// </summary>
     public static bool IsSafeToDecode(
         MetadataReader reader,
@@ -89,7 +99,8 @@ public static class CustomAttributeValueGuard
                 reader,
                 ref signature,
                 ref value,
-                beforeMaterialize);
+                beforeMaterialize,
+                depth: 1);
             if (result != Result.Safe)
                 return result;
         }
@@ -107,8 +118,11 @@ public static class CustomAttributeValueGuard
         MetadataReader reader,
         ref BlobReader signature,
         ref BlobReader value,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        int depth)
     {
+        if (depth > MaxSerializedDepth)
+            return Result.Unsafe;
         if (!TryReadElementType(ref signature, out byte code))
             return Result.Safe;
         while (code is ElementTypeCmodReqd or ElementTypeCmodOpt)
@@ -129,17 +143,19 @@ public static class CustomAttributeValueGuard
             ElementTypeI8 or ElementTypeU8 or ElementTypeR8
                 => SkipBytes(ref value, 8),
             ElementTypeString => SkipSerString(ref value),
-            ElementTypeObject => SkipBoxed(ref value, beforeMaterialize),
+            ElementTypeObject => SkipBoxed(ref value, beforeMaterialize, depth),
             ElementTypeSzArray => SkipSzArray(
                 reader,
                 ref signature,
                 ref value,
-                beforeMaterialize),
+                beforeMaterialize,
+                depth),
             ElementTypeClass or ElementTypeValueType => SkipNamedType(
                 reader,
                 signature.ReadTypeHandle(),
                 ref value,
-                beforeMaterialize),
+                beforeMaterialize,
+                depth),
             _ => Result.Unsafe,
         };
     }
@@ -148,8 +164,11 @@ public static class CustomAttributeValueGuard
         MetadataReader reader,
         ref BlobReader signature,
         ref BlobReader value,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        int depth)
     {
+        if (depth > MaxSerializedDepth)
+            return Result.Unsafe;
         int elementStart = signature.Offset;
         if (!TrySkipSignatureType(ref signature))
             return Result.Safe;
@@ -173,7 +192,8 @@ public static class CustomAttributeValueGuard
                 reader,
                 ref signature,
                 ref value,
-                beforeMaterialize);
+                beforeMaterialize,
+                depth + 1);
             if (result != Result.Safe)
             {
                 signature.Offset = elementEnd;
@@ -189,30 +209,37 @@ public static class CustomAttributeValueGuard
         MetadataReader reader,
         EntityHandle handle,
         ref BlobReader value,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        int depth)
     {
         if (IsSystemNamedType(reader, handle, "String")
             || IsSystemNamedType(reader, handle, "Type"))
             return SkipSerString(ref value);
         if (IsSystemNamedType(reader, handle, "Object"))
-            return SkipBoxed(ref value, beforeMaterialize);
+            return SkipBoxed(ref value, beforeMaterialize, depth);
         return SkipBytes(ref value, EnumUnderlyingSize(reader, handle));
     }
 
     static Result SkipBoxed(
         ref BlobReader value,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        int depth)
     {
+        if (depth > MaxSerializedDepth)
+            return Result.Unsafe;
         if (!TryReadElementType(ref value, out byte code))
             return Result.Safe;
-        return SkipSerialized(code, ref value, beforeMaterialize);
+        return SkipSerialized(code, ref value, beforeMaterialize, depth);
     }
 
     static Result SkipSerialized(
         byte code,
         ref BlobReader value,
-        Action<int>? beforeMaterialize)
+        Action<int>? beforeMaterialize,
+        int depth)
     {
+        if (depth > MaxSerializedDepth)
+            return Result.Unsafe;
         switch (code)
         {
             case ElementTypeBoolean:
@@ -235,7 +262,7 @@ public static class CustomAttributeValueGuard
             case SerializedType:
                 return SkipSerString(ref value);
             case SerializedBoxed:
-                return SkipBoxed(ref value, beforeMaterialize);
+                return SkipBoxed(ref value, beforeMaterialize, depth + 1);
             case SerializedEnum:
             {
                 Result name = SkipSerString(ref value);
@@ -262,7 +289,8 @@ public static class CustomAttributeValueGuard
                     Result result = SkipSerialized(
                         element,
                         ref value,
-                        beforeMaterialize);
+                        beforeMaterialize,
+                        depth + 1);
                     if (result != Result.Safe)
                         return result;
                 }
