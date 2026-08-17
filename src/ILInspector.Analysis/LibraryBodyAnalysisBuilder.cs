@@ -32,6 +32,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly AssemblyReferenceIdentity _assemblyIdentity;
     readonly object _asyncSiblingLookupCacheGate = new();
+    readonly object _asyncSiblingMethodsByNameGate = new();
     readonly object _externalAsyncSiblingResolutionGate = new();
     readonly Dictionary<
         (

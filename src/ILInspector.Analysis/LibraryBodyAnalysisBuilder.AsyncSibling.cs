@@ -124,22 +124,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         }
         if (lookup is null)
             return null;
-        if ((lookup.SynchronousAttributes & MethodAttributes.Static) == 0
-            && SourceDerivesFrom(
-                asyncSource.MetadataToken,
-                lookup.SynchronousReader,
-                lookup.SynchronousDeclaringType)
-                == TypeRelation.Yes
-            && SourceLookupHidesInheritedSibling(
-                asyncSource.MetadataToken,
-                lookup.SynchronousReader,
-                lookup.SynchronousDeclaringType,
-                lookup.Callee.Name + "Async"))
+        if (InheritedReceiverLookupIsUnproven(
+                lookup,
+                asyncSource))
         {
-            // The IL method token records the defining type, not the C# receiver
-            // lookup type. A nearer derived NameAsync can therefore hide this
-            // candidate, and the erased receiver type cannot be reconstructed
-            // reliably here.
             return null;
         }
 
@@ -185,92 +173,111 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         return bestIsAmbiguous ? null : best;
     }
 
+    bool InheritedReceiverLookupIsUnproven(
+        AsyncSiblingLookup lookup,
+        MethodIdentity asyncSource)
+    {
+        if ((lookup.SynchronousAttributes & MethodAttributes.Static) != 0
+            || SameTypeDefinition(
+                lookup.Callee.DeclaringType,
+                asyncSource.DeclaringType))
+        {
+            return false;
+        }
+
+        TypeAttributes attributes =
+            lookup.SynchronousReader.GetTypeDefinition(
+                    lookup.SynchronousDeclaringType)
+                .Attributes;
+        if ((attributes
+                & (TypeAttributes.Sealed | TypeAttributes.Interface)) != 0)
+        {
+            return false;
+        }
+
+        int separator = asyncSource.Name.LastIndexOf('.');
+        string sourceName = separator < 0
+            ? asyncSource.Name
+            : asyncSource.Name[(separator + 1)..];
+        if (sourceName == lookup.Callee.Name + "Async")
+            return false;
+
+        return SourceDerivesFrom(
+                asyncSource.MetadataToken,
+                lookup.SynchronousReader,
+                lookup.SynchronousDeclaringType)
+                != TypeRelation.Yes
+            || SourceLookupHidesInheritedSibling(
+                asyncSource.MetadataToken,
+                lookup.SynchronousReader,
+                lookup.SynchronousDeclaringType,
+                lookup.Callee.Name + "Async");
+    }
+
     bool SourceLookupHidesInheritedSibling(
         int sourceMethodToken,
         MetadataReader synchronousReader,
         TypeDefinitionHandle synchronousType,
         string candidateName)
     {
-        try
-        {
-            EntityHandle sourceHandle =
-                MetadataTokens.EntityHandle(sourceMethodToken);
-            if (sourceHandle.Kind != HandleKind.MethodDefinition)
-                return true;
+        EntityHandle sourceHandle =
+            MetadataTokens.EntityHandle(sourceMethodToken);
+        if (sourceHandle.Kind != HandleKind.MethodDefinition)
+            return true;
 
-            MetadataReader currentReader = _reader;
-            TypeDefinitionHandle current =
-                _reader.GetMethodDefinition(
-                        (MethodDefinitionHandle)sourceHandle)
-                    .GetDeclaringType();
-            bool sourceMethodOwnsCandidateName = false;
-            var visited =
-                new Dictionary<MetadataReader, HashSet<int>>(
-                    ReferenceEqualityComparer.Instance);
-            int visitedCount = 0;
-            while (visitedCount
-                < MetadataSafetyPolicy.MaxRelationshipNodes)
-            {
-                TypeRelation relation = TypeDefinitionRelation(
+        MetadataReader currentReader = _reader;
+        TypeDefinitionHandle current =
+            _reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)sourceHandle)
+                .GetDeclaringType();
+        var visited =
+            new Dictionary<MetadataReader, HashSet<int>>(
+                ReferenceEqualityComparer.Instance);
+        int visitedCount = 0;
+        while (visitedCount
+            < MetadataSafetyPolicy.MaxRelationshipNodes)
+        {
+            TypeRelation relation = TypeDefinitionRelation(
+                currentReader,
+                current,
+                synchronousReader,
+                synchronousType);
+            if (relation == TypeRelation.Yes)
+                return false;
+            if (relation == TypeRelation.Unknown
+                || !TryVisitTypeDefinition(
+                    visited,
                     currentReader,
                     current,
-                    synchronousReader,
-                    synchronousType);
-                if (relation == TypeRelation.Yes)
-                    return false;
-                if (relation == TypeRelation.Unknown
-                    || !TryVisitTypeDefinition(
-                        visited,
-                        currentReader,
-                        current,
-                        ref visitedCount))
-                {
-                    return true;
-                }
-
-                if (AsyncSiblingMethodsByName(
-                        currentReader,
-                        current)
-                    .TryGetValue(
-                        candidateName,
-                        out ImmutableArray<MethodDefinitionHandle>
-                            namedMethods))
-                {
-                    if (ReferenceEquals(currentReader, _reader)
-                        && namedMethods.Contains(
-                            (MethodDefinitionHandle)sourceHandle))
-                    {
-                        // Preserve explicit base calls made by the async
-                        // sibling implementation itself.
-                        sourceMethodOwnsCandidateName = true;
-                    }
-                    else if (!sourceMethodOwnsCandidateName)
-                    {
-                        return true;
-                    }
-                }
-
-                EntityHandle baseHandle =
-                    currentReader.GetTypeDefinition(current).BaseType;
-                if (baseHandle.IsNil)
-                    return true;
-                TypeRef baseType = DecodeType(
-                    currentReader,
-                    baseHandle);
-                if (TryResolveTypeDefinition(
-                        currentReader,
-                        baseType)
-                    is not { } resolvedBase)
-                {
-                    return true;
-                }
-                currentReader = resolvedBase.DefiningReader;
-                current = resolvedBase.Definition;
+                    ref visitedCount))
+            {
+                return true;
             }
-        }
-        catch (Exception ex)
-            when (IsRecoverableMethodFailure(ex))
-        {
+
+            if (AsyncSiblingMethodsByName(
+                    currentReader,
+                    current)
+                .ContainsKey(candidateName))
+            {
+                return true;
+            }
+
+            EntityHandle baseHandle =
+                currentReader.GetTypeDefinition(current).BaseType;
+            if (baseHandle.IsNil)
+                return true;
+            TypeRef baseType = DecodeType(
+                currentReader,
+                baseHandle);
+            if (TryResolveTypeDefinition(
+                    currentReader,
+                    baseType)
+                is not { } resolvedBase)
+            {
+                return true;
+            }
+            currentReader = resolvedBase.DefiningReader;
+            current = resolvedBase.Definition;
         }
         return true;
     }
@@ -3383,57 +3390,60 @@ internal sealed partial class LibraryBodyAnalysisBuilder
         }
     }
 
-    IReadOnlyDictionary<
+    internal IReadOnlyDictionary<
         string,
         ImmutableArray<MethodDefinitionHandle>>
         AsyncSiblingMethodsByName(
             MetadataReader reader,
             TypeDefinitionHandle typeHandle)
     {
-        if (!_asyncSiblingMethodsByName.TryGetValue(
-                reader,
-                out Dictionary<
-                    TypeDefinitionHandle,
-                    IReadOnlyDictionary<
-                        string,
-                        ImmutableArray<MethodDefinitionHandle>>>?
-                    byType))
+        lock (_asyncSiblingMethodsByNameGate)
         {
-            byType = [];
-            _asyncSiblingMethodsByName.Add(reader, byType);
-        }
-        if (byType.TryGetValue(typeHandle, out var methods))
-            return methods;
-
-        var builders = new Dictionary<
-            string,
-            ImmutableArray<MethodDefinitionHandle>.Builder>(
-                StringComparer.Ordinal);
-        foreach (MethodDefinitionHandle methodHandle
-            in reader.GetTypeDefinition(typeHandle).GetMethods())
-        {
-            _asyncSiblingMethodScanned?.Invoke(
-                reader,
-                methodHandle);
-            string name = reader.GetString(
-                reader.GetMethodDefinition(methodHandle).Name);
-            if (!builders.TryGetValue(name, out var named))
+            if (!_asyncSiblingMethodsByName.TryGetValue(
+                    reader,
+                    out Dictionary<
+                        TypeDefinitionHandle,
+                        IReadOnlyDictionary<
+                            string,
+                            ImmutableArray<MethodDefinitionHandle>>>?
+                        byType))
             {
-                named = ImmutableArray.CreateBuilder<
-                    MethodDefinitionHandle>();
-                builders.Add(name, named);
+                byType = [];
+                _asyncSiblingMethodsByName.Add(reader, byType);
             }
-            named.Add(methodHandle);
-        }
+            if (byType.TryGetValue(typeHandle, out var methods))
+                return methods;
 
-        var result = new Dictionary<
-            string,
-            ImmutableArray<MethodDefinitionHandle>>(
-                builders.Count,
-                StringComparer.Ordinal);
-        foreach (var pair in builders)
-            result.Add(pair.Key, pair.Value.ToImmutable());
-        byType.Add(typeHandle, result);
-        return result;
+            var builders = new Dictionary<
+                string,
+                ImmutableArray<MethodDefinitionHandle>.Builder>(
+                    StringComparer.Ordinal);
+            foreach (MethodDefinitionHandle methodHandle
+                in reader.GetTypeDefinition(typeHandle).GetMethods())
+            {
+                _asyncSiblingMethodScanned?.Invoke(
+                    reader,
+                    methodHandle);
+                string name = reader.GetString(
+                    reader.GetMethodDefinition(methodHandle).Name);
+                if (!builders.TryGetValue(name, out var named))
+                {
+                    named = ImmutableArray.CreateBuilder<
+                        MethodDefinitionHandle>();
+                    builders.Add(name, named);
+                }
+                named.Add(methodHandle);
+            }
+
+            var result = new Dictionary<
+                string,
+                ImmutableArray<MethodDefinitionHandle>>(
+                    builders.Count,
+                    StringComparer.Ordinal);
+            foreach (var pair in builders)
+                result.Add(pair.Key, pair.Value.ToImmutable());
+            byType.Add(typeHandle, result);
+            return result;
+        }
     }
 }

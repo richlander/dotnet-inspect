@@ -740,12 +740,12 @@ public sealed class TypeResolutionContext : IDisposable
     readonly Dictionary<
         AssemblyAcquisitionRegistration,
         ResolvedAssemblyReference> _descriptors;
-    readonly ImmutableDictionary<RequestKey, TypeResolutionOutcome> _outcomes;
-    readonly ImmutableDictionary<
+    ImmutableDictionary<RequestKey, TypeResolutionOutcome> _outcomes;
+    ImmutableDictionary<
         TypeResolutionManifestKey,
         TypeResolutionOutcome> _projectionFailures;
-    readonly ImmutableDictionary<BindingKey, AssemblyBindingOutcome> _bindings;
-    readonly ImmutableDictionary<AssemblyCandidateId, AssemblyInventorySnapshot>
+    ImmutableDictionary<BindingKey, AssemblyBindingOutcome> _bindings;
+    ImmutableDictionary<AssemblyCandidateId, AssemblyInventorySnapshot>
         _inventories;
     bool _disposed;
 
@@ -1257,6 +1257,21 @@ public sealed class TypeResolutionContext : IDisposable
             if (_disposed)
                 return;
             _disposed = true;
+            _candidates.Clear();
+            _registrationFailures.Clear();
+            _descriptors.Clear();
+            _outcomes =
+                ImmutableDictionary<RequestKey, TypeResolutionOutcome>.Empty;
+            _projectionFailures =
+                ImmutableDictionary<
+                    TypeResolutionManifestKey,
+                    TypeResolutionOutcome>.Empty;
+            _bindings =
+                ImmutableDictionary<BindingKey, AssemblyBindingOutcome>.Empty;
+            _inventories =
+                ImmutableDictionary<
+                    AssemblyCandidateId,
+                    AssemblyInventorySnapshot>.Empty;
         }
 
         if (_ownsCatalog)

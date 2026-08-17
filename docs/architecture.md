@@ -787,7 +787,9 @@ Research overlay bridge, and the application layer:
   end-to-end sides of that ownership contract;
   `DisposedCatalog_ReleasesLatestCandidateImages` gates release of frozen
   generation and correspondence-cache image roots while a disposed catalog
-  remains referenced.
+  remains referenced;
+  `DisposedContext_ReleasesCandidateImages` gates the corresponding frozen
+  context roots.
   `CrossAssemblyMetadataResolver_FollowsForwardersToDefiningAssembly` and
   `ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope` gate its
   forwarder and binding-scope behavior.
@@ -802,12 +804,16 @@ Research overlay bridge, and the application layer:
   discovery is cached by exact callee identity, while accessibility and
   dispatch suppression remain source-dependent;
   `OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce` gates the
-  per-type method index that bounds distinct-callee discovery, and
+  per-type method index that bounds distinct-callee discovery;
+  `AsyncSiblingMethodIndex_ConcurrentReadsBuildTypeOnce` gates synchronized
+  index publication during parallel body analysis, and
   `OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel` gates
   constructed base traversal, generic substitution, name hiding, and inherited
   accessibility;
   `OptimizationOpportunities_InheritedSynchronousReceiverHidingFailsClosed`
-  gates the erased receiver boundary for inherited synchronous definitions.
+  gates the erased receiver boundary for inherited synchronous definitions:
+  unsealed concrete receiver types fail closed unless the source method itself
+  is the async sibling implementation.
   Constructed generic type relationships preserve DAG sharing and bound
   structural identity, comparison, and finding-display work;
   `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,

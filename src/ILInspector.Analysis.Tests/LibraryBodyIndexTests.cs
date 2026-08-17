@@ -274,6 +274,59 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public async Task AsyncSiblingMethodIndex_ConcurrentReadsBuildTypeOnce()
+    {
+        string path = typeof(OptimizationOpportunityFixtures)
+            .Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle fixtureType = reader.TypeDefinitions.Single(
+            handle => reader.StringComparer.Equals(
+                reader.GetTypeDefinition(handle).Name,
+                nameof(OptimizationOpportunityFixtures)));
+        int methodCount = reader.GetTypeDefinition(fixtureType)
+            .GetMethods()
+            .Count;
+        int scanned = 0;
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            reader,
+            peReader,
+            asyncSiblingMethodScanned: (definingReader, handle) =>
+            {
+                if (ReferenceEquals(definingReader, reader)
+                    && definingReader.GetMethodDefinition(handle)
+                        .GetDeclaringType() == fixtureType)
+                {
+                    Interlocked.Increment(ref scanned);
+                    Thread.Sleep(1);
+                }
+            });
+        using var start = new ManualResetEventSlim();
+        Task<IReadOnlyDictionary<
+            string,
+            ImmutableArray<MethodDefinitionHandle>>>[] reads =
+            Enumerable.Range(0, 16)
+                .Select(_ => Task.Run(() =>
+                {
+                    start.Wait(TestContext.Current.CancellationToken);
+                    return builder.AsyncSiblingMethodsByName(
+                        reader,
+                        fixtureType);
+                }, TestContext.Current.CancellationToken))
+                .ToArray();
+
+        start.Set();
+        await Task.WhenAll(reads);
+
+        Assert.Equal(methodCount, scanned);
+        Assert.All(
+            reads,
+            read => Assert.Same(reads[0].Result, read.Result));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel()
     {
         var index = LibraryBodyIndex.Open(
@@ -371,7 +424,7 @@ public class LibraryBodyIndexTests
                 && opportunity.Method.DeclaringType.Name
                     == nameof(
                         HiddenInheritedSynchronousSiblingDerived));
-        Assert.Contains(
+        Assert.DoesNotContain(
             opportunities,
             opportunity => opportunity.Method.Name
                     == nameof(
@@ -380,6 +433,24 @@ public class LibraryBodyIndexTests
                 && opportunity.Method.DeclaringType.Name
                     == nameof(
                         InheritedSynchronousSiblingConsumer));
+        Assert.DoesNotContain(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        InheritedSynchronousDerivedReceiverConsumer
+                            .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        InheritedSynchronousDerivedReceiverConsumer));
+        Assert.Contains(
+            opportunities,
+            opportunity => opportunity.Method.Name
+                    == nameof(
+                        SealedSynchronousSiblingConsumer
+                            .AnalyzeAsync)
+                && opportunity.Method.DeclaringType.Name
+                    == nameof(
+                        SealedSynchronousSiblingConsumer));
     }
 
     [Fact]
@@ -11872,6 +11943,34 @@ public static class InheritedSynchronousSiblingConsumer
 {
     public static async Task<int> AnalyzeAsync(
         InheritedSynchronousSiblingBase value)
+    {
+        await Task.Yield();
+        return value.Read(1);
+    }
+}
+
+public static class InheritedSynchronousDerivedReceiverConsumer
+{
+    public static async Task<int> AnalyzeAsync(
+        HiddenInheritedSynchronousSiblingDerived value)
+    {
+        await Task.Yield();
+        return value.Read(1);
+    }
+}
+
+public sealed class SealedSynchronousSiblingService
+{
+    public int Read(int value) => value;
+
+    public Task<int> ReadAsync(int value)
+        => Task.FromResult(value);
+}
+
+public static class SealedSynchronousSiblingConsumer
+{
+    public static async Task<int> AnalyzeAsync(
+        SealedSynchronousSiblingService value)
     {
         await Task.Yield();
         return value.Read(1);

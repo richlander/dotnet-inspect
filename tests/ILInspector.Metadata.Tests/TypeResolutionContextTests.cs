@@ -2341,6 +2341,23 @@ public class TypeResolutionContextTests
         GC.KeepAlive(catalog);
     }
 
+    [Fact]
+    public void DisposedContext_ReleasesCandidateImages()
+    {
+        (TypeResolutionContext context, WeakReference image) =
+            CreateDisposedContextWithWeakImage();
+
+        for (int attempt = 0; attempt < 3 && image.IsAlive; attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+
+        Assert.False(image.IsAlive);
+        GC.KeepAlive(context);
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     static (TypeResolutionCatalog Catalog, WeakReference Image)
         CreateDisposedCatalogWithWeakImage()
@@ -2364,6 +2381,30 @@ public class TypeResolutionContextTests
         }
         catalog.Dispose();
         return (catalog, weakImage);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static (TypeResolutionContext Context, WeakReference Image)
+        CreateDisposedContextWithWeakImage()
+    {
+        byte[] image = BuildAssembly("Definitions", definesType: true);
+        var weakImage = new WeakReference(image);
+        ResolvedAssemblyReference assembly = Descriptor(image);
+        TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
+            assembly,
+            AssemblyResolutionScope.Any,
+            TypeName());
+        var catalog = new TypeResolutionCatalog();
+        TypeResolutionContext context = catalog.CreateContext(
+            new RecordingPolicy(
+                _ => AssemblyBindingSelection.NotFound()),
+            [assembly],
+            [request]);
+        Assert.IsType<TypeResolutionOutcome.Resolved>(
+            context.Resolve(request));
+        context.Dispose();
+        catalog.Dispose();
+        return (context, weakImage);
     }
 
     [Fact]
