@@ -7477,7 +7477,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Discover_FilteredUnsafeMembers_PreservesBodyOnlyApplicabilityWithoutExecutingScanner()
+    public async Task Discover_FilteredUnsafeMembers_PreservesBodyOnlyApplicabilityWithoutExecutingQuery()
     {
         string assemblyPath = typeof(InstructionProducer).Assembly.Location;
         var (renderExit, renderOutput, renderError) = await RunAppAsync(
@@ -7503,7 +7503,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
         Assert.Contains("trace: library", error);
-        Assert.DoesNotContain(LibrarySections.ScannerUnsafeMembers, error);
+        Assert.DoesNotContain(UnsafeEvidenceQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
     }
 
@@ -16736,10 +16736,13 @@ public partial class CommandExecutionTests
         // would only make the test slower, never wrong.
         string[] bodyIndexScanners =
         [
-            LibrarySections.ScannerUnsafeMembers,
             LibrarySections.ScannerTopLeverage,
             LibrarySections.ScannerOptimizationOpportunities,
             LibrarySections.ScannerResourceTriage,
+        ];
+        InspectionQueryDefinition[] bodyIndexQueries =
+        [
+            UnsafeEvidenceQuery.Definition,
         ];
 
         // A coordinate-scoped section cannot be selected without its coordinate: "Metadata: Heap"
@@ -16766,7 +16769,9 @@ public partial class CommandExecutionTests
         var scannerNames = pipeline.ScannerBoundSections
             .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
             .Select(b => b.Name);
-        var queryNames = pipeline.QueryBoundSections.Select(b => b.Name);
+        var queryNames = pipeline.QueryBoundSections
+            .Where(b => !bodyIndexQueries.Contains(b.Query))
+            .Select(b => b.Name);
         var names = scannerNames
             .Concat(queryNames)
             .Where(n => !coordinateScoped.Contains(n, StringComparer.Ordinal))
@@ -17384,6 +17389,225 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Contains("not found", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Bare <c>-S</c> must remain the fixed overview after package inspection delegates to the
+    /// all-libraries path. The count map names the complete request, while the rendered headings
+    /// prove that the same preset reached effective-section selection and data collection.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_BareSelectCount_MapDescribesBareSelectRender()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "System.Text.Json",
+            "System.Collections");
+        try
+        {
+            var (renderExit, renderOutput, renderError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "--tips", "q");
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "--count", "--tips", "q");
+
+            Assert.Equal(0, renderExit);
+            Assert.Equal(0, countExit);
+            Assert.DoesNotContain("Tip:", renderError);
+            Assert.DoesNotContain("Tip:", countError);
+
+            var rendered = renderOutput.ReplaceLineEndings("\n").Split('\n')
+                .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+                .Select(line =>
+                {
+                    var heading = line[3..].Trim();
+                    var provenance = heading.IndexOf(" (", StringComparison.Ordinal);
+                    return provenance >= 0 ? heading[..provenance] : heading;
+                })
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var mapped = countOutput.ReplaceLineEndings("\n").Split('\n')
+                .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+                .Select(line => line.Split('|'))
+                .Where(cells => cells.Length > 2)
+                .Select(cells => (
+                    Section: cells[1].Trim(),
+                    Count: cells[2].Trim()))
+                .Where(row => row.Section.Length > 0
+                    && row.Section != "Section"
+                    && !row.Section.StartsWith('-'))
+                .ToDictionary(
+                    row => row.Section,
+                    row => int.Parse(
+                        row.Count,
+                        CultureInfo.InvariantCulture),
+                    StringComparer.OrdinalIgnoreCase);
+            var renderedCounts = CountOutput
+                .CountMarkdownTableRowsBySection(renderOutput)
+                .GroupBy(
+                    row =>
+                    {
+                        var provenance = row.Key.IndexOf(
+                            " (",
+                            StringComparison.Ordinal);
+                        return provenance >= 0
+                            ? row.Key[..provenance]
+                            : row.Key;
+                    },
+                    StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Sum(row => row.Value),
+                    StringComparer.OrdinalIgnoreCase);
+
+            var expected = LibrarySections.CreatePipeline().BareSelectSectionNames;
+            Assert.Equal(expected.Order(), rendered.Order());
+            Assert.Equal(expected.Order(), mapped.Keys.Order());
+            foreach (var section in expected)
+            {
+                Assert.True(
+                    renderedCounts.TryGetValue(
+                        section,
+                        out var renderedCount),
+                    $"{section} must render in this fixture.");
+                Assert.True(
+                    renderedCount > 0,
+                    $"{section} must render rows in this fixture.");
+                Assert.Equal(
+                    renderedCount,
+                    mapped[section]);
+            }
+
+            foreach (var format in new[]
+                     {
+                         "--json",
+                         "--table",
+                         "--tsv",
+                         "--jsonl",
+                     })
+            {
+                var (formattedExit, formattedOutput, formattedError) =
+                    await RunAppAsync(
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "-S",
+                        "--count",
+                        format,
+                        "--tips",
+                        "q");
+
+                Assert.Equal(0, formattedExit);
+                Assert.Equal(countOutput, formattedOutput);
+                Assert.DoesNotContain(
+                    "unprojected output",
+                    formattedError,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            var (categoryExit, categoryOutput, categoryError) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    SectionCategoryNames.Library,
+                    "--count",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, categoryExit);
+            Assert.Contains("| Section | Count |", categoryOutput);
+            foreach (var section in LibrarySections
+                         .CreatePipeline()
+                         .GetCategoryMap()[SectionCategoryNames.Library])
+            {
+                Assert.Contains($"| {section} |", categoryOutput);
+            }
+            Assert.DoesNotContain(
+                CountOutput.SingleSectionRequiredMessage,
+                categoryError);
+
+            var (metadataExit, metadataOutput, metadataError) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    SectionCategoryNames.Metadata,
+                    "--count",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, metadataExit);
+            Assert.DoesNotContain(
+                $"| {MetadataSectionNames.Heap} |",
+                metadataOutput);
+            var metadataImageRow = metadataOutput
+                .ReplaceLineEndings("\n")
+                .Split('\n')
+                .Single(line => line.StartsWith(
+                    $"| {MetadataSectionNames.Image} |",
+                    StringComparison.Ordinal));
+            var metadataImageCount = int.Parse(
+                metadataImageRow.Split('|')[2].Trim(),
+                CultureInfo.InvariantCulture);
+            var (metadataImageRenderExit, metadataImageRender, _) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    MetadataSectionNames.Image,
+                    "--tips",
+                    "q");
+            Assert.Equal(0, metadataImageRenderExit);
+            Assert.Equal(
+                CountOutput.CountMarkdownTableRows(
+                    metadataImageRender),
+                metadataImageCount);
+            Assert.Contains(
+                $"## {MetadataSectionNames.Image} (ref/",
+                metadataImageRender);
+            Assert.Equal(
+                2,
+                metadataImageRender
+                    .ReplaceLineEndings("\n")
+                    .Split('\n')
+                    .Count(line => line.StartsWith(
+                        $"## {MetadataSectionNames.Image} (",
+                        StringComparison.Ordinal)));
+            Assert.DoesNotContain(
+                "unprojected output",
+                metadataError,
+                StringComparison.OrdinalIgnoreCase);
+
+            var (emptyExit, emptyOutput, emptyError) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    $"{SectionNames.IdentifierConfusion},{SectionNames.NonNormalizedPaths}",
+                    "--count",
+                    "--json",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, emptyExit);
+            Assert.Contains(
+                $"| {SectionNames.IdentifierConfusion} | 0 |",
+                emptyOutput);
+            Assert.Contains(
+                $"| {SectionNames.NonNormalizedPaths} | 0 |",
+                emptyOutput);
+            Assert.DoesNotContain(
+                "unprojected output",
+                emptyError,
+                StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

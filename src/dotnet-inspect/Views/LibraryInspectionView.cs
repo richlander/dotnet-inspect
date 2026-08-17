@@ -769,19 +769,13 @@ public class LibraryInspectionView
 
     [MarkoutIgnore]
     public bool HasUnsafeMembers =>
-        _data.UnsafeMembers is { Count: > 0 }
+        (_data.UnsafeEvidenceInspection is null
+            ? _data.UnsafeMembers is { Count: > 0 }
+            : _data.UnsafeEvidenceInspection.HasFindings())
         || _data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded;
 
     [MarkoutSection(Name = "Unsafe Members", ShowWhenProperty = nameof(HasUnsafeMembers))]
-    public List<UnsafeMemberRow>? UnsafeMembersSection =>
-        (_data.UnsafeMembers ?? [])
-            .OrderBy(m => m.Member, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.IL, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Reason, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(m => m.Detail, StringComparer.OrdinalIgnoreCase)
-            .Select(m => new UnsafeMemberRow(
-                MarkoutInline.Code(m.Member), m.Reason, MarkoutInline.Code(m.Detail), m.Kind,
-                m.IL is null ? null : MarkoutInline.Code(m.IL), m.Token is null ? null : MarkoutInline.Code(m.Token)))
+    public List<UnsafeMemberRow>? UnsafeMembersSection => UnsafeMemberRows()
             .Concat(_data.UnsafeSignatureDecodeStatus is SignatureDecodeStatus.Degraded
                 ? [new UnsafeMemberRow(
                     MarkoutInline.Code("signature scan"),
@@ -792,6 +786,41 @@ public class LibraryInspectionView
                     null)]
                 : [])
             .ToList();
+
+    private IEnumerable<UnsafeMemberRow> UnsafeMemberRows()
+    {
+        if (_data.UnsafeEvidenceInspection is not null)
+        {
+            return _data.UnsafeEvidenceInspection.PayloadsForRendering()
+                .OrderBy(
+                    evidence => ApiOutputFormatter.FormatMethod(evidence.Member),
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(
+                    evidence => evidence.ILOffset is { } offset
+                        ? $"IL_{offset:X4}"
+                        : null,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(evidence => evidence.Reason, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(evidence => evidence.Detail, StringComparer.OrdinalIgnoreCase)
+                .Select(evidence =>
+                    ApiOutputFormatter.ToUnsafeMemberRow(
+                        evidence,
+                        includeDeclaringType: true));
+        }
+
+        return (_data.UnsafeMembers ?? [])
+            .OrderBy(m => m.Member, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(m => m.IL, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(m => m.Reason, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(m => m.Detail, StringComparer.OrdinalIgnoreCase)
+            .Select(m => new UnsafeMemberRow(
+                MarkoutInline.Code(m.Member),
+                m.Reason,
+                MarkoutInline.Code(m.Detail),
+                m.Kind,
+                m.IL is null ? null : MarkoutInline.Code(m.IL),
+                m.Token is null ? null : MarkoutInline.Code(m.Token)));
+    }
 
     public bool HasTopLeverage => _data.TopLeverage is { Count: > 0 };
 

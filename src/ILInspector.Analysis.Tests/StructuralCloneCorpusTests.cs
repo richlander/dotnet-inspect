@@ -24,13 +24,16 @@ public class StructuralCloneCorpusTests
         Assert.True(
             report.Success,
             StructuralCloneCorpus.Format(report));
-        Assert.Equal(6, report.Total);
+        Assert.Equal(10, report.Total);
         Assert.True(report.Discovery.Passed);
         Assert.Equal(
             StructuralCloneDiscoveryDisposition.Completed,
             report.Discovery.Disposition);
         Assert.Equal(4, report.Discovery.ExpectedClusters.Length);
         Assert.Equal(4, report.Discovery.ActualClusters.Length);
+        Assert.Contains(
+            "Completed/Near (Unique alignment): edits blocks +0/-0/~1, operations +0/-0/~1, edges +0/-0/~0",
+            StructuralCloneCorpus.Format(report));
     }
 
     [Fact]
@@ -140,6 +143,7 @@ public class StructuralCloneCorpusTests
                 different with
                 {
                     ExpectedRelation = StructuralCloneRelation.Exact,
+                    ExpectedEdits = null,
                 }),
         };
 
@@ -158,7 +162,7 @@ public class StructuralCloneCorpusTests
         const string Invalid =
             """
             {
-              "schemaVersion": 2,
+              "schemaVersion": 3,
               "cases": [{
                 "id": "invalid",
                 "left": { "type": "T", "method": "A" },

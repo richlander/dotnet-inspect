@@ -111,9 +111,31 @@ contract around these atoms: `SameStackSlot` proves only one compiler spill
 within a pass-owned lowering shape; it is not a whole-method identity claim for a
 slot number. Reused evaluation-stack positions are allowed to carry unrelated C#
 types across disjoint straight-line live ranges. Earlier passes should consume
-their owned ranges before `StackSlotLiveRangePass`; that pass may split only the
-loads reached before the next write to the same slot. Its linear scan requires
-block-local loads; when structured EH is present, the stronger admission proof
+their owned ranges before `StackSlotLiveRangePass`; its cross-block path may
+split only the loads proven to be reached by one definition. The older linear
+path handles block-local loads and, for loads in statements preceding the
+candidate store, declines when a modeled function-body CFG cycle or enclosing
+structured loop can carry the candidate definition back to that load. Loads
+within a later same-slot store statement remain a known limitation (#4300);
+`StackSlotLiveRangeCrossBlockTests.CrossBlockSplit_DoesNotEnableLoopCarriedBlockLocalSplit`
+plus `StructuredLoopCarriedBlockLocalRange_StaysUnsplit` and
+`NestedBlockInRawLoopCarriedRange_StaysUnsplit` gate those boundaries. For a
+multi-block function body with complete modeled CFG edges, a union
+reaching-definition proof may split one top-level store only when every load it
+reaches is reached by that definition alone, no reachable load is
+use-before-definition, and at least one proven load is in another block.
+References nested in control flow, nested-function bodies, nested raw branches,
+and EH or external CFG edges decline. The linear path also stays within the
+current function body, so a cross-block split cannot expose a nested function's
+independent loop-carried range;
+`LocalFunctionRoot_DoesNotExposeNestedLoadsToCrossBlockRewrite` and
+`CrossBlockSplit_DoesNotEnableNestedFunctionLoopCarriedSplit` gate those
+nested-function boundaries. Duplicate block offsets also decline because they
+do not identify one branch target;
+`StackSlotLiveRangeCrossBlockTests.DuplicateBlockOffsets_StayUnsplit` gates
+that boundary. A raw control transfer also declines when it is not the block's
+final statement, because the shared CFG models only block terminators.
+When structured EH is present, the stronger admission proof
 requires every reference to that slot to belong to a top-level statement in one
 direct try-body block whose owning try is itself a top-level function-body
 statement, and excludes a same-slot read nested under a same-slot store. Nested
