@@ -84,14 +84,16 @@ Browser/Wasm applies `BrowserRequestCredentials.Omit` to each request instead
 of setting unsupported handler properties. Source credentials travel through
 the typed credential parameter so the library can enforce the origin boundary.
 Desktop redirects are followed by a bounded source-owned handler that reapplies
-authorization only to the credential's original origin.
+authorization only to the credential's original origin. Exceeding five
+redirects is rejected as a source-response safety-bound failure.
 This is gated by
 `RuntimeFactoriesDoNotAcceptSharedHttpClient` and
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`,
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration`,
 `BrowserNuGetRequestsOmitAmbientCredentials`,
-`DesktopRedirectsScopeAuthorizationToOriginalOrigin`, and the `NuGetFetch`
-`browser-wasm` build.
+`DesktopRedirectsScopeAuthorizationToOriginalOrigin`,
+`DesktopRedirectLimitAllowsFiveAndRejectsSix`,
+`RedirectLimitIsResponseRejected`, and the `NuGetFetch` `browser-wasm` build.
 
 The typed source-client compatibility adapter therefore derives producer
 identity from a query-bearing legacy service index's origin and path while

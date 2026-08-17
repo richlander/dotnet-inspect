@@ -1099,16 +1099,24 @@ public sealed class PackageSourceClientTests
 
     [Theory]
     [InlineData(
+        HttpStatusCode.MultipleChoices,
         "https://feed.example/redirected",
         "user:token")]
     [InlineData(
+        HttpStatusCode.Found,
+        "https://feed.example/redirected",
+        "user:token")]
+    [InlineData(
+        HttpStatusCode.Found,
         "https://cdn.example/redirected",
         null)]
     public async Task DesktopRedirectsScopeAuthorizationToOriginalOrigin(
+        HttpStatusCode redirectStatus,
         string redirectTarget,
         string? expectedRedirectAuthorization)
     {
         var transport = new RedirectRecordingHandler(
+            redirectStatus,
             redirectTarget);
         using var client = new HttpClient(
             new NuGetCredentialRedirectHandler(transport));
@@ -1130,6 +1138,66 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             ["user:token", expectedRedirectAuthorization],
             transport.Authorization);
+    }
+
+    [Theory]
+    [InlineData(5, false)]
+    [InlineData(6, true)]
+    public async Task DesktopRedirectLimitAllowsFiveAndRejectsSix(
+        int redirects,
+        bool rejected)
+    {
+        using var client = new HttpClient(
+            new NuGetCredentialRedirectHandler(
+                new RedirectChainHandler(redirects)));
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            ServiceIndex);
+
+        if (!rejected)
+        {
+            using HttpResponseMessage response =
+                await client.SendAsync(
+                    request,
+                    TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return;
+        }
+
+        await Assert.ThrowsAsync<NuGetRedirectLimitExceededException>(
+            () => client.SendAsync(
+                request,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task RedirectLimitIsResponseRejected()
+    {
+        using var client = new HttpClient(
+            new NuGetCredentialRedirectHandler(
+                new RedirectChainHandler(redirects: 6)));
+
+        PackageSourceFailure failure = Failed(
+            await PackageSourceOperation.CaptureAsync(
+                PackageSourceIdentity.NuGetOrg,
+                PackageSourceKind.NuGetV3,
+                PackageSourceCapabilities.VersionEnumeration,
+                async () =>
+                {
+                    using var request = new HttpRequestMessage(
+                        HttpMethod.Get,
+                        ServiceIndex);
+                    using HttpResponseMessage response =
+                        await client.SendAsync(
+                            request,
+                            TestContext.Current.CancellationToken);
+                    return response.StatusCode;
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.ResponseRejected,
+            failure.Kind);
     }
 
     [Fact]
@@ -1411,6 +1479,7 @@ public sealed class PackageSourceClientTests
     }
 
     private sealed class RedirectRecordingHandler(
+        HttpStatusCode redirectStatus,
         string redirectTarget)
         : HttpMessageHandler
     {
@@ -1427,9 +1496,33 @@ public sealed class PackageSourceClientTests
             if (Authorization.Count == 1)
             {
                 var redirect = new HttpResponseMessage(
-                    HttpStatusCode.Found);
+                    redirectStatus);
                 redirect.Headers.Location =
                     new Uri(redirectTarget);
+                return Task.FromResult(redirect);
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK));
+        }
+    }
+
+    private sealed class RedirectChainHandler(int redirects)
+        : HttpMessageHandler
+    {
+        private int _requests;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_requests++ < redirects)
+            {
+                var redirect = new HttpResponseMessage(
+                    HttpStatusCode.Found);
+                redirect.Headers.Location =
+                    new Uri($"/redirect-{_requests}", UriKind.Relative);
                 return Task.FromResult(redirect);
             }
 

@@ -42,8 +42,7 @@ internal sealed class NuGetCredentialRedirectHandler(
                 if (redirectCount == MaximumRedirects)
                 {
                     response.Dispose();
-                    throw new NuGetSourceResponseException(
-                        "The package source response exceeded the redirect limit.");
+                    throw new NuGetRedirectLimitExceededException();
                 }
 
                 Uri target;
@@ -168,7 +167,8 @@ internal sealed class NuGetCredentialRedirectHandler(
     }
 
     private static bool IsRedirect(HttpStatusCode statusCode) =>
-        statusCode is HttpStatusCode.MovedPermanently
+        statusCode is HttpStatusCode.MultipleChoices
+            or HttpStatusCode.MovedPermanently
             or HttpStatusCode.Found
             or HttpStatusCode.SeeOther
             or HttpStatusCode.TemporaryRedirect

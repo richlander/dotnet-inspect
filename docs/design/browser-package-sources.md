@@ -590,13 +590,16 @@ authorization remains a request header. Source credentials are passed
 separately and are adopted only for same-origin resources.
 Desktop automatic redirects are disabled. A bounded source-owned redirect
 handler reapplies explicit authorization only when the target remains on the
-credential's original origin and strips it from cross-origin hops.
+credential's original origin and strips it from cross-origin hops. Exceeding
+the five-redirect ceiling is a typed `response-rejected` failure.
 `RuntimeFactoriesDoNotAcceptSharedHttpClient`,
 `DefaultV3TransportHasNoAmbientCredentialMechanisms`, and
 `BrowserV3TransportAvoidsUnsupportedHandlerConfiguration` gate transport
 construction. `BrowserNuGetRequestsOmitAmbientCredentials` gates the Fetch
 credential option, and
 `DesktopRedirectsScopeAuthorizationToOriginalOrigin` gates redirect authority.
+`DesktopRedirectLimitAllowsFiveAndRejectsSix` and
+`RedirectLimitIsResponseRejected` gate the redirect safety bound.
 The `NuGetFetch` `browser-wasm` build is the browser-target compilation gate.
 Candidate projection remains inside the same operation deadline as the metadata
 request.

@@ -322,6 +322,8 @@ internal static class PackageSourceOperation
                 PackageSourceFailureKind.Timeout,
             NuGetMetadataResponseTooLargeException =>
                 PackageSourceFailureKind.ResponseRejected,
+            NuGetRedirectLimitExceededException =>
+                PackageSourceFailureKind.ResponseRejected,
             NuGetSourceResponseException
                 or JsonException =>
                 PackageSourceFailureKind.InvalidResponse,
@@ -357,6 +359,7 @@ internal static class PackageSourceOperation
             or NuGetOperationTimeoutException
             or NuGetMetadataBodyTimeoutException
             or NuGetMetadataResponseTooLargeException
+            or NuGetRedirectLimitExceededException
             or NuGetSourceResponseException
             or JsonException
             or HttpRequestException
