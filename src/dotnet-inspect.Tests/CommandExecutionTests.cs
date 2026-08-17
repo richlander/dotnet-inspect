@@ -121,6 +121,112 @@ public partial class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
+    private static void WriteModuleConstraintAssembly(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ModuleConstraintFixture"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        ModuleReferenceHandle module =
+            metadata.AddModuleReference(
+                metadata.GetOrAddString("Other.netmodule"));
+        TypeReferenceHandle constraint =
+            metadata.AddTypeReference(
+                module,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Constraint"));
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle holder =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Holder`1"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                holder,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            constraint);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
+    private static void WriteNetmodule(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString(
+                    Path.GetFileName(path)),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Widget"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x06, 0x08 }));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
     private static void WriteBlankAssemblyNameAssembly(string path)
     {
         var metadata = new MetadataBuilder();
@@ -295,7 +401,9 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
-    private static void WriteMalformedTypeNameAssembly(string path)
+    private static void WriteMalformedTypeNameAssembly(
+        string path,
+        bool includeHealthyType = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -318,6 +426,16 @@ public partial class CommandExecutionTests
             default,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
+        if (includeHealthyType)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Good"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
         metadata.AddTypeDefinition(
             TypeAttributes.Public,
             metadata.GetOrAddString("Example"),
@@ -341,12 +459,171 @@ public partial class CommandExecutionTests
         int typeNameOffset =
             peReader.PEHeaders.MetadataStartOffset
             + reader.GetTableMetadataOffset(TableIndex.TypeDef)
-            + reader.GetTableRowSize(TableIndex.TypeDef)
+            + (reader.GetTableRowSize(TableIndex.TypeDef)
+                * (includeHealthyType ? 2 : 1))
             + sizeof(uint);
         BinaryPrimitives.WriteUInt16LittleEndian(
             bytes.AsSpan(typeNameOffset, sizeof(ushort)),
             ushort.MaxValue);
         File.WriteAllBytes(path, bytes);
+    }
+
+    private static void WritePartiallyMalformedTypeNameAssembly(
+        string path) =>
+        WriteMalformedTypeNameAssembly(
+            path,
+            includeHealthyType: true);
+
+    private static void WriteMalformedAdjacencyAssembly(
+        string path,
+        bool malformedAssemblyReference)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedAdjacency"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        BlobHandle token = default;
+        if (malformedAssemblyReference)
+        {
+            var tokenBytes = new BlobBuilder();
+            tokenBytes.WriteUInt32(0x01020304);
+            token = metadata.GetOrAddBlob(tokenBytes);
+        }
+
+        AssemblyReferenceHandle target =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Target"),
+                new Version(1, 0, 0, 0),
+                default,
+                token,
+                default,
+                default);
+        if (!malformedAssemblyReference)
+        {
+            metadata.AddExportedType(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("NotAForwarder"),
+                target,
+                typeDefinitionId: 0);
+        }
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Healthy"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
+    private static void WriteMissingConstraintAssembly(string path)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MissingConstraint"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        AssemblyReferenceHandle missingAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("MissingConstraintDependency"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle missingBase =
+            metadata.AddTypeReference(
+                missingAssembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Base"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Healthy"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle consumer =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Consumer`1"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(2),
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("HealthyValue"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x06, 0x08 }));
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(
+                new byte[] { 0x06, 0x08 }));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                consumer,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            missingBase);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
     }
 
     private static void WriteOverflowingMetadataStreamCountAssembly(
@@ -1948,6 +2225,78 @@ public partial class CommandExecutionTests
         Assert.Contains(".ctor", output);
     }
 
+    [Fact]
+    public async Task TypeCommand_RestatesCrossAssemblyConstraintKinds()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            typeof(CrossAssemblyConstraintRestatementFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-S",
+            "Decompiled Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "ClassConstraint<T>(T? value) where T : class",
+            output);
+        Assert.Contains(
+            "DelegateConstraint<T>(T? value) where T : class",
+            output);
+        Assert.Contains(
+            "InterfaceConstraint<T>(T? value) where T : default",
+            output);
+        Assert.Contains(
+            "EnumConstraint<T>(T? value) where T : default",
+            output);
+        Assert.Contains(
+            "TransitiveConstraint<T, U>(T? value) where T : class where U : class",
+            output);
+        Assert.Contains(
+            "GenericBaseConstraint<T>(T? value) where T : class",
+            output);
+    }
+
+    [Fact]
+    public async Task TypeAndMemberCommands_InspectManagedNetmodule()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-{Guid.NewGuid():N}.dll");
+        WriteNetmodule(path);
+        try
+        {
+            var typeResult = await RunAppAsync(
+                "type",
+                "N.Widget",
+                "--library",
+                path,
+                "--tips",
+                "q");
+            var memberResult = await RunAppAsync(
+                "member",
+                "N.Widget",
+                "--library",
+                path,
+                "--tips",
+                "q");
+
+            Assert.Empty(typeResult.Error);
+            Assert.Empty(memberResult.Error);
+            Assert.Equal(0, typeResult.Exit);
+            Assert.Equal(0, memberResult.Exit);
+            Assert.Contains("N.Widget", typeResult.Output);
+            Assert.Contains("N.Widget", memberResult.Output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData("DotnetInspector.Tests.CommandExecutionTests.NestedDrillTarget")]
     [InlineData("DotnetInspector.Tests.CommandExecutionTests+NestedDrillTarget")]
@@ -3233,6 +3582,169 @@ public partial class CommandExecutionTests
             Assert.Contains("\"changes\"", json.Output);
             Assert.Contains("\"type\": \"Widget\"", json.Output);
             Assert.Contains("Added", json.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Diff_InspectionFailures_AreNeverReportedAsCleanAcrossOutputModes()
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"diff-failure-output-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            string oldPath =
+                Path.Combine(tempDir, "old.dll");
+            string newPath =
+                Path.Combine(tempDir, "new.dll");
+            WriteMalformedAdjacencyAssembly(
+                oldPath,
+                malformedAssemblyReference: true);
+            WriteMalformedAdjacencyAssembly(
+                newPath,
+                malformedAssemblyReference: true);
+            string range = $"{oldPath}..{newPath}";
+
+            var markdown = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "--tips",
+                "q");
+            var json = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "--json",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, markdown.Exit);
+            Assert.Contains(
+                "## Inspection Failures",
+                markdown.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "invalid AssemblyRef row",
+                markdown.Output,
+                StringComparison.Ordinal);
+            Assert.Equal(1, json.Exit);
+            Assert.Contains(
+                "invalid AssemblyRef row",
+                json.Output,
+                StringComparison.Ordinal);
+
+            var findingMarkdown = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "-t",
+                "N.Healthy",
+                "-S",
+                DiffSections.FindingTransitions.Name,
+                "--tips",
+                "q");
+            var findingJson = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "-t",
+                "N.Healthy",
+                "-S",
+                DiffSections.FindingTransitions.Name,
+                "--json",
+                "--tips",
+                "q");
+            var findingTable = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "-t",
+                "N.Healthy",
+                "-S",
+                DiffSections.FindingTransitions.Name,
+                "--table",
+                "--tips",
+                "q");
+            var analysisTable = await RunAppAsync(
+                "diff",
+                "--library",
+                range,
+                "-t",
+                "N.Healthy",
+                "-S",
+                DiffSections.AnalysisDiff.Name,
+                "--table",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, findingMarkdown.Exit);
+            Assert.Contains(
+                "## Inspection Failures",
+                findingMarkdown.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "invalid AssemblyRef row",
+                findingMarkdown.Output,
+                StringComparison.Ordinal);
+            Assert.Equal(1, findingJson.Exit);
+            Assert.Contains(
+                "inspection_failures",
+                findingJson.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "invalid AssemblyRef row",
+                findingJson.Output,
+                StringComparison.Ordinal);
+            Assert.Equal(1, findingTable.Exit);
+            Assert.Contains(
+                "API comparison is incomplete",
+                findingTable.Error,
+                StringComparison.Ordinal);
+            Assert.Equal(1, analysisTable.Exit);
+            Assert.DoesNotContain(
+                "# Diff",
+                analysisTable.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "## Inspection Failures",
+                analysisTable.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "API comparison is incomplete",
+                analysisTable.Error,
+                StringComparison.Ordinal);
+
+            string[][] singleShapeModes =
+            [
+                ["--table"],
+                ["--tsv"],
+                ["--jsonl"],
+                ["--name-only"],
+            ];
+            foreach (string[] mode in singleShapeModes)
+            {
+                var result = await RunAppAsync(
+                    [
+                        "diff",
+                        "--library",
+                        range,
+                        "--tips",
+                        "q",
+                        .. mode,
+                    ]);
+
+                Assert.Equal(1, result.Exit);
+                Assert.Contains(
+                    "API comparison is incomplete",
+                    result.Error,
+                    StringComparison.Ordinal);
+            }
         }
         finally
         {
@@ -6535,7 +7047,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Discover_FilteredUnsafeMembers_PreservesBodyOnlyApplicabilityWithoutExecutingScanner()
+    public async Task Discover_FilteredUnsafeMembers_PreservesBodyOnlyApplicabilityWithoutExecutingQuery()
     {
         string assemblyPath = typeof(InstructionProducer).Assembly.Location;
         var (renderExit, renderOutput, renderError) = await RunAppAsync(
@@ -6561,7 +7073,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
         Assert.Contains("trace: library", error);
-        Assert.DoesNotContain(LibrarySections.ScannerUnsafeMembers, error);
+        Assert.DoesNotContain(UnsafeEvidenceQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
     }
 
@@ -11169,6 +11681,374 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task ConstraintResolutionFailure_IsVisibleAndNonfatalAcrossTypeCommands()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"constraint-diagnostic-{Guid.NewGuid():N}.dll");
+        WriteModuleConstraintAssembly(path);
+        try
+        {
+            var listing = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    new TypeOptions
+                    {
+                        AssemblyPath = path,
+                        Verbosity = Verbosity.Normal,
+                    }));
+            var selectedType = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    new TypeOptions
+                    {
+                        AssemblyPath = path,
+                        TypeName = "N.Holder<T>",
+                        Verbosity = Verbosity.Normal,
+                    }));
+            var selectedMember = await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(
+                    new MemberOptions
+                    {
+                        AssemblyPath = path,
+                        TypeName = "N.Holder<T>",
+                        Verbosity = Verbosity.Normal,
+                    }));
+
+            Assert.Equal(0, listing.ExitCode);
+            Assert.Contains(
+                "Generic-constraint classification",
+                listing.Error);
+            Assert.DoesNotContain(
+                "rejected",
+                listing.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(0, selectedType.ExitCode);
+            Assert.Contains(
+                "Generic-constraint classification",
+                selectedType.Error);
+            Assert.Equal(0, selectedMember.ExitCode);
+            Assert.Contains(
+                "Generic-constraint classification",
+                selectedMember.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task RejectedMetadataRow_IsVisibleAndFatalAcrossSelectedTypeCommands()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"selected-row-failure-{Guid.NewGuid():N}.dll");
+        WritePartiallyMalformedTypeNameAssembly(path);
+        try
+        {
+            string[][] typeOutputOptions =
+            [
+                [],
+                ["--json"],
+                ["--table"],
+                ["-S", "Type Info", "--count"],
+            ];
+            string[][] memberOutputOptions =
+            [
+                [],
+                ["--json"],
+                ["--table"],
+                ["-S", "Member Index", "--count"],
+            ];
+            for (int i = 0; i < typeOutputOptions.Length; i++)
+            {
+                var selectedType = await RunAppAsync(
+                    [
+                        "type",
+                        "N.Good",
+                        "--library",
+                        path,
+                        "--tips",
+                        "q",
+                        .. typeOutputOptions[i],
+                    ]);
+                var selectedMember = await RunAppAsync(
+                    [
+                        "member",
+                        "N.Good",
+                        "--library",
+                        path,
+                        "--tips",
+                        "q",
+                        .. memberOutputOptions[i],
+                    ]);
+
+                Assert.Equal(1, selectedType.Exit);
+                Assert.Contains(
+                    "rejected 1 metadata row",
+                    selectedType.Error,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.Equal(1, selectedMember.Exit);
+                Assert.Contains(
+                    "rejected 1 metadata row",
+                    selectedMember.Error,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Type_WildcardFilter_PreservesRejectedMetadataRowDiagnostics()
+    {
+        string directory = Path.Combine(
+            AppContext.BaseDirectory,
+            "pr3904-r4-repro");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(
+            directory,
+            $"wildcard-row-failure-{Guid.NewGuid():N}.dll");
+        WritePartiallyMalformedTypeNameAssembly(path);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "-t",
+                "N.*",
+                "--tips",
+                "q");
+
+            Assert.True(
+                result.Exit == 1,
+                $"Exit={result.Exit}; output={result.Output}; error={result.Error}");
+            Assert.Contains(
+                "N.Good",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.True(
+                result.Error.Contains(
+                    "rejected 1 metadata row",
+                    StringComparison.OrdinalIgnoreCase)
+                || result.Output.Contains(
+                    "## Inspection Failures",
+                    StringComparison.Ordinal),
+                $"Exit={result.Exit}; output={result.Output}; error={result.Error}");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MalformedRootAdjacency_KeepsHealthySelectedTypeAndIsFatal(
+        bool malformedAssemblyReference)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"root-adjacency-{Guid.NewGuid():N}.dll");
+        WriteMalformedAdjacencyAssembly(
+            path,
+            malformedAssemblyReference);
+        try
+        {
+            var selectedType = await RunAppAsync(
+                "type",
+                "N.Healthy",
+                "--library",
+                path,
+                "--tips",
+                "q");
+            var selectedMember = await RunAppAsync(
+                "member",
+                "N.Healthy",
+                "--library",
+                path,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, selectedType.Exit);
+            Assert.Contains("N.Healthy", selectedType.Output);
+            Assert.Contains(
+                "rejected 1 metadata row",
+                selectedType.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, selectedMember.Exit);
+            Assert.Contains("N.Healthy", selectedMember.Output);
+            Assert.Contains(
+                "rejected 1 metadata row",
+                selectedMember.Error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("m")]
+    [InlineData("n")]
+    [InlineData("d")]
+    public async Task TypeListing_RendersInspectionFailuresAtRaisedVerbosity(
+        string verbosity)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"root-adjacency-list-{Guid.NewGuid():N}.dll");
+        WriteMalformedAdjacencyAssembly(
+            path,
+            malformedAssemblyReference: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                $"-v:{verbosity}",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "## Inspection Failures",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "inventory assembly adjacency",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task TypeListing_InspectionFailuresSectionIsSelectable()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"root-adjacency-section-{Guid.NewGuid():N}.dll");
+        WriteMalformedAdjacencyAssembly(
+            path,
+            malformedAssemblyReference: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "-S",
+                "Inspection Failures",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "## Inspection Failures",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "## Classes",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--jsonl")]
+    public async Task
+        TypeListing_TabularInspectionFailuresSelectionRendersFailures(
+            string format)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"root-adjacency-tabular-{Guid.NewGuid():N}.dll");
+        WriteMalformedAdjacencyAssembly(
+            path,
+            malformedAssemblyReference: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "-S",
+                "Inspection Failures",
+                format,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "inventory assembly adjacency",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "\"kind\":\"class\"",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task
+        TypeListing_TabularConstraintFailuresDoNotDuplicateDiagnostics()
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"constraint-tabular-{Guid.NewGuid():N}.dll");
+        WriteModuleConstraintAssembly(path);
+        try
+        {
+            var result = await RunAppAsync(
+                "type",
+                "--library",
+                path,
+                "-S",
+                "Inspection Failures",
+                "--jsonl",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "\"operation\":\"resolve generic parameter constraints\"",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "\"kind\":\"class\"",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Type_SelectWithSelectColumn_ReturnsErrorWhenNotRendered()
     {
         // Select is a historical schema column, but the active table shape has no matching
@@ -11680,6 +12560,135 @@ public partial class CommandExecutionTests
         Assert.True(count > 0);
         Assert.DoesNotContain("#", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SelectedApiCommand_ReportsIncompleteInspectionNonfatally(
+        bool memberCommand)
+    {
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-constraint-{Guid.NewGuid():N}.dll");
+        try
+        {
+            WriteMissingConstraintAssembly(path);
+
+            (int exit, string output, string error) result =
+                memberCommand
+                    ? await ConsoleCapture.RunAsync(
+                        () => MemberCommand.ExecuteAsync(
+                            new MemberOptions
+                            {
+                                AssemblyPath = path,
+                                TypeName = "N.Consumer`1",
+                                MemberFilter = ["Value"],
+                            }))
+                    : await ConsoleCapture.RunAsync(
+                        () => TypeCommand.ExecuteAsync(
+                            new TypeOptions
+                            {
+                                AssemblyPath = path,
+                                TypeName = "N.Consumer`1",
+                            }));
+
+            Assert.Equal(0, result.exit);
+            Assert.NotEmpty(result.output);
+            Assert.Contains(
+                "Generic-constraint classification was incomplete",
+                result.error,
+                StringComparison.Ordinal);
+
+            (int exit, string output, string error) healthy =
+                memberCommand
+                    ? await ConsoleCapture.RunAsync(
+                        () => MemberCommand.ExecuteAsync(
+                            new MemberOptions
+                            {
+                                AssemblyPath = path,
+                                TypeName = "N.Healthy",
+                                MemberFilter = ["HealthyValue"],
+                            }))
+                    : await ConsoleCapture.RunAsync(
+                        () => TypeCommand.ExecuteAsync(
+                            new TypeOptions
+                            {
+                                AssemblyPath = path,
+                                TypeName = "N.Healthy",
+                            }));
+
+            Assert.Equal(0, healthy.exit);
+            Assert.NotEmpty(healthy.output);
+            Assert.DoesNotContain(
+                "Generic-constraint classification was incomplete",
+                healthy.error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task SelectedApiInspection_GlobMemberFilterMatchesFailure()
+    {
+        const int MethodToken = 0x06000001;
+        const string Path = "/tmp/member-filter.dll";
+        var api = new ApiSurface();
+        var type = new ApiType
+        {
+            Name = "Consumer",
+            SourceAssemblyPath = Path,
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "GetValue",
+                    MetadataToken = MethodToken,
+                },
+            ],
+        };
+        var failure = new ApiSurfaceInspectionFailure(
+            "resolve generic parameter constraints",
+            MethodToken,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "MalformedMetadata",
+            "Dependency unavailable.",
+            DependencyAssembly:
+                new AssemblyReferenceIdentity(
+                    "Dependency",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null))
+        {
+            SourceAssemblyPath = Path,
+        };
+        api.ConstraintResolutionFailuresBySubject[
+            new ApiSurfaceInspectionSubject(Path, MethodToken)] =
+            [failure];
+
+        bool incomplete = false;
+        var (_, error) = await ConsoleCapture.RunAsync(
+            () => incomplete =
+                ApiCommand.WarnSelectedApiInspectionIncomplete(
+                    api,
+                    type,
+                    new HashSet<string>(
+                        ["Get*"],
+                        StringComparer.OrdinalIgnoreCase)));
+
+        Assert.True(incomplete);
+        Assert.Contains(
+            "Generic-constraint classification was incomplete",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "via 'Dependency, Version=1.0.0.0, "
+                + "Culture=neutral, PublicKeyToken=null'",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -15296,10 +16305,13 @@ public partial class CommandExecutionTests
         // would only make the test slower, never wrong.
         string[] bodyIndexScanners =
         [
-            LibrarySections.ScannerUnsafeMembers,
             LibrarySections.ScannerTopLeverage,
             LibrarySections.ScannerOptimizationOpportunities,
             LibrarySections.ScannerResourceTriage,
+        ];
+        InspectionQueryDefinition[] bodyIndexQueries =
+        [
+            UnsafeEvidenceQuery.Definition,
         ];
 
         // A coordinate-scoped section cannot be selected without its coordinate: "Metadata: Heap"
@@ -15326,7 +16338,9 @@ public partial class CommandExecutionTests
         var scannerNames = pipeline.ScannerBoundSections
             .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
             .Select(b => b.Name);
-        var queryNames = pipeline.QueryBoundSections.Select(b => b.Name);
+        var queryNames = pipeline.QueryBoundSections
+            .Where(b => !bodyIndexQueries.Contains(b.Query))
+            .Select(b => b.Name);
         var names = scannerNames
             .Concat(queryNames)
             .Where(n => !coordinateScoped.Contains(n, StringComparer.Ordinal))
@@ -15944,6 +16958,225 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Contains("not found", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Bare <c>-S</c> must remain the fixed overview after package inspection delegates to the
+    /// all-libraries path. The count map names the complete request, while the rendered headings
+    /// prove that the same preset reached effective-section selection and data collection.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_AllLibraries_BareSelectCount_MapDescribesBareSelectRender()
+    {
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "System.Text.Json",
+            "System.Collections");
+        try
+        {
+            var (renderExit, renderOutput, renderError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "--tips", "q");
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "--count", "--tips", "q");
+
+            Assert.Equal(0, renderExit);
+            Assert.Equal(0, countExit);
+            Assert.DoesNotContain("Tip:", renderError);
+            Assert.DoesNotContain("Tip:", countError);
+
+            var rendered = renderOutput.ReplaceLineEndings("\n").Split('\n')
+                .Where(line => line.StartsWith("## ", StringComparison.Ordinal))
+                .Select(line =>
+                {
+                    var heading = line[3..].Trim();
+                    var provenance = heading.IndexOf(" (", StringComparison.Ordinal);
+                    return provenance >= 0 ? heading[..provenance] : heading;
+                })
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var mapped = countOutput.ReplaceLineEndings("\n").Split('\n')
+                .Where(line => line.StartsWith("| ", StringComparison.Ordinal))
+                .Select(line => line.Split('|'))
+                .Where(cells => cells.Length > 2)
+                .Select(cells => (
+                    Section: cells[1].Trim(),
+                    Count: cells[2].Trim()))
+                .Where(row => row.Section.Length > 0
+                    && row.Section != "Section"
+                    && !row.Section.StartsWith('-'))
+                .ToDictionary(
+                    row => row.Section,
+                    row => int.Parse(
+                        row.Count,
+                        CultureInfo.InvariantCulture),
+                    StringComparer.OrdinalIgnoreCase);
+            var renderedCounts = CountOutput
+                .CountMarkdownTableRowsBySection(renderOutput)
+                .GroupBy(
+                    row =>
+                    {
+                        var provenance = row.Key.IndexOf(
+                            " (",
+                            StringComparison.Ordinal);
+                        return provenance >= 0
+                            ? row.Key[..provenance]
+                            : row.Key;
+                    },
+                    StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Sum(row => row.Value),
+                    StringComparer.OrdinalIgnoreCase);
+
+            var expected = LibrarySections.CreatePipeline().BareSelectSectionNames;
+            Assert.Equal(expected.Order(), rendered.Order());
+            Assert.Equal(expected.Order(), mapped.Keys.Order());
+            foreach (var section in expected)
+            {
+                Assert.True(
+                    renderedCounts.TryGetValue(
+                        section,
+                        out var renderedCount),
+                    $"{section} must render in this fixture.");
+                Assert.True(
+                    renderedCount > 0,
+                    $"{section} must render rows in this fixture.");
+                Assert.Equal(
+                    renderedCount,
+                    mapped[section]);
+            }
+
+            foreach (var format in new[]
+                     {
+                         "--json",
+                         "--table",
+                         "--tsv",
+                         "--jsonl",
+                     })
+            {
+                var (formattedExit, formattedOutput, formattedError) =
+                    await RunAppAsync(
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "-S",
+                        "--count",
+                        format,
+                        "--tips",
+                        "q");
+
+                Assert.Equal(0, formattedExit);
+                Assert.Equal(countOutput, formattedOutput);
+                Assert.DoesNotContain(
+                    "unprojected output",
+                    formattedError,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            var (categoryExit, categoryOutput, categoryError) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    SectionCategoryNames.Library,
+                    "--count",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, categoryExit);
+            Assert.Contains("| Section | Count |", categoryOutput);
+            foreach (var section in LibrarySections
+                         .CreatePipeline()
+                         .GetCategoryMap()[SectionCategoryNames.Library])
+            {
+                Assert.Contains($"| {section} |", categoryOutput);
+            }
+            Assert.DoesNotContain(
+                CountOutput.SingleSectionRequiredMessage,
+                categoryError);
+
+            var (metadataExit, metadataOutput, metadataError) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    SectionCategoryNames.Metadata,
+                    "--count",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, metadataExit);
+            Assert.DoesNotContain(
+                $"| {MetadataSectionNames.Heap} |",
+                metadataOutput);
+            var metadataImageRow = metadataOutput
+                .ReplaceLineEndings("\n")
+                .Split('\n')
+                .Single(line => line.StartsWith(
+                    $"| {MetadataSectionNames.Image} |",
+                    StringComparison.Ordinal));
+            var metadataImageCount = int.Parse(
+                metadataImageRow.Split('|')[2].Trim(),
+                CultureInfo.InvariantCulture);
+            var (metadataImageRenderExit, metadataImageRender, _) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    MetadataSectionNames.Image,
+                    "--tips",
+                    "q");
+            Assert.Equal(0, metadataImageRenderExit);
+            Assert.Equal(
+                CountOutput.CountMarkdownTableRows(
+                    metadataImageRender),
+                metadataImageCount);
+            Assert.Contains(
+                $"## {MetadataSectionNames.Image} (ref/",
+                metadataImageRender);
+            Assert.Equal(
+                2,
+                metadataImageRender
+                    .ReplaceLineEndings("\n")
+                    .Split('\n')
+                    .Count(line => line.StartsWith(
+                        $"## {MetadataSectionNames.Image} (",
+                        StringComparison.Ordinal)));
+            Assert.DoesNotContain(
+                "unprojected output",
+                metadataError,
+                StringComparison.OrdinalIgnoreCase);
+
+            var (emptyExit, emptyOutput, emptyError) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    $"{SectionNames.IdentifierConfusion},{SectionNames.NonNormalizedPaths}",
+                    "--count",
+                    "--json",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, emptyExit);
+            Assert.Contains(
+                $"| {SectionNames.IdentifierConfusion} | 0 |",
+                emptyOutput);
+            Assert.Contains(
+                $"| {SectionNames.NonNormalizedPaths} | 0 |",
+                emptyOutput);
+            Assert.DoesNotContain(
+                "unprojected output",
+                emptyError,
+                StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

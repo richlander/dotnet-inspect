@@ -2,6 +2,8 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
+using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -81,6 +83,103 @@ public class SourceForwarderResolutionTests
     }
 
     [Fact]
+    public void ResolutionSession_PreservesUnavailableConstraintDependency()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string targetPath = Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                targetPath,
+                BuildConstrainedAssembly(
+                    "Target",
+                    "Dependency",
+                    "Type`1"));
+            File.WriteAllText(
+                Path.Combine(directory, "Dependency.dll"),
+                "not a managed assembly");
+
+            using var resolution =
+                new TypeDefinitionResolutionSession(
+                    targetPath,
+                    isPlatformAssembly: false);
+            ApiSurface surface = Assert.IsType<ApiSurface>(
+                resolution.ExtractApiSurface());
+
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(surface.InspectionFailures);
+            Assert.Contains(
+                "was unavailable: 'CandidateUnavailable'",
+                failure.Detail,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "could not be bound",
+                failure.Detail,
+                StringComparison.Ordinal);
+            Assert.Equal(
+                "Dependency",
+                Assert.IsType<AssemblyReferenceIdentity>(
+                    failure.DependencyAssembly)
+                    .Name);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolutionSession_RejectsSourceChangedAfterInventory()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string rootPath = Path.Combine(
+                directory,
+                "Root.dll");
+            File.WriteAllBytes(
+                rootPath,
+                BuildAssembly("Root"));
+            byte[] inventoried =
+                BuildAssembly(
+                    "Changing",
+                    definesType: true,
+                    typeName: "First");
+            byte[] changed =
+                BuildAssembly(
+                    "Changing",
+                    definesType: true,
+                    typeName: "Second");
+            int opens = 0;
+            var source = ResolvedAssemblyReference.Create(
+                ReadIdentity(inventoried),
+                path: null,
+                openRead: () => new MemoryStream(
+                    Interlocked.Increment(ref opens) == 1
+                        ? inventoried
+                        : changed,
+                    writable: false),
+                AssemblyResolutionProvenance.Local(
+                    nameof(
+                        ResolutionSession_RejectsSourceChangedAfterInventory)));
+
+            using var resolution =
+                new TypeDefinitionResolutionSession(
+                    rootPath,
+                    isPlatformAssembly: false);
+            ApiSurface? surface =
+                resolution.ExtractApiSurface(source);
+
+            Assert.Null(surface);
+            Assert.Equal(2, opens);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ApiServices_OpensResolvedDescriptorForForwardedType()
     {
         string directory = CreateDirectory();
@@ -113,6 +212,766 @@ public class SourceForwarderResolutionTests
         finally
         {
             Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ApiServices_PropagatesForwardedTargetInspectionFailures()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath = Path.Combine(directory, "Facade.dll");
+            string targetPath = Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly("Facade", new AssemblyReferenceIdentity(
+                    "Target",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                    typeName: "Type`1"));
+            File.WriteAllBytes(
+                targetPath,
+                BuildTargetWithMissingConstraint());
+            ApiSurface api =
+                AssemblyReader.ExtractApiSurface(facadePath)!;
+
+            ApiServices.ResolveForwardedTypes(
+                api,
+                facadePath,
+                new VerboseLogger(enabled: false),
+                includeAll: false);
+
+            Assert.True(Assert.Single(api.Types).IsForwarded);
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(api.InspectionFailures);
+            Assert.Contains(
+                "N.ForwardedBase",
+                failure.Detail,
+                StringComparison.Ordinal);
+            Assert.Single(
+                api.ConstraintResolutionFailuresBySubject);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ApiServices_ClassifiesConstraintsOnForwardedType()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string targetSource =
+                typeof(CrossAssemblyConstraintRestatementFixture)
+                    .Assembly.Location;
+            string dependencySource =
+                typeof(DotnetInspector.Fixtures.ExternalConstraintClass)
+                    .Assembly.Location;
+            string targetPath = Path.Combine(
+                directory,
+                Path.GetFileName(targetSource));
+            string dependencyPath = Path.Combine(
+                directory,
+                Path.GetFileName(dependencySource));
+            File.Copy(targetSource, targetPath);
+            File.Copy(dependencySource, dependencyPath);
+
+            AssemblyName targetName =
+                typeof(CrossAssemblyConstraintRestatementFixture)
+                    .Assembly.GetName();
+            string facadePath = Path.Combine(directory, "Facade.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        targetName.Name!,
+                        targetName.Version,
+                        targetName.CultureName,
+                        null),
+                    typeNamespace:
+                        typeof(CrossAssemblyConstraintRestatementFixture)
+                            .Namespace!,
+                    typeName:
+                        nameof(
+                            CrossAssemblyConstraintRestatementFixture)));
+            ApiSurface api =
+                AssemblyReader.ExtractApiSurface(facadePath)!;
+
+            ApiServices.ResolveForwardedTypes(
+                api,
+                facadePath,
+                new VerboseLogger(enabled: false),
+                includeAll: false);
+
+            ApiType type = Assert.Single(api.Types);
+            Assert.True(type.IsForwarded);
+            AssertKind(
+                nameof(
+                    CrossAssemblyConstraintRestatementFixture
+                        .ClassConstraint),
+                TypeParameterTypeKind.ReferenceType);
+            AssertKind(
+                nameof(
+                    CrossAssemblyConstraintRestatementFixture
+                        .InterfaceConstraint),
+                TypeParameterTypeKind.NeitherReferenceNorValue);
+
+            void AssertKind(
+                string methodName,
+                TypeParameterTypeKind expected)
+            {
+                ApiMember member = Assert.Single(
+                    type.Members,
+                    candidate => candidate.Name == methodName);
+                Assert.Equal(
+                    expected,
+                    Assert.Single(
+                        member.SignatureModel!.TypeParameters)
+                        .TypeKind);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ApiServices_PreservesForwardedConstraintFailures()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath = Path.Combine(directory, "Facade.dll");
+            string targetPath = Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        "Target",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null),
+                    typeName: "Type`1"));
+            File.WriteAllBytes(
+                targetPath,
+                BuildConstrainedAssembly(
+                    "Target",
+                    "Dependency",
+                    "Type`1"));
+            ApiSurface api =
+                AssemblyReader.ExtractApiSurface(facadePath)!;
+            ResolvedAssemblyReference target =
+                ResolvedAssemblyReference.CreateFromPath(
+                    targetPath,
+                    AssemblyResolutionProvenance.Local("test"));
+            byte[] dependencyImage =
+                BuildAssembly(
+                    "Dependency",
+                    definesType: true,
+                    typeName: "Constraint");
+            ResolvedAssemblyReference dependency =
+                ResolvedAssemblyReference.Create(
+                    ReadIdentity(dependencyImage),
+                    path: null,
+                    openRead: static () =>
+                        throw new IOException("test open failure"),
+                    AssemblyResolutionProvenance.Local("test"));
+            using var catalog = new TypeResolutionCatalog();
+            ResolutionAwareApiSurfaceOutcome outcome =
+                catalog.ExtractApiSurface(
+                    target,
+                    new MappingPolicy(dependency));
+            ApiSurface targetApi =
+                Assert.IsType<
+                    ResolutionAwareApiSurfaceOutcome.Read>(
+                        outcome)
+                    .Surface;
+            ApiSurfaceInspectionFailure targetFailure =
+                Assert.Single(targetApi.InspectionFailures);
+            targetApi.InspectionFailures.Add(targetFailure);
+            MetadataTypeDefinitionName forwardedType =
+                Assert.IsType<MetadataTypeDefinitionName>(
+                    Assert.Single(targetApi.Types)
+                        .DefinitionName);
+
+            int copied = ApiServices.MergeForwardedTypes(
+                api,
+                targetApi,
+                new HashSet<MetadataTypeDefinitionName>
+                {
+                    forwardedType,
+                },
+                target);
+
+            Assert.Equal(1, copied);
+            Assert.True(Assert.Single(api.Types).IsForwarded);
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(api.InspectionFailures);
+            Assert.Equal(
+                ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation,
+                failure.Operation);
+            using JsonDocument json = JsonDocument.Parse(
+                JsonSerializer.Serialize(
+                    api,
+                    ApiJsonContext.Default.ApiSurface));
+            Assert.Equal(
+                "Target",
+                json.RootElement
+                    .GetProperty("inspection_failures")[0]
+                    .GetProperty("subject_assembly")
+                    .GetProperty("name")
+                    .GetString());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ApiServices_PreservesForwardedExtractionFailuresOnlyForCopiedTypes()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string targetPath = Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                targetPath,
+                BuildAssembly(
+                    "Target",
+                    definesType: true));
+            ApiSurface targetApi =
+                AssemblyReader.ExtractApiSurface(targetPath)!;
+            ApiType targetType = Assert.Single(targetApi.Types);
+            int targetTypeToken =
+                Assert.IsType<int>(targetType.MetadataToken);
+            targetApi.InspectionFailures.Add(
+                new ApiSurfaceInspectionFailure(
+                    "type row",
+                    targetTypeToken,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "Malformed",
+                    "The copied type is incomplete."));
+            targetApi.InspectionFailures.Add(
+                new ApiSurfaceInspectionFailure(
+                    "type row",
+                    0x02000003,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "Malformed",
+                    "An unrelated type is incomplete."));
+            var api = new ApiSurface();
+            ResolvedAssemblyReference target =
+                ResolvedAssemblyReference.CreateFromPath(
+                    targetPath,
+                    AssemblyResolutionProvenance.Local("test"));
+
+            int copied = ApiServices.MergeForwardedTypes(
+                api,
+                targetApi,
+                new HashSet<MetadataTypeDefinitionName>
+                {
+                    Assert.IsType<MetadataTypeDefinitionName>(
+                        targetType.DefinitionName),
+                },
+                target);
+
+            Assert.Equal(1, copied);
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(api.InspectionFailures);
+            Assert.Equal(targetTypeToken, failure.SubjectToken);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ApiServices_PreservesFailureWhenForwardedTypeWasRejected()
+    {
+        byte[] targetImage =
+            BuildAssembly(
+                "Target",
+                definesType: true);
+        ResolvedAssemblyReference target =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(targetImage),
+                path: null,
+                openRead: () => new MemoryStream(targetImage),
+                AssemblyResolutionProvenance.Local("test"));
+        var targetApi = new ApiSurface();
+        targetApi.InspectionFailures.Add(
+            new ApiSurfaceInspectionFailure(
+                "type row",
+                0x1B000001,
+                MetadataTypeNameFailureMechanism.Metadata,
+                "Malformed",
+                "The requested forwarded type was rejected.")
+            {
+                OwningTypeToken = 0x02000002,
+            });
+        var api = new ApiSurface();
+
+        int copied = ApiServices.MergeForwardedTypes(
+            api,
+            targetApi,
+            new HashSet<MetadataTypeDefinitionName>
+            {
+                TypeName(),
+            },
+            target,
+            new HashSet<int>
+            {
+                0x02000002,
+            });
+
+        Assert.Equal(0, copied);
+        Assert.Empty(api.Types);
+        Assert.Single(api.InspectionFailures);
+    }
+
+    [Fact]
+    public void ApiServices_ScopesTargetWideFailureToRequestedForwardedType()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string targetPath =
+                Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                targetPath,
+                BuildAssembly(
+                    "Target",
+                    definesType: true));
+            ApiSurface targetApi =
+                AssemblyReader.ExtractApiSurface(targetPath)!;
+            MetadataTypeDefinitionName forwardedType =
+                Assert.IsType<MetadataTypeDefinitionName>(
+                    Assert.Single(targetApi.Types)
+                        .DefinitionName);
+            targetApi.InspectionFailures.Add(
+                new ApiSurfaceInspectionFailure(
+                    "inventory assembly adjacency",
+                    0,
+                    MetadataTypeNameFailureMechanism.Metadata,
+                    "InvalidImage",
+                    "The target-wide inventory is incomplete."));
+            var api = new ApiSurface();
+            ResolvedAssemblyReference target =
+                ResolvedAssemblyReference.CreateFromPath(
+                    targetPath,
+                    AssemblyResolutionProvenance.Local(
+                        "test"));
+
+            int copied = ApiServices.MergeForwardedTypes(
+                api,
+                targetApi,
+                new HashSet<MetadataTypeDefinitionName>
+                {
+                    forwardedType,
+                },
+                target);
+
+            Assert.Equal(1, copied);
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(api.InspectionFailures);
+            Assert.Equal(
+                [forwardedType],
+                failure.AffectedTypeDefinitions);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolutionSession_PreservesTargetSurfaceRejectionCause()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath =
+                Path.Combine(directory, "Facade.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly("Facade"));
+            byte[] targetImage =
+                BuildAssembly(
+                    "Target",
+                    definesType: true);
+            ResolvedAssemblyReference target =
+                ResolvedAssemblyReference.Create(
+                    ReadIdentity(targetImage),
+                    path: null,
+                    openRead: static () =>
+                        throw new IOException(
+                            "test target open failure"),
+                    AssemblyResolutionProvenance.Local(
+                        "test"));
+            using var resolution =
+                new TypeDefinitionResolutionSession(
+                    facadePath,
+                    isPlatformAssembly: false);
+
+            ApiSurface? surface =
+                resolution.ExtractApiSurface(
+                    target,
+                    includeAll: false,
+                    typesOnly: false,
+                    out TypeDefinitionApiSurfaceFailure?
+                        failure);
+
+            Assert.Null(surface);
+            Assert.NotNull(failure);
+            Assert.Equal("Unreadable", failure.Kind);
+            Assert.Equal(
+                "The selected image could not be read.",
+                failure.Detail);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ApiServices_PreservesMalformedForwardedTypeFailureEndToEnd()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath =
+                Path.Combine(directory, "Facade.dll");
+            string targetPath =
+                Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        "Target",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)));
+            File.WriteAllBytes(
+                targetPath,
+                BuildTargetWithMalformedType(
+                    requestedTypeIsMalformed: true));
+            ApiSurface api =
+                AssemblyReader.ExtractApiSurface(facadePath)!;
+
+            ApiServices.ResolveForwardedTypes(
+                api,
+                facadePath,
+                new VerboseLogger(enabled: false),
+                includeAll: false);
+
+            Assert.Empty(api.Types);
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(api.InspectionFailures);
+            Assert.Equal(0x1B000001, failure.SubjectToken);
+            Assert.Equal(0x02000002, failure.OwningTypeToken);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ApiServices_ExcludesMalformedUnrelatedForwardedTargetType()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string facadePath =
+                Path.Combine(directory, "Facade.dll");
+            string targetPath =
+                Path.Combine(directory, "Target.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly(
+                    "Facade",
+                    new AssemblyReferenceIdentity(
+                        "Target",
+                        new Version(1, 0, 0, 0),
+                        null,
+                        null)));
+            File.WriteAllBytes(
+                targetPath,
+                BuildTargetWithMalformedType(
+                    requestedTypeIsMalformed: false));
+            ApiSurface api =
+                AssemblyReader.ExtractApiSurface(facadePath)!;
+
+            ApiServices.ResolveForwardedTypes(
+                api,
+                facadePath,
+                new VerboseLogger(enabled: false),
+                includeAll: false);
+
+            Assert.Single(api.Types);
+            Assert.Empty(api.InspectionFailures);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TypeCommand_PreservesOnlyFailuresForSelectedForwardedTypes()
+    {
+        const string TargetPath = "/platform/Target.dll";
+        var source = new ApiSurface();
+        source.InspectionFailures.Add(
+            Failure(
+                "selected",
+                0x1B000001,
+                TargetPath,
+                owningTypeToken: 0x02000002));
+        source.InspectionFailures.Add(
+            Failure(
+                "unrelated",
+                0x1B000002,
+                TargetPath,
+                owningTypeToken: 0x02000003));
+        source.InspectionFailures.Add(
+            Failure(
+                "target-wide",
+                0,
+                TargetPath));
+        source.InspectionFailures.Add(
+            Failure(
+                "other-target-wide",
+                0,
+                "/platform/Other.dll"));
+        source.InspectionFailures.Add(
+            Failure(
+                "failed-target",
+                0,
+                "/platform/Failed.dll",
+                affectedTypeDefinitions:
+                    [TypeName()]));
+        source.InspectionFailures.Add(
+            Failure(
+                "unrelated-failed-target",
+                0,
+                "/platform/Unrelated.dll",
+                affectedTypeDefinitions:
+                    [
+                        Assert.IsType<
+                            MetadataTypeDefinitionNameResult.Valid>(
+                                MetadataTypeDefinitionName.Create(
+                                    "N",
+                                    ["Other"]))
+                            .Name,
+                    ]));
+        var selectedType = new ApiType
+        {
+            Namespace = "N",
+            Name = "Type",
+            MetadataToken = 0x02000002,
+            SourceAssemblyPath = TargetPath,
+        };
+        var destination = new ApiSurface();
+
+        TypeCommand.MergeSelectedInspectionFailures(
+            destination,
+            source,
+            [selectedType],
+            new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                "N.Type",
+            },
+            "/platform/Facade.dll");
+
+        Assert.Equal(
+            ["selected", "target-wide", "failed-target"],
+            destination.InspectionFailures
+                .Select(failure => failure.Detail)
+                .ToArray());
+    }
+
+    [Fact]
+    public void TypeCommand_PreservesFailureForRejectedSelectedForwardedType()
+    {
+        var source = new ApiSurface();
+        source.InspectionFailures.Add(
+            Failure(
+                "selected",
+                0x1B000001,
+                "/platform/Target.dll",
+                owningTypeToken: 0x02000002,
+                owningTypeDefinition: TypeName()));
+        source.InspectionFailures.Add(
+            Failure(
+                "unrelated",
+                0x1B000002,
+                "/platform/Target.dll",
+                owningTypeToken: 0x02000003,
+                owningTypeDefinition:
+                    Assert.IsType<
+                        MetadataTypeDefinitionNameResult.Valid>(
+                            MetadataTypeDefinitionName.Create(
+                                "N",
+                                ["Other"]))
+                        .Name));
+        var destination = new ApiSurface();
+
+        TypeCommand.MergeSelectedInspectionFailures(
+            destination,
+            source,
+            [],
+            new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                "N.Type",
+            },
+            "/platform/Facade.dll");
+
+        Assert.Equal(
+            "selected",
+            Assert.Single(
+                destination.InspectionFailures)
+                .Detail);
+        Assert.True(
+            TypeCommand.HasPlatformPrefixBrowseResult(
+                destination));
+    }
+
+    [Fact]
+    public void ApiCommand_TypeFilterScopesOwnedForwardedFailures()
+    {
+        MetadataTypeDefinitionName selectedName =
+            TypeName();
+        MetadataTypeDefinitionName unrelatedName =
+            OtherTypeName();
+        var api = new ApiSurface
+        {
+            Types =
+            [
+                new ApiType
+                {
+                    Namespace = "N",
+                    Name = "Type",
+                    DefinitionName = selectedName,
+                    MetadataToken = 0x02000002,
+                    SourceAssemblyPath =
+                        "/platform/Target.dll",
+                },
+                new ApiType
+                {
+                    Namespace = "N",
+                    Name = "Other",
+                    DefinitionName = unrelatedName,
+                    MetadataToken = 0x02000003,
+                    SourceAssemblyPath =
+                        "/platform/Target.dll",
+                },
+            ],
+        };
+        api.InspectionFailures.Add(
+            Failure(
+                "selected",
+                0x1B000001,
+                "/platform/Target.dll",
+                owningTypeToken: 0x02000002,
+                owningTypeDefinition: selectedName));
+        api.InspectionFailures.Add(
+            Failure(
+                "unrelated",
+                0x1B000002,
+                "/platform/Target.dll",
+                owningTypeToken: 0x02000003,
+                owningTypeDefinition: unrelatedName));
+        api.InspectionFailures.Add(
+            Failure(
+                "unrelated-target-wide",
+                0,
+                "/platform/Target.dll",
+                affectedTypeDefinitions:
+                    [unrelatedName]));
+        api.InspectionFailures.Add(
+            Failure(
+                "unowned-target-wide",
+                0,
+                "/platform/Target.dll"));
+
+        ApiCommand.ApplySurfaceFilters(
+            api,
+            new ApiOptions(),
+            "N.Type");
+
+        Assert.Equal(
+            ["selected", "unowned-target-wide"],
+            api.InspectionFailures
+                .Select(failure => failure.Detail)
+                .ToArray());
+    }
+
+    [Fact]
+    public void ApiServices_UnresolvedForwarderIsVisibleWithoutOpeningTraversalTarget()
+    {
+        string parent = CreateDirectory();
+        string directory = Path.Combine(parent, "input");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string facadePath = Path.Combine(directory, "Facade.dll");
+            File.WriteAllBytes(
+                facadePath,
+                BuildAssembly("Facade", new AssemblyReferenceIdentity(
+                    "../payload",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null)));
+            File.WriteAllBytes(
+                Path.Combine(parent, "payload.dll"),
+                BuildAssembly("../payload", definesType: true));
+            ApiSurface api =
+                AssemblyReader.ExtractApiSurface(facadePath)!;
+
+            ApiServices.ResolveForwardedTypes(
+                api,
+                facadePath,
+                new VerboseLogger(enabled: false),
+                includeAll: false);
+
+            Assert.Empty(api.Types);
+            ApiSurfaceInspectionFailure failure =
+                Assert.Single(api.InspectionFailures);
+            Assert.Equal(
+                "resolve forwarded type",
+                failure.Operation);
+            Assert.Equal(
+                "Facade",
+                Assert.IsType<AssemblyReferenceIdentity>(
+                    failure.SubjectAssembly).Name);
+            Assert.Equal(
+                "../payload",
+                Assert.IsType<AssemblyReferenceIdentity>(
+                    failure.DependencyAssembly).Name);
+            Assert.Equal(
+                [TypeName()],
+                failure.AffectedTypeDefinitions);
+            Assert.Equal(
+                Path.GetFullPath(facadePath),
+                failure.SourceAssemblyPath);
+        }
+        finally
+        {
+            Directory.Delete(parent, recursive: true);
         }
     }
 
@@ -157,6 +1016,37 @@ public class SourceForwarderResolutionTests
         Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create("N", ["Type"])).Name;
 
+    static MetadataTypeDefinitionName OtherTypeName() =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create(
+                "N",
+                ["Other"])).Name;
+
+    static ApiSurfaceInspectionFailure Failure(
+        string detail,
+        int subjectToken,
+        string sourcePath,
+        int? owningTypeToken = null,
+        MetadataTypeDefinitionName?
+            owningTypeDefinition = null,
+        MetadataTypeDefinitionName[]?
+            affectedTypeDefinitions = null) =>
+        new(
+            "type row",
+            subjectToken,
+            MetadataTypeNameFailureMechanism.Metadata,
+            "Malformed",
+            detail)
+        {
+            SourceAssemblyPath = sourcePath,
+            OwningTypeToken = owningTypeToken,
+            OwningTypeDefinition = owningTypeDefinition,
+            AffectedTypeDefinitions =
+                affectedTypeDefinitions is null
+                    ? []
+                    : [.. affectedTypeDefinitions],
+        };
+
     static string CreateDirectory()
     {
         string path = Path.Combine(
@@ -166,10 +1056,22 @@ public class SourceForwarderResolutionTests
         return path;
     }
 
+    static AssemblyReferenceIdentity ReadIdentity(
+        byte[] image)
+    {
+        using var pe =
+            new PEReader(new MemoryStream(image));
+        return AssemblyReferenceIdentity
+            .FromAssemblyDefinition(
+                pe.GetMetadataReader());
+    }
+
     static byte[] BuildAssembly(
         string assemblyName,
         AssemblyReferenceIdentity? forwardTarget = null,
-        bool definesType = false)
+        bool definesType = false,
+        string typeNamespace = "N",
+        string typeName = "Type")
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -197,8 +1099,8 @@ public class SourceForwarderResolutionTests
         {
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
-                metadata.GetOrAddString("N"),
-                metadata.GetOrAddString("Type"),
+                metadata.GetOrAddString(typeNamespace),
+                metadata.GetOrAddString(typeName),
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));
@@ -215,8 +1117,8 @@ public class SourceForwarderResolutionTests
                 hashValue: default);
             metadata.AddExportedType(
                 TypeAttributes.Public | Forwarder,
-                metadata.GetOrAddString("N"),
-                metadata.GetOrAddString("Type"),
+                metadata.GetOrAddString(typeNamespace),
+                metadata.GetOrAddString(typeName),
                 target,
                 typeDefinitionId: 0);
         }
@@ -229,5 +1131,252 @@ public class SourceForwarderResolutionTests
         var image = new BlobBuilder();
         builder.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildTargetWithMalformedType(
+        bool requestedTypeIsMalformed)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName:
+                metadata.GetOrAddString("Target.dll"),
+            mvid:
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        TypeSpecificationHandle malformedBase =
+            metadata.AddTypeSpecification(
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0x15,
+                    }));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Type"),
+            baseType:
+                requestedTypeIsMalformed
+                    ? malformedBase
+                    : default(EntityHandle),
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Other"),
+            baseType:
+                requestedTypeIsMalformed
+                    ? default(EntityHandle)
+                    : malformedBase,
+            fieldList:
+                MetadataTokens.FieldDefinitionHandle(1),
+            methodList:
+                MetadataTokens.MethodDefinitionHandle(1));
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildTargetWithMissingConstraint()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Target.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Target"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AssemblyReferenceHandle missingAssembly =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Missing"),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle forwardedBase =
+            metadata.AddTypeReference(
+                missingAssembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("ForwardedBase"));
+        TypeReferenceHandle unrelatedBase =
+            metadata.AddTypeReference(
+                missingAssembly,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("UnrelatedBase"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle forwarded =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Type`1"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle unrelated =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Unrelated`1"),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AddMissingConstraint(
+            forwarded,
+            "T",
+            forwardedBase);
+        AddMissingConstraint(
+            unrelated,
+            "U",
+            unrelatedBase);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+
+        void AddMissingConstraint(
+            TypeDefinitionHandle type,
+            string name,
+            TypeReferenceHandle missingBase)
+        {
+            GenericParameterHandle parameter =
+                metadata.AddGenericParameter(
+                    type,
+                    GenericParameterAttributes.None,
+                    metadata.GetOrAddString(name),
+                    index: 0);
+            metadata.AddGenericParameterConstraint(
+                parameter,
+                missingBase);
+        }
+    }
+
+    static byte[] BuildConstrainedAssembly(
+        string assemblyName,
+        string dependencyName,
+        string typeName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        AssemblyReferenceHandle dependency =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString(dependencyName),
+                new Version(1, 0, 0, 0),
+                culture: default,
+                publicKeyOrToken: default,
+                flags: default,
+                hashValue: default);
+        TypeReferenceHandle constraint =
+            metadata.AddTypeReference(
+                dependency,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Constraint"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle definition =
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString(typeName),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        GenericParameterHandle parameter =
+            metadata.AddGenericParameter(
+                definition,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                0);
+        metadata.AddGenericParameterConstraint(
+            parameter,
+            constraint);
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    sealed class MappingPolicy(
+        ResolvedAssemblyReference dependency)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } =
+            new();
+
+        public AssemblyBindingSelection Select(
+            AssemblyBindingRequest request) =>
+            request.Target
+                is AssemblyBindingTarget.AssemblyReference reference
+                && reference.Identity == dependency.Identity
+                ? AssemblyBindingSelection.Found(dependency)
+                : AssemblyBindingSelection.NotFound();
     }
 }

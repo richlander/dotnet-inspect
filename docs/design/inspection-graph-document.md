@@ -417,7 +417,7 @@ Illustrative relationship families include:
 | `api.implements` | type -> interface type | Metadata |
 | `integration.observed` | API/type/package -> API/type/package | Metadata |
 | `integration.composed` | API/type/package -> API/type/package | Research |
-| `integration.opportunity` | consumer API/type/package -> candidate API/type/package | Research |
+| `integration.opportunity` | consumer API/type/package -> candidate API/type/package | Metadata |
 | `analysis.async-sibling-opportunity` | call site or member -> candidate member | Research |
 | `implementation.structural-match` | member -> member | Analysis |
 
@@ -958,6 +958,23 @@ Mermaid in
 [the locked demo](../workflows/discovery/aspire-ai-package-graph.md) are the
 acceptance owner.
 
+`InspectionGraphIntegrationsQuery` implements the L1 locked-demo projection.
+It contributes `api.extension` from each `AsIChatClient` member to its exact
+acquired SDK receiver type, `integration.observed` from that same member to the
+exact acquired `IChatClient`, Azure's direct `metadata.reference` to OpenAI,
+and Azure's explicit `integration.opportunity` to `IChatClient`. Package groups
+come from `InspectionGraphPackageBoundary`; no package or endpoint join parses
+a label.
+
+The composer reconciles raw per-assembly opportunities with observed adapters
+elsewhere in the same context. The same acquired SDK type is fulfilled only
+when one exact member supplies both its extension and integration occurrences.
+This suppresses the OpenAI and Bedrock raw gaps without suppressing Azure or a
+same-spelled type from another acquisition.
+`InspectionGraphIntegrationsQueryTests.Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups`,
+`PackageAndTypeReadingsShareTheSameIntegrationOccurrences`, and
+`Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities` gate those claims.
+
 Aspire hosting package webs, an `AddOpenAI` seed graph, and a two-plane AppHost
 and application view remain related but unlocked demos. They may later use the
 same envelope, but they are not acceptance fixtures for this design.
@@ -982,7 +999,9 @@ subject lenses it advances.
    composition remain later slices.
 4. **Type/package integration projection.** Compose extension and Integrations
    evidence into the locked `IChatClient` type-outward and package-inward views
-   demonstrated by #4127.
+   demonstrated by #4127. Implemented at L1 by
+   `InspectionGraphIntegrationsQuery`; seed selection and presentation lowering
+   remain later slices.
 5. **Findings and analysis adoption.** Add explicit adapters for #4091, #4121,
    and #4114 after their contracts land, without changing their native producer
    semantics.

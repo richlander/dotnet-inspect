@@ -93,6 +93,7 @@ public class SearchService
                     ("skip", skip.ToString(CultureInfo.InvariantCulture)),
                     ("take", take.ToString(CultureInfo.InvariantCulture)),
                     ("prerelease", pre),
+                    ("semVerLevel", "2.0.0"),
                 ],
                 out string url))
         {
@@ -107,7 +108,7 @@ public class SearchService
             async requestToken =>
             {
                 using HttpRequestMessage request =
-                    NuGetHttpRequest.CreateGet(url);
+                    NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
                 if (auth is not null)
                 {
                     request.Headers.Authorization = auth;
@@ -131,9 +132,50 @@ public class SearchService
         // hide the failure behind a successful-looking zero-result search. The
         // endpoint is not named: it is feed-declared metadata that can carry a
         // signature, and this message reaches a caller's failure list.
-        return parsed?.Data
+        IReadOnlyList<SearchResult> results = parsed?.Data
             ?? throw new InvalidOperationException(
                 "The search response was not a valid NuGet search document.");
+        foreach (SearchResult result in results)
+        {
+            operation.ThrowIfExpired();
+            if (!IsValidResult(result, operation))
+            {
+                throw new InvalidOperationException(
+                    "The search response contained an invalid result identity.");
+            }
+        }
+
+        operation.ThrowIfExpired();
+        return results;
+    }
+
+    private static bool IsValidResult(
+        SearchResult? result,
+        NuGetOperationDeadline operation)
+    {
+        if (result is null
+            || !PackageCoordinateValidation.IsValidPackageId(result.Id)
+            || !PackageCoordinateValidation.IsValidPackageVersion(
+                result.Version))
+        {
+            return false;
+        }
+
+        if (result.Versions is null)
+            return true;
+
+        foreach (SearchVersion version in result.Versions)
+        {
+            operation.ThrowIfExpired();
+            if (version is null
+                || !PackageCoordinateValidation.IsValidPackageVersion(
+                    version.Version))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -173,6 +215,7 @@ public class SearchService
             bool madeProgress = false;
             foreach (SearchResult result in page)
             {
+                operation.ThrowIfExpired();
                 madeProgress |= observedResults.Add(
                     $"{result.Id.Length}:{result.Id}{result.Version}");
                 if (result.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
@@ -195,6 +238,7 @@ public class SearchService
             throw new InvalidOperationException(
                 $"NuGet search pagination exceeded {MaxPrefixSearchPages} pages.");
 
+        operation.ThrowIfExpired();
         return matches;
     }
 }

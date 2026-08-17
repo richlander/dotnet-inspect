@@ -434,6 +434,19 @@ package node, or both.
 gates the compiled package-acquisition path, and
 `PackageBoundary_KeepsEffectiveTargetAcrossAssetFallback` gates the
 effective/physical target distinction.
+`InspectionGraphIntegrationsQuery` composes extensions, Integrations,
+opportunities, references, and that package boundary over the same complete
+loaded context. The registry baseline remains sequential: prerequisite queries
+run in deterministic plan order, participant rows retain group order, and
+composition never requires threads. Signature endpoints are resolved through
+the participant's frozen binding policy and verified against the selected
+retained image before entering the graph. Participant and endpoint failures
+remain typed graph failures beside healthy evidence.
+`InspectionGraphIntegrationsQueryTests.Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups`
+gates the compiled multi-assembly path, while
+`Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities` gates the rule that
+matching metadata identity or display text cannot replace acquisition
+registration.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
 composition and the shared nonzero completion status used after Markdown,
 count, tabular, or JSON output.

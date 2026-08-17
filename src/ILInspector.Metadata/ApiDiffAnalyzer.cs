@@ -232,7 +232,13 @@ public sealed record ApiDiffInspectionFailure(
     int SubjectToken,
     MetadataTypeNameFailureMechanism Mechanism,
     string Kind,
-    string Detail);
+    string Detail,
+    AssemblyReferenceIdentity? SubjectAssembly = null,
+    AssemblyReferenceIdentity? DependencyAssembly = null)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? SourceAssemblyPath { get; init; }
+}
 
 /// <summary>
 /// Compares two <see cref="ApiSurface"/> instances and produces a structured diff
@@ -257,8 +263,10 @@ public static class ApiDiffAnalyzer
 
         var oldTypes = BuildTypeLookup(oldSurface);
         var newTypes = BuildTypeLookup(newSurface);
-        bool oldIdentityIncomplete = oldSurface.InspectionFailures.Count > 0;
-        bool newIdentityIncomplete = newSurface.InspectionFailures.Count > 0;
+        bool oldIdentityIncomplete =
+            HasIncompleteTypeIdentity(oldSurface);
+        bool newIdentityIncomplete =
+            HasIncompleteTypeIdentity(newSurface);
 
         var allTypeNames = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var key in oldTypes.Keys) allTypeNames.Add(key);
@@ -315,29 +323,62 @@ public static class ApiDiffAnalyzer
         {
             TypeDiffs = typeDiffs,
             InspectionFailures =
-            [
-                .. oldSurface.InspectionFailures.Select(failure =>
-                    new ApiDiffInspectionFailure(
-                        "old",
-                        failure.Operation,
-                        failure.SubjectToken,
-                        failure.Mechanism,
-                        failure.Kind,
-                        failure.Detail)),
-                .. newSurface.InspectionFailures.Select(failure =>
-                    new ApiDiffInspectionFailure(
-                        "new",
-                        failure.Operation,
-                        failure.SubjectToken,
-                        failure.Mechanism,
-                        failure.Kind,
-                        failure.Detail)),
-            ],
+                ProjectInspectionFailures(
+                    oldSurface,
+                    newSurface),
             TotalBreaking = totalBreaking,
             TotalAdditive = totalAdditive,
             TotalPotentiallyBreaking = totalPotentiallyBreaking
         };
     }
+
+    public static IReadOnlyList<ApiDiffInspectionFailure>
+        ProjectInspectionFailures(
+            ApiSurface oldSurface,
+            ApiSurface newSurface)
+    {
+        ArgumentNullException.ThrowIfNull(oldSurface);
+        ArgumentNullException.ThrowIfNull(newSurface);
+
+        return
+        [
+            .. oldSurface.InspectionFailures.Select(
+                static failure =>
+                    ProjectInspectionFailure(
+                        "old",
+                        failure)),
+            .. newSurface.InspectionFailures.Select(
+                static failure =>
+                    ProjectInspectionFailure(
+                        "new",
+                        failure)),
+        ];
+    }
+
+    static ApiDiffInspectionFailure ProjectInspectionFailure(
+        string side,
+        ApiSurfaceInspectionFailure failure) =>
+        new(
+            side,
+            failure.Operation,
+            failure.SubjectToken,
+            failure.Mechanism,
+            failure.Kind,
+            failure.Detail,
+            failure.SubjectAssembly,
+            failure.DependencyAssembly)
+        {
+            SourceAssemblyPath =
+                failure.SourceAssemblyPath,
+        };
+
+    internal static bool HasIncompleteTypeIdentity(
+        ApiSurface surface) =>
+        surface.InspectionFailures.Any(
+            static failure =>
+                failure.Operation
+                    != ApiSurfaceInspectionFailure
+                        .GenericParameterConstraintResolutionOperation);
 
     private static Dictionary<string, ApiType> BuildTypeLookup(ApiSurface surface)
     {
