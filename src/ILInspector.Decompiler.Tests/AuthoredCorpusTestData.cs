@@ -3,6 +3,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json.Nodes;
 
+using CSharpText;
 using ILInspector.DecompilerHarness;
 using ILInspector.Metadata;
 
@@ -81,14 +82,12 @@ static class AuthoredCorpusTestData
                         type,
                         methodHandle,
                         methodName) != overload
-                    || !string.Equals(
-                        ReturnToSenderSourceProbe.UniqueTargetSignature(
-                            reader,
-                            type,
-                            methodName,
-                            methodHandle),
-                        signature,
-                        StringComparison.Ordinal))
+                    || !SignatureMatchesSelectedMethod(
+                        reader,
+                        type,
+                        methodHandle,
+                        methodName,
+                        signature))
                 {
                     continue;
                 }
@@ -108,6 +107,33 @@ static class AuthoredCorpusTestData
             ?? throw new InvalidDataException(
                 $"The authored-corpus test identity {typeName}::{methodName}#{overload} "
                     + "does not match the copied assembly.");
+    }
+
+    static bool SignatureMatchesSelectedMethod(
+        MetadataReader reader,
+        TypeDefinition type,
+        MethodDefinitionHandle methodHandle,
+        string methodName,
+        string signature)
+    {
+        if (signature.StartsWith("mss1:", StringComparison.Ordinal))
+        {
+            return string.Equals(
+                ReturnToSenderSourceProbe.UniqueTargetSignature(
+                    reader,
+                    type,
+                    methodName,
+                    methodHandle),
+                signature,
+                StringComparison.Ordinal);
+        }
+
+        MemberSignatureShapeResult legacy = MemberSignatureShapeCodec.Decode(signature);
+        return legacy.Shape is not null
+            && MetadataMemberSignatureShape.LegacyShapeCanDescribe(
+                reader,
+                methodHandle,
+                legacy.Shape);
     }
 
     static string RequiredString(JsonObject row, string propertyName)
