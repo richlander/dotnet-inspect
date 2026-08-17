@@ -121,15 +121,22 @@ local operand or edge target as unchanged. Refinement-class membership alone is
 not proof of that mapping; correspondence classes remain conservative
 over-approximations whose members are not independently selectable.
 
-Candidate enumeration uses only necessary block/sequence invariants and remains
-exhaustive within explicit candidate, exact-verification-work, alternative, and
-block-affected-element limits. Each attempted exact-restoring candidate and
-each witness-search step consumes the aggregate verification budget. Every
-distinct restoring alternative is returned in deterministic order. Multiple
-alternatives, or ambiguity in any restoring exact correspondence, makes the
-alignment `Ambiguous`; the comparator does not choose a preferred edit by
-layout or search order. If any limit prevents complete enumeration, the result
-is `LimitReached`, never partial `Near` or unproven `Different`.
+Candidate enumeration indexes masked block shapes and body-level block
+multisets, so only removals that can preserve necessary exact invariants reach
+the verifier. Operation order, entry/exit shape, local types, and incoming and
+outgoing edge-role multisets participate; CFG target identities do not. The
+index uses two aggregate hashes. A collision can add exact comparisons but
+cannot establish or suppress a relationship.
+
+Enumeration remains exhaustive within explicit candidate,
+exact-verification-work, alternative, and block-affected-element limits. Each
+attempted exact-restoring candidate and each witness-search step consumes the
+aggregate verification budget. Every distinct restoring alternative is
+returned in deterministic order. Multiple alternatives, or ambiguity in any
+restoring exact correspondence, makes the alignment `Ambiguous`; the comparator
+does not choose a preferred edit by layout or search order. If any limit
+prevents complete enumeration, the result is `LimitReached`, never partial
+`Near` or unproven `Different`.
 
 Signature shape, `InitLocals`, and the local-type multiset remain hard
 discriminators. Multi-edit contrasts remain `Different`. Exact results do not
@@ -139,6 +146,7 @@ adding near cases cannot merge discovery clusters.
 `Compare_CompilerProducedOneOperationChanges_AreNear`,
 `Compare_ChangedOperationsRequireOneJointBlockWitness`,
 `Compare_ChangedLocalUseHasJointRestoringWitness`,
+`Compare_LargeMultiBlockNearUsesMaskedCandidateIndex`,
 `Compare_OneEdgeChangeInsertionAndRemoval_AreNear`,
 `Compare_UnreachableBlockInsertionAndRemovalCarriesContents`,
 `Compare_SymmetricGraph_ReportsStableExactAndNearAmbiguity`, and

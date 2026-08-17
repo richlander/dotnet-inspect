@@ -1695,6 +1695,25 @@ public class StructuralCloneAnalysisTests
     }
 
     [Fact]
+    public void Compare_LargeMultiBlockNearUsesMaskedCandidateIndex()
+    {
+        StructuralCloneBodyFacts left =
+            LargeNearGraph(token: 1, changedValue: 1_000);
+        StructuralCloneBodyFacts right =
+            LargeNearGraph(token: 2, changedValue: 1_005);
+
+        StructuralCloneComparison forward =
+            StructuralCloneAnalysis.Compare(left, right);
+        StructuralCloneComparison reverse =
+            StructuralCloneAnalysis.Compare(right, left);
+
+        AssertNearOperationChange(forward);
+        AssertNearOperationChange(reverse);
+        Assert.InRange(forward.AlignmentReceipt!.Candidates, 1, 4);
+        Assert.InRange(reverse.AlignmentReceipt!.Candidates, 1, 4);
+    }
+
+    [Fact]
     public void Compare_OneEdgeChangeInsertionAndRemoval_AreNear()
     {
         StructuralCloneBodyFacts original = Facts(
@@ -2324,6 +2343,90 @@ public class StructuralCloneAnalysisTests
             Locals: [],
             Signature: new(0, 0, 0, 0, ReturnsVoid: true),
             RebuildTestGraph(blocks));
+    }
+
+    static StructuralCloneBodyFacts LargeNearGraph(
+        int token,
+        int changedValue)
+    {
+        const int Conditions = 55;
+        const int FirstReturn = Conditions;
+        const int DefaultReturn = Conditions * 2;
+        var blocks =
+            ImmutableArray.CreateBuilder<StructuralCloneBlock>(
+                DefaultReturn + 1);
+        for (int condition = 0; condition < Conditions; condition++)
+        {
+            blocks.Add(new StructuralCloneBlock(
+                condition,
+                condition,
+                false,
+                [
+                    new(
+                        ILOpCode.Ldarg,
+                        StructuralCloneOperandKind.Argument,
+                        0),
+                    new(
+                        ILOpCode.Ldc_i4,
+                        StructuralCloneOperandKind.Immediate,
+                        condition),
+                ],
+                [
+                    new(
+                        new(StructuralCloneEdgeKind.Branch, 0),
+                        FirstReturn + condition),
+                    new(
+                        new(StructuralCloneEdgeKind.FallThrough, 0),
+                        condition + 1 < Conditions
+                            ? condition + 1
+                            : DefaultReturn),
+                ],
+                []));
+        }
+        for (int value = 0; value < Conditions; value++)
+        {
+            blocks.Add(new StructuralCloneBlock(
+                FirstReturn + value,
+                FirstReturn + value,
+                true,
+                [
+                    new(
+                        ILOpCode.Ldc_i4,
+                        StructuralCloneOperandKind.Immediate,
+                        value == 0 ? changedValue : 1_000 + value),
+                    new(
+                        ILOpCode.Ret,
+                        StructuralCloneOperandKind.None,
+                        0),
+                ],
+                [],
+                []));
+        }
+        blocks.Add(new StructuralCloneBlock(
+            DefaultReturn,
+            DefaultReturn,
+            true,
+            [
+                new(
+                    ILOpCode.Ldc_i4,
+                    StructuralCloneOperandKind.Immediate,
+                    -1),
+                new(
+                    ILOpCode.Ret,
+                    StructuralCloneOperandKind.None,
+                    0),
+            ],
+            [],
+            []));
+        return new StructuralCloneBodyFacts(
+            Address(token),
+            BodyBytes: blocks.Count,
+            InstructionCount: blocks.Sum(
+                static block => block.Operations.Length),
+            InitLocals: false,
+            Locals: [],
+            Signature: s_staticIntToInt,
+            RebuildTestGraph(blocks.ToImmutable()));
     }
 
     static StructuralCloneBodyFacts WithRetargetedEdge(
