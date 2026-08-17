@@ -16968,7 +16968,9 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task PackageCommand_AllLibraries_BareSelectCount_MapDescribesBareSelectRender()
     {
-        var (packagePath, tempDir) = CreateLocalRefPackage("System.Text.Json");
+        var (packagePath, tempDir) = CreateLocalRefPackage(
+            "System.Text.Json",
+            "System.Collections");
         try
         {
             var (renderExit, renderOutput, renderError) = await RunAppAsync(
@@ -17031,10 +17033,15 @@ public partial class CommandExecutionTests
             foreach (var section in expected)
             {
                 Assert.True(
-                    renderedCounts[section] > 0,
+                    renderedCounts.TryGetValue(
+                        section,
+                        out var renderedCount),
+                    $"{section} must render in this fixture.");
+                Assert.True(
+                    renderedCount > 0,
                     $"{section} must render rows in this fixture.");
                 Assert.Equal(
-                    renderedCounts[section],
+                    renderedCount,
                     mapped[section]);
             }
 
@@ -17064,6 +17071,29 @@ public partial class CommandExecutionTests
                     formattedError,
                     StringComparison.OrdinalIgnoreCase);
             }
+
+            var (categoryExit, categoryOutput, categoryError) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    SectionCategoryNames.Library,
+                    "--count",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, categoryExit);
+            Assert.Contains("| Section | Count |", categoryOutput);
+            foreach (var section in LibrarySections
+                         .CreatePipeline()
+                         .GetCategoryMap()[SectionCategoryNames.Library])
+            {
+                Assert.Contains($"| {section} |", categoryOutput);
+            }
+            Assert.DoesNotContain(
+                CountOutput.SingleSectionRequiredMessage,
+                categoryError);
         }
         finally
         {

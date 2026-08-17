@@ -3366,9 +3366,9 @@ public class PackageCommand
             libraryOptions = libraryOptions with { IncludeSections = selectResult.Sections };
 
         if (libraryOptions.Count
-            && !libraryOptions.FixedOverview
-            && !CountOutput.ValidateSingleSection(
-                libraryOptions.IncludeSections))
+            && !CountOutput.ValidateSectionsSelected(
+                libraryOptions.IncludeSections,
+                libraryOptions.FixedOverview))
             return 1;
 
         var requiredVerbosity = pipeline.GetRequiredVerbosity(libraryOptions.IncludeSections);
@@ -3775,7 +3775,6 @@ public class PackageCommand
                 : OutputFormat.Markdown,
             Verbose = options.Verbose,
             Verbosity = options.Verbosity,
-            FixedOverview = options.FixedOverview,
             IncludeSections = options.IncludeSections,
             Discover = options.Discover,
             Tree = options.Tree,
