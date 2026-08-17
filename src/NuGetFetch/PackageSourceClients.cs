@@ -375,7 +375,10 @@ public static class PackageSourceClientFactory
     public static IPackageSourceClient CreateGallery(
         NuGetFetchOptions? options = null) =>
         new NuGetGalleryPackageSourceClient(
-            new HttpClient(),
+            new HttpClient
+            {
+                Timeout = Timeout.InfiniteTimeSpan,
+            },
             options ?? new NuGetFetchOptions());
 
     internal static IPackageSourceClient CreateGallery(
@@ -384,7 +387,10 @@ public static class PackageSourceClientFactory
     {
         ArgumentNullException.ThrowIfNull(transport);
         return new NuGetGalleryPackageSourceClient(
-            new HttpClient(transport, disposeHandler: true),
+            new HttpClient(transport, disposeHandler: true)
+            {
+                Timeout = Timeout.InfiniteTimeSpan,
+            },
             options ?? new NuGetFetchOptions());
     }
 }

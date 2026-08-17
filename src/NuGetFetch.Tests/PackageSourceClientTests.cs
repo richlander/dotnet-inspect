@@ -551,6 +551,29 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public void GalleryOwnedTransportLeavesLibraryDeadlinesAuthoritative()
+    {
+        var options = new NuGetFetchOptions
+        {
+            RequestTimeout = TimeSpan.FromMinutes(5),
+            OperationTimeout = TimeSpan.FromMinutes(10),
+        };
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                new RecordingHandler(),
+                options);
+        NuGetGalleryPackageSourceClient gallery =
+            Assert.IsType<NuGetGalleryPackageSourceClient>(runtime);
+
+        Assert.Equal(Timeout.InfiniteTimeSpan, gallery.TransportTimeout);
+        Assert.Equal(
+            options.RequestTimeout,
+            NuGetFetchOptions.RequestTimeoutForClient(
+                options,
+                gallery.TransportTimeout));
+    }
+
+    [Fact]
     public async Task GalleryEscapesUnicodePackageIdsAsOneSegment()
     {
         const string versions =

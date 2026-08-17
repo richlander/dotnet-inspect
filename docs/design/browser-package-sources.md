@@ -574,12 +574,14 @@ flat-container, package, and symbol CDN routes without requesting the NuGet.org
 service index. The factory creates an isolated credential-free `HttpClient`
 owned by the Gallery client; it does not accept a shared mutable client whose
 defaults could carry authorization, cookies, or API keys to the fixed public
-hosts. Disposing the source client disposes that transport. Its initial
-version-enumeration result is the complete raw flat-container list. The current
-string-only result cannot carry per-version Gallery listing state, so the
-registration join and listing-aware candidate contract remain follow-up work;
-callers must not write this result into a listing-aware cache. No existing
-package-resolution consumer has moved to this client yet.
+hosts. The transport timeout is infinite so the finite NuGetFetch request and
+operation deadlines remain authoritative. Disposing the source client disposes
+that transport. Its initial version-enumeration result is the complete raw
+flat-container list. The current string-only result cannot carry per-version
+Gallery listing state, so the registration join and listing-aware candidate
+contract remain follow-up work; callers must not write this result into a
+listing-aware cache. No existing package-resolution consumer has moved to this
+client yet.
 
 The v3 compatibility adapter initially exposes version and package-payload
 operations only, and validates package coordinates before any service-index or
