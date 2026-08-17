@@ -63,6 +63,13 @@ public static class OperatorMetadata
         if (declaringHandle.IsNil)
             return false;
         var declaringType = reader.GetTypeDefinition(declaringHandle);
+        var declaringAttributes = declaringType.Attributes;
+        if ((declaringAttributes & TypeAttributes.Interface) == 0
+            && (declaringAttributes & (TypeAttributes.Abstract | TypeAttributes.Sealed))
+                == (TypeAttributes.Abstract | TypeAttributes.Sealed))
+        {
+            return false;
+        }
         var declaringIdentity = OperatorSignatureType.ForDeclaringType(reader, declaringHandle);
         var selfConstrainedTypeParameters = SelfConstrainedTypeParameters(
             reader,
@@ -90,12 +97,18 @@ public static class OperatorMetadata
             var conversionSource = encodedConversionSource.WithoutByRef();
             var conversionTarget = signature.ReturnType.WithoutByRef();
             if (conversionSource.MatchesExactly(conversionTarget)
+                || HasUnresolvedExternalType(conversionSource)
+                || HasUnresolvedExternalType(conversionTarget)
+                || IsKnownInterface(reader, conversionSource)
+                || IsKnownInterface(reader, conversionTarget)
                 || IsForbiddenNullableSelfConversion(
                     conversionSource,
                     conversionTarget,
                     declaringIdentity)
-                || IsSameOrDerivedFrom(reader, conversionSource, conversionTarget)
-                || IsSameOrDerivedFrom(reader, conversionTarget, conversionSource))
+                || SameOrDerivedRelationship(reader, conversionSource, conversionTarget)
+                    != TypeRelationship.No
+                || SameOrDerivedRelationship(reader, conversionTarget, conversionSource)
+                    != TypeRelationship.No)
             {
                 return false;
             }
@@ -107,10 +120,10 @@ public static class OperatorMetadata
                 or "op_CheckedIncrement"
                 or "op_CheckedDecrement"
             && signature.ParameterTypes is [var operand]
-            && !IsSameOrDerivedFrom(
+            && SameOrDerivedRelationship(
                 reader,
                 signature.ReturnType.WithoutByRef(),
-                operand.WithoutByRef()))
+                operand.WithoutByRef()) != TypeRelationship.Yes)
         {
             return false;
         }
@@ -146,7 +159,15 @@ public static class OperatorMetadata
 
             var attributes = parameter.Attributes;
             return (attributes & ParameterAttributes.In) != 0
-                && (attributes & ParameterAttributes.Out) == 0;
+                && (attributes & ParameterAttributes.Out) == 0
+                && AttributeReader.HasAttribute(
+                    reader,
+                    parameter.GetCustomAttributes(),
+                    KnownAttributeNames.IsReadOnlyAttribute)
+                && !AttributeReader.HasAttribute(
+                    reader,
+                    parameter.GetCustomAttributes(),
+                    KnownAttributeNames.RequiresLocationAttribute);
         }
 
         return false;
@@ -221,38 +242,109 @@ public static class OperatorMetadata
             _ => OperatorSignatureTypeProvider.Opaque,
         };
 
-    static bool IsSameOrDerivedFrom(
+    enum TypeRelationship
+    {
+        No,
+        Yes,
+        Unknown,
+    }
+
+    static TypeRelationship SameOrDerivedRelationship(
         MetadataReader reader,
         OperatorSignatureType candidate,
         OperatorSignatureType requiredBase)
     {
         if (candidate.MatchesExactly(requiredBase))
-            return true;
+            return TypeRelationship.Yes;
+        if (IsKnownInterface(reader, requiredBase))
+            return TypeRelationship.No;
+        if (IsKnownValueType(reader, requiredBase))
+            return TypeRelationship.No;
+        if (IsKnownValueType(reader, candidate))
+        {
+            return IsTrustedSystemType(requiredBase, "Object")
+                || IsTrustedSystemType(requiredBase, "ValueType")
+                    ? TypeRelationship.Yes
+                    : TypeRelationship.No;
+        }
 
         var visited = new HashSet<TypeDefinitionHandle>();
         for (int depth = 0; depth < 64; depth++)
         {
             if (candidate.Identity.Kind != HandleKind.TypeDefinition)
-                return false;
+            {
+                return IsTrustedSystemType(candidate, "Object")
+                    ? TypeRelationship.No
+                    : TypeRelationship.Unknown;
+            }
             var definitionHandle = (TypeDefinitionHandle)candidate.Identity;
             if (!visited.Add(definitionHandle))
-                return false;
+                return TypeRelationship.Unknown;
 
             var definition = reader.GetTypeDefinition(definitionHandle);
             if (definition.BaseType.IsNil)
-                return false;
+                return TypeRelationship.No;
             var baseType = ReadType(reader, definition.BaseType);
             if (candidate.IsGenericInstantiation)
                 baseType = baseType.Instantiate(candidate.TypeArguments);
             else if (definition.GetGenericParameters().Count != 0)
-                return false;
+                return TypeRelationship.Unknown;
 
             if (baseType.MatchesExactly(requiredBase))
-                return true;
+                return TypeRelationship.Yes;
             candidate = baseType;
+        }
+        return TypeRelationship.Unknown;
+    }
+
+    static bool IsKnownInterface(
+        MetadataReader reader,
+        OperatorSignatureType type)
+        => type.Identity.Kind == HandleKind.TypeDefinition
+            && (reader.GetTypeDefinition((TypeDefinitionHandle)type.Identity).Attributes
+                & TypeAttributes.Interface) != 0;
+
+    static bool HasUnresolvedExternalType(OperatorSignatureType type)
+    {
+        if (type.Identity.Kind == HandleKind.TypeReference && !type.IsNullable)
+            return true;
+        foreach (var argument in type.TypeArguments)
+        {
+            if (HasUnresolvedExternalType(argument))
+                return true;
         }
         return false;
     }
+
+    static bool IsKnownValueType(
+        MetadataReader reader,
+        OperatorSignatureType type)
+    {
+        if (type.IsNullable)
+            return true;
+        if (type.Identity.IsNil)
+        {
+            return type.Namespace == "System"
+                && type.Name is not null
+                && type.Name is not "Object" and not "String" and not "Void";
+        }
+        if (type.Identity.Kind != HandleKind.TypeDefinition)
+            return false;
+
+        var definition = reader.GetTypeDefinition((TypeDefinitionHandle)type.Identity);
+        if (definition.BaseType.IsNil)
+            return false;
+        var baseType = ReadType(reader, definition.BaseType);
+        return IsTrustedSystemType(baseType, "ValueType")
+            || IsTrustedSystemType(baseType, "Enum");
+    }
+
+    static bool IsTrustedSystemType(
+        OperatorSignatureType type,
+        string name)
+        => type.IsTrustedCoreLibraryType
+            && type.Namespace == "System"
+            && type.Name == name;
 
     /// <summary>
     /// The only signature facts operator representability needs: whether a type

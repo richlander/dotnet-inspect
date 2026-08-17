@@ -2,6 +2,8 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using DotnetInspector.Services;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Metadata;
@@ -458,6 +460,38 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void CSharpOperatorDeclaration_RejectsOtherInFlaggedByRefParameters()
+    {
+        using var image = OperatorImage.Build(builder =>
+        {
+            void Define(string name, Type? modifierAttribute)
+            {
+                var method = builder.DefineMethod(
+                    name,
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    builder,
+                    [builder.MakeByRefType()]);
+                var parameter = method.DefineParameter(1, ParameterAttributes.In, "value");
+                if (modifierAttribute is not null)
+                {
+                    parameter.SetCustomAttribute(
+                        modifierAttribute.GetConstructor(Type.EmptyTypes)!,
+                        [1, 0, 0, 0]);
+                }
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+            }
+
+            Define("op_UnaryNegation", modifierAttribute: null);
+            Define("op_UnaryPlus", typeof(RequiresLocationAttribute));
+        });
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_UnaryNegation"));
+        Assert.False(image.IsCSharpOperatorDeclaration("op_UnaryPlus"));
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_RejectsNullableSelfConversion()
     {
         using var image = OperatorImage.BuildModule(
@@ -511,6 +545,95 @@ public sealed class OperatorApiSurfaceTests
             "ConversionBase");
 
         Assert.False(image.IsCSharpOperatorDeclaration("op_Implicit"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsInterfaceConversion()
+    {
+        using var image = OperatorImage.BuildModule(
+            module =>
+            {
+                var contract = module.DefineType(
+                    "IContract",
+                    TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+                var source = module.DefineType(
+                    "OperatorSurface",
+                    TypeAttributes.Public | TypeAttributes.Class);
+                var method = source.DefineMethod(
+                    "op_Explicit",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    contract,
+                    [source]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+                contract.CreateType();
+                source.CreateType();
+            },
+            "OperatorSurface");
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Explicit"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsUnresolvedExternalInterfaceConversion()
+    {
+        using var image = OperatorImage.Build(builder =>
+        {
+            var method = builder.DefineMethod(
+                "op_Explicit",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                typeof(IDisposable),
+                [builder]);
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Ret);
+        });
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Explicit"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsUnresolvedExternalBaseConversion()
+    {
+        using var image = OperatorImage.Build(
+            builder =>
+            {
+                var method = builder.DefineMethod(
+                    "op_Explicit",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    typeof(Stream),
+                    [builder]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+            },
+            "OperatorSurface",
+            TypeAttributes.Public | TypeAttributes.Class,
+            typeof(MemoryStream));
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Explicit"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsStaticDeclaringType()
+    {
+        using var image = OperatorImage.Build(
+            builder =>
+            {
+                var method = builder.DefineMethod(
+                    "op_Addition",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    builder,
+                    [builder, builder]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+            },
+            "OperatorSurface",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Addition"));
     }
 
     [Fact]
@@ -587,7 +710,8 @@ public sealed class OperatorApiSurfaceTests
         public static OperatorImage Build(
             Action<TypeBuilder> define,
             string typeName = TypeName,
-            TypeAttributes attributes = TypeAttributes.Public | TypeAttributes.Class)
+            TypeAttributes attributes = TypeAttributes.Public | TypeAttributes.Class,
+            Type? parent = null)
         {
             string path = Path.Combine(
                 Path.GetTempPath(),
@@ -596,7 +720,7 @@ public sealed class OperatorApiSurfaceTests
                 new AssemblyName("OperatorSurface"),
                 typeof(object).Assembly);
             var module = assembly.DefineDynamicModule("OperatorSurface");
-            var type = module.DefineType(typeName, attributes);
+            var type = module.DefineType(typeName, attributes, parent);
             define(type);
             type.CreateType();
             assembly.Save(path);

@@ -4127,6 +4127,77 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void RenderingSnapshotPreservesNegativeOperatorProof()
+    {
+        var member = new ApiMember
+        {
+            Name = "op_Multiply",
+            Kind = "operator",
+            Signature = "int op_Multiply(int left, int right)",
+            IsStatic = true,
+            Accessibility = "public",
+            CSharpOperatorDeclaration = false
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Unrelated",
+            Kind = "class",
+            Members = [member]
+        };
+
+        string source = _printer.Print(new CSharpTypePrintRequest(type)).Source;
+
+        Assert.Contains(
+            "public static int op_Multiply(int left, int right);",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("operator *", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderingSnapshotPreservesOperatorSiblingContext()
+    {
+        static ApiMember Operator(string name) => new()
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = $"bool {name}(Pair left, Pair right)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "bool",
+                MemberName = name,
+                Parameters =
+                [
+                    new ApiParameter { Type = "Pair", Name = "left" },
+                    new ApiParameter { Type = "Pair", Name = "right" },
+                ]
+            },
+            IsStatic = true,
+            Accessibility = "public",
+            CSharpOperatorDeclaration = true
+        };
+
+        var equality = Operator("op_Equality");
+        var inequality = Operator("op_Inequality");
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Pair",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, inequality]
+        };
+
+        string source = _printer.Print(new CSharpTypePrintRequest(type)).Source;
+
+        Assert.Contains(
+            "public static bool operator ==(Pair left, Pair right);",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RenderingSnapshotDoesNotRetainMutableMetadataAliases()
     {
         var typeParameter = new TypeParameter

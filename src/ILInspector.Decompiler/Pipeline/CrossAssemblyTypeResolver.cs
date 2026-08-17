@@ -476,7 +476,7 @@ internal sealed class CrossAssemblyTypeResolver
         return true;
     }
 
-    static bool SameSignatureType(TypeRef resolved, TypeRef expected, bool allowCoreLibraryAliases)
+    internal static bool SameSignatureType(TypeRef resolved, TypeRef expected, bool allowCoreLibraryAliases)
     {
         if (resolved.Equals(expected))
             return true;
@@ -490,8 +490,8 @@ internal sealed class CrossAssemblyTypeResolver
                     && resolved.Name == expected.Name
                     && (resolved.Assembly == expected.Assembly
                         || (allowCoreLibraryAliases
-                            && (resolved.Assembly == TypeRef.CoreLibrary
-                                || expected.Assembly == TypeRef.CoreLibrary)));
+                            && resolved.Assembly == TypeRef.CoreLibrary
+                            && expected.Assembly == TypeRef.CoreLibrary));
             case TypeRefKind.GenericInstance:
                 if (!SameSignatureType(resolved.ElementType!, expected.ElementType!, allowCoreLibraryAliases)
                     || resolved.TypeArguments.Length != expected.TypeArguments.Length)

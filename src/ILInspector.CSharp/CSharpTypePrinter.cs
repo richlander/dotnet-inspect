@@ -841,7 +841,8 @@ public sealed class CSharpTypePrinter
             BaseType = type.BaseType,
             Interfaces = interfaces?.ToList()!,
             TypeParameters = typeParameters?.Select(SnapshotTypeParameter).ToList()!,
-            Members = members.Select(SnapshotMember).ToList()
+            Members = members.Select(SnapshotMember).ToList(),
+            DeclaringMembers = type.DeclaringMembers?.Select(SnapshotMember).ToList()
         };
     }
 
@@ -857,6 +858,7 @@ public sealed class CSharpTypePrinter
             ReturnType = member.ReturnType,
             Signature = member.Signature,
             SignatureModel = signatureModel is null ? null : SnapshotSignature(signatureModel),
+            CSharpOperatorDeclaration = member.CSharpOperatorDeclaration,
             SignatureDecodeStatus = member.SignatureDecodeStatus,
             IsStatic = member.IsStatic,
             IsVirtual = member.IsVirtual,

@@ -73,7 +73,9 @@ as separate model-free helpers:
   (except the C# 14 instance compound-assignment form), parameter arity and
   `ref`/`out` modifiers, return shape, and declaring-type participation
   (`DeclaringTypeParticipates`). `ILInspector.Metadata.OperatorMetadata` answers
-  both questions from metadata handles for producers holding SRM evidence.
+  both questions from metadata handles for producers holding SRM evidence. The
+  proof fails closed when a conversion endpoint's external type kind or
+  base-type relationship cannot be established from the current metadata image.
 
 Declaration rendering, decompiler raising (`MethodRef.IsOperator`), and
 Return-to-Sender closure use the C# proof, because each of them turns the answer
