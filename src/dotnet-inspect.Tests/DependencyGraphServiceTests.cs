@@ -194,6 +194,46 @@ public class DependencyGraphServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task BuildPackageDependencyTreeAsync_FloatingTimeoutRetainsFeedFailure()
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        string packageId = $"Depends.Cached.Auth.{suffix}";
+        const string Version = "1.0.0";
+        string unauthorizedSource =
+            $"https://unauthorized.example.test/{suffix}/v3/index.json";
+        string blockingSource =
+            $"https://blocking.example.test/{suffix}/v3/index.json";
+        SeedCachedPackage(packageId, Version, unauthorizedSource);
+        var handler = new CredentialThenBlockingHandler(
+            unauthorizedSource,
+            blockingSource);
+        using var httpClient = new HttpClient(handler);
+        var logger = new VerboseLogger(enabled: false);
+
+        PackageDependencyGraphResult result =
+            await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                httpClient,
+                packageId,
+                requestedTfm: null,
+                new NuGetSourceOptions
+                {
+                    Sources =
+                    [
+                        unauthorizedSource,
+                        blockingSource,
+                    ],
+                },
+                logger);
+
+        var error =
+            Assert.IsType<PackageDependencyGraphResult.Error>(result);
+        Assert.Contains(
+            "could not be resolved because a source requires credentials",
+            error.Message);
+        Assert.Contains(unauthorizedSource, error.Message);
+    }
+
+    [Fact]
     public async Task BuildPackageDependencyTreeAsync_MissingLocalPackageReportsError()
     {
         string suffix = Guid.NewGuid().ToString("N");
@@ -854,6 +894,41 @@ public class DependencyGraphServiceTests : IDisposable
                 Timeout.InfiniteTimeSpan,
                 cancellationToken);
             throw new InvalidOperationException("Unreachable.");
+        }
+    }
+
+    private sealed class CredentialThenBlockingHandler(
+        string unauthorizedSource,
+        string blockingSource) : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            if (url.Equals(
+                unauthorizedSource,
+                StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(
+                    HttpStatusCode.Unauthorized)
+                {
+                    RequestMessage = request,
+                };
+            }
+            if (url.Equals(
+                blockingSource,
+                StringComparison.Ordinal))
+            {
+                await Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    cancellationToken);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                RequestMessage = request,
+            };
         }
     }
 

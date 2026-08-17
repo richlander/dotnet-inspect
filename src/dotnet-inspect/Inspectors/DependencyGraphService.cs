@@ -278,6 +278,14 @@ internal static class DependencyGraphService
         catch (OperationCanceledException)
             when (latestTimeout?.IsCancellationRequested == true)
         {
+            if (DescribeFeedFailure(packageName)
+                is { } feedFailure)
+            {
+                return PackageNuspecResolution.Error(
+                    packageName,
+                    feedFailure);
+            }
+
             return PackageNuspecResolution.Error(
                 packageName,
                 DescribeCachedVersionFallback(
@@ -307,18 +315,15 @@ internal static class DependencyGraphService
                     offlineMessage);
             }
 
+            string? feedFailure =
+                DescribeFeedFailure(packageName);
             string message = coordinateResolution switch
             {
                 PackageCoordinateResolution.Invalid invalid =>
                     invalid.Message,
                 PackageCoordinateResolution.Unavailable
-                    when FeedFailureTelemetry.Current
-                        is { HasFailures: true } failures =>
-                    (failures.DescribeFailure(packageName)
-                        ?? InertString.Format(
-                            TextPolicy.Field,
-                            $"Package '{packageName}' could not be fully resolved from every authorized source."))
-                        .ToString(),
+                    when feedFailure is not null =>
+                    feedFailure,
                 PackageCoordinateResolution.Unavailable unavailable =>
                     unavailable.Message,
                 _ => $"Package '{packageRef}' could not be resolved.",
@@ -453,14 +458,10 @@ internal static class DependencyGraphService
                 .ToString();
         }
 
-        if (FeedFailureTelemetry.Current
-            is { HasFailures: true } acquisitionFailures)
+        if (DescribeFeedFailure(packageName)
+            is { } acquisitionFailure)
         {
-            return (acquisitionFailures.DescribeFailure(packageName)
-                ?? InertString.Format(
-                    TextPolicy.Field,
-                    $"Package '{packageName}' could not be fully resolved from every authorized source."))
-                .ToString();
+            return acquisitionFailure;
         }
 
         if (versionExistenceKnown)
@@ -482,14 +483,10 @@ internal static class DependencyGraphService
                 sourceOptions: sourceOptions,
                 useVersionCache: false).ConfigureAwait(false);
 
-        if (FeedFailureTelemetry.Current
-            is { HasFailures: true } failures)
+        if (DescribeFeedFailure(packageName)
+            is { } listingFailure)
         {
-            return (failures.DescribeFailure(packageName)
-                ?? InertString.Format(
-                    TextPolicy.Field,
-                    $"Package '{packageName}' could not be fully resolved from every authorized source."))
-                .ToString();
+            return listingFailure;
         }
 
         if (knownVersions is not { Count: > 0 })
@@ -515,6 +512,22 @@ internal static class DependencyGraphService
         return InertString.Format(
             TextPolicy.Field,
             $"Nuspec for package '{packageName}' version '{version}' could not be resolved.")
+            .ToString();
+    }
+
+    private static string? DescribeFeedFailure(
+        string packageName)
+    {
+        if (FeedFailureTelemetry.Current
+            is not { HasFailures: true } failures)
+        {
+            return null;
+        }
+
+        return (failures.DescribeFailure(packageName)
+            ?? InertString.Format(
+                TextPolicy.Field,
+                $"Package '{packageName}' could not be fully resolved from every authorized source."))
             .ToString();
     }
 
