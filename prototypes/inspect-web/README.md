@@ -482,8 +482,12 @@ not promotable.
 Production promotion uses the distinct `inspect-web-production-promotion`
 environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`
 secret. Legacy deployment workflows reference neither name. During cutover,
-retire the old `inspect-web-production` environment secret before merging the
-parent workflow so queued or rerun parent-era jobs fail closed.
+cancel outstanding legacy deployment runs, reset the production Static Web App
+deployment token, put the replacement token only in the promotion environment,
+and delete both the old `inspect-web-production` environment secret and the
+repository-scoped token. Token rotation invalidates credentials already copied
+into queued parent-era jobs; deleting both old secret locations makes later
+reruns fail closed.
 
 Both deployment workflows pin the Azure deployment action to an exact commit
 and disable Azure's own app build. The staging publish step embeds the CLI's
