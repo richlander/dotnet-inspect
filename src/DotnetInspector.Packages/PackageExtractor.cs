@@ -966,6 +966,189 @@ public static class PackageExtractor
             sourceOptions,
             validateCoordinate: true).ConfigureAwait(false);
 
+    /// <summary>
+    /// Probes a local package archive for bounded, coordinate-matching nuspec
+    /// evidence.
+    /// </summary>
+    /// <remarks>
+    /// Gated end to end by
+    /// <c>RidPackageVerifierTests.VerifyAsync_UnusableLocalSiblingLeavesAvailabilityUnknown</c>.
+    /// </remarks>
+    public static async Task<NuspecProbeResult> ProbeLocalPackageArchiveAsync(
+        string packagePath,
+        string packageId,
+        string version,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsValidPackageId(packageId)
+            || !TryNormalizePackageVersion(version, out _))
+        {
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Indeterminate);
+        }
+
+        FileStream stream;
+        try
+        {
+            stream = new FileStream(
+                packagePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 81920,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+        }
+        catch (FileNotFoundException)
+        {
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Absent);
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            return IndeterminateLocalProbe(
+                log,
+                $"Local RID package directory could not be read: {ex.GetType().Name}");
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException)
+        {
+            return IndeterminateLocalProbe(
+                log,
+                $"Local RID package could not be opened: {ex.GetType().Name}");
+        }
+
+        await using (stream)
+        {
+            try
+            {
+                byte[]? archive =
+                    await PackageContentAdmission.ReadBoundedAsync(
+                            stream,
+                            PackagePayloadLimits.Default.MaxArchiveBytes,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                if (archive is null || archive.Length == 0)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package was empty or exceeded the package archive limit.");
+                }
+
+                if (PackageArchiveValidator.Validate(
+                        archive,
+                        cancellationToken: cancellationToken)
+                    is PackageArchiveValidation.Rejected rejection)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package was not a usable package archive: "
+                        + rejection.Reason);
+                }
+
+                using var archiveStream = new MemoryStream(
+                    archive,
+                    writable: false);
+                using var package = new ZipArchive(
+                    archiveStream,
+                    ZipArchiveMode.Read);
+                ZipArchiveEntry? nuspec = null;
+                foreach (ZipArchiveEntry entry in package.Entries)
+                {
+                    if (!IsRootNuspec(entry))
+                        continue;
+
+                    if (nuspec is not null)
+                    {
+                        return IndeterminateLocalProbe(
+                            log,
+                            "Local RID package contained multiple root nuspec files.");
+                    }
+
+                    nuspec = entry;
+                }
+
+                if (nuspec is null)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package contained no root nuspec file.");
+                }
+
+                await using Stream nuspecStream = nuspec.Open();
+                byte[]? nuspecBytes =
+                    await PackageContentAdmission.ReadBoundedAsync(
+                            nuspecStream,
+                            MaxNuspecBytes,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                if (nuspecBytes is null || nuspecBytes.Length == 0)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package nuspec was empty or exceeded the nuspec limit.");
+                }
+
+                string xml;
+                try
+                {
+                    xml = StrictUtf8.GetString(nuspecBytes);
+                }
+                catch (DecoderFallbackException)
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package nuspec was not valid UTF-8.");
+                }
+
+                if (!IsExpectedNuspec(xml, packageId, version))
+                {
+                    return IndeterminateLocalProbe(
+                        log,
+                        "Local RID package nuspec was malformed or did not match "
+                        + "the requested package.");
+                }
+
+                return new NuspecProbeResult(
+                    xml,
+                    NuspecProbeStatus.Present);
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                    or InvalidDataException
+                    or NotSupportedException)
+            {
+                return IndeterminateLocalProbe(
+                    log,
+                    $"Local RID package could not be validated: {ex.GetType().Name}");
+            }
+        }
+    }
+
+    private static NuspecProbeResult IndeterminateLocalProbe(
+        Action<string>? log,
+        string message)
+    {
+        log?.Invoke(message);
+        return new NuspecProbeResult(
+            null,
+            NuspecProbeStatus.Indeterminate);
+    }
+
+    private static bool IsRootNuspec(ZipArchiveEntry entry)
+    {
+        string path = entry.FullName;
+        return path.EndsWith(
+                   ".nuspec",
+                   StringComparison.OrdinalIgnoreCase)
+               && path.IndexOf('/') < 0
+               && path.IndexOf('\\') < 0;
+    }
+
     private static async Task<NuspecProbeResult> ProbeNuspecXmlCoreAsync(
         HttpClient client,
         string packageId,

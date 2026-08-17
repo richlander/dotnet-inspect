@@ -309,10 +309,13 @@ and commands while keeping the payload package identity and producer as the prov
 managed assemblies being inspected. RID companion availability is verified only when an
 explicit manifest selection requests it: a coordinate-matching nuspec proves presence,
 authoritative absence renders `no`, and malformed or otherwise inconclusive probes remain
-`unknown`. Availability is not retained in the payload index; each explicit request evaluates
-the current source policy and available cache replicas. Redirect and RID package ids must satisfy
-the canonical NuGet id grammar before cache or network use; probe versions compare by normalized
-NuGet identity, and invalid UTF-8 cannot establish presence.
+`unknown`. A local sibling must also pass bounded package-archive admission before its strict
+UTF-8 nuspec can prove presence; an existing but empty, corrupt, unreadable, or mismatched sibling
+remains `unknown`. `RidPackageVerifierTests` gates these local and remote distinctions.
+Availability is not retained in the payload index; each explicit request evaluates the current
+source policy and available cache replicas. Redirect and RID package ids must satisfy the canonical
+NuGet id grammar before cache or network use; probe versions compare by normalized NuGet identity,
+and invalid UTF-8 cannot establish presence.
 
 ### Signature decoding
 

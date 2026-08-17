@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using DotnetInspector.Core;
@@ -271,11 +272,12 @@ public class RidPackageVerifierTests
         Directory.CreateDirectory(directory);
         try
         {
-            File.WriteAllBytes(
+            WritePackageArchive(
                 Path.Combine(
                     directory,
                     "TestPackage.linux-x64.1.0.0-Preview.1.nupkg"),
-                []);
+                "TestPackage.linux-x64",
+                "1.0.0-Preview.1");
             InspectionResult result = CreateResult();
 
             await RidPackageVerifier.VerifyAsync(
@@ -286,6 +288,74 @@ public class RidPackageVerifierTests
                 new VerboseLogger(enabled: false));
 
             Assert.True(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyAsync_MissingLocalSiblingSetsAvailabilityFalse()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(new OfflineHandler()),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.False(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("empty-file")]
+    [InlineData("malformed-archive")]
+    [InlineData("empty-archive")]
+    [InlineData("missing-nuspec")]
+    [InlineData("malformed-nuspec")]
+    [InlineData("wrong-id")]
+    [InlineData("wrong-version")]
+    [InlineData("invalid-utf8")]
+    [InlineData("not-a-file")]
+    public async Task VerifyAsync_UnusableLocalSiblingLeavesAvailabilityUnknown(
+        string scenario)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string packagePath = Path.Combine(
+            directory,
+            "TestPackage.linux-x64.1.0.0.nupkg");
+        try
+        {
+            WriteUnusablePackageArchive(packagePath, scenario);
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(new OfflineHandler()),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.Null(
                 Assert.Single(result.RuntimeIdentifierPackages!).Exists);
         }
         finally
@@ -403,6 +473,91 @@ public class RidPackageVerifierTests
             }
         ]
     };
+
+    private static void WriteUnusablePackageArchive(
+        string packagePath,
+        string scenario)
+    {
+        switch (scenario)
+        {
+            case "empty-file":
+                File.WriteAllBytes(packagePath, []);
+                break;
+            case "malformed-archive":
+                File.WriteAllBytes(packagePath, "not a zip archive"u8.ToArray());
+                break;
+            case "empty-archive":
+                using (ZipFile.Open(packagePath, ZipArchiveMode.Create))
+                {
+                }
+                break;
+            case "missing-nuspec":
+                WriteArchiveEntry(
+                    packagePath,
+                    "README.md",
+                    "no manifest"u8);
+                break;
+            case "malformed-nuspec":
+                WriteArchiveEntry(
+                    packagePath,
+                    "TestPackage.linux-x64.nuspec",
+                    "<package>"u8);
+                break;
+            case "wrong-id":
+                WritePackageArchive(
+                    packagePath,
+                    "Other.Package",
+                    "1.0.0");
+                break;
+            case "wrong-version":
+                WritePackageArchive(
+                    packagePath,
+                    "TestPackage.linux-x64",
+                    "2.0.0");
+                break;
+            case "invalid-utf8":
+                WriteArchiveEntry(
+                    packagePath,
+                    "TestPackage.linux-x64.nuspec",
+                    [
+                        .. "<package><metadata><id>TestPackage.linux-x64</id><version>1.0.0</version><!--"u8,
+                        0xFF,
+                        .. "--></metadata></package>"u8
+                    ]);
+                break;
+            case "not-a-file":
+                Directory.CreateDirectory(packagePath);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(scenario),
+                    scenario,
+                    "Unknown local package scenario.");
+        }
+    }
+
+    private static void WritePackageArchive(
+        string packagePath,
+        string packageId,
+        string version) =>
+        WriteArchiveEntry(
+            packagePath,
+            $"{packageId}.nuspec",
+            Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{packageId}</id>"
+                + $"<version>{version}</version></metadata></package>"));
+
+    private static void WriteArchiveEntry(
+        string packagePath,
+        string entryName,
+        ReadOnlySpan<byte> content)
+    {
+        using ZipArchive archive = ZipFile.Open(
+            packagePath,
+            ZipArchiveMode.Create);
+        using Stream stream = archive.CreateEntry(entryName).Open();
+        stream.Write(content);
+    }
 
     sealed class StubHandler : HttpMessageHandler
     {

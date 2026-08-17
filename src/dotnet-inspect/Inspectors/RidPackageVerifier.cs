@@ -38,13 +38,23 @@ public static class RidPackageVerifier
 
             if (localDir != null)
             {
-                // Local verification: check if sibling .nupkg file exists
                 string expectedFileName =
                     $"{ridPkg.PackageId}.{normalizedVersion}.nupkg";
                 string expectedPath = Path.Combine(localDir, expectedFileName);
-                ridPkg.Exists = File.Exists(expectedPath);
+                NuspecProbeResult probe =
+                    await PackageExtractor.ProbeLocalPackageArchiveAsync(
+                        expectedPath,
+                        ridPkg.PackageId,
+                        normalizedVersion,
+                        logger.Log);
+                ridPkg.Exists = ToAvailability(probe.Status);
 
-                string status = ridPkg.Exists == true ? "found" : "NOT FOUND";
+                string status = ridPkg.Exists switch
+                {
+                    true => "available",
+                    false => "NOT FOUND",
+                    null => "availability unknown"
+                };
                 logger.Log($"  {ridPkg.RuntimeIdentifier}: {status} ({expectedFileName})");
             }
             else
@@ -56,12 +66,7 @@ public static class RidPackageVerifier
                         normalizedVersion,
                         logger.Log,
                         sourceOptions);
-                ridPkg.Exists = probe.Status switch
-                {
-                    NuspecProbeStatus.Present => true,
-                    NuspecProbeStatus.Absent => false,
-                    _ => null
-                };
+                ridPkg.Exists = ToAvailability(probe.Status);
 
                 string status = ridPkg.Exists switch
                 {
@@ -75,4 +80,12 @@ public static class RidPackageVerifier
             }
         }
     }
+
+    private static bool? ToAvailability(NuspecProbeStatus status) =>
+        status switch
+        {
+            NuspecProbeStatus.Present => true,
+            NuspecProbeStatus.Absent => false,
+            _ => null
+        };
 }
