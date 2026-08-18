@@ -1,6 +1,6 @@
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
-using System.Runtime.InteropServices;
 using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
@@ -13,8 +13,6 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class RidPackageVerifierTests
 {
-    const uint UserReadWritePermissions = 0x180;
-
     public RidPackageVerifierTests()
     {
         CoreCache.Initialize("dotnet-inspect-test");
@@ -512,9 +510,7 @@ public class RidPackageVerifierTests
             "TestPackage.linux-x64.1.0.0.nupkg");
         try
         {
-            Assert.Equal(
-                0,
-                MkFifo(packagePath, UserReadWritePermissions));
+            await CreateFifoAsync(packagePath);
             InspectionResult result = CreateResult();
 
             await RidPackageVerifier.VerifyAsync(
@@ -836,6 +832,20 @@ public class RidPackageVerifierTests
             throw new OfflineException("Network access is disabled for this test.");
     }
 
-    [DllImport("libc", EntryPoint = "mkfifo", SetLastError = true)]
-    private static extern int MkFifo(string path, uint mode);
+    private static async Task CreateFifoAsync(string path)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "mkfifo",
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("-m");
+        startInfo.ArgumentList.Add("600");
+        startInfo.ArgumentList.Add(path);
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start mkfifo.");
+        await process.WaitForExitAsync(
+            TestContext.Current.CancellationToken);
+        Assert.Equal(0, process.ExitCode);
+    }
 }
