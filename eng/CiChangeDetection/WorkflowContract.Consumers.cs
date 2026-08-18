@@ -226,6 +226,7 @@ internal static partial class WorkflowContract
                 "steps",
                 $"jobs.{jobName}");
             var identities = new HashSet<string>(StringComparer.Ordinal);
+            bool windowsBuildSeen = false;
             foreach (YamlNode stepNode in steps.Children)
             {
                 YamlMappingNode step = RequireMapping(
@@ -240,8 +241,17 @@ internal static partial class WorkflowContract
                 }
 
                 string key = $"{jobName}/{identity}";
+                if (key == "test-windows/Build")
+                {
+                    windowsBuildSeen = true;
+                }
                 if (key == "test-windows/Run Research tests")
                 {
+                    if (!windowsBuildSeen)
+                    {
+                        throw new InvalidOperationException(
+                            $"{key} must run after test-windows/Build.");
+                    }
                     RequireScalarValue(
                         step,
                         "run",
