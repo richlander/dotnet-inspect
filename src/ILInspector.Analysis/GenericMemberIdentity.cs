@@ -144,6 +144,13 @@ public static class GenericMemberIdentity
     {
         if (type.Resolution?.Type is not { } exactName)
             return $"{type.Assembly}|{type.Namespace}.{type.Name}";
+        if (TypeRef.TryGetLegacyCompatibleExactName(
+                type,
+                out MetadataTypeDefinitionName? compatible))
+        {
+            return $"{type.Assembly}|{compatible.Namespace}."
+                + compatible.Segments[0];
+        }
 
         var key = new StringBuilder();
         AppendKeyPart(key, type.Assembly);

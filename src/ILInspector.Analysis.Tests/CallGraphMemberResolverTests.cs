@@ -165,6 +165,31 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void Resolve_StaleTokenDoesNotOverrideStructuralAmbiguity()
+    {
+        ApiMember first = Method("int");
+        first.MetadataToken = 0x06000001;
+        ApiMember second = Method("int");
+        second.MetadataToken = 0x06000002;
+        ApiMember stale = Method("string");
+        stale.MetadataToken = 0x06000003;
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [first, second, stale],
+        };
+        CallGraphMemberSelector selector =
+            CallGraphMemberResolver.CreateSelector(type, first);
+
+        Assert.Null(CallGraphMemberResolver.Resolve(
+            type,
+            selector.Name,
+            selector.Key,
+            metadataToken: stale.MetadataToken));
+    }
+
+    [Fact]
     public void Resolve_SurfaceUsesMetadataTypeIdentityAndStructuralFallback()
     {
         var member = Method("int");
@@ -457,6 +482,113 @@ public sealed class CallGraphMemberResolverTests
         Assert.Equal(
             CallGraphMemberResolver.CreateSelector(owner, member).Key,
             CallGraphMemberResolver.CreateSelector(reference).Key);
+    }
+
+    [Fact]
+    public void SelectorKey_DistinguishesLiteralGrammarFromGenericShape()
+    {
+        TypeRef literal = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "G{X}",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Name("Samples", ["G{X}"])));
+        TypeRef generic = TypeRef.GenericInstance(
+            TypeRef.Definition(
+                "Samples",
+                "Samples",
+                "G`1",
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    Name("Samples", ["G`1"]))),
+            [TypeRef.Definition("Samples", "", "X")]);
+
+        CallGraphMemberSelector LiteralSelector() =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [literal],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+        CallGraphMemberSelector GenericSelector() =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [generic],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+
+        Assert.Equal(
+            LiteralSelector().ParameterTypes,
+            GenericSelector().ParameterTypes);
+        Assert.NotEqual(LiteralSelector().Key, GenericSelector().Key);
+    }
+
+    [Fact]
+    public void SelectorKey_PreservesMalformedDeclaredArity()
+    {
+        ImmutableArray<TypeRef> arguments =
+        [
+            TypeRef.CoreLib("System", "Int32"),
+            TypeRef.CoreLib("System", "String")
+        ];
+        TypeRef Generic(string name) => TypeRef.GenericInstance(
+            TypeRef.Definition(
+                "Samples",
+                "Samples",
+                name,
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    Name("Samples", [name]))),
+            arguments);
+        CallGraphMemberSelector Selector(TypeRef parameter) =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+
+        CallGraphMemberSelector malformed = Selector(Generic("G`1"));
+        CallGraphMemberSelector valid = Selector(Generic("G`2"));
+
+        Assert.Equal(malformed.ParameterTypes, valid.ParameterTypes);
+        Assert.NotEqual(malformed.Key, valid.Key);
+    }
+
+    [Fact]
+    public void SelectorKey_DistinguishesLiteralWrapperAndGenericParameterSyntax()
+    {
+        TypeRef Exact(string name) => TypeRef.Definition(
+            "Samples",
+            "",
+            name,
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Name("", [name])));
+        CallGraphMemberSelector Selector(TypeRef parameter) =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+        void AssertCollisionAvoided(TypeRef literal, TypeRef structural)
+        {
+            CallGraphMemberSelector literalSelector = Selector(literal);
+            CallGraphMemberSelector structuralSelector = Selector(structural);
+            Assert.Equal(
+                literalSelector.ParameterTypes,
+                structuralSelector.ParameterTypes);
+            Assert.NotEqual(literalSelector.Key, structuralSelector.Key);
+        }
+
+        AssertCollisionAvoided(Exact("X[]"), TypeRef.SzArray(Exact("X")));
+        AssertCollisionAvoided(Exact("X*"), TypeRef.Pointer(Exact("X")));
+        AssertCollisionAvoided(Exact("X@"), TypeRef.ByRef(Exact("X")));
+        AssertCollisionAvoided(Exact("T0"), TypeRef.GenericParameter(0));
+        AssertCollisionAvoided(Exact("G`1"), Exact("G"));
     }
 
     [Fact]

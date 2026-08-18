@@ -126,6 +126,49 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void MissingDeclaredArity_UsesExactParameterOwnership()
+    {
+        MetadataTypeDefinitionName exact =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["Outer", "Inner`1"]))
+            .Name;
+        var full = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer.Inner`1",
+            Kind = "class",
+            DefinitionName = exact,
+            IntroducedTypeParameterCounts = [1, 1],
+            TypeParameters =
+            [
+                new TypeParameter { Name = "T" },
+                new TypeParameter { Name = "U" },
+            ],
+        };
+        var leaf = new ApiType
+        {
+            Namespace = "N",
+            Name = "Inner`1",
+            Kind = "class",
+            DefinitionName = exact,
+            IntroducedTypeParameterCounts = [1, 1],
+            TypeParameters =
+            [
+                new TypeParameter { Name = "U" },
+            ],
+        };
+
+        Assert.Equal(
+            "Outer<T>.Inner<U>",
+            CSharpFormatter.FormatTypeName(full));
+        Assert.Equal(
+            "Inner<U>",
+            CSharpFormatter.FormatTypeName(leaf));
+    }
+
+    [Fact]
     public void FormatsContextualTypeUnit()
     {
         var type = new ApiType

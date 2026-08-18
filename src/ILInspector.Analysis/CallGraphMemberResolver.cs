@@ -189,16 +189,7 @@ public static class CallGraphMemberResolver
                     && string.Equals(candidate.MemberName, memberName, StringComparison.Ordinal))
                 .ToArray();
             if (tokenMatches.Length == 1)
-            {
                 tokenCandidate = tokenMatches[0].Resolution;
-                if (string.Equals(
-                    tokenMatches[0].SelectorKey,
-                    selectorKey,
-                    StringComparison.Ordinal))
-                {
-                    return tokenCandidate;
-                }
-            }
         }
 
         var matches = type.Members
@@ -207,9 +198,11 @@ public static class CallGraphMemberResolver
                 string.Equals(candidate.MemberName, memberName, StringComparison.Ordinal)
                 && string.Equals(candidate.SelectorKey, selectorKey, StringComparison.Ordinal))
             .ToArray();
-        return matches.Length == 1
-            ? matches[0].Resolution
-            : tokenCandidate;
+        if (matches.Length == 1)
+            return matches[0].Resolution;
+        return matches.Length == 0
+            ? tokenCandidate
+            : null;
     }
 
     static IEnumerable<AccessorCandidate> CandidateBodies(ApiType type, ApiMember member)
@@ -406,11 +399,13 @@ public static class CallGraphMemberResolver
         if (type.Resolution?.Type is { } exactName)
         {
             string exactTypeName = string.Join(
-                '.',
+                preserveExactIdentity ? '+' : '.',
                 exactName.Segments.Select(
                     segment => preserveExactIdentity
                         ? EscapeIdentitySegment(
-                            StripArity(segment))
+                            segment,
+                            escapeGenericParameterMarker:
+                                exactName.Namespace.Length == 0)
                         : StripArity(segment)));
             return exactName.Namespace.Length == 0
                 ? exactTypeName
@@ -431,9 +426,38 @@ public static class CallGraphMemberResolver
         => value.Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("+", "\\+", StringComparison.Ordinal);
 
-    static string EscapeIdentitySegment(string value)
-        => EscapeIdentityNamespace(value)
-            .Replace(".", "\\.", StringComparison.Ordinal);
+    static string EscapeIdentitySegment(
+        string value,
+        bool escapeGenericParameterMarker = false)
+    {
+        string escaped = EscapeIdentityNamespace(value)
+            .Replace(".", "\\.", StringComparison.Ordinal)
+            .Replace("{", "\\{", StringComparison.Ordinal)
+            .Replace("}", "\\}", StringComparison.Ordinal)
+            .Replace("[", "\\[", StringComparison.Ordinal)
+            .Replace("]", "\\]", StringComparison.Ordinal)
+            .Replace(",", "\\,", StringComparison.Ordinal)
+            .Replace("*", "\\*", StringComparison.Ordinal)
+            .Replace("@", "\\@", StringComparison.Ordinal)
+            .Replace("`", "\\`", StringComparison.Ordinal);
+        return escapeGenericParameterMarker
+            && IsGenericParameterIdentity(value)
+                ? $"\\{escaped}"
+                : escaped;
+    }
+
+    static bool IsGenericParameterIdentity(string value)
+    {
+        if (value.Length < 2 || value[0] is not ('T' or 'M'))
+            return false;
+
+        foreach (char character in value.AsSpan(1))
+        {
+            if (character is < '0' or > '9')
+                return false;
+        }
+        return true;
+    }
 
     static string NamedGenericTypeIdentity(
         TypeRef definition,
@@ -464,13 +488,20 @@ public static class CallGraphMemberResolver
         for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++)
         {
             if (segmentIndex > 0)
-                result.Append('.');
+                result.Append(
+                    preserveExactIdentity
+                        && definition.Resolution is not null
+                            ? '+'
+                            : '.');
             string segment = segments[segmentIndex];
             result.Append(
                 !preserveExactIdentity
                     || definition.Resolution is null
                     ? StripArity(segment)
-                    : EscapeIdentitySegment(StripArity(segment)));
+                    : EscapeIdentitySegment(
+                        StripArity(segment),
+                        escapeGenericParameterMarker:
+                            ns.Length == 0));
             int arity = MetadataNameArity.OfSegment(segment);
             if (arity <= 0)
                 continue;

@@ -353,6 +353,46 @@ public class SignatureDecoderSafetyTests
         GC.KeepAlive(reader);
     }
 
+    [Fact]
+    public void SignatureDecoder_DoesNotRetainRejectionsPastCacheBudget()
+    {
+        int count = SignatureDecoder.MaxAcceptedNameCacheEntries + 1;
+        TypeReferenceHandle[] handles =
+            new TypeReferenceHandle[count];
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            StringHandle sharedName = metadata.GetOrAddString(
+                new string(
+                    'A',
+                    MetadataSafetyPolicy.MaxTypeNameCharacters + 1));
+            for (int i = 0; i < handles.Length; i++)
+            {
+                handles[i] = metadata.AddTypeReference(
+                    default,
+                    default,
+                    sharedName);
+            }
+        });
+        var decoder = new SignatureDecoder();
+
+        foreach (TypeReferenceHandle handle in handles)
+        {
+            AssertRejected(
+                SignatureDecoder.Decode(
+                    () => decoder.GetTypeFromReference(
+                        reader,
+                        handle,
+                        rawTypeKind: 0)),
+                SignatureDecodeRejectionKind.NameBudget);
+        }
+
+        Assert.True(
+            decoder.GetCachedEntryCount(reader)
+                <= SignatureDecoder.MaxAcceptedNameCacheEntries);
+        Assert.True(
+            decoder.GetCachedEntryCount(reader) < handles.Length);
+    }
+
     [System.Runtime.CompilerServices.MethodImpl(
         System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     static (WeakReference<string> First, WeakReference<string> Last)

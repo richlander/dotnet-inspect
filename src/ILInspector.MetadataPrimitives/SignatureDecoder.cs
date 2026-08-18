@@ -294,9 +294,16 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
                 reader,
                 static _ => new ReaderNameCache());
             lock (rejectedCache.Names)
-                rejectedCache.Rejections.TryAdd(
-                    handle,
-                    new(rejection, materializationWork));
+            {
+                if (!rejectedCache.Rejections.ContainsKey(handle)
+                    && rejectedCache.TryReserve(
+                        rejection.Detail.Length))
+                {
+                    rejectedCache.Rejections.Add(
+                        handle,
+                        new(rejection, materializationWork));
+                }
+            }
             return ReadNameOrContinue(false, projectedName, rejection);
         }
 
@@ -325,7 +332,8 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             }
             if (value.Length == 0)
             {
-                if (cache.TryReserve(value, structured))
+                if (cache.TryReserve(
+                        RetainedCharacters(value, structured)))
                 {
                     cache.Names.Add(
                         handle,
@@ -340,7 +348,8 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
                 static (destination, source) =>
                     source.AsSpan().CopyTo(destination));
             structuredNames.Add(name, structured);
-            if (cache.TryReserve(name, structured))
+            if (cache.TryReserve(
+                    RetainedCharacters(name, structured)))
             {
                 cache.Names.Add(
                     handle,
@@ -398,6 +407,30 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             _beforeMaterialize?.Invoke(amount);
     }
 
+    internal int GetCachedEntryCount(MetadataReader reader)
+    {
+        if (!readerNames.TryGetValue(
+                reader,
+                out ReaderNameCache? cache))
+        {
+            return 0;
+        }
+
+        lock (cache.Names)
+            return cache.EntryCount;
+    }
+
+    static long RetainedCharacters(
+        string name,
+        MetadataTypeNameParts structured)
+    {
+        long characters =
+            name.Length + structured.Namespace.Length;
+        foreach (string segment in structured.Segments)
+            characters += segment.Length;
+        return characters;
+    }
+
     sealed class ReaderNameCache
     {
         internal Dictionary<EntityHandle, CachedName> Names { get; } = [];
@@ -405,14 +438,12 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 
         long _retainedCharacters;
 
-        internal bool TryReserve(
-            string name,
-            MetadataTypeNameParts structured)
+        internal int EntryCount =>
+            Names.Count + Rejections.Count;
+
+        internal bool TryReserve(long characters)
         {
-            long characters = name.Length + structured.Namespace.Length;
-            foreach (string segment in structured.Segments)
-                characters += segment.Length;
-            if (Names.Count >= MaxAcceptedNameCacheEntries
+            if (EntryCount >= MaxAcceptedNameCacheEntries
                 || characters
                     > MaxAcceptedNameCacheCharacters
                         - _retainedCharacters)

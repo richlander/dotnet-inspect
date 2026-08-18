@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
+using System.Text.Json;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -15,6 +16,47 @@ namespace ILInspector.Metadata.Tests;
 /// </summary>
 public class MetadataTypeNameBudgetTests
 {
+    [Fact]
+    public void JsonNameBudgetRejectsBeforeOversizedStringMaterialization()
+    {
+        _ = JsonSerializer.Deserialize<MetadataTypeDefinitionName>(
+            """{"namespace":"N","segments":["Warmup"]}""");
+        byte[] payload = Encoding.UTF8.GetBytes(
+            "{\"namespace\":\"N\",\"segments\":[\""
+                + new string('X', 2_000_000)
+                + "\"]}");
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<
+                MetadataTypeDefinitionName>(payload));
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 256 * 1024,
+            $"Oversized JSON name allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void JsonNameBudgetAcceptsEscapedTextAtDecodedLimit()
+    {
+        string escapedSegment = string.Concat(
+            Enumerable.Repeat(
+                "\\u4E00",
+                MetadataSafetyPolicy.MaxTypeNameCharacters - 1));
+        string json =
+            $"{{\"namespace\":\"\",\"segments\":[\"{escapedSegment}\"]}}";
+
+        MetadataTypeDefinitionName name =
+            JsonSerializer.Deserialize<
+                MetadataTypeDefinitionName>(json)!;
+
+        Assert.Equal(
+            MetadataSafetyPolicy.MaxTypeNameCharacters - 1,
+            name.Segments[0].Length);
+    }
+
     [Fact]
     public void NameAtTheCharacterBudget_IsAccepted()
     {

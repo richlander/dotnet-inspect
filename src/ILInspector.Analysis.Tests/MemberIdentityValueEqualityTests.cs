@@ -115,6 +115,9 @@ public class MemberIdentityValueEqualityTests
         Assert.Equal(legacy, exact);
         Assert.Equal(legacy.GetHashCode(), exact.GetHashCode());
         Assert.Equal(
+            GenericMemberIdentity.KeyFragment(legacy),
+            GenericMemberIdentity.KeyFragment(exact));
+        Assert.Equal(
             0,
             MeasureEqualityAllocations(legacy, exact));
         Assert.Equal(
@@ -132,6 +135,34 @@ public class MemberIdentityValueEqualityTests
                 "Sample",
                 "Outer+Inner"),
             Exact("Outer", "Inner"));
+
+        TypeRef owner =
+            TypeRef.Definition("Sample", "Sample", "Owner");
+        var method = new MethodIdentity(
+            "Sample",
+            Guid.Empty,
+            owner,
+            "M",
+            [exact],
+            TypeRef.CoreLib("System", "Void"),
+            0x06000001,
+            true);
+        var call = new DirectCall(
+            method,
+            new MemberRef(
+                owner,
+                "M",
+                [legacy],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method),
+            0,
+            0x0A000001,
+            0x0A000001,
+            CallKind.Call);
+
+        Assert.Equal(
+            0x06000001,
+            MethodDefinitionMap.Create([method]).Resolve(call));
     }
 
     [Fact]

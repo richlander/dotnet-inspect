@@ -528,6 +528,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
         && name.IndexOf('+') < 0
         && name.IndexOf('\\') < 0;
 
+    internal static bool TryGetLegacyCompatibleExactName(
+        TypeRef type,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out MetadataTypeDefinitionName? exactName)
+    {
+        exactName = type.Resolution?.Type;
+        return exactName is not null
+            && exactName.Segments.Length == 1
+            && IsUnambiguousLegacyName(exactName.Segments[0]);
+    }
+
     static void AddNameIdentity(ref HashCode hash, TypeRef type)
     {
         if (type.Kind != TypeRefKind.Definition)

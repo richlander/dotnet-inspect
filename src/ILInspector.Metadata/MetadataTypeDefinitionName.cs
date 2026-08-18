@@ -90,25 +90,39 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
             string? @namespace = null;
             bool hasNamespace = false;
             ImmutableArray<string>.Builder? segments = null;
+            int remainingCharacters =
+                MetadataSafetyPolicy.MaxTypeNameCharacters;
             while (reader.Read()
                 && reader.TokenType != JsonTokenType.EndObject)
             {
                 if (reader.TokenType != JsonTokenType.PropertyName)
                     throw new JsonException("Expected a property name.");
-                string propertyName = reader.GetString()!;
+                bool isNamespace =
+                    reader.ValueTextEquals("namespace"u8);
+                bool isSegments =
+                    reader.ValueTextEquals("segments"u8);
                 if (!reader.Read())
                     throw new JsonException("Unexpected end of JSON.");
 
-                if (propertyName == "namespace")
+                if (isNamespace)
                 {
+                    if (hasNamespace)
+                        throw new JsonException(
+                            "The metadata namespace must occur once.");
                     if (reader.TokenType != JsonTokenType.String)
                         throw new JsonException(
                             "The metadata namespace must be a string.");
-                    @namespace = reader.GetString();
+                    @namespace = ReadBoundedString(
+                        ref reader,
+                        remainingCharacters);
+                    remainingCharacters -= @namespace.Length;
                     hasNamespace = true;
                 }
-                else if (propertyName == "segments")
+                else if (isSegments)
                 {
+                    if (segments is not null)
+                        throw new JsonException(
+                            "Metadata name segments must occur once.");
                     if (reader.TokenType != JsonTokenType.StartArray)
                         throw new JsonException(
                             "Metadata name segments must be an array.");
@@ -125,7 +139,17 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                             throw new JsonException(
                                 "The metadata name has too many segments.");
                         }
-                        segments.Add(reader.GetString()!);
+                        if (remainingCharacters == 0)
+                        {
+                            throw new JsonException(
+                                "The metadata name exceeds the character budget.");
+                        }
+                        remainingCharacters--;
+                        string segment = ReadBoundedString(
+                            ref reader,
+                            remainingCharacters);
+                        remainingCharacters -= segment.Length;
+                        segments.Add(segment);
                     }
                     if (reader.TokenType != JsonTokenType.EndArray)
                         throw new JsonException(
@@ -160,6 +184,30 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                     _ => throw new JsonException(
                         "Unexpected metadata type definition name result."),
                 };
+        }
+
+        static string ReadBoundedString(
+            ref Utf8JsonReader reader,
+            int maxCharacters)
+        {
+            Span<char> buffer =
+                stackalloc char[maxCharacters + 1];
+            int length;
+            try
+            {
+                length = reader.CopyString(buffer);
+            }
+            catch (ArgumentException)
+            {
+                throw new JsonException(
+                    "The metadata name exceeds the character budget.");
+            }
+            if (length > maxCharacters)
+            {
+                throw new JsonException(
+                    "The metadata name exceeds the character budget.");
+            }
+            return new string(buffer[..length]);
         }
 
         public override void Write(

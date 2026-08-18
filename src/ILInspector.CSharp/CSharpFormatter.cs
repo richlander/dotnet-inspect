@@ -577,13 +577,24 @@ public sealed class CSharpFormatter
         bool ownershipMatchesArity =
             hasParameterOwnership
             && name.Segments
-                .Select(MetadataNameArity.OfSegment)
-                .SequenceEqual(introducedTypeParameterCounts!);
+                .Select((segment, index) =>
+                {
+                    int declared =
+                        MetadataNameArity.OfSegment(segment);
+                    int introduced =
+                        introducedTypeParameterCounts![index];
+                    return declared == 0
+                        || declared == introduced;
+                })
+                .All(static matches => matches);
         long expectedParameterCount = leafOnly
             ? introducedTypeParameterCounts is { Count: > 0 }
                 ? introducedTypeParameterCounts[^1]
                 : -1
-            : declaredArity;
+            : hasParameterOwnership
+                ? introducedTypeParameterCounts!.Sum(
+                    static count => (long)count)
+                : declaredArity;
         bool arityMatches =
             hasParameterOwnership
                 ? ownershipMatchesArity
@@ -602,7 +613,9 @@ public sealed class CSharpFormatter
             segmentIndex++)
         {
             string segment = name.Segments[segmentIndex];
-            int arity = MetadataNameArity.OfSegment(segment);
+            int arity = hasParameterOwnership
+                ? introducedTypeParameterCounts![segmentIndex]
+                : MetadataNameArity.OfSegment(segment);
             bool stripArity =
                 arityMatches
                 || (unboundOuterDisplay
