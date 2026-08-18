@@ -4716,19 +4716,24 @@ public class LibraryBodyIndexTests
                 stream.SetLength(
                     stream.Length + OverlaySize);
             }
-            long before =
-                GC.GetAllocatedBytesForCurrentThread();
-            _ = LibraryBodyIndex.Open(
-                paddedPath,
-                LibraryBodyAnalysisFeatures.MethodEvidence,
-                resolver);
-            long allocated =
-                GC.GetAllocatedBytesForCurrentThread()
-                - before;
+            long baseline = AllocatedFor(targetPath);
+            long padded = AllocatedFor(paddedPath);
+            long overlayAllocation = padded - baseline;
 
             Assert.True(
-                allocated < OverlaySize / 2,
-                $"Method-evidence acquisition allocated {allocated:N0} bytes for an unused resolver.");
+                overlayAllocation < OverlaySize / 2,
+                $"Method-evidence acquisition allocated {overlayAllocation:N0} overlay-dependent bytes " +
+                $"for an unused resolver (baseline: {baseline:N0}; padded: {padded:N0}).");
+
+            long AllocatedFor(string path)
+            {
+                long before = GC.GetAllocatedBytesForCurrentThread();
+                _ = LibraryBodyIndex.Open(
+                    path,
+                    LibraryBodyAnalysisFeatures.MethodEvidence,
+                    resolver);
+                return GC.GetAllocatedBytesForCurrentThread() - before;
+            }
         }
         finally
         {
