@@ -1503,6 +1503,103 @@ public sealed class CSharpFormatterTests
     }
 
     [Fact]
+    public void FormatTypeName_UsesOwnedLeafForNestedTypeShell()
+    {
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "",
+                    ["Outer`1", "Inner`1"]))
+                .Name;
+        var type = new ApiType
+        {
+            Name = "Inner`1",
+            DefinitionName = exactName,
+            IntroducedTypeParameterCounts = [1, 1],
+            TypeParameters =
+            [
+                new TypeParameter { Name = "T" },
+                new TypeParameter { Name = "U" },
+            ],
+        };
+
+        Assert.Equal(
+            "Inner<U>",
+            CSharpFormatter.FormatTypeName(type));
+    }
+
+    [Fact]
+    public void FormatTypeName_UsesMetadataLeafForNormalizedGeneratedShell()
+    {
+        const string leaf = "<State>d__1";
+        MetadataTypeDefinitionName exactName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "",
+                    ["Outer", leaf]))
+                .Name;
+        var type = new ApiType
+        {
+            Name =
+                CSharpFormatter.NormalizeGeneratedMetadataTypeName(leaf),
+            MetadataName = leaf,
+            DefinitionName = exactName,
+            IntroducedTypeParameterCounts = [0, 0],
+        };
+
+        Assert.Equal(
+            CSharpFormatter.NormalizeGeneratedMetadataTypeName(leaf),
+            CSharpFormatter.FormatTypeName(type));
+        Assert.Equal(
+            CSharpFormatter.NormalizeGeneratedMetadataTypeName(leaf),
+            CSharpFormatter.FormatDeclarationLeafMetadataName(type));
+
+        const string malformedLeaf = "<State>d__1`2";
+        var malformed = new ApiType
+        {
+            Name =
+                CSharpFormatter.NormalizeGeneratedMetadataTypeName(
+                    malformedLeaf),
+            MetadataName = malformedLeaf,
+            DefinitionName = Assert
+                .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "",
+                        ["Outer", malformedLeaf]))
+                .Name,
+            IntroducedTypeParameterCounts = [0, 1],
+        };
+        Assert.Equal(
+            malformedLeaf,
+            CSharpFormatter.FormatDeclarationLeafMetadataName(
+                malformed));
+
+        const string delegateLeaf = "<>A{00000000}`2";
+        var generatedDelegate = new ApiType
+        {
+            Name =
+                CSharpFormatter.NormalizeGeneratedMetadataTypeName(
+                    delegateLeaf),
+            MetadataName = delegateLeaf,
+            DefinitionName = Assert
+                .IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "",
+                        [delegateLeaf]))
+                .Name,
+            IntroducedTypeParameterCounts = [2],
+            TypeParameters =
+            [
+                new TypeParameter { Name = "T1" },
+                new TypeParameter { Name = "T2" },
+            ],
+        };
+        Assert.Equal(
+            "___A_00000000_<T1, T2>",
+            CSharpFormatter.FormatTypeName(generatedDelegate));
+    }
+
+    [Fact]
     public void FormatTypeName_DistinguishesLiteralDotFromNesting()
     {
         static ApiType Exact(params string[] segments)

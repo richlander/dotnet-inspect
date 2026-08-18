@@ -73,19 +73,36 @@ public sealed class CSharpFormatter
 
         if (type.DefinitionName is { } exactName)
         {
-            string leaf = exactName.Segments[^1]
+            string rawLeaf = exactName.Segments[^1];
+            IReadOnlyList<int>? introducedCounts =
+                type.IntroducedTypeParameterCounts;
+            bool hasDeclaredArity = MetadataNameArity.TryReadSuffix(
+                rawLeaf,
+                out int arity,
+                out _);
+            bool arityMatches =
+                hasDeclaredArity
+                && introducedCounts is { Count: > 0 }
+                && introducedCounts.Count == exactName.Segments.Length
+                && introducedCounts[^1] == arity;
+            if (string.Equals(
+                    type.MetadataName,
+                    rawLeaf,
+                    StringComparison.Ordinal)
+                && !string.Equals(
+                    type.Name,
+                    rawLeaf,
+                    StringComparison.Ordinal)
+                && (!hasDeclaredArity || arityMatches))
+            {
+                return type.Name;
+            }
+
+            string leaf = rawLeaf
                 .Replace("\\", "\\\\", StringComparison.Ordinal)
                 .Replace(".", "\\.", StringComparison.Ordinal)
                 .Replace("+", "\\+", StringComparison.Ordinal);
-            IReadOnlyList<int>? introducedCounts =
-                type.IntroducedTypeParameterCounts;
-            if (introducedCounts is { Count: > 0 }
-                && introducedCounts.Count == exactName.Segments.Length
-                && MetadataNameArity.TryReadSuffix(
-                    leaf,
-                    out int arity,
-                    out _)
-                && introducedCounts[^1] == arity)
+            if (arityMatches)
             {
                 return MetadataNameArity.StripFromSegment(leaf);
             }
@@ -499,11 +516,34 @@ public sealed class CSharpFormatter
     {
         ArgumentNullException.ThrowIfNull(type);
         if (type.DefinitionName is { } exactName)
+        {
+            bool leafOnly =
+                exactName.Segments.Length > 1
+                && (string.Equals(
+                        type.Name,
+                        exactName.Segments[^1],
+                        StringComparison.Ordinal)
+                    || string.Equals(
+                        type.MetadataName,
+                        exactName.Segments[^1],
+                        StringComparison.Ordinal));
             return FormatExactTypeName(
                 exactName,
                 type.TypeParameters,
                 type.IntroducedTypeParameterCounts,
-                includeVariance);
+                includeVariance,
+                leafOnly,
+                string.Equals(
+                    type.MetadataName,
+                    exactName.Segments[^1],
+                    StringComparison.Ordinal)
+                    && !string.Equals(
+                        type.Name,
+                        exactName.Segments[^1],
+                        StringComparison.Ordinal)
+                        ? type.Name
+                        : null);
+        }
 
         bool ambiguousLegacyName = HasArityBeforeFlatBoundary(type.Name);
         string typeName = ambiguousLegacyName
@@ -520,7 +560,9 @@ public sealed class CSharpFormatter
         MetadataTypeDefinitionName name,
         IReadOnlyList<TypeParameter> typeParameters,
         IReadOnlyList<int>? introducedTypeParameterCounts,
-        bool includeVariance)
+        bool includeVariance,
+        bool leafOnly,
+        string? leafNameOverride)
     {
         long declaredArity = 0;
         foreach (string segment in name.Segments)
@@ -558,7 +600,12 @@ public sealed class CSharpFormatter
             string simpleName = stripArity
                 ? MetadataNameArity.StripFromSegment(segment)
                 : segment;
-            simpleName = ContainExactSegment(simpleName);
+            simpleName =
+                segmentIndex == name.Segments.Length - 1
+                && leafNameOverride is not null
+                    ? CSharpIdentifier.ContainIdentifierForDeclaration(
+                        leafNameOverride)
+                    : ContainExactSegment(simpleName);
             if (arityMatches && arity > 0)
             {
                 var parameters = typeParameters
@@ -573,7 +620,9 @@ public sealed class CSharpFormatter
             }
             parts.Add(simpleName);
         }
-        return string.Join(".", parts);
+        return leafOnly
+            ? parts[^1]
+            : string.Join(".", parts);
     }
 
     static string ContainExactSegment(string segment)

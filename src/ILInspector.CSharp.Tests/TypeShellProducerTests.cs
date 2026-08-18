@@ -121,6 +121,9 @@ public sealed class TypeShellProducerTests
             ],
             request.Type.DefinitionName?.Segments);
         Assert.Equal([0, 0], request.Type.IntroducedTypeParameterCounts);
+        Assert.Equal(
+            nameof(DerivedFixture),
+            CSharpFormatter.FormatTypeName(request.Type));
         Assert.Equal("class", request.Type.Kind);
         Assert.Equal(["System.IDisposable"], request.Type.Interfaces);
         Assert.Same(member, Assert.Single(request.MemberPolicyOverrides));
@@ -144,6 +147,9 @@ public sealed class TypeShellProducerTests
             ],
             nestedRequest.Type.DefinitionName?.Segments);
         Assert.Equal([0, 0], nestedRequest.Type.IntroducedTypeParameterCounts);
+        Assert.Equal(
+            nameof(StaticFixture),
+            CSharpFormatter.FormatTypeName(nestedRequest.Type));
         Assert.Equal("struct", nestedRequest.Type.Kind);
         Assert.True(nestedRequest.Type.IsStatic);
         Assert.True(nestedRequest.Type.IsAbstract);
