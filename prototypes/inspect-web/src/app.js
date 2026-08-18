@@ -1406,7 +1406,9 @@ function renderPackageView() {
 
 function packageDependenciesSignature() {
   const pkg = state.package;
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${pkg.assemblyId}`;
+  // Include packageSourceGeneration so a late completion from a previous NuGet
+  // source cannot satisfy the cache after a mirror switch.
+  return `g${packageSourceGeneration}|${pkg.id}@${pkg.version}/${pkg.activeFramework}#${pkg.assemblyId}`;
 }
 
 function renderPackageDependencies() {
@@ -1578,17 +1580,21 @@ async function loadPackageDependencies() {
       framework: state.package.activeFramework,
       assemblyId: state.package.assemblyId
     });
-    if (state.packageDependenciesKey === signature) state.packageDependencies = result;
-    if (result?.dependencyGroups) {
-      state.workspaceDependencies[`${state.package.id.toLowerCase()}@${state.package.version.toLowerCase()}`] = result.dependencyGroups;
+    if (state.packageDependenciesKey === signature) {
+      state.packageDependencies = result;
+      if (result?.dependencyGroups) {
+        state.workspaceDependencies[`${state.package.id.toLowerCase()}@${state.package.version.toLowerCase()}`] = result.dependencyGroups;
+      }
     }
   } catch (error) {
     if (state.packageDependenciesKey === signature) state.packageDependenciesError = String(error?.message || error);
   } finally {
-    if (state.packageDependenciesKey === signature) state.packageDependenciesLoading = false;
-    refreshPackageStats();
-    render();
-    ensureWorkspaceDependencies();
+    if (state.packageDependenciesKey === signature) {
+      state.packageDependenciesLoading = false;
+      refreshPackageStats();
+      render();
+      ensureWorkspaceDependencies();
+    }
   }
 }
 
@@ -1607,6 +1613,7 @@ function maybeAutoLoadPackageDependencies() {
 // Fetches dependency manifests for every other open package so the dependency graph can
 // draw incoming "caller" edges (open packages that declare a dependency on the current one).
 async function ensureWorkspaceDependencies() {
+  const sourceGeneration = packageSourceGeneration;
   const missing = state.packages.filter(item =>
     !state.workspaceDependencies[`${item.id.toLowerCase()}@${item.version.toLowerCase()}`]);
   if (!missing.length) {
@@ -1614,6 +1621,7 @@ async function ensureWorkspaceDependencies() {
     return;
   }
   for (const item of missing) {
+    if (sourceGeneration !== packageSourceGeneration) return;
     const key = `${item.id.toLowerCase()}@${item.version.toLowerCase()}`;
     try {
       const result = await inspectPackageDependencies({
@@ -1622,11 +1630,14 @@ async function ensureWorkspaceDependencies() {
         framework: item.activeFramework,
         assemblyId: item.assemblyId
       });
+      if (sourceGeneration !== packageSourceGeneration) return;
       state.workspaceDependencies[key] = result?.dependencyGroups || [];
     } catch {
+      if (sourceGeneration !== packageSourceGeneration) return;
       state.workspaceDependencies[key] = [];
     }
   }
+  if (sourceGeneration !== packageSourceGeneration) return;
   if (state.atPackageRoot && state.packageLens === "dependencies") renderDependencyGraph();
   refreshPackageStats();
 }
@@ -1634,7 +1645,7 @@ async function ensureWorkspaceDependencies() {
 function packageIntegrationsSignature() {
   const pkg = state.package;
   const lib = scopedPlatformLibrary();
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
+  return `g${packageSourceGeneration}|${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
 function renderPackageIntegrations() {
@@ -1749,7 +1760,7 @@ function maybeAutoLoadPackageIntegrations() {
 function packageScopeSignature() {
   const pkg = state.package;
   const lib = scopedPlatformLibrary();
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
+  return `g${packageSourceGeneration}|${pkg.id}@${pkg.version}/${pkg.activeFramework}${lib ? `#${lib}` : ""}`;
 }
 
 // The Opportunities and Analysis lenses run over one platform library at a time, so on the
@@ -5231,29 +5242,39 @@ function isPackageSourceUnavailable(error) {
   return String(error?.message || error || "").includes("[package-source-unreachable]");
 }
 
+function resetPackageLensCaches() {
+  state.packageDependencies = null;
+  state.packageDependenciesLoading = false;
+  state.packageDependenciesError = "";
+  state.packageDependenciesKey = "";
+  state.workspaceDependencies = {};
+  state.packageIntegrations = null;
+  state.packageIntegrationsLoading = false;
+  state.packageIntegrationsError = "";
+  state.packageIntegrationsKey = "";
+  state.packageOpportunities = null;
+  state.packageOpportunitiesLoading = false;
+  state.packageOpportunitiesError = "";
+  state.packageOpportunitiesKey = "";
+  state.packagePerformance = null;
+  state.packagePerformanceLoading = false;
+  state.packagePerformanceError = "";
+  state.packagePerformanceKey = "";
+  state.packageMetadata = null;
+  state.packageMetadataLoading = false;
+  state.packageMetadataError = "";
+  state.packageMetadataKey = "";
+}
+
 function resetSourceScopedWorkspace() {
   state.packages = [];
   state.package = null;
   state.packageVersions = {};
   state.packageVersionsLoading = {};
-  state.workspaceDependencies = {};
   state.spotlightPkgHits = [];
   state.spotlightPkgQuery = "";
   state.spotlightPkgLoading = false;
-}
-
-function persistNuGetMirror(serviceIndexUrl) {
-  try {
-    localStorage.setItem(NUGET_MIRROR_STORAGE_KEY, serviceIndexUrl);
-  } catch (error) {
-    // Roll the engine back so JS and C# cannot disagree about the active source
-    // when storage is disabled or full.
-    inspectUseDefaultPackageSource();
-    state.packageSource = DEFAULT_PACKAGE_SOURCE;
-    bumpPackageSourceGeneration();
-    resetSourceScopedWorkspace();
-    throw error;
-  }
+  resetPackageLensCaches();
 }
 
 function clearPersistedNuGetMirror() {
@@ -5264,11 +5285,35 @@ function clearPersistedNuGetMirror() {
   }
 }
 
+async function restorePackageSource(previousSource) {
+  if (!previousSource || previousSource.isDefault) {
+    const configuration = inspectUseDefaultPackageSource();
+    state.packageSource = configuration;
+    bumpPackageSourceGeneration();
+    return configuration;
+  }
+  try {
+    const configuration = await inspectConfigurePackageSource(previousSource.serviceIndexUrl);
+    state.packageSource = configuration;
+    bumpPackageSourceGeneration();
+    return configuration;
+  } catch {
+    const configuration = inspectUseDefaultPackageSource();
+    state.packageSource = configuration;
+    bumpPackageSourceGeneration();
+    return configuration;
+  }
+}
+
 async function configureNuGetMirror(serviceIndexUrl) {
+  const previousSource = state.packageSource;
   const configuration = await inspectConfigurePackageSource(serviceIndexUrl);
   try {
-    persistNuGetMirror(configuration.serviceIndexUrl);
+    localStorage.setItem(NUGET_MIRROR_STORAGE_KEY, configuration.serviceIndexUrl);
   } catch (error) {
+    // Engine already switched; restore the prior source and keep the workbench.
+    // Do not clear packages — that strands the UI on a permanent loading screen.
+    await restorePackageSource(previousSource);
     throw new Error(
       `Mirror validated but could not be stored in this browser: ${String(error?.message || error)}`);
   }
