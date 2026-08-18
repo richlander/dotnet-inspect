@@ -167,6 +167,8 @@ internal static partial class WorkflowContract
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Run query tests"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' }}",
+            ["test-windows/Run Research tests"] =
+                "${{ !cancelled() && steps.build.outcome == 'success' }}",
             ["test-windows/Check ilasm/ildasm result"] =
                 "${{ !cancelled() && steps.build.outcome == 'success' && " +
                 "steps.iltools.outcome != 'success' }}",
@@ -224,6 +226,7 @@ internal static partial class WorkflowContract
                 "steps",
                 $"jobs.{jobName}");
             var identities = new HashSet<string>(StringComparer.Ordinal);
+            bool windowsBuildSeen = false;
             foreach (YamlNode stepNode in steps.Children)
             {
                 YamlMappingNode step = RequireMapping(
@@ -238,6 +241,24 @@ internal static partial class WorkflowContract
                 }
 
                 string key = $"{jobName}/{identity}";
+                if (key == "test-windows/Build")
+                {
+                    windowsBuildSeen = true;
+                }
+                if (key == "test-windows/Run Research tests")
+                {
+                    if (!windowsBuildSeen)
+                    {
+                        throw new InvalidOperationException(
+                            $"{key} must run after test-windows/Build.");
+                    }
+                    RequireScalarValue(
+                        step,
+                        "run",
+                        "dotnet run --project " +
+                        "src/ILInspector.Research.Tests -c Release -- -failSkips",
+                        key);
+                }
                 ValidateOptionalStepValue(
                     step,
                     "if",

@@ -199,7 +199,8 @@ public sealed record PackageSourcePayload(
     PackageSourceIdentity Producer,
     PackageSourceKind TransportKind,
     PackageSourcePayloadKind Kind,
-    Stream Content);
+    Stream Content,
+    long? AdvertisedLength = null);
 
 /// <summary>The expected failure classes produced by source operations.</summary>
 public enum PackageSourceFailureKind
