@@ -1476,7 +1476,7 @@ public class PackageCommand
                 sections,
                 options.Fields,
                 columns: null,
-                strictKinds: true);
+                strictKinds: options.JsonOutput);
         }
 
         if (options.Columns is { Length: > 0 })
