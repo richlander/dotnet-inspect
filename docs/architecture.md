@@ -786,12 +786,20 @@ Research overlay bridge, and the application layer:
   `LibraryBodyMethodReferenceResolver` owns the acquisition-scoped structural
   signature and generic-scope identities, canonical `MemberRef`/`MethodSpec`
   resolution caches, and their shared assembly work budgets. The primary
-  metadata resolver and lifted-source-owner reference index consume that same
-  resolution authority.
+  metadata resolver and `LibraryBodyLiftedSourceOwnerResolver` consume that
+  same resolution authority. The lifted-source-owner resolver owns
+  acquisition-scoped local-function/lambda owner correlation, memoized owner
+  body-reference evidence, top-level entry-point authentication, and classic
+  async state-machine type-name resolution. It consumes primary metadata
+  identity and generated-code judgments rather than duplicating them.
   `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
   `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
   `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
   sharing and scope-aware identity.
+  `OptimizationOpportunities_LiftedOwnerBody_IsIndexedOnce`,
+  `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
+  the top-level local-function tests gate the lifted-owner caches and execution
+  mapping.
   `LibraryBodyAnalysisAccumulator` receives the completed per-method result
   array in metadata order, merges every topic and partial diagnostic, computes
   the call-derived non-heap and exception-type assembly projections, and

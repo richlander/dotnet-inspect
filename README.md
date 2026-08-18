@@ -363,9 +363,13 @@ them as negative workload evidence.
 For filtered triage exports, allocation-stack correlation stops at the first
 frame in the represented assembly. If that method has no exported row, the
 allocation remains unattributed rather than being credited to an outer caller.
-When the same site arrives from both `--library` and `--triage`, the
-shape-compatible triage row supplies the richer single attribution; the raw
-library row is marked `superseded-by-triage`, not workload-cold.
+When the same physical candidate arrives from both `--library` and `--triage`,
+the shape-compatible triage row carries the runtime evidence; the raw library
+row is marked `superseded-by-triage`, not workload-cold.
+Type-level ambiguity and its site cap count that shared coordinate once rather
+than counting the two input rows as separate allocation sites. If several
+library MVIDs share that coordinate, they remain distinct because the
+coordinate-only triage row cannot identify which module version it describes.
 
 `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
 cross-method repetition fact. `CallerLoop=direct` means a resolved invocation
