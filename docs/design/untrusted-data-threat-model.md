@@ -1136,7 +1136,7 @@ token emission boundary, while
 pre-allocation line boundary, and
 `AuthoredSourceAcquisitionTests.FromContent_TokenDenseSourceProducesVisibleFailedEvidence`
 gates the Findings-facing result, while
-`CommandExecutionTests.OriginalSource_TokenDenseInputCarriesAVisibleFailureState`
+`CommandExecutionTests.PdbSource_TokenDenseInputCarriesAVisibleFailureState`
 gates the member-command result.
 `DeclarationIndexTests.TheBodySlicerCannotAccessLexerInternals` gates the
 one-pass ownership boundary.
