@@ -327,6 +327,7 @@ while IFS= read -r -d '' file; do
     *.props|*.targets|*.sln|*.slnx) CODE=true; WEB=true ;;
     .github/workflows/ci.yml) CODE=true; WEB=true ;;
     .github/workflows/deploy-inspect-web.yml) WEB=true ;;
+    .github/workflows/deploy-inspect-web-coreclr.yml) WEB=true ;;
     .github/workflows/promote-inspect-web.yml) WEB=true ;;
     .github/workflows/*) CODE=true ;;
   esac

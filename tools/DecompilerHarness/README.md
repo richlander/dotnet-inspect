@@ -916,7 +916,7 @@ iterators, and a plain non-pattern `switch` control — none of which had
 dedicated corpus coverage before (#2818, a child of #2814). Its one fixture
 assembly,
 `ILInspector.Decompiler.Fixtures.ClassicStateMachines`, builds on the same
-`RuntimeAsync=off` axis as `ILInspector.Decompiler.Fixtures.ClassicAsync`
+compiler-default classic async mode as `ILInspector.Decompiler.Fixtures.ClassicAsync`
 rather than a downlevel TFM/LangVersion pack. The fixture spans `Task`,
 `async void`, and `ValueTask` builders; static, instance, generic, and
 non-generic iterators; and cancellation, exception-region, `await foreach`, and
@@ -1138,9 +1138,9 @@ assembly." Most fixtures are mode-agnostic (identical IL either way) and stay in
 the default assembly; only the mode-*sensitive* ones go into thin **overlay**
 projects that flip a single flag. Cost: one big default assembly plus a few
 progressively-smaller single-flag overlays — never the corpus times N. Axis
-switches live in `Directory.Build.targets`: `<RuntimeAsync>off</RuntimeAsync>`
-opts out of the global `runtime-async=on`; `<MemorySafetyRules>updated</MemorySafetyRules>`
-opts a fixture into `/features:updated-memory-safety-rules`.
+switches live in `Directory.Build.targets`.
+`<MemorySafetyRules>updated</MemorySafetyRules>` opts a fixture into
+`/features:updated-memory-safety-rules`.
 
 **On-demand, not a CI gate.** These overlays are a discovery and bring-down
 instrument, not a regression wall — build one and point `--library-report` at it.
@@ -1228,8 +1228,9 @@ for a reusable axis; (3) build it and baseline with `--library-report`. Keep it
 out of CI references so it stays a discovery tool. Candidate next axis:
 **checked arithmetic** (`CheckForOverflowUnderflow`). Classic iterators, async
 iterators, and classic async kickoff/resume are now pinned by the
-`classic-state-machines` corpus profile above, on the `RuntimeAsync=off` axis
-rather than a downlevel TFM; a genuinely older TFM/LangVersion pack (which
+`classic-state-machines` corpus profile above, using the compiler-default
+classic async mode rather than a downlevel TFM; a genuinely older
+TFM/LangVersion pack (which
 would also change the classic switch/iterator lowering shapes themselves)
 remains a candidate next axis.
 
