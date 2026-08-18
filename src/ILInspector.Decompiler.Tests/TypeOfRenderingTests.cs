@@ -1,5 +1,6 @@
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -60,6 +61,39 @@ public class TypeOfRenderingTests
             Returning(new TypeOf(malformed)));
 
         Assert.Equal("Plain<int>", malformed.ToDisplayString());
+        Assert.NotEqual(DecompilationFidelity.Full, result.Fidelity);
+    }
+
+    [Fact]
+    public void TypeOf_PerSegmentArityMismatch_PreservesRawEvidence()
+    {
+        MetadataTypeDefinitionName exact =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Tests",
+                    ["Outer`2", "Inner"]))
+            .Name;
+        var definition = TypeRef.DefinitionWithResolution(
+            "Synthetic",
+            "Tests",
+            "Outer`2+Inner",
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: exact,
+            resolutionAssembly: null,
+            introducedTypeParameterCounts: [1, 1]);
+        var malformed = TypeRef.GenericInstance(
+            definition,
+            [
+                TypeRef.CoreLib("System", "Int32"),
+                TypeRef.CoreLib("System", "String"),
+            ]);
+
+        var result = CSharpPrinter.PrintRaised(
+            Returning(new TypeOf(malformed)));
+
+        Assert.Contains("typeof(Outer`2.Inner)", result.Output);
         Assert.NotEqual(DecompilationFidelity.Full, result.Fidelity);
     }
 

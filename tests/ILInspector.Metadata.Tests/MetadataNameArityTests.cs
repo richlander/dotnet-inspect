@@ -353,6 +353,10 @@ public class MetadataNameArityTests
                 reader,
                 leafHandle,
                 includeNonPublicMembers: true));
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.GetTypeParameters(
+                reader,
+                leaf));
     }
 
     [Theory]
@@ -388,6 +392,32 @@ public class MetadataNameArityTests
             MetadataDeclarationQuery.GetTypeParameters(
                 reader,
                 reader.GetTypeDefinition(typeHandle)));
+        Assert.Throws<BadImageFormatException>(() =>
+            GenericContext.ForType(
+                reader,
+                reader.GetTypeDefinition(typeHandle)));
+    }
+
+    [Fact]
+    public void PublicRejectionEnums_PreserveEstablishedNumericValues()
+    {
+        Assert.Equal(0, (int)SignatureDecodeRejectionKind.UnsafeStructure);
+        Assert.Equal(1, (int)SignatureDecodeRejectionKind.TypeSpecificationBudget);
+        Assert.Equal(2, (int)SignatureDecodeRejectionKind.MalformedMetadata);
+        Assert.Equal(3, (int)SignatureDecodeRejectionKind.NameBudget);
+        Assert.Equal(0, (int)RelationshipTraversalRejectionKind.Cycle);
+        Assert.Equal(1, (int)RelationshipTraversalRejectionKind.NodeBudget);
+        Assert.Equal(2, (int)RelationshipTraversalRejectionKind.MalformedMetadata);
+        Assert.Equal(3, (int)RelationshipTraversalRejectionKind.NameBudget);
+
+        Assert.Equal(0, (int)MetadataTypeNameRejectionKind.MissingNamespace);
+        Assert.Equal(1, (int)MetadataTypeNameRejectionKind.MissingSegments);
+        Assert.Equal(2, (int)MetadataTypeNameRejectionKind.MissingSegment);
+        Assert.Equal(3, (int)MetadataTypeNameRejectionKind.InvalidSerializedName);
+        Assert.Equal(4, (int)MetadataTypeNameRejectionKind.AssemblyQualifiedSerializedName);
+        Assert.Equal(5, (int)MetadataTypeNameRejectionKind.NonDefinitionSerializedName);
+        Assert.Equal(6, (int)MetadataTypeNameRejectionKind.SegmentsTooLong);
+        Assert.Equal(7, (int)MetadataTypeNameRejectionKind.TooManySegments);
     }
 
     [Fact]

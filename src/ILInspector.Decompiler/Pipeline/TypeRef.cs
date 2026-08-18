@@ -107,6 +107,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// <see cref="Name"/>.
     /// </summary>
     internal MetadataTypeDefinitionName? DefinitionName { get; private init; }
+    internal ImmutableArray<int> IntroducedTypeParameterCounts { get; private init; } = [];
 
     /// <summary>
     /// Exact terminal AssemblyRef identity retained from a decoded TypeRef.
@@ -193,7 +194,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
         MetadataFactState inlineArray,
         TypeRef? enclosingType,
         MetadataTypeDefinitionName definitionName,
-        AssemblyReferenceIdentity? resolutionAssembly)
+        AssemblyReferenceIdentity? resolutionAssembly,
+        ImmutableArray<int> introducedTypeParameterCounts = default)
         => CreateDefinition(
             assembly,
             ns,
@@ -202,7 +204,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
             inlineArray,
             enclosingType,
             definitionName,
-            resolutionAssembly);
+            resolutionAssembly,
+            introducedTypeParameterCounts);
 
     static TypeRef CreateDefinition(
         string assembly,
@@ -212,7 +215,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
         MetadataFactState inlineArray,
         TypeRef? enclosingType,
         MetadataTypeDefinitionName? definitionName,
-        AssemblyReferenceIdentity? resolutionAssembly)
+        AssemblyReferenceIdentity? resolutionAssembly,
+        ImmutableArray<int> introducedTypeParameterCounts = default)
         => new(TypeRefKind.Definition)
         {
             Assembly = assembly,
@@ -223,6 +227,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
             EnclosingType = enclosingType,
             DefinitionName = definitionName,
             ResolutionAssembly = resolutionAssembly,
+            IntroducedTypeParameterCounts =
+                introducedTypeParameterCounts.IsDefault
+                    ? []
+                    : introducedTypeParameterCounts,
         };
 
     /// <summary>
@@ -242,7 +250,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 InlineArray,
                 EnclosingType,
                 DefinitionName,
-                ResolutionAssembly)
+                ResolutionAssembly,
+                IntroducedTypeParameterCounts)
             : this;
 
     public TypeRef WithInlineArrayFact(MetadataFactState fact)
@@ -255,7 +264,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 fact,
                 EnclosingType,
                 DefinitionName,
-                ResolutionAssembly)
+                ResolutionAssembly,
+                IntroducedTypeParameterCounts)
             : this;
 
     public static TypeRef CoreLib(string ns, string name)
@@ -408,6 +418,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
             UnsupportedReason = UnsupportedReason,
             MetadataNameFailure = MetadataNameFailure,
             DefinitionName = DefinitionName,
+            IntroducedTypeParameterCounts =
+                IntroducedTypeParameterCounts,
             ResolutionAssembly = ResolutionAssembly,
             CallingConvention = CallingConvention,
             FunctionPointerParameterRefKinds = functionPointerParameterRefKinds ?? FunctionPointerParameterRefKinds,
@@ -617,7 +629,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return keyword;
         IReadOnlyList<string> segments = MetadataNameSegments();
         string innermost = segments[^1];
-        return CSharpNaming.TypeNameSegment(innermost);
+        return HasDefinitionArityMismatch
+            ? CSharpNaming.ContainedIdentifier(innermost)
+            : CSharpNaming.TypeNameSegment(innermost);
     }
 
     /// <summary>
@@ -669,8 +683,15 @@ public sealed class TypeRef : IEquatable<TypeRef>
     string RenderNestedDefinition()
     {
         var parts = new List<string>();
-        foreach (string segment in MetadataNameSegments())
+        IReadOnlyList<string> segments = MetadataNameSegments();
+        for (int index = 0; index < segments.Count; index++)
         {
+            string segment = segments[index];
+            if (SegmentArityMismatch(index, segment))
+            {
+                parts.Add(CSharpNaming.ContainedIdentifier(segment));
+                continue;
+            }
             string name = StripArity(segment);
             int arity = ArityOf(segment);
             if (arity > 0)
@@ -697,6 +718,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
     string RenderGenericInstance(TypeRef? scope = null)
     {
         long declaredArity = ElementType!.DeclaredGenericArity();
+        if (ElementType.HasDefinitionArityMismatch)
+            return string.Join(".", ElementType.MetadataNameSegments());
         bool completeCompilerGenerated =
             TypeArguments.Length > 0
             && TypeArguments.Length < declaredArity
@@ -851,6 +874,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 return false;
             }
 
+            if (ElementType.HasDefinitionArityMismatch)
+                return true;
+
             long declaredArity = ElementType.DeclaredGenericArity();
             return declaredArity != TypeArguments.Length
                 && !(TypeArguments.Length > 0
@@ -873,6 +899,26 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return exactName.Segments;
         return Name.Split('+');
     }
+
+    bool HasDefinitionArityMismatch
+    {
+        get
+        {
+            IReadOnlyList<string> segments = MetadataNameSegments();
+            if (IntroducedTypeParameterCounts.Length != segments.Count)
+                return false;
+            for (int index = 0; index < segments.Count; index++)
+            {
+                if (SegmentArityMismatch(index, segments[index]))
+                    return true;
+            }
+            return false;
+        }
+    }
+
+    bool SegmentArityMismatch(int index, string segment)
+        => IntroducedTypeParameterCounts.Length == MetadataNameSegments().Count
+            && ArityOf(segment) != IntroducedTypeParameterCounts[index];
 
     static bool StartsWithSegments(
         IReadOnlyList<string> value,

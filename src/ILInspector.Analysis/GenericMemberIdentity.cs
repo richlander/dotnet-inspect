@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Linq;
+using System.Text;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
@@ -135,7 +136,24 @@ public static class GenericMemberIdentity
             => $"ref {KeyFragment(element)}",
         TypeRefKind.Pointer when type.ElementType is { } element
             => $"{KeyFragment(element)}*",
-        TypeRefKind.Definition => $"{type.Assembly}|{type.Namespace}.{type.Name}",
+        TypeRefKind.Definition => NamedDefinitionKey(type),
         _ => type.ToQualifiedDisplayString(),
     };
+
+    static string NamedDefinitionKey(TypeRef type)
+    {
+        if (type.Resolution?.Type is not { } exactName)
+            return $"{type.Assembly}|{type.Namespace}.{type.Name}";
+
+        var key = new StringBuilder();
+        AppendKeyPart(key, type.Assembly);
+        AppendKeyPart(key, exactName.Namespace);
+        key.Append(exactName.Segments.Length).Append('|');
+        foreach (string segment in exactName.Segments)
+            AppendKeyPart(key, segment);
+        return key.ToString();
+    }
+
+    static void AppendKeyPart(StringBuilder key, string value)
+        => key.Append(value.Length).Append(':').Append(value).Append('|');
 }

@@ -972,9 +972,12 @@ public sealed class CSharpTypePrinter
 
     static void ValidateTypeKindAndContainment(ApiType type, bool isNested)
     {
-        if ((!isNested && type.MetadataName?.Contains('+', StringComparison.Ordinal) == true)
-            || type.Name.Contains('.', StringComparison.Ordinal)
-            || type.Name.Contains('+', StringComparison.Ordinal))
+        bool hasDeclaringType = type.DefinitionName is { } exactName
+            ? exactName.Segments.Length > 1
+            : type.MetadataName?.Contains('+', StringComparison.Ordinal) == true
+                || type.Name.Contains('.', StringComparison.Ordinal)
+                || type.Name.Contains('+', StringComparison.Ordinal);
+        if (!isNested && hasDeclaringType)
         {
             throw new NotSupportedException(
                 $"C# skeleton printing for nested type '{type.FullName}' requires its declaring type.");

@@ -387,6 +387,78 @@ public sealed class CallGraphMemberResolverTests
         Assert.NotEqual(literalSelector.Key, nestedSelector.Key);
     }
 
+    [Fact]
+    public void SelectorAndAnalysisKey_DistinguishNestedTypeFromLiteralDotName()
+    {
+        TypeRef literal = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Outer.Inner",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Samples",
+                        ["Outer.Inner"]))
+                .Name));
+        TypeRef nested = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Outer+Inner",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Samples",
+                        ["Outer", "Inner"]))
+                .Name));
+
+        CallGraphMemberSelector Selector(TypeRef parameter) =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+
+        Assert.NotEqual(Selector(literal).Key, Selector(nested).Key);
+        Assert.NotEqual(
+            GenericMemberIdentity.KeyFragment(literal),
+            GenericMemberIdentity.KeyFragment(nested));
+    }
+
+    [Fact]
+    public void Selector_ExactOrdinaryTypeStillMatchesApiSignature()
+    {
+        TypeRef parameter = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Token",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Name("Samples", ["Token"])));
+        var member = Method("Samples.Token");
+        var owner = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [member],
+        };
+        var reference = new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "M",
+            [parameter],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        };
+
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(owner, member).Key,
+            CallGraphMemberResolver.CreateSelector(reference).Key);
+    }
+
     // End-to-end: the identity the product projects for a call-graph target's declaring type is
     // the identity its resolver matches, and it distinguishes nesting from a literal delimiter.
     // The flattened metadata spelling — which cannot — is published only where it names one type.

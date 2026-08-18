@@ -1592,6 +1592,7 @@ public static class ApiSurfaceExtractor
         Action<int>? beforeDecodeWork = null,
         TypeParameterConstraintResolution? constraintResolution = null)
     {
+        GenericContext.ValidateParameterIndices(reader, handles);
         var parameters = new List<TypeParameter>();
         var tracked =
             new List<(GenericParameterHandle Handle, TypeParameter Parameter)>();

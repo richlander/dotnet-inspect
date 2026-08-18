@@ -2263,26 +2263,8 @@ internal static class CSharpDeclarationWriter
     }
 
     static string FormatConstructorTypeName(ApiType type)
-    {
-        if (type.DefinitionName is { } exactName)
-        {
-            string exactLeaf = exactName.Segments[^1]
-                .Replace("\\", "\\\\", StringComparison.Ordinal)
-                .Replace(".", "\\.", StringComparison.Ordinal)
-                .Replace("+", "\\+", StringComparison.Ordinal);
-            return SanitizeIdentifier(
-                MetadataNameArity.StripFromSegment(exactLeaf));
-        }
-
-        string name = type.Name;
-        // Isolate the innermost nested-type segment before stripping generic arity,
-        // so a constructor/finalizer on a type nested inside a generic outer
-        // (name "Outer`1.Nested" or "Outer`1+Nested") spells "Nested", not "Outer".
-        int sep = name.LastIndexOfAny(['.', '+']);
-        if (sep >= 0)
-            name = name[(sep + 1)..];
-        return SanitizeIdentifier(MetadataNameArity.StripFromSegment(name));
-    }
+        => SanitizeIdentifier(
+            CSharpFormatter.FormatDeclarationLeafMetadataName(type));
 
     static string EscapeMemberNameInSignature(string signature, string memberName)
     {

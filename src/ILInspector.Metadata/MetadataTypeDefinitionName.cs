@@ -9,19 +9,19 @@ namespace ILInspector.Metadata;
 /// <summary>Why a structured metadata type-definition name could not be created.</summary>
 public enum MetadataTypeNameRejectionKind
 {
-    MissingNamespace,
-    MissingSegments,
-    MissingSegment,
-    TooManySegments,
-    InvalidSerializedName,
-    AssemblyQualifiedSerializedName,
-    NonDefinitionSerializedName,
+    MissingNamespace = 0,
+    MissingSegments = 1,
+    MissingSegment = 2,
+    TooManySegments = 7,
+    InvalidSerializedName = 3,
+    AssemblyQualifiedSerializedName = 4,
+    NonDefinitionSerializedName = 5,
 
     /// <summary>
     /// The namespace and segments together exceed
     /// <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>.
     /// </summary>
-    SegmentsTooLong,
+    SegmentsTooLong = 6,
 }
 
 /// <summary>Typed evidence for a rejected structured metadata type-definition name.</summary>

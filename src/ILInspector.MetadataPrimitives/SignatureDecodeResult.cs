@@ -7,22 +7,19 @@ namespace ILInspector.Metadata;
 public enum SignatureDecodeRejectionKind
 {
     /// <summary>The iterative prescan found unsafe structural depth or counts.</summary>
-    UnsafeStructure,
+    UnsafeStructure = 0,
 
     /// <summary>The active TypeSpec closure exceeded its depth or cumulative-byte budget.</summary>
-    TypeSpecificationBudget,
-
-    /// <summary>An exact metadata type name exceeded its aggregate character budget.</summary>
-    TypeNameBudget,
+    TypeSpecificationBudget = 1,
 
     /// <summary>SRM rejected malformed metadata during the bounded decode.</summary>
-    MalformedMetadata,
+    MalformedMetadata = 2,
 
     /// <summary>
     /// A TypeDef/TypeRef/ExportedType name in the signature exceeds
     /// <see cref="MetadataSafetyPolicy.MaxTypeNameCharacters"/>.
     /// </summary>
-    NameBudget,
+    NameBudget = 3,
 }
 
 /// <summary>Inspectable detail for a rejected guarded signature decode.</summary>

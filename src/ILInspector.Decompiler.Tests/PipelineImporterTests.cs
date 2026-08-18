@@ -223,6 +223,38 @@ public class TypeRefTests
             new LoadArgument(0, "value", mismatched)));
     }
 
+    [Fact]
+    public void PerSegmentGenericArityMismatch_StaysRawWhenTotalMatches()
+    {
+        MetadataTypeDefinitionName exact =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "NS",
+                    ["Outer`2", "Inner"]))
+            .Name;
+        var definition = TypeRef.DefinitionWithResolution(
+            "asm",
+            "NS",
+            "Outer`2+Inner",
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: exact,
+            resolutionAssembly: null,
+            introducedTypeParameterCounts: [1, 1]);
+        var mismatched = TypeRef.GenericInstance(
+            definition,
+            [
+                TypeRef.CoreLib("System", "Int32"),
+                TypeRef.CoreLib("System", "String"),
+            ]);
+
+        Assert.Equal("Outer`2.Inner", mismatched.ToDisplayString());
+        Assert.True(mismatched.HasUnrenderableGenericArity);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(
+            new LoadArgument(0, "value", mismatched)));
+    }
+
     [Theory]
     [InlineData("Plain", "Plain<int>")]
     [InlineData("Odd`Literal", "Odd_Literal<int>")]

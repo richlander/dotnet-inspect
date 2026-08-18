@@ -6188,18 +6188,13 @@ public sealed partial class CSharpPrinter
         // unless the reference is made from inside that enclosing type, where the
         // innermost name is in scope (Enumerator inside List<T>.GetEnumerator).
         string text = TypeTextCore(type);
-        // Rendered text, so the flattened parse: any arity that survived
-        // rendering is dropped, while a backtick that is name text stays visible
-        // for the spellability gate instead of truncating the spelling onto a
-        // different type (#4217).
-        string rendered = MetadataNameArity.StripFromFlattenedName(text);
-        RecordFrameworkTypeImportDecision(type, rendered);
-        return rendered;
+        RecordFrameworkTypeImportDecision(type, text);
+        return text;
     }
 
     string TypeQualifierText(TypeRef type)
     {
-        string rendered = MetadataNameArity.StripFromFlattenedName(TypeTextCore(type));
+        string rendered = TypeTextCore(type);
 
         if (FirstTypeQualifierSegment(rendered) is { } segment && IsStaticCallNameShadowed(segment))
             rendered = FullyQualifiedTypeText(type);
@@ -6230,8 +6225,11 @@ public sealed partial class CSharpPrinter
         if (definition.Kind != TypeRefKind.Definition || definition.Namespace.Length == 0 && definition.Name.Length == 0)
             return type.ToDisplayString();
 
-        string text = MetadataNameArity.StripFromFlattenedName(
-            type.ToDisplayString(TypeRef.Definition("__dotnet_inspect", "__", "__")));
+        string text =
+            type.ToDisplayString(TypeRef.Definition(
+                "__dotnet_inspect",
+                "__",
+                "__"));
         return definition.Namespace.Length == 0
             ? $"global::{text}"
             : $"global::{EscapeNamespace(definition.Namespace)}.{text}";

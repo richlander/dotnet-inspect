@@ -67,6 +67,41 @@ public sealed record CSharpFormattedDeclaration(
 /// </summary>
 public sealed class CSharpFormatter
 {
+    public static string FormatDeclarationLeafMetadataName(ApiType type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+
+        if (type.DefinitionName is { } exactName)
+        {
+            string leaf = exactName.Segments[^1]
+                .Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace(".", "\\.", StringComparison.Ordinal)
+                .Replace("+", "\\+", StringComparison.Ordinal);
+            IReadOnlyList<int>? introducedCounts =
+                type.IntroducedTypeParameterCounts;
+            if (introducedCounts is { Count: > 0 }
+                && introducedCounts.Count == exactName.Segments.Length
+                && MetadataNameArity.TryReadSuffix(
+                    leaf,
+                    out int arity,
+                    out _)
+                && introducedCounts[^1] == arity)
+            {
+                return MetadataNameArity.StripFromSegment(leaf);
+            }
+            return leaf;
+        }
+
+        string name = type.Name;
+        int separator = name.LastIndexOfAny(['.', '+']);
+        if (separator >= 0)
+            name = name[(separator + 1)..];
+        int angle = name.IndexOf('<');
+        if (angle >= 0)
+            name = name[..angle];
+        return MetadataNameArity.StripFromSegment(name);
+    }
+
     readonly CSharpDeclarationOptions _declarationOptions;
 
     public CSharpFormatter(CSharpFormatOptions? options = null)

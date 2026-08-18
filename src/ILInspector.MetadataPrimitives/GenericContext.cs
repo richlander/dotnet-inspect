@@ -122,6 +122,7 @@ public class GenericContext
             throw new BadImageFormatException(
                 "The generic-parameter count exceeds the metadata safety limit.");
         }
+        ValidateParameterIndices(reader, handles);
 
         var names = new List<string>(handles.Count);
         var valueTypeConstraints = new List<bool>(handles.Count);
@@ -151,6 +152,23 @@ public class GenericContext
                 (parameter.Attributes & GenericParameterAttributes.NotNullableValueTypeConstraint) != 0);
         }
         return (names, valueTypeConstraints);
+    }
+
+    public static void ValidateParameterIndices(
+        MetadataReader reader,
+        IEnumerable<GenericParameterHandle> handles,
+        int expectedIndex = 0)
+    {
+        foreach (GenericParameterHandle handle in handles)
+        {
+            GenericParameter parameter = reader.GetGenericParameter(handle);
+            if (parameter.Index != expectedIndex)
+            {
+                throw new BadImageFormatException(
+                    "Generic parameter indices must be contiguous and ordered.");
+            }
+            expectedIndex++;
+        }
     }
 
     static bool HasValueTypeConstraint(IReadOnlyList<bool> constraints, int index)

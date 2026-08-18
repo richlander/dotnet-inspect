@@ -695,34 +695,8 @@ public static class ApiOutputFormatter
         // metadata signature (`void Finalize()`).
         static string ShapeDestructorSpelling(ApiType type)
         {
-            string name;
-            if (type.DefinitionName is { } exactName)
-            {
-                name = exactName.Segments[^1]
-                    .Replace("\\", "\\\\", StringComparison.Ordinal)
-                    .Replace(".", "\\.", StringComparison.Ordinal)
-                    .Replace("+", "\\+", StringComparison.Ordinal);
-            }
-            else
-            {
-                name = type.Name;
-                // Isolate the innermost nested-type segment BEFORE stripping
-                // generic arity, so a finalizer on a type nested inside a
-                // generic outer spells "~Nested()" rather than "~Outer()".
-                int sep = name.LastIndexOfAny(['.', '+']);
-                if (sep >= 0)
-                    name = name[(sep + 1)..];
-                int angle = name.IndexOf('<');
-                if (angle >= 0)
-                    name = name[..angle];
-            }
-            // Only a canonical `N is arity (MetadataNameArity), so a finalizer on
-            // a type whose backtick is name text keeps that name instead of
-            // spelling a different type's destructor.
-            name = MetadataNameArity.StripFromSegment(name);
-            // Contained on the composed spelling rather than at the call site:
-            // the sibling branch there contains its own text, and a finalizer
-            // node reached output raw because only that one branch was covered.
+            string name =
+                CSharpFormatter.FormatDeclarationLeafMetadataName(type);
             return CSharpIdentifier.ContainRenderedText($"~{name}()");
         }
 

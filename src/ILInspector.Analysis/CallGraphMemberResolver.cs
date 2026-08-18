@@ -111,8 +111,16 @@ public static class CallGraphMemberResolver
             member.Name,
             member.GenericArity,
             member.HasThis,
-            member.OpenSignatureParameters.Select(TypeIdentity),
-            TypeIdentity(member.OpenSignatureReturn));
+            member.OpenSignatureParameters.Select(
+                type => TypeIdentity(type, preserveExactIdentity: false)),
+            TypeIdentity(
+                member.OpenSignatureReturn,
+                preserveExactIdentity: false),
+            member.OpenSignatureParameters.Select(
+                type => TypeIdentity(type, preserveExactIdentity: true)),
+            TypeIdentity(
+                member.OpenSignatureReturn,
+                preserveExactIdentity: true));
     }
 
     public static CallGraphMemberSelector CreateSelector(ApiType type, ApiMember member)
@@ -251,48 +259,67 @@ public static class CallGraphMemberResolver
         int genericArity,
         bool hasThis,
         IEnumerable<string> parameterTypes,
-        string returnType)
+        string returnType,
+        IEnumerable<string>? keyParameterTypes = null,
+        string? keyReturnType = null)
     {
         var parameters = parameterTypes.ToImmutableArray();
+        var keyParameters =
+            keyParameterTypes?.ToImmutableArray() ?? parameters;
+        if (keyParameters.Length != parameters.Length)
+            throw new ArgumentException(
+                "Selector key parameters must align with display parameters.",
+                nameof(keyParameterTypes));
         var key = new StringBuilder();
         Append(key, name);
         key.Append(hasThis ? 'I' : 'S').Append(';');
         key.Append(genericArity).Append(';');
         key.Append(parameters.Length).Append(';');
-        foreach (string parameter in parameters)
+        foreach (string parameter in keyParameters)
             Append(key, parameter);
-        Append(key, returnType);
+        Append(key, keyReturnType ?? returnType);
         return new(name, parameters, returnType, genericArity, key.ToString());
     }
 
     static void Append(StringBuilder builder, string value)
         => builder.Append(value.Length).Append(':').Append(value);
 
-    static string TypeIdentity(TypeRef type) => type.Kind switch
+    static string TypeIdentity(
+        TypeRef type,
+        bool preserveExactIdentity = true) => type.Kind switch
     {
         TypeRefKind.GenericParameter => $"T{type.GenericParameterIndex}",
         TypeRefKind.MethodGenericParameter => $"M{type.GenericParameterIndex}",
         TypeRefKind.GenericInstance when type.ElementType is { } definition =>
-            NamedGenericTypeIdentity(definition, type.TypeArguments),
+            NamedGenericTypeIdentity(
+                definition,
+                type.TypeArguments,
+                preserveExactIdentity),
         TypeRefKind.SzArray when type.ElementType is { } element =>
-            $"{TypeIdentity(element)}[]",
+            $"{TypeIdentity(element, preserveExactIdentity)}[]",
         TypeRefKind.Array when type.ElementType is { } element =>
-            $"{TypeIdentity(element)}[{new string(',', Math.Max(0, type.Rank - 1))}]",
+            $"{TypeIdentity(element, preserveExactIdentity)}[{new string(',', Math.Max(0, type.Rank - 1))}]",
         TypeRefKind.ByRef when type.ElementType is { } element =>
-            $"{TypeIdentity(element)}@",
+            $"{TypeIdentity(element, preserveExactIdentity)}@",
         TypeRefKind.Pointer when type.ElementType is { } element =>
-            $"{TypeIdentity(element)}*",
+            $"{TypeIdentity(element, preserveExactIdentity)}*",
         TypeRefKind.Pinned when type.ElementType is { } element =>
-            TypeIdentity(element),
+            TypeIdentity(element, preserveExactIdentity),
         TypeRefKind.Unsupported when type.UnmodifiedType is { } unmodified =>
-            TypeIdentity(unmodified),
+            TypeIdentity(unmodified, preserveExactIdentity),
         TypeRefKind.Unsupported when type.FunctionPointerSignature is { } signature =>
-            FunctionPointerIdentity(signature),
-        TypeRefKind.Definition => NamedTypeIdentity(type),
+            FunctionPointerIdentity(
+                signature,
+                preserveExactIdentity),
+        TypeRefKind.Definition => NamedTypeIdentity(
+            type,
+            preserveExactIdentity),
         _ => XmlDocumentationNotation.NormalizeParameterType(type.ToQualifiedDisplayString()),
     };
 
-    static string FunctionPointerIdentity(MethodSignature<TypeRef> signature)
+    static string FunctionPointerIdentity(
+        MethodSignature<TypeRef> signature,
+        bool preserveExactIdentity)
     {
         string convention = signature.Header.CallingConvention switch
         {
@@ -306,8 +333,12 @@ public static class CallGraphMemberResolver
         return $"delegate*{convention}{{{string.Join(
             ",",
             signature.ParameterTypes
-                .Select(TypeIdentity)
-                .Append(TypeIdentity(signature.ReturnType)))}}}";
+                .Select(type => TypeIdentity(
+                    type,
+                    preserveExactIdentity))
+                .Append(TypeIdentity(
+                    signature.ReturnType,
+                    preserveExactIdentity)))}}}";
     }
 
     static string NormalizeApiType(
@@ -350,7 +381,9 @@ public static class CallGraphMemberResolver
                     methodParameters)));
     }
 
-    static string NamedTypeIdentity(TypeRef type)
+    static string NamedTypeIdentity(
+        TypeRef type,
+        bool preserveExactIdentity)
     {
         if (type.Assembly == TypeRef.CoreLibrary
             && type.Namespace == "System"
@@ -359,39 +392,74 @@ public static class CallGraphMemberResolver
             return PrimitiveTypeNames.ToClrFullName(keyword);
         }
 
-        string[] segments = type.Resolution?.Type.Segments.ToArray()
-            ?? type.Name.Split('+');
+        if (type.Resolution?.Type is { } exactName)
+        {
+            string exactTypeName = string.Join(
+                '.',
+                exactName.Segments.Select(
+                    segment => preserveExactIdentity
+                        ? EscapeIdentitySegment(
+                            StripArity(segment))
+                        : StripArity(segment)));
+            return exactName.Namespace.Length == 0
+                ? exactTypeName
+                : preserveExactIdentity
+                    ? $"{EscapeIdentityNamespace(exactName.Namespace)}.{exactTypeName}"
+                    : $"{exactName.Namespace}.{exactTypeName}";
+        }
+
+        string[] segments = type.Name.Split('+');
         string name = string.Join('.', segments.Select(StripArity));
-        string ns = type.Resolution?.Type.Namespace ?? type.Namespace;
+        string ns = type.Namespace;
         return string.IsNullOrEmpty(ns)
             ? name
             : $"{ns}.{name}";
     }
 
+    static string EscapeIdentityNamespace(string value)
+        => value.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("+", "\\+", StringComparison.Ordinal);
+
+    static string EscapeIdentitySegment(string value)
+        => EscapeIdentityNamespace(value)
+            .Replace(".", "\\.", StringComparison.Ordinal);
+
     static string NamedGenericTypeIdentity(
         TypeRef definition,
-        ImmutableArray<TypeRef> arguments)
+        ImmutableArray<TypeRef> arguments,
+        bool preserveExactIdentity)
     {
         if (definition.Kind != TypeRefKind.Definition)
-            return $"{TypeIdentity(definition)}{{{string.Join(",", arguments.Select(TypeIdentity))}}}";
+            return $"{TypeIdentity(definition, preserveExactIdentity)}{{{string.Join(",", arguments.Select(type => TypeIdentity(type, preserveExactIdentity)))}}}";
 
         string[] segments = definition.Resolution?.Type.Segments.ToArray()
             ?? definition.Name.Split('+');
         int totalArity = segments.Sum(MetadataNameArity.OfSegment);
         if (totalArity != arguments.Length)
-            return $"{NamedTypeIdentity(definition)}{{{string.Join(",", arguments.Select(TypeIdentity))}}}";
+            return $"{NamedTypeIdentity(definition, preserveExactIdentity)}{{{string.Join(",", arguments.Select(type => TypeIdentity(type, preserveExactIdentity)))}}}";
 
         var result = new StringBuilder();
         string ns = definition.Resolution?.Type.Namespace ?? definition.Namespace;
         if (!string.IsNullOrEmpty(ns))
-            result.Append(ns).Append('.');
+        {
+            result.Append(
+                !preserveExactIdentity
+                    || definition.Resolution is null
+                    ? ns
+                    : EscapeIdentityNamespace(ns));
+            result.Append('.');
+        }
         int argumentIndex = 0;
         for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++)
         {
             if (segmentIndex > 0)
                 result.Append('.');
             string segment = segments[segmentIndex];
-            result.Append(StripArity(segment));
+            result.Append(
+                !preserveExactIdentity
+                    || definition.Resolution is null
+                    ? StripArity(segment)
+                    : EscapeIdentitySegment(StripArity(segment)));
             int arity = MetadataNameArity.OfSegment(segment);
             if (arity <= 0)
                 continue;
@@ -400,7 +468,9 @@ public static class CallGraphMemberResolver
             {
                 if (index > 0)
                     result.Append(',');
-                result.Append(TypeIdentity(arguments[argumentIndex++]));
+                result.Append(TypeIdentity(
+                    arguments[argumentIndex++],
+                    preserveExactIdentity));
             }
             result.Append('}');
         }

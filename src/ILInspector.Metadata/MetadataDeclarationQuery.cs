@@ -61,6 +61,18 @@ public sealed record MetadataFieldDeclaration(
 /// </summary>
 public static class MetadataDeclarationQuery
 {
+    public static MetadataTypeDefinitionName GetTypeDefinitionName(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+        => MetadataTypeDefinitionNameReader.Read(reader, handle) switch
+        {
+            MetadataTypeDefinitionNameReadResult.Read read => read.Name,
+            MetadataTypeDefinitionNameReadResult.Rejected rejected =>
+                throw new BadImageFormatException(rejected.Failure.Detail),
+            _ => throw new InvalidOperationException(
+                "Unknown metadata type-name result."),
+        };
+
     const string DegradedType = "object";
     static readonly MethodSignature<string> DegradedMethodSignature =
         new(default, DegradedType, requiredParameterCount: 0, genericParameterCount: 0, []);
@@ -213,7 +225,7 @@ public static class MetadataDeclarationQuery
         return type;
     }
 
-    internal static List<int> GetIntroducedTypeParameterCounts(
+    public static List<int> GetIntroducedTypeParameterCounts(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle)
     {
@@ -277,19 +289,36 @@ public static class MetadataDeclarationQuery
     public static IReadOnlyList<TypeParameter> GetTypeParameters(MetadataReader reader, TypeDefinition typeDef)
     {
         var handles = typeDef.GetGenericParameters();
-        ValidateGenericParameterIndices(reader, handles);
-        var inheritedCount = 0;
+        GenericContext.ValidateParameterIndices(reader, handles);
+        int inheritedCount = 0;
+        int childCount = handles.Count;
+        var seen = new HashSet<TypeDefinitionHandle>();
         var declaringType = typeDef.GetDeclaringType();
-        if (!declaringType.IsNil)
+        for (int depth = 0; !declaringType.IsNil; depth++)
         {
-            if (!MetadataTypeDeclarationProbe.TryGetGenericParameterCount(
-                    reader,
-                    declaringType,
-                    out inheritedCount))
+            if (depth >= MetadataSafetyPolicy.MaxRelationshipNodes
+                || !seen.Add(declaringType))
             {
                 throw new BadImageFormatException(
-                    "Generic parameter indices must be contiguous and ordered.");
+                    "The type has an invalid declaring-type chain.");
             }
+
+            TypeDefinition declaringDefinition =
+                reader.GetTypeDefinition(declaringType);
+            GenericParameterHandleCollection declaringHandles =
+                declaringDefinition.GetGenericParameters();
+            GenericContext.ValidateParameterIndices(
+                reader,
+                declaringHandles);
+            if (childCount < declaringHandles.Count)
+            {
+                throw new BadImageFormatException(
+                    "A nested type has fewer generic parameters than its declaring type.");
+            }
+            if (depth == 0)
+                inheritedCount = declaringHandles.Count;
+            childCount = declaringHandles.Count;
+            declaringType = declaringDefinition.GetDeclaringType();
         }
 
         return TypeParameters(
@@ -839,7 +868,7 @@ public static class MetadataDeclarationQuery
         int expectedIndex = 0)
     {
         var parameters = new List<TypeParameter>();
-        ValidateGenericParameterIndices(
+        GenericContext.ValidateParameterIndices(
             reader,
             handles,
             expectedIndex);
@@ -895,22 +924,6 @@ public static class MetadataDeclarationQuery
         }
 
         return parameters;
-    }
-
-    static void ValidateGenericParameterIndices(
-        MetadataReader reader,
-        IEnumerable<GenericParameterHandle> handles,
-        int expectedIndex = 0)
-    {
-        foreach (GenericParameterHandle handle in handles)
-        {
-            if (reader.GetGenericParameter(handle).Index
-                != expectedIndex++)
-            {
-                throw new BadImageFormatException(
-                    "Generic parameter indices must be contiguous and ordered.");
-            }
-        }
     }
 
     static string? ConstraintTypeName(MetadataReader reader, EntityHandle handle, GenericContext context)
@@ -1485,7 +1498,7 @@ public static class MetadataDeclarationQuery
     {
         GenericParameterHandleCollection handles =
             typeDef.GetGenericParameters();
-        ValidateGenericParameterIndices(reader, handles);
+        GenericContext.ValidateParameterIndices(reader, handles);
         return handles
             .Select(handle => reader.GetString(reader.GetGenericParameter(handle).Name))
             .ToArray();

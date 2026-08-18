@@ -60,6 +60,57 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void SameType_ExactIdentitySeparatesLiteralDotFromNesting()
+    {
+        MetadataTypeDefinitionName literalName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("N", ["Outer.Inner"]))
+            .Name;
+        MetadataTypeDefinitionName nestedName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "N",
+                    ["Outer", "Inner"]))
+            .Name;
+        var origin = Assert.IsType<TypeReferenceOrigin.CurrentAssembly>(
+            typeof(TypeReferenceOrigin.CurrentAssembly)
+                .GetConstructors(
+                    BindingFlags.Instance | BindingFlags.NonPublic)
+                .Single(constructor =>
+                    constructor.GetParameters() is
+                    [
+                        {
+                            ParameterType:
+                            var parameterType
+                        },
+                    ]
+                    && parameterType
+                        == typeof(AssemblyReferenceIdentity))
+                .Invoke([null]));
+        var typeRef = TypeRef.Definition(
+            Asm,
+            "N",
+            "Outer.Inner");
+        typeof(TypeRef).GetProperty(
+                nameof(TypeRef.Resolution),
+                BindingFlags.Instance | BindingFlags.Public)!
+            .SetValue(
+                typeRef,
+                new ResolvableTypeReference(
+                    origin,
+                    literalName));
+        var apiType = new ApiType
+        {
+            Namespace = "N",
+            Name = "Outer.Inner",
+            MetadataName = "Outer.Inner",
+            DefinitionName = nestedName,
+        };
+
+        Assert.False(ApiAnalysisInspection.SameType(typeRef, apiType));
+    }
+
+    [Fact]
     public void SameType_FallbackWhenMetadataNameAbsent_UsesReplace()
     {
         // Older serialized surfaces carry no MetadataName; the predicate falls

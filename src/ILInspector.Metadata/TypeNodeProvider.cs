@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
 
 namespace ILInspector.Metadata;
 
@@ -12,6 +13,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public static TypeNodeProvider Instance { get; } = new();
     readonly Action<string>? _beforeRetain;
     readonly Action<int>? _beforeMaterialize;
+    readonly ConditionalWeakTable<MetadataReader, ReaderNameCache> _readerNames = new();
 
     public TypeNodeProvider(
         Action<string>? beforeRetain = null,
@@ -35,6 +37,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
+        if (TryGetCached(reader, handle, out NamedTypeRead? cached))
+            return ReadNamedType(cached, rawTypeKind);
+
         bool resolved = TypeResolver.TryGetTypeNameFromDefinition(
             reader,
             handle,
@@ -44,16 +49,20 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         MetadataTypeNameParts? metadataName = resolved
             ? TypeResolver.GetTypeNamePartsFromDefinition(reader, handle)
             : null;
-        return ReadNamedType(
+        var read = new NamedTypeRead(
             resolved,
             name,
             rejection,
-            rawTypeKind,
             metadataName);
+        Cache(reader, handle, read);
+        return ReadNamedType(read, rawTypeKind);
     }
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
+        if (TryGetCached(reader, handle, out NamedTypeRead? cached))
+            return ReadNamedType(cached, rawTypeKind);
+
         bool resolved = TypeResolver.TryGetTypeNameFromReference(
             reader,
             handle,
@@ -63,35 +72,74 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         MetadataTypeNameParts? metadataName = resolved
             ? TypeResolver.GetTypeNamePartsFromReference(reader, handle)
             : null;
-        return ReadNamedType(
+        var read = new NamedTypeRead(
             resolved,
             name,
             rejection,
-            rawTypeKind,
             metadataName);
+        Cache(reader, handle, read);
+        return ReadNamedType(read, rawTypeKind);
     }
 
     TypeNode ReadNamedType(
-        bool resolved,
-        string? name,
-        RelationshipTraversalRejection? rejection,
-        byte rawTypeKind,
-        MetadataTypeNameParts? metadataName)
+        NamedTypeRead read,
+        byte rawTypeKind)
     {
-        if (resolved)
+        if (read.Resolved)
         {
-            _beforeRetain?.Invoke(name!);
+            _beforeRetain?.Invoke(read.Name!);
             bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
-            return new NamedTypeNode(name!, isRef, metadataName);
+            return new NamedTypeNode(
+                read.Name!,
+                isRef,
+                read.MetadataName);
         }
 
-        ArgumentNullException.ThrowIfNull(rejection);
-        if (rejection.Kind == RelationshipTraversalRejectionKind.NameBudget)
+        ArgumentNullException.ThrowIfNull(read.Rejection);
+        if (read.Rejection.Kind == RelationshipTraversalRejectionKind.NameBudget)
             return new DegradedTypeNode();
 
         throw new BadImageFormatException(
-            $"Metadata relationship traversal rejected ({rejection.Kind}): "
-            + rejection.Detail);
+            $"Metadata relationship traversal rejected ({read.Rejection.Kind}): "
+            + read.Rejection.Detail);
+    }
+
+    bool TryGetCached(
+        MetadataReader reader,
+        EntityHandle handle,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out NamedTypeRead? read)
+    {
+        if (!_readerNames.TryGetValue(reader, out ReaderNameCache? cache))
+        {
+            read = null;
+            return false;
+        }
+        lock (cache.Names)
+            return cache.Names.TryGetValue(handle, out read);
+    }
+
+    void Cache(
+        MetadataReader reader,
+        EntityHandle handle,
+        NamedTypeRead read)
+    {
+        ReaderNameCache cache = _readerNames.GetValue(
+            reader,
+            static _ => new ReaderNameCache());
+        lock (cache.Names)
+            cache.Names.TryAdd(handle, read);
+    }
+
+    sealed record NamedTypeRead(
+        bool Resolved,
+        string? Name,
+        RelationshipTraversalRejection? Rejection,
+        MetadataTypeNameParts? MetadataName);
+
+    sealed class ReaderNameCache
+    {
+        internal Dictionary<EntityHandle, NamedTypeRead> Names { get; } = [];
     }
 
     public TypeNode GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)

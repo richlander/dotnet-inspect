@@ -62,6 +62,20 @@ public sealed class CSharpFormatterTests
                     Kind = "class",
                 }),
             malformedName);
+        Assert.Equal(
+            "Foo`1",
+            CSharpFormatter.FormatDeclarationLeafMetadataName(malformed));
+        Assert.Equal(
+            "Foo",
+            CSharpFormatter.FormatDeclarationLeafMetadataName(
+                new ApiType
+                {
+                    Namespace = "N",
+                    Name = "Foo`1",
+                    Kind = "class",
+                    DefinitionName = exact,
+                    IntroducedTypeParameterCounts = [1],
+                }));
     }
 
     [Fact]

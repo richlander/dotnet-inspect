@@ -117,7 +117,10 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 InlineArrayFact(reader, leaf),
                 EnclosingTypeFrom(reader, chain, assembly, ns),
                 definitionName,
-                resolutionAssembly: null);
+                resolutionAssembly: null,
+                [.. MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
+                    reader,
+                    handle)]);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
         {

@@ -69,7 +69,10 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     };
 
     public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-        => Retain(
+    {
+        if (TryGetCached(reader, handle, out string? cached))
+            return cached;
+        return Retain(
             reader,
             handle,
             TypeResolver.TryGetTypeNameFromDefinition(
@@ -84,9 +87,13 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             () => TypeResolver.ResolveTypeNamePartsFromDefinition(
                 reader,
                 handle));
+    }
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-        => Retain(
+    {
+        if (TryGetCached(reader, handle, out string? cached))
+            return cached;
+        return Retain(
             reader,
             handle,
             TypeResolver.TryGetTypeNameFromReference(
@@ -101,6 +108,7 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             () => TypeResolver.ResolveTypeNamePartsFromReference(
                 reader,
                 handle));
+    }
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
     {
@@ -251,7 +259,15 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         Func<RelationshipTraversalResult<MetadataTypeNameParts>> create)
     {
         if (!resolved)
+        {
+            ArgumentNullException.ThrowIfNull(rejection);
+            ReaderNameCache rejectedCache = readerNames.GetValue(
+                reader,
+                static _ => new ReaderNameCache());
+            lock (rejectedCache.Names)
+                rejectedCache.Rejections.TryAdd(handle, rejection);
             return ReadNameOrContinue(false, projectedName, rejection);
+        }
 
         ReaderNameCache cache = readerNames.GetValue(
             reader,
@@ -289,9 +305,41 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         }
     }
 
+    bool TryGetCached(
+        MetadataReader reader,
+        EntityHandle handle,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? value)
+    {
+        if (!readerNames.TryGetValue(reader, out ReaderNameCache? cache))
+        {
+            value = null;
+            return false;
+        }
+
+        lock (cache.Names)
+        {
+            if (cache.Names.TryGetValue(handle, out value))
+                return true;
+            if (cache.Rejections.TryGetValue(
+                    handle,
+                    out RelationshipTraversalRejection? rejection))
+            {
+                value = ReadNameOrContinue(
+                    resolved: false,
+                    name: null,
+                    rejection);
+                return true;
+            }
+        }
+
+        value = null;
+        return false;
+    }
+
     sealed class ReaderNameCache
     {
         internal Dictionary<EntityHandle, string> Names { get; } = [];
+        internal Dictionary<EntityHandle, RelationshipTraversalRejection> Rejections { get; } = [];
     }
 
     public string GetGenericMethodParameter(GenericContext? context, int index)

@@ -339,22 +339,35 @@ public class SignatureDecoderSafetyTests
                 scope = leaf;
             }
         });
-        var decoder = new SignatureDecoder();
+        int decoderWork = 0;
+        var decoder = new SignatureDecoder(length => decoderWork += length);
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         AssertRejected(
             SignatureDecoder.Decode(
                 () => decoder.GetTypeFromReference(reader, leaf, 0)),
-            SignatureDecodeRejectionKind.TypeNameBudget);
+            SignatureDecodeRejectionKind.NameBudget);
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.True(
             allocated < 1024 * 1024,
             $"Oversized exact-name rejection allocated {allocated:N0} bytes.");
+        int firstDecoderWork = decoderWork;
         AssertRejected(
             SignatureDecoder.Decode(
                 () => decoder.GetTypeFromReference(reader, leaf, 0)),
-            SignatureDecodeRejectionKind.TypeNameBudget);
+            SignatureDecodeRejectionKind.NameBudget);
+        Assert.Equal(firstDecoderWork, decoderWork);
+
+        int providerWork = 0;
+        var provider = new TypeNodeProvider(
+            beforeMaterialize: length => providerWork += length);
+        Assert.IsType<DegradedTypeNode>(
+            provider.GetTypeFromReference(reader, leaf, 0));
+        int firstProviderWork = providerWork;
+        Assert.IsType<DegradedTypeNode>(
+            provider.GetTypeFromReference(reader, leaf, 0));
+        Assert.Equal(firstProviderWork, providerWork);
     }
 
     [Fact]
