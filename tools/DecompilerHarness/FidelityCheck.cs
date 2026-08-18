@@ -3197,7 +3197,9 @@ static class FidelityCheck
         MethodDefinition body,
         MethodDefinition declaration)
     {
-        if (!reader.GetBlobBytes(body.Signature).AsSpan()
+        if (!HasDefaultCallingConvention(reader, body)
+            || !HasDefaultCallingConvention(reader, declaration)
+            || !reader.GetBlobBytes(body.Signature).AsSpan()
                 .SequenceEqual(reader.GetBlobBytes(declaration.Signature)))
         {
             return false;
@@ -3257,6 +3259,25 @@ static class FidelityCheck
         }
 
         return true;
+    }
+
+    static bool HasDefaultCallingConvention(
+        MetadataReader reader,
+        MethodDefinition method)
+    {
+        try
+        {
+            return reader.GetBlobReader(method.Signature)
+                .ReadSignatureHeader()
+                .CallingConvention == SignatureCallingConvention.Default;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            return false;
+        }
     }
 
     static bool TryParameterAttributes(
@@ -3362,8 +3383,10 @@ static class FidelityCheck
         MethodDefinition body,
         MethodDefinition declaration)
     {
-        int separator = interfaceName.IndexOf('.');
-        string root = separator < 0 ? interfaceName : interfaceName[..separator];
+        int firstSeparator = interfaceName.IndexOf('.');
+        string root = firstSeparator < 0 ? interfaceName : interfaceName[..firstSeparator];
+        int lastSeparator = interfaceName.LastIndexOf('.');
+        string identifier = lastSeparator < 0 ? interfaceName : interfaceName[(lastSeparator + 1)..];
         string targetNamespace = reader.GetString(typeDef.Namespace);
         var visibleNamespaces = new HashSet<string>(StringComparer.Ordinal);
         for (string current = targetNamespace; ;)
@@ -3385,7 +3408,7 @@ static class FidelityCheck
             var candidate = reader.GetTypeDefinition(handle);
             if (candidate.GetDeclaringType().IsNil
                 && visibleNamespaces.Contains(reader.GetString(candidate.Namespace))
-                && StripArity(reader.GetString(candidate.Name)) == root)
+                && IsProtectedQualifier(StripArity(reader.GetString(candidate.Name))))
             {
                 return true;
             }
@@ -3394,7 +3417,7 @@ static class FidelityCheck
         foreach (var parameterHandle in typeDef.GetGenericParameters())
         {
             var parameter = reader.GetGenericParameter(parameterHandle);
-            if (reader.GetString(parameter.Name) == root)
+            if (IsProtectedQualifier(reader.GetString(parameter.Name)))
                 return true;
         }
         foreach (var method in new[] { body, declaration })
@@ -3402,21 +3425,29 @@ static class FidelityCheck
             foreach (var parameterHandle in method.GetGenericParameters())
             {
                 var parameter = reader.GetGenericParameter(parameterHandle);
-                if (reader.GetString(parameter.Name) == root)
+                if (IsProtectedQualifier(reader.GetString(parameter.Name)))
                     return true;
             }
         }
 
-        return HasNestedOrBaseInterfaceRootCollision(
+        return HasNestedOrBaseInterfaceIdentifierCollision(
             reader,
             body.GetDeclaringType(),
-            root);
+            root)
+            || identifier != root
+                && HasNestedOrBaseInterfaceIdentifierCollision(
+                    reader,
+                    body.GetDeclaringType(),
+                    identifier);
+
+        bool IsProtectedQualifier(string candidate)
+            => candidate == root || candidate == identifier;
     }
 
-    internal static bool HasNestedOrBaseInterfaceRootCollision(
+    internal static bool HasNestedOrBaseInterfaceIdentifierCollision(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
-        string root)
+        string identifier)
     {
         var visited = new HashSet<TypeDefinitionHandle>();
         var currentHandle = typeHandle;
@@ -3427,7 +3458,8 @@ static class FidelityCheck
 
             var current = reader.GetTypeDefinition(currentHandle);
             foreach (var nestedHandle in current.GetNestedTypes())
-                if (StripArity(reader.GetString(reader.GetTypeDefinition(nestedHandle).Name)) == root)
+                if (StripArity(reader.GetString(reader.GetTypeDefinition(nestedHandle).Name))
+                    == identifier)
                     return true;
 
             if (current.BaseType.IsNil
@@ -3447,22 +3479,24 @@ static class FidelityCheck
         return false;
     }
 
-    static bool HasImportedInterfaceRootCollision(
+    static bool HasImportedInterfaceQualifierCollision(
         MetadataReader reader,
+        TypeDefinitionHandle interfaceHandle,
         string interfaceName,
         IReadOnlyCollection<string> namespaces)
     {
-        int separator = interfaceName.IndexOf('.');
-        if (separator < 0)
-            return false;
-
-        string root = interfaceName[..separator];
+        int firstSeparator = interfaceName.IndexOf('.');
+        string root = firstSeparator < 0 ? interfaceName : interfaceName[..firstSeparator];
+        int lastSeparator = interfaceName.LastIndexOf('.');
+        string identifier = lastSeparator < 0 ? interfaceName : interfaceName[(lastSeparator + 1)..];
         foreach (var handle in reader.TypeDefinitions)
         {
+            if (handle == interfaceHandle)
+                continue;
             var candidate = reader.GetTypeDefinition(handle);
             if (candidate.GetDeclaringType().IsNil
                 && namespaces.Contains(reader.GetString(candidate.Namespace))
-                && StripArity(reader.GetString(candidate.Name)) == root)
+                && IsProtectedQualifier(StripArity(reader.GetString(candidate.Name))))
             {
                 return true;
             }
@@ -3471,13 +3505,16 @@ static class FidelityCheck
         {
             var candidate = reader.GetTypeReference(handle);
             if (namespaces.Contains(reader.GetString(candidate.Namespace))
-                && StripArity(reader.GetString(candidate.Name)) == root)
+                && IsProtectedQualifier(StripArity(reader.GetString(candidate.Name))))
             {
                 return true;
             }
         }
 
         return false;
+
+        bool IsProtectedQualifier(string candidate)
+            => candidate == root || candidate == identifier;
     }
 
     static string CombineInheritance(string baseClause, string interfaceClause)
@@ -4548,8 +4585,9 @@ static class FidelityCheck
         if (explicitInterfaceTarget is { } target)
         {
             var reader = pe.GetMetadataReader();
-            if (HasImportedInterfaceRootCollision(
+            if (HasImportedInterfaceQualifierCollision(
                 reader,
+                target.Interface,
                 target.InterfaceName,
                 result.Namespaces))
             {

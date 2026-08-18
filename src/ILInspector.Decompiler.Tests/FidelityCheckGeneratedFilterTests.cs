@@ -433,6 +433,71 @@ public class FidelityCheckGeneratedFilterTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void Evaluate_DeclinesProductWholeMemberForVarargExplicitInterface()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Contracts
+            {
+                public interface IVararg
+                {
+                    void Invoke(__arglist);
+                }
+            }
+
+            public sealed class VarargFixture : Contracts.IVararg
+            {
+                void Contracts.IVararg.Invoke(__arglist) { }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "VarargFixture"));
+            var method = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "Contracts.IVararg.Invoke");
+            using var source = MetadataSource.Open(assemblyPath);
+
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: true,
+                isPrimaryConstructor: false));
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: false,
+                isPrimaryConstructor: false));
+
+            var targetedResult = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "VarargFixture",
+                    candidate => candidate.Method == "Contracts.IVararg.Invoke"));
+            Assert.False(targetedResult.UsedProductWholeMember);
+
+            var batchResult = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "VarargFixture"),
+                candidate => candidate.Method == "Contracts.IVararg.Invoke");
+            Assert.False(batchResult.UsedProductWholeMember);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void Evaluate_UsesProductWholeMemberForGenericExplicitInterfaceMethod()
     {
         var assemblyPath = CompileFixture("""
@@ -856,7 +921,7 @@ public class FidelityCheckGeneratedFilterTests
         using var provider = MetadataReaderProvider.FromMetadataImage(
             System.Collections.Immutable.ImmutableArray.Create(image.ToArray()));
 
-        Assert.True(FidelityCheck.HasNestedOrBaseInterfaceRootCollision(
+        Assert.True(FidelityCheck.HasNestedOrBaseInterfaceIdentifierCollision(
             provider.GetMetadataReader(),
             target,
             "N"));
@@ -864,7 +929,113 @@ public class FidelityCheckGeneratedFilterTests
 
     [Fact]
     [Trait("Speed", "Slow")]
-    public void TryRenderTargetMember_DeclinesNestedAndImportedInterfaceRootCollisions()
+    public void TryRenderTargetMember_DeclinesNamespacedNestedInterfaceIdentifierCollisions()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Contracts
+            {
+                public interface IControl { int Run(int value); }
+                public interface IHandler { int Run(int value); }
+                public interface IWalker { int Run(int value); }
+            }
+
+            namespace Consumers
+            {
+                public sealed class Control : Contracts.IControl
+                {
+                    int Contracts.IControl.Run(int value) => value + 1;
+                }
+
+                public sealed class NestedShadow : Contracts.IHandler
+                {
+                    public sealed class IHandler { }
+                    int Contracts.IHandler.Run(int value) => value + 1;
+                }
+
+                public class BaseWithNested
+                {
+                    public sealed class IWalker { }
+                }
+
+                public sealed class BaseNestedShadow
+                    : BaseWithNested, Contracts.IWalker
+                {
+                    int Contracts.IWalker.Run(int value) => value + 1;
+                }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+
+            foreach (var (typeName, methodName, admitted) in new[]
+            {
+                ("Control", "Contracts.IControl.Run", true),
+                ("NestedShadow", "Contracts.IHandler.Run", false),
+                ("BaseNestedShadow", "Contracts.IWalker.Run", false)
+            })
+            {
+                var type = reader.GetTypeDefinition(Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                        == typeName));
+                var method = Assert.Single(
+                    type.GetMethods(),
+                    handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                        == methodName);
+
+                var rendered = FidelityCheck.TryRenderTargetMember(
+                    pe,
+                    source,
+                    method,
+                    targeted: true,
+                    isPrimaryConstructor: false);
+                if (admitted)
+                    Assert.NotNull(rendered);
+                else
+                    Assert.Null(rendered);
+            }
+
+            var targetedResults = FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName.StartsWith("Consumers.", StringComparison.Ordinal),
+                candidate => candidate.Method.EndsWith(".Run", StringComparison.Ordinal));
+            var batchResults = FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName.StartsWith("Consumers.", StringComparison.Ordinal));
+            foreach (var results in new[] { targetedResults, batchResults })
+            {
+                var control = Assert.Single(
+                    results,
+                    result => result.Type == "Consumers.Control"
+                        && result.Method == "Contracts.IControl.Run");
+                Assert.True(control.UsedProductWholeMember);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, control.Status);
+                foreach (string typeName in new[]
+                {
+                    "Consumers.NestedShadow",
+                    "Consumers.BaseNestedShadow"
+                })
+                {
+                    Assert.False(Assert.Single(
+                        results,
+                        result => result.Type == typeName
+                            && result.Method.EndsWith(".Run", StringComparison.Ordinal))
+                        .UsedProductWholeMember);
+                }
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesNestedAndImportedInterfaceIdentifierCollisions()
     {
         var assemblyPath = CompileFixture("""
             using NI = N.I;
