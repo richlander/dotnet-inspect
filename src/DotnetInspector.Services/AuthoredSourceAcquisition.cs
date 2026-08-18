@@ -200,6 +200,8 @@ public static class AuthoredSourceAcquisition
                 subject,
                 fetch.Failure switch
                 {
+                    SourceFetchFailureKind.RequestNotAuthorized =>
+                        "The host does not authorize this SourceLink destination.",
                     SourceFetchFailureKind.AttributedOriginUnverified =>
                         "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.ValidationFailed =>
@@ -332,6 +334,8 @@ public static class AuthoredSourceAcquisition
                 subject,
                 fetch.Failure switch
                 {
+                    SourceFetchFailureKind.RequestNotAuthorized =>
+                        "The host does not authorize this SourceLink destination.",
                     SourceFetchFailureKind.AttributedOriginUnverified =>
                         "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.StorageFailed =>
@@ -421,6 +425,8 @@ public static class AuthoredSourceAcquisition
                 null,
                 fetch.Failure switch
                 {
+                    SourceFetchFailureKind.RequestNotAuthorized =>
+                        "The host does not authorize this SourceLink destination.",
                     SourceFetchFailureKind.AttributedOriginUnverified =>
                         "Could not verify the final SourceLink response origin.",
                     SourceFetchFailureKind.ValidationFailed =>
