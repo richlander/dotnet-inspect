@@ -1096,6 +1096,61 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void Compare_PinnedFullFidelityLossCannotBeOffsetByGainOrValidityCoverageChange()
+    {
+        var lost = SnapshotMethod("Lost", validity: "valid") with
+        {
+            FullyRaised = false,
+            Residual = "structuring: conditional-branch",
+        };
+        var gained = SnapshotMethod("Gained") with
+        {
+            Fidelity = "Partial",
+            FullyRaised = false,
+            Residual = "fidelity: DEC0009",
+        };
+        var baseline = Snapshot(
+            2,
+            0,
+            0,
+            [lost, gained],
+            semanticCheckedMethods: 1);
+        var current = Snapshot(
+            2,
+            0,
+            0,
+            [
+                lost with
+                {
+                    Fidelity = "Partial",
+                    Residual = "fidelity: DEC0009",
+                    Validity = "syntax-valid",
+                },
+                gained with
+                {
+                    Fidelity = "Full",
+                    Residual = "structuring: conditional-branch",
+                },
+            ]);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "Full fidelity method lost (pinned): "
+                + "nuget:pinned/lib.dll!T::Lost() -> fidelity: DEC0009",
+            regressions);
+        Assert.DoesNotContain(
+            regressions,
+            regression => regression.Contains(
+                "nuget:pinned/lib.dll!T::Gained()",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Compare_PinnedValidityLossCannotBeOffsetByGain()
     {
         var baseline = Snapshot(

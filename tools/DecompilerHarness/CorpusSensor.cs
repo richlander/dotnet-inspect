@@ -1780,6 +1780,11 @@ internal static class CorpusSensor
                 string outcome = after.PassBug ?? after.Residual ?? after.Fidelity;
                 failures.Add($"fully raised method lost (pinned): {methodKey} -> {outcome}");
             }
+            if (before.Fidelity == "Full" && after.Fidelity != "Full")
+            {
+                string outcome = after.PassBug ?? after.Residual ?? after.Fidelity;
+                failures.Add($"Full fidelity method lost (pinned): {methodKey} -> {outcome}");
+            }
             if (before.Validity == "valid"
                 && after.Validity is not ("valid" or "not-sampled" or "syntax-valid"))
             {

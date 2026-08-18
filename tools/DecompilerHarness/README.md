@@ -1020,13 +1020,16 @@ per-method detail.
 
 Pinned method outcomes are also non-offsettable regardless of snapshot schema
 when both snapshots carry method ledgers: a previously `valid` method becoming
-invalid or a previously fully raised method acquiring residue is a hard
-regression even when another method improves and aggregate counts stay flat.
+invalid, a previously fully raised method acquiring residue, or a method
+dropping from `Full` fidelity is a hard regression even when another method
+improves and aggregate counts stay flat.
 Missing ledgers fail closed. A method that leaves the semantic sample is
 reported through coverage/sample disclosure rather than falsely classified as
 invalid. The enforcing gates are
 `Compare_PinnedValidityLossCannotBeOffsetByGain` and
-`Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`, plus
+`Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`,
+`Compare_PinnedFullFidelityLossCannotBeOffsetByGainOrValidityCoverageChange`,
+plus
 `Compare_PinnedMethodGateFailsClosedWithoutBaselineLedger` and
 `Compare_PinnedMethodGateFailsClosedWithoutCurrentLedger`.
 
