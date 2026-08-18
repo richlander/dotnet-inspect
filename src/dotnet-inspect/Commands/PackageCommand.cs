@@ -4404,7 +4404,7 @@ public class PackageCommand
                 opportunityRows.Select(row => new[]
                 {
                     CodeCell(row.Library),
-                    row.Tfm,
+                    CodeCell(row.Tfm),
                     row.Integration,
                     row.Api,
                     row.IntegrationType,
@@ -4436,7 +4436,7 @@ public class PackageCommand
                 switchRows.Select(row => new[]
                 {
                     CodeCell(row.Library),
-                    row.Tfm,
+                    CodeCell(row.Tfm),
                     row.Kind,
                     row.Switch,
                     row.Api
@@ -4480,7 +4480,7 @@ public class PackageCommand
 
         AppendAggregatedTable(sb, section, new MarkoutTable(headers, focusedRows.Select(row =>
         {
-            List<string> values = [CodeCell(row.Library), row.Tfm];
+            List<string> values = [CodeCell(row.Library), CodeCell(row.Tfm)];
             if (includeKindColumn) values.Add(row.Signal.Kind);
             values.Add(CodeCell(row.Signal.Name));
             return values.ToArray();

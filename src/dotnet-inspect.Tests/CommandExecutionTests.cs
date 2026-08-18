@@ -974,13 +974,13 @@ public partial class CommandExecutionTests
     }
 
     private static (string PackagePath, string TempDir)
-        CreateLocalIntegrationOpportunityPackage()
+        CreateLocalIntegrationOpportunityPackage(string tfm = "net10.0")
     {
         var tempDir = Path.Combine(
             Path.GetTempPath(),
             $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
-        var libDir = Path.Combine(packageRoot, "lib", "net10.0");
+        var libDir = Path.Combine(packageRoot, "lib", tfm);
         Directory.CreateDirectory(libDir);
         File.Copy(
             typeof(Npgsql.NpgsqlConnection).Assembly.Location,
@@ -18493,7 +18493,38 @@ public partial class CommandExecutionTests
                 output,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "| `lib/net10.0/IntegrationOpportunityFixture.dll` | net10.0 |",
+                "| `lib/net10.0/IntegrationOpportunityFixture.dll` | `net10.0` |",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregatedMarkdown_ContainsPackageControlledTfm()
+    {
+        const string Tfm = "net10.0\u202ERED";
+        var (packagePath, tempDir) =
+            CreateLocalIntegrationOpportunityPackage(Tfm);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.DoesNotContain('\u202E', output);
+            Assert.Contains(
+                @"`net10.0\u202ERED`",
                 output,
                 StringComparison.Ordinal);
         }
