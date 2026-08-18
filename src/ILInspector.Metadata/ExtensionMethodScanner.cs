@@ -22,6 +22,8 @@ public record ExtensionMethodInfo(
     public MemberAnchor? Anchor { get; init; }
     public string? ReturnType { get; init; }
     public string? CanonicalExtendedType { get; init; }
+    internal MetadataTypeDefinitionName? DeclaringTypeDefinition
+        { get; init; }
     internal MetadataNamedTypeReference? ReturnTypeReference { get; init; }
     internal MetadataNamedTypeReference? ExtendedTypeReference { get; init; }
 
@@ -30,6 +32,9 @@ public record ExtensionMethodInfo(
 
     public MetadataNamedTypeReference? GetExtendedTypeReference() =>
         ExtendedTypeReference;
+
+    public MetadataTypeDefinitionName? GetDeclaringTypeDefinition() =>
+        DeclaringTypeDefinition;
 
     // Preserve the original seven-field record contract. The structured fields
     // are derived from the same metadata and intentionally do not affect equality.
@@ -173,6 +178,10 @@ public static class ExtensionMethodScanner
                             Anchor = anchorInfo.Anchor,
                             ReturnType = anchorInfo.ReturnType,
                             CanonicalExtendedType = anchorInfo.ExtendedType,
+                            DeclaringTypeDefinition =
+                                DeclaringType(
+                                    reader,
+                                    typeDefHandle),
                             ReturnTypeReference =
                                 anchorInfo.ReturnTypeReference,
                             ExtendedTypeReference =
@@ -274,6 +283,10 @@ public static class ExtensionMethodScanner
                         Anchor = anchorInfo.Anchor,
                         ReturnType = anchorInfo.ReturnType,
                         CanonicalExtendedType = anchorInfo.ExtendedType,
+                        DeclaringTypeDefinition =
+                            DeclaringType(
+                                reader,
+                                typeDefHandle),
                         ReturnTypeReference =
                             anchorInfo.ReturnTypeReference,
                         ExtendedTypeReference =
@@ -673,6 +686,10 @@ public static class ExtensionMethodScanner
                     Anchor = anchorInfo.Anchor,
                     ReturnType = anchorInfo.ReturnType,
                     CanonicalExtendedType = anchorInfo.ExtendedType,
+                    DeclaringTypeDefinition =
+                        DeclaringType(
+                            reader,
+                            extensionClassHandle),
                 };
             }
         }
@@ -686,6 +703,14 @@ public static class ExtensionMethodScanner
         && (includeAll
             || (reader.GetMethodDefinition(accessorHandle).Attributes
                 & MethodAttributes.MemberAccessMask) == MethodAttributes.Public);
+
+    static MetadataTypeDefinitionName? DeclaringType(
+        MetadataReader reader,
+        TypeDefinitionHandle handle) =>
+        MetadataTypeDefinitionNameReader.Read(reader, handle)
+            is MetadataTypeDefinitionNameReadResult.Read read
+                ? read.Name
+                : null;
 
     private static bool IsHiddenAccessor(
         MetadataReader reader,
