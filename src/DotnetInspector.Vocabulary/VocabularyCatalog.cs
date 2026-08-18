@@ -346,9 +346,7 @@ public static class VocabularyCatalog
                 "id",
                 "ID",
                 "Exact stable rendered-syntax kind.",
-                VocabularyOperator.Equals,
-                VocabularyOperator.NotEquals,
-                VocabularyOperator.In),
+                VocabularyOperator.Equals),
             TextField(
                 "label",
                 "Label",

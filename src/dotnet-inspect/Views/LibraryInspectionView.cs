@@ -824,6 +824,14 @@ public class LibraryInspectionView
                 m.Token is null ? null : MarkoutInline.Code(m.Token)));
     }
 
+    [MarkoutSection(
+        Name = SectionNames.BodyShapes,
+        EmptyText = "No matching body shapes found.")]
+    public List<BodyShapeRow>? BodyShapesSection =>
+        _data.BodyShapeSearchResult?.Matches?
+            .Select(BodyShapeRow.FromMatch)
+            .ToList();
+
     public bool HasTopLeverage =>
         _data.TopLeverageQueryResult is TopLeverageResult.Available
             { Methods.IsEmpty: false };
