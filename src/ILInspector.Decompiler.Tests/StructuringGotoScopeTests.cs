@@ -1,4 +1,6 @@
 using ILInspector.Decompiler.Pipeline;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -91,19 +93,63 @@ public class StructuringGotoScopeTests
     [Fact]
     public void CompilerTwoCaseSwitchReturnKeepsDissolvingCrossArmStructured()
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        var function = IrImporter.Import(
-            source,
-            typeof(CfgSampleClass).FullName!,
-            nameof(CfgSampleClass.TwoCaseSwitchReturn));
-        Assert.NotNull(function);
+        const string source = """
+            using System;
 
-        IrPasses.Run(function!, IrPasses.Default, PassContext.None);
-        function!.CheckInvariant();
+            namespace CompilerFixtures;
 
-        Assert.Empty(function.Descendants.OfType<Branch>());
-        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
-        Assert.Contains("throw new IndexOutOfRangeException();", CSharpPrinter.Print(function).Output);
+            public static class TwoCaseSwitchFixture
+            {
+                public static object M(int index, object first, object second)
+                {
+                    switch (index)
+                    {
+                        case 0:
+                            return first;
+                        case 1:
+                            return second;
+                        default:
+                            throw new IndexOutOfRangeException();
+                    }
+                }
+            }
+            """;
+        string path = Path.Combine(Path.GetTempPath(), $"two-case-switch-{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            var cancellationToken = TestContext.Current.CancellationToken;
+            var compilation = CSharpCompilation.Create(
+                "TwoCaseSwitchFixture",
+                [CSharpSyntaxTree.ParseText(
+                    source,
+                    new CSharpParseOptions(LanguageVersion.Preview),
+                    cancellationToken: cancellationToken)],
+                RoslynTestReferences.TrustedPlatform,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    optimizationLevel: OptimizationLevel.Release));
+            var emit = compilation.Emit(path, cancellationToken: cancellationToken);
+            Assert.True(
+                emit.Success,
+                "fixture compilation failed:\n"
+                    + string.Join("\n", emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
+
+            using var metadata = MetadataSource.OpenWithoutSymbols(path);
+            var function = IrImporter.Import(metadata, "CompilerFixtures.TwoCaseSwitchFixture", "M");
+            Assert.NotNull(function);
+
+            IrPasses.Run(function!, IrPasses.Default, PassContext.None);
+            function!.CheckInvariant();
+
+            Assert.Empty(function.Descendants.OfType<Branch>());
+            Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+            Assert.Contains("throw new IndexOutOfRangeException();", CSharpPrinter.Print(function).Output);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
