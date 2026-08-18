@@ -17960,6 +17960,93 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("Field")]
+    [InlineData("Val*")]
+    public async Task Package_JsonRecognizesFieldLayoutColumns(string column)
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonFieldLayout",
+            "README.md",
+            "# Package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package Info",
+                "--json",
+                "--columns",
+                column,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            using var _ = JsonDocument.Parse(output);
+            Assert.DoesNotContain(
+                "column has no data",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Package_JsonEmptyColumnWithCompanionSectionRemainsTypedJson(
+        bool multiplePackages)
+    {
+        var (firstPackagePath, firstTempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonCompanionSection.One",
+            "README.md",
+            "# First package");
+        var (secondPackagePath, secondTempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonCompanionSection.Two",
+            "README.md",
+            "# Second package");
+        try
+        {
+            string[] packagePaths = multiplePackages
+                ? [firstPackagePath, secondPackagePath]
+                : [firstPackagePath];
+            var (exit, output, error) = await RunAppAsync(
+                [
+                    "package",
+                    .. packagePaths,
+                    "-S",
+                    "Package Info",
+                    "-S",
+                    "Dependencies",
+                    "--json",
+                    "--columns",
+                    "Version",
+                    "--tips",
+                    "q",
+                ]);
+
+            Assert.Equal(0, exit);
+            using var _ = JsonDocument.Parse(output);
+            Assert.Contains(
+                "1 column has no data: Version",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                nameof(InvalidOperationException),
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(firstTempDir, recursive: true);
+            Directory.Delete(secondTempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Package_JsonRejectsUnknownProjectionInExplicitSection()
     {

@@ -1076,30 +1076,37 @@ public class PackageCommand
         IReadOnlyList<InspectionResult> results,
         SectionPipeline<InspectionResult> pipeline)
     {
-        DocumentSchema schema =
-            InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!
-                .ToDocumentSchema();
+        DocumentSchema schema = PackageDiscoverySchema();
+        DocumentSchema columnSchema = PackageCountColumnSchema(
+            schema,
+            combinedRows: false);
         var renderedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var renderedSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var fieldLayoutSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (options.Columns is { Length: > 0 }
             && options.IncludeSections is { Count: > 0 })
         {
             foreach (string section in options.IncludeSections)
             {
-                if (!string.Equals(
-                        schema.GetSection(section)?.ItemKind,
-                        "column",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
                 var unresolved = new HashSet<string>(
-                    schema.ValidateProjection(section, options.Columns).Unresolved,
+                    columnSchema.ValidateProjection(section, options.Columns).Unresolved,
                     StringComparer.OrdinalIgnoreCase);
                 foreach (string column in options.Columns)
                 {
                     if (!unresolved.Contains(column))
+                    {
                         renderedColumns.Add(column);
+                        renderedSections.Add(section);
+                    }
+                }
+
+                if (renderedSections.Contains(section)
+                    && string.Equals(
+                        schema.GetSection(section)?.ItemKind,
+                        "field",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    fieldLayoutSections.Add(section);
                 }
             }
         }
@@ -1122,15 +1129,11 @@ public class PackageCommand
             options,
             pipeline);
         writerOptions.IncludeSections = new HashSet<string>(
-            options.IncludeSections!,
+            renderedSections,
             StringComparer.OrdinalIgnoreCase);
-        writerOptions.Projection = OutputFormatter.BuildProjection(
-            renderedColumnArray,
-            fields: null);
+        writerOptions.Projection = null;
         writerOptions.RowWindow = null;
-        ProjectionDiagnostics.DiagnoseRendered(
-            fields: null,
-            columns: renderedColumnArray,
+        RenderedSectionManifest manifest = RenderManifestFormatter.Capture(
             (writer, formatter, activeWriterOptions) =>
             {
                 foreach (InspectionResult result in results)
@@ -1145,6 +1148,23 @@ public class PackageCommand
             },
             writerOptions,
             schema);
+        var emittedColumns = new HashSet<string>(
+            manifest.TableColumns,
+            StringComparer.OrdinalIgnoreCase);
+        if (fieldLayoutSections.Count > 0
+            && manifest.FieldsFor(manifest.ContentKeys).Count > 0)
+        {
+            emittedColumns.Add("Field");
+            emittedColumns.Add("Value");
+        }
+
+        ProjectionDiagnostics.DiagnoseProjectedJson(
+            fields: null,
+            columns: renderedColumnArray,
+            emittedFields: [],
+            emittedColumns: [.. emittedColumns],
+            schema: columnSchema,
+            sectionNames: renderedSections);
     }
 
     internal static int PackageIntegrityExitCode(params InspectionResult[] results)
