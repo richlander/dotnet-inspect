@@ -14,7 +14,19 @@ internal readonly record struct ExplicitInterfaceTypeIdentity(
     bool IsDegraded = false,
     bool? IsInterface = null,
     bool IsWellKnownNullable = false,
-    bool IsConstructedGeneric = false);
+    bool IsConstructedGeneric = false,
+    string? ModifiedTypeKey = null)
+{
+    /// <summary>
+    /// The identity key with every custom modifier stripped. Only a
+    /// <c>modreq</c>/<c>modopt</c> wrapper distinguishes it from <see cref="Key"/>,
+    /// so an aggregate-row comparison that must ignore the modifier a legal
+    /// accessor carries — a <c>void modreq(IsExternalInit)</c> init setter is the
+    /// motivating case — can compare identities without discarding the modifier
+    /// everywhere else.
+    /// </summary>
+    public string UnmodifiedKey => ModifiedTypeKey ?? Key;
+}
 
 internal readonly record struct ExplicitInterfaceSignatureContext(
     GenericContext? Names,
@@ -33,12 +45,34 @@ internal readonly record struct ExplicitInterfaceSignatureContext(
             typeParameterCount);
 }
 
-internal sealed class ExplicitInterfaceTypeIdentityProvider
+/// <remarks>
+/// Every identity this provider builds is charged to <paramref name="observeDecodeWork"/>
+/// before it is returned, so the explicit-interface MethodImpl projection spends the same
+/// bounded extraction work budget as the rest of the surface. Charging each composed node
+/// (rather than only the leaf blobs) is what bounds the amplifying shapes — a deeply nested
+/// generic instantiation grows its key multiplicatively — and a <see langword="null"/>
+/// observer keeps the unbounded query paths unchanged. Gated by
+/// <c>ApiSurfaceExtractorBoundsTests.ExplicitInterfaceProjection_SpendsDecodeWorkBudget</c>.
+/// </remarks>
+internal sealed class ExplicitInterfaceTypeIdentityProvider(
+    Action<int>? observeDecodeWork = null)
     : ISignatureTypeProvider<ExplicitInterfaceTypeIdentity, ExplicitInterfaceSignatureContext>
 {
     internal const int MaxAssemblyIdentityBlobBytes = 4096;
     readonly Dictionary<AssemblyReferenceHandle, string> assemblyScopeKeys = [];
     string? currentModuleKey;
+
+    /// <summary>Charges one decoded or composed identity against the extraction work budget.</summary>
+    internal ExplicitInterfaceTypeIdentity Observe(ExplicitInterfaceTypeIdentity identity)
+    {
+        observeDecodeWork?.Invoke(
+            checked(identity.Key.Length
+                + identity.MetadataName.Length
+                + (identity.AggregateAliasName?.Length ?? 0)));
+        return identity;
+    }
+
+    internal void ObserveWork(int characters) => observeDecodeWork?.Invoke(characters);
 
     public ExplicitInterfaceTypeIdentity GetPrimitiveType(PrimitiveTypeCode typeCode)
     {
@@ -70,11 +104,11 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
             PrimitiveTypeCode.UIntPtr => "nuint",
             _ => null
         };
-        return new ExplicitInterfaceTypeIdentity(
+        return Observe(new ExplicitInterfaceTypeIdentity(
             Node("primitive", ((int)typeCode).ToString()),
             name,
             alias,
-            IsInterface: false);
+            IsInterface: false));
     }
 
     public ExplicitInterfaceTypeIdentity GetTypeFromDefinition(
@@ -87,7 +121,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
             throw new BadImageFormatException("The interface type definition name is malformed.");
 
         string name = TypeResolver.GetTypeNameFromDefinition(reader, handle);
-        return new ExplicitInterfaceTypeIdentity(
+        return Observe(new ExplicitInterfaceTypeIdentity(
             Node(
                 "named",
                 rawTypeKind.ToString(),
@@ -97,7 +131,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
             GenericArity: reader.GetTypeDefinition(handle).GetGenericParameters().Count,
             IsInterface: (reader.GetTypeDefinition(handle).Attributes
                 & TypeAttributes.Interface) != 0,
-            IsWellKnownNullable: IsWellKnownNullable(reader, handle));
+            IsWellKnownNullable: IsWellKnownNullable(reader, handle)));
     }
 
     public ExplicitInterfaceTypeIdentity GetTypeFromReference(
@@ -107,7 +141,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
     {
         var structuredName = ReferenceName(reader, handle);
         string name = TypeResolver.GetTypeNameFromReference(reader, handle);
-        return new ExplicitInterfaceTypeIdentity(
+        return Observe(new ExplicitInterfaceTypeIdentity(
             Node(
                 "named",
                 rawTypeKind.ToString(),
@@ -115,7 +149,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
                 structuredName.Key),
             name,
             GenericArity: structuredName.GenericArity,
-            IsWellKnownNullable: IsWellKnownNullable(reader, handle));
+            IsWellKnownNullable: IsWellKnownNullable(reader, handle)));
     }
 
     public ExplicitInterfaceTypeIdentity GetTypeFromSpecification(
@@ -134,12 +168,12 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
                 IsDegraded: true));
 
     public ExplicitInterfaceTypeIdentity GetSZArrayType(ExplicitInterfaceTypeIdentity elementType)
-        => new(
+        => Observe(new(
             Node("szarray", elementType.Key),
             $"{elementType.MetadataName}[]",
             elementType.AggregateAliasName is { } alias ? $"{alias}[]" : null,
             IsDegraded: elementType.IsDegraded,
-            IsInterface: false);
+            IsInterface: false));
 
     public ExplicitInterfaceTypeIdentity GetArrayType(
         ExplicitInterfaceTypeIdentity elementType,
@@ -148,7 +182,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
         string suffix = shape.Rank == 1
             ? "[*]"
             : $"[{new string(',', Math.Max(shape.Rank - 1, 0))}]";
-        return new ExplicitInterfaceTypeIdentity(
+        return Observe(new ExplicitInterfaceTypeIdentity(
             Node(
                 "array",
                 shape.Rank.ToString(),
@@ -158,32 +192,32 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
             elementType.MetadataName + suffix,
             elementType.AggregateAliasName is { } alias ? alias + suffix : null,
             IsDegraded: elementType.IsDegraded,
-            IsInterface: false);
+            IsInterface: false));
     }
 
     public ExplicitInterfaceTypeIdentity GetByReferenceType(ExplicitInterfaceTypeIdentity elementType)
-        => new(
+        => Observe(new(
             Node("byref", elementType.Key),
             $"{elementType.MetadataName}&",
             elementType.AggregateAliasName is { } alias ? $"{alias}&" : null,
             IsDegraded: elementType.IsDegraded,
-            IsInterface: false);
+            IsInterface: false));
 
     public ExplicitInterfaceTypeIdentity GetPointerType(ExplicitInterfaceTypeIdentity elementType)
-        => new(
+        => Observe(new(
             Node("pointer", elementType.Key),
             $"{elementType.MetadataName}*",
             elementType.AggregateAliasName is { } alias ? $"{alias}*" : null,
             IsDegraded: elementType.IsDegraded,
-            IsInterface: false);
+            IsInterface: false));
 
     public ExplicitInterfaceTypeIdentity GetPinnedType(ExplicitInterfaceTypeIdentity elementType)
-        => new(
+        => Observe(new(
             Node("pinned", elementType.Key),
             elementType.MetadataName,
             elementType.AggregateAliasName,
             IsDegraded: elementType.IsDegraded,
-            IsInterface: false);
+            IsInterface: false));
 
     public ExplicitInterfaceTypeIdentity GetGenericInstantiation(
         ExplicitInterfaceTypeIdentity genericType,
@@ -210,7 +244,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
                             .Select(argument => argument.AggregateAliasName ?? argument.MetadataName)
                             .ToArray())
                     : null;
-        return new(
+        return Observe(new(
             Node(
                 "generic",
                 [genericType.Key, .. typeArguments.Select(argument => argument.Key)]),
@@ -224,7 +258,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
                 || typeArguments.Any(argument => argument.IsDegraded),
             IsInterface: genericType.IsInterface,
             IsWellKnownNullable: genericType.IsWellKnownNullable,
-            IsConstructedGeneric: true);
+            IsConstructedGeneric: true));
     }
 
     public ExplicitInterfaceTypeIdentity GetGenericMethodParameter(
@@ -234,7 +268,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
         string name = context.Names is not null && index < context.Names.MethodParameters.Count
             ? context.Names.MethodParameters[index]
             : $"TM{index}";
-        return new ExplicitInterfaceTypeIdentity(Node("mvar", index.ToString()), name);
+        return Observe(new ExplicitInterfaceTypeIdentity(Node("mvar", index.ToString()), name));
     }
 
     public ExplicitInterfaceTypeIdentity GetGenericTypeParameter(
@@ -247,19 +281,19 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
         string name = context.Names is not null && index < context.Names.TypeParameters.Count
             ? context.Names.TypeParameters[index]
             : $"T{index}";
-        return index < context.TypeParameterCount
+        return Observe(index < context.TypeParameterCount
             ? new ExplicitInterfaceTypeIdentity(Node("var", index.ToString()), name)
             : new ExplicitInterfaceTypeIdentity(
                 Node("invalid-var", index.ToString()),
                 name,
-                IsDegraded: true);
+                IsDegraded: true));
     }
 
     public ExplicitInterfaceTypeIdentity GetModifiedType(
         ExplicitInterfaceTypeIdentity modifier,
         ExplicitInterfaceTypeIdentity unmodifiedType,
         bool isRequired)
-        => new(
+        => Observe(new(
             Node(isRequired ? "modreq" : "modopt", modifier.Key, unmodifiedType.Key),
             unmodifiedType.MetadataName,
             unmodifiedType.AggregateAliasName,
@@ -268,7 +302,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
             IsDegraded: modifier.IsDegraded || unmodifiedType.IsDegraded,
             IsInterface: unmodifiedType.IsInterface,
             IsWellKnownNullable: unmodifiedType.IsWellKnownNullable,
-            IsConstructedGeneric: unmodifiedType.IsConstructedGeneric);
+            IsConstructedGeneric: unmodifiedType.IsConstructedGeneric,
+            ModifiedTypeKey: unmodifiedType.UnmodifiedKey));
 
     public ExplicitInterfaceTypeIdentity GetFunctionPointerType(
         MethodSignature<ExplicitInterfaceTypeIdentity> signature)
@@ -285,37 +320,48 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider
         string name = $"method {signature.ReturnType.MetadataName} *("
             + string.Join(",", signature.ParameterTypes.Select(parameter => parameter.MetadataName))
             + ")";
-        return new ExplicitInterfaceTypeIdentity(
+        return Observe(new ExplicitInterfaceTypeIdentity(
             key,
             name,
             IsDegraded: signature.ReturnType.IsDegraded
                 || signature.ParameterTypes.Any(parameter => parameter.IsDegraded),
-            IsInterface: false);
+            IsInterface: false));
     }
 
+    /// <summary>
+    /// The identity of a type named by a handle rather than by a signature.
+    /// </summary>
+    /// <param name="rawTypeKind">
+    /// The ECMA-335 element type a signature would have spelled this handle with — <c>0x11</c>
+    /// for a value type and <c>0x12</c> for a class. A handle-valued row such as Event.EventType
+    /// carries no such byte, so the default <c>0</c> yields an identity that is deliberately not
+    /// comparable to a signature-decoded one; a caller comparing across the two must ask for
+    /// each candidate kind rather than assume one.
+    /// </param>
     internal ExplicitInterfaceTypeIdentity FromHandle(
         MetadataReader reader,
         EntityHandle handle,
-        GenericContext? context)
+        GenericContext? context,
+        byte rawTypeKind = 0)
         => handle.Kind switch
         {
             HandleKind.TypeDefinition => GetTypeFromDefinition(
                 reader,
                 (TypeDefinitionHandle)handle,
-                rawTypeKind: 0),
+                rawTypeKind),
             HandleKind.TypeReference => GetTypeFromReference(
                 reader,
                 (TypeReferenceHandle)handle,
-                rawTypeKind: 0),
+                rawTypeKind),
             HandleKind.TypeSpecification => GetTypeFromSpecification(
                 reader,
                 ExplicitInterfaceSignatureContext.Open(context),
                 (TypeSpecificationHandle)handle,
-                rawTypeKind: 0),
-            _ => new ExplicitInterfaceTypeIdentity(
+                rawTypeKind),
+            _ => Observe(new ExplicitInterfaceTypeIdentity(
                 "<invalid>",
                 "<invalid>",
-                IsDegraded: true)
+                IsDegraded: true))
         };
 
     static string ApplyGenericArguments(string typeName, IReadOnlyList<string> typeArguments)

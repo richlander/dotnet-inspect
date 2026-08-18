@@ -454,6 +454,92 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains("no legal C# class spelling", exception.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// An explicit interface event is projected with both accessor bodies written
+    /// unconditionally, so a malformed Event row that declares only a remover would render an
+    /// <c>add</c> the metadata never declared. Retaining the truthful accessor identity means
+    /// failing: C# has no spelling for a half an event.
+    /// </summary>
+    [Fact]
+    public void ExplicitInterfaceEvent_WithoutBothAccessors_FailsVisibly()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        var removeOnlyEvent = new ApiMember
+        {
+            Name = "Samples.IEvents.Changed",
+            Kind = "event",
+            Accessibility = "private",
+            IsExplicitInterfaceImplementation = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Samples.IEvents.Changed",
+                Accessors = [new ApiAccessor { Kind = "remove" }]
+            }
+        };
+        type.Members.Add(removeOnlyEvent);
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains("Samples.IEvents.Changed", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("remove", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("'add'", exception.Message, StringComparison.Ordinal);
+
+        // The close negative: the same event with both accessors still renders both bodies.
+        removeOnlyEvent.SignatureModel!.Accessors =
+        [
+            new ApiAccessor { Kind = "add" },
+            new ApiAccessor { Kind = "remove" }
+        ];
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+        Assert.Contains("add", result.Source, StringComparison.Ordinal);
+        Assert.Contains("remove", result.Source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Abstractness belongs to the member outside an interface, so a class aggregate whose
+    /// accessors disagree has no legal C# spelling and must not be rendered as the concrete
+    /// aggregate its non-abstract accessor suggests. Interfaces keep mixing, which
+    /// <see cref="MixedDefaultInterfaceAccessorsCompileBack"/> gates.
+    /// </summary>
+    [Fact]
+    public void MixedAccessorAbstractionInClass_FailsVisibly()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.IsAbstract = true;
+        type.Members.Add(new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            Accessibility = "public",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Value",
+                Accessors =
+                [
+                    new ApiAccessor { Kind = "get", IsAbstract = true },
+                    new ApiAccessor { Kind = "set", IsAbstract = false }
+                ]
+            }
+        });
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains("disagree about abstractness", exception.Message, StringComparison.Ordinal);
+
+        // The close negative: uniform abstractness on the same class still renders.
+        type.Members[0].SignatureModel!.Accessors =
+        [
+            new ApiAccessor { Kind = "get", IsAbstract = false },
+            new ApiAccessor { Kind = "set", IsAbstract = false }
+        ];
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+        Assert.Contains("int Value", result.Source, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void FrameworkExplicitInterfaceEventSkeletonUsesThrowAccessors()
     {

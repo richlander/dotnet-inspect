@@ -375,8 +375,16 @@ public class InspectionViewDescriptorTests
         Assert.Equal(hasExecutableBodyViews, ids.Contains(SectionNames.Facts));
     }
 
+    /// <summary>
+    /// Selecting an accessor never filters the accessor list, so ordinal 2 still addresses the
+    /// setter when ordinal 1 is bodyless. What the selection does decide is whether the
+    /// requested sections can run at all: <c>Facts</c> alone on a bodyless accessor resolves to
+    /// no body methods, so the command fails visibly rather than rendering an empty document,
+    /// while <c>Facts</c> alongside an applicable section keeps the document and drops only
+    /// <c>Facts</c>.
+    /// </summary>
     [Fact]
-    public void BodyExecution_RetainsSelectedAbstractAccessorFactsWithoutShiftingOrdinal()
+    public void BodyExecution_DropsSelectedBodylessAccessorFactsWithoutShiftingOrdinal()
     {
         var type = new ApiType
         {
@@ -415,9 +423,13 @@ public class InspectionViewDescriptorTests
             ]
         };
 
-        Assert.Equal(2, ApiOutputFormatter.ResolveBodyMethods(
+        Assert.Empty(ApiOutputFormatter.ResolveBodyMethods(
             type,
             new HashSet<string> { SectionNames.Facts },
+            selectedOrdinal: 1));
+        Assert.Equal(2, ApiOutputFormatter.ResolveBodyMethods(
+            type,
+            new HashSet<string> { SectionNames.Facts, SectionNames.CustomAttributes },
             selectedOrdinal: 1).Count);
         Assert.Equal(2, ApiOutputFormatter.ResolveBodyMethods(
             type,
@@ -427,8 +439,29 @@ public class InspectionViewDescriptorTests
             type,
             new HashSet<string> { SectionNames.UnsafeOperations },
             selectedOrdinal: 1).Count);
+
+        Assert.DoesNotContain(
+            SectionNames.Facts,
+            ApiOutputFormatter.ResolveExecutionSections(
+                type,
+                new HashSet<string> { SectionNames.Facts, SectionNames.CustomAttributes },
+                selectedOrdinal: 1));
+        Assert.Contains(
+            SectionNames.Facts,
+            ApiOutputFormatter.ResolveExecutionSections(
+                type,
+                new HashSet<string> { SectionNames.Facts },
+                selectedOrdinal: 2));
     }
 
+    /// <summary>
+    /// The accessor an ordinal selects comes from the complete <c>AccessorFacts</c> list, not
+    /// the presentation list a lens may have truncated. Here ordinal 1 is therefore the
+    /// bodyless abstract getter that presentation omitted, so the IL-derived sections drop and
+    /// only <c>Unsafe Operations</c> survives. Reading the presentation list instead would
+    /// select the setter and retain every requested section, so the exact expected set is what
+    /// distinguishes the two.
+    /// </summary>
     [Fact]
     public void BodyExecution_UsesCompleteFactsWhenPresentationOmitsAccessor()
     {
@@ -489,7 +522,7 @@ public class InspectionViewDescriptorTests
             ApiOutputFormatter.ResolveExecutionSections(type, requested, selectedOrdinal: 1);
 
         Assert.Equal(
-            [SectionNames.Facts, SectionNames.UnsafeOperations],
+            [SectionNames.UnsafeOperations],
             executionSections.Order(StringComparer.Ordinal));
         var methods = ApiOutputFormatter.ResolveBodyMethods(
             type,

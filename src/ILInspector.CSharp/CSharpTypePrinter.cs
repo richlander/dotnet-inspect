@@ -1180,6 +1180,19 @@ public sealed class CSharpTypePrinter
                 $"Interface member '{member.Name}' must use skeleton body policy.",
                 parameterName);
         }
+        if (type.Kind != "interface" && HasMixedAccessorAbstraction(member))
+        {
+            throw new NotSupportedException(
+                $"Member '{member.Name}' has accessors that disagree about abstractness, "
+                + "which C# cannot represent outside an interface.");
+        }
+        if (IsExplicitInterfaceEvent(member) && !HasBothEventAccessors(member))
+        {
+            throw new NotSupportedException(
+                $"Explicit interface event '{member.Name}' declares only "
+                + $"'{string.Join("', '", member.SignatureModel!.Accessors.Select(accessor => accessor.Kind))}'; "
+                + "C# requires both an add and a remove accessor.");
+        }
     }
 
     static bool IsProperty(ApiMember member)
@@ -1214,6 +1227,21 @@ public sealed class CSharpTypePrinter
         => member.SignatureModel?.Accessors is { Count: > 1 } accessors
             && accessors.Any(accessor => accessor.IsAbstract == true)
             && accessors.Any(accessor => accessor.IsAbstract == false);
+
+    /// <summary>
+    /// True when an explicit interface event carries both of the accessors C# requires.
+    /// </summary>
+    /// <remarks>
+    /// An explicit interface event is projected with add/remove bodies, and both are written
+    /// unconditionally. A malformed or hostile Event row that declares only a remover has no
+    /// legal C# spelling, so it must fail rather than be completed with an adder metadata never
+    /// declared. Gated by
+    /// <c>CSharpTypePrinterTests.ExplicitInterfaceEvent_WithoutBothAccessors_FailsVisibly</c>.
+    /// </remarks>
+    static bool HasBothEventAccessors(ApiMember member)
+        => member.SignatureModel?.Accessors is { } accessors
+            && accessors.Any(accessor => accessor.Kind == "add")
+            && accessors.Any(accessor => accessor.Kind == "remove");
 
     static RenderedFragment Join(IEnumerable<RenderedFragment> fragments, string separator)
     {

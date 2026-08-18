@@ -8131,6 +8131,34 @@ public partial class CommandExecutionTests
         Assert.Contains(expected, output, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Facts needs an IL body, and the selected accessor has none — but that is a reason to omit
+    /// the Facts section, not to abandon the document. Sections that do apply still render, and
+    /// the omission is stated rather than silent.
+    /// </summary>
+    [Fact]
+    public async Task Member_Facts_BodylessAccessor_WithOtherSections_RendersRemainingSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Facts,Original Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Original Source", output);
+        Assert.Contains("no authored source to show", output);
+        Assert.DoesNotContain("## Facts", output);
+        Assert.Contains("Note: The selected accessor has no IL body.", error);
+        Assert.Contains("has no IL body", error);
+    }
+
     [Fact]
     public async Task Member_OriginalSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
     {

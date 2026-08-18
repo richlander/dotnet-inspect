@@ -158,10 +158,16 @@ public static class MetadataDeclarationQuery
             : [];
         var explicitImplementationBodies =
             ApiSurfaceExtractor.GetExplicitImplementationBodies(reader, typeDef);
+        var explicitInterfaceIdentityProvider = new ExplicitInterfaceTypeIdentityProvider();
         var explicitInterfaceImplementationTargets =
-            ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(reader, typeDef);
+            ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(
+                reader,
+                typeDef,
+                explicitInterfaceIdentityProvider,
+                typeContext: typeContext);
         var explicitInterfaceImplementationBodies =
             explicitInterfaceImplementationTargets.Keys.ToHashSet();
+        bool isInterfaceTypeDefinition = (attributes & TypeAttributes.Interface) != 0;
         foreach (var propertyHandle in typeDef.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
@@ -170,12 +176,29 @@ public static class MetadataDeclarationQuery
                 continue;
 
             string propertyName = declaration.MetadataName;
+            RejectMalformedAccessorAbstraction(
+                reader,
+                isInterfaceTypeDefinition,
+                "property",
+                declaration.Getter,
+                declaration.Setter);
             bool isExplicitInterfaceImplementation =
                 ApiSurfaceExtractor.IsExplicitInterfaceAggregate(
                     propertyName,
                     explicitInterfaceImplementationTargets,
                     (declaration.Getter, "get_"),
                     (declaration.Setter, "set_"));
+            if (isExplicitInterfaceImplementation
+                && ApiSurfaceExtractor.ValidateExplicitPropertyRowSignature(
+                    reader,
+                    property,
+                    property.GetAccessors(),
+                    typeContext,
+                    explicitInterfaceIdentityProvider,
+                    observeDecodeWork: null) is { } propertyRowDetail)
+            {
+                throw new BadImageFormatException(propertyRowDetail);
+            }
             var signatureText = PropertySignatureText(declaration);
             type.Members.Add(new ApiMember
             {
@@ -244,6 +267,12 @@ public static class MetadataDeclarationQuery
                 reader,
                 accessors.Adder,
                 accessors.Remover);
+            RejectMalformedAccessorAbstraction(
+                reader,
+                isInterfaceTypeDefinition,
+                "event",
+                accessors.Adder,
+                accessors.Remover);
             isSealed = MetadataAccessorSemantics.IsUniformlySealedOverride(
                 reader,
                 accessors.Adder,
@@ -274,6 +303,17 @@ public static class MetadataDeclarationQuery
                     explicitInterfaceImplementationTargets,
                     (accessors.Adder, "add_"),
                     (accessors.Remover, "remove_"));
+            if (isExplicitInterfaceImplementation
+                && ApiSurfaceExtractor.ValidateExplicitEventRowSignature(
+                    reader,
+                    evt,
+                    accessors,
+                    typeContext,
+                    explicitInterfaceIdentityProvider,
+                    observeDecodeWork: null) is { } eventRowDetail)
+            {
+                throw new BadImageFormatException(eventRowDetail);
+            }
             type.Members.Add(new ApiMember
             {
                 Name = eventName,
@@ -1234,6 +1274,36 @@ public static class MetadataDeclarationQuery
 
     static string? NonPublicAccessibility(string accessibility)
         => accessibility == "public" ? null : accessibility;
+
+    /// <summary>
+    /// Rejects an aggregate whose accessors disagree about abstractness on a class or struct,
+    /// or whose abstract accessor declares an IL body.
+    /// </summary>
+    /// <remarks>
+    /// The query peer of the extractor's inspection failure for the same shape, so the two
+    /// projections classify identical metadata identically and neither renders a mixed
+    /// aggregate as a concrete one. Gated by
+    /// <c>MetadataDeclarationQueryTests.MixedAbstractionAggregates_FailVisibly</c>.
+    /// </remarks>
+    static void RejectMalformedAccessorAbstraction(
+        MetadataReader reader,
+        bool isInterfaceTypeDefinition,
+        string aggregateKind,
+        params MethodDefinitionHandle[] accessors)
+    {
+        switch (MetadataAccessorSemantics.ValidateAbstraction(
+            reader,
+            requireUniformAbstraction: !isInterfaceTypeDefinition,
+            accessors))
+        {
+            case AccessorAbstractionFault.AbstractAccessorHasBody:
+                throw new BadImageFormatException(
+                    $"The {aggregateKind} has an abstract accessor that declares an IL body.");
+            case AccessorAbstractionFault.InconsistentAbstraction:
+                throw new BadImageFormatException(
+                    $"The {aggregateKind} has inconsistent abstract accessor metadata.");
+        }
+    }
 
     static T ProjectDecode<T>(
         SignatureDecodeResult<T> result,

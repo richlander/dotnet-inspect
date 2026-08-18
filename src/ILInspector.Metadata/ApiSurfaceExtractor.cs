@@ -726,10 +726,20 @@ public static class ApiSurfaceExtractor
             apiType.Members = [];
 
             var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+            var explicitInterfaceIdentityProvider =
+                new ExplicitInterfaceTypeIdentityProvider(observeDecodeWork);
             var explicitInterfaceImplementationTargets =
-                GetExplicitInterfaceImplementationTargets(reader, typeDef);
+                GetExplicitInterfaceImplementationTargets(
+                    reader,
+                    typeDef,
+                    explicitInterfaceIdentityProvider,
+                    observeDecodeWork,
+                    observeText,
+                    typeContext);
             var explicitInterfaceImplementationBodies =
                 explicitInterfaceImplementationTargets.Keys.ToHashSet();
+            bool isInterfaceTypeDefinition =
+                (typeDef.Attributes & TypeAttributes.Interface) != 0;
             var accessorMethods = GetAccessorMethods(reader, typeDef);
             var canonicalAccessorMethods =
                 GetCanonicalAccessorMethods(reader, typeDef, observeDecodeWork);
@@ -982,6 +992,25 @@ public static class ApiSurfaceExtractor
                     reader,
                     accessors.Getter,
                     accessors.Setter);
+                if (MetadataAccessorSemantics.ValidateAbstraction(
+                        reader,
+                        requireUniformAbstraction: !isInterfaceTypeDefinition,
+                        accessors.Getter,
+                        accessors.Setter)
+                    is var abstractionFault and not AccessorAbstractionFault.None)
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "property modifiers",
+                        propHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            propHandle,
+                            abstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
+                                ? "The property has an abstract accessor that declares an IL body."
+                                : "The property has inconsistent abstract accessor metadata."));
+                    continue;
+                }
                 if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(
                         reader,
                         out isSealedProperty,
@@ -1075,6 +1104,23 @@ public static class ApiSurfaceExtractor
                     explicitInterfaceImplementationTargets,
                     (accessors.Getter, "get_"),
                     (accessors.Setter, "set_"));
+                if (isExplicitInterfaceImplementation
+                    && ValidateExplicitPropertyRowSignature(
+                        reader,
+                        prop,
+                        accessors,
+                        typeContext,
+                        explicitInterfaceIdentityProvider,
+                        observeDecodeWork) is { } propertyRowDetail)
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "property signature",
+                        propHandle,
+                        MetadataTypeNameFailure.Malformed(propHandle, propertyRowDetail));
+                    continue;
+                }
                 var member = new ApiMember
                 {
                     Name = propertyName,
@@ -1449,6 +1495,25 @@ public static class ApiSurfaceExtractor
                     reader,
                     accessors.Adder,
                     accessors.Remover);
+                if (MetadataAccessorSemantics.ValidateAbstraction(
+                        reader,
+                        requireUniformAbstraction: !isInterfaceTypeDefinition,
+                        accessors.Adder,
+                        accessors.Remover)
+                    is var eventAbstractionFault and not AccessorAbstractionFault.None)
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "event modifiers",
+                        eventHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            eventHandle,
+                            eventAbstractionFault == AccessorAbstractionFault.AbstractAccessorHasBody
+                                ? "The event has an abstract accessor that declares an IL body."
+                                : "The event has inconsistent abstract accessor metadata."));
+                    continue;
+                }
                 if (!MetadataAccessorSemantics.TryGetUniformSealedOverride(
                         reader,
                         out bool isSealedEvent,
@@ -1519,6 +1584,23 @@ public static class ApiSurfaceExtractor
                     explicitInterfaceImplementationTargets,
                     (accessors.Adder, "add_"),
                     (accessors.Remover, "remove_"));
+                if (isExplicitInterfaceImplementation
+                    && ValidateExplicitEventRowSignature(
+                        reader,
+                        evt,
+                        accessors,
+                        typeContext,
+                        explicitInterfaceIdentityProvider,
+                        observeDecodeWork) is { } eventRowDetail)
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "event signature",
+                        eventHandle,
+                        MetadataTypeNameFailure.Malformed(eventHandle, eventRowDetail));
+                    continue;
+                }
 
                 var eventTypeNodeProvider = observeText is null
                     ? TypeNodeProvider.Instance
@@ -1668,7 +1750,7 @@ public static class ApiSurfaceExtractor
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
         var explicitInterfaceImplementationBodies =
-            GetExplicitInterfaceImplementationBodies(reader, typeDef);
+            GetExplicitInterfaceImplementationTargets(reader, typeDef).Keys.ToHashSet();
         var accessorMethods = GetAccessorMethods(reader, typeDef);
         var canonicalAccessorMethods = GetCanonicalAccessorMethods(reader, typeDef);
         var hiddenAggregateAccessorMethods =
@@ -2167,13 +2249,29 @@ public static class ApiSurfaceExtractor
         return handles;
     }
 
+    /// <summary>
+    /// Projects this type's explicit-interface MethodImpl rows, keyed by the implementing
+    /// method body.
+    /// </summary>
+    /// <remarks>
+    /// Every row this walks decodes an interface identity and two method signatures, so the
+    /// projection charges the same decode-work observer the rest of the extraction uses and
+    /// charges the strings it retains against the retained-text observer. A bounded extraction
+    /// therefore cannot be made to do unbounded MethodImpl work before its first member is
+    /// admitted; a <see langword="null"/> observer leaves the unbounded query paths unchanged.
+    /// Gated by <c>ApiSurfaceExtractorBoundsTests.ExplicitInterfaceProjection_SpendsDecodeWorkBudget</c>.
+    /// </remarks>
     internal static Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
         GetExplicitInterfaceImplementationTargets(
             MetadataReader reader,
-            TypeDefinition typeDef)
+            TypeDefinition typeDef,
+            ExplicitInterfaceTypeIdentityProvider? identityProvider = null,
+            Action<int>? observeDecodeWork = null,
+            Action<string>? observeText = null,
+            GenericContext? typeContext = null)
     {
-        var context = GenericContext.ForType(reader, typeDef);
-        var identityProvider = new ExplicitInterfaceTypeIdentityProvider();
+        var context = typeContext ?? GenericContext.ForType(reader, typeDef, observeDecodeWork);
+        identityProvider ??= new ExplicitInterfaceTypeIdentityProvider(observeDecodeWork);
         HashSet<string> implementedInterfaces = [];
         foreach (var interfaceHandle in typeDef.GetInterfaceImplementations())
         {
@@ -2184,6 +2282,7 @@ public static class ApiSurfaceExtractor
                 context);
             if (interfaceIdentity.IsDegraded)
                 throw new BadImageFormatException("The implemented interface identity could not be decoded.");
+            observeText?.Invoke(interfaceIdentity.Key);
             implementedInterfaces.Add(interfaceIdentity.Key);
         }
 
@@ -2194,12 +2293,12 @@ public static class ApiSurfaceExtractor
             if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
                 && TryGetInterfaceMethodDeclaration(
                     reader,
-                    typeDef,
                     (MethodDefinitionHandle)implementation.MethodBody,
                     implementation.MethodDeclaration,
                     implementedInterfaces,
                     context,
                     identityProvider,
+                    observeDecodeWork,
                     out var target))
             {
                 var body = (MethodDefinitionHandle)implementation.MethodBody;
@@ -2208,6 +2307,11 @@ public static class ApiSurfaceExtractor
                     bodyTargets = [];
                     targets.Add(body, bodyTargets);
                 }
+                observeText?.Invoke(target.MethodName);
+                observeText?.Invoke(target.InterfaceType.Key);
+                observeText?.Invoke(target.InterfaceType.MetadataName);
+                if (target.InterfaceType.AggregateAliasName is { } alias)
+                    observeText?.Invoke(alias);
                 bodyTargets.Add(target);
             }
         }
@@ -2266,14 +2370,202 @@ public static class ApiSurfaceExtractor
         return hasAccessor && commonInterfaceKeys is { Count: > 0 };
     }
 
+    /// <summary>
+    /// Checks that a Property row's own signature agrees with the accessor MethodDefs that
+    /// <see cref="IsExplicitInterfaceAggregate"/> matched, returning the malformed detail when
+    /// it does not.
+    /// </summary>
+    /// <remarks>
+    /// Name matching plus the MethodImpl signature check proves each accessor body implements
+    /// the interface declaration it claims. Neither reads the aggregate row itself, so a
+    /// hostile image could pair a truthful <c>get_IFoo.Bar</c> returning <c>int</c> with a
+    /// Property row declaring <c>string</c> and have the surface render an explicit
+    /// <c>string IFoo.Bar</c> that no accessor implements. ECMA-335 II.22.34 and II.17.2 fix the
+    /// relationship this restates: the getter returns the property type over the index
+    /// parameters, and the setter takes those parameters plus a trailing value. Custom
+    /// modifiers are compared exactly except on the setter's return, where a legal
+    /// <c>init</c> accessor carries <c>modreq(IsExternalInit)</c> over <c>void</c>. The row's
+    /// <c>HASTHIS</c> bit is deliberately not compared: nothing in the projection reads it —
+    /// static-ness comes from the accessor's method attributes — and Reflection.Emit produces
+    /// otherwise-sound images whose Property rows omit it, so comparing it could only reject
+    /// members that project correctly.
+    /// Gated by
+    /// <c>MetadataDeclarationQueryTests.ExplicitAggregateRowSignature_MustMatchAccessors</c>.
+    /// </remarks>
+    internal static string? ValidateExplicitPropertyRowSignature(
+        MetadataReader reader,
+        PropertyDefinition property,
+        PropertyAccessors accessors,
+        GenericContext typeContext,
+        ExplicitInterfaceTypeIdentityProvider identityProvider,
+        Action<int>? observeDecodeWork)
+    {
+        var rowResult = GuardedProviderDecode.PropertyResult(
+            reader,
+            property,
+            identityProvider,
+            ExplicitInterfaceSignatureContext.Open(typeContext),
+            DegradedExplicitInterfaceType);
+        if (rowResult.IsDegraded || HasDegradedType(rowResult.Value))
+            return "The property row signature could not be decoded.";
+
+        var row = rowResult.Value;
+        if (!accessors.Getter.IsNil)
+        {
+            if (!TryDecodeAccessorSignature(
+                    reader,
+                    accessors.Getter,
+                    typeContext,
+                    identityProvider,
+                    observeDecodeWork,
+                    out var getter))
+            {
+                return "The property getter signature could not be decoded.";
+            }
+            if (getter.ReturnType.Key != row.ReturnType.Key)
+                return "The property row type does not match its getter return type.";
+            if (!ParameterKeysMatch(getter.ParameterTypes, row.ParameterTypes))
+                return "The property row parameters do not match its getter parameters.";
+        }
+
+        if (!accessors.Setter.IsNil)
+        {
+            if (!TryDecodeAccessorSignature(
+                    reader,
+                    accessors.Setter,
+                    typeContext,
+                    identityProvider,
+                    observeDecodeWork,
+                    out var setter))
+            {
+                return "The property setter signature could not be decoded.";
+            }
+            if (setter.ReturnType.UnmodifiedKey
+                != identityProvider.GetPrimitiveType(PrimitiveTypeCode.Void).UnmodifiedKey)
+            {
+                return "The property setter does not return void.";
+            }
+            if (setter.ParameterTypes.Length != row.ParameterTypes.Length + 1)
+                return "The property row parameters do not match its setter parameters.";
+            if (!ParameterKeysMatch(
+                    setter.ParameterTypes.RemoveAt(setter.ParameterTypes.Length - 1),
+                    row.ParameterTypes))
+            {
+                return "The property row parameters do not match its setter parameters.";
+            }
+            if (setter.ParameterTypes[^1].Key != row.ReturnType.Key)
+                return "The property row type does not match its setter value parameter.";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Checks that an Event row's declared handler type agrees with the accessor MethodDefs
+    /// that <see cref="IsExplicitInterfaceAggregate"/> matched, returning the malformed detail
+    /// when it does not.
+    /// </summary>
+    /// <remarks>
+    /// The peer of <see cref="ValidateExplicitPropertyRowSignature"/> for the shape ECMA-335
+    /// II.18 fixes: <c>add_X</c> and <c>remove_X</c> each take the Event row's handler type and
+    /// return <c>void</c>. The row names its handler by handle, so it cannot say whether a
+    /// signature would have spelled that handle <c>ELEMENT_TYPE_CLASS</c> or
+    /// <c>ELEMENT_TYPE_VALUETYPE</c>; the comparison admits either rather than reading an
+    /// encoding the row never carried as a disagreement. Gated by
+    /// <c>MetadataDeclarationQueryTests.ExplicitAggregateRowSignature_MustMatchAccessors</c>.
+    /// </remarks>
+    internal static string? ValidateExplicitEventRowSignature(
+        MetadataReader reader,
+        EventDefinition eventDefinition,
+        EventAccessors accessors,
+        GenericContext typeContext,
+        ExplicitInterfaceTypeIdentityProvider identityProvider,
+        Action<int>? observeDecodeWork)
+    {
+        const byte ElementTypeValueType = 0x11;
+        const byte ElementTypeClass = 0x12;
+        var handlerAsValueType = identityProvider.FromHandle(
+            reader,
+            eventDefinition.Type,
+            typeContext,
+            ElementTypeValueType);
+        var handlerAsClass = identityProvider.FromHandle(
+            reader,
+            eventDefinition.Type,
+            typeContext,
+            ElementTypeClass);
+        if (handlerAsValueType.IsDegraded || handlerAsClass.IsDegraded)
+            return "The event row handler type could not be decoded.";
+
+        string voidKey = identityProvider.GetPrimitiveType(PrimitiveTypeCode.Void).UnmodifiedKey;
+        foreach (var (handle, role) in
+            new[] { (accessors.Adder, "adder"), (accessors.Remover, "remover") })
+        {
+            if (handle.IsNil)
+                continue;
+            if (!TryDecodeAccessorSignature(
+                    reader,
+                    handle,
+                    typeContext,
+                    identityProvider,
+                    observeDecodeWork,
+                    out var signature))
+            {
+                return $"The event {role} signature could not be decoded.";
+            }
+            if (signature.ReturnType.UnmodifiedKey != voidKey)
+                return $"The event {role} does not return void.";
+            if (signature.ParameterTypes is not [var handlerParameter]
+                || (handlerParameter.Key != handlerAsClass.Key
+                    && handlerParameter.Key != handlerAsValueType.Key))
+            {
+                return $"The event row handler type does not match its {role} parameter.";
+            }
+        }
+
+        return null;
+    }
+
+    static bool TryDecodeAccessorSignature(
+        MetadataReader reader,
+        MethodDefinitionHandle handle,
+        GenericContext typeContext,
+        ExplicitInterfaceTypeIdentityProvider identityProvider,
+        Action<int>? observeDecodeWork,
+        out MethodSignature<ExplicitInterfaceTypeIdentity> signature)
+    {
+        var accessor = reader.GetMethodDefinition(handle);
+        var result = GuardedProviderDecode.MethodResult(
+            reader,
+            accessor,
+            identityProvider,
+            ExplicitInterfaceSignatureContext.Open(
+                GenericContext.ForMethod(reader, typeContext, accessor, observeDecodeWork)),
+            DegradedExplicitInterfaceType);
+        signature = result.Value;
+        return !result.IsDegraded && !HasDegradedType(signature);
+    }
+
+    static bool ParameterKeysMatch(
+        ImmutableArray<ExplicitInterfaceTypeIdentity> left,
+        ImmutableArray<ExplicitInterfaceTypeIdentity> right)
+        => left.Length == right.Length
+            && left.Select(parameter => parameter.Key)
+                .SequenceEqual(right.Select(parameter => parameter.Key));
+
+    static ExplicitInterfaceTypeIdentity DegradedExplicitInterfaceType => new(
+        "<invalid>",
+        "<invalid>",
+        IsDegraded: true);
+
     private static bool TryGetInterfaceMethodDeclaration(
         MetadataReader reader,
-        TypeDefinition typeDef,
         MethodDefinitionHandle bodyHandle,
         EntityHandle declaration,
         IReadOnlySet<string> implementedInterfaces,
         GenericContext context,
         ExplicitInterfaceTypeIdentityProvider identityProvider,
+        Action<int>? observeDecodeWork,
         out ExplicitInterfaceMethodTarget target)
     {
         target = default;
@@ -2288,10 +2580,14 @@ public static class ApiSurfaceExtractor
 
         string? methodName = declaration.Kind switch
         {
-            HandleKind.MethodDefinition => reader.GetString(
-                reader.GetMethodDefinition((MethodDefinitionHandle)declaration).Name),
-            HandleKind.MemberReference => reader.GetString(
-                reader.GetMemberReference((MemberReferenceHandle)declaration).Name),
+            HandleKind.MethodDefinition => DecodeString(
+                reader,
+                reader.GetMethodDefinition((MethodDefinitionHandle)declaration).Name,
+                observeDecodeWork),
+            HandleKind.MemberReference => DecodeString(
+                reader,
+                reader.GetMemberReference((MemberReferenceHandle)declaration).Name,
+                observeDecodeWork),
             _ => null,
         };
         if (methodName is null)
@@ -2306,11 +2602,11 @@ public static class ApiSurfaceExtractor
         if (!implementedInterfaces.Contains(declaringTypeIdentity.Key)
             || !MethodImplSignaturesMatch(
                 reader,
-                typeDef,
                 bodyHandle,
                 declaration,
                 context,
-                identityProvider))
+                identityProvider,
+                observeDecodeWork))
             return false;
 
         if (declaringTypeIdentity.IsInterface == false)
@@ -2332,11 +2628,11 @@ public static class ApiSurfaceExtractor
 
     private static bool MethodImplSignaturesMatch(
         MetadataReader reader,
-        TypeDefinition typeDef,
         MethodDefinitionHandle bodyHandle,
         EntityHandle declaration,
         GenericContext typeContext,
-        ExplicitInterfaceTypeIdentityProvider identityProvider)
+        ExplicitInterfaceTypeIdentityProvider identityProvider,
+        Action<int>? observeDecodeWork)
     {
         var body = reader.GetMethodDefinition(bodyHandle);
         var bodyResult = GuardedProviderDecode.MethodResult(
@@ -2344,7 +2640,7 @@ public static class ApiSurfaceExtractor
             body,
             identityProvider,
             ExplicitInterfaceSignatureContext.Open(
-                GenericContext.ForMethod(reader, typeDef, body)),
+                GenericContext.ForMethod(reader, typeContext, body, observeDecodeWork)),
             new ExplicitInterfaceTypeIdentity(
                 "<invalid>",
                 "<invalid>",
@@ -2363,7 +2659,11 @@ public static class ApiSurfaceExtractor
                     method,
                     identityProvider,
                     ExplicitInterfaceSignatureContext.Open(
-                        GenericContext.ForMethod(reader, declaringType, method)),
+                        GenericContext.ForMethod(
+                            reader,
+                            GenericContext.ForType(reader, declaringType, observeDecodeWork),
+                            method,
+                            observeDecodeWork)),
                     new ExplicitInterfaceTypeIdentity(
                         "<invalid>",
                         "<invalid>",

@@ -813,6 +813,70 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 poison: true));
     }
 
+    /// <summary>
+    /// The explicit-interface MethodImpl projection runs once per type, before any member is
+    /// admitted, and it decodes an interface identity and two method signatures for every row
+    /// it walks. It therefore has to spend the same budget the rest of the walk spends, or a
+    /// MethodImpl flood buys unbounded decoding and retention that no bound can stop.
+    /// </summary>
+    /// <remarks>
+    /// The A/B is the gate: the two images differ only by their MethodImpl rows, so the second
+    /// half would still pass if the projection charged nothing, and the first half would not.
+    /// </remarks>
+    [Fact]
+    public void ExplicitInterfaceProjection_SpendsDecodeWorkBudget()
+    {
+        byte[] probe = BuildMethodImplFloodImage(
+            methodImplCount: 4,
+            nameLength: 64,
+            includeMethodImpls: true);
+        using (var probeStream = new MemoryStream(probe, writable: false))
+        using (var probeReader = new PEReader(probeStream))
+        {
+            var reader = probeReader.GetMetadataReader();
+            var typeDef = reader.GetTypeDefinition(
+                reader.TypeDefinitions.Single(handle =>
+                    reader.GetString(reader.GetTypeDefinition(handle).Name) == "Implementer"));
+            int decodeWork = 0;
+            int retainedText = 0;
+            var targets = ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(
+                reader,
+                typeDef,
+                identityProvider: null,
+                observeDecodeWork: work => decodeWork += work,
+                observeText: text => retainedText += text.Length);
+
+            Assert.Equal(4, targets.Count);
+            Assert.True(decodeWork > 0, "the projection charged no decode work");
+            Assert.True(retainedText > 0, "the projection charged no retained text");
+        }
+
+        AssertTextAmplificationIsBounded(
+            BuildMethodImplFloodImage(
+                methodImplCount: 4_000,
+                nameLength: 4_000,
+                includeMethodImpls: true));
+
+        using var stream = new MemoryStream(
+            BuildMethodImplFloodImage(
+                methodImplCount: 4_000,
+                nameLength: 4_000,
+                includeMethodImpls: false),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                peReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 100_000,
+                    maxMembers: 1_000_000,
+                    maxInspectionFailures: 1_024,
+                    maxTypeForwarders: 100_000,
+                    maxMetadataRows: 250_000,
+                    maxRetainedTextCharacters: 8_000_000)));
+    }
+
     [Theory]
     [InlineData(TransformArrayKind.TupleElementNames)]
     [InlineData(TransformArrayKind.Nullable)]
@@ -1743,6 +1807,72 @@ public sealed class ApiSurfaceExtractorBoundsTests
             returnParameter,
             constructor,
             metadata.GetOrAddBlob(value));
+        return Serialize(metadata);
+    }
+
+    /// <summary>
+    /// A type with <paramref name="methodImplCount"/> MethodImpl rows against one long-named
+    /// interface, or the same image with those rows omitted. The two differ in nothing else, so
+    /// a budget that notices the first and not the second is measuring the MethodImpl
+    /// projection and not the surrounding walk.
+    /// </summary>
+    static byte[] BuildMethodImplFloodImage(
+        int methodImplCount,
+        int nameLength,
+        bool includeMethodImpls)
+    {
+        var metadata = Metadata("MethodImplFlood");
+        AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle interfaceType = metadata.AddTypeReference(
+            assembly,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString(new string('I', nameLength)));
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "Implementer",
+            TypeAttributes.Public);
+        metadata.AddInterfaceImplementation(type, interfaceType);
+
+        var accessorSignature = new BlobBuilder();
+        new BlobEncoder(accessorSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(0, returnType => returnType.Void(), _ => { });
+        BlobHandle signature = metadata.GetOrAddBlob(accessorSignature);
+
+        var bodies = new List<MethodDefinitionHandle>(methodImplCount);
+        for (int index = 0; index < methodImplCount; index++)
+        {
+            bodies.Add(metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.Final
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"M{index}"),
+                signature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1)));
+        }
+
+        if (includeMethodImpls)
+        {
+            for (int index = 0; index < methodImplCount; index++)
+            {
+                MemberReferenceHandle declaration = metadata.AddMemberReference(
+                    interfaceType,
+                    metadata.GetOrAddString($"M{index}"),
+                    signature);
+                metadata.AddMethodImplementation(type, bodies[index], declaration);
+            }
+        }
+
         return Serialize(metadata);
     }
 

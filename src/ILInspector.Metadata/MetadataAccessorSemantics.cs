@@ -4,6 +4,18 @@ using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
 
+/// <summary>How an aggregate's accessor abstraction metadata is malformed, if at all.</summary>
+internal enum AccessorAbstractionFault
+{
+    None,
+
+    /// <summary>An accessor is marked abstract yet declares an IL body.</summary>
+    AbstractAccessorHasBody,
+
+    /// <summary>The accessors of a class or struct aggregate disagree about abstractness.</summary>
+    InconsistentAbstraction,
+}
+
 internal static class MetadataAccessorSemantics
 {
     public static string Kind(
@@ -30,6 +42,47 @@ internal static class MetadataAccessorSemantics
         }
 
         return anyAccessor;
+    }
+
+    /// <summary>
+    /// Checks that an aggregate's accessors agree about abstractness and that no abstract
+    /// accessor claims an IL body.
+    /// </summary>
+    /// <param name="requireUniformAbstraction">
+    /// <see langword="true"/> for a class or struct aggregate, where C# owns abstractness at
+    /// the member — not the accessor — so disagreeing accessors have no legal spelling and the
+    /// aggregate must not be projected as a concrete one. Interfaces legitimately mix an
+    /// abstract accessor with a defaulted one, so an interface aggregate passes
+    /// <see langword="false"/> and keeps that shape.
+    /// </param>
+    /// <remarks>
+    /// ECMA-335 II.15.4.2.4 forbids an abstract method body, so the body-state half applies to
+    /// every declaring type. Gated by
+    /// <c>MetadataDeclarationQueryTests.MixedAbstractionAggregates_FailVisibly</c>,
+    /// <c>MetadataDeclarationQueryTests.MixedAbstractionInterfaceAggregates_AreRetained</c>, and
+    /// <c>MetadataDeclarationQueryTests.AbstractAccessorWithBody_FailsVisibly</c>.
+    /// </remarks>
+    public static AccessorAbstractionFault ValidateAbstraction(
+        MetadataReader reader,
+        bool requireUniformAbstraction,
+        params MethodDefinitionHandle[] handles)
+    {
+        bool? expected = null;
+        foreach (var handle in handles)
+        {
+            if (handle.IsNil)
+                continue;
+
+            var method = reader.GetMethodDefinition(handle);
+            bool isAbstract = (method.Attributes & MethodAttributes.Abstract) != 0;
+            if (isAbstract && method.RelativeVirtualAddress != 0)
+                return AccessorAbstractionFault.AbstractAccessorHasBody;
+            if (requireUniformAbstraction && expected is { } previous && previous != isAbstract)
+                return AccessorAbstractionFault.InconsistentAbstraction;
+            expected ??= isAbstract;
+        }
+
+        return AccessorAbstractionFault.None;
     }
 
     public static bool TryGetUniformSealedOverride(

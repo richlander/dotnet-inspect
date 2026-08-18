@@ -860,6 +860,230 @@ public sealed class MetadataDeclarationQueryTests
         }
     }
 
+    /// <summary>
+    /// A class or struct aggregate whose accessors disagree about abstractness has no legal C#
+    /// spelling: abstractness belongs to the member, not the accessor. Projecting it as the
+    /// concrete aggregate the majority of its accessors suggest would invent a member the
+    /// metadata does not declare, so both projections reject it and say so.
+    /// </summary>
+    [Fact]
+    public void MixedAbstractionAggregates_FailVisibly()
+    {
+        string path = EmitMixedAbstractionAggregates();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            var reader = peReader.GetMetadataReader();
+            var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+            var mixed = Assert.Single(surface.Types, type => type.Name == "MixedAbstraction");
+
+            Assert.DoesNotContain(
+                mixed.Members,
+                member => member.Kind is "property" or "event");
+            Assert.Contains(
+                surface.InspectionFailures,
+                failure => failure.Operation == "property modifiers");
+            Assert.Contains(
+                surface.InspectionFailures,
+                failure => failure.Operation == "event modifiers");
+            Assert.Throws<BadImageFormatException>(() =>
+                MetadataDeclarationQuery.GetTypeSurface(
+                    reader,
+                    GetTypeDefinitionHandle(reader, "MixedAbstraction"),
+                    includeNonPublicMembers: true));
+
+            // The close negatives: uniform abstractness either way is ordinary metadata and
+            // must keep projecting, or the guard has eaten the shape it exists to protect.
+            foreach (string uniform in new[] { "UniformAbstract", "UniformConcrete" })
+            {
+                var extracted = Assert.Single(surface.Types, type => type.Name == uniform);
+                Assert.Contains(
+                    extracted.Members,
+                    member => member.Kind == "property" && member.Name == "Value");
+                Assert.Contains(
+                    extracted.Members,
+                    member => member.Kind == "event" && member.Name == "Changed");
+                var queried = MetadataDeclarationQuery.GetTypeSurface(
+                    reader,
+                    GetTypeDefinitionHandle(reader, uniform),
+                    includeNonPublicMembers: true);
+                Assert.Contains(
+                    queried.Members,
+                    member => member.Kind == "property" && member.Name == "Value");
+                Assert.Contains(
+                    queried.Members,
+                    member => member.Kind == "event" && member.Name == "Changed");
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// An interface aggregate legitimately mixes an abstract accessor with a defaulted one
+    /// (C# 8 default interface members), so the uniformity requirement applies to classes and
+    /// structs only. C# has no syntax for the mixed property — <c>{ get; set { } }</c> is read
+    /// as an auto-property — so the shape is emitted, and the compiler-produced peer below
+    /// covers the uniformly abstract interface it must not be confused with.
+    /// </summary>
+    [Fact]
+    public void MixedAbstractionInterfaceAggregates_AreRetained()
+    {
+        string path = EmitMixedAbstractionAggregates();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            var reader = peReader.GetMetadataReader();
+            var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+            var extracted = Assert.Single(
+                surface.Types,
+                type => type.Name == "MixedAbstractionInterface");
+
+            Assert.Contains(
+                extracted.Members,
+                member => member.Kind == "property" && member.Name == "Value");
+
+            var queried = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                GetTypeDefinitionHandle(reader, "MixedAbstractionInterface"),
+                includeNonPublicMembers: true);
+            Assert.Contains(
+                queried.Members,
+                member => member.Kind == "property" && member.Name == "Value");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+
+        var uniformInterface = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures.IMixedAbstractionSurface)),
+            includeNonPublicMembers: true);
+        Assert.Contains(
+            uniformInterface.Members,
+            member => member.Kind == "property" && member.Name == "Value");
+        Assert.Contains(
+            uniformInterface.Members,
+            member => member.Kind == "event" && member.Name == "Changed");
+    }
+
+    /// <summary>
+    /// ECMA-335 II.15.4.2.4 forbids an abstract method from declaring a body, so an accessor
+    /// that claims both is malformed whatever its declaring type. The image is synthetic
+    /// because no compiler emits the shape.
+    /// </summary>
+    [Fact]
+    public void AbstractAccessorWithBody_FailsVisibly()
+    {
+        byte[] image = BuildAbstractAccessorWithBodyImage();
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        var extracted = Assert.Single(surface.Types, type => type.Name == "AbstractBody");
+
+        Assert.DoesNotContain(extracted.Members, member => member.Kind == "property");
+        var failure = Assert.Single(
+            surface.InspectionFailures,
+            candidate => candidate.Operation == "property modifiers");
+        Assert.Contains("abstract accessor", failure.Detail, StringComparison.Ordinal);
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                GetTypeDefinitionHandle(reader, "Fixtures.AbstractBody"),
+                includeNonPublicMembers: true));
+    }
+
+    /// <summary>
+    /// Explicit aggregate classification matches accessor names against the MethodImpl target
+    /// map, and the MethodImpl check proves each accessor body implements the interface method
+    /// it names. Neither reads the Property or Event row itself, so the row's own signature has
+    /// to be validated against the accessors or a hostile image renders an explicit member no
+    /// accessor implements.
+    /// </summary>
+    [Fact]
+    public void ExplicitAggregateRowSignature_MustMatchAccessors()
+    {
+        string path = EmitRowSignatureMismatchedExplicitAggregates();
+        try
+        {
+            using var peReader = new PEReader(File.OpenRead(path));
+            var reader = peReader.GetMetadataReader();
+            var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+            var mismatched = Assert.Single(
+                surface.Types,
+                type => type.Name == "RowSignatureMismatch");
+            Assert.DoesNotContain(
+                mismatched.Members,
+                member => member.Kind is "property" or "event");
+            Assert.Contains(
+                surface.InspectionFailures,
+                failure => failure.Operation == "property signature");
+            Assert.Contains(
+                surface.InspectionFailures,
+                failure => failure.Operation == "event signature");
+            Assert.Throws<BadImageFormatException>(() =>
+                MetadataDeclarationQuery.GetTypeSurface(
+                    reader,
+                    GetTypeDefinitionHandle(reader, "RowSignatureMismatch"),
+                    includeNonPublicMembers: true));
+
+            // The close negative differs only in that its rows tell the truth.
+            var truthful = Assert.Single(
+                surface.Types,
+                type => type.Name == "RowSignatureMatch");
+            Assert.Contains(
+                truthful.Members,
+                member => member.Kind == "property" && member.IsExplicitInterfaceImplementation);
+            Assert.Contains(
+                truthful.Members,
+                member => member.Kind == "event" && member.IsExplicitInterfaceImplementation);
+            var queried = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                GetTypeDefinitionHandle(reader, "RowSignatureMatch"),
+                includeNonPublicMembers: true);
+            Assert.Contains(
+                queried.Members,
+                member => member.Kind == "property" && member.IsExplicitInterfaceImplementation);
+            Assert.Contains(
+                queried.Members,
+                member => member.Kind == "event" && member.IsExplicitInterfaceImplementation);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// The compiler-produced close negatives for the row-signature check: an explicit
+    /// <c>init</c> setter carries <c>modreq(IsExternalInit)</c> over its <c>void</c> return, and
+    /// an explicit indexer's row parameters live on the row rather than only on its accessors.
+    /// Both must keep classifying and projecting as explicit aggregates.
+    /// </summary>
+    [Fact]
+    public void ExplicitAggregateRowSignature_AcceptsInitAndIndexerShapes()
+    {
+        var queried = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(
+                typeof(MetadataDeclarationQueryFixtures.ExplicitRowSignatureSurface)),
+            includeNonPublicMembers: true);
+
+        var aggregates = queried.Members
+            .Where(member => member.IsExplicitInterfaceImplementation)
+            .ToArray();
+
+        Assert.Contains(aggregates, member => member.Name.EndsWith(".Value", StringComparison.Ordinal));
+        Assert.Contains(aggregates, member => member.Name.EndsWith(".Item", StringComparison.Ordinal));
+        Assert.Contains(aggregates, member => member.Kind == "event");
+    }
+
     [Fact]
     public void EventSealing_RejectsMixedAccessorState()
     {
@@ -1755,6 +1979,298 @@ public sealed class MetadataDeclarationQueryTests
         return image.ToArray();
     }
 
+    static string EmitMixedAbstractionAggregates()
+    {
+        var assemblyName = new AssemblyName("MixedAbstractionAggregates");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        const MethodAttributes Shared =
+            MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig;
+
+        void DefineAggregates(string typeName, bool abstractGetter, bool abstractSetter)
+        {
+            var builder = module.DefineType(
+                typeName,
+                TypeAttributes.Public | TypeAttributes.Abstract);
+
+            var getter = builder.DefineMethod(
+                "get_Value",
+                abstractGetter ? Shared | MethodAttributes.Abstract : Shared,
+                typeof(int),
+                Type.EmptyTypes);
+            if (!abstractGetter)
+            {
+                var getterIl = getter.GetILGenerator();
+                getterIl.Emit(OpCodes.Ldc_I4_0);
+                getterIl.Emit(OpCodes.Ret);
+            }
+
+            var setter = builder.DefineMethod(
+                "set_Value",
+                abstractSetter ? Shared | MethodAttributes.Abstract : Shared,
+                typeof(void),
+                [typeof(int)]);
+            if (!abstractSetter)
+                setter.GetILGenerator().Emit(OpCodes.Ret);
+
+            var property = builder.DefineProperty(
+                "Value",
+                PropertyAttributes.None,
+                typeof(int),
+                null);
+            property.SetGetMethod(getter);
+            property.SetSetMethod(setter);
+
+            var adder = builder.DefineMethod(
+                "add_Changed",
+                abstractGetter ? Shared | MethodAttributes.Abstract : Shared,
+                typeof(void),
+                [typeof(Action)]);
+            if (!abstractGetter)
+                adder.GetILGenerator().Emit(OpCodes.Ret);
+
+            var remover = builder.DefineMethod(
+                "remove_Changed",
+                abstractSetter ? Shared | MethodAttributes.Abstract : Shared,
+                typeof(void),
+                [typeof(Action)]);
+            if (!abstractSetter)
+                remover.GetILGenerator().Emit(OpCodes.Ret);
+
+            var @event = builder.DefineEvent("Changed", EventAttributes.None, typeof(Action));
+            @event.SetAddOnMethod(adder);
+            @event.SetRemoveOnMethod(remover);
+            builder.CreateType();
+        }
+
+        DefineAggregates("MixedAbstraction", abstractGetter: true, abstractSetter: false);
+        DefineAggregates("UniformAbstract", abstractGetter: true, abstractSetter: true);
+        DefineAggregates("UniformConcrete", abstractGetter: false, abstractSetter: false);
+
+        // The legitimate peer: an interface may pair an abstract accessor with a defaulted one.
+        var interfaceBuilder = module.DefineType(
+            "MixedAbstractionInterface",
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+        var interfaceGetter = interfaceBuilder.DefineMethod(
+            "get_Value",
+            Shared | MethodAttributes.Abstract,
+            typeof(int),
+            Type.EmptyTypes);
+        var interfaceSetter = interfaceBuilder.DefineMethod(
+            "set_Value",
+            Shared,
+            typeof(void),
+            [typeof(int)]);
+        interfaceSetter.GetILGenerator().Emit(OpCodes.Ret);
+        var interfaceProperty = interfaceBuilder.DefineProperty(
+            "Value",
+            PropertyAttributes.None,
+            typeof(int),
+            null);
+        interfaceProperty.SetGetMethod(interfaceGetter);
+        interfaceProperty.SetSetMethod(interfaceSetter);
+        interfaceBuilder.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"MixedAbstractionAggregates-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    /// <summary>
+    /// A property whose getter carries <see cref="MethodAttributes.Abstract"/> and a nonzero
+    /// method RVA. No compiler emits it, and Reflection.Emit refuses to, so the image is built
+    /// row by row with a body offset that resolves to a real RVA.
+    /// </summary>
+    static byte[] BuildAbstractAccessorWithBodyImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("AbstractAccessorBody.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("AbstractAccessorBody"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("AbstractBody"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var il = new BlobBuilder();
+        var bodies = new MethodBodyStreamEncoder(il);
+        var body = new InstructionEncoder(new BlobBuilder());
+        body.LoadConstantI4(0);
+        body.OpCode(ILOpCode.Ret);
+        int bodyOffset = bodies.AddMethodBody(body);
+
+        var getterSignature = new BlobBuilder();
+        new BlobEncoder(getterSignature)
+            .MethodSignature(isInstanceMethod: true)
+            .Parameters(0, returnType => returnType.Type().Int32(), _ => { });
+        MethodDefinitionHandle getter = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_Value"),
+            metadata.GetOrAddBlob(getterSignature),
+            bodyOffset,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var propertySignature = new BlobBuilder();
+        new BlobEncoder(propertySignature)
+            .PropertySignature(isInstanceProperty: true)
+            .Parameters(0, returnType => returnType.Type().Int32(), _ => { });
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(propertySignature));
+        metadata.AddPropertyMap(type, property);
+        metadata.AddMethodSemantics(property, MethodSemanticsAttributes.Getter, getter);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            il,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    /// <summary>
+    /// Two explicit-interface implementers whose accessors and MethodImpl rows are identical
+    /// and truthful. The first declares Property and Event rows that disagree with those
+    /// accessors; the second declares rows that agree.
+    /// </summary>
+    static string EmitRowSignatureMismatchedExplicitAggregates()
+    {
+        var assemblyName = new AssemblyName("RowSignatureExplicitAggregates");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        const MethodAttributes InterfaceAccessor =
+            MethodAttributes.Public
+            | MethodAttributes.Abstract
+            | MethodAttributes.Virtual
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig;
+        const MethodAttributes ExplicitAccessor =
+            MethodAttributes.Private
+            | MethodAttributes.Virtual
+            | MethodAttributes.Final
+            | MethodAttributes.NewSlot
+            | MethodAttributes.SpecialName
+            | MethodAttributes.HideBySig;
+
+        var interfaceBuilder = module.DefineType(
+            "IRowSignature",
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+        var interfaceGetter = interfaceBuilder.DefineMethod(
+            "get_Value",
+            InterfaceAccessor,
+            typeof(int),
+            Type.EmptyTypes);
+        interfaceBuilder
+            .DefineProperty("Value", PropertyAttributes.None, typeof(int), null)
+            .SetGetMethod(interfaceGetter);
+        var interfaceAdder = interfaceBuilder.DefineMethod(
+            "add_Changed",
+            InterfaceAccessor,
+            typeof(void),
+            [typeof(Action)]);
+        var interfaceRemover = interfaceBuilder.DefineMethod(
+            "remove_Changed",
+            InterfaceAccessor,
+            typeof(void),
+            [typeof(Action)]);
+        var interfaceEvent = interfaceBuilder.DefineEvent(
+            "Changed",
+            EventAttributes.None,
+            typeof(Action));
+        interfaceEvent.SetAddOnMethod(interfaceAdder);
+        interfaceEvent.SetRemoveOnMethod(interfaceRemover);
+        var interfaceType = interfaceBuilder.CreateType();
+
+        void DefineImplementer(string typeName, bool truthfulRows)
+        {
+            var builder = module.DefineType(typeName, TypeAttributes.Public);
+            builder.AddInterfaceImplementation(interfaceType);
+
+            var getter = builder.DefineMethod(
+                "IRowSignature.get_Value",
+                ExplicitAccessor,
+                typeof(int),
+                Type.EmptyTypes);
+            var getterIl = getter.GetILGenerator();
+            getterIl.Emit(OpCodes.Ldc_I4_0);
+            getterIl.Emit(OpCodes.Ret);
+            builder
+                .DefineProperty(
+                    "IRowSignature.Value",
+                    PropertyAttributes.None,
+                    truthfulRows ? typeof(int) : typeof(string),
+                    null)
+                .SetGetMethod(getter);
+            builder.DefineMethodOverride(getter, interfaceType.GetMethod("get_Value")!);
+
+            var adder = builder.DefineMethod(
+                "IRowSignature.add_Changed",
+                ExplicitAccessor,
+                typeof(void),
+                [typeof(Action)]);
+            adder.GetILGenerator().Emit(OpCodes.Ret);
+            var remover = builder.DefineMethod(
+                "IRowSignature.remove_Changed",
+                ExplicitAccessor,
+                typeof(void),
+                [typeof(Action)]);
+            remover.GetILGenerator().Emit(OpCodes.Ret);
+            var @event = builder.DefineEvent(
+                "IRowSignature.Changed",
+                EventAttributes.None,
+                truthfulRows ? typeof(Action) : typeof(EventHandler));
+            @event.SetAddOnMethod(adder);
+            @event.SetRemoveOnMethod(remover);
+            builder.DefineMethodOverride(adder, interfaceType.GetMethod("add_Changed")!);
+            builder.DefineMethodOverride(remover, interfaceType.GetMethod("remove_Changed")!);
+            builder.CreateType();
+        }
+
+        DefineImplementer("RowSignatureMismatch", truthfulRows: false);
+        DefineImplementer("RowSignatureMatch", truthfulRows: true);
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"RowSignatureExplicitAggregates-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
     static string EmitSignatureIncompatibleMethodImplProperty()
     {
         var assemblyName = new AssemblyName("SignatureIncompatibleMethodImplProperty");
@@ -1921,6 +2437,39 @@ public class MetadataDeclarationQueryFixtures
     {
         T Value { get; }
         event Action Changed;
+    }
+
+    public interface IMixedAbstractionSurface
+    {
+        int Value { get; }
+
+        event Action Changed;
+    }
+
+    public interface IExplicitRowSignature
+    {
+        int Value { get; init; }
+
+        string this[int index] { get; }
+
+        event Action Changed;
+    }
+
+    public sealed class ExplicitRowSignatureSurface : IExplicitRowSignature
+    {
+        int IExplicitRowSignature.Value
+        {
+            get => 0;
+            init { }
+        }
+
+        string IExplicitRowSignature.this[int index] => index.ToString();
+
+        event Action IExplicitRowSignature.Changed
+        {
+            add { }
+            remove { }
+        }
     }
 
     public sealed class NullableExplicitAggregateMetadataFixture
