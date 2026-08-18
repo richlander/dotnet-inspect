@@ -285,6 +285,7 @@ while IFS= read -r -d '' file; do
     # classifier gate and its pinned prerequisites. Editing either must run
     # the product test lane as well as executing the gate here in `changes`.
     eng/test-ci-change-detection.cs) CODE=true ;;
+    eng/CiChangeDetection/PromotionWorkflowContract.cs) CODE=true; WEB=true ;;
     eng/CiChangeDetection/*) CODE=true ;;
     eng/prepare-decompiler-assertion-corpus.sh) CODE=true ;;
     eng/prepare-decompiler-corpus.sh) CODE=true ;;
@@ -310,6 +311,8 @@ while IFS= read -r -d '' file; do
     # `ci-required` passes on a `skipped`.
     eng/restore-iltools.sh) CODE=true ;;
     eng/activate-iltools.sh) CODE=true ;;
+    eng/validate-inspect-web-promotion.cs) WEB=true ;;
+    eng/validate-inspect-web-promotion.sh) WEB=true ;;
     # Global analyzer input consumed by every product and Browser build.
     eng/BannedSymbols.txt) CODE=true; WEB=true ;;
     # Controls checkout line endings on Windows, including the raw
@@ -324,6 +327,7 @@ while IFS= read -r -d '' file; do
     *.props|*.targets|*.sln|*.slnx) CODE=true; WEB=true ;;
     .github/workflows/ci.yml) CODE=true; WEB=true ;;
     .github/workflows/deploy-inspect-web.yml) WEB=true ;;
+    .github/workflows/promote-inspect-web.yml) WEB=true ;;
     .github/workflows/*) CODE=true ;;
   esac
   # C# Diff smoke coverage is separate from the full test lane for the

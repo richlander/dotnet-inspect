@@ -39,6 +39,10 @@ import {
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "../src/data.js";
+import {
+  buildDependencyGraphMermaid,
+  buildTypeGraphMermaid
+} from "../src/graph-mermaid.js";
 
 const packageAt = (version, framework, types = 1) => ({
   id: "Example.Package",
@@ -107,6 +111,10 @@ test("dependency graph node insertion is bounded", () => {
 });
 
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+const graphSource = readFileSync(
+  new URL("../src/graph-mermaid.js", import.meta.url),
+  "utf8");
+const applicationSources = `${appSource}\n${graphSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const engineSource = readFileSync(
   new URL("../engine/wwwroot/engine.js", import.meta.url),
@@ -261,7 +269,7 @@ test("home keeps a viewport-bounded scroll region and reachable footer", () => {
 
 test("all dependency navigation paths use one product-owned coordinate matcher", () => {
   assert.equal(
-    [...appSource.matchAll(/uniqueCompatiblePackage\(/g)].length,
+    [...applicationSources.matchAll(/uniqueCompatiblePackage\(/g)].length,
     5);
   assert.match(
     engineSource,
@@ -303,7 +311,7 @@ test("stale dependency graph cleanup preserves a replacement with the same signa
 
 test("dependency graph binds navigation to generated node identities", () => {
   assert.match(
-    appSource,
+    graphSource,
     /const nodeInfoById = new Map\(\s+keys\.map\(key => \[idOf\.get\(key\), nodeInfo\.get\(key\)\]\)\)/);
   assert.match(
     appSource,
@@ -325,8 +333,8 @@ test("dependency navigation reserves identity and surfaces resolution failures",
     appSource,
     /if \(navigationSeq !== state\.navigationSeq\) return;\s+state\.loading = false;\s+appendQueryNotice/);
   assert.match(
-    appSource,
-    /packageIdentityKey\(uniqueCompatiblePackage\(\s+state\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
+    graphSource,
+    /packageIdentityKey\(uniqueCompatiblePackage\(\s+model\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
   assert.match(
     appSource,
     /matchPackageDependencyCoordinate\(\s+packageId,\s+declaredRange,\s+dependencyCoordinateCandidates\(packages\)\)/);
@@ -858,8 +866,8 @@ test("dependency graph does not turn display fallback into explicit selection", 
     dependencyGraphGroupSelectionIndex({}, null, 1),
     1);
   assert.match(
-    appSource,
-    /dependencyGraphGroupSelectionIndex\(\s*state\.packageDependencies,\s*state\.dependenciesGroupIndex,\s*resolveDependenciesGroupIndex\(groups\)\)/);
+    graphSource,
+    /dependencyGraphGroupSelectionIndex\(\s*model\.packageDependencies,\s*model\.dependenciesGroupIndex,\s*fallbackGroupIndex\)/);
 });
 
 test("dependency graph uses each cached package's product-selected group", () => {
@@ -889,17 +897,73 @@ test("dependency graph uses the active package's explicitly selected group", () 
     selectedDependencyGroup(data, 0),
     data.dependencyGroups[0]);
   assert.match(
-    appSource,
-    /selectedDependencyGroup\(\s*state\.packageDependencies,\s*selectedGroupIndex\)/);
+    graphSource,
+    /selectedDependencyGroup\(\s*model\.packageDependencies,\s*selectedGroupIndex\)/);
 });
 
 test("Mermaid labels contain grammar-significant metadata", () => {
-  const encoded = mermaidLabel("A\"B\n<x>&\\\u2028");
+  const encoded = mermaidLabel(
+    "A\"B\n<x>&\\\u2028\u202E\u200D\uD800X\uDC00\u{E0001}-Caf\u00E9\u{1F600}");
 
   assert.equal(
     encoded,
-    "A&quot;B&#92;u000A&lt;x&gt;&amp;&#92;&#92;u2028");
-  for (const character of ['"', "\n", "<", ">", "\\", "\u2028"]) {
+    "A&quot;B&#92;u000A&lt;x&gt;&amp;&#92;&#92;u2028"
+      + "&#92;u202E&#92;u200D&#92;uD800X&#92;uDC00"
+      + "&#92;uDB40&#92;uDC01-Caf\u00E9\u{1F600}");
+  for (const character of [
+    '"', "\n", "<", ">", "\\", "\u2028", "\u202E", "\u200D", "\uD800", "\uDC00"
+  ]) {
     assert.equal(encoded.includes(character), false);
   }
+  assert.equal(encoded.endsWith("-Caf\u00E9\u{1F600}"), true);
+});
+
+test("type graph rendering contains artifact labels", () => {
+  const definition = buildTypeGraphMermaid({
+    graphNodes: [
+      {
+        id: "self",
+        displayName: "Example.A\u202E\uD800-Caf\u00E9\u{1F600}",
+        role: "self"
+      },
+      { id: "base", displayName: "Example.Base", role: "base" }
+    ],
+    graphEdges: [{ fromId: "self", toId: "base" }]
+  });
+
+  assert.match(
+    definition,
+    /t0\["A&#92;u202E&#92;uD800-Café😀"\]:::self/);
+  assert.equal(definition.includes("\u202E"), false);
+  assert.equal(definition.includes("\uD800"), false);
+});
+
+test("dependency graph rendering contains artifact labels", () => {
+  const root = packageAt("1.0.0", "net8.0");
+  const definition = buildDependencyGraphMermaid(
+    {
+      package: root,
+      packages: [root],
+      packageDependencies: {
+        dependencyGroupError: "",
+        dependencyGroups: [{
+          index: 0,
+          framework: "net8.0",
+          isActive: true,
+          dependencies: [{
+            id: "Dependency\u200D\uDC00-Caf\u00E9\u{1F600}",
+            versionRange: ""
+          }]
+        }]
+      },
+      dependenciesGroupIndex: 0,
+      workspaceDependencies: {}
+    },
+    () => null);
+
+  assert.match(
+    definition.definition,
+    /d1\["Dependency&#92;u200D&#92;uDC00-Café😀"\]:::external/);
+  assert.equal(definition.definition.includes("\u200D"), false);
+  assert.equal(definition.definition.includes("\uDC00"), false);
 });
