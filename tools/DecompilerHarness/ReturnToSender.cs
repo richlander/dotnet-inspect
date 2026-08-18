@@ -1850,6 +1850,28 @@ static class ReturnToSender
         var sourceResult = compilationResult.Artifact;
         var plan = sourceResult.Plan;
         string unit = sourceResult.Source;
+        if (compilationResult.Succeeded
+            && compilationResult.PeImage is not null
+            && plan.Diagnostics.FirstOrDefault(
+                diagnostic => diagnostic.Layer == "type identity") is { } finalIdentityDiagnostic)
+        {
+            return new Result(
+                plan,
+                unit,
+                FidelityCheck.CompileBackStatus.ContextFail,
+                originalOpcodes,
+                "",
+                $"{finalIdentityDiagnostic.Reason}: {finalIdentityDiagnostic.Detail}",
+                TargetBody: targetBody.Source,
+                MemberAnchor: memberAnchor,
+                Decisions: targetBody.Decisions)
+            {
+                FinalRequest = sourceResult.Request,
+                Compilation = compilationResult.Provenance,
+                BodyPolicy = bodyPolicy,
+                FullBodies = sourceResult.FullBodies,
+            };
+        }
         if (!compilationResult.Succeeded || compilationResult.PeImage is null)
         {
             if (identityFailure is { } identityDiagnostic)

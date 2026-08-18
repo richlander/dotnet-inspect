@@ -746,6 +746,172 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PrimaryTargetsPreserveSealedOverrideSlots()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseNode
+            {
+                public virtual int Read() => 1;
+                public virtual int Value => 1;
+                public virtual event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public class LeafNode : BaseNode
+            {
+                public sealed override int Read() => 2;
+                public sealed override int Value => 2;
+                public sealed override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+            """);
+        try
+        {
+            var method = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("LeafNode", "Read", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+            var property = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("LeafNode", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+            var @event = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("LeafNode", "add_Changed", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.All(
+                [method, property, @event],
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.False(result.UsedCompileBackFloor, result.Detail);
+                });
+            Assert.Contains("sealed override int Read()", method.Source, StringComparison.Ordinal);
+            Assert.Contains("sealed override int Value", property.Source, StringComparison.Ordinal);
+            Assert.Contains("sealed override event", @event.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PrimaryExternalOverrideDeclinesVisibly()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "public class ExternalBase { public virtual string Describe() => \"base\"; }",
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Impl : ExternalBase
+            {
+                public override string Describe() => "impl";
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Impl", "Describe", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "target-override-slot-unavailable",
+                result.Detail,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DemotedMiddleSlotsRemainVirtualForDerivedOverrides()
+    {
+        var assemblyPath = CompileFixture("""
+            public class GenericBase<T>
+            {
+                public virtual int Ping() => 1;
+                public virtual int Value => 1;
+                public virtual event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public class MiddleNode : GenericBase<int>
+            {
+                public override int Ping() => 2;
+                public override int Value => 2;
+                public override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public sealed class LeafNode : MiddleNode
+            {
+                public override int Ping() => 3;
+                public override int Value => 3;
+                public override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+
+                public int Target(System.Action handler)
+                {
+                    Changed += handler;
+                    return Ping() + Value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("LeafNode", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("virtual int Ping()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override int Ping()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("virtual int Value", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override int Value", result.Source, StringComparison.Ordinal);
+            Assert.Contains("virtual event", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override event", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RepairsAbstractBasePropertyShell()
     {
         var assemblyPath = CompileFixture("""
@@ -10458,7 +10624,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_DoesNotMarkUserBaseOverrideWithoutBaseShell()
+    public void CompileBackTargets_DemotesUserOverrideWhenBaseSlotIsUnavailable()
     {
         var assemblyPath = CompileFixture("""
             public abstract class BaseNode
@@ -10478,7 +10644,8 @@ public class ReturnToSenderPrototypeTests
                 [new ReturnToSender.RequestedTarget("DerivedNode", "Describe", 0)]));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
-            Assert.Contains("public string Describe()", result.Source);
+            Assert.True(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("public virtual string Describe()", result.Source);
             Assert.DoesNotContain("override string Describe", result.Source);
         }
         finally

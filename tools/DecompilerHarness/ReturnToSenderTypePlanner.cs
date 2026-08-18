@@ -1247,6 +1247,12 @@ public static class CompileBackSourceComposer
                     : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))],
                 propertyDeclaration.Attributes,
                 MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, getter, getterSignature).Signature.ReturnAttributes,
+                IsVirtual: IsVirtualSlotDeclaration(getter),
+                IsOverride: !targetTypeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                    && IsOverrideSlotReuse(getter),
+                IsSealed: !targetTypeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                    && IsOverrideSlotReuse(getter)
+                    && getter.Attributes.HasFlag(MethodAttributes.Final),
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
                 GetterToken: MetadataTokens.GetToken(targetGetter),
                 SetterToken: accessors.Setter.IsNil
@@ -2856,6 +2862,12 @@ public static class CompileBackSourceComposer
                         new CompileBackFact("metadata", "auto-property", propertyName)
                     ]
                     : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))],
+                IsVirtual: IsVirtualSlotDeclaration(setter),
+                IsOverride: !targetTypeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                    && IsOverrideSlotReuse(setter),
+                IsSealed: !targetTypeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                    && IsOverrideSlotReuse(setter)
+                    && setter.Attributes.HasFlag(MethodAttributes.Final),
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
                 GetterToken: property.GetAccessors().Getter.IsNil
                     ? null
@@ -2978,6 +2990,12 @@ public static class CompileBackSourceComposer
                 targetBody,
                 [new CompileBackFact("metadata", "target-event-accessor", reader.GetString(accessor.Name))],
                 MemberAttributes(reader, eventDefinition.GetCustomAttributes()),
+                IsVirtual: IsVirtualSlotDeclaration(accessor),
+                IsOverride: !targetTypeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                    && IsOverrideSlotReuse(accessor),
+                IsSealed: !targetTypeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                    && IsOverrideSlotReuse(accessor)
+                    && accessor.Attributes.HasFlag(MethodAttributes.Final),
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function),
                 ExplicitInterfaceMemberName: explicitEvent?.QualifiedName,
                 SiblingTargetBody: siblingAccessorBody,
@@ -3180,9 +3198,14 @@ public static class CompileBackSourceComposer
                 isConstructor ? null : MemberAttributes(reader, method.GetCustomAttributes()),
                 isConstructor ? null : MethodReturnAttributes(reader, method),
                 IsAbstract: !isConstructor && IsAbstractMethod(method),
-                IsVirtual: !isConstructor && IsVirtualMethod(method),
-                IsOverride: false,
-                IsSealed: false,
+                IsVirtual: !isConstructor && IsVirtualSlotDeclaration(method),
+                IsOverride: !isConstructor
+                    && !targetTypeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                    && IsOverrideSlotReuse(method),
+                IsSealed: !isConstructor
+                    && !targetTypeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                    && IsOverrideSlotReuse(method)
+                    && method.Attributes.HasFlag(MethodAttributes.Final),
                 IsAsync: !isConstructor
                     && (function.RequiresAsyncBodyModifier
                         || function.IsRuntimeAsync == MetadataFactState.Yes),
@@ -5704,6 +5727,9 @@ public static class CompileBackSourceComposer
                 {
                     IsOverride = false,
                     IsSealed = false,
+                    IsVirtual = !member.IsStatic
+                        && !member.IsAbstract
+                        && !reader.GetTypeDefinition(handle).Attributes.HasFlag(TypeAttributes.Sealed),
                     SourceFacts = member.SourceFacts
                         .Append(new CompileBackFact(
                             "synthetic",
@@ -5715,6 +5741,14 @@ public static class CompileBackSourceComposer
                     "member surface",
                     "override-slot-unavailable",
                     $"{member.Identity.Type}::{member.Identity.Signature}"));
+                if (member.SourceFacts.Any(fact =>
+                        fact.Id.StartsWith("target-", StringComparison.Ordinal)))
+                {
+                    diagnostics.Add(new CompileBackPlanningDiagnostic(
+                        "type identity",
+                        "target-override-slot-unavailable",
+                        $"{member.Identity.Type}::{member.Identity.Signature}"));
+                }
             }
         }
 
@@ -5731,7 +5765,7 @@ public static class CompileBackSourceComposer
                     ShellKind(reader, reader.GetTypeDefinition(current))) is { } baseIdentity)
             {
                 if (!requirementsByIdentity.TryGetValue(baseIdentity, out var baseRequirement))
-                    return false;
+                    return true;
                 if ((baseRequirement.IncludeMemberSurface
                         && member.TypeParameters.Count == 0)
                     || baseRequirement.RequiredMembers.Any(baseMember =>
@@ -5769,6 +5803,8 @@ public static class CompileBackSourceComposer
 
         static bool IsSystemObjectOverride(CompileBackMemberRequirement member)
         {
+            if (member.IsFinalizer)
+                return true;
             if (member.Kind != CompileBackMemberKind.Method
                 || member.IsStatic
                 || member.TypeParameters.Count != 0)
