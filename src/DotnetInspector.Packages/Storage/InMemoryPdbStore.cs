@@ -11,6 +11,33 @@ namespace DotnetInspector.Packages;
 public sealed class InMemoryPdbStore : IPdbStore
 {
     private readonly ConcurrentDictionary<string, byte[]> _entries = new(StringComparer.Ordinal);
+    private readonly object _retainedBytesLock = new();
+    private long _retainedBytes;
+
+    public InMemoryPdbStore()
+        : this(Array.MaxLength)
+    {
+    }
+
+    public InMemoryPdbStore(long maxRetainedBytes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maxRetainedBytes);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            maxRetainedBytes,
+            Array.MaxLength);
+        MaxRetainedBytes = maxRetainedBytes;
+    }
+
+    public long MaxRetainedBytes { get; }
+    public long RetainedBytes
+    {
+        get
+        {
+            lock (_retainedBytesLock)
+                return _retainedBytes;
+        }
+    }
 
     /// <inheritdoc />
     public ValueTask<Stream?> TryOpenAsync(string key, CancellationToken cancellationToken = default)
@@ -27,9 +54,33 @@ public sealed class InMemoryPdbStore : IPdbStore
         ArgumentException.ThrowIfNullOrEmpty(key);
         ArgumentNullException.ThrowIfNull(content);
 
-        using var buffer = new MemoryStream();
-        await content.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
-        _entries[key] = buffer.ToArray();
+        long? declaredLength =
+            content.CanSeek
+                ? content.Length - content.Position
+                : null;
+        byte[] bytes = await BoundedContentReader.ReadAllBytesAsync(
+            content,
+            MaxRetainedBytes,
+            declaredLength,
+            cancellationToken).ConfigureAwait(false);
+
+        lock (_retainedBytesLock)
+        {
+            long previousLength =
+                _entries.TryGetValue(key, out byte[]? previous)
+                    ? previous.LongLength
+                    : 0;
+            long nextRetained =
+                _retainedBytes - previousLength + bytes.LongLength;
+            if (nextRetained > MaxRetainedBytes)
+            {
+                throw new InvalidDataException(
+                    "The in-memory PDB store exceeds its retained-byte limit.");
+            }
+
+            _entries[key] = bytes;
+            _retainedBytes = nextRetained;
+        }
     }
 
     /// <inheritdoc />

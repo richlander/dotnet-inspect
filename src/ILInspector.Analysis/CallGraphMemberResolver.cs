@@ -212,7 +212,7 @@ public static class CallGraphMemberResolver
         var owner = CreateSelector(type, member);
         if (member.MetadataToken is int method)
         {
-            yield return new(member.Name, owner.Key, new(member, method));
+            yield return new(member.Name, owner.Key, new(type, member, method));
         }
 
         if (member.GetterToken is int getter)
@@ -225,7 +225,7 @@ public static class CallGraphMemberResolver
                 owner.ReturnType,
                 owner.StructuralParameterTypes,
                 owner.StructuralReturnType);
-            yield return new(selector.Name, selector.Key, new(member, getter));
+            yield return new(selector.Name, selector.Key, new(type, member, getter));
         }
 
         if (member.SetterToken is int setter)
@@ -238,7 +238,7 @@ public static class CallGraphMemberResolver
                 "System.Void",
                 owner.StructuralParameterTypes.Append(owner.StructuralReturnType),
                 "System.Void");
-            yield return new(selector.Name, selector.Key, new(member, setter));
+            yield return new(selector.Name, selector.Key, new(type, member, setter));
         }
 
         if (member.AdderToken is int adder)
@@ -251,7 +251,7 @@ public static class CallGraphMemberResolver
                 "System.Void",
                 [owner.StructuralReturnType],
                 "System.Void");
-            yield return new(selector.Name, selector.Key, new(member, adder));
+            yield return new(selector.Name, selector.Key, new(type, member, adder));
         }
 
         if (member.RemoverToken is int remover)
@@ -264,7 +264,7 @@ public static class CallGraphMemberResolver
                 "System.Void",
                 [owner.StructuralReturnType],
                 "System.Void");
-            yield return new(selector.Name, selector.Key, new(member, remover));
+            yield return new(selector.Name, selector.Key, new(type, member, remover));
         }
     }
 
@@ -506,7 +506,10 @@ public sealed record CallGraphMemberSelector(
     ImmutableArray<string> StructuralParameterTypes,
     string StructuralReturnType);
 
-public sealed record CallGraphMemberResolution(ApiMember Member, int BodyToken);
+public sealed record CallGraphMemberResolution(
+    ApiType Type,
+    ApiMember Member,
+    int BodyToken);
 
 public sealed record CallGraphMemberBodySelector(
     int BodyToken,
