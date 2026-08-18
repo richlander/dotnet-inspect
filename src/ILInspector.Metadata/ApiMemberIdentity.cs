@@ -858,11 +858,11 @@ public static class ApiMemberIdentity
     /// Persists <see cref="ApiMember.CanonicalSignature"/> for every member whose canonical
     /// (identity) spelling diverges from its display <see cref="ApiMember.Signature"/> — i.e.
     /// members carrying C# tuple syntax, whose element names and <c>(...)</c> spelling must
-    /// not leak into identity and cannot be recovered from the display text after a JSON
-    /// round-trip (<see cref="ApiMember.SignatureModel"/> is not serialized). Computed here,
-    /// while the structural model is live, so a round-tripped surface pairs with the same
-    /// members read live. Non-divergent (non-tuple) members are left untouched, keeping
-    /// their serialized form and digests unchanged.
+    /// not leak into identity and cannot be recovered from display text when an older or
+    /// abbreviated surface omits <see cref="ApiMember.SignatureModel"/>. Computed here
+    /// while the structural model is live, so every supported surface shape pairs with the
+    /// same members read live. Non-divergent (non-tuple) members are left untouched,
+    /// keeping their canonical-signature field and digests unchanged.
     /// </summary>
     public static void PopulateCanonicalIdentities(
         ApiSurface surface,
@@ -885,8 +885,8 @@ public static class ApiMemberIdentity
     static bool HasCanonicalDivergence(ApiMember member, ApiSignature signature)
     {
         // Persist canonical identity for any member whose display signature carries C#
-        // tuple syntax the text fallback cannot re-canonicalize after a JSON round-trip
-        // (SignatureModel is not serialized). Two divergence sources both require it:
+        // tuple syntax the text fallback cannot re-canonicalize when SignatureModel is
+        // absent. Two divergence sources both require it:
         //   * A tuple PARAMETER is part of the identity digest; its erased spelling and
         //     element names must not leak in and cannot be recovered from display text.
         //   * A tuple RETURN type is only part of the digest for conversion operators, but
@@ -1392,8 +1392,8 @@ public static class ApiMemberIdentity
         var memberName = member.Kind == "constructor"
             ? "#ctor"
             : ExtractMemberNameWithGeneric(signature, member.Name);
-        // Raw-signature fallback (used when SignatureModel is absent, e.g. after a JSON
-        // round-trip where SignatureModel is [JsonIgnore]). member.Signature is the
+        // Raw-signature fallback (used when SignatureModel is absent, e.g. an older
+        // serialized surface). member.Signature is the
         // display string and carries `dynamic`, so scrub it back to `object` for identity
         // exactly as the SignatureModel path does — otherwise a round-tripped member's
         // fingerprint diverges from the same member read live.
@@ -1410,7 +1410,7 @@ public static class ApiMemberIdentity
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
     {
         // See GetCanonicalSignature: a persisted canonical identity is authoritative and
-        // survives the JSON round-trip that discards SignatureModel.
+        // survives older or abbreviated surfaces that omit SignatureModel.
         if (!string.IsNullOrEmpty(member.CanonicalSignature))
         {
             canonicalSignature = member.CanonicalSignature!;
@@ -1443,9 +1443,8 @@ public static class ApiMemberIdentity
             // parameter signature. Ordinary (parameterless) properties are unaffected: their
             // canonical signature format is unchanged from before this check existed.
             //
-            // ApiSurface.SignatureModel is [JsonIgnore], so a JSON-round-tripped surface
-            // (a supported, tested scenario -- see FallbackCanonicalSignature_* tests) has
-            // no SignatureModel. Falling back to "" here would make a JSON-persisted
+            // Older serialized surfaces may have no SignatureModel. Falling back to ""
+            // here would make such a persisted
             // baseline's indexer canonical signature diverge from the same indexer read
             // live from the assembly, breaking pairing between the two. So when
             // SignatureModel is absent, parse the parameter list out of the raw

@@ -1,3 +1,5 @@
+using CSharpText;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -274,6 +276,13 @@ internal static class CSharpSpellability
                 $"method '{method.Name}' looks like a property/event accessor but accessor metadata was unavailable; explicit accessor calls have no C# spelling");
         }
 
+        if (IsUnverifiedOperatorLikeMethod(method))
+        {
+            return Issue(
+                DecompilerFidelityDiscriminators.OperatorMetadataUnavailable,
+                $"method '{method.Name}' has a C# operator name but defining metadata was unavailable; an explicit call has no C# spelling when the target is a genuine operator");
+        }
+
         // Check the metadata name as it stands, not a >g__ decode of it, ONLY when the
         // raising pass stamped this callee as declined. Decoding a declined call would
         // rate it Full on the strength of a source spelling that appears nowhere in the
@@ -328,6 +337,12 @@ internal static class CSharpSpellability
                 || method.Name.StartsWith("set_", StringComparison.Ordinal)
                 || method.Name.StartsWith("add_", StringComparison.Ordinal)
                 || method.Name.StartsWith("remove_", StringComparison.Ordinal));
+
+    static bool IsUnverifiedOperatorLikeMethod(MethodRef method)
+        => method.IsOperator == MetadataFactState.Unknown
+            && method.IsSpecialName
+            && OperatorNames.IsCSharpOperatorMethodName(method.Name)
+            && !MemberIdentity.IsKnownFrameworkOperator(method);
 
     // A local function name is emitted through CSharpNaming.EscapeIdentifier, so a
     // reserved keyword (e.g. return -> @return) is spellable; only a name with

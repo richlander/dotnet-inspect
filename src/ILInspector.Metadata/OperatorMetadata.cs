@@ -70,6 +70,8 @@ public static class OperatorMetadata
         {
             return false;
         }
+        if (HasUnrepresentableDeclaringKind(reader, declaringType))
+            return false;
         var declaringIdentity = OperatorSignatureType.ForDeclaringType(reader, declaringHandle);
         var selfConstrainedTypeParameters = SelfConstrainedTypeParameters(
             reader,
@@ -97,16 +99,32 @@ public static class OperatorMetadata
             var conversionSource = encodedConversionSource.WithoutByRef();
             var conversionTarget = signature.ReturnType.WithoutByRef();
             if (conversionSource.MatchesExactly(conversionTarget)
-                || IsKnownInterface(reader, conversionSource)
-                || IsKnownInterface(reader, conversionTarget)
                 || IsForbiddenNullableSelfConversion(
                     conversionSource,
                     conversionTarget,
+                    declaringIdentity))
+            {
+                return false;
+            }
+
+            if (!IsAllowedNullableSelfConversion(
+                    conversionSource,
+                    conversionTarget,
                     declaringIdentity)
-                || SameOrDerivedRelationship(reader, conversionSource, conversionTarget)
-                    == TypeRelationship.Yes
-                || SameOrDerivedRelationship(reader, conversionTarget, conversionSource)
-                    == TypeRelationship.Yes)
+                && (InterfaceRelationship(reader, conversionSource)
+                        != TypeRelationship.No
+                    || InterfaceRelationship(reader, conversionTarget)
+                        != TypeRelationship.No
+                    || SameOrDerivedRelationship(
+                            reader,
+                            conversionSource,
+                            conversionTarget)
+                        != TypeRelationship.No
+                    || SameOrDerivedRelationship(
+                            reader,
+                            conversionTarget,
+                            conversionSource)
+                        != TypeRelationship.No))
             {
                 return false;
             }
@@ -193,6 +211,38 @@ public static class OperatorMetadata
         return false;
     }
 
+    static bool IsAllowedNullableSelfConversion(
+        OperatorSignatureType source,
+        OperatorSignatureType target,
+        OperatorSignatureType declaringType)
+    {
+        if (source.IsNullable
+            && source.MatchesExactly(declaringType)
+            && source.TypeArguments is [var sourceUnderlying]
+            && sourceUnderlying.MatchesExactly(target))
+        {
+            return true;
+        }
+
+        return target.IsNullable
+            && target.MatchesExactly(declaringType)
+            && target.TypeArguments is [var targetUnderlying]
+            && targetUnderlying.MatchesExactly(source);
+    }
+
+    static bool HasUnrepresentableDeclaringKind(
+        MetadataReader reader,
+        TypeDefinition declaringType)
+    {
+        if (declaringType.BaseType.IsNil)
+            return false;
+
+        var baseType = ReadType(reader, declaringType.BaseType);
+        return IsTrustedSystemType(baseType, "Enum")
+            || IsTrustedSystemType(baseType, "Delegate")
+            || IsTrustedSystemType(baseType, "MulticastDelegate");
+    }
+
     // C# 11 permits an interface operator operand to be a type parameter only
     // when that parameter is constrained to the declaring interface (CS8924).
     // Merely being one of the interface's type parameters is insufficient.
@@ -254,7 +304,7 @@ public static class OperatorMetadata
     {
         if (candidate.MatchesExactly(requiredBase))
             return TypeRelationship.Yes;
-        if (IsKnownInterface(reader, requiredBase))
+        if (InterfaceRelationship(reader, requiredBase) == TypeRelationship.Yes)
             return TypeRelationship.No;
         if (IsKnownValueType(reader, requiredBase))
             return TypeRelationship.No;
@@ -303,18 +353,37 @@ public static class OperatorMetadata
         return TypeRelationship.Unknown;
     }
 
-    static bool IsKnownInterface(
+    static TypeRelationship InterfaceRelationship(
         MetadataReader reader,
         OperatorSignatureType type)
-        => type.Identity.Kind == HandleKind.TypeDefinition
-            && (reader.GetTypeDefinition((TypeDefinitionHandle)type.Identity).Attributes
-                & TypeAttributes.Interface) != 0;
+    {
+        if (IsKnownValueType(reader, type)
+            || IsTrustedSystemType(type, "Object")
+            || IsTrustedSystemType(type, "String")
+            || IsTrustedSystemType(type, "ValueType")
+            || IsTrustedSystemType(type, "Enum")
+            || IsTrustedSystemType(type, "Delegate")
+            || IsTrustedSystemType(type, "MulticastDelegate"))
+        {
+            return TypeRelationship.No;
+        }
+
+        if (type.Identity.Kind != HandleKind.TypeDefinition)
+            return TypeRelationship.Unknown;
+
+        return (reader.GetTypeDefinition((TypeDefinitionHandle)type.Identity).Attributes
+                & TypeAttributes.Interface) != 0
+            ? TypeRelationship.Yes
+            : TypeRelationship.No;
+    }
 
     static bool IsKnownValueType(
         MetadataReader reader,
         OperatorSignatureType type)
     {
         if (type.IsNullable)
+            return true;
+        if (type.HasValueTypeEncoding)
             return true;
         if (type.Identity.IsNil)
         {
@@ -342,9 +411,9 @@ public static class OperatorMetadata
 
     /// <summary>
     /// The only signature facts operator representability needs: whether a type
-    /// is void, by-ref, a type parameter, and which type definition or reference
-    /// it names. Decoding to this rather than to display text keeps the
-    /// declaring-type comparison structural.
+    /// is void, by-ref, a type parameter, carries an exact value-type encoding,
+    /// and which type definition or reference it names. Decoding to this rather
+    /// than to display text keeps the declaring-type comparison structural.
     /// </summary>
     internal readonly record struct OperatorSignatureType(
         bool IsVoid,
@@ -353,6 +422,7 @@ public static class OperatorMetadata
         int TypeParameterIndex,
         EntityHandle Identity,
         bool IsTrustedCoreLibraryType,
+        bool HasValueTypeEncoding,
         string? Namespace,
         string? Name,
         bool IsNullable,
@@ -376,6 +446,7 @@ public static class OperatorMetadata
                 TypeParameterIndex: -1,
                 handle,
                 ApiSurfaceExtractor.IsCoreLibraryAssemblyDefinition(reader),
+                HasValueTypeEncoding: false,
                 reader.GetString(definition.Namespace),
                 reader.GetString(definition.Name),
                 IsNullable: false,
@@ -398,6 +469,7 @@ public static class OperatorMetadata
                         true,
                         parameter.Index,
                         default,
+                        false,
                         false,
                         null,
                         null,
@@ -504,17 +576,20 @@ public static class OperatorMetadata
     {
         public static readonly OperatorSignatureTypeProvider Instance = new();
 
-        internal static OperatorSignatureType Opaque => new(false, false, false, -1, default, false, null, null, false, false, []);
+        internal static OperatorSignatureType Opaque => new(false, false, false, -1, default, false, false, null, null, false, false, []);
         public OperatorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode == PrimitiveTypeCode.Void
-                ? new OperatorSignatureType(true, false, false, -1, default, true, "System", "Void", false, false, [])
-                : new OperatorSignatureType(false, false, false, -1, default, true, "System", typeCode.ToString(), false, false, []);
+                ? new OperatorSignatureType(true, false, false, -1, default, true, false, "System", "Void", false, false, [])
+                : new OperatorSignatureType(false, false, false, -1, default, true, true, "System", typeCode.ToString(), false, false, []);
 
         public OperatorSignatureType GetTypeFromDefinition(
             MetadataReader reader,
             TypeDefinitionHandle handle,
             byte rawTypeKind)
-            => OperatorSignatureType.ForDefinition(reader, handle);
+            => OperatorSignatureType.ForDefinition(reader, handle) with
+            {
+                HasValueTypeEncoding = rawTypeKind == (byte)SignatureTypeKind.ValueType,
+            };
 
         public OperatorSignatureType GetTypeFromReference(
             MetadataReader reader,
@@ -531,6 +606,7 @@ public static class OperatorMetadata
                 ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
                     reader,
                     reference.ResolutionScope),
+                rawTypeKind == (byte)SignatureTypeKind.ValueType,
                 reader.GetString(reference.Namespace),
                 reader.GetString(reference.Name),
                 false,
@@ -551,7 +627,7 @@ public static class OperatorMetadata
             => Opaque;
 
         public OperatorSignatureType GetByReferenceType(OperatorSignatureType elementType)
-            => new(false, true, false, -1, default, false, null, null, false, false, [elementType]);
+            => new(false, true, false, -1, default, false, false, null, null, false, false, [elementType]);
 
         public OperatorSignatureType GetPointerType(OperatorSignatureType elementType) => Opaque;
 
@@ -571,10 +647,10 @@ public static class OperatorMetadata
             };
 
         public OperatorSignatureType GetGenericMethodParameter(object? genericContext, int index)
-            => new(false, false, true, index, default, false, null, null, false, false, []);
+            => new(false, false, true, index, default, false, false, null, null, false, false, []);
 
         public OperatorSignatureType GetGenericTypeParameter(object? genericContext, int index)
-            => new(false, false, true, index, default, false, null, null, false, false, []);
+            => new(false, false, true, index, default, false, false, null, null, false, false, []);
 
         public OperatorSignatureType GetModifiedType(
             OperatorSignatureType modifier,

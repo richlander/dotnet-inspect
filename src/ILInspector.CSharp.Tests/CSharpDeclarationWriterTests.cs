@@ -1420,6 +1420,86 @@ public sealed class CSharpDeclarationWriterTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void MemberDeclaration_PreservesMatchingOperatorPairAcrossJsonRoundTrip()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                OperatorMember("op_Equality", null, "Samples.Widget"),
+                OperatorMember("op_Inequality", null, "Samples.Widget"),
+            ],
+        };
+
+        var roundTripped = JsonSerializer.Deserialize<ApiType>(
+            JsonSerializer.Serialize(type))!;
+        var equality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Equality");
+        var inequality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Inequality");
+
+        Assert.NotNull(equality.SignatureModel);
+        Assert.NotNull(inequality.SignatureModel);
+        Assert.Contains(
+            " operator ==",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, equality),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " operator !=",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, inequality),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberDeclaration_PreservesMismatchedOperatorPairAcrossJsonRoundTrip()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                OperatorMember("op_Equality", null, "Samples.Widget"),
+                OperatorMember("op_Inequality", null, "Samples.Other"),
+            ],
+        };
+
+        var roundTripped = JsonSerializer.Deserialize<ApiType>(
+            JsonSerializer.Serialize(type))!;
+        var equality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Equality");
+        var inequality = Assert.Single(
+            roundTripped.Members,
+            member => member.Name == "op_Inequality");
+
+        Assert.NotNull(equality.SignatureModel);
+        Assert.NotNull(inequality.SignatureModel);
+        Assert.Contains(
+            " op_Equality(",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, equality),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            " op_Inequality(",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, inequality),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            " operator ==",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, equality),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            " operator !=",
+            CSharpDeclarationWriter.RenderMemberDeclaration(roundTripped, inequality),
+            StringComparison.Ordinal);
+    }
+
     static ApiMember OperatorMember(
         string name,
         string? firstParameterModifier,

@@ -577,6 +577,44 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void CSharpOperatorDeclaration_RejectsUnresolvedExternalInterfaceConversion()
+    {
+        using var image = OperatorImage.Build(builder =>
+        {
+            var method = builder.DefineMethod(
+                "op_Explicit",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                typeof(IDisposable),
+                [builder]);
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Ret);
+        });
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Explicit"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsUnresolvedTransitiveBaseConversion()
+    {
+        using var image = OperatorImage.Build(
+            builder =>
+            {
+                var method = builder.DefineMethod(
+                    "op_Implicit",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    typeof(Stream),
+                    [builder]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+            },
+            parent: typeof(MemoryStream));
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Implicit"));
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_AcceptsExternalConversionEndpoints()
     {
         using var image = OperatorImage.Build(builder =>
@@ -654,6 +692,81 @@ public sealed class OperatorApiSurfaceTests
             TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
 
         Assert.False(image.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsEnumDeclaringType()
+    {
+        using var image = OperatorImage.Build(
+            builder =>
+            {
+                builder.DefineField(
+                    "value__",
+                    typeof(int),
+                    FieldAttributes.Public
+                        | FieldAttributes.SpecialName
+                        | FieldAttributes.RTSpecialName);
+                var method = builder.DefineMethod(
+                    "op_Addition",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    builder,
+                    [builder, builder]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ret);
+            },
+            "OperatorEnum",
+            TypeAttributes.Public | TypeAttributes.Sealed,
+            typeof(Enum));
+
+        var member = Assert.Single(image.Members, candidate => candidate.Name == "op_Addition");
+        Assert.Equal("operator", member.Kind);
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Addition"));
+        Assert.False(member.CSharpOperatorDeclaration);
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsDelegateDeclaringType()
+    {
+        using var image = OperatorImage.Build(
+            builder =>
+            {
+                var constructor = builder.DefineConstructor(
+                    MethodAttributes.Public
+                        | MethodAttributes.HideBySig
+                        | MethodAttributes.SpecialName
+                        | MethodAttributes.RTSpecialName,
+                    CallingConventions.Standard,
+                    [typeof(object), typeof(IntPtr)]);
+                constructor.SetImplementationFlags(
+                    MethodImplAttributes.Runtime | MethodImplAttributes.Managed);
+                var invoke = builder.DefineMethod(
+                    "Invoke",
+                    MethodAttributes.Public
+                        | MethodAttributes.HideBySig
+                        | MethodAttributes.NewSlot
+                        | MethodAttributes.Virtual,
+                    typeof(int),
+                    [typeof(int)]);
+                invoke.SetImplementationFlags(
+                    MethodImplAttributes.Runtime | MethodImplAttributes.Managed);
+                var method = builder.DefineMethod(
+                    "op_Addition",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    builder,
+                    [builder, builder]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ret);
+            },
+            "OperatorDelegate",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed,
+            typeof(MulticastDelegate));
+
+        var member = Assert.Single(image.Members, candidate => candidate.Name == "op_Addition");
+        Assert.Equal("operator", member.Kind);
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Addition"));
+        Assert.False(member.CSharpOperatorDeclaration);
     }
 
     [Fact]

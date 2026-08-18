@@ -376,7 +376,7 @@ public sealed partial class CSharpPrinter
     /// brace block. The single-statement shape is structural (the emitted
     /// top-level statement list plus the lifts the printer already tracked), never
     /// a re-parse of the rendered text: because the body is exactly one statement
-    /// with no lifted declarations, its whole printed form is that one
+    /// with no lifted declarations or statement-local preludes, its whole printed form is that one
     /// <c>&lt;expr&gt;;</c>, so folding it to <c>head =&gt; &lt;expr&gt;;</c> is a
     /// language-guaranteed equivalence. The only text-derived input is whether
     /// that statement actually wrapped: a single-line body already folds on the
@@ -405,18 +405,21 @@ public sealed partial class CSharpPrinter
     /// leading local declaration (a <c>stackalloc</c>-to-pointer return inside an
     /// <c>unsafe</c> block) prints a decl first, not a bare <c>return </c>, so the
     /// keyword prefix keeps the flag off.</item>
-    /// <item>A single <see cref="ExpressionStatement"/> has no leading-decl lift
-    /// path, so its whole printed form is that one statement — but under the new
-    /// memory-safety rules the printer may wrap a lone unsafe statement as
+    /// <item>A statement that emitted a typed prelude (for example the synthetic
+    /// receiver local required by a C# 14 instance compound assignment) is
+    /// excluded before the text check: one IR statement printed as multiple C#
+    /// statements cannot become an expression-bodied member.</item>
+    /// <item>An otherwise single <see cref="ExpressionStatement"/> may still be
+    /// wrapped under the new memory-safety rules as
     /// <c>unsafe { &lt;stmt&gt;; }</c>, whose printed form ends in <c>}</c>, not
     /// <c>;</c>. The trailing-<c>;</c> guard keeps the flag off for that wrapper
     /// (the extractor rejects it too), so no keyword prefix is needed to
     /// discriminate the un-wrapped case.</item>
     /// </list>
     /// </summary>
-    static bool IsFoldableSingleStatement(IReadOnlyList<IrNode> statements, string output)
+    bool IsFoldableSingleStatement(IReadOnlyList<IrNode> statements, string output)
     {
-        if (statements is not [var only])
+        if (statements is not [var only] || _statementsWithLiftedPrelude.Contains(only))
             return false;
         var trimmed = output.AsSpan().Trim();
         if (!trimmed.Contains('\n') || trimmed[^1] != ';')
@@ -518,6 +521,17 @@ public sealed partial class CSharpPrinter
     /// </summary>
     readonly List<IrNode> _topLevelStatements = [];
     bool _topLevelHasLabel;
+
+    /// <summary>
+    /// IR statements whose printer path emitted a leading C# statement before
+    /// the statement's primary spelling. The range-map start override is the
+    /// typed emission invariant for this shape: receiver and stackalloc
+    /// materialization set it exactly when one IR statement expands into
+    /// multiple C# statements. A top-level member containing one such node is
+    /// not a single-expression body. The member-level compile gate is
+    /// <c>CSharpPrinterReceiverTests.InlinedReceiver_InstanceAssignment_WholeMemberStaysBlockAndCompiles</c>.
+    /// </summary>
+    readonly HashSet<IrNode> _statementsWithLiftedPrelude = [];
 
     /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
     readonly HashSet<int> _fixedLocals = [];
@@ -1819,7 +1833,9 @@ public sealed partial class CSharpPrinter
     {
         if (_printedRanges is null)
         {
-            AppendStatementCore(sb, node, indent, out _);
+            AppendStatementCore(sb, node, indent, out int? liftedStartOverride);
+            if (liftedStartOverride is not null)
+                _statementsWithLiftedPrelude.Add(node);
             return;
         }
         int start = sb.Length;
@@ -1833,6 +1849,8 @@ public sealed partial class CSharpPrinter
         try
         {
             AppendStatementCore(sb, node, indent, out statementStartOverride);
+            if (statementStartOverride is not null)
+                _statementsWithLiftedPrelude.Add(node);
             contextRanges = _contextRanges;
             contextualExpressions = _contextualExpressions;
         }

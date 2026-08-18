@@ -802,10 +802,9 @@ public static class ApiSurfaceExtractor
                     SignatureDecodeStatus = signature.IsDegraded
                         ? SignatureDecodeStatus.Degraded
                         : null,
-                    // Conversion operators overload on return type. SignatureModel is
-                    // [JsonIgnore], so persist the return type on the serialized member
-                    // too, letting the canonical-signature fallback disambiguate them on a
-                    // round-tripped ApiSurface (where SignatureModel is gone).
+                    // Conversion operators overload on return type. Persist it on the
+                    // member too so older or abbreviated surfaces without SignatureModel
+                    // retain the canonical-signature fallback.
                     ReturnType = ApiMemberIdentity.IsConversionOperator(methodName) ? signature.Model?.ReturnType : null,
                     MetadataToken = MetadataTokens.GetToken(methodHandle),
                     IsUnsafe = HasUnsafeSignature(signature.Text)

@@ -320,9 +320,9 @@ public sealed class DynamicTypeViewTests
         Assert.DoesNotContain("dynamic", canonical);
     }
 
-    // --- Identity must survive a JSON round-trip (SignatureModel is [JsonIgnore],
-    //     so identity falls back to parsing the raw display signature, which carries
-    //     `dynamic`; the fallback must scrub it to `object` exactly like the live path). ---
+    // --- Identity must survive both current JSON and legacy model-less surfaces.
+    //     The fallback parses the raw display signature, which carries `dynamic`,
+    //     and must scrub it to `object` exactly like the live path. ---
 
     [Fact]
     public void Identity_DynamicParam_CanonicalStableAcrossJsonRoundTrip()
@@ -336,7 +336,8 @@ public sealed class DynamicTypeViewTests
         var rtType = roundTripped.Types.First(t => t.Name == nameof(DynamicSampleClass));
         var rtMember = rtType.Members.First(m =>
             m.Name == nameof(DynamicSampleClass.TakesDynamic) && m.Kind == "method");
-        Assert.Null(rtMember.SignatureModel);
+        Assert.NotNull(rtMember.SignatureModel);
+        rtMember.SignatureModel = null; // Exercise the legacy raw-signature fallback.
 
         var rtCanonical = ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember);
         Assert.DoesNotContain("dynamic", rtCanonical);
@@ -359,7 +360,8 @@ public sealed class DynamicTypeViewTests
         var rtIndexer = rtType.Members.First(m =>
             m.Kind == "property" && m.Signature != null
             && m.Signature.Contains("this[", StringComparison.Ordinal));
-        Assert.Null(rtIndexer.SignatureModel);
+        Assert.NotNull(rtIndexer.SignatureModel);
+        rtIndexer.SignatureModel = null; // Exercise the legacy raw-signature fallback.
 
         var rtCanonical = ApiMemberIdentity.GetCanonicalSignature(rtType, rtIndexer);
         Assert.DoesNotContain("dynamic", rtCanonical);

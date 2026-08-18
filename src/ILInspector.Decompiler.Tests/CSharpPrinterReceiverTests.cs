@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection.PortableExecutable;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -443,8 +445,10 @@ public sealed class CSharpPrinterReceiverTests
     [Fact]
     public void InlinedReceiver_InstanceAssignment_IsMaterializedIntoALocal()
     {
-        string body = PrintFixture(nameof(InstanceAssignmentFixtures.InlinedReceiver));
+        var result = PrintFixtureResult(nameof(InstanceAssignmentFixtures.InlinedReceiver));
+        string body = result.Output!.TrimEnd();
 
+        Assert.False(result.BodyIsSingleExpressionBody);
         Assert.DoesNotContain("Create() +=", body);
         Assert.Contains("InstanceAssignmentBox __receiver = InstanceAssignmentBoxFactory.Create();", body);
         Assert.Contains("__receiver += 1;", body);
@@ -452,6 +456,33 @@ public sealed class CSharpPrinterReceiverTests
             1,
             body.Split("InstanceAssignmentBoxFactory.Create()").Length - 1);
         AssertCompiles("public static void M()", Indent(body), InstanceAssignmentDeclarations);
+    }
+
+    [Fact]
+    public void InlinedReceiver_InstanceAssignment_WholeMemberStaysBlockAndCompiles()
+    {
+        string assemblyPath = typeof(InstanceAssignmentFixtures).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate => candidate.FullName == typeof(InstanceAssignmentFixtures).FullName);
+        var member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(InstanceAssignmentFixtures.InlinedReceiver));
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            member,
+            assemblyPath,
+            pdbPath: null,
+            attributeMode: MemberRenderAttributeMode.CompilationRequired);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        string declaration = rendered.Text!.ReplaceLineEndings("\n");
+        Assert.Contains("InlinedReceiver()\n    {", declaration, StringComparison.Ordinal);
+        Assert.DoesNotContain("InlinedReceiver() =>", declaration, StringComparison.Ordinal);
+        Assert.Contains("InstanceAssignmentBox __receiver =", declaration, StringComparison.Ordinal);
+        AssertMemberCompiles(declaration, rendered.Namespaces);
     }
 
     [Fact]
@@ -491,6 +522,9 @@ public sealed class CSharpPrinterReceiverTests
         """;
 
     static string PrintFixture(string methodName)
+        => PrintFixtureResult(methodName).Output!.TrimEnd();
+
+    static DecompilerResult PrintFixtureResult(string methodName)
     {
         using var source = MetadataSource.Open(
             typeof(InstanceAssignmentFixtures).Assembly.Location);
@@ -499,7 +533,7 @@ public sealed class CSharpPrinterReceiverTests
             typeof(InstanceAssignmentFixtures).FullName!,
             methodName);
         Assert.NotNull(function);
-        return CSharpPrinter.PrintRaised(function!, out _).Output!.TrimEnd();
+        return CSharpPrinter.PrintRaised(function!, out _);
     }
 
     static string Indent(string body)
@@ -536,6 +570,41 @@ public sealed class CSharpPrinterReceiverTests
             RuntimeReferences(),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
         return compilation.GetDiagnostics();
+    }
+
+    static void AssertMemberCompiles(string declaration, IReadOnlyList<string> namespaces)
+    {
+        string imports = string.Join(
+            "\n",
+            namespaces
+                .Where(ns => !string.IsNullOrWhiteSpace(ns))
+                .Distinct(StringComparer.Ordinal)
+                .Select(ns => $"using {ns};"));
+        string source = $$"""
+            {{imports}}
+            public static class __Gate
+            {
+            {{declaration}}
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var references = RuntimeReferences().Add(
+            MetadataReference.CreateFromFile(typeof(InstanceAssignmentFixtures).Assembly.Location));
+        var compilation = CSharpCompilation.Create(
+            "__member_gate",
+            [tree],
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        var errors = compilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Select(diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}")
+            .ToArray();
+        Assert.True(
+            errors.Length == 0,
+            "Rendered member must compile, got:\n  "
+                + string.Join("\n  ", errors)
+                + "\n--- member ---\n"
+                + declaration);
     }
 
     static ImmutableArray<MetadataReference> RuntimeReferences()

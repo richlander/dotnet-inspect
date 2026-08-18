@@ -543,8 +543,10 @@ public class ApiSignature
     public List<ApiParameter> Parameters { get; set; } = [];
     public List<ApiAccessor> Accessors { get; set; } = [];
 
+    [JsonIgnore]
     public int ParameterCount => Parameters.Count;
 
+    [JsonIgnore]
     public string ParameterTypesSummary => Parameters.Count == 0
         ? ""
         : $"({string.Join(", ", Parameters.Select(parameter => parameter.TypeWithModifier))})";
@@ -556,6 +558,7 @@ public class ApiSignature
     /// <c>(int count, string name)</c>). For members with no tuple parameters this equals
     /// <see cref="ParameterTypesSummary"/> character-for-character.
     /// </summary>
+    [JsonIgnore]
     public string CanonicalParameterTypesSummary => Parameters.Count == 0
         ? ""
         : $"({string.Join(", ", Parameters.Select(parameter => parameter.CanonicalTypeWithModifier))})";
@@ -564,13 +567,16 @@ public class ApiSignature
     /// The canonical (tuple-erased) return-type spelling used for identity; falls back to
     /// <see cref="ReturnType"/> when a canonical spelling was not recorded.
     /// </summary>
+    [JsonIgnore]
     public string? EffectiveCanonicalReturnType =>
         string.IsNullOrEmpty(CanonicalReturnType) ? ReturnType : CanonicalReturnType;
 
+    [JsonIgnore]
     public List<(string name, string type, bool hasDefault)> ParameterInfoSummary => Parameters
         .Select(parameter => (parameter.Name, parameter.TypeWithModifier, parameter.HasDefault))
         .ToList();
 
+    [JsonIgnore]
     public string PublicAccessorsSummary => string.Join(", ",
         Accessors
             .Where(accessor => string.IsNullOrEmpty(accessor.Accessibility))
@@ -587,6 +593,7 @@ public class ApiParameter
     public bool HasDefault { get; set; }
     public string? DefaultValueText { get; set; }
 
+    [JsonIgnore]
     public string TypeWithModifier => string.IsNullOrEmpty(Modifier)
         ? Type
         : $"{Modifier} {Type}";
@@ -596,11 +603,13 @@ public class ApiParameter
     /// canonical spelling was not recorded, so a non-tuple parameter's canonical spelling
     /// equals its display spelling.
     /// </summary>
+    [JsonIgnore]
     public string EffectiveCanonicalType =>
         string.IsNullOrEmpty(CanonicalType) ? Type : CanonicalType!;
 
     /// <summary>Canonical type composed with its by-ref/params modifier, mirroring
     /// <see cref="TypeWithModifier"/> but tuple-erased for identity.</summary>
+    [JsonIgnore]
     public string CanonicalTypeWithModifier => string.IsNullOrEmpty(Modifier)
         ? EffectiveCanonicalType
         : $"{Modifier} {EffectiveCanonicalType}";
@@ -747,8 +756,8 @@ public class ApiMember
     public List<string> Attributes { get; set; } = [];
 
     /// <summary>
-    /// Display spelling of the member's type. Deliberately raw: after a JSON
-    /// round-trip <see cref="SignatureModel"/> is absent, and
+    /// Display spelling of the member's type. Deliberately raw: an older
+    /// serialized surface may omit <see cref="SignatureModel"/>, and
     /// <c>ApiMemberIdentity.GetCanonicalSignature</c> falls back to parsing
     /// <see cref="Signature"/> to rebuild canonical identity — so containing it
     /// here would make a round-tripped member's identity diverge from the same
@@ -775,15 +784,24 @@ public class ApiMember
     /// at extraction when it diverges from what parsing the display
     /// <see cref="Signature"/> would yield — i.e. for members whose signature contains C#
     /// tuple syntax, whose element names and <c>(...)</c> spelling must not leak into
-    /// identity and cannot be recovered from the display text after a JSON round-trip
-    /// (<see cref="SignatureModel"/> is <see cref="JsonIgnoreAttribute"/>) — and also filled
+    /// identity and cannot be recovered from the display text when the structured
+    /// signature is unavailable — and also filled
     /// in for the type/member JSON output so consumers get durable identity without a side
     /// call. Omitted when null.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? CanonicalSignature { get; set; }
 
-    [JsonIgnore]
+    /// <summary>
+    /// Structured signature facts used by declaration, identity, and pairing
+    /// consumers. Persisted so a JSON round-trip cannot erase parameter and
+    /// return-type identity and force consumers back to display-text inference.
+    /// Null remains supported for older surfaces and deliberately abbreviated
+    /// projections.
+    /// <c>ApiOutputFormatterTests.ApiTypeJson_PersistsStructuredSignatureModel</c>
+    /// gates both source-generated JSON projections.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ApiSignature? SignatureModel { get; set; }
 
     /// <summary>

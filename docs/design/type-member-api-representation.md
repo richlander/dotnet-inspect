@@ -78,6 +78,11 @@ of repeated in every row.
 `ApiMember.CSharpOperatorDeclaration` persists metadata's structural
 representability proof. Declaration consumers must not replace that proof after
 a JSON round-trip by inferring declaring-type participation from display text.
+`ApiMember.SignatureModel` likewise persists parameter and return-type structure;
+required operator pairs and other declaration consumers compare that model
+rather than treating missing structure as a wildcard.
+`ApiOutputFormatterTests.ApiTypeJson_PersistsStructuredSignatureModel` and the
+operator-pair JSON tests in `CSharpDeclarationWriterTests` gate this contract.
 
 #### `DotnetInspector.Queries`
 
@@ -291,7 +296,7 @@ Find your question here; the shape census below says what to use.
 | 7 | "Show a type to a human or an agent." | Display | `TypeNode.Render()` or the owning output projection |
 | 8 | "Look a type up in XML documentation." | Projection | XML-doc id projection — *not* the identity digest |
 | 9 | "Round-trip a declaration plus its body through compile-back." | Fidelity | Metadata/CSharp typed shell and printer for the declaration; Decompiler body production for supported body/codegen shapes |
-| 10 | "Survive a JSON round-trip." | Persistence | A persisted projection key on `ApiMember` |
+| 10 | "Survive a JSON round-trip." | Persistence | Persisted `ApiMember` structural facts plus its canonical projection key |
 
 Scenarios 1 through 5 are the ones most often conflated. Selection, lookup,
 resolution, correspondence, and durable location want different shapes:

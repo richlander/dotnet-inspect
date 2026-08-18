@@ -76,8 +76,10 @@ as separate model-free helpers:
   both questions from metadata handles for producers holding SRM evidence.
   Interface and base/derived conversion exclusions use relationships proven
   inside that image. The SRM-only classifier does not open external endpoint
-  assemblies, so an unresolved external relationship does not by itself demote
-  otherwise compiler-shaped operator metadata.
+  assemblies, so it fails closed when an external interface or inheritance
+  relationship cannot be disproved from local signature and hierarchy facts.
+  `OperatorApiSurfaceTests` gates the unresolved-interface,
+  transitive-inheritance, enum/delegate, and valid external-endpoint cases.
 
 Declaration rendering, decompiler raising (`MethodRef.IsOperator`), and
 Return-to-Sender closure use the C# proof, because each of them turns the answer
@@ -85,6 +87,12 @@ into C# operator *syntax*. Metadata that satisfies the first question but not
 the second — a private operator, a binary operator whose declaring type is
 neither operand, a `void`-returning one — stays an ordinary method there rather
 than becoming invalid or semantics-changing C#.
+An unresolved cross-assembly `op_*` call also stays explicit rather than
+guessing operator syntax; because a genuine operator cannot be called
+explicitly in C#, the decompiler marks that output Partial until the defining
+metadata proves either the operator or ordinary-method identity.
+`CrossAssemblyMethodFactsTests` gates both dependency-present identities and
+the dependency-absent degradation.
 
 The operator answer is also an identity fact. `ApiMemberIdentity` reads it from
 the `SpecialName` flag, and body identity must agree or an implementation diff

@@ -88,9 +88,13 @@ public class CrossAssemblyMethodFactsTests
         using var fixture = CrossAssemblyFixture.Create();
         using var source = MetadataSource.Open(fixture.ConsumerPath);
 
-        string addition = Print(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeAddition));
-        string conversion = Print(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeImplicit));
+        var additionResult = PrintResult(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeAddition));
+        var conversionResult = PrintResult(source, nameof(CrossAssemblyFixtureMethods.UseOperatorLikeImplicit));
+        string addition = additionResult.Output ?? "";
+        string conversion = conversionResult.Output ?? "";
 
+        Assert.Equal(DecompilationFidelity.Full, additionResult.Fidelity);
+        Assert.Equal(DecompilationFidelity.Full, conversionResult.Fidelity);
         Assert.Contains(".op_Addition(left, right)", addition);
         Assert.DoesNotContain("left + right", addition);
         Assert.Contains(".op_Implicit(value)", conversion);
@@ -103,10 +107,63 @@ public class CrossAssemblyMethodFactsTests
         using var fixture = CrossAssemblyFixture.Create();
         using var source = MetadataSource.Open(fixture.ConsumerPath);
 
-        string output = Print(source, nameof(CrossAssemblyFixtureMethods.UseRealOperator));
+        var result = PrintResult(source, nameof(CrossAssemblyFixtureMethods.UseRealOperator));
+        string output = result.Output ?? "";
 
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         Assert.Contains("left + right", output);
         Assert.DoesNotContain("op_Addition", output);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(CrossAssemblyFixtureMethods.UseRealOperator),
+        "op_Addition",
+        ".op_Addition(left, right)",
+        "left + right")]
+    [InlineData(
+        nameof(CrossAssemblyFixtureMethods.UseOperatorLikeAddition),
+        "op_Addition",
+        ".op_Addition(left, right)",
+        "left + right")]
+    [InlineData(
+        nameof(CrossAssemblyFixtureMethods.UseOperatorLikeImplicit),
+        "op_Implicit",
+        ".op_Implicit(value)",
+        "return (int)value;")]
+    public void MissingCrossAssemblyOperatorMetadata_StaysExplicitAndDegrades(
+        string methodName,
+        string calleeName,
+        string expected,
+        string forbidden)
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            TestAssemblyReferenceResolvers.None);
+        var function = ImportFunction(source, methodName);
+        var call = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            candidate => candidate.Callee.Name == calleeName);
+
+        Assert.Equal(MetadataFactState.Unknown, call.Callee.IsOperator);
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains(expected, result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(forbidden, result.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            FidelityRemarks.Collect(function),
+            remark => remark.Code == DiagnosticIds.UnrepresentableMetadataName
+                && remark.Reason.Contains(
+                    "defining metadata was unavailable",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            FidelityRemarks.CollectCauses(function),
+            cause => cause.Discriminator
+                == DecompilerFidelityDiscriminators.OperatorMetadataUnavailable);
     }
 
     [Fact]
@@ -214,9 +271,12 @@ public class CrossAssemblyMethodFactsTests
     }
 
     static string Print(MetadataSource source, string methodName)
+        => PrintResult(source, methodName).Output ?? "";
+
+    static DecompilerResult PrintResult(MetadataSource source, string methodName)
     {
         var function = ImportFunction(source, methodName);
-        return CSharpPrinter.Print(function).Output ?? "";
+        return CSharpPrinter.Print(function);
     }
 
     static void AssertCallRefKind(MetadataSource source, string methodName, string calleeName, ArgumentRefKind expected)
