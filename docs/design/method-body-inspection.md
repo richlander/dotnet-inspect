@@ -198,10 +198,24 @@ Owns metadata-local method-body facts:
 - MethodDef token and overload resolution
 - instruction context
 - exception regions
-- SourceLink/source-line coordinate resolution
-- original-source body/slice acquisition helper APIs
+- portable-PDB document names, checksums, and sequence-point coordinates
 
 It stays SRM-only and does not load inspected assemblies.
+
+### `DotnetInspector.Services` / `ILInspector.SourceLink`
+
+Owns PDB-source acquisition and verification:
+
+- host-authorized local or SourceLink source acquisition
+- portable-PDB checksum verification
+- exact member/type body slicing
+
+It consumes Metadata-owned PDB document and coordinate facts without making
+Metadata own textual C#. `PdbSourceAcquisitionTests.FromContent_VerifiedSourceProducesCompleteLineCensus`,
+`PdbSourceAcquisitionTests.FromContent_UsesSequencePointEvidenceToSelectAConditionalMember`,
+and
+`AssemblyContextSourceQueryTests.LocalPdbSource_DoesNotRequireSourceLinkMap`
+gate that boundary.
 
 ### `ILInspector.Analysis`
 

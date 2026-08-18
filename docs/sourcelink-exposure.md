@@ -77,7 +77,7 @@ Selected member output already exposes source evidence:
 
 | Section | Purpose |
 | --- | --- |
-| `PDB Source` | SourceLink-backed, portable-PDB-checksum-verified source text for one selected overload |
+| `PDB Source` | Portable-PDB-selected, checksum-verified source text acquired locally or through SourceLink for one selected overload |
 | `Source Locations` | file/URL/line rows for a member group or selected signature |
 | `Decompiled Source` | readable C# reconstructed from IL |
 | `Annotated Source` | C# plus hidden-fact comments and IL evidence |

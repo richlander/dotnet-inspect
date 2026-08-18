@@ -28,8 +28,8 @@ family.
   wording.
 - `ResearchComparison.RetainedComparisons` keeps the native
   `FindingComparison<CSharpCanonicalLine>` and
-  `FindingComparison<CanonicalIlOperation>` envelopes when requested. Authored
-  Source comparisons retain `FindingComparison<string>` with the `text.line`
+  `FindingComparison<CanonicalIlOperation>` envelopes when requested. PDB Source
+  comparisons retain `FindingComparison<string>` with the `text.line`
   descriptor. Research
   cross-checks their exactness against the richer semantic projections for
   members present on both sides. A disagreement is retained as a per-member
