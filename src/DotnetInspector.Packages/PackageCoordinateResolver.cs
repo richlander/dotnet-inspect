@@ -317,7 +317,8 @@ public static class PackageCoordinateResolver
                 includePrerelease,
                 log,
                 useVersionCache,
-                cancellationToken).ConfigureAwait(false);
+                requireCompleteSources: true,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         if (hasIncompleteMetadata)
         {
             return new PackageVersionListingResult.Unavailable(

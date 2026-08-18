@@ -344,6 +344,10 @@ gates the platform-owned public diagnostic boundary while retaining package
 detail in host logging, and
 `RealizedPlatformCoordinate_ReacquiresRecordedProducer` gates exact
 producer-bound transport.
+`FloatingPlatformMember_MixedMalformedCriticalResourceIsUnavailable` prevents
+a valid service-index sibling from masking a malformed critical resource, and
+`PackageCoordinateResolverTests.FloatingCoordinate_SkipsNonHttpSource` gates
+the same non-HTTP exclusion for floating package members.
 Portable-PDB acquisition now follows the same content-shaped boundary:
 `AcquiredPortablePdb` opens repeatable content from a host-supplied `IPdbStore`,
 and `PdbAcquisitionService` can load it for a pathless

@@ -566,6 +566,50 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task FloatingPlatformMember_MixedMalformedCriticalResourceIsUnavailable()
+    {
+        var handler = new PerFeedHandler();
+        handler.List(
+            FeedA,
+            RuntimePackPackageId,
+            RuntimePackVersion);
+        handler.AddMalformedFlatContainerSibling(FeedB);
+        using var client = new HttpClient(handler);
+        var store = new CountingPackageStore(
+            new InMemoryPackageStore());
+        using var workspace = new InspectionWorkspace();
+        var authorization = new PerPackageAuthorization
+        {
+            [RuntimePackPackageId] = [FeedA, FeedB],
+        };
+
+        var failed = Failed(
+            await WorkspaceContextLoader.LoadAsync(
+                workspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform("runtime"),
+                    ],
+                },
+                Options(
+                    client,
+                    store,
+                    sourceAuthorization: authorization),
+                TestContext.Current.CancellationToken));
+
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(failed.Failures);
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.PlatformPackUnavailable,
+            failure.Kind);
+        Assert.Equal(0, store.Interactions);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public async Task FloatingPlatformMember_AuthoritativeAbsenceDoesNotHideReporter()
     {
         var store = new InMemoryPackageStore();
@@ -3729,6 +3773,8 @@ public sealed class WorkspaceContextLoaderTests
             new(StringComparer.Ordinal);
         readonly HashSet<string> _withoutFlatContainer =
             new(StringComparer.Ordinal);
+        readonly HashSet<string> _malformedFlatContainerSiblings =
+            new(StringComparer.Ordinal);
         readonly List<string> _requests = [];
 
         internal IReadOnlyList<string> Requests
@@ -3771,6 +3817,10 @@ public sealed class WorkspaceContextLoaderTests
         internal void WithoutFlatContainer(PackageSource feed) =>
             _withoutFlatContainer.Add(feed.Url);
 
+        internal void AddMalformedFlatContainerSibling(
+            PackageSource feed) =>
+            _malformedFlatContainerSiblings.Add(feed.Url);
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -3793,6 +3843,11 @@ public sealed class WorkspaceContextLoaderTests
                     string resources = _withoutFlatContainer.Contains(feed.Url)
                         ? ""
                         : $$"""{"@id":"{{FlatContainer(feed)}}","@type":"PackageBaseAddress/3.0.0"}""";
+                    if (_malformedFlatContainerSiblings.Contains(feed.Url))
+                    {
+                        resources +=
+                            """,{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}""";
+                    }
                     return Task.FromResult(
                         new HttpResponseMessage(HttpStatusCode.OK)
                         {

@@ -66,9 +66,11 @@ platform-qualified target such as `net10.0-browser` therefore resolves on the
 `net10.0` line. Every authorized HTTP producer must return an authoritative
 listing or prove the package absent; transport, discovery, or
 malformed-response failure makes the floating result unavailable instead of
-silently narrowing the candidate set. Local-folder and `file://` sources are
-not consultable by this remote listing path and contribute neither candidate
-evidence nor incompleteness. Floating selection carries forward only the
+silently narrowing the candidate set. A malformed critical resource taints the
+source even when a valid sibling resource could otherwise answer. Local-folder
+and `file://` sources are not consultable by either filesystem-free floating
+path and contribute neither candidate evidence nor incompleteness. Floating
+selection carries forward only the
 authorized producers that reported the chosen version, rather than allowing
 another authorized producer's cached payload to answer. Payload acquisition
 then uses the ordinary host-supplied package store, and the realized platform
@@ -388,7 +390,8 @@ candidate response therefore produces typed unavailability instead of
 successfully selecting from a partial source set. The legacy CLI aggregation
 paths retain their long-standing source fall-through behavior. This boundary
 is gated by
-`PackageCoordinateResolverTests.FloatingCoordinate_RequiresEveryAuthorizedSourceToAnswer`.
+`PackageCoordinateResolverTests.FloatingCoordinate_RequiresEveryAuthorizedSourceToAnswer`
+and `PackageVersionVectorTests.ResolveAsync_FallsThroughFailedHttpSource`.
 
 `--versions-with-feed` keeps provenance that the merged views discard. It shows
 which feeds carry each coordinate, including a coordinate published by more than
