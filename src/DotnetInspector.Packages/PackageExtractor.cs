@@ -1215,7 +1215,9 @@ public static class PackageExtractor
                             id,
                             UriKind.Absolute,
                             out Uri? resourceUri)
-                        && resourceUri.Scheme is "http" or "https")
+                        && resourceUri.Scheme is "http" or "https"
+                        && (!isCriticalHttpEndpoint
+                            || PackageResourceUrl.IsUsableBaseAddress(id)))
                     {
                         result.Add(new ServiceResource(
                             IsServiceType(type, "SearchQueryService")

@@ -66,8 +66,9 @@ platform-qualified target such as `net10.0-browser` therefore resolves on the
 `net10.0` line. Every authorized HTTP producer must return an authoritative
 listing or prove the package absent; transport, discovery, or
 malformed-response failure makes the floating result unavailable instead of
-silently narrowing the candidate set. A malformed critical resource taints the
-source even when a valid sibling resource could otherwise answer. Local-folder
+silently narrowing the candidate set. A malformed or unusable critical resource,
+including an endpoint with embedded credentials, taints the source even when a
+valid sibling resource could otherwise answer. Local-folder
 and `file://` sources are not consultable by either filesystem-free floating
 path and contribute neither candidate evidence nor incompleteness. Floating
 selection carries forward only the

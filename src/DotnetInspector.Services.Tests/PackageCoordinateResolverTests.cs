@@ -1232,6 +1232,56 @@ public sealed class PackageCoordinateResolverTests
             StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task FloatingPaths_CredentialCriticalResourceIsIncomplete(
+        bool credentialFirst,
+        bool typeArray)
+    {
+        using var client = new HttpClient(
+            new IncompleteVersionSourcesHandler(
+                malformedVersionIndex: false,
+                credentialBearingPackageBaseAddress: true,
+                credentialFirst: credentialFirst,
+                credentialTypeArray: typeArray));
+        PackageSource[] sources =
+        [
+            IncompleteVersionSourcesHandler.IncompleteSource,
+            IncompleteVersionSourcesHandler.AvailableSource,
+        ];
+
+        var listing =
+            Assert.IsType<PackageVersionListingResult.Unavailable>(
+                await PackageCoordinateResolver.ListVersionsAsync(
+                    client,
+                    IncompleteVersionSourcesHandler.PackageId,
+                    sources,
+                    useVersionCache: false,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+        var coordinate =
+            Assert.IsType<PackageCoordinateResolution.Unavailable>(
+                await PackageCoordinateResolver.ResolveAsync(
+                    client,
+                    new PackageCoordinate(
+                        IncompleteVersionSourcesHandler.PackageId),
+                    sources,
+                    requireStableFloating: true,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "complete version set",
+            listing.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "complete version set",
+            coordinate.Message,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task ListVersions_AllowsAuthoritativeAbsenceFromOneSource()
     {
@@ -1511,7 +1561,10 @@ public sealed class PackageCoordinateResolverTests
         bool malformedPackageBaseAddress = false,
         bool missingServiceIndex = false,
         bool failedVersionIndex = false,
-        bool mixedMalformedPackageBaseAddress = false)
+        bool mixedMalformedPackageBaseAddress = false,
+        bool credentialBearingPackageBaseAddress = false,
+        bool credentialFirst = false,
+        bool credentialTypeArray = false)
         : HttpMessageHandler
     {
         internal const string PackageId = "partial.package";
@@ -1541,6 +1594,11 @@ public sealed class PackageCoordinateResolverTests
                     Json(
                         """{"resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"},{"@id":"not a url","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 "https://incomplete.test/v3/index.json"
+                    when credentialBearingPackageBaseAddress =>
+                    Json(CredentialResources(
+                        credentialFirst,
+                        credentialTypeArray)),
+                "https://incomplete.test/v3/index.json"
                     when !malformedVersionIndex
                         && !failedVersionIndex =>
                     Task.FromResult(
@@ -1551,6 +1609,7 @@ public sealed class PackageCoordinateResolverTests
                         """{"resources":[{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
                 $"https://incomplete.test/flat/{PackageId}/index.json" =>
                     mixedMalformedPackageBaseAddress
+                        || credentialBearingPackageBaseAddress
                         ? Task.FromResult(
                             new HttpResponseMessage(
                                 HttpStatusCode.NotFound))
@@ -1574,6 +1633,21 @@ public sealed class PackageCoordinateResolverTests
                     {
                         Content = new StringContent(body),
                     });
+
+            static string CredentialResources(
+                bool credentialFirst,
+                bool typeArray)
+            {
+                const string valid =
+                    """{"@id":"https://incomplete.test/flat","@type":"PackageBaseAddress/3.0.0"}""";
+                string credential =
+                    typeArray
+                        ? """{"@id":"https://user:pass@incomplete.test/poison","@type":["SearchQueryService/3.5.0","PackageBaseAddress/3.0.0"]}"""
+                        : """{"@id":"https://user:pass@incomplete.test/poison","@type":"PackageBaseAddress/3.0.0"}""";
+                return credentialFirst
+                    ? $$"""{"resources":[{{credential}},{{valid}}]}"""
+                    : $$"""{"resources":[{{valid}},{{credential}}]}""";
+            }
         }
     }
 
