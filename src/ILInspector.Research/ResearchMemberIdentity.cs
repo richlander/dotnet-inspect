@@ -63,12 +63,14 @@ public static class ResearchMemberIdentity
             return false;
 
         string apiDeclaringType = MetadataTypeNameFormatter.FormatFullName(target.ApiType);
+        bool reuseApiAnchor = ApiMemberIdentity.IsConversionOperator(member.Name)
+            && target.Body is { } body
+            && string.Equals(
+                body.DeclaringType,
+                apiDeclaringType,
+                StringComparison.Ordinal);
         identities.Add(
-            target.Body is null
-                || string.Equals(
-                    target.Body.DeclaringType,
-                    apiDeclaringType,
-                    StringComparison.Ordinal)
+            reuseApiAnchor
                 ? target.Anchor.StableSelector
                 : BodyIdentityFromTarget(target).StableSelector);
         return true;
