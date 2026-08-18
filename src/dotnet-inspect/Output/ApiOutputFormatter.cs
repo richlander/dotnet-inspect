@@ -2408,7 +2408,7 @@ public static class ApiOutputFormatter
                         type))
                     .Where(opportunity => LibraryMetadataService.IncludePerformanceOpportunity(
                         opportunity,
-                        index.GeneratedFrameworkTypeNames))
+                        index.GeneratedFrameworkTypes))
                     .Where(opportunity => memberTokens is null
                         || memberTokens.Contains(
                             (opportunity.SourceOwner ?? opportunity.Method)
@@ -2529,7 +2529,7 @@ public static class ApiOutputFormatter
             .Select(entry =>
             {
                 drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
-                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, index.GeneratedFrameworkTypeNames);
+                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, index.GeneratedFrameworkTypes);
                 return new TopLeverageRow(
                     MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
                     entry.DirectCallerCount.ToString(),
