@@ -24,7 +24,7 @@ static class AnalysisIndexCache
         lock (s_indexLock)
         {
             CachedIndex? cached = s_indexes.FirstOrDefault(candidate =>
-                PathComparer().Equals(candidate.Path, fullPath)
+                StringComparer.Ordinal.Equals(candidate.Path, fullPath)
                 && (candidate.Index.Features & requirements.Features)
                     == requirements.Features
                 && (candidate.MethodToken is null
@@ -52,11 +52,6 @@ static class AnalysisIndexCache
             return index;
         }
     }
-
-    static StringComparer PathComparer()
-        => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparer.OrdinalIgnoreCase
-            : StringComparer.Ordinal;
 
     sealed record CachedIndex(
         string Path,

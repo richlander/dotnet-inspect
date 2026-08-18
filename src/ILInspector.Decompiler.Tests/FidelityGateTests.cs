@@ -38,15 +38,14 @@ public class FidelityGateTests
     /// </summary>
     static readonly HashSet<string> KnownDiffs = new(StringComparer.Ordinal)
     {
-        // AllOuterMatchInner, CachedStaticMethodGroup, and
-        // CompoundAssignDictionaryIndexer were previously recompile failures: the
+        // CachedStaticMethodGroup and CompoundAssignDictionaryIndexer were
+        // previously recompile failures: the
         // skeleton lacked the System.Linq / System.Collections.Generic usings the
         // product printer's short names assume, so they never compiled to be
         // compared. The widened skeleton using set (changed-method missing-symbol
-        // work) now compiles them, surfacing pre-existing over-renders (LINQ All,
-        // static method-group caching, compound dictionary-indexer double access)
+        // work) now compiles them, surfacing pre-existing over-renders (static
+        // method-group caching, compound dictionary-indexer double access)
         // that were masked, not introduced. Triage tracked separately.
-        "AllOuterMatchInner",
         "CachedStaticMethodGroup",
         "CompoundAssignDictionaryIndexer",
         "BothPositive",
@@ -255,6 +254,9 @@ public class FidelityGateTests
         // #3346 / #4113 review: the variable-less using resource keeps the
         // explicit IDisposable conversion, so recompilation retains the box.
         "BoxedDisposedOnlyUsingResource",
+        // #4281: the nested enumerator's region-exit leave now raises to a
+        // side-effect-preserving break without changing the original IL.
+        "AllOuterMatchInner",
         // #3491: retired by the compiler-generated member correspondence. Every row
         // here differed only in a Roslyn state-machine ordinal — recompiling the
         // reconstructed fixture type renumbers `d__N`, and the constructor and field
