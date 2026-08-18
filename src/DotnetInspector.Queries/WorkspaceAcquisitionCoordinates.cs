@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using DotnetInspector.Packages;
 using InertText;
 using NuGet.Versioning;
+using NuGetFetch;
 
 namespace DotnetInspector.Queries;
 
@@ -35,6 +36,16 @@ public abstract record WorkspaceMemberCoordinate
             version,
             framework,
             runtimeIdentifier);
+
+    /// <summary>
+    /// Creates a coordinate for one product-owned platform family.
+    /// </summary>
+    public static WorkspaceMemberCoordinate Platform(
+        string family,
+        string? assembly = null,
+        string? version = null,
+        string? framework = null) =>
+        new PlatformMember(family, assembly, version, framework);
 
     /// <summary>
     /// Creates a coordinate for artifact bytes shipped with the definition.
@@ -81,6 +92,47 @@ public abstract record WorkspaceMemberCoordinate
     }
 
     /// <summary>
+    /// A product-owned platform family acquired from implementation-pack
+    /// content.
+    /// </summary>
+    public sealed record PlatformMember : WorkspaceMemberCoordinate
+    {
+        internal PlatformMember(
+            string family,
+            string? assembly,
+            string? version,
+            string? framework)
+        {
+            Family = family;
+            Assembly = assembly;
+            Version = version;
+            Framework = framework;
+        }
+
+        private protected override int Discriminator => 1;
+
+        /// <summary>
+        /// The platform family: <c>runtime</c> or <c>aspnetcore</c>.
+        /// </summary>
+        public string Family { get; }
+
+        /// <summary>
+        /// The assembly simple name to acquire, or null for every managed
+        /// assembly in the family.
+        /// </summary>
+        public string? Assembly { get; }
+
+        /// <summary>The exact pack version, or null when it floats.</summary>
+        public string? Version { get; }
+
+        /// <summary>
+        /// The member's target framework. It may repeat the context's
+        /// declaration or inherit it by staying null.
+        /// </summary>
+        public string? Framework { get; }
+    }
+
+    /// <summary>
     /// Artifact bytes shipped with the definition and addressed by a
     /// bundle-relative content reference.
     /// </summary>
@@ -96,7 +148,7 @@ public abstract record WorkspaceMemberCoordinate
             DeclaredName = declaredName;
         }
 
-        private protected override int Discriminator => 1;
+        private protected override int Discriminator => 2;
 
         /// <summary>The host-resolved content identifier for these bytes.</summary>
         /// <remarks>
@@ -176,6 +228,18 @@ public enum WorkspaceContextLoadFailureKind
 
     /// <summary>More than one package asset universe is equally applicable.</summary>
     PackageAssetAmbiguous,
+
+    /// <summary>No authorized implementation pack satisfies the platform target.</summary>
+    PlatformPackUnavailable,
+
+    /// <summary>The selected platform pack does not carry the requested assembly.</summary>
+    PlatformAssemblyUnavailable,
+
+    /// <summary>
+    /// The producer a realized platform coordinate names is not authorized or
+    /// did not serve its implementation pack.
+    /// </summary>
+    PlatformProducerUnavailable,
 
     /// <summary>The host supplied no content for an embedded coordinate.</summary>
     EmbeddedContentUnavailable,
@@ -385,6 +449,115 @@ public abstract record RealizedMemberCoordinate
         }
     }
 
+    /// <summary>
+    /// One exact platform-family acquisition from an authorized package
+    /// producer.
+    /// </summary>
+    public sealed record Platform : RealizedMemberCoordinate
+    {
+        public Platform(
+            string family,
+            string version,
+            string producer,
+            string framework,
+            string? assembly)
+        {
+            if (!IsCanonicalPlatformFamily(family))
+            {
+                throw new ArgumentException(
+                    "A realized platform family is a product-owned canonical family id.",
+                    nameof(family));
+            }
+
+            if (!IsCanonicalPackageVersion(version))
+            {
+                throw new ArgumentException(
+                    "A realized platform version is one exact NuGet version in its normalized lowercase spelling.",
+                    nameof(version));
+            }
+
+            if (!IsCanonicalProducer(producer))
+            {
+                throw new ArgumentException(
+                    "A realized platform producer is a canonical content-cache producer key.",
+                    nameof(producer));
+            }
+
+            if (!IsCanonicalFramework(framework))
+            {
+                throw new ArgumentException(
+                    "A realized platform framework is a canonical lowercase moniker.",
+                    nameof(framework));
+            }
+
+            if (!IsPlatformVersionForFramework(version, framework))
+            {
+                throw new ArgumentException(
+                    "A realized platform version must match its target framework.",
+                    nameof(version));
+            }
+
+            if (assembly is not null && !IsAssemblySimpleName(assembly))
+            {
+                throw new ArgumentException(
+                    "A realized platform assembly is an assembly simple name.",
+                    nameof(assembly));
+            }
+
+            Family = family;
+            Version = version;
+            Producer = producer;
+            Framework = framework;
+            Assembly = assembly;
+        }
+
+        private protected override int Discriminator => 1;
+
+        public string Family { get; }
+        public string Version { get; }
+        public string Producer { get; }
+        public string Framework { get; }
+        public string? Assembly { get; }
+
+        internal static bool TryCreate(
+            string family,
+            string version,
+            string producer,
+            string framework,
+            string? assembly,
+            [NotNullWhen(true)] out Platform? coordinate,
+            [NotNullWhen(false)] out string? problem)
+        {
+            coordinate = null;
+            problem = !IsCanonicalPlatformFamily(family)
+                ? "a realized platform family must be a product-owned canonical family id"
+                : !IsCanonicalPackageVersion(version)
+                    ? "a realized platform version must be one exact NuGet version in its normalized lowercase spelling"
+                    : !IsCanonicalProducer(producer)
+                        ? "a realized platform producer must be a canonical content-cache producer key"
+                        : !IsCanonicalFramework(framework)
+                            ? "a realized platform framework must be a canonical lowercase moniker"
+                            : !IsPlatformVersionForFramework(
+                                version,
+                                framework)
+                                ? "a realized platform version must match its target framework"
+                                : assembly is not null
+                                && !IsAssemblySimpleName(assembly)
+                                ? "a realized platform assembly must be an assembly simple name"
+                                : null;
+            if (problem is not null)
+                return false;
+
+            coordinate = new Platform(
+                family,
+                version,
+                producer,
+                framework,
+                assembly);
+            return true;
+        }
+    }
+
     /// <summary>One exact bundle-content acquisition.</summary>
     public sealed record Embedded : RealizedMemberCoordinate
     {
@@ -419,7 +592,7 @@ public abstract record RealizedMemberCoordinate
             DeclaredName = declaredName;
         }
 
-        private protected override int Discriminator => 1;
+        private protected override int Discriminator => 2;
 
         /// <summary>The bundle-relative content identifier.</summary>
         public string ContentRef { get; }
@@ -494,6 +667,32 @@ public abstract record RealizedMemberCoordinate
             char.IsAsciiDigit(character)
             || character is >= 'a' and <= 'z'
             || character is '-');
+
+    /// <summary>
+    /// True when <paramref name="value"/> names a product-owned platform
+    /// implementation-pack family.
+    /// </summary>
+    public static bool IsCanonicalPlatformFamily(string? value) =>
+        value is "runtime" or "aspnetcore";
+
+    /// <summary>
+    /// True when an exact platform-pack version belongs to the target
+    /// framework's release line.
+    /// </summary>
+    public static bool IsPlatformVersionForFramework(
+        string? version,
+        string? framework) =>
+        IsCanonicalPackageVersion(version)
+        && IsCanonicalFramework(framework)
+        && NuGetVersion.TryParse(version, out NuGetVersion? package)
+        && TfmResolver.TryGetBaseFrameworkIdentity(
+            framework,
+            out TfmResolver.FrameworkIdentity target)
+        && target.Family
+            is TfmFamily.NetModern
+                or TfmFamily.NetCore
+        && package.Major == target.Version.Major
+        && package.Minor == target.Version.Minor;
 
     /// <summary>
     /// True when <paramref name="value"/> can be an assembly simple name. Any

@@ -149,6 +149,27 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task UnassociatedCancellation_IsNotReportedAsARequestTimeout()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (_, _) => throw new OperationCanceledException()));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(1),
+                operation: TimeSpan.FromSeconds(2)));
+
+        OperationCanceledException error =
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => nuget.GetVersionsAsync(
+                    "package",
+                    cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.IsNotType<NuGetRequestTimeoutException>(error);
+        Assert.IsNotType<NuGetOperationTimeoutException>(error);
+    }
+
+    [Fact]
     public async Task RequestDeadline_TranslatesMetadataTransportAbort()
     {
         using var client = new HttpClient(new DelayedHandler(

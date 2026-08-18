@@ -59,7 +59,7 @@ There are three different ideas often called ".NET AOT to Wasm":
 | Path | Browser DOM host | Status for this prototype |
 | --- | --- | --- |
 | Mono browser AOT | Yes | Supported baseline for .NET 11 |
-| CoreCLR/RyuJIT browser Wasm | Early .NET 11 preview | Track, but do not make it a prototype dependency |
+| CoreCLR/RyuJIT browser Wasm | Early .NET 11 preview | Deploy as an isolated comparison; retain Mono as the baseline |
 | NativeAOT-LLVM browser Wasm | Experimental branch | Rejected: no maintained browser product path |
 | NativeAOT for `wasi-wasm` | No direct DOM/browser host | Useful for WASI components, not the frontend engine |
 
@@ -68,6 +68,15 @@ not an appropriate product dependency. Current activity is centered on WASI,
 while the browser `dotnet.js` work remains an experimental runtimelab path.
 The app will retain dotnet-inspect's trimming and NativeAOT-friendly product
 constraints without depending on that runtime.
+
+The comparison deployment at <https://coreclr.dotnet-inspect.ca> exercises the
+packaged CoreCLR interpreter from .NET 11 Preview 7 without changing the
+prototype's Mono default or production promotion path. It remains an
+experimental deployment rather than a product dependency until the browser
+runtime and native toolchain are complete enough to replace those explicit
+preview workarounds. Its publish explicitly enables runtime async across the
+application graph so the comparison continuously exercises that CoreCLR
+capability while Mono staging retains classic async lowering.
 
 Create a focused engine spike before wiring the full app:
 

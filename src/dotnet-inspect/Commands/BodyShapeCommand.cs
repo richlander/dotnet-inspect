@@ -124,15 +124,7 @@ public static class BodyShapeCommand
             else if (options.JsonOutput)
             {
                 var matches = result.Matches
-                    .Select(match => new BodyShapeJsonMatch(
-                        match.AssemblyName,
-                        match.Member,
-                        match.TypeName,
-                        match.MethodName,
-                        $"0x{match.MethodToken:X8}",
-                        match.Kind,
-                        match.Extent,
-                        match.Text))
+                    .Select(BodyShapeJsonMatch.FromMatch)
                     .ToList();
                 JsonOutputHelper.Write(
                     matches,
@@ -161,15 +153,7 @@ public static class BodyShapeCommand
 
     static void WriteOutput(IReadOnlyList<BodyShapeMatch> matches, BodyShapeOptions options)
     {
-        var rows = matches.Select(match => new BodyShapeRow(
-            match.Kind,
-            match.Member,
-            $"0x{match.MethodToken:X8}",
-            match.Extent.StartLine + 1,
-            match.Extent.StartColumn + 1,
-            match.Extent.EndLine + 1,
-            match.Extent.EndColumn + 1,
-            match.Text)).ToList();
+        var rows = matches.Select(BodyShapeRow.FromMatch).ToList();
         var view = new BodyShapeResultView
         {
             Title = $"Body shape: {options.Kind}",
@@ -193,7 +177,7 @@ public static class BodyShapeCommand
                         view,
                         writer,
                         formatter,
-                        BodyShapeViewContext.Default,
+                        InspectionContext.Default,
                         writerOptions),
                 options.Rows);
         }
@@ -204,7 +188,7 @@ public static class BodyShapeCommand
                 options.Rows,
                 writerOptions => MarkoutSerializer.Serialize(
                     view,
-                    BodyShapeViewContext.Default,
+                    InspectionContext.Default,
                     writerOptions),
                 options.Columns,
                 options.Fields);
