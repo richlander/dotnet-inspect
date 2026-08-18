@@ -1343,6 +1343,7 @@ public sealed class WorkspaceContextLoaderTests
     {
         byte[] nupkg = LibraryPackage();
         var store = new InMemoryPackageStore();
+        var transferPolicy = new RecordingTransferPolicy();
         using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new PayloadHandler(nupkg, Version));
 
@@ -1354,7 +1355,10 @@ public sealed class WorkspaceContextLoaderTests
                     Framework = Framework,
                     Members = [PackageMember(Version)],
                 },
-                Options(client, store),
+                Options(
+                    client,
+                    store,
+                    packageTransferPolicy: transferPolicy),
                 TestContext.Current.CancellationToken));
 
         // Nothing in this path names a filesystem location: the payload came
@@ -1376,6 +1380,73 @@ public sealed class WorkspaceContextLoaderTests
                 loaded.Group.UseAssemblyImage(
                     participant.Assembly,
                     static view => view.Content.Length)));
+        Assert.Equal(PackageId, transferPolicy.Transfer?.Coordinate.PackageId);
+        Assert.Equal(Version, transferPolicy.Transfer?.Coordinate.Version);
+        Assert.True(transferPolicy.Completed);
+        Assert.True(transferPolicy.Disposed);
+    }
+
+    [Fact]
+    public async Task PlatformAcquisition_ForwardsTransferPolicyForDeclaredAndRealizedCoordinates()
+    {
+        byte[] nupkg = RuntimePack();
+        var declaredPolicy = new RecordingTransferPolicy();
+        using var declaredWorkspace = new InspectionWorkspace();
+        using var declaredClient = new HttpClient(
+            new PayloadHandler(
+                nupkg,
+                RuntimePackVersion,
+                RuntimePackPackageId));
+
+        var declared = Loaded(
+            await WorkspaceContextLoader.LoadAsync(
+                declaredWorkspace,
+                new WorkspaceContextInput
+                {
+                    Framework = Framework,
+                    Members =
+                    [
+                        WorkspaceMemberCoordinate.Platform(
+                            "runtime",
+                            version: RuntimePackVersion),
+                    ],
+                },
+                Options(
+                    declaredClient,
+                    new InMemoryPackageStore(),
+                    packageTransferPolicy: declaredPolicy),
+                TestContext.Current.CancellationToken));
+
+        AssertTransferPolicy(
+            declaredPolicy,
+            RuntimePackPackageId,
+            RuntimePackVersion);
+        RealizedMemberCoordinate.Platform realized =
+            Assert.IsType<RealizedMemberCoordinate.Platform>(
+                declared.Members[0].Realized);
+
+        var realizedPolicy = new RecordingTransferPolicy();
+        using var realizedWorkspace = new InspectionWorkspace();
+        using var realizedClient = new HttpClient(
+            new PayloadHandler(
+                nupkg,
+                RuntimePackVersion,
+                RuntimePackPackageId));
+
+        _ = Loaded(
+            await WorkspaceContextLoader.LoadRealizedAsync(
+                realizedWorkspace,
+                [realized],
+                Options(
+                    realizedClient,
+                    new InMemoryPackageStore(),
+                    packageTransferPolicy: realizedPolicy),
+                TestContext.Current.CancellationToken));
+
+        AssertTransferPolicy(
+            realizedPolicy,
+            RuntimePackPackageId,
+            RuntimePackVersion);
     }
 
     [Fact]
@@ -3426,13 +3497,15 @@ public sealed class WorkspaceContextLoaderTests
         IEmbeddedContentProvider? embeddedContent = null,
         IPackageSourceAuthorization? sourceAuthorization = null,
         PackagePayloadLimits? payloadLimits = null,
-        Action<string>? log = null) =>
+        Action<string>? log = null,
+        IPackagePayloadTransferPolicy? packageTransferPolicy = null) =>
         new()
         {
             HttpClient = client,
             SourceAuthorization = sourceAuthorization
                 ?? new UniformPackageSourceAuthorization([NuGetOrg]),
             PackageStore = store,
+            PackageTransferPolicy = packageTransferPolicy,
             EmbeddedContent = embeddedContent,
             PayloadLimits = payloadLimits ?? PackagePayloadLimits.Default,
             Log = log,
@@ -3588,7 +3661,21 @@ public sealed class WorkspaceContextLoaderTests
         }
     }
 
-    sealed class PayloadHandler(byte[] nupkg, string version)
+    static void AssertTransferPolicy(
+        RecordingTransferPolicy policy,
+        string packageId,
+        string version)
+    {
+        Assert.Equal(packageId, policy.Transfer?.Coordinate.PackageId);
+        Assert.Equal(version, policy.Transfer?.Coordinate.Version);
+        Assert.True(policy.Completed);
+        Assert.True(policy.Disposed);
+    }
+
+    sealed class PayloadHandler(
+        byte[] nupkg,
+        string version,
+        string packageId = PackageId)
         : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -3596,13 +3683,35 @@ public sealed class WorkspaceContextLoaderTests
             CancellationToken cancellationToken)
             => Task.FromResult(
                 request.RequestUri!.ToString().Equals(
-                    $"https://api.nuget.org/v3-flatcontainer/{PackageId}/{version}/{PackageId}.{version}.nupkg",
+                    $"https://api.nuget.org/v3-flatcontainer/{packageId}/{version}/{packageId}.{version}.nupkg",
                     StringComparison.OrdinalIgnoreCase)
                     ? new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = new ByteArrayContent(nupkg),
                     }
                     : new HttpResponseMessage(HttpStatusCode.NotFound));
+    }
+
+    sealed class RecordingTransferPolicy : IPackagePayloadTransferPolicy
+    {
+        public PackagePayloadTransfer? Transfer { get; private set; }
+        public bool Completed { get; private set; }
+        public bool Disposed { get; private set; }
+
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer)
+        {
+            Transfer = transfer;
+            return new Reservation(this);
+        }
+
+        sealed class Reservation(RecordingTransferPolicy owner)
+            : IPackagePayloadReservation
+        {
+            public void Complete() => owner.Completed = true;
+
+            public void Dispose() => owner.Disposed = true;
+        }
     }
 
     sealed class ListingHandler(byte[] nupkg, string listedVersion)

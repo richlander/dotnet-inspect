@@ -416,6 +416,33 @@ public sealed class AssemblyContextIntegrationsQueryTests
     }
 
     [Fact]
+    public void OpportunitiesExecuteParticipant_DoesNotReleaseTheReusableGroup()
+    {
+        var policy = new TestBindingPolicy(
+            new AssemblyBindingPolicyVersion());
+        TestAssembly source = TestAssembly.Create(
+            "ReusableOpportunities",
+            "Amazon.S3.AmazonS3Client",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([source.Participant]);
+
+        AssemblyIntegrationOpportunitiesEntry first =
+            AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(
+                group,
+                source.Participant);
+        AssemblyContextIntegrationsResult second =
+            AssemblyContextIntegrationsQuery.Execute(group);
+
+        Assert.IsType<AssemblyIntegrationOpportunitiesEntry.Available>(
+            first);
+        Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            Assert.Single(second.Assemblies));
+        Assert.Equal(1, source.OpenCount);
+    }
+
+    [Fact]
     public void Execute_OpenTelemetryEvidenceDoesNotBroadenLegacyPresence()
     {
         var policy = new TestBindingPolicy(

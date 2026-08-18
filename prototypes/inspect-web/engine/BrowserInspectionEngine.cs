@@ -76,130 +76,33 @@ public static partial class BrowserInspectionEngine
                 ApiSurfaceScope.PublicWithNonPublicTypes,
                 BrowserApiSurfacePolicy.Limits,
                 [.. requested.Select(participant => participant.Participant)]));
-
-        // The query walks the selected participants in order and returns one entry each until a
-        // bound stops it, so entry i is selected participant i. Assert that rather than assume
-        // it: a correlation that silently slipped would attribute one assembly's types to another.
-        if (surfaces.Assemblies.Assemblies.Length > requested.Length)
-        {
-            throw new InvalidOperationException(
-                "The API surface query returned more entries than the workspace selected "
-                + "participants, so per-assembly attribution cannot be trusted.");
-        }
-
-        var assemblies = new List<BrowserAssemblySurface>();
-        var types = new List<BrowserTypeSurface>();
-        HashSet<TypeCollisionKey> duplicateTypeKeys =
-        [
-            .. surfaces.Assemblies.Assemblies
-                .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
-                .SelectMany(entry => entry.Value.Surface.Types)
-                .GroupBy(TypeCollisionKey.Create)
-                .Where(group => group.Count() > 1)
-                .Select(group => group.Key),
-        ];
-        var transportTextBudget =
-            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
-                BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
-        string? transportTruncation = null;
-        int noticeEntryCount = surfaces.Assemblies.Assemblies.Length;
-        for (int index = 0; index < surfaces.Assemblies.Assemblies.Length; index++)
-        {
-            if (surfaces.Assemblies.Assemblies[index]
-                is not AssemblyContextEntry<AssemblyApiSurface>.Available available)
-            {
-                continue;
-            }
-
-            BrowserWorkspaceParticipant participant = requested[index];
-            if (!ReferenceEquals(
-                    available.Subject.Registration,
-                    participant.Assembly.Registration))
-            {
-                throw new InvalidOperationException(
-                    "The API surface query's entry order does not match the workspace's "
-                    + "participant order, so per-assembly attribution cannot be trusted.");
-            }
-
-            BrowserTypeSurface[] assemblyTypes;
-            transportTextBudget.BeginParticipant();
-            try
-            {
-                assemblyTypes =
+        BrowserSurfaceProjection.Surface projected =
+            BrowserSurfaceProjection.Project(
+                surfaces,
                 [
-                    .. available.Value.Surface.Types
-                        .Select(type => BrowserSurfaceProjection.Type(
-                            type,
+                    .. requested.Select(participant =>
+                        new BrowserSurfaceProjection.Participant(
+                            participant.Participant,
                             participant.Asset.AssemblyName,
                             participant.Asset.Id,
-                            participant.Assembly.Identity.Name,
-                            transportTextBudget,
-                            duplicateTypeKeys.Contains(
-                                TypeCollisionKey.Create(type)))),
-                ];
-                transportTextBudget.CommitParticipant();
-            }
-            catch (BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException)
-            {
-                transportTextBudget.AbandonParticipant();
-                transportTruncation =
-                    BrowserApiSurfacePolicy.TransportTruncationNotice(
-                        assemblies.Count,
-                        requested.Length - index,
-                        transportTextBudget.CommittedCharacters);
-                noticeEntryCount = index;
-                break;
-            }
-            BrowserTypeSurface[] publicTypes =
-            [
-                .. assemblyTypes.Where(type => IsDefaultBucket(surfaces, type)),
-            ];
-            AssemblyReferenceIdentity identity = participant.Assembly.Identity;
-            assemblies.Add(new BrowserAssemblySurface(
-                participant.Asset.Id,
-                identity.Name,
-                identity.Version?.ToString() ?? "",
-                identity.Culture,
-                identity.PublicKeyToken,
-                participant.Asset.Path,
-                publicTypes.Length,
-                publicTypes.Sum(type => type.Members)));
-            types.AddRange(assemblyTypes);
-        }
-
-        string? extractionTruncation =
-            BrowserApiSurfacePolicy.TruncationNotice(surfaces.Truncation);
-        string? truncation = (extractionTruncation, transportTruncation) switch
-        {
-            (null, null) => null,
-            ({ } only, null) => only,
-            (null, { } only) => only,
-            var (left, right) => $"{left}; {right}",
-        };
-        string? notice = BrowserSurfaceProjection.Notice(
-            [.. surfaces.Assemblies.Assemblies.Take(noticeEntryCount)],
-            truncation);
-        if (assemblies.Count == 0 && truncation is null)
+                            participant.Asset.Path)),
+                ]);
+        if (projected.Assemblies.Length == 0
+            && projected.InspectionError is null)
         {
             throw new InvalidOperationException(
                 $"No assembly of {coordinate.PackageId} {coordinate.Version} for "
                 + $"{coordinate.Framework} produced an API surface. "
-                + (notice ?? "The workspace reported no failure."));
+                + (projected.InspectionError
+                    ?? "The workspace reported no failure."));
         }
 
-        BrowserTypeSurface[] identified =
-        [
-            .. types
-                .OrderBy(type => type.Namespace, StringComparer.Ordinal)
-                .ThenBy(type => type.Name, StringComparer.Ordinal),
-        ];
-
-        string defaultAssemblyId = assemblies.FirstOrDefault(
+        string defaultAssemblyId = projected.Assemblies.FirstOrDefault(
                 assembly => assembly.Id.Equals(
                     coordinate.DefaultAsset.Id,
                     StringComparison.Ordinal))
             ?.Id
-            ?? assemblies.FirstOrDefault()?.Id
+            ?? projected.Assemblies.FirstOrDefault()?.Id
             ?? coordinate.DefaultAsset.Id;
 
         return JsonSerializer.Serialize(
@@ -209,29 +112,13 @@ public static partial class BrowserInspectionEngine
                 [.. coordinate.Selection.AvailableTargetFrameworks],
                 coordinate.Framework,
                 defaultAssemblyId,
-                [.. assemblies],
-                identified,
-                [.. surfaces.Accessibility.Select(BrowserSurfaceProjection.Descriptor)],
-                identified
-                    .Where(type => IsDefaultBucket(surfaces, type))
-                    .Sum(type => type.Members),
+                projected.Assemblies,
+                projected.Types,
+                projected.Accessibility,
+                projected.TotalMembers,
                 [.. coordinate.Package.Documents()],
-                notice),
+                projected.InspectionError),
             BrowserJsonContext.Default.BrowserPackageSurface);
-    }
-
-    readonly record struct TypeCollisionKey(
-        MetadataTypeDefinitionName? DefinitionName,
-        string Namespace,
-        string MetadataName)
-    {
-        public static TypeCollisionKey Create(ApiType type) =>
-            type.DefinitionName is { } definitionName
-                ? new(definitionName, "", "")
-                : new(
-                    null,
-                    type.Namespace ?? "",
-                    type.MetadataName ?? type.Name);
     }
 
     /// <summary>
@@ -551,51 +438,11 @@ public static partial class BrowserInspectionEngine
             ]);
         }
 
-        var failures = new List<string>();
-        var signals = new List<EcosystemIntegrationSignalInfo>();
-        foreach (AssemblyIntegrationsEntry entry in result.Assemblies)
-        {
-            switch (entry)
-            {
-                case AssemblyIntegrationsEntry.Available available:
-                    signals.AddRange(available.EcosystemSignals);
-                    break;
-                case AssemblyIntegrationsEntry.Rejected rejected:
-                    failures.Add(
-                        $"{rejected.Subject.Identity.Name}: {rejected.Failure.Kind} "
-                        + $"({rejected.Failure.Detail})");
-                    break;
-                case AssemblyIntegrationsEntry.Failed failed:
-                    failures.Add($"{failed.Subject.Identity.Name}: {failed.Error.Message}");
-                    break;
-            }
-        }
-
-        return JsonSerializer.Serialize(
-            new BrowserPackageIntegrations(
-                coordinate.PackageId,
-                coordinate.Version,
-                coordinate.Framework,
-                [
-                    .. signals
-                        .GroupBy(signal => signal.Integration, StringComparer.Ordinal)
-                        .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-                        .Select(group => new BrowserIntegrationCategory(
-                            group.Key,
-                            [
-                                .. group
-                                    .Select(signal => new BrowserIntegrationSignal(
-                                        signal.Kind,
-                                        signal.Name,
-                                        signal.Shape))
-                                    .DistinctBy(signal => (signal.Kind, signal.Name, signal.Shape))
-                                    .OrderBy(signal => signal.Name, StringComparer.OrdinalIgnoreCase),
-                            ])),
-                ],
-                signals.Count,
-                result.IsComplete,
-                failures.Count == 0 ? null : string.Join("; ", failures)),
-            BrowserJsonContext.Default.BrowserPackageIntegrations);
+        return SerializeIntegrations(
+            coordinate.PackageId,
+            coordinate.Version,
+            coordinate.Framework,
+            result.Assemblies);
     }
 
     /// <summary>
@@ -630,9 +477,96 @@ public static partial class BrowserInspectionEngine
                         group)
                     .Get(AssemblyContextIntegrationOpportunitiesQuery.Definition));
 
+        return SerializeOpportunities(
+            coordinate.PackageId,
+            coordinate.Version,
+            coordinate.Framework,
+            result.Assemblies);
+    }
+
+    static string SerializeIntegrations(
+        string package,
+        string version,
+        string framework,
+        IEnumerable<AssemblyIntegrationsEntry> entries)
+    {
+        AssemblyIntegrationsEntry[] materialized = [.. entries];
+        var failures = new List<string>();
+        var signals = new List<EcosystemIntegrationSignalInfo>();
+        foreach (AssemblyIntegrationsEntry entry in materialized)
+        {
+            switch (entry)
+            {
+                case AssemblyIntegrationsEntry.Available available:
+                    signals.AddRange(available.EcosystemSignals);
+                    break;
+                case AssemblyIntegrationsEntry.Rejected rejected:
+                    failures.Add(
+                        $"{rejected.Subject.Identity.Name}: {rejected.Failure.Kind} "
+                        + $"({rejected.Failure.Detail})");
+                    break;
+                case AssemblyIntegrationsEntry.Failed failed:
+                    failures.Add(
+                        $"{failed.Subject.Identity.Name}: {failed.Error.Message}");
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"Unknown assembly integrations entry '{entry.GetType().Name}'.");
+            }
+        }
+
+        return JsonSerializer.Serialize(
+            new BrowserPackageIntegrations(
+                package,
+                version,
+                framework,
+                [
+                    .. signals
+                        .GroupBy(
+                            signal => signal.Integration,
+                            StringComparer.Ordinal)
+                        .OrderBy(
+                            group => group.Key,
+                            StringComparer.OrdinalIgnoreCase)
+                        .Select(group => new BrowserIntegrationCategory(
+                            group.Key,
+                            [
+                                .. group
+                                    .Select(signal =>
+                                        new BrowserIntegrationSignal(
+                                            signal.Kind,
+                                            signal.Name,
+                                            signal.Shape))
+                                    .DistinctBy(signal =>
+                                        (signal.Kind,
+                                            signal.Name,
+                                            signal.Shape))
+                                    .OrderBy(
+                                        signal => signal.Name,
+                                        StringComparer.OrdinalIgnoreCase),
+                            ])),
+                ],
+                signals.Count,
+                materialized.All(
+                    entry => entry
+                        is AssemblyIntegrationsEntry.Available),
+                failures.Count == 0
+                    ? null
+                    : string.Join("; ", failures)),
+            BrowserJsonContext.Default.BrowserPackageIntegrations);
+    }
+
+    static string SerializeOpportunities(
+        string package,
+        string version,
+        string framework,
+        IEnumerable<AssemblyIntegrationOpportunitiesEntry> entries)
+    {
+        AssemblyIntegrationOpportunitiesEntry[] materialized =
+            [.. entries];
         var failures = new List<string>();
         var opportunities = new List<IntegrationOpportunityInfo>();
-        foreach (AssemblyIntegrationOpportunitiesEntry entry in result.Assemblies)
+        foreach (AssemblyIntegrationOpportunitiesEntry entry in materialized)
         {
             switch (entry)
             {
@@ -645,8 +579,13 @@ public static partial class BrowserInspectionEngine
                         + $"({rejected.Failure.Detail})");
                     break;
                 case AssemblyIntegrationOpportunitiesEntry.Failed failed:
-                    failures.Add($"{failed.Subject.Identity.Name}: {failed.Error.Message}");
+                    failures.Add(
+                        $"{failed.Subject.Identity.Name}: {failed.Error.Message}");
                     break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown assembly integration-opportunities entry "
+                        + $"'{entry.GetType().Name}'.");
             }
         }
 
@@ -659,15 +598,17 @@ public static partial class BrowserInspectionEngine
         ];
         return JsonSerializer.Serialize(
             new BrowserPackageOpportunities(
-                coordinate.PackageId,
-                coordinate.Version,
-                coordinate.Framework,
+                package,
+                version,
+                framework,
                 [
                     .. distinctOpportunities
                         .GroupBy(
                             opportunity => opportunity.Integration,
                             StringComparer.Ordinal)
-                        .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(
+                            group => group.Key,
+                            StringComparer.OrdinalIgnoreCase)
                         .Select(group => new BrowserOpportunityCategory(
                             group.Key,
                             [
@@ -675,15 +616,20 @@ public static partial class BrowserInspectionEngine
                                     .OrderBy(
                                         opportunity => opportunity.Api,
                                         StringComparer.OrdinalIgnoreCase)
-                                    .Select(opportunity => new BrowserOpportunityItem(
-                                        opportunity.Api,
-                                        opportunity.IntegrationType,
-                                        opportunity.LookFor)),
+                                    .Select(opportunity =>
+                                        new BrowserOpportunityItem(
+                                            opportunity.Api,
+                                            opportunity.IntegrationType,
+                                            opportunity.LookFor)),
                             ])),
                 ],
                 distinctOpportunities.Length,
-                result.IsComplete,
-                failures.Count == 0 ? null : string.Join("; ", failures)),
+                materialized.All(
+                    entry => entry
+                        is AssemblyIntegrationOpportunitiesEntry.Available),
+                failures.Count == 0
+                    ? null
+                    : string.Join("; ", failures)),
             BrowserJsonContext.Default.BrowserPackageOpportunities);
     }
 
@@ -1098,17 +1044,6 @@ public static partial class BrowserInspectionEngine
                 + "API body.");
         return (participant, resolution);
     }
-
-    /// <summary>
-    /// Whether a type falls in the accessibility bucket the product marked as the default one.
-    /// The host does not decide which bucket that is.
-    /// </summary>
-    static bool IsDefaultBucket(
-        AssemblyContextApiSurfaceResult surfaces,
-        BrowserTypeSurface type)
-        => surfaces.Accessibility.Any(
-            bucket => bucket.IsDefault
-                && bucket.Id.Equals(type.AccessibilityId, StringComparison.Ordinal));
 
     // Presentation over the neutral projection. docs/design/call-graph-projection.md makes
     // rendering host-owned on purpose: the projection carries identity, direction, cycles, and

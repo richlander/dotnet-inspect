@@ -300,6 +300,180 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PlatformWorkspace_PinsAndAccumulatesSelectedAssemblies()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.0";
+        byte[] coreLibrary = File.ReadAllBytes(typeof(object).Assembly.Location);
+        byte[] sibling =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll", coreLibrary),
+            ("InspectWeb.Engine.Tests.dll", sibling));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        BrowserPlatformScopeResolution initial =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
+            JsonSerializer.Deserialize(
+                BrowserInspectionEngine.ProjectPlatformSurface(initial),
+                BrowserJsonContext.Default.BrowserPackageSurface));
+
+        Assert.Equal("Microsoft.NETCore.App", surface.Package);
+        Assert.Equal(version, surface.Version);
+        Assert.Equal("System.Private.CoreLib", surface.DefaultAssemblyId);
+        Assert.Single(surface.Assemblies);
+        Assert.NotEmpty(surface.Types);
+        BrowserPlatformScopeResolution reused =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        Assert.Same(initial.Scope, reused.Scope);
+        Assert.Equal(3, handler.Requests);
+
+        BrowserPlatformScopeResolution expanded =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0",
+                "InspectWeb.Engine.Tests.dll",
+                "netcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, expanded.Scope.Members.Length);
+        Assert.All(
+            expanded.Scope.Coordinates,
+            coordinate =>
+            {
+                Assert.Equal(version, coordinate.Version);
+                Assert.Equal(
+                    NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url),
+                    coordinate.Producer);
+            });
+        Assert.False(
+            BrowserPackageWorkspace.IsScopeRetained(initial.Scope));
+        Assert.True(
+            BrowserPackageWorkspace.IsScopeRetained(expanded.Scope));
+        Assert.Equal(3, handler.Requests);
+
+        BrowserPackageSurface siblingSurface =
+            Assert.IsType<BrowserPackageSurface>(
+                JsonSerializer.Deserialize(
+                    await BrowserInspectionEngine.LoadRuntimePackAssembly(
+                        "net11.0",
+                        "InspectWeb.Engine.Tests.dll",
+                        "netcore.app"),
+                    BrowserJsonContext.Default.BrowserPackageSurface));
+        Assert.Equal(
+            "InspectWeb.Engine.Tests",
+            siblingSurface.DefaultAssemblyId);
+        BrowserPackageIntegrations integrations =
+            Assert.IsType<BrowserPackageIntegrations>(
+                JsonSerializer.Deserialize(
+                    await BrowserInspectionEngine.QueryPlatformIntegrations(
+                        "net11.0",
+                        "InspectWeb.Engine.Tests.dll",
+                        "netcore.app"),
+                    BrowserJsonContext.Default.BrowserPackageIntegrations));
+        Assert.True(integrations.IsComplete);
+        BrowserPackageOpportunities opportunities =
+            Assert.IsType<BrowserPackageOpportunities>(
+                JsonSerializer.Deserialize(
+                    await BrowserInspectionEngine.QueryPlatformOpportunities(
+                        "net11.0",
+                        "InspectWeb.Engine.Tests.dll",
+                        "netcore.app"),
+                    BrowserJsonContext.Default.BrowserPackageOpportunities));
+        Assert.True(opportunities.IsComplete);
+
+        var selected = siblingSurface.Types
+            .SelectMany(type => type.Api.Select(member => (Type: type, Member: member)))
+            .First(candidate =>
+                candidate.Member.MetadataToken is > 0
+                && candidate.Member.BodySelectors.Length > 0);
+        BrowserCallGraph graph = Assert.IsType<BrowserCallGraph>(
+            JsonSerializer.Deserialize(
+                await BrowserInspectionEngine.ExpandPlatformCallGraph(
+                    "net11.0",
+                    "InspectWeb.Engine.Tests",
+                    selected.Type.MetadataId,
+                    selected.Member.Name,
+                    selected.Member.GraphSelectorKey,
+                    selected.Member.MetadataToken!.Value),
+                BrowserJsonContext.Default.BrowserCallGraph));
+        Assert.Equal(0, graph.Scope.Packages);
+        Assert.Equal(2, graph.Scope.Assemblies);
+
+        using (BrowserPackageWorkspace.ReservePackageDownload(
+            "platform.eviction@1.0.0",
+            128L * MiB))
+        {
+            Assert.False(
+                BrowserPackageWorkspace.IsScopeRetained(expanded.Scope));
+        }
+    }
+
+    [Theory]
+    [InlineData("System.Runtime.dll", "unknown.app")]
+    [InlineData("../System.Runtime.dll", "netcore.app")]
+    [InlineData("System.Runtime", "netcore.app")]
+    public async Task PlatformWorkspace_RejectsInvalidSelectionsBeforeNetwork(
+        string assemblyFileName,
+        string pack)
+    {
+        var handler = new PlatformVersionHandler(
+            "microsoft.netcore.app.runtime.linux-x64",
+            "11.0.0");
+        using var client = new HttpClient(handler);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0",
+                assemblyFileName,
+                pack,
+                client,
+                new UniformPackageSourceAuthorization(
+                    [PackageSource.NuGetOrg]),
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0, handler.Requests);
+    }
+
+    [Fact]
+    public void PlatformWorkspace_RejectsAssemblyCountAboveBrowserBound()
+    {
+        BrowserPlatformWorkspace.EnsureAssemblyCapacity(
+            BrowserInspectionScope.MaxAssembliesPerRole);
+
+        InvalidOperationException failure =
+            Assert.Throws<InvalidOperationException>(
+                () => BrowserPlatformWorkspace.EnsureAssemblyCapacity(
+                    BrowserInspectionScope.MaxAssembliesPerRole + 1));
+
+        Assert.Contains(
+            "assembly-count limit",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ReusedCompositeScope_PreservesTheCurrentRequestedRoot()
     {
         byte[] firstImage =
@@ -1809,6 +1983,30 @@ public sealed class BrowserEngineBoundaryTests
         return content.ToArray();
     }
 
+    static byte[] PlatformPackage(
+        params (string Name, byte[] Content)[] assemblies)
+    {
+        using var content = new MemoryStream();
+        using (var archive =
+            new ZipArchive(
+                content,
+                ZipArchiveMode.Create,
+                leaveOpen: true))
+        {
+            foreach ((string name, byte[] bytes) in assemblies)
+            {
+                using Stream entry = archive
+                    .CreateEntry(
+                        $"runtimes/linux-x64/lib/net11.0/{name}",
+                        CompressionLevel.NoCompression)
+                    .Open();
+                entry.Write(bytes);
+            }
+        }
+
+        return content.ToArray();
+    }
+
     static byte[] PackageWithManifest(
         byte[] assembly,
         string assemblyPath,
@@ -1903,6 +2101,65 @@ public sealed class BrowserEngineBoundaryTests
                 RequestTimeout = TimeSpan.FromMinutes(1),
                 OperationTimeout = TimeSpan.FromMinutes(1),
             });
+
+    sealed class PlatformVersionHandler(
+        string packageId,
+        string version,
+        byte[]? nupkg = null) : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Requests++;
+            string url = request.RequestUri!.AbsoluteUri;
+            string package = packageId.ToLowerInvariant();
+            if (url.Equals(
+                    $"https://api.nuget.org/v3-flatcontainer/{package}/index.json",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return Json($$"""{"versions":["{{version}}"]}""");
+            }
+
+            if (url.Equals(
+                    $"https://api.nuget.org/v3/registration5-gz-semver2/{package}/index.json",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return Json(
+                    "{\"items\":[{\"items\":[{\"catalogEntry\":{\"version\":\""
+                    + version
+                    + "\",\"listed\":true}}]}]}");
+            }
+
+            if (nupkg is not null
+                && url.Equals(
+                    $"https://api.nuget.org/v3-flatcontainer/{package}/{version}/{package}.{version}.nupkg",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(
+                    new HttpResponseMessage(
+                        System.Net.HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(nupkg),
+                    });
+            }
+
+            return Task.FromResult(
+                new HttpResponseMessage(
+                    System.Net.HttpStatusCode.NotFound));
+        }
+
+        static Task<HttpResponseMessage> Json(string json) =>
+            Task.FromResult(
+                new HttpResponseMessage(
+                    System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json),
+                });
+    }
 
     sealed class StallingPackageHandler : HttpMessageHandler
     {

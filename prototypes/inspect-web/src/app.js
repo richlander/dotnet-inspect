@@ -991,9 +991,9 @@ function scope() {
 }
 
 // The resident runtime pseudo-package (Microsoft.NETCore.App) has no NuGet nupkg, so the
-// package lenses that fetch one would 404 — except Integrations, which scans a single
-// platform library the engine acquires directly from the runtime pack (see
-// QueryPlatformIntegrations). Dependencies/Opportunities/Analysis stay package-only.
+// package lenses that fetch one would 404. Integrations and Opportunities scan a
+// selected library through the content-backed platform workspace; dependencies remain
+// package-only, while Analysis and Metadata report their explicit product-query gaps.
 function packageLensesFor(pkg) {
   if (!pkg?.isRuntimePack) return packageLenses;
   return packageLenses.filter(([id]) =>
@@ -3418,9 +3418,9 @@ function renderMember(type, member) {
   } else if (state.memberSection === "call-graph") {
     const active = currentCallGraph();
     const drilled = state.platformStack.length > 0;
-    // A resident runtime-pack member's base graph is itself a platform (callee-only) graph:
-    // there is no workspace to scan for callers, so present it as a platform view rather than
-    // a "Workspace callers · 0 loaded packages" line that reads as an empty/failed scan.
+    // A resident runtime-pack member uses the cumulative platform workspace rather than the
+    // open-package workspace. Keep its scope label distinct while preserving callers returned
+    // from every platform assembly loaded into that binding-consistent group.
     const platformView = drilled || Boolean(state.package?.isRuntimePack);
     const callers = active?.callers?.children ?? [];
     const callees = active?.callees?.children ?? [];
@@ -3437,7 +3437,7 @@ function renderMember(type, member) {
     const scopeLine = !scope
       ? ""
       : platformView
-      ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : ""}</strong><span>${escapeHtml(scope.calleeScope)} · runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
+      ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : " workspace"}</strong><span>${scope.callerAssemblies} resident assemblies · ${scope.assemblies} participants</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>`
       : `<div class="graph-scope"><strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>`;
     const diagnostics = active?.diagnostics;
     const diagnosticsMessage = callGraphDiagnosticsMessage(diagnostics);
@@ -6596,9 +6596,9 @@ async function loadSelectedMemberCallGraph() {
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
 
-  // A resident runtime pack has no NuGet workspace to scan for callers; its members'
-  // implementation lives in the range-fetched platform assembly. Route them through the
-  // same platform-descent path the BCL call-graph nodes use so the graph resolves.
+  // A resident runtime pack uses the cumulative platform workspace rather than the open-package
+  // workspace. Route it through the platform path so callers come from resident platform
+  // assemblies and callees retain platform navigation.
   if (state.package?.isRuntimePack) {
     await loadRuntimeMemberCallGraph(type, overload);
     return;

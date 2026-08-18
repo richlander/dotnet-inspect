@@ -83,6 +83,19 @@ inside the same bound rather than relying on the later retained-snapshot check.
 Failures after the role passes that preflight remain typed participant outcomes
 beside healthy results.
 
+`BrowserPlatformWorkspace` uses the same package cache, aggregate byte
+accounting, operation deadline, and four-scope registry. The first selected
+assembly for a target framework and platform family records the exact pack
+version and producer. Later lazy selections re-acquire from that pin and
+replace the old scope with one cumulative binding-consistent group, so runtime
+and ASP.NET Core libraries never drift across versions or feeds and call
+graphs can see every resident platform assembly. The Platform workspace admits
+at most 256 selected assemblies and retains at most 64 MB of opened images.
+`BrowserEngineBoundaryTests.PlatformWorkspace_PinsAndAccumulatesSelectedAssemblies`,
+`PlatformWorkspace_RejectsInvalidSelectionsBeforeNetwork`, and
+`PlatformWorkspace_RejectsAssemblyCountAboveBrowserBound` gate those host
+contracts.
+
 Because a scope is reused, nothing here runs the terminal participant-streaming
 forms of `AssemblyContextIntegrationsQuery` or
 `AssemblyContextIntegrationOpportunitiesQuery` ([#3932]): their release is
@@ -124,12 +137,14 @@ body selector even when the graph has no `MethodDef` token.
 | `engine/BannedSymbols.txt` | the compiler-enforced workspace rule |
 | `engine/BrowserContracts.cs` | the transport records and their source-generated JSON context |
 | `engine/BrowserPackageWorkspace.cs` | the Browser adapter over shared package acquisition, the session cache/capacity policy, reference-role selection, participant minting, and the bounded workspace registry |
+| `engine/BrowserPlatformWorkspace.cs` | content-backed platform acquisition, exact family pins, cumulative group replacement, and shared package/workspace accounting |
 | `engine/BrowserApiSurfacePolicy.cs` | the explicit participant/type/member bounds every API-surface projection runs under |
 | `engine/BrowserInspectionScope.cs` | the `InspectionWorkspace` lifetime and its compile/implementation group hand-offs |
 | `engine/BrowserSurfaceProjection.cs` | adapting typed query models into transport records |
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
 | `engine/BrowserInspectionEngine.cs` | the supported `[JSExport]` operations |
+| `engine/BrowserPlatformOperations.cs` | the supported Platform acquisition, Integrations, Opportunities, and call-graph exports |
 | `engine/BrowserSourceOperations.cs` | pathless authored-or-decompiled type/member source and Browser source capabilities |
 | `engine/BrowserUnsupportedOperations.cs` | the `[JSExport]` operations this engine refuses |
 
@@ -216,6 +231,10 @@ the full budget.
 | `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
 | `QueryMemberCallGraph` | every open package coordinate, implementation group | `MemberCallGraphSession` |
+| `LoadRuntimePack`, `LoadRuntimePackAssembly` | selected platform assemblies accumulated per target framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
+| `QueryPlatformIntegrations` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
+| `QueryPlatformOpportunities` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
+| `ExpandPlatformCallGraph` | cumulative runtime and ASP.NET Core platform group | `MemberCallGraphSession` |
 
 `QueryPackage` is the site's default path. It runs against the product-selected
 compile assets, so `ref/` assemblies remain authoritative when the package ships
@@ -401,13 +420,19 @@ rather than fixture results or success-shaped empty output.
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
-| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | `WorkspaceContextLoader` now produces runtime-pack participants from content; the Browser host still needs platform scope caching, typed-result adaptation, and the missing group-scoped metadata/performance queries named above |
+| `QueryPlatformMetadata`, `QueryPlatformMetadataTable`, `QueryPlatformHeapEntries` | the same missing group-scoped metadata image, table, and heap projections as the package exports |
+| `QueryPlatformPerformance` | the same missing assembly-wide Analysis ranking query as the package export |
 
 `ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
 decoding, so Browser acquisition does not reconstruct assembly identity.
 
+Platform workspace acquisition and the supported adapters are tracked by
+[#4401].
+
 Each gap has a tracking issue; the pull request that introduced this rebuild
 lists them.
+
+[#4401]: https://github.com/richlander/dotnet-inspect/issues/4401
 
 ## Annotated source
 

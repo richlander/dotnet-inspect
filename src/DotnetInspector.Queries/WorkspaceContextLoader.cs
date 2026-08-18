@@ -46,6 +46,18 @@ public sealed record WorkspaceContextLoadOptions
     public required IPackageStore PackageStore { get; init; }
 
     /// <summary>
+    /// Optional host capacity policy applied before a package response body is
+    /// materialized.
+    /// </summary>
+    /// <remarks>
+    /// Gated through the loader for package and platform coordinates by
+    /// <c>WorkspaceContextLoaderTests.BrowserNeutralAcquisition_DownloadsAndRealizesInMemory</c>
+    /// and
+    /// <c>PlatformAcquisition_ForwardsTransferPolicyForDeclaredAndRealizedCoordinates</c>.
+    /// </remarks>
+    public IPackagePayloadTransferPolicy? PackageTransferPolicy { get; init; }
+
+    /// <summary>
     /// The host's embedded-content access. A context with an embedded member
     /// fails visibly when the host supplies none.
     /// </summary>
@@ -1298,7 +1310,8 @@ public static class WorkspaceContextLoader
                 options.PackageStore,
                 options.Log,
                 options.PayloadLimits,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.PackageTransferPolicy).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
             LogPlatformDetail(
@@ -1390,7 +1403,8 @@ public static class WorkspaceContextLoader
                 options.PackageStore,
                 options.Log,
                 options.PayloadLimits,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.PackageTransferPolicy).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
             LogPlatformDetail(
@@ -1666,7 +1680,8 @@ public static class WorkspaceContextLoader
                 options.PackageStore,
                 options.Log,
                 options.PayloadLimits,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.PackageTransferPolicy).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
             return new MemberRealization(
@@ -1762,7 +1777,8 @@ public static class WorkspaceContextLoader
                 options.PackageStore,
                 options.Log,
                 options.PayloadLimits,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                options.PackageTransferPolicy).ConfigureAwait(false);
         if (payload is PackagePayloadResult.Unavailable payloadFailure)
         {
             return new MemberRealization(

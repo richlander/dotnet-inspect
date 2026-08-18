@@ -20,6 +20,147 @@ internal static class BrowserSurfaceProjection
     internal static BrowserAccessibilityDescriptor Descriptor(ApiAccessibilityBucket bucket) =>
         new(bucket.Id, bucket.Label, bucket.Order, bucket.IsDefault, bucket.Count);
 
+    internal sealed record Participant(
+        AssemblyContextParticipant Context,
+        string Assembly,
+        string Id,
+        string Asset);
+
+    internal sealed record Surface(
+        BrowserAssemblySurface[] Assemblies,
+        BrowserTypeSurface[] Types,
+        BrowserAccessibilityDescriptor[] Accessibility,
+        int TotalMembers,
+        string? InspectionError);
+
+    internal static Surface Project(
+        AssemblyContextApiSurfaceResult surfaces,
+        IReadOnlyList<Participant> requested,
+        bool qualifyTypeIds = false)
+    {
+        ArgumentNullException.ThrowIfNull(surfaces);
+        ArgumentNullException.ThrowIfNull(requested);
+        if (surfaces.Assemblies.Assemblies.Length > requested.Count)
+        {
+            throw new InvalidOperationException(
+                "The API surface query returned more entries than the workspace selected "
+                + "participants, so per-assembly attribution cannot be trusted.");
+        }
+
+        var assemblies = new List<BrowserAssemblySurface>();
+        var types = new List<BrowserTypeSurface>();
+        HashSet<TypeCollisionKey> duplicateTypeKeys =
+        [
+            .. surfaces.Assemblies.Assemblies
+                .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
+                .SelectMany(entry => entry.Value.Surface.Types)
+                .GroupBy(TypeCollisionKey.Create)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key),
+        ];
+        var transportTextBudget =
+            new BrowserSurfaceTextBudget(
+                BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
+        string? transportTruncation = null;
+        int noticeEntryCount = surfaces.Assemblies.Assemblies.Length;
+        for (int index = 0;
+            index < surfaces.Assemblies.Assemblies.Length;
+            index++)
+        {
+            if (surfaces.Assemblies.Assemblies[index]
+                is not AssemblyContextEntry<AssemblyApiSurface>.Available available)
+            {
+                continue;
+            }
+
+            Participant participant = requested[index];
+            if (!ReferenceEquals(
+                    available.Subject.Registration,
+                    participant.Context.Assembly.Registration))
+            {
+                throw new InvalidOperationException(
+                    "The API surface query's entry order does not match the workspace's "
+                    + "participant order, so per-assembly attribution cannot be trusted.");
+            }
+
+            BrowserTypeSurface[] assemblyTypes;
+            transportTextBudget.BeginParticipant();
+            try
+            {
+                assemblyTypes =
+                [
+                    .. available.Value.Surface.Types
+                        .Select(type => Type(
+                            type,
+                            participant.Assembly,
+                            participant.Id,
+                            participant.Context.Assembly.Identity.Name,
+                            transportTextBudget,
+                            qualifyTypeIds
+                            || duplicateTypeKeys.Contains(
+                                TypeCollisionKey.Create(type)))),
+                ];
+                transportTextBudget.CommitParticipant();
+            }
+            catch (BrowserSurfaceTextBoundExceededException)
+            {
+                transportTextBudget.AbandonParticipant();
+                transportTruncation =
+                    BrowserApiSurfacePolicy.TransportTruncationNotice(
+                        assemblies.Count,
+                        requested.Count - index,
+                        transportTextBudget.CommittedCharacters);
+                noticeEntryCount = index;
+                break;
+            }
+
+            BrowserTypeSurface[] publicTypes =
+            [
+                .. assemblyTypes.Where(type =>
+                    IsDefaultBucket(surfaces, type)),
+            ];
+            AssemblyReferenceIdentity identity =
+                participant.Context.Assembly.Identity;
+            assemblies.Add(new BrowserAssemblySurface(
+                participant.Id,
+                identity.Name,
+                identity.Version?.ToString() ?? "",
+                identity.Culture,
+                identity.PublicKeyToken,
+                participant.Asset,
+                publicTypes.Length,
+                publicTypes.Sum(type => type.Members)));
+            types.AddRange(assemblyTypes);
+        }
+
+        string? extractionTruncation =
+            BrowserApiSurfacePolicy.TruncationNotice(surfaces.Truncation);
+        string? truncation = (extractionTruncation, transportTruncation) switch
+        {
+            (null, null) => null,
+            ({ } only, null) => only,
+            (null, { } only) => only,
+            var (left, right) => $"{left}; {right}",
+        };
+        string? notice = Notice(
+            [.. surfaces.Assemblies.Assemblies.Take(noticeEntryCount)],
+            truncation);
+        BrowserTypeSurface[] identified =
+        [
+            .. types
+                .OrderBy(type => type.Namespace, StringComparer.Ordinal)
+                .ThenBy(type => type.Name, StringComparer.Ordinal),
+        ];
+        return new Surface(
+            [.. assemblies],
+            identified,
+            [.. surfaces.Accessibility.Select(Descriptor)],
+            identified
+                .Where(type => IsDefaultBucket(surfaces, type))
+                .Sum(type => type.Members),
+            notice);
+    }
+
     internal static BrowserTypeSurface Type(
         ApiType type,
         string assembly,
@@ -116,6 +257,29 @@ internal static class BrowserSurfaceProjection
             ]);
         textBudget?.Retain(projected);
         return projected;
+    }
+
+    static bool IsDefaultBucket(
+        AssemblyContextApiSurfaceResult surfaces,
+        BrowserTypeSurface type) =>
+        surfaces.Accessibility.Any(
+            bucket => bucket.IsDefault
+                && bucket.Id.Equals(
+                    type.AccessibilityId,
+                    StringComparison.Ordinal));
+
+    readonly record struct TypeCollisionKey(
+        MetadataTypeDefinitionName? DefinitionName,
+        string Namespace,
+        string MetadataName)
+    {
+        internal static TypeCollisionKey Create(ApiType type) =>
+            type.DefinitionName is { } definitionName
+                ? new(definitionName, "", "")
+                : new(
+                    null,
+                    type.Namespace ?? "",
+                    type.MetadataName ?? type.Name);
     }
 
     /// <summary>

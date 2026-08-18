@@ -105,6 +105,40 @@ public static class AssemblyContextIntegrationOpportunitiesQuery
     }
 
     /// <summary>
+    /// Executes this query and its Integrations prerequisite for one participant
+    /// without releasing its retained image.
+    /// </summary>
+    /// <remarks>
+    /// A reusable Browser or service workspace can focus one selected assembly
+    /// and still run later group queries. Gated by
+    /// <c>AssemblyContextIntegrationsQueryTests.OpportunitiesExecuteParticipant_DoesNotReleaseTheReusableGroup</c>.
+    /// </remarks>
+    public static AssemblyIntegrationOpportunitiesEntry ExecuteParticipant(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant)
+    {
+        AssemblyIntegrationsEntry integrations =
+            AssemblyContextIntegrationsQuery.ExecuteParticipant(
+                group,
+                participant);
+        return integrations switch
+        {
+            AssemblyIntegrationsEntry.Rejected rejected =>
+                new AssemblyIntegrationOpportunitiesEntry.Rejected(
+                    rejected.Subject,
+                    rejected.Failure),
+            AssemblyIntegrationsEntry.Failed failed =>
+                new AssemblyIntegrationOpportunitiesEntry.Failed(
+                    failed.Subject,
+                    failed.Error),
+            AssemblyIntegrationsEntry.Available available =>
+                Inspect(group, participant, available),
+            _ => throw new InvalidOperationException(
+                $"Unknown assembly integrations entry '{integrations.GetType().Name}'."),
+        };
+    }
+
+    /// <summary>
     /// Executes this query and its Integrations prerequisite for one streamed
     /// participant before its retained image is released.
     /// </summary>
