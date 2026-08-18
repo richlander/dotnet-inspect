@@ -24,7 +24,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         _search = new SearchService(
             client,
             SearchEndpoint,
-            _options);
+            _options,
+            retryTransientRequests: true);
     }
 
     public PackageSourceIdentity Identity => PackageSourceIdentity.NuGetOrg;
