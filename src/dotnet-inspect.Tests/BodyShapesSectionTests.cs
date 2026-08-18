@@ -44,11 +44,8 @@ public sealed class BodyShapesSectionTests
             StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("@Decompiler,Signature")]
-    [InlineData("Body*,Signature")]
-    public async Task MemberBodyShapeSelectorExpansion_RequiresKindPredicate(
-        string selection)
+    [Fact]
+    public async Task MemberBodyShapeGlobExpansion_RequiresKindPredicate()
     {
         var root = CommandLineBuilder.CreateRootCommand();
 
@@ -61,7 +58,7 @@ public sealed class BodyShapesSectionTests
                     "--library",
                     FixturePath,
                     "-S",
-                    selection,
+                    "Body*,Signature",
                 ]))
                 .InvokeAsync());
 
@@ -355,7 +352,7 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
-    public async Task MemberEffectiveDiscovery_ListsBodyShapesWhenKindIsPresent()
+    public async Task MemberEffectiveDiscovery_DescribesBodyShapesWhenKindIsPresent()
     {
         var root = CommandLineBuilder.CreateRootCommand();
 
@@ -368,7 +365,7 @@ public sealed class BodyShapesSectionTests
                     "--library",
                     FixturePath,
                     "-D",
-                    "@Decompiler",
+                    "Body Shapes",
                     "--where",
                     "Kind=ObjectCreationExpression",
                 ]))
@@ -376,7 +373,7 @@ public sealed class BodyShapesSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain("Error:", result.Error, StringComparison.Ordinal);
-        Assert.Contains("Body Shapes", result.Output, StringComparison.Ordinal);
+        Assert.Contains("| Kind | column |", result.Output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -441,31 +438,6 @@ public sealed class BodyShapesSectionTests
                     "-S",
                     "Body Shapes",
                 ])
-                .InvokeAsync());
-
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains(
-            "requires --where \"Kind=<C# Body Kinds ID>\"",
-            result.Error,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task MemberDecompilerCategory_RequiresKindPredicate()
-    {
-        var root = CommandLineBuilder.CreateRootCommand();
-
-        var result = await ConsoleCapture.RunAsync(() =>
-            root.Parse(CommandLineBuilder.PreprocessArgs(
-                [
-                    "member",
-                    typeof(BodyShapeFixture).FullName!,
-                    $"{nameof(BodyShapeFixture.PublicCreation)}:1",
-                    "--library",
-                    FixturePath,
-                    "-S",
-                    "@Decompiler",
-                ]))
                 .InvokeAsync());
 
         Assert.Equal(1, result.ExitCode);

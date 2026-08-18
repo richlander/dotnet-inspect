@@ -634,9 +634,7 @@ public static class ApiMemberOverloadSectionDescriptors
                 SectionNames.AnnotatedSource,
                 SectionNames.OriginalSource,
                 SectionNames.SourceDiff,
-                SectionNames.IL)
-            .AddCategory(SectionCategoryNames.Decompiler,
-                SectionNames.BodyShapes);
+                SectionNames.IL);
     }
 
     private static bool HasSingleBodyBackedMember(ApiType model)
@@ -692,9 +690,7 @@ public static class ApiMemberDetailSectionDescriptors
                 SectionNames.AnnotatedSource,
                 SectionNames.OriginalSource,
                 SectionNames.SourceDiff,
-                SectionNames.IL)
-            .AddCategory(SectionCategoryNames.Decompiler,
-                SectionNames.BodyShapes);
+                SectionNames.IL);
     }
 
     public sealed class Summary : ISectionDescriptor<ApiType>
