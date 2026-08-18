@@ -616,9 +616,12 @@ A canceled caller also stops waiting on shared package acquisition immediately,
 releasing the exclusive source-operation gate while the shared download remains
 inside the aggregate package-cache reservation for other consumers;
 `CancelledWait_ReleasesSharedPackageAcquisition` gates that ownership split.
-Callers that do not supply limits retain only the shared transport ceiling.
-Product-wide default expansion and retention budgets remain an open requirement
-below.
+Callers that do not supply limits retain the shared 500 MB transport ceiling
+as the per-PDB expansion ceiling;
+`ExtractPortablePdb_WithoutHostLimitsRejectsDeclaredExpansionAboveTransportCeiling`
+gates that a hostile ZIP declaration cannot bypass it. Product-wide default
+aggregate expansion, entry-count, and retention budgets remain an open
+requirement below.
 
 ### Untrusted JSON rejects duplicate properties
 

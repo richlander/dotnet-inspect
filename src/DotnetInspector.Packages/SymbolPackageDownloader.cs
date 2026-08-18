@@ -124,7 +124,7 @@ public partial class SymbolPackageDownloader
     private readonly IPackageSourceAuthorization? _sourceAuthorization;
     private readonly bool _usePersistentMissCache;
     private readonly SymbolAcquisitionLimits? _limits;
-    private const long DefaultMaximumSymbolBytes = 500_000_000;
+    internal const long DefaultMaximumSymbolBytes = 500_000_000;
 
     /// <summary>
     /// Creates a downloader backed by the default filesystem PDB cache

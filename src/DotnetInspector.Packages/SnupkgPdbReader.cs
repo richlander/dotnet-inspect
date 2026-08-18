@@ -110,7 +110,8 @@ public static class SnupkgPdbReader
         {
             cancellationToken.ThrowIfCancellationRequested();
             long maxPdbBytes =
-                limits?.MaxPortablePdbBytes ?? Array.MaxLength;
+                limits?.MaxPortablePdbBytes
+                ?? SymbolPackageDownloader.DefaultMaximumSymbolBytes;
             if (entry.Length > maxPdbBytes
                 || entry.Length > Array.MaxLength)
             {

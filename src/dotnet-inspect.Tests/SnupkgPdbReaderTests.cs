@@ -153,6 +153,28 @@ public class SnupkgPdbReaderTests
     }
 
     [Fact]
+    public void ExtractPortablePdb_WithoutHostLimitsRejectsDeclaredExpansionAboveTransportCeiling()
+    {
+        var guid = Guid.NewGuid();
+        var (pdbBytes, _) = BuildPortablePdb(guid);
+        byte[] snupkg =
+            MakeSnupkg(("lib/net8.0/Foo.pdb", pdbBytes));
+        int centralDirectory = FindCentralDirectoryFileHeader(snupkg);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            snupkg.AsSpan(centralDirectory + 24),
+            checked((uint)SymbolPackageDownloader.DefaultMaximumSymbolBytes + 1));
+
+        using var stream = new MemoryStream(snupkg);
+        InvalidDataException error = Assert.Throws<InvalidDataException>(
+            () => SnupkgPdbReader.ExtractPortablePdb(
+                stream,
+                "Foo",
+                guid));
+
+        Assert.Contains("PDB exceeds", error.Message);
+    }
+
+    [Fact]
     public void ExtractPortablePdb_DirectCallRejectsOversizedArchive()
     {
         var guid = Guid.NewGuid();
@@ -281,6 +303,22 @@ public class SnupkgPdbReaderTests
 
         throw new InvalidDataException(
             "Test archive has no end-of-central-directory record.");
+    }
+
+    static int FindCentralDirectoryFileHeader(byte[] archive)
+    {
+        for (int offset = 0; offset <= archive.Length - 4; offset++)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(
+                    archive.AsSpan(offset))
+                == 0x02014b50)
+            {
+                return offset;
+            }
+        }
+
+        throw new InvalidDataException(
+            "Test archive has no central-directory file header.");
     }
 
     internal static (byte[] Bytes, Guid Guid) BuildPortablePdb(
