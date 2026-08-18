@@ -1621,6 +1621,7 @@ public partial class CommandExecutionTests
         Assert.Contains("\"provenance\": \"exact\"", output);
         Assert.Contains("\"operation\": \"box\"", output);
         Assert.Contains("\"assembly\": \"", output);
+        Assert.Contains("\"module_version_id\": \"", output);
         Assert.Contains("\"method_token\": \"0x06", output);
         Assert.Contains("\"token\": \"0x", output);
     }
