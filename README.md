@@ -345,8 +345,8 @@ keep the single `Performance Triage` lens.
 The tight markdown columns carry the ranked, human-facing fields, including a
 static `Priority` that is separate from evidence/rewrite `Confidence`; the full
 per-row diagnostics (shape, provenance, candidate id, native `Finding`,
-declaring `Assembly` and `MethodToken`, operation-operand metadata `Token`, IL
-offset, allocation `Weight`, path/loop evidence, and the fix
+declaring `Assembly`, module version ID, and `MethodToken`, operation-operand
+metadata `Token`, IL offset, allocation `Weight`, path/loop evidence, and the fix
 sentence) are preserved in the nested `performance` object of `--json`.
 Allocation rows carry `Weight`, a coarse size x multiplicity x reach static
 prior that you can query or sort when choosing pre-profile instrumentation
@@ -354,9 +354,11 @@ targets. Exact allocation and call-site rows also retain a `Candidate` id, their
 native `Finding` descriptor, `Provenance=exact`, `Operation`, and metadata
 `Token`. Aggregate rows are marked `Provenance=aggregate`; `unmatched`
 identifies an instruction-level row that could not be joined to a producer
-occurrence. `Assembly` + `MethodToken` + `IL` form the runtime allocation-trace coordinate;
-`Token` is the operand of the reported IL operation and must not be used as the
-declaring method token. Those fields let trace and version-diff tooling join a triage row to
+occurrence. `Assembly` + `MethodToken` + `IL` form the allocation-trace join
+coordinate; `ModuleVersionId` distinguishes physical module builds when static
+inputs carry it. `Token` is the operand of the reported IL operation and must
+not be used as the declaring method token. Those fields let trace and
+version-diff tooling join a triage row to
 `analysis.allocation` or `analysis.call-site` evidence without parsing
 `Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
 `--triage-shape` to ask the tool for the curated pay-dirt rows directly instead
@@ -405,6 +407,11 @@ Type-level ambiguity and its site cap count that shared coordinate once rather
 than counting the two input rows as separate allocation sites. If several
 library MVIDs share that coordinate, they remain distinct because the
 coordinate-only triage row cannot identify which module version it describes.
+Older nested exports without `ModuleVersionId` remain accepted and use that
+conservative ambiguity behavior.
+If triage was exported from a different build than a supplied library, their
+MVIDs do not collapse; the additional physical site can increase ambiguity or
+move the type above the confirmation site cap.
 
 `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
 cross-method repetition fact. `CallerLoop=direct` means a resolved invocation
