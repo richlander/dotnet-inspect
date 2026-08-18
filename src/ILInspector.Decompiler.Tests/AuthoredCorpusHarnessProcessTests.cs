@@ -74,6 +74,9 @@ public class AuthoredCorpusHarnessProcessTests
                 "raise: Break case body; changed from return;",
                 run.Output,
                 StringComparison.Ordinal);
+            Assert.Contains("| Change | Structure | Region | Fidelity |", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Before spans", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("After spans", run.Output, StringComparison.Ordinal);
             Assert.Contains("Return -&gt; Break", run.Output, StringComparison.Ordinal);
             Assert.Contains("OpcodeDiff -&gt; Exact", run.Output, StringComparison.Ordinal);
         }
@@ -149,12 +152,70 @@ public class AuthoredCorpusHarnessProcessTests
             Assert.Contains("@event(value)", run.Output, StringComparison.Ordinal);
             Assert.Contains("this.@event(value)", run.Output, StringComparison.Ordinal);
             Assert.Contains("Changed", run.Output, StringComparison.Ordinal);
+            Assert.Contains("| Change | Structure | Region |", run.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("| Change | Structure | Region | Fidelity |", run.Output, StringComparison.Ordinal);
             Assert.DoesNotContain("IL_", run.Output, StringComparison.Ordinal);
         }
         finally
         {
             File.Delete(beforePath);
             File.Delete(afterPath);
+        }
+    }
+
+    [Fact]
+    public void Harness_BoundsStructuralReviewGapsWithoutDiscardingJsonEvidence()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"structural-review-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, LargeGapStructuralReviewJson(20));
+
+        try
+        {
+            var markdown = RunHarness("--structural-review", path);
+
+            Assert.Equal(0, markdown.ExitCode);
+            Assert.Contains(
+                "Structural review status: **Partial** - 40 unsupported or ambiguous nodes were excluded.",
+                markdown.Output,
+                StringComparison.Ordinal);
+            Assert.True(
+                markdown.Output.IndexOf("Structural review status:", StringComparison.Ordinal) <
+                markdown.Output.IndexOf("## Before", StringComparison.Ordinal));
+            Assert.Contains("| Change | Structure | Region |", markdown.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("| Change | Structure | Region | Fidelity |", markdown.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain("Before spans", markdown.Output, StringComparison.Ordinal);
+            Assert.Contains(
+                "| Before | Ambiguous | 20 | 1, 2, 3, 4, 5 (+15 more) |",
+                markdown.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "| After | Ambiguous | 20 | 1, 2, 3, 4, 5 (+15 more) |",
+                markdown.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("IL_0020", markdown.Output, StringComparison.Ordinal);
+
+            var json = RunHarness("--structural-review", path, "--json");
+
+            Assert.Equal(0, json.ExitCode);
+            var replayed = AnnotatedSourceJson.DeserializeStructuralDiff(json.Output);
+            Assert.Equal(
+                20,
+                replayed.Correspondence.UnmatchedBefore.Count(
+                    static node => node.Reason == CSharpUnmatchedNodeReason.Ambiguous));
+            Assert.Equal(
+                20,
+                replayed.Correspondence.UnmatchedAfter.Count(
+                    static node => node.Reason == CSharpUnmatchedNodeReason.Ambiguous));
+            Assert.All(
+                replayed.Correspondence.UnmatchedBefore,
+                static node => Assert.Equal([0x20, 0x21, 0x22], node.Evidence!.IlOffsets));
+            Assert.All(
+                replayed.Correspondence.UnmatchedAfter,
+                static node => Assert.Equal([0x20, 0x21, 0x22], node.Evidence!.IlOffsets));
+        }
+        finally
+        {
+            File.Delete(path);
         }
     }
 
@@ -1011,6 +1072,66 @@ public class AuthoredCorpusHarnessProcessTests
                 IlBodyDiffOutcome.Exact,
                 note));
         return AnnotatedSourceJson.SerializeStructuralDiff(document);
+    }
+
+    static string LargeGapStructuralReviewJson(int gapCount)
+    {
+        string beforeText = "return;\n" +
+            string.Join('\n', Enumerable.Range(1, gapCount).Select(static index => $"Before{index}();"));
+        string afterText = "break;\n" +
+            string.Join('\n', Enumerable.Range(1, gapCount).Select(static index => $"After{index}();"));
+        var source = new AnnotatedSourceDocumentSource(
+            "Fixture",
+            new Guid("11111111-2222-3333-4444-555555555555"),
+            0x06000001,
+            new string('A', 64),
+            "M");
+
+        AnnotatedSourceDocument Document(
+            string text,
+            string matchedKind,
+            int matchedLength)
+        {
+            var nodes = new List<AnnotatedSourceNode>
+            {
+                new(
+                    0,
+                    matchedKind,
+                    SourceLineKind.CSharp,
+                    [new(0, matchedLength)],
+                    Provenance: new AnnotatedSourceNodeProvenance([0x10]))
+            };
+
+            int lineStart = matchedLength + 1;
+            for (int index = 1; index <= gapCount; index++)
+            {
+                int lineEnd = text.IndexOf('\n', lineStart);
+                if (lineEnd < 0)
+                    lineEnd = text.Length;
+
+                nodes.Add(
+                    new AnnotatedSourceNode(
+                        index,
+                        "ExpressionStatement",
+                        SourceLineKind.CSharp,
+                        [new(lineStart, lineEnd - lineStart)],
+                        Provenance: new AnnotatedSourceNodeProvenance([0x20, 0x21, 0x22])));
+                lineStart = lineEnd + 1;
+            }
+
+            return new AnnotatedSourceDocument(
+                text,
+                nodes,
+                [new AnnotatedSourceRegion(PrintedRegionRole.Case, [new(0, text.Length)])],
+                [],
+                [],
+                source);
+        }
+
+        return AnnotatedSourceJson.SerializeStructuralDiff(
+            CSharpStructuralDiffDocument.Create(
+                Document(beforeText, "ReturnStatement", "return;".Length),
+                Document(afterText, "BreakStatement", "break;".Length)));
     }
 
     static AnnotatedSourceDocument StructuralDocument(

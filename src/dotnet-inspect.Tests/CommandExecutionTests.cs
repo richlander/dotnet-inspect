@@ -1463,7 +1463,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("\"shape\": \"allocation-fanout\"", output);
         Assert.Contains("\"provenance\": \"aggregate\"", output);
         Assert.Contains("\"direct_sites\": 1", output);
@@ -1481,7 +1481,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.DoesNotContain("\"shape\": \"allocation-fanout\"", output);
     }
 
@@ -1595,7 +1595,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("\"shape\": \"box-value-type\"", output);
         Assert.Contains("\"allocation\": \"boxed System.Int32\"", output);
         Assert.Contains("\"path\": \"straight-line\"", output);
@@ -1615,7 +1615,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.Contains("\"candidate\": \"pt~", output);
         Assert.Contains("\"finding\": \"analysis.allocation\"", output);
         Assert.Contains("\"provenance\": \"exact\"", output);
@@ -1668,6 +1668,161 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PerformanceTriage_ReportsIncompleteAnalysisAcrossScopes(
+        string command)
+    {
+        const string typeName =
+            "ILInspector.Analysis.AsyncSiblingFriendFixtures."
+            + "MalformedAsyncSourceFixture";
+        string assemblyPath =
+            FixtureCatalog.AnalysisAsyncSiblingFriend
+                .AssemblyPath();
+        string[] sourceArgs = command switch
+        {
+            "library" => [command, assemblyPath],
+            "type" =>
+            [
+                command,
+                typeName,
+                "--library",
+                assemblyPath,
+            ],
+            "member" =>
+            [
+                command,
+                typeName,
+                "AnalyzeAsync",
+                "--library",
+                assemblyPath,
+            ],
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(command),
+                command,
+                null),
+        };
+
+        var result = await RunAppAsync(
+        [
+            .. sourceArgs,
+            "-S",
+            command == "library"
+                ? SectionNames.PerformanceAsync
+                : SectionNames.PerformanceTriage,
+            "--tips",
+            "q",
+        ]);
+
+        Assert.Contains(
+            "warning: performance analysis incomplete",
+            result.Error,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "MalformedAsyncSourceFixture::AnalyzeAsync",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PerformanceTriage_SuppressesDiagnosticsOutsideSelectedScope(
+        string command)
+    {
+        const string typeName =
+            "ILInspector.Analysis.AsyncSiblingFriendFixtures."
+            + "FriendProtectedReceiver";
+        string assemblyPath =
+            FixtureCatalog.AnalysisAsyncSiblingFriend
+                .AssemblyPath();
+        string[] sourceArgs = command == "type"
+            ?
+            [
+                command,
+                typeName,
+                "--library",
+                assemblyPath,
+            ]
+            :
+            [
+                command,
+                typeName,
+                "PublicAnalyzeAsync",
+                "--library",
+                assemblyPath,
+            ];
+
+        var result = await RunAppAsync(
+        [
+            .. sourceArgs,
+            "-S",
+            SectionNames.PerformanceTriage,
+            "--tips",
+            "q",
+        ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        if (command == "member")
+        {
+            Assert.Contains(
+                "PublicAnalyzeAsync",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.DoesNotContain(
+                "PublicAnalyzeAsync",
+                result.Output,
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PerformanceTriage_DocumentJsonRejectsUnsupportedAnalysis(
+        string command)
+    {
+        const string typeName =
+            "ILInspector.Analysis.AsyncSiblingFriendFixtures."
+            + "MalformedAsyncSourceFixture";
+        string assemblyPath =
+            FixtureCatalog.AnalysisAsyncSiblingFriend
+                .AssemblyPath();
+        string[] sourceArgs = command == "type"
+            ? [command, typeName, "--library", assemblyPath]
+            :
+            [
+                command,
+                typeName,
+                "AnalyzeAsync",
+                "--library",
+                assemblyPath,
+            ];
+
+        var result = await RunAppAsync(
+        [
+            .. sourceArgs,
+            "-S",
+            SectionNames.PerformanceTriage,
+            "--json",
+            "--tips",
+            "q",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Document --json cannot represent Performance Triage analysis.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("asc")]
     [InlineData("desc")]
     public async Task PerformanceTriageOrderByCallerLoopDepth_PutsMissingEvidenceLast(string direction)
@@ -1699,7 +1854,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, baseline.Exit);
-        Assert.Empty(baseline.Error);
+        AssertOnlyPerformanceAnalysisWarnings(baseline.Error);
         string token = FirstPerformanceRow(baseline.Output).GetProperty("token").GetString()!;
         string unpaddedToken = $"0x{token[2..].TrimStart('0')}";
 
@@ -1711,7 +1866,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, filtered.Exit);
-        Assert.Empty(filtered.Error);
+        AssertOnlyPerformanceAnalysisWarnings(filtered.Error);
         Assert.Contains($"\"token\": \"{token}\"", filtered.Output);
     }
 
@@ -1745,7 +1900,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         using var document = JsonDocument.Parse(output.Trim());
         var boxing = document.RootElement.GetProperty("performance").GetProperty("boxing");
         Assert.Equal(1, boxing.GetArrayLength());
@@ -1765,7 +1920,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         var rows = output.TrimEnd().Split('\n');
         Assert.Single(rows.Skip(1));
     }
@@ -1781,7 +1936,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.StartsWith("member\t", output);
         Assert.Single(output.TrimEnd().Split('\n').Skip(1));
     }
@@ -1798,7 +1953,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         var rows = PerformanceRows(output);
         Assert.NotEmpty(rows);
         Assert.All(rows, row => Assert.Equal(
@@ -1818,7 +1973,7 @@ public partial class CommandExecutionTests
             "--tips", "q");
 
         Assert.Equal(0, exit);
-        Assert.Empty(error);
+        AssertOnlyPerformanceAnalysisWarnings(error);
         Assert.True(int.TryParse(output.Trim(), out var count), output);
         Assert.True(count > 1, $"expected post-filter count before --top, got {count}");
     }
@@ -1870,6 +2025,28 @@ public partial class CommandExecutionTests
         Assert.Equal(0, tsvExit);
         Assert.Contains("async state-machine allocation (<", tsv);
         Assert.DoesNotContain("&lt;", tsv);
+    }
+
+    [Fact]
+    public async Task PerformanceAsync_FindsSyncCallsWithAsyncSiblings()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            TestAssemblyPath,
+            "-S",
+            "Performance: Async",
+            "--triage-shape",
+            "sync-call-in-async",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        AssertOnlyPerformanceAnalysisWarnings(error);
+        Assert.Contains("## Performance: Async", output);
+        Assert.Contains("CallsSyncSiblingFromAsync", output);
+        Assert.Contains("ReadValueAsync", output);
+        Assert.Contains("CallsFileReadLinesFromAsync", output);
+        Assert.Contains("System.IO.File::ReadLinesAsync", output);
     }
 
     [Fact]
@@ -1927,14 +2104,14 @@ public partial class CommandExecutionTests
         // A tiny fixture assembly with no async candidates: the async kind must be absent, not an
         // empty section (il-offset gating parity).
         var (exit, output, error) = await RunAppAsync(
-            "library", FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+            "library", FixtureCatalog.AnalysisLookalike.AssemblyPath(),
             "-S", "Performance: Async", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Equal(
-            "This section (Performance: Async) produced no output.",
-            error.Trim());
+        AssertOnlyPerformanceAnalysisWarnings(
+            error,
+            "This section (Performance: Async) produced no output.");
     }
 
     [Fact]
@@ -14382,7 +14559,7 @@ public partial class CommandExecutionTests
         Assert.Equal("10", countOutput.Trim());
 
         Assert.Equal(0, effectiveExit);
-        Assert.Empty(effectiveError);
+        AssertOnlyPerformanceAnalysisWarnings(effectiveError);
         Assert.Contains("| Performance: Boxing | section", effectiveOutput);
     }
 
@@ -14437,12 +14614,20 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_RendersCoordinateSummary()
     {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        var (returnToken, returnCallOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.UnsafeAs),
+            ILOpCode.Call);
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
-            """
+            $$"""
             # label coordinate
-            profiler-sample 0x06000001+0x1
-            return-address 0x06000001+0x6
+            profiler-sample 0x{{token:X8}}+0x{{callOffset:X}}
+            return-address 0x{{returnToken:X8}}+0x{{returnCallOffset + 5:X}}
             """,
             TestContext.Current.CancellationToken);
         try
@@ -14471,29 +14656,18 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
     {
-        static (int Token, int Offset) Coordinate(Type type, string methodName, byte opcode)
-        {
-            var method = type.GetMethod(
-                methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)!;
-            var il = method.GetMethodBody()!.GetILAsByteArray()!;
-            var offset = Array.IndexOf(il, opcode);
-            Assert.True(offset >= 0, $"opcode 0x{opcode:X2} not found in {methodName}");
-            return (method.MetadataToken, offset);
-        }
-
-        var (allSignalsToken, virtualCallOffset) = Coordinate(
+        var (allSignalsToken, virtualCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x6F);
-        var (_, allocationOffset) = Coordinate(
+            ILOpCode.Callvirt);
+        var (_, allocationOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x8D);
-        var (unsafeToken, unsafeCallOffset) = Coordinate(
+            ILOpCode.Newarr);
+        var (unsafeToken, unsafeCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.UnsafeAs),
-            0x28);
+            ILOpCode.Call);
 
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllLinesAsync(
@@ -14533,11 +14707,15 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_RejectsBadCoordinateLine()
     {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
-            """
+            $$"""
             bad debugger frame
-            good 0x06000001+0x1
+            good 0x{{token:X8}}+0x{{callOffset:X}}
             """,
             TestContext.Current.CancellationToken);
         try
@@ -14556,6 +14734,30 @@ public partial class CommandExecutionTests
         {
             File.Delete(path);
         }
+    }
+
+    private static (int Token, int Offset) FindIlCoordinate(
+        Type type,
+        string methodName,
+        ILOpCode opcode)
+    {
+        // This suite inspects its own assembly, whose MethodDef ordering changes
+        // whenever tests are added.
+        MethodInfo method = type.GetMethod(
+            methodName,
+            BindingFlags.Public
+                | BindingFlags.NonPublic
+                | BindingFlags.Static
+                | BindingFlags.DeclaredOnly)!;
+        byte[] il = method.GetMethodBody()!.GetILAsByteArray()!;
+        int offset = InstructionDecoder.Decode(il)
+            .FirstOrDefault(instruction => instruction.OpCode == opcode)
+            ?.Offset
+            ?? -1;
+        Assert.True(
+            offset >= 0,
+            $"opcode {opcode} not found in {methodName}");
+        return (method.MetadataToken, offset);
     }
 
     [Fact]
@@ -16217,6 +16419,39 @@ public partial class CommandExecutionTests
 
         var marker = line.IndexOf("  section", StringComparison.Ordinal);
         return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
+    }
+
+    private static void AssertOnlyPerformanceAnalysisWarnings(
+        string error,
+        string? terminalMessage = null)
+    {
+        string[] lines = error.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries
+                | StringSplitOptions.TrimEntries);
+        int warningCount = terminalMessage is null
+            ? lines.Length
+            : lines.Length - 1;
+
+        Assert.True(warningCount > 0, error);
+        if (terminalMessage is not null)
+        {
+            Assert.Equal(terminalMessage, lines[^1]);
+        }
+
+        Assert.All(
+            lines.Take(warningCount),
+            line =>
+            {
+                Assert.StartsWith(
+                    "Warning: performance analysis incomplete for ",
+                    line,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    ": BadImageFormatException: ",
+                    line,
+                    StringComparison.Ordinal);
+            });
     }
 
     private static JsonElement FirstPerformanceRow(string json)

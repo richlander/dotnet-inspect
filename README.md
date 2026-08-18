@@ -155,7 +155,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
-| `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility` or `C# Style Choices` to enumerate their legal values. |
+| `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility`, `C# Style Choices`, or `C# Body Kinds` to enumerate their legal values. |
 | `body-shape X` | Search one library's full-fidelity bodies for an exact stable rendered-syntax kind, returning the containing member, MethodDef token, exact range, and selected text. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -163,6 +163,11 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
 | `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill source`, `skill performance`). |
+
+Remote dependency trees requested with `depends --package` or the legacy
+`package --dependencies` option resolve from nuspec manifests without
+downloading package archives. Local `.nupkg` inputs, wildcard selectors, and
+.NET tool redirects retain archive acquisition.
 
 Single-type `type X` output is tree-shaped by default. Use `-v:n` or `-v:d`
 to grow that tree to overload leaves; use `--markdown -v:q` when you want the
@@ -296,10 +301,11 @@ group renders as one self-describing table with a leading `Kind` column, so
 every row states which performance kind it belongs to. These sections rank in-loop (hot) and high-confidence
 opportunities first across actionable rewrite shapes (small non-escaping
 arrays, temporary or span-to-array copies, capturing and instance method-group
-delegates, async state-machine setup, loop-invariant materialization, and
-value-type boxing) plus `allocation-hotspot` rows for methods that allocate
-heavily without matching a specific shape. The `type` and `member` commands keep
-the single `Performance Triage` lens.
+delegates, async state-machine setup, synchronous calls from async methods when
+a signature-compatible `Async` sibling exists, loop-invariant materialization,
+and value-type boxing) plus `allocation-hotspot` rows for methods that allocate
+heavily without matching a specific shape. The `type` and `member` commands
+keep the single `Performance Triage` lens.
 
 The tight markdown columns carry the ranked, human-facing fields, including a
 static `Priority` that is separate from evidence/rewrite `Confidence`; the full
@@ -424,8 +430,8 @@ normal-return paths, not runtime bytes or workload frequency; virtual, external,
 delegate, recursive, and runtime-library effects remain opaque.
 
 Common `--triage-shape` values include `capturing-delegate`,
-`async-state-machine`, `box-value-type`, `generic-parameter-object-box`,
-`small-array`,
+`async-state-machine`, `sync-call-in-async`, `box-value-type`,
+`generic-parameter-object-box`, `small-array`,
 `cache-lookup-factory-delegate`, `linq-scan-in-loop`,
 `scan-method-in-loop-call`, `scan-method-in-recursive-traversal`,
 `materialize-in-loop`, `string-build-in-loop`, `enumerator-allocation`, and
@@ -622,6 +628,7 @@ dotnet-inspect project ./src/App -S Skills --print --row 1
 dotnet-inspect vocabulary -D
 dotnet-inspect vocabulary -S Accessibility --json
 dotnet-inspect vocabulary -S "C# Style Choices" --columns "ID,Title,Tier" --tsv
+dotnet-inspect vocabulary -S "C# Body Kinds" --rows 10
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```

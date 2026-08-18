@@ -13,6 +13,7 @@ dotnet-inspect vocabulary
 dotnet-inspect vocabulary -D
 dotnet-inspect vocabulary -S Accessibility
 dotnet-inspect vocabulary -S "C# Style Choices" --json
+dotnet-inspect vocabulary -S "C# Body Kinds"
 dotnet-inspect vocabulary -S @Decompiler --count
 ```
 
@@ -20,7 +21,7 @@ dotnet-inspect vocabulary -S @Decompiler --count
 - `-D` discovers sections, categories, and fields.
 - `-S` selects the values to materialize.
 - `--columns`, `--fields`, `--rows`, and `--count` narrow those values.
-- Markdown, table, TSV, JSONL, and JSON use the same section and row identities.
+- Markdown, plain text, table, TSV, JSONL, and JSON use the same section and row identities.
 
 The structured document carries a schema version. Every section declares its
 stable ID, categories, accepted query inputs, field schema, legal operators, and
@@ -36,6 +37,8 @@ reclassify their values:
   classification.
 - `StyleOptionCatalog` owns C# style tiers, selectable choices, conflicts,
   endorsement, and byte-divergence properties.
+- `BodyShapeSearch.SupportedKinds` owns searchable body-kind identity and order;
+  `AnnotatedSourceNodeKinds` owns their display labels.
 
 CLI and browser/WASM consume the same `VocabularyCatalog` and
 `VocabularyJson` projection. Hosts may select a section for a purpose-specific
@@ -54,8 +57,8 @@ target while retaining the static value IDs.
 | Accessibility | `api.accessibility` | API accessibility facet IDs |
 | C# Style Tiers | `csharp.style-tiers` | Style fidelity/presentation tiers |
 | C# Style Choices | `csharp.style-choices` | Selectable rendering choice IDs |
+| C# Body Kinds | `csharp.body-kinds` | Exact rendered body-syntax kinds |
 
-Body syntax kinds are deliberately not in this first slice. Their addition
-belongs with moving kind search into scoped rich queries, so vocabulary
-exposure and query consumption land together rather than preserving the
-standalone `body-shape` UX.
+Body-kind vocabulary now lands ahead of query consumption. The next slice moves
+kind predicates into scoped rich queries; once that replacement is complete,
+the standalone `body-shape` command is removed without a compatibility alias.

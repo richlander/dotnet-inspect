@@ -5,6 +5,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Vocabulary;
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Tests;
@@ -41,6 +42,16 @@ public sealed class VocabularyCommandTests
         Assert.Equal(
             StyleOptionCatalog.Choices.Select(value => value.Id),
             choices.Values.Select(ValueId));
+
+        VocabularySection bodyKinds =
+            VocabularyCatalog.GetById("csharp.body-kinds");
+        Assert.Equal(
+            BodyShapeSearch.SupportedKinds,
+            bodyKinds.Values.Select(ValueId));
+        Assert.Equal(
+            BodyShapeSearch.SupportedKinds.Select(
+                AnnotatedSourceNodeKinds.GetDisplayLabel),
+            bodyKinds.Values.Select(row => row.GetRequired("label").Text));
     }
 
     [Fact]
@@ -170,6 +181,7 @@ public sealed class VocabularyCommandTests
             })));
         VocabularySection tiers = VocabularyCatalog.GetById("csharp.style-tiers");
         VocabularySection choices = VocabularyCatalog.GetById("csharp.style-choices");
+        VocabularySection bodyKinds = VocabularyCatalog.GetById("csharp.body-kinds");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -179,6 +191,7 @@ public sealed class VocabularyCommandTests
             | ------- | ----- |
             | C# Style Tiers | {tiers.Values.Length} |
             | C# Style Choices | {choices.Values.Length} |
+            | C# Body Kinds | {bodyKinds.Values.Length} |
             """,
             result.Output.Trim());
     }
@@ -227,6 +240,138 @@ public sealed class VocabularyCommandTests
         Assert.Empty(result.Error);
         foreach (VocabularySection section in VocabularyCatalog.Document.Sections)
             Assert.Contains($"| {section.Name} | {section.Values.Length} |", result.Output);
+    }
+
+    [Fact]
+    public async Task Command_PartialMachineKeyProjectionKeepsSectionIdentityAcrossFormats()
+    {
+        var json = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select =
+                [
+                    VocabularyCatalog.AccessibilitySection,
+                    VocabularyCatalog.StyleTiersSection,
+                ],
+                JsonOutput = true,
+                Columns = ["byte_divergent"],
+            })));
+        var markdown = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select =
+                [
+                    VocabularyCatalog.AccessibilitySection,
+                    VocabularyCatalog.StyleTiersSection,
+                ],
+                Columns = ["byte_divergent"],
+            })));
+
+        Assert.Equal(0, json.ExitCode);
+        Assert.Empty(json.Error);
+        using JsonDocument document = JsonDocument.Parse(json.Output);
+        Assert.False(document.RootElement.TryGetProperty("accessibility", out _));
+        Assert.True(document.RootElement.TryGetProperty("c#style_tiers", out JsonElement rows));
+        Assert.Equal(JsonValueKind.Array, rows.ValueKind);
+        Assert.Equal(4, rows.GetArrayLength());
+
+        Assert.Equal(0, markdown.ExitCode);
+        Assert.Empty(markdown.Error);
+        Assert.DoesNotContain("## Accessibility", markdown.Output);
+        Assert.Contains("## C# Style Tiers", markdown.Output);
+        Assert.Contains("| Byte Divergent |", markdown.Output);
+    }
+
+    [Fact]
+    public async Task Command_PlainTextUsesThePlainTextFormatter()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = [VocabularyCatalog.AccessibilitySection],
+                PlainText = true,
+            })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Vocabulary", result.Output);
+        Assert.Contains("Accessibility", result.Output);
+        Assert.DoesNotContain("# Vocabulary", result.Output);
+        Assert.DoesNotContain("| ID |", result.Output);
+    }
+
+    [Fact]
+    public async Task CommandLine_PlainTextEnvironmentOverrideUsesThePlainTextFormatter()
+    {
+        string? original = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        var result = await ConsoleCapture.RunAsync(async () =>
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "plaintext");
+            try
+            {
+                return await CommandLineBuilder.CreateRootCommand()
+                    .Parse(["vocabulary", "-S", "Accessibility"])
+                    .InvokeAsync();
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", original);
+            }
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Accessibility", result.Output);
+        Assert.DoesNotContain("# Vocabulary", result.Output);
+        Assert.DoesNotContain("| ID |", result.Output);
+    }
+
+    [Fact]
+    public async Task Command_PlainTextMultiSectionCountUsesPlainTextTable()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = ["@Decompiler"],
+                Count = true,
+                PlainText = true,
+            })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Section", result.Output);
+        Assert.Contains("C# Style Tiers", result.Output);
+        Assert.Contains("C# Style Choices", result.Output);
+        Assert.DoesNotContain("| Section |", result.Output);
+    }
+
+    [Fact]
+    public async Task Command_CountUsesRowCardinalityBeforeColumnProjection()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select =
+                [
+                    VocabularyCatalog.AccessibilitySection,
+                    VocabularyCatalog.StyleTiersSection,
+                ],
+                Count = true,
+                Columns = ["byte_divergent"],
+            })));
+        VocabularySection accessibility =
+            VocabularyCatalog.GetById("api.accessibility");
+        VocabularySection tiers =
+            VocabularyCatalog.GetById("csharp.style-tiers");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"| Accessibility | {accessibility.Values.Length} |",
+            result.Output);
+        Assert.Contains(
+            $"| C# Style Tiers | {tiers.Values.Length} |",
+            result.Output);
     }
 
     private static string ValueId(VocabularyRow row) =>

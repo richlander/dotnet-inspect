@@ -405,7 +405,10 @@ public static class ArrayPoolOwnershipPathFindings
             ArrayPoolOwnershipMethodEvidence[] structural =
             [
                 .. graphView.OwnershipEvidence.Where(evidence =>
-                    evidence.Member == node.Member),
+                    GraphNodeIdentity.FromMember(
+                        evidence.Member)
+                    == GraphNodeIdentity.FromMember(
+                        node.Member)),
             ];
             if (structural.Length == 1)
                 return structural[0];

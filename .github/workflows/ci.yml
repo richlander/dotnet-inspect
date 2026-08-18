@@ -167,6 +167,9 @@ jobs:
         working-directory: prototypes/inspect-web
         run: npm test
 
+      - name: Test inspect-web promotion validation
+        run: dotnet run eng/validate-inspect-web-promotion.cs -- --self-test
+
       - name: Test annotated-source viewer
         working-directory: prototypes/annotated-source-viewer
         run: npm test
@@ -411,7 +414,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
     runs-on: windows-latest
-    timeout-minutes: 40
+    # Raised from 40 after #4350 measured a 29-minute CLI run followed by the
+    # expected six remaining suites. The lane needed about 42 minutes to report
+    # every result; 55 preserves that evidence with measured runner variance.
+    timeout-minutes: 55
     env:
       DOTNET_INSPECT_TIPS: q
     steps:
@@ -500,6 +506,10 @@ jobs:
       - name: Run query tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/DotnetInspector.Queries.Tests -c Release
+
+      - name: Run Research tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project src/ILInspector.Research.Tests -c Release -- -failSkips
 
       - name: Check ilasm/ildasm result
         if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.iltools.outcome != 'success' }}

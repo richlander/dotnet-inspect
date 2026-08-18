@@ -13,17 +13,24 @@ public enum InspectionGraphTraversalDirection
 }
 
 /// <summary>
-/// A finite relationship neighborhood around one typed seed.
+/// A finite relationship neighborhood around one or more typed seeds.
 /// </summary>
 public sealed class InspectionGraphNeighborhoodRequest
 {
     InspectionGraphNeighborhoodRequest(
-        InspectionGraphSubject seed,
+        InspectionGraphModeRequest modeRequest,
         IEnumerable<InspectionGraphRelationshipDescriptor> relationships,
         InspectionGraphTraversalDirection direction,
         int maxDepth)
     {
-        ArgumentNullException.ThrowIfNull(seed);
+        ArgumentNullException.ThrowIfNull(modeRequest);
+        if (modeRequest.Mode is not InspectionGraphMode.SingleSeed
+            and not InspectionGraphMode.PeerSeeds)
+        {
+            throw new ArgumentException(
+                "A neighborhood requires single-seed or peer-seed mode.",
+                nameof(modeRequest));
+        }
         InspectionGraphCollections.RequireDefined(direction, nameof(direction));
         ArgumentOutOfRangeException.ThrowIfNegative(maxDepth);
         Relationships = InspectionGraphCollections.Snapshot(
@@ -45,28 +52,39 @@ public sealed class InspectionGraphNeighborhoodRequest
                 nameof(relationships));
         }
 
-        ModeRequest = InspectionGraphModeRequest.SingleSeed(seed);
+        ModeRequest = modeRequest;
         Direction = direction;
         MaxDepth = maxDepth;
-        if (!Relationships
-            .SelectMany(relationship =>
-                relationship.GetSeedAdmissions(seed.Kind))
-            .Any(admission => Includes(admission.Role)))
+        string modeName = modeRequest.Mode switch
         {
-            string ids = string.Join(
-                ", ",
-                Relationships.Select(static relationship =>
-                    relationship.Id));
-            throw new InspectionQueryException(
-                $"No selected relationship admits the "
-                + $"{seed.Kind.ToString().ToLowerInvariant()} seed in the "
-                + $"{direction.ToString().ToLowerInvariant()} direction. "
-                + $"Selected relationships: {ids}.");
+            InspectionGraphMode.SingleSeed => "single seed",
+            InspectionGraphMode.PeerSeeds => "peer seeds",
+            _ => throw new ArgumentOutOfRangeException(nameof(modeRequest)),
+        };
+        foreach (InspectionGraphSubject seed in modeRequest.Seeds)
+        {
+            if (!Relationships
+                .SelectMany(relationship =>
+                    relationship.GetSeedAdmissions(seed.Kind))
+                .Any(admission => Includes(admission.Role)))
+            {
+                string ids = string.Join(
+                    ", ",
+                    Relationships.Select(static relationship =>
+                        relationship.Id));
+                throw new InspectionQueryException(
+                    $"No selected relationship admits the "
+                    + $"{seed.Kind.ToString().ToLowerInvariant()} seed in the "
+                    + $"{direction.ToString().ToLowerInvariant()} direction. "
+                    + $"Seed mode: {modeName}; "
+                    + $"selected relationships: {ids}.");
+            }
         }
     }
 
     public InspectionGraphModeRequest ModeRequest { get; }
-    public InspectionGraphSubject Seed => ModeRequest.Seeds[0];
+    public ImmutableArray<InspectionGraphSubject> Seeds =>
+        ModeRequest.Seeds;
     public ImmutableArray<InspectionGraphRelationshipDescriptor>
         Relationships { get; }
     public InspectionGraphTraversalDirection Direction { get; }
@@ -77,7 +95,22 @@ public sealed class InspectionGraphNeighborhoodRequest
         IEnumerable<InspectionGraphRelationshipDescriptor> relationships,
         InspectionGraphTraversalDirection direction,
         int maxDepth) =>
-        new(seed, relationships, direction, maxDepth);
+        new(
+            InspectionGraphModeRequest.SingleSeed(seed),
+            relationships,
+            direction,
+            maxDepth);
+
+    public static InspectionGraphNeighborhoodRequest PeerSeeds(
+        IEnumerable<InspectionGraphSubject> seeds,
+        IEnumerable<InspectionGraphRelationshipDescriptor> relationships,
+        InspectionGraphTraversalDirection direction,
+        int maxDepth) =>
+        new(
+            InspectionGraphModeRequest.PeerSeeds(seeds),
+            relationships,
+            direction,
+            maxDepth);
 
     internal bool Includes(InspectionGraphEndpointRole role) =>
         Direction switch
@@ -159,39 +192,47 @@ internal static class InspectionGraphNeighborhoodProjection
         var retainedNodeIds = new HashSet<int>();
         var queue = new Queue<(int NodeId, int Depth)>();
         var nodeDepths = new Dictionary<int, int>();
-        InspectionGraphSeed sourceSeed = AssertSingleSeed(source, request);
-        RetainTarget(
-            sourceSeed.Target,
-            retainedNodeIds,
-            retainedGroupIds: null);
-        if (sourceSeed.Target.Kind == InspectionGraphTargetKind.Node)
-            nodeDepths[sourceSeed.Target.Id] = 0;
+        ImmutableArray<InspectionGraphSeed> sourceSeeds =
+            AssertSeeds(source, request);
+        foreach (InspectionGraphSeed sourceSeed in sourceSeeds)
+        {
+            RetainTarget(
+                sourceSeed.Target,
+                retainedNodeIds,
+                retainedGroupIds: null);
+            if (sourceSeed.Target.Kind == InspectionGraphTargetKind.Node)
+                nodeDepths[sourceSeed.Target.Id] = 0;
+        }
 
         if (request.MaxDepth > 0)
         {
-            foreach (InspectionGraphEdge edge in selectedEdges)
+            foreach (InspectionGraphSeed sourceSeed in sourceSeeds)
             {
-                foreach (InspectionGraphSeedAdmission admission
-                    in edge.Relationship.GetSeedAdmissions(
-                        request.Seed.Kind))
+                foreach (InspectionGraphEdge edge in selectedEdges)
                 {
-                    if (!request.Includes(admission.Role)
-                        || !AdmissionMatches(
-                            source,
-                            nodesBySubject,
-                            edge,
-                            request.Seed,
-                            admission))
+                    foreach (InspectionGraphSeedAdmission admission
+                        in edge.Relationship.GetSeedAdmissions(
+                            sourceSeed.Subject.Kind))
                     {
-                        continue;
-                    }
+                        if (!request.Includes(admission.Role)
+                            || !AdmissionMatches(
+                                source,
+                                nodesBySubject,
+                                edge,
+                                sourceSeed.Subject,
+                                admission))
+                        {
+                            continue;
+                        }
 
-                    RetainEdge(edge, retainedEdgeIds, retainedNodeIds);
-                    int nextNodeId =
-                        admission.Role == InspectionGraphEndpointRole.Source
-                            ? edge.ToNodeId
-                            : edge.FromNodeId;
-                    Enqueue(nextNodeId, 1, nodeDepths, queue);
+                        RetainEdge(edge, retainedEdgeIds, retainedNodeIds);
+                        int nextNodeId =
+                            admission.Role
+                                == InspectionGraphEndpointRole.Source
+                                    ? edge.ToNodeId
+                                    : edge.FromNodeId;
+                        Enqueue(nextNodeId, 1, nodeDepths, queue);
+                    }
                 }
             }
         }
@@ -255,10 +296,13 @@ internal static class InspectionGraphNeighborhoodProjection
         }
 
         var retainedGroupIds = new HashSet<int>();
-        RetainTarget(
-            sourceSeed.Target,
-            retainedNodeIds: null,
-            retainedGroupIds: retainedGroupIds);
+        foreach (InspectionGraphSeed sourceSeed in sourceSeeds)
+        {
+            RetainTarget(
+                sourceSeed.Target,
+                retainedNodeIds: null,
+                retainedGroupIds: retainedGroupIds);
+        }
         foreach (int nodeId in retainedNodeIds)
         {
             retainedGroupIds.UnionWith(
@@ -336,17 +380,21 @@ internal static class InspectionGraphNeighborhoodProjection
                     characteristic is not null)
                 .Select(static characteristic => characteristic!),
         ];
-        InspectionGraphSeed seed = new(
-            sourceSeed.Subject,
-            RemapTarget(
-                sourceSeed.Target,
-                nodeIds,
-                groupIds,
-                edgeIds,
-                occurrenceIds)
-                ?? throw new InspectionQueryException(
-                    "The neighborhood seed target was not retained."),
-            sourceSeed.Role);
+        InspectionGraphSeed[] seeds =
+        [
+            .. sourceSeeds.Select(sourceSeed =>
+                new InspectionGraphSeed(
+                    sourceSeed.Subject,
+                    RemapTarget(
+                        sourceSeed.Target,
+                        nodeIds,
+                        groupIds,
+                        edgeIds,
+                        occurrenceIds)
+                        ?? throw new InspectionQueryException(
+                            "A neighborhood seed target was not retained."),
+                    sourceSeed.Role)),
+        ];
         InspectionGraphLimit[] limits =
         [
             .. source.Limits.Select(limit =>
@@ -358,11 +406,12 @@ internal static class InspectionGraphNeighborhoodProjection
                     occurrenceIds))
                 .Where(static limit => limit is not null)
                 .Select(static limit => limit!),
-            new(
-                InspectionGraphNeighborhoodCatalog.DepthBound,
-                seed.Target,
-                new InspectionGraphNeighborhoodDepthBoundEvidence(
-                    request.MaxDepth)),
+            .. seeds.Select(seed =>
+                new InspectionGraphLimit(
+                    InspectionGraphNeighborhoodCatalog.DepthBound,
+                    seed.Target,
+                    new InspectionGraphNeighborhoodDepthBoundEvidence(
+                        request.MaxDepth))),
         ];
         InspectionGraphFailure[] failures =
         [
@@ -385,7 +434,7 @@ internal static class InspectionGraphNeighborhoodProjection
             edges,
             occurrences,
             characteristics,
-            [seed],
+            seeds,
             limits,
             failures);
     }
@@ -399,20 +448,23 @@ internal static class InspectionGraphNeighborhoodProjection
                 static group => group.Key,
                 static group => group.ToImmutableArray());
 
-    static InspectionGraphSeed AssertSingleSeed(
+    static ImmutableArray<InspectionGraphSeed> AssertSeeds(
         InspectionGraphDocument source,
         InspectionGraphNeighborhoodRequest request)
     {
-        InspectionGraphSeed seed = source.Seeds.SingleOrDefault()
-            ?? throw new InspectionQueryException(
-                "A single-seed neighborhood requires one bound seed.");
-        if (seed.Subject != request.Seed
-            || seed.Role != InspectionGraphSeedRole.Primary)
+        InspectionGraphSeedRole expectedRole =
+            request.ModeRequest.Mode == InspectionGraphMode.SingleSeed
+                ? InspectionGraphSeedRole.Primary
+                : InspectionGraphSeedRole.Peer;
+        if (source.Seeds.Length != request.Seeds.Length
+            || !source.Seeds.Select(static seed => seed.Subject)
+                .SequenceEqual(request.Seeds)
+            || source.Seeds.Any(seed => seed.Role != expectedRole))
         {
             throw new InspectionQueryException(
-                "The source document seed does not match the neighborhood request.");
+                "The source document seeds do not match the neighborhood request.");
         }
-        return seed;
+        return source.Seeds;
     }
 
     static bool AdmissionMatches(

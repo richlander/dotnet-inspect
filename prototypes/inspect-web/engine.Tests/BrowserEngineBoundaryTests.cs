@@ -12,6 +12,7 @@ using DotnetInspector.Queries;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace InspectWeb.Engine.Tests;
 
@@ -828,10 +829,12 @@ public sealed class BrowserEngineBoundaryTests
     public void MermaidLabel_ContainsGrammarSignificantArtifactText()
     {
         string encoded = BrowserInspectionEngine.MermaidLabel(
-            "A\"B\n<x>&\\\u2028");
+            "A\"B\n<x>&\\\u2028\u202E\u200D\uD800X\uDC00\U000E0001-Caf\u00E9\U0001F600");
 
         Assert.Equal(
-            "A&quot;B&#92;u000A&lt;x&gt;&amp;&#92;&#92;u2028",
+            "A&quot;B&#92;u000A&lt;x&gt;&amp;&#92;&#92;u2028"
+                + "&#92;u202E&#92;u200D&#92;uD800X&#92;uDC00"
+                + "&#92;uDB40&#92;uDC01-Caf\u00E9\U0001F600",
             encoded);
         Assert.DoesNotContain('"', encoded);
         Assert.DoesNotContain('\n', encoded);
@@ -839,6 +842,41 @@ public sealed class BrowserEngineBoundaryTests
         Assert.DoesNotContain('>', encoded);
         Assert.DoesNotContain('\\', encoded);
         Assert.DoesNotContain('\u2028', encoded);
+        Assert.DoesNotContain('\u202E', encoded);
+        Assert.DoesNotContain('\u200D', encoded);
+        Assert.DoesNotContain('\uD800', encoded);
+        Assert.DoesNotContain('\uDC00', encoded);
+        Assert.EndsWith("-Caf\u00E9\U0001F600", encoded, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CallGraphMermaid_ContainsArtifactLabels()
+    {
+        TypeRef declaringType = TypeRef.Definition(
+            "Sample",
+            "Example",
+            "A\u202E\uD800-Caf\u00E9\U0001F600");
+        var member = new MemberRef(
+            declaringType,
+            "Run",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+        var tree = new CallTreeNode(
+            member,
+            Kind: null,
+            CallTreeStatus.Leaf,
+            Children: []);
+        CallGraphProjection projection = CallGraphProjection.FromCallees(tree);
+
+        string mermaid = BrowserInspectionEngine.Mermaid(projection);
+
+        Assert.Contains(
+            "&#92;u202E&#92;uD800-Caf\u00E9\U0001F600",
+            mermaid,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202E', mermaid);
+        Assert.DoesNotContain('\uD800', mermaid);
     }
 
     [Fact]
@@ -867,17 +905,24 @@ public sealed class BrowserEngineBoundaryTests
             CallTreeStatus.Leaf,
             [],
             new CallTreePerf(0, 0, 1, true, "loop"));
+        var nonLoopNode = new CallTreeNode(
+            callee with { Name = "Wait" },
+            null,
+            CallTreeStatus.Leaf,
+            [],
+            new CallTreePerf(0, 0, 1, false));
         var root = new CallTreeNode(
             caller,
             null,
             CallTreeStatus.Expanded,
-            [calleeNode],
+            [calleeNode, nonLoopNode],
             new CallTreePerf(0, 0, 1, false));
 
         string mermaid = BrowserInspectionEngine.Mermaid(
             CallGraphProjection.FromCallees(root));
 
         Assert.Contains("n0 -- loop --> n1", mermaid);
+        Assert.Contains("n0 --> n2", mermaid);
     }
 
     [Fact]
@@ -982,6 +1027,259 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(before.Packages, after.Packages);
         Assert.Equal(before.Resident, after.Resident);
         Assert.Equal(before.ResidentBytes, after.ResidentBytes);
+    }
+
+    [Fact]
+    public async Task PackageAcquisition_StallBecomesVisibleOperationTimeout()
+    {
+        var handler = new StallingPackageHandler();
+        using IPackageSourceClient source = Gallery(handler);
+        string packageId =
+            $"timeout.package.{Guid.NewGuid():N}";
+
+        Task<BrowserPackage> acquisition = BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            "1.0.0",
+            source,
+            TimeSpan.FromMilliseconds(200));
+        await handler.RequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+
+        TimeoutException failure =
+            await Assert.ThrowsAsync<TimeoutException>(() => acquisition);
+
+        Assert.Contains(
+            "Browser package operation",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public async Task PackageAcquisition_ExactPinUsesGalleryCdnWithoutServiceIndex()
+    {
+        string packageId = $"gallery.exact.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] archive = PackageDocuments(1);
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            version,
+            source,
+            TimeSpan.FromSeconds(5));
+
+        Assert.Equal(version, package.Version);
+        Assert.Equal(archive, package.RetainedBytes);
+        Assert.False(package.Content.FromCache);
+        Assert.Equal(
+            NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
+            package.Content.ProducerKey);
+        Assert.Equal(
+            [$"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg"],
+            handler.Requested);
+        Assert.DoesNotContain(
+            handler.Requested,
+            request => request.Contains(
+                "api.nuget.org",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PackageAcquisition_GalleryFailureRemainsVisible()
+    {
+        string packageId = $"gallery.failure.{Guid.NewGuid():N}";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            "1.0.0",
+            PackageDocuments(1),
+            packageStatus: System.Net.HttpStatusCode.BadGateway);
+        using IPackageSourceClient source = Gallery(handler);
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.AcquireAsync(
+                    packageId,
+                    "1.0.0",
+                    source,
+                    TimeSpan.FromSeconds(5)));
+
+        Assert.Contains(
+            "transport failed",
+            failure.Message,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "globalcdn.nuget.org",
+            failure.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackageAcquisition_RejectedReservationDisposesGalleryPayload()
+    {
+        string packageId = $"gallery.no-length.{Guid.NewGuid():N}";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            "1.0.0",
+            PackageDocuments(1),
+            omitContentLength: true);
+        using IPackageSourceClient source = Gallery(handler);
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserPackageWorkspace.AcquireAsync(
+                    packageId,
+                    "1.0.0",
+                    source,
+                    TimeSpan.FromSeconds(5)));
+
+        Assert.Contains(
+            "did not declare its byte length",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.True(handler.PayloadDisposed);
+    }
+
+    [Fact]
+    public async Task PackageAcquisition_FloatingRootUsesGallerySearchAndCdn()
+    {
+        string packageId = $"gallery.floating.{Guid.NewGuid():N}";
+        const string version = "4.5.6";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            PackageDocuments(1),
+            provideSearchResult: true);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackage package = await BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            version: null,
+            source,
+            TimeSpan.FromSeconds(5));
+
+        Assert.Equal(version, package.Version);
+        Assert.Equal(2, handler.Requested.Count);
+        Assert.StartsWith(
+            "https://azuresearch-usnc.nuget.org/query?",
+            handler.Requested[0],
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"q=packageid%3A{packageId}",
+            handler.Requested[0],
+            StringComparison.Ordinal);
+        Assert.Equal(
+            $"https://globalcdn.nuget.org/packages/{packageId}.{version}.nupkg",
+            handler.Requested[1]);
+        Assert.DoesNotContain(
+            handler.Requested,
+            request => request.Contains(
+                "api.nuget.org",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PackageResolution_StallBecomesVisibleOperationTimeout()
+    {
+        var handler = new StallingPackageHandler();
+        using IPackageSourceClient source = Gallery(handler);
+        string packageId =
+            $"resolution.timeout.package.{Guid.NewGuid():N}";
+
+        Task<BrowserPackage> acquisition = BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            version: null,
+            source,
+            TimeSpan.FromSeconds(5));
+        await handler.RequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(10),
+            TestContext.Current.CancellationToken);
+
+        TimeoutException failure =
+            await Assert.ThrowsAsync<TimeoutException>(() => acquisition);
+
+        Assert.Contains(
+            "Browser package operation",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public async Task PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller()
+    {
+        var handler = new StallingPackageHandler();
+        using IPackageSourceClient source = Gallery(handler);
+        string packageId =
+            $"shared.timeout.package.{Guid.NewGuid():N}";
+
+        Task<BrowserPackage> first = BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            "1.0.0",
+            source,
+            TimeSpan.FromMilliseconds(500));
+        await handler.RequestStarted.Task.WaitAsync(
+            TimeSpan.FromSeconds(1),
+            TestContext.Current.CancellationToken);
+        Task<BrowserPackage> second = BrowserPackageWorkspace.AcquireAsync(
+            packageId,
+            "1.0.0",
+            source,
+            TimeSpan.FromMilliseconds(100));
+
+        TimeoutException secondFailure =
+            await Assert.ThrowsAsync<TimeoutException>(() => second);
+        Assert.Contains(
+            "0.1-second deadline",
+            secondFailure.Message,
+            StringComparison.Ordinal);
+        Assert.False(first.IsCompleted);
+        await Assert.ThrowsAsync<TimeoutException>(() => first);
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public void PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent()
+    {
+        using var deadline =
+            new BrowserPackageWorkspace.BrowserPackageOperationDeadline(
+                TimeSpan.FromMilliseconds(10));
+        var inner = new RecordingTransferPolicy();
+        var policy =
+            new BrowserPackageWorkspace.BrowserPackageOperationTransferPolicy(
+                inner,
+                deadline);
+        using IPackagePayloadReservation reservation =
+            policy.ApplyDeadline(inner.Reservation);
+        while (!deadline.HasExpired)
+            Thread.SpinWait(100);
+
+        Assert.Throws<TimeoutException>(() => reservation.Complete());
+        Assert.False(inner.Reservation.Completed);
+    }
+
+    [Fact]
+    public async Task PackageOperation_LateFailureBecomesVisibleTimeout()
+    {
+        TimeoutException failure =
+            await Assert.ThrowsAsync<TimeoutException>(
+                () => BrowserPackageWorkspace.RunPackageOperationAsync<int>(
+                    deadline =>
+                    {
+                        while (!deadline.HasExpired)
+                            Thread.SpinWait(100);
+                        return Task.FromException<int>(
+                            new InvalidOperationException(
+                                "Synchronous work failed after the deadline."));
+                    },
+                    TimeSpan.FromMilliseconds(10)));
+
+        Assert.IsType<InvalidOperationException>(failure.InnerException);
     }
 
     [Fact]
@@ -1367,6 +1665,132 @@ public sealed class BrowserEngineBoundaryTests
         }
 
         return content.ToArray();
+    }
+
+    static IPackageSourceClient Gallery(HttpMessageHandler handler) =>
+        PackageSourceClientFactory.CreateGallery(
+            handler,
+            new NuGetFetchOptions
+            {
+                RequestTimeout = TimeSpan.FromMinutes(1),
+                OperationTimeout = TimeSpan.FromMinutes(1),
+            });
+
+    sealed class StallingPackageHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+        public TaskCompletionSource RequestStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests++;
+            RequestStarted.TrySetResult();
+            await Task.Delay(
+                Timeout.InfiniteTimeSpan,
+                cancellationToken);
+            throw new InvalidOperationException(
+                "The stalling handler completed without cancellation.");
+        }
+    }
+
+    sealed class GalleryPackageHandler(
+        string packageId,
+        string version,
+        byte[] archive,
+        bool provideSearchResult = false,
+        System.Net.HttpStatusCode packageStatus =
+            System.Net.HttpStatusCode.OK,
+        bool omitContentLength = false)
+        : HttpMessageHandler
+    {
+        readonly string _packageUrl =
+            $"https://globalcdn.nuget.org/packages/{packageId.ToLowerInvariant()}.{version}.nupkg";
+
+        public List<string> Requested { get; } = [];
+        public bool PayloadDisposed { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string url = request.RequestUri!.AbsoluteUri;
+            Requested.Add(url);
+            if (provideSearchResult
+                && url.StartsWith(
+                    "https://azuresearch-usnc.nuget.org/query?",
+                    StringComparison.Ordinal))
+            {
+                return Task.FromResult(
+                    new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            $$"""{"data":[{"id":"{{packageId}}","version":"{{version}}"}]}"""),
+                    });
+            }
+
+            if (!url.Equals(_packageUrl, StringComparison.Ordinal))
+            {
+                return Task.FromResult(
+                    new HttpResponseMessage(
+                        System.Net.HttpStatusCode.NotFound));
+            }
+
+            var response = new HttpResponseMessage(packageStatus);
+            if (packageStatus == System.Net.HttpStatusCode.OK)
+            {
+                response.Content = omitContentLength
+                    ? new StreamContent(
+                        new TrackingPayloadStream(
+                            archive,
+                            () => PayloadDisposed = true))
+                    : new ByteArrayContent(archive);
+            }
+
+            return Task.FromResult(response);
+        }
+    }
+
+    sealed class TrackingPayloadStream(byte[] bytes, Action onDispose)
+        : MemoryStream(bytes, writable: false)
+    {
+        public override bool CanSeek => false;
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                onDispose();
+            base.Dispose(disposing);
+        }
+
+        public override ValueTask DisposeAsync()
+        {
+            onDispose();
+            return base.DisposeAsync();
+        }
+    }
+
+    sealed class RecordingTransferPolicy : IPackagePayloadTransferPolicy
+    {
+        internal RecordingReservation Reservation { get; } = new();
+
+        public IPackagePayloadReservation Reserve(
+            PackagePayloadTransfer transfer) =>
+            Reservation;
+    }
+
+    sealed class RecordingReservation : IPackagePayloadReservation
+    {
+        internal bool Completed { get; private set; }
+
+        public void Complete() => Completed = true;
+
+        public void Dispose()
+        {
+        }
     }
 
 }
