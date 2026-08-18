@@ -1237,7 +1237,11 @@ public static class CompileBackSourceComposer
                     : [new CompileBackFact("metadata", "target-property-getter", reader.GetString(reader.GetMethodDefinition(targetGetter).Name))],
                 propertyDeclaration.Attributes,
                 MetadataDeclarationQuery.GetMethod(reader, targetTypeDef, getter, getterSignature).Signature.ReturnAttributes,
-                ExplicitInterfaceMemberName: explicitInterfaceMemberName)
+                ExplicitInterfaceMemberName: explicitInterfaceMemberName,
+                GetterToken: MetadataTokens.GetToken(targetGetter),
+                SetterToken: accessors.Setter.IsNil
+                    ? null
+                    : MetadataTokens.GetToken(accessors.Setter))
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -2708,7 +2712,11 @@ public static class CompileBackSourceComposer
                         new CompileBackFact("metadata", "auto-property", propertyName)
                     ]
                     : [new CompileBackFact("metadata", "target-property-setter", reader.GetString(setter.Name))],
-                ExplicitInterfaceMemberName: explicitInterfaceMemberName)
+                ExplicitInterfaceMemberName: explicitInterfaceMemberName,
+                GetterToken: property.GetAccessors().Getter.IsNil
+                    ? null
+                    : MetadataTokens.GetToken(property.GetAccessors().Getter),
+                SetterToken: MetadataTokens.GetToken(targetSetter))
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -2827,7 +2835,13 @@ public static class CompileBackSourceComposer
                 MemberAttributes(reader, eventDefinition.GetCustomAttributes()),
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function),
                 ExplicitInterfaceMemberName: explicitEvent?.QualifiedName,
-                SiblingTargetBody: siblingAccessorBody)
+                SiblingTargetBody: siblingAccessorBody,
+                AdderToken: accessors.Adder.IsNil
+                    ? null
+                    : MetadataTokens.GetToken(accessors.Adder),
+                RemoverToken: accessors.Remover.IsNil
+                    ? null
+                    : MetadataTokens.GetToken(accessors.Remover))
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -3023,6 +3037,7 @@ public static class CompileBackSourceComposer
                 ConstructorInitializer: targetConstructorInitializer,
                 ExplicitInterfaceMemberName: explicitInterfaceMemberName,
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function),
+                MetadataToken: MetadataTokens.GetToken(targetMethod),
                 SuppressDestructorSyntax: suppressDestructorSyntax)
         ];
         if (externalExplicitInterfaceMethod is { AdditionalInterfaceStubs.Count: > 0 })
@@ -3373,79 +3388,8 @@ public static class CompileBackSourceComposer
     static string MethodReturnType(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
         => MetadataDeclarationQuery.GetMethodReturnType(reader, typeDef, method);
 
-    static bool OperatorSignaturesMatch(MethodSignature<string> left, MethodSignature<string> right)
-        => OperatorNames.OperatorPairingTypesMatch(left.ReturnType, right.ReturnType)
-            && left.ParameterTypes.Length == right.ParameterTypes.Length
-            && left.ParameterTypes.Zip(
-                right.ParameterTypes,
-                OperatorNames.OperatorPairingTypesMatch)
-                .All(static equal => equal);
-
     static bool IsMetadataOperator(MetadataReader reader, MethodDefinition method)
         => ILInspector.Metadata.OperatorMetadata.IsMetadataOperator(reader, method);
-
-    static bool IsRepresentableOperator(
-        MetadataReader reader,
-        TypeDefinition declaringType,
-        MethodDefinition method,
-        string name,
-        MethodSignature<string> signature)
-    {
-        if (!ILInspector.Metadata.OperatorMetadata.IsCSharpOperatorDeclaration(reader, method))
-        {
-            return false;
-        }
-
-        return RequiredOperatorPair(name) is not { } pairName
-            || HasOperatorPair(reader, declaringType, pairName, signature);
-    }
-
-    static string? RequiredOperatorPair(string name)
-        => name switch
-        {
-            "op_Equality" => "op_Inequality",
-            "op_Inequality" => "op_Equality",
-            "op_LessThan" => "op_GreaterThan",
-            "op_GreaterThan" => "op_LessThan",
-            "op_LessThanOrEqual" => "op_GreaterThanOrEqual",
-            "op_GreaterThanOrEqual" => "op_LessThanOrEqual",
-            "op_True" => "op_False",
-            "op_False" => "op_True",
-            _ => OperatorNames.UncheckedOperator(name),
-        };
-
-    static bool HasOperatorPair(
-        MetadataReader reader,
-        TypeDefinition declaringType,
-        string pairName,
-        MethodSignature<string> signature)
-    {
-        foreach (var methodHandle in declaringType.GetMethods())
-        {
-            var method = reader.GetMethodDefinition(methodHandle);
-            if (reader.GetString(method.Name) != pairName
-                || !IsMetadataOperator(reader, method))
-            {
-                continue;
-            }
-
-            try
-            {
-                var pairSignature = GuardedSignatureText.MethodText(
-                    reader,
-                    method,
-                    GenericContext.ForMethod(reader, declaringType, method));
-                if (OperatorSignaturesMatch(signature, pairSignature))
-                    return true;
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
-            {
-                return false;
-            }
-        }
-
-        return false;
-    }
 
     static bool IsRecordGeneratedFieldReadHelper(
         MetadataReader reader,
@@ -4889,12 +4833,7 @@ public static class CompileBackSourceComposer
             bool hasOperatorIdentity = !isConstructor
                 && IsMetadataOperator(reader, method);
             bool operatorIsRepresentable = hasOperatorIdentity
-                && IsRepresentableOperator(
-                    reader,
-                    typeDef,
-                    method,
-                    name,
-                    signature);
+                && IsOperatorMethod(reader, method);
 
             string identifierName = MemberIdentifierName(name, isConstructor);
             IReadOnlyList<CompileBackFact> sourceFacts =
@@ -5621,19 +5560,6 @@ public static class CompileBackSourceComposer
                 {
                     continue;
                 }
-                int existingPropertyIndex = members.FindIndex(member =>
-                    (member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet or CompileBackMemberKind.Field)
-                    && member.Identity.Method == Identifier(propertyName));
-                if (existingPropertyIndex >= 0)
-                {
-                    var existing = members[existingPropertyIndex];
-                    members[existingPropertyIndex] = existing with
-                    {
-                        GetterToken = existing.GetterToken ?? surfaceProperty.GetterToken,
-                        SetterToken = existing.SetterToken ?? surfaceProperty.SetterToken,
-                    };
-                    continue;
-                }
 
                 MetadataPropertyDeclaration propertyDeclaration;
                 try
@@ -5646,10 +5572,10 @@ public static class CompileBackSourceComposer
                     continue;
                 }
 
-                if (propertyDeclaration.Signature.Parameters.Count != 0)
-                    continue;
                 if (propertyDeclaration.Signature.ReturnType is not { } propertyReturnType
                     || IsUnsupportedSurfaceSignature(propertyReturnType)
+                    || propertyDeclaration.Signature.Parameters.Any(parameter =>
+                        IsUnsupportedSurfaceSignature(parameter.Type))
                     || (!allowUnsafeSurface && IsPointerSignature(propertyReturnType)))
                     continue;
 
@@ -5664,6 +5590,51 @@ public static class CompileBackSourceComposer
                 if (requirement.RequiredKind == CompileBackTypeKind.Interface && isStatic)
                     continue;
                 var returnType = CompileBackTypeSignature.Display(propertyReturnType);
+                var propertyParameters = ToCompileBackParameters(
+                    propertyDeclaration.Signature.Parameters);
+                var existingPropertyIndexes = members
+                    .Select((member, index) => (member, index))
+                    .Where(candidate =>
+                        candidate.member.Kind is CompileBackMemberKind.PropertyGet
+                            or CompileBackMemberKind.PropertySet
+                        && candidate.member.Identity.Method == Identifier(propertyName)
+                        && candidate.member.IsStatic == isStatic
+                        && candidate.member.ReturnType?.DisplayName == returnType.DisplayName
+                        && SameParameters(
+                            candidate.member.Parameters,
+                            propertyParameters))
+                    .Select(candidate => candidate.index)
+                    .ToArray();
+                if (existingPropertyIndexes.Length == 1)
+                {
+                    int existingPropertyIndex = existingPropertyIndexes[0];
+                    var existing = members[existingPropertyIndex];
+                    members[existingPropertyIndex] = existing with
+                    {
+                        GetterToken = existing.GetterToken ?? surfaceProperty.GetterToken,
+                        SetterToken = existing.SetterToken ?? surfaceProperty.SetterToken,
+                    };
+                    continue;
+                }
+                if (existingPropertyIndexes.Length > 1)
+                {
+                    diagnostics.Add(new CompileBackPlanningDiagnostic(
+                        "member surface",
+                        "property-token-match-ambiguous",
+                        $"{requirement.Type.MetadataFullName}::{propertyName}"));
+                    continue;
+                }
+                if (members.Any(member =>
+                    member.Kind == CompileBackMemberKind.Field
+                    && member.Identity.Method == Identifier(propertyName)))
+                {
+                    diagnostics.Add(new CompileBackPlanningDiagnostic(
+                        "member surface",
+                        "property-conflicts-with-required-field",
+                        $"{requirement.Type.MetadataFullName}::{propertyName}"));
+                    continue;
+                }
+
                 bool isAutoProperty = hasGetter
                     && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
                 bool isInitSetter = hasSetter && SetterIsInitOnly(reader, accessors.Setter);
@@ -5679,7 +5650,7 @@ public static class CompileBackSourceComposer
                     new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(propertyName), 0, $"property {propertyReturnType}"),
                     hasGetter ? CompileBackMemberKind.PropertyGet : CompileBackMemberKind.PropertySet,
                     IsStatic: isStatic,
-                    Parameters: [],
+                    Parameters: propertyParameters,
                     ReturnType: returnType,
                     TypeParameters: [],
                     StubBody: stubBody,
@@ -5860,7 +5831,16 @@ public static class CompileBackSourceComposer
                 var parameterIdentity = parameters
                     .Select(parameter => (parameter.Type.DisplayName, parameter.Modifier))
                     .ToArray();
-                var existingMethodIndexes = members
+                var tokenMatchedMethodIndexes = members
+                    .Select((member, index) => (member, index))
+                    .Where(candidate =>
+                        surfaceMethod.MetadataToken is int token
+                        && candidate.member.MetadataToken == token)
+                    .Select(candidate => candidate.index)
+                    .ToArray();
+                var existingMethodIndexes = tokenMatchedMethodIndexes.Length != 0
+                    ? tokenMatchedMethodIndexes
+                    : members
                     .Select((member, index) => (member, index))
                     .Where(candidate =>
                         candidate.member.Kind == memberKind

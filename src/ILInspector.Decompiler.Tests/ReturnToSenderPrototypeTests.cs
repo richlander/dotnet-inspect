@@ -176,6 +176,40 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullMatchesOverloadedIndexerByExactSignature()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Holder
+            {
+                public int this[int index] => 1;
+                public int this[string index] => 2;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Item", 1)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("this[int index]", result.Source, StringComparison.Ordinal);
+            Assert.Contains("this[string index]", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return 1;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return 2;", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_PreservesStandaloneAccessorPrefixedMethods()
     {
         var assemblyPath = CompileFixture("""
@@ -635,6 +669,42 @@ public class ReturnToSenderPrototypeTests
                 diagnostic => diagnostic.Reason == "operator-not-representable"
                     && diagnostic.Detail.Contains("op_Addition", StringComparison.Ordinal)
                     && diagnostic.Detail.Contains("not representable", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompileBackTargets_FullKeepsUnpairedOperatorsAsOneRawMethod(
+        bool checkedAddition)
+    {
+        var assemblyPath = EmitUnpairedOperatorFixture(checkedAddition);
+        string methodName = checkedAddition ? "op_CheckedAddition" : "op_Equality";
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Number", methodName, 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains(methodName, result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("operator ==", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("operator checked +", result.Source, StringComparison.Ordinal);
+            Assert.Single(
+                result.Plan.Types
+                    .Single(type => type.Name == "Number")
+                    .Members,
+                member => member.Name == methodName);
         }
         finally
         {
@@ -12360,6 +12430,38 @@ public class ReturnToSenderPrototypeTests
         runIl.Emit(System.Reflection.Emit.OpCodes.Ret);
         target.CreateType();
 
+        assembly.Save(path);
+        return path;
+    }
+
+    static string EmitUnpairedOperatorFixture(bool checkedAddition)
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-unpaired-operator-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+        var number = module.DefineType(
+            "Number",
+            TypeAttributes.Public | TypeAttributes.Class);
+        number.DefineDefaultConstructor(MethodAttributes.Public);
+        var method = number.DefineMethod(
+            checkedAddition ? "op_CheckedAddition" : "op_Equality",
+            MethodAttributes.Public | MethodAttributes.Static
+                | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            checkedAddition ? number : typeof(bool),
+            [number, number]);
+        var il = method.GetILGenerator();
+        if (checkedAddition)
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+        else
+            il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_1);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        number.CreateType();
         assembly.Save(path);
         return path;
     }
