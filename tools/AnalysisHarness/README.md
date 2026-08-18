@@ -121,6 +121,9 @@ reported as unavailable.
 Aggregate output reports actual reviewed rows separately from requested review
 slots, so a partial retrieval never counts a suppressed or absent row as
 reviewed or negative.
+If partial retrieval returns a nonempty fully labeled prefix, precision remains
+available over those actual rows; completion still fails and recall remains
+unavailable.
 
 The pinned six-query card passes with 16 relevant rows among 27 reviewed rows
 (59.25% labeled precision) and recovers 16 of 20 declared relevant labels

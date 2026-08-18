@@ -355,6 +355,9 @@ If a top-K row lacks a label, the query fails, the row remains visible as
 as a negative.
 Aggregate evidence separates actual reviewed rows from requested review slots;
 suppressed or absent rows never enter a reviewed-row denominator.
+A nonempty fully labeled prefix retains precision over its actual returned
+rows, while incomplete retrieval still fails the query and makes recall
+unavailable.
 
 `analysis-harness --clone-corelib-corpus` enumerates the full pinned MethodDef
 population, calls product `RetrieveSimilar`, and separately calls product

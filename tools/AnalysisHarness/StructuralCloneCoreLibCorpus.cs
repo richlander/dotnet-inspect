@@ -362,13 +362,16 @@ public static class StructuralCloneCoreLibCorpus
                     .. retrieval.Candidates.Take(
                         query.ReviewedTopK),
                 ];
-            bool topKFullyReviewed =
-                actualTopCandidates.Length
-                    == query.ReviewedTopK
+            bool returnedRowsFullyReviewed =
+                actualTopCandidates.Length > 0
                 && actualTopCandidates.All(candidate =>
                     labels.ContainsKey(
                         MetadataTokens.GetToken(
                             candidate.Method.Handle)));
+            bool topKFullyReviewed =
+                actualTopCandidates.Length
+                    == query.ReviewedTopK
+                && returnedRowsFullyReviewed;
             ImmutableArray<StructuralCloneCoreLibTopCandidate>.Builder
                 topCandidates =
                     ImmutableArray.CreateBuilder<
@@ -425,10 +428,10 @@ public static class StructuralCloneCoreLibCorpus
                             candidate)
                     && candidate.Rank <= query.ReviewedTopK);
             int? precisionBasisPoints =
-                topKFullyReviewed
+                returnedRowsFullyReviewed
                     ? BasisPoints(
                         relevantAtK,
-                        query.ReviewedTopK)
+                        reviewedTopCandidates.Length)
                     : null;
             int? recallBasisPoints =
                 relevantLabels == 0
@@ -508,6 +511,11 @@ public static class StructuralCloneCoreLibCorpus
             static query => query.RelevantAtK);
         int aggregateRelevantLabels = queries.Sum(
             static query => query.RelevantLabels);
+        bool aggregateRowsFullyReviewed =
+            reviewedCandidates > 0
+            && queries.All(query =>
+                query.TopCandidates.All(static candidate =>
+                    candidate.Relevance is not null));
         return new StructuralCloneCoreLibCorpusReport(
             fullPath,
             sha256,
@@ -520,8 +528,7 @@ public static class StructuralCloneCoreLibCorpus
             requestedReviewSlots,
             aggregateRelevantAtK,
             aggregateRelevantLabels,
-            queries.All(static query =>
-                query.PrecisionBasisPoints is not null)
+            aggregateRowsFullyReviewed
                 ? BasisPoints(
                     aggregateRelevantAtK,
                     reviewedCandidates)

@@ -243,6 +243,14 @@ public class StructuralCloneCoreLibCorpusTests
             report.ReviewedCandidates
                 < report.RequestedReviewSlots);
         Assert.Contains(
+            report.Queries,
+            static query => query.TopCandidates.IsEmpty);
+        Assert.Equal(
+            report.RelevantAtK * 10_000
+                / report.ReviewedCandidates,
+            report.PrecisionBasisPoints);
+        Assert.Null(report.RecallBasisPoints);
+        Assert.Contains(
             "comparison blocker",
             StructuralCloneCoreLibCorpus.Format(report));
         Assert.Contains(
@@ -326,29 +334,20 @@ public class StructuralCloneCoreLibCorpusTests
     [Fact]
     public void Load_RejectsDuplicateAndOrphanCatalogEntries()
     {
-        StructuralCloneCoreLibCorpusDocument corpus = LoadCorpus();
+        JsonObject duplicateMethod = CorpusJson();
+        JsonArray methods = duplicateMethod["methods"]!.AsArray();
+        methods.Add(methods[0]!.DeepClone());
         Assert.Throws<InvalidDataException>(() =>
-            StructuralCloneCoreLibCorpus.Run(
-                typeof(object).Assembly.Location,
-                corpus with
-                {
-                    Methods = corpus.Methods.Add(corpus.Methods[0]),
-                }));
+            StructuralCloneCoreLibCorpus.Load(
+                duplicateMethod.ToJsonString()));
 
-        StructuralCloneCoreLibQuery guid =
-            corpus.Queries[0];
+        JsonObject orphanMethod = CorpusJson();
+        orphanMethod["queries"]![0]!["labels"]!
+            .AsArray()
+            .RemoveAt(0);
         Assert.Throws<InvalidDataException>(() =>
-            StructuralCloneCoreLibCorpus.Run(
-                typeof(object).Assembly.Location,
-                corpus with
-                {
-                    Queries = corpus.Queries.SetItem(
-                        0,
-                        guid with
-                        {
-                            Labels = guid.Labels.RemoveAt(0),
-                        }),
-                }));
+            StructuralCloneCoreLibCorpus.Load(
+                orphanMethod.ToJsonString()));
     }
 
     [Fact]
