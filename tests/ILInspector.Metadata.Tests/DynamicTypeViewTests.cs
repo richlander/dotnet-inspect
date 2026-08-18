@@ -433,10 +433,70 @@ public sealed class DynamicTypeViewTests
             namedVoidReturn: true));
     }
 
+    [Theory]
+    [InlineData(0x25)]
+    [InlineData(0x60)]
+    public void NonDefaultConstructorCallingConvention_IsRejected(
+        byte header)
+    {
+        Assert.Null(ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            constructorSignatureBytes:
+            [
+                header,
+                0x00,
+                0x01,
+            ]));
+    }
+
+    [Fact]
+    public void OversizedConstructorSignature_IsRejectedBeforeNodeMaterialization()
+    {
+        const int parameterCount = 65_534;
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameterCount; i++)
+            signature.WriteByte(0x02);
+
+        long allocated = 0;
+        int observed = 0;
+        byte[]? flags = ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            constructorSignatureBytes: signature.ToArray(),
+            read: (reader, attributes) =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                long before =
+                    GC.GetAllocatedBytesForCurrentThread();
+                byte[]? result = DynamicReader.GetDynamicFlags(
+                    reader,
+                    attributes,
+                    amount => observed += amount);
+                allocated =
+                    GC.GetAllocatedBytesForCurrentThread() - before;
+                return result;
+            });
+
+        Assert.Null(flags);
+        Assert.InRange(observed, 0, 4096);
+        Assert.InRange(allocated, 0, 500_000);
+    }
+
     static byte[]? ReadDynamicFlags(
         byte[] attributeBlob,
         bool transformFlagsConstructor,
-        bool namedVoidReturn = false)
+        bool namedVoidReturn = false,
+        byte[]? constructorSignatureBytes = null,
+        Func<
+            MetadataReader,
+            CustomAttributeHandleCollection,
+            byte[]?>? read = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -470,22 +530,30 @@ public sealed class DynamicTypeViewTests
                 metadata.GetOrAddString("void"))
             : default;
         var constructorSignature = new BlobBuilder();
-        constructorSignature.WriteByte(0x20); // instance default calling convention
-        constructorSignature.WriteCompressedInteger(transformFlagsConstructor ? 1 : 0);
-        if (namedVoidReturn)
+        if (constructorSignatureBytes is not null)
         {
-            constructorSignature.WriteByte(0x12); // class
-            constructorSignature.WriteCompressedInteger(
-                (MetadataTokens.GetRowNumber(namedVoid) << 2) | 1);
+            constructorSignature.WriteBytes(
+                constructorSignatureBytes);
         }
         else
         {
-            constructorSignature.WriteByte(0x01); // void
-        }
-        if (transformFlagsConstructor)
-        {
-            constructorSignature.WriteByte(0x1d); // SZArray
-            constructorSignature.WriteByte(0x02); // bool
+            constructorSignature.WriteByte(0x20); // instance default calling convention
+            constructorSignature.WriteCompressedInteger(transformFlagsConstructor ? 1 : 0);
+            if (namedVoidReturn)
+            {
+                constructorSignature.WriteByte(0x12); // class
+                constructorSignature.WriteCompressedInteger(
+                    (MetadataTokens.GetRowNumber(namedVoid) << 2) | 1);
+            }
+            else
+            {
+                constructorSignature.WriteByte(0x01); // void
+            }
+            if (transformFlagsConstructor)
+            {
+                constructorSignature.WriteByte(0x1d); // SZArray
+                constructorSignature.WriteByte(0x02); // bool
+            }
         }
         var constructor = metadata.AddMemberReference(
             dynamicAttribute,
@@ -523,9 +591,11 @@ public sealed class DynamicTypeViewTests
             ImmutableArray.Create(image.ToArray()));
         var reader = provider.GetMetadataReader();
 
-        return DynamicReader.GetDynamicFlags(
-            reader,
-            reader.GetFieldDefinition(field).GetCustomAttributes());
+        var attributes =
+            reader.GetFieldDefinition(field).GetCustomAttributes();
+        return read is null
+            ? DynamicReader.GetDynamicFlags(reader, attributes)
+            : read(reader, attributes);
     }
 
     // --- IsTopLevelDynamic predicate: only the outermost (index-0) position ---

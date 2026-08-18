@@ -45,7 +45,10 @@ public static class DynamicReader
                 attr.Constructor,
                 beforeMaterialize);
             if (attrTypeName != KnownAttributeNames.DynamicAttribute) continue;
-            if (GetConstructorKind(reader, attr.Constructor) is not { } constructorKind)
+            if (GetConstructorKind(
+                    reader,
+                    attr.Constructor,
+                    beforeMaterialize) is not { } constructorKind)
                 return null;
 
             var blob = reader.GetBlobReader(attr.Value);
@@ -80,7 +83,10 @@ public static class DynamicReader
         return null;
     }
 
-    static ConstructorKind? GetConstructorKind(MetadataReader reader, EntityHandle constructor)
+    static ConstructorKind? GetConstructorKind(
+        MetadataReader reader,
+        EntityHandle constructor,
+        Action<int>? beforeMaterialize)
     {
         try
         {
@@ -90,27 +96,41 @@ public static class DynamicReader
                 case HandleKind.MethodDefinition:
                 {
                     var method = reader.GetMethodDefinition((MethodDefinitionHandle)constructor);
-                    if (reader.GetString(method.Name) != ".ctor")
+                    if (!reader.StringComparer.Equals(method.Name, ".ctor"))
+                        return null;
+                    if (!IsSupportedConstructorSignature(
+                        reader,
+                        method.Signature))
                         return null;
                     if (!SignatureBlobGuard.IsSafeToDecode(
                         reader,
                         method.Signature,
                         SignatureBlobGuard.Kind.Method))
                         return null;
-                    signature = method.DecodeSignature(TypeNodeProvider.Instance, genericContext: null);
+                    signature = method.DecodeSignature(
+                        new TypeNodeProvider(
+                            beforeMaterialize: beforeMaterialize),
+                        genericContext: null);
                     break;
                 }
                 case HandleKind.MemberReference:
                 {
                     var member = reader.GetMemberReference((MemberReferenceHandle)constructor);
-                    if (reader.GetString(member.Name) != ".ctor")
+                    if (!reader.StringComparer.Equals(member.Name, ".ctor"))
+                        return null;
+                    if (!IsSupportedConstructorSignature(
+                        reader,
+                        member.Signature))
                         return null;
                     if (!SignatureBlobGuard.IsSafeToDecode(
                         reader,
                         member.Signature,
                         SignatureBlobGuard.Kind.Method))
                         return null;
-                    signature = member.DecodeMethodSignature(TypeNodeProvider.Instance, genericContext: null);
+                    signature = member.DecodeMethodSignature(
+                        new TypeNodeProvider(
+                            beforeMaterialize: beforeMaterialize),
+                        genericContext: null);
                     break;
                 }
                 default:
@@ -135,6 +155,26 @@ public static class DynamicReader
         {
             return null;
         }
+    }
+
+    static bool IsSupportedConstructorSignature(
+        MetadataReader reader,
+        BlobHandle signatureHandle)
+    {
+        var blob = reader.GetBlobReader(signatureHandle);
+        SignatureHeader header = blob.ReadSignatureHeader();
+        if (header.Kind != SignatureKind.Method
+            || header.CallingConvention
+                != SignatureCallingConvention.Default
+            || !header.IsInstance
+            || header.HasExplicitThis
+            || header.IsGeneric)
+        {
+            return false;
+        }
+
+        int parameterCount = blob.ReadCompressedInteger();
+        return parameterCount is 0 or 1;
     }
 
     /// <summary>

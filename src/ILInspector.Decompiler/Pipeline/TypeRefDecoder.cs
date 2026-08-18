@@ -115,7 +115,10 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 InlineArrayFact(reader, leaf),
                 EnclosingTypeFrom(assembly, definitionName),
                 definitionName,
-                resolutionAssembly: null);
+                resolutionAssembly: null,
+                definitionHandle: handle,
+                definitionModuleVersionId: reader.GetGuid(
+                    reader.GetModuleDefinition().Mvid));
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
         {

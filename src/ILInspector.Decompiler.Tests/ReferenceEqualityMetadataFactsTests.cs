@@ -31,6 +31,110 @@ public class ReferenceEqualityMetadataFactsTests
     }
 
     [Fact]
+    public void LiteralPlusType_DoesNotMaskNestedOperatorFacts()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-structured-hierarchy-").FullName;
+        string path = Path.Combine(directory, "StructuredHierarchy.dll");
+        try
+        {
+            File.WriteAllBytes(path, BuildStructuredHierarchyCollision());
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            var function = IrImporter.Import(
+                source,
+                "Collision.Cases",
+                "Compare");
+            Assert.NotNull(function);
+            IrPasses.Run(function!);
+            function!.CheckInvariant();
+
+            string output = CSharpPrinter.Print(function).Output!;
+
+            Assert.Contains(
+                "return (object)left == (object)right;",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void OperatorHierarchyLookup_DoesNotMaterializeUnrelatedTypeNames()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-hierarchy-allocation-").FullName;
+        string path = Path.Combine(directory, "HierarchyAllocation.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildHierarchyAllocationImage(
+                    typeCount: 8192,
+                    nameLength: 4000));
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            var rootHandle = MetadataTokens.TypeDefinitionHandle(2);
+            TypeRef root = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                source.Reader,
+                rootHandle,
+                rawTypeKind: 0);
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            MetadataFactState result =
+                source.HasOperatorInBindingHierarchy(
+                    root,
+                    "op_Equality");
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.Equal(MetadataFactState.No, result);
+            Assert.InRange(allocated, 0, 1_000_000);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TypeDefHandleProvenance_IsBoundToItsModule()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-handle-provenance-").FullName;
+        string firstPath = Path.Combine(directory, "first.dll");
+        string secondPath = Path.Combine(directory, "second.dll");
+        try
+        {
+            File.WriteAllBytes(
+                firstPath,
+                BuildHandleProvenanceImage(shiftRoot: false));
+            File.WriteAllBytes(
+                secondPath,
+                BuildHandleProvenanceImage(shiftRoot: true));
+            using var first = MetadataSource.OpenWithoutSymbols(firstPath);
+            using var second = MetadataSource.OpenWithoutSymbols(secondPath);
+            TypeRef root = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                first.Reader,
+                MetadataTokens.TypeDefinitionHandle(2),
+                rawTypeKind: 0);
+
+            Assert.Equal(
+                MetadataFactState.No,
+                second.HasOperatorInBindingHierarchy(
+                    root,
+                    "op_Equality"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void DistinctAssemblyVersions_DoNotShareOperatorFacts()
     {
         string directory = Directory.CreateTempSubdirectory("reference-equality-identities-").FullName;
@@ -1206,6 +1310,234 @@ public class ReferenceEqualityMetadataFactsTests
             MetadataTokens.MethodDefinitionHandle(1));
         for (int i = 0; i < edgeCount; i++)
             metadata.AddInterfaceImplementation(wideInterface, baseInterface);
+        return Serialize(metadata, new BlobBuilder());
+    }
+
+    static byte[] BuildStructuredHierarchyCollision()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("StructuredHierarchy.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("StructuredHierarchy"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var systemRuntime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0xb0, 0x3f, 0x5f, 0x7f,
+                    0x11, 0xd5, 0x0a, 0x3a,
+                }),
+            default,
+            default);
+        var objectType = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var operatorBase = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("OperatorBase"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var outer = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("A"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        var nested = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("B"),
+            operatorBase,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddNestedType(nested, outer);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("A+B"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Collision"),
+            metadata.GetOrAddString("Cases"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+
+        var methodBodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(methodBodies);
+        int operatorBody = AddCeqBody(bodyEncoder);
+        int compareBody = AddCeqBody(bodyEncoder);
+        var operatorParameters = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("left"),
+            sequenceNumber: 1);
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("right"),
+            sequenceNumber: 2);
+        var compareParameters = metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("left"),
+            sequenceNumber: 1);
+        metadata.AddParameter(
+            ParameterAttributes.None,
+            metadata.GetOrAddString("right"),
+            sequenceNumber: 2);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Static
+                | MethodAttributes.SpecialName,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("op_Equality"),
+            EqualitySignature(metadata, operatorBase),
+            operatorBody,
+            operatorParameters);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Compare"),
+            EqualitySignature(metadata, nested),
+            compareBody,
+            compareParameters);
+
+        return Serialize(metadata, methodBodies);
+    }
+
+    static byte[] BuildHierarchyAllocationImage(
+        int typeCount,
+        int nameLength)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("HierarchyAllocation.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("HierarchyAllocation"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("IRoot"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        StringHandle decoyName =
+            metadata.GetOrAddString(new string('A', nameLength));
+        for (int i = 0; i < typeCount; i++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic | TypeAttributes.Class,
+                metadata.GetOrAddString("Decoys"),
+                decoyName,
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+        return Serialize(metadata, new BlobBuilder());
+    }
+
+    static byte[] BuildHandleProvenanceImage(bool shiftRoot)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("HandleProvenance.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("HandleProvenance"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        if (shiftRoot)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Decoy"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("IRoot"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(
+                shiftRoot ? 2 : 1));
+        if (shiftRoot)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("op_Equality"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x00, 0x00, 0x02 }),
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
         return Serialize(metadata, new BlobBuilder());
     }
 

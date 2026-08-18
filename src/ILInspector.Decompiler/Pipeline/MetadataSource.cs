@@ -596,7 +596,6 @@ public sealed class MetadataSource : IDisposable
         if (_operatorHierarchyFacts.TryGetValue(cacheKey, out var cached))
             return cached;
 
-        EnsureTypeMaps();
         string self = Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "";
         if (!TypeDefinitionIdentity.BelongsToAssembly(
             definition,
@@ -608,10 +607,10 @@ public sealed class MetadataSource : IDisposable
             return crossAssembly;
         }
 
-        var operatorTypes = methodName switch
+        _ = methodName switch
         {
-            "op_Equality" => _equalityOperatorTypes!,
-            "op_Inequality" => _inequalityOperatorTypes!,
+            "op_Equality" => true,
+            "op_Inequality" => true,
             _ => throw new ArgumentOutOfRangeException(nameof(methodName)),
         };
         bool unresolved = false;
@@ -649,40 +648,107 @@ public sealed class MetadataSource : IDisposable
                 continue;
             }
 
-            if (operatorTypes.Contains(currentDefinition))
+            TypeDefinitionHandle handle =
+                currentDefinition.DefinitionModuleVersionId == ModuleVersionId
+                    ? currentDefinition.DefinitionHandle
+                    : default;
+            if (handle.IsNil)
             {
-                _operatorHierarchyFacts.TryAdd(cacheKey, MetadataFactState.Yes);
-                return MetadataFactState.Yes;
+                var lookup = FindLocalTypeDefinition(
+                    currentIdentity.DefinitionName,
+                    ref remainingWork);
+                if (lookup.Kind != LocalTypeDefinitionLookupKind.Found)
+                {
+                    unresolved = true;
+                    if (lookup.Kind
+                        == LocalTypeDefinitionLookupKind.BudgetExceeded)
+                    {
+                        break;
+                    }
+                    continue;
+                }
+                handle = lookup.Handle;
             }
 
-            if (_interfaces!.Contains(currentDefinition))
+            var typeDefinition = Reader.GetTypeDefinition(handle);
+            foreach (var methodHandle in typeDefinition.GetMethods())
             {
-                bool budgetExhausted = false;
-                foreach (var baseInterface in _interfaceImpls![currentDefinition])
+                if (remainingWork-- <= 0)
+                {
+                    unresolved = true;
+                    break;
+                }
+                var method = Reader.GetMethodDefinition(methodHandle);
+                if (!Reader.StringComparer.Equals(method.Name, methodName))
+                    continue;
+                bool hasThis =
+                    (method.Attributes
+                        & System.Reflection.MethodAttributes.Static) == 0;
+                if (MethodDefinitionFacts.IsOperator(
+                    method,
+                    methodName,
+                    hasThis))
+                {
+                    _operatorHierarchyFacts.TryAdd(
+                        cacheKey,
+                        MetadataFactState.Yes);
+                    return MetadataFactState.Yes;
+                }
+            }
+            if (remainingWork < 0)
+                break;
+
+            var genericParameters = typeDefinition.GetGenericParameters();
+            if (!TryCreateHierarchyGenericScope(
+                genericParameters,
+                ref remainingWork,
+                out var scope))
+            {
+                unresolved = true;
+                break;
+            }
+            bool isGenericInstance =
+                current.Kind == TypeRefKind.GenericInstance;
+
+            if ((typeDefinition.Attributes
+                & System.Reflection.TypeAttributes.Interface) != 0)
+            {
+                foreach (var implementationHandle
+                    in typeDefinition.GetInterfaceImplementations())
                 {
                     if (remainingWork-- <= 0)
                     {
                         unresolved = true;
-                        budgetExhausted = true;
                         break;
                     }
-                    pending.Push(current.Kind == TypeRefKind.GenericInstance
-                        ? baseInterface.Instantiate(current.TypeArguments, [])
+                    var implementation =
+                        Reader.GetInterfaceImplementation(
+                            implementationHandle);
+                    TypeRef? baseInterface = DecodeBaseType(
+                        implementation.Interface,
+                        scope);
+                    if (baseInterface is null)
+                    {
+                        unresolved = true;
+                        continue;
+                    }
+                    pending.Push(isGenericInstance
+                        ? baseInterface.Instantiate(
+                            current.TypeArguments,
+                            [])
                         : baseInterface);
                 }
-                if (budgetExhausted)
+                if (remainingWork < 0)
                     break;
                 continue;
             }
 
-            if (!_baseTypes!.TryGetValue(currentDefinition, out var baseType))
-            {
-                unresolved = true;
-                continue;
-            }
+            TypeRef? baseType = DecodeBaseType(
+                typeDefinition.BaseType,
+                scope);
             if (baseType is not null && !IsObject(baseType))
             {
-                pending.Push(current.Kind == TypeRefKind.GenericInstance
+                pending.Push(isGenericInstance
                     ? baseType.Instantiate(current.TypeArguments, [])
                     : baseType);
             }
@@ -693,6 +759,90 @@ public sealed class MetadataSource : IDisposable
             : MetadataFactState.Unknown;
         _operatorHierarchyFacts.TryAdd(cacheKey, result);
         return result;
+    }
+
+    LocalTypeDefinitionLookup FindLocalTypeDefinition(
+        MetadataTypeDefinitionName name,
+        ref int remainingWork)
+    {
+        TypeDefinitionHandle match = default;
+        bool rejected = false;
+        foreach (var handle in Reader.TypeDefinitions)
+        {
+            if (remainingWork-- <= 0)
+            {
+                return new LocalTypeDefinitionLookup(
+                    LocalTypeDefinitionLookupKind.BudgetExceeded);
+            }
+
+            switch (MetadataTypeDefinitionName.Matches(
+                Reader,
+                handle,
+                name,
+                out _))
+            {
+                case MetadataTypeDefinitionNameMatchResult.Match
+                    when !match.IsNil:
+                    return new LocalTypeDefinitionLookup(
+                        LocalTypeDefinitionLookupKind.Ambiguous);
+                case MetadataTypeDefinitionNameMatchResult.Match:
+                    match = handle;
+                    break;
+                case MetadataTypeDefinitionNameMatchResult.Rejected:
+                    rejected = true;
+                    break;
+            }
+        }
+
+        if (!match.IsNil)
+        {
+            return new LocalTypeDefinitionLookup(
+                LocalTypeDefinitionLookupKind.Found,
+                match);
+        }
+        return new LocalTypeDefinitionLookup(
+            rejected
+                ? LocalTypeDefinitionLookupKind.Rejected
+                : LocalTypeDefinitionLookupKind.Missing);
+    }
+
+    enum LocalTypeDefinitionLookupKind
+    {
+        Found,
+        Missing,
+        Ambiguous,
+        Rejected,
+        BudgetExceeded,
+    }
+
+    readonly record struct LocalTypeDefinitionLookup(
+        LocalTypeDefinitionLookupKind Kind,
+        TypeDefinitionHandle Handle = default);
+
+    static bool TryCreateHierarchyGenericScope(
+        GenericParameterHandleCollection parameters,
+        ref int remainingWork,
+        out GenericScope scope)
+    {
+        if (parameters.Count == 0)
+        {
+            scope = new GenericScope([], []);
+            return true;
+        }
+
+        var names = ImmutableArray.CreateBuilder<string>(
+            parameters.Count);
+        foreach (var _ in parameters)
+        {
+            if (remainingWork-- <= 0)
+            {
+                scope = new GenericScope([], []);
+                return false;
+            }
+            names.Add("");
+        }
+        scope = new GenericScope(names.MoveToImmutable(), []);
+        return true;
     }
 
     /// <summary>

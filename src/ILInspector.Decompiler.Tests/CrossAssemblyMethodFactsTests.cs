@@ -88,6 +88,48 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void TypeSpecCustomModifierSignatureCollision_UsesExactModifiers()
+    {
+        using var fixture = MethodCollisionFixture.Create();
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var modifier = TypeRef.GenericInstance(
+            fixture.Type("Marker`1"),
+            [intType]);
+        var parameter = TypeRef.ByRef(intType)
+            .WithCustomModifier(modifier, isRequired: false);
+        var callee = new MethodRef(
+            fixture.Type("C"),
+            "TypeSpecModifierCollision",
+            TypeRef.CoreLib("System", "Void"),
+            [parameter],
+            HasThis: false);
+
+        Assert.True(fixture.Resolve(callee).RequiresUnsafe);
+    }
+
+    [Fact]
+    public void GenericTypeSpecCustomModifier_IsInstantiated()
+    {
+        using var fixture = MethodCollisionFixture.Create();
+        var stringType = TypeRef.CoreLib("System", "String");
+        var modifier = TypeRef.GenericInstance(
+            fixture.Type("Marker`1"),
+            [TypeRef.GenericParameter(0, "T")]);
+        var modified = TypeRef.CoreLib("System", "Int32")
+            .WithCustomModifier(modifier, isRequired: true);
+
+        TypeRef instantiated = modified.Instantiate(
+            [stringType],
+            []);
+
+        var retained = Assert.Single(instantiated.CustomModifiers);
+        Assert.True(retained.IsRequired);
+        Assert.Equal(
+            stringType,
+            Assert.Single(retained.Modifier.TypeArguments));
+    }
+
+    [Fact]
     public void AmbiguousMethodCandidates_KeepFactsUnknown()
     {
         using var fixture = MethodCollisionFixture.Create();
@@ -542,6 +584,30 @@ public class CrossAssemblyMethodFactsTests
                 objectType,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
+            var genericMarker = metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("Marker`1"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddGenericParameter(
+                genericMarker,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            var otherGenericMarker = metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("OtherMarker`1"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddGenericParameter(
+                otherGenericMarker,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
             metadata.AddTypeDefinition(
                 TypeAttributes.Public
                     | TypeAttributes.Abstract
@@ -551,6 +617,14 @@ public class CrossAssemblyMethodFactsTests
                 objectType,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
+            var markerOfInt = metadata.AddTypeSpecification(
+                GenericInstanceSignature(
+                    metadata,
+                    genericMarker));
+            var otherMarkerOfInt = metadata.AddTypeSpecification(
+                GenericInstanceSignature(
+                    metadata,
+                    otherGenericMarker));
 
             var genericReturn = AddMethod(
                 metadata,
@@ -595,6 +669,23 @@ public class CrossAssemblyMethodFactsTests
                 ByRefIntSignature(
                     metadata,
                     marker));
+
+            AddMethod(
+                metadata,
+                "TypeSpecModifierCollision",
+                ByRefIntSignature(
+                    metadata,
+                    otherMarkerOfInt));
+            var typeSpecModified = AddMethod(
+                metadata,
+                "TypeSpecModifierCollision",
+                ByRefIntSignature(
+                    metadata,
+                    markerOfInt));
+            AddRequiresUnsafe(
+                metadata,
+                typeSpecModified,
+                attributeConstructor);
 
             var duplicate = AddMethod(
                 metadata,
@@ -679,6 +770,19 @@ public class CrossAssemblyMethodFactsTests
                 WriteTypeDefOrRef(signature, modifier);
             }
             signature.WriteByte(0x10);
+            signature.WriteByte(0x08);
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        static BlobHandle GenericInstanceSignature(
+            MetadataBuilder metadata,
+            EntityHandle genericType)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x15);
+            signature.WriteByte(0x12);
+            WriteTypeDefOrRef(signature, genericType);
+            signature.WriteCompressedInteger(1);
             signature.WriteByte(0x08);
             return metadata.GetOrAddBlob(signature);
         }

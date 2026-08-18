@@ -208,6 +208,32 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
         MetadataTypeDefinitionNameReader.Read(reader, handle);
 
     /// <summary>
+    /// Compares a TypeDef to an exact structured name without materializing
+    /// metadata-authored strings. Gated by
+    /// <c>OperatorHierarchyLookup_DoesNotMaterializeUnrelatedTypeNames</c>.
+    /// </summary>
+    public static MetadataTypeDefinitionNameMatchResult Matches(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        MetadataTypeDefinitionName name,
+        out MetadataTypeNameFailure? failure) =>
+        MetadataTypeDefinitionNameReader.Matches(
+            reader,
+            handle,
+            name,
+            out failure) switch
+        {
+            MetadataTypeDefinitionNameMatch.NoMatch =>
+                MetadataTypeDefinitionNameMatchResult.NoMatch,
+            MetadataTypeDefinitionNameMatch.Match =>
+                MetadataTypeDefinitionNameMatchResult.Match,
+            MetadataTypeDefinitionNameMatch.Rejected =>
+                MetadataTypeDefinitionNameMatchResult.Rejected,
+            _ => throw new InvalidOperationException(
+                "unknown metadata type-name match result"),
+        };
+
+    /// <summary>
     /// Parses a reflection-serialized type name into exact metadata definition
     /// identity while rejecting assembly-qualified and constructed forms.
     /// Gated by
@@ -307,6 +333,14 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
         MetadataTypeDefinitionName? left,
         MetadataTypeDefinitionName? right) =>
         !(left == right);
+}
+
+/// <summary>The outcome of an exact, non-materializing TypeDef-name comparison.</summary>
+public enum MetadataTypeDefinitionNameMatchResult
+{
+    NoMatch,
+    Match,
+    Rejected,
 }
 
 public abstract record MetadataTypeDefinitionNameReadResult
