@@ -3197,6 +3197,9 @@ public partial class CommandExecutionTests
     [InlineData("System.Collections.Generic.Dictionary<List<T>U,TValue>")]
     [InlineData("System.Collections.Generic.Dictionary<List<T><U>,TValue>")]
     [InlineData("System.Collections.Generic.Dictionary<List<T>[,TValue>")]
+    [InlineData("System.Collections.Generic.List<?>")]
+    [InlineData("System.Collections.Generic.List<.T>")]
+    [InlineData("System.Collections.Generic.List<T?*>")]
     [InlineData("System.Threading.Tasks.Task<T1,T2>")]
     public async Task Router_ExplicitMissingGenericArity_DoesNotBroaden(
         string target)
@@ -3493,6 +3496,147 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, deferred);
         Assert.Equal(0, deferred.Exit);
+    }
+
+    [Fact]
+    public async Task Router_ExplicitTypeFilterSelectsTypeParser()
+    {
+        var target = typeof(SampleGenericClass<>).FullName!
+            .Replace("`1", "<T>", StringComparison.Ordinal);
+        string[] tail =
+        [
+            "--library",
+            TestAssemblyPath,
+            "-t",
+            "*SampleGenericClass*",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeRejectsEmbeddedMermaid()
+    {
+        var target = typeof(SampleGenericClass<>).FullName!
+            .Replace("`1", "<T>", StringComparison.Ordinal);
+        string[] tail =
+        [
+            "--library",
+            TestAssemblyPath,
+            "--markdown",
+            "--mermaid",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(1, routed.Exit);
+        Assert.Contains("Unrecognized option '--mermaid'", routed.Error);
+    }
+
+    [Theory]
+    [InlineData("System.Collections.Generic.List<T>")]
+    [InlineData("List<T>")]
+    public async Task Router_GenericTypeTargetWithMemberFilterUsesMemberCommand(
+        string target)
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections",
+            "-m",
+            "ConvertAll<TOutput>",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Router_QualifiedGenericMemberFilterUsesTopLevelBoundary()
+    {
+        var target = typeof(MemberGenericSelectorFixture).FullName!;
+        string[] tail =
+        [
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "GenericChoice<System.String>",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Router_GenericTypeTargetPreservesDigestMemberSelector()
+    {
+        const string target = "System.Collections.Generic.List<T>";
+        var inventory = await RunAppAsync(
+            "member",
+            target,
+            "--platform",
+            "System.Collections",
+            "-m",
+            "ConvertAll<TOutput>",
+            "-S",
+            "Member Index",
+            "--table",
+            "--tips",
+            "q");
+        Assert.Equal(0, inventory.Exit);
+        var selector = inventory.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("ConvertAll", StringComparison.Ordinal))
+            .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries)[1])
+            .Single();
+        Assert.Contains('~', selector);
+
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections",
+            "-m",
+            selector,
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
     }
 
     [Fact]
@@ -20390,6 +20534,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("ConvertAll<TOutput><>")]
     [InlineData("ConvertAll<<TOutput>>")]
+    [InlineData("ConvertAll<?>")]
     public async Task Member_MalformedGenericMethodSelectorDoesNotBroaden(
         string memberSelector)
     {

@@ -215,7 +215,7 @@ public static class SharedParsers
     /// <returns>A tuple of (type filter if present, member name).</returns>
     public static (string? TypeFilter, string MemberName) ParseDottedMember(string value)
     {
-        var dotIdx = value.LastIndexOf('.');
+        var dotIdx = FqnParser.LastTopLevelDot(value);
         if (dotIdx > 0 && !value.Contains('*') && !value.Contains('?'))
             return (value[..dotIdx], value[(dotIdx + 1)..]);
         return (null, value);

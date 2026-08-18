@@ -159,6 +159,20 @@ public class SharedParsersTests
         Assert.Equal("Deserialize", member);
     }
 
+    [Theory]
+    [InlineData("GenericChoice<System.String>", null, "GenericChoice<System.String>")]
+    [InlineData("Fixture.GenericChoice<System.String>", "Fixture", "GenericChoice<System.String>")]
+    public void ParseDottedMember_GenericArgumentDotsAreNotMemberBoundaries(
+        string value,
+        string? expectedTypeFilter,
+        string expectedMember)
+    {
+        var (typeFilter, member) = SharedParsers.ParseDottedMember(value);
+
+        Assert.Equal(expectedTypeFilter, typeFilter);
+        Assert.Equal(expectedMember, member);
+    }
+
     // ── SplitTrailingMember ───────────────────────────────────────────────
 
     [Fact]

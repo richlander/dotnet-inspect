@@ -72,6 +72,10 @@ public class FqnParserTests
     [InlineData("Dictionary<List<T> <U>,TValue>")]
     [InlineData("Dictionary<List<T>[,TValue>")]
     [InlineData("Dictionary<List<T>],TValue>")]
+    [InlineData("List<?>")]
+    [InlineData("List<.T>")]
+    [InlineData("List<T.>")]
+    [InlineData("List<T?*>")]
     public void MalformedGenericType_IsNotNormalizedToValidMetadataIdentity(
         string input) =>
         Assert.Equal(input, FqnParser.NormalizeTypeName(input));

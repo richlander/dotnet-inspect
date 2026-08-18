@@ -197,9 +197,24 @@ public static class RouterCommandDefinition
                     return ["package", target, .. tail];
             }
 
+            var hasExplicitGenericNotation =
+                TypeMatcher.HasExplicitGenericNotation(target);
+            var trailingSegmentStart =
+                FqnParser.LastTopLevelDot(target) + 1;
+            var trailingSegmentHasGenericNotation =
+                TypeMatcher.HasExplicitGenericNotation(
+                    target[trailingSegmentStart..]);
+            if (hasExplicitGenericNotation
+                && (ContainsOption(tokens, "--type")
+                    || ContainsOption(tokens, "-t")))
+            {
+                return ["type", target, .. tail];
+            }
+
             if ((ContainsOption(tokens, "--member")
                     || ContainsOption(tokens, "-m"))
-                && !TypeMatcher.HasExplicitGenericNotation(target))
+                && (!hasExplicitGenericNotation
+                    || trailingSegmentHasGenericNotation))
                 return ["member", target, .. tail];
 
             if (ContainsOption(tokens, "--library")
@@ -270,7 +285,7 @@ public static class RouterCommandDefinition
             }
 
             if (hasExplicitApiSource
-                && TypeMatcher.HasExplicitGenericNotation(target))
+                && hasExplicitGenericNotation)
             {
                 return target.Contains('.')
                     ? RouteDeferredTypeOrMember(target, tail)

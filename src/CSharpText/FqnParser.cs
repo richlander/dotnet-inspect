@@ -334,6 +334,7 @@ public static class FqnParser
 
         count = 1;
         var segmentStart = 0;
+        var currentPartHasCore = false;
         var coreCompleted = false;
         var hasPostfix = false;
         var nullableApplied = false;
@@ -365,7 +366,8 @@ public static class FqnParser
             switch (typeParams[i])
             {
                 case '<':
-                    if (coreCompleted
+                    if (!currentPartHasCore
+                        || coreCompleted
                         || typeParams[segmentStart..i].IsWhiteSpace())
                     {
                         count = 0;
@@ -390,7 +392,8 @@ public static class FqnParser
                     count = 0;
                     return false;
                 case ',':
-                    if (typeParams[segmentStart..i].IsWhiteSpace())
+                    if (!currentPartHasCore
+                        || typeParams[segmentStart..i].IsWhiteSpace())
                     {
                         count = 0;
                         return false;
@@ -398,6 +401,7 @@ public static class FqnParser
 
                     count++;
                     segmentStart = i + 1;
+                    currentPartHasCore = false;
                     coreCompleted = false;
                     hasPostfix = false;
                     nullableApplied = false;
@@ -405,7 +409,8 @@ public static class FqnParser
                     byRefApplied = false;
                     break;
                 case '[':
-                    if (byRefApplied
+                    if (!currentPartHasCore
+                        || byRefApplied
                         || typeParams[segmentStart..i].IsWhiteSpace())
                     {
                         count = 0;
@@ -418,7 +423,10 @@ public static class FqnParser
                     count = 0;
                     return false;
                 case '?':
-                    if (nullableApplied || pointerApplied || byRefApplied)
+                    if (!currentPartHasCore
+                        || nullableApplied
+                        || pointerApplied
+                        || byRefApplied)
                     {
                         count = 0;
                         return false;
@@ -429,7 +437,9 @@ public static class FqnParser
                     nullableApplied = true;
                     break;
                 case '*':
-                    if (byRefApplied)
+                    if (!currentPartHasCore
+                        || nullableApplied
+                        || byRefApplied)
                     {
                         count = 0;
                         return false;
@@ -440,7 +450,7 @@ public static class FqnParser
                     pointerApplied = true;
                     break;
                 case '&':
-                    if (byRefApplied)
+                    if (!currentPartHasCore || byRefApplied)
                     {
                         count = 0;
                         return false;
@@ -452,12 +462,15 @@ public static class FqnParser
                     break;
                 case '.':
                 case '+':
-                    if (hasPostfix || byRefApplied)
+                    if (!currentPartHasCore
+                        || hasPostfix
+                        || byRefApplied)
                     {
                         count = 0;
                         return false;
                     }
 
+                    currentPartHasCore = false;
                     coreCompleted = false;
                     nullableApplied = false;
                     pointerApplied = false;
@@ -469,11 +482,14 @@ public static class FqnParser
                         count = 0;
                         return false;
                     }
+                    if (!char.IsWhiteSpace(typeParams[i]))
+                        currentPartHasCore = true;
                     break;
             }
         }
 
         if (arrayRankDepth != 0
+            || !currentPartHasCore
             || typeParams[segmentStart..].IsWhiteSpace())
         {
             count = 0;
