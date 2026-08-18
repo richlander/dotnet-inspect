@@ -17795,6 +17795,8 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData("Built", "built_date")]
+    [InlineData("Native Dependencies", "has_native_dependencies")]
+    [InlineData("RID-Specific Assets", "has_rid_specific_assets")]
     [InlineData("Type", "is_tool_package")]
     public async Task Package_JsonRecognizesDisplayAliasInTypedOutput(
         string field,
@@ -24382,6 +24384,84 @@ public partial class CommandExecutionTests
             Assert.DoesNotContain(
                 "No fields matched projection",
                 error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    [InlineData("--bare")]
+    public async Task Package_MultiplePackages_RejectUnsupportedJsonShapesBeforeOutput(
+        string shape)
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.MultiJsonShape",
+            "README.md",
+            "# Test package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                packagePath,
+                "-S",
+                "Package files",
+                shape,
+                "--json",
+                "--fields",
+                "Path",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                $"Multiple package inspection cannot be combined with {shape}.",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "produced unprojected output",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencyLensJsonDoesNotUseTypedDocumentValidation()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--dependencies",
+                "--json",
+                "-S",
+                "Dependencies",
+                "--fields",
+                "Version",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(
+                "Test.DependencyGroups 1.0.0",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "No fields matched projection",
+                error,
+                StringComparison.Ordinal);
         }
         finally
         {

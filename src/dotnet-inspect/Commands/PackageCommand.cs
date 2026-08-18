@@ -1502,6 +1502,7 @@ public class PackageCommand
         && !options.ListVersions
         && !options.ListLayout
         && !options.ListTfms
+        && !options.ShowDependencies
         && !options.ShowContent;
 
     private static DocumentSchema PackageCountColumnSchema(
@@ -1679,6 +1680,10 @@ public class PackageCommand
         if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
+        if (options.Value) conflicts.Add("--value");
+        if (options.Urls) conflicts.Add("--urls");
+        if (options.Paths) conflicts.Add("--paths");
+        if (options.Bare) conflicts.Add("--bare");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.AllLibraries) conflicts.Add("--all-libraries");
