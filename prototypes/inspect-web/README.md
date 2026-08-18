@@ -481,10 +481,13 @@ main-only `inspect-web-coreclr-staging` environment, a distinct deployment
 token, and the non-promotable `inspect-web-coreclr-site` artifact. The site is
 interpreter-only while the .NET 11 Preview 7 SDK lacks the packaged headers and
 Emscripten cache wiring needed for CoreCLR native relinking. The workflow pins
-the proven preview SDK and the `UseMonoRuntime=false`,
-`WasmBuildNative=false`, `WasmNestedPublishAppDependsOn=`, and
-`WasmEnableExceptionHandling=true` overrides. It verifies the CoreCLR-specific
-`GetDotNetRuntimeHeap` hook before and after artifact transfer.
+the proven preview SDK, enables `runtime-async=on` across this application
+graph, and applies the `UseMonoRuntime=false`, `WasmBuildNative=false`,
+`WasmNestedPublishAppDependsOn=`, and `WasmEnableExceptionHandling=true`
+overrides. This exercises runtime async only in the CoreCLR comparison
+deployment; Mono staging and ordinary non-AOT builds retain classic async
+lowering. The workflow verifies the CoreCLR-specific `GetDotNetRuntimeHeap`
+hook before and after artifact transfer.
 
 `.github/workflows/promote-inspect-web.yml` intentionally promotes one
 successful staging run to production at `https://dotnet-inspect.net`. The

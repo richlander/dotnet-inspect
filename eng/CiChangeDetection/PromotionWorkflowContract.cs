@@ -144,6 +144,12 @@ internal static class PromotionWorkflowContract
             "Staging workflow contract accepted Azure app build.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
+            "            -p:Features=runtime-async=on \\\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted classic async lowering.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
             "            -p:UseMonoRuntime=false \\\n",
             "",
             ValidateCoreClrStaging,
@@ -891,6 +897,7 @@ internal static class PromotionWorkflowContract
               -p:VersionPrefix="$version" \
               -p:SourceRevisionId="$GITHUB_SHA" \
               -p:BuildTimestampUtc="$built_at" \
+              -p:Features=runtime-async=on \
               -p:UseMonoRuntime=false \
               -p:WasmBuildNative=false \
               -p:WasmNestedPublishAppDependsOn= \
