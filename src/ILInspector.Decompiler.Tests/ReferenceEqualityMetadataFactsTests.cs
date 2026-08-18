@@ -93,23 +93,29 @@ public class ReferenceEqualityMetadataFactsTests
         }
     }
 
-    [Fact]
-    public void WideInterfaceHierarchy_ExhaustsWorkBudget()
+    [Theory]
+    [InlineData(2, MetadataFactState.No)]
+    [InlineData(5000, MetadataFactState.Unknown)]
+    public void WideInterfaceHierarchy_EnforcesWorkBudget(
+        int edgeCount,
+        MetadataFactState expected)
     {
         string path = Path.Combine(
             Directory.CreateTempSubdirectory("reference-equality-wide-").FullName,
             "Wide.dll");
         try
         {
-            File.WriteAllBytes(path, BuildWideInterfaceImage(edgeCount: 5000));
+            File.WriteAllBytes(path, BuildWideInterfaceImage(edgeCount));
             using var source = MetadataSource.OpenWithoutSymbols(path);
-            var type = TypeRef.Definition(
+            var type = Definition(
                 TypeRefDecoder.CanonicalSelf(source.Reader),
                 "Wide",
-                "IWide");
+                "IWide",
+                ["IWide"],
+                AssemblyReferenceIdentity.FromAssemblyDefinition(source.Reader));
 
             Assert.Equal(
-                MetadataFactState.Unknown,
+                expected,
                 source.HasOperatorInBindingHierarchy(type, "op_Equality"));
         }
         finally

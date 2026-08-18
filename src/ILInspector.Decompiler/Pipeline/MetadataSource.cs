@@ -11,6 +11,7 @@ internal static class OperatorHierarchyLimits
 {
     // Bound both graph depth and breadth: malformed metadata can attach an
     // arbitrary number of duplicate InterfaceImpl rows to one definition.
+    // Gated by WideInterfaceHierarchy_EnforcesWorkBudget.
     public const int Types = 256;
     public const int WorkItems = 4096;
 }
