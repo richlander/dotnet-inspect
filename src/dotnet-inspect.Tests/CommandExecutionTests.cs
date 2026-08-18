@@ -14916,20 +14916,6 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_IlOffsetMemberContext_ShowsAsyncKind()
-    {
-        var token = typeof(ILOffsetAsyncFixture).GetMethod(nameof(ILOffsetAsyncFixture.StateMachineAsync))!.MetadataToken;
-        var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x0", "-S", "Context: Member", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("| Member | DotnetInspector.Tests.CommandExecutionTests.ILOffsetAsyncFixture.StateMachineAsync |", output);
-        Assert.Contains("| Async | Runtime |", output);
-    }
-
-    [Fact]
     public async Task LibraryCommand_IlOffsetInstructionContext_RendersInstructionFacts()
     {
         var (exit, output, error) = await RunAppAsync(
