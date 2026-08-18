@@ -42,6 +42,9 @@ Library uses `@Library` and `@Surface` as its base categories. Package uses
 `@Package` and `@Files`; package evidence is also cross-listed into
 `@Dependencies`, `@Audit`, and `@SourceLink` domain categories.
 
+`Unsafe Members` is intentionally a standalone library section. It belongs to
+no category and is selected by exact name (or an explicit matching wildcard).
+
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories. Users who
 need broad evidence select the relevant authored categories explicitly.
 

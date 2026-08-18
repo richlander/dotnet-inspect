@@ -387,8 +387,8 @@ public class SectionPipelineTests
         foreach (var name in visible)
             Assert.DoesNotContain(name, hidden);
 
-        // Performance, integrations, SourceLink, audit-only, and coordinate context sections are
-        // domain-owned and therefore hidden from the flat base catalog.
+        // Performance, integrations, SourceLink, audit-only, exact-only, and coordinate context
+        // sections are outside the base scope and therefore hidden from the flat base catalog.
         foreach (var kind in PerformanceKinds.Sections)
             Assert.Contains(kind, hidden);
         foreach (var integration in LibraryIntegrationCatalog.CategorySections.Append(IntegrationSectionNames.Opportunities))
@@ -411,7 +411,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_EverySelectableSectionBelongsToAnAuthoredCategory()
+    public void LibraryPipeline_UnsafeMembersIsTheOnlyUncategorizedSection()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var categories = pipeline.GetCategoryMap()
@@ -426,9 +426,7 @@ public class SectionPipelineTests
             .Where(name => !categorized.Contains(name))
             .ToArray();
 
-        Assert.True(
-            uncategorized.Length == 0,
-            $"Library section(s) have no authored category: {string.Join(", ", uncategorized)}");
+        Assert.Equal([SectionNames.UnsafeMembers], uncategorized);
     }
 
     [Fact]
@@ -1330,7 +1328,6 @@ public class SectionPipelineTests
         Assert.True(categories.TryGetValue(SectionCategoryNames.Audit, out var sections));
         Assert.Equal(
             [
-                SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
                 SectionNames.SourceLinkDiagnostics,

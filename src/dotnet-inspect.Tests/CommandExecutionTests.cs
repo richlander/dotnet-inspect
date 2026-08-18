@@ -7309,13 +7309,14 @@ public partial class CommandExecutionTests
 
             var (exit, output, error) = await RunAppAsync(
                 "library", assemblyPath,
-                "-D",
+                "-D", SectionNames.UnsafeMembers,
+                "--effective",
                 "--tree",
                 "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains(SectionNames.UnsafeMembers, output);
+            Assert.Contains("Member (column)", output);
         }
         finally
         {
@@ -15564,6 +15565,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Signals", output);
         Assert.Contains("Symbols", output);
+        Assert.DoesNotContain(SectionNames.UnsafeMembers, output);
         Assert.DoesNotContain("Switches", output);
         Assert.DoesNotContain("Integrations", output);
         Assert.DoesNotContain("Tip:", error);
