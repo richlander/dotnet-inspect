@@ -53,15 +53,19 @@ public abstract record InspectionGraphMemberIdentity
     {
         public AcquiredApi(
             AssemblyAcquisitionRegistration registration,
+            MetadataTypeDefinitionName declaringType,
             MemberAnchor member)
         {
             ArgumentNullException.ThrowIfNull(registration);
+            ArgumentNullException.ThrowIfNull(declaringType);
             ArgumentNullException.ThrowIfNull(member);
             Registration = registration;
+            DeclaringType = declaringType;
             Member = member;
         }
 
         public AssemblyAcquisitionRegistration Registration { get; }
+        public MetadataTypeDefinitionName DeclaringType { get; }
         public MemberAnchor Member { get; }
         public override bool IsPortable => false;
     }
@@ -203,10 +207,12 @@ public abstract record InspectionGraphSubject
 
     public static InspectionGraphSubject ForAcquiredApiMember(
         AssemblyAcquisitionRegistration registration,
+        MetadataTypeDefinitionName declaringType,
         MemberAnchor member) =>
         ForMember(
             new InspectionGraphMemberIdentity.AcquiredApi(
                 registration,
+                declaringType,
                 member));
 
     public static InspectionGraphSubject ForType(
@@ -665,7 +671,7 @@ public sealed class InspectionGraphRelationshipDescriptor
             _ => throw new ArgumentOutOfRangeException(nameof(role)),
         };
 
-    internal static bool CanStrictlyOwn(
+    static bool CanStrictlyOwn(
         InspectionGraphSubjectKind owner,
         InspectionGraphSubjectKind subject) =>
         (owner, subject) switch
@@ -1383,11 +1389,11 @@ public sealed class InspectionGraphDocument
         }
         ValidateDescriptorIds();
         ValidateGroups();
-        ValidateProjectionRequest();
         ValidateEdgesAndOccurrences();
         ValidateCharacteristics();
         ValidateSeeds();
         ValidateDiagnostics();
+        ValidateProjectionRequest();
     }
 
     public InspectionGraphDocumentScope Scope { get; }
@@ -1449,6 +1455,58 @@ public sealed class InspectionGraphDocument
             throw new ArgumentException(
                 "An explicit induced-set document can contain only selected relationships.",
                 nameof(Edges));
+        }
+
+        IReadOnlyDictionary<InspectionGraphSubject, InspectionGraphNode>
+            nodesBySubject = Nodes.ToDictionary(
+                static node => node.Subject);
+        foreach (InspectionGraphEdge edge in Edges)
+        {
+            foreach (int occurrenceId in edge.OccurrenceIds)
+            {
+                InspectionGraphOccurrence occurrence =
+                    Occurrences[occurrenceId];
+                if (InspectionGraphProjectionUtilities.AdmitsEndpoint(
+                        this,
+                        nodesBySubject,
+                        InducedSetRequest.Subjects,
+                        edge,
+                        occurrence,
+                        InspectionGraphEndpointRole.Source)
+                    && InspectionGraphProjectionUtilities.AdmitsEndpoint(
+                        this,
+                        nodesBySubject,
+                        InducedSetRequest.Subjects,
+                        edge,
+                        occurrence,
+                        InspectionGraphEndpointRole.Target))
+                {
+                    continue;
+                }
+
+                throw new ArgumentException(
+                    "Every explicit induced-set occurrence must be admitted on both semantic endpoint roles.",
+                    nameof(Occurrences));
+            }
+        }
+
+        InspectionGraphLimit[] subjectBounds =
+        [
+            .. Limits.Where(limit =>
+                ReferenceEquals(
+                    limit.Descriptor,
+                    InspectionGraphInducedSetCatalog.SubjectBound)),
+        ];
+        if (subjectBounds.Length != 1
+            || subjectBounds[0].Target is not null
+            || subjectBounds[0].Evidence
+                is not InspectionGraphInducedSubjectBoundEvidence evidence
+            || evidence.SubjectCount
+                != InducedSetRequest.Subjects.Length)
+        {
+            throw new ArgumentException(
+                "An explicit induced-set document requires one global subject bound matching its input count.",
+                nameof(Limits));
         }
     }
 

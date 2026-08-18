@@ -533,6 +533,17 @@ public static class InspectionGraphIntegrationsQuery
         return Create(context, request, results);
     }
 
+    static void ValidateSubjects(
+        WorkspaceContextLoadOutcome.Loaded context,
+        ImmutableArray<InspectionGraphSubject> subjects)
+    {
+        var builder = new Builder(
+            context,
+            InspectionGraphPackageBoundary.Create(context));
+        foreach (InspectionGraphSubject subject in subjects)
+            builder.EnsureSubject(subject);
+    }
+
     public static InspectionGraphDocument Execute(
         WorkspaceContextLoadOutcome.Loaded context,
         InspectionGraphInducedSetRequest request) =>
@@ -549,6 +560,7 @@ public static class InspectionGraphIntegrationsQuery
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
         ValidateRelationships(request.Relationships);
+        ValidateSubjects(context, request.Subjects);
         InspectionQueryResults results = CreateRegistry().Run(
             Plan(request),
             context.Group,
@@ -890,13 +902,19 @@ public static class InspectionGraphIntegrationsQuery
 
         internal void EnsureSubject(InspectionGraphSubject subject)
         {
-            if (subject is InspectionGraphSubject.PackageSubject)
+            if (subject is InspectionGraphSubject.PackageSubject package)
+            {
+                if (!_packageGroupIds.ContainsKey(package))
+                    throw SubjectNotPresent(subject);
                 return;
+            }
 
-            AssemblyAcquisitionRegistration registration =
-                Registration(subject);
-            if (_participants.ContainsKey(registration))
-                AddNode(subject, registration);
+            if (!TryGetRegistration(subject, out var registration)
+                || !_participants.ContainsKey(registration))
+            {
+                throw SubjectNotPresent(subject);
+            }
+            AddNode(subject, registration);
         }
 
         internal void AddTypeCurrency(
@@ -946,6 +964,8 @@ public static class InspectionGraphIntegrationsQuery
                             in available.Value)
                         {
                             if (extension.Anchor is not { } member
+                                || extension.GetDeclaringTypeDefinition()
+                                    is not { } declaringType
                                 || extension.GetExtendedTypeReference()
                                     is not { } extendedType)
                             {
@@ -960,6 +980,7 @@ public static class InspectionGraphIntegrationsQuery
                             InspectionGraphSubject.MemberSubject source =
                                 MemberSubject(
                                     available.Subject.Registration,
+                                    declaringType,
                                     member);
                             AddNode(
                                 source,
@@ -1082,7 +1103,10 @@ public static class InspectionGraphIntegrationsQuery
                 }
 
                 InspectionGraphSubject.MemberSubject source =
-                    MemberSubject(registration, api.Member);
+                    MemberSubject(
+                        registration,
+                        api.DeclaringType,
+                        api.Member);
                 AddNode(source, registration);
                 if (!TryResolveType(
                         registration,
@@ -1731,10 +1755,12 @@ public static class InspectionGraphIntegrationsQuery
 
         static InspectionGraphSubject.MemberSubject MemberSubject(
             AssemblyAcquisitionRegistration registration,
+            MetadataTypeDefinitionName declaringType,
             MemberAnchor member) =>
             (InspectionGraphSubject.MemberSubject)
                 InspectionGraphSubject.ForAcquiredApiMember(
                     registration,
+                    declaringType,
                     member);
 
         static InspectionGraphSubject.TypeSubject TypeSubject(
@@ -1769,6 +1795,41 @@ public static class InspectionGraphIntegrationsQuery
                     "The Integration graph requires acquisition-bound subjects.",
                     nameof(subject)),
             };
+
+        static bool TryGetRegistration(
+            InspectionGraphSubject subject,
+            out AssemblyAcquisitionRegistration registration)
+        {
+            registration = subject switch
+            {
+                InspectionGraphSubject.MemberSubject
+                {
+                    Identity:
+                        InspectionGraphMemberIdentity.AcquiredApi acquired,
+                } => acquired.Registration,
+                InspectionGraphSubject.TypeSubject
+                {
+                    Identity:
+                        InspectionGraphTypeIdentity.AcquiredDefinition
+                        acquired,
+                } => acquired.Registration,
+                InspectionGraphSubject.AssemblySubject
+                {
+                    Identity:
+                        InspectionGraphAssemblyIdentity.Acquired acquired,
+                } => acquired.Registration,
+                _ => null!,
+            };
+            return registration is not null;
+        }
+
+        static InspectionQueryException SubjectNotPresent(
+            InspectionGraphSubject subject) =>
+            new(
+                $"The requested {subject.Kind.ToString().ToLowerInvariant()} "
+                + "subject is not present in this graph. Add the subject "
+                + "to workspace scope or select a relationship and lens "
+                + "that admit it.");
 
         sealed record EdgeKey(
             int FromNodeId,

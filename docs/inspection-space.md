@@ -52,11 +52,14 @@ The Integration graph now accepts finite explicit-subject induced-set requests
 over one realized context group. Workspace scope still decides which
 participants may contribute. The request independently selects typed subjects,
 relationship producers, and the both-endpoint subject-closure rule; it does not
-create seeds or widen acquisition. The selected relationship set drives one
-deterministic registry plan regardless of input count, and the existing
-sequential group executor remains the Browser/Wasm-compatible baseline.
+create seeds or widen acquisition. Subject identities and workspace membership
+are validated before the selected producers run. The selected relationship set
+then drives one deterministic registry plan regardless of input count, and the
+existing sequential group executor remains the Browser/Wasm-compatible
+baseline.
 `Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand` gates that planning
-contract.
+contract; `Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance` gates
+the preflight boundary.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:

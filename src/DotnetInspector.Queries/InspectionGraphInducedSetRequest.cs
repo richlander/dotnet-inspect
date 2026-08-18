@@ -56,25 +56,6 @@ public sealed class InspectionGraphInducedSetRequest
                 nameof(relationships));
         }
 
-        foreach (InspectionGraphSubject subject in Subjects)
-        {
-            if (Relationships.Any(relationship =>
-                AdmitsSubjectKind(relationship, subject.Kind)))
-            {
-                continue;
-            }
-
-            string ids = string.Join(
-                ", ",
-                Relationships.Select(static relationship =>
-                    relationship.Id));
-            throw new InspectionQueryException(
-                $"No selected relationship admits the "
-                + $"{subject.Kind.ToString().ToLowerInvariant()} subject "
-                + "or subjects it strictly owns. "
-                + $"Selected relationships: {ids}.");
-        }
-
         ModeRequest = InspectionGraphModeRequest.InducedSet(
             InspectionGraphInducedSetRule.ExplicitSubjects);
         AdmissionRule = admissionRule;
@@ -85,19 +66,6 @@ public sealed class InspectionGraphInducedSetRequest
     public ImmutableArray<InspectionGraphRelationshipDescriptor>
         Relationships { get; }
     public InspectionGraphInducedSetAdmissionRule AdmissionRule { get; }
-
-    static bool AdmitsSubjectKind(
-        InspectionGraphRelationshipDescriptor relationship,
-        InspectionGraphSubjectKind subjectKind) =>
-        relationship.EdgeSourceKinds
-            .Concat(relationship.EdgeTargetKinds)
-            .Concat(relationship.OccurrenceSourceKinds)
-            .Concat(relationship.OccurrenceTargetKinds)
-            .Any(endpointKind =>
-                endpointKind == subjectKind
-                || InspectionGraphRelationshipDescriptor.CanStrictlyOwn(
-                    subjectKind,
-                    endpointKind));
 }
 
 /// <summary>Explicit-induced-set-owned graph contracts.</summary>

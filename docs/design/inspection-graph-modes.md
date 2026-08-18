@@ -53,8 +53,10 @@ that peer count does not multiply producer work.
 `Execute_ExplicitPackageSetInducesOnlyInternalEvidence`,
 `Execute_ExplicitInducedSetRequiresBothEndpointClosures`, and
 `Execute_ExplicitInducedSetRetainsOnlyInClosureFailures` gate explicit
-induction. `Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand` gates
-producer planning.
+induction. `Execute_ExplicitInducedSetRetainsIsolatedInput` gates that a valid
+input need not admit a selected relationship. `Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand`
+and `Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance` gate
+preflight and producer planning.
 
 | Mode | Focus | Input | Primary question |
 | --- | --- | --- | --- |
@@ -214,7 +216,8 @@ the exact logical edge endpoint, the exact original occurrence endpoint, or a
 strict typed owner of either. This is induction, not traversal: there is no
 direction axis, depth, queue, primary seed, or peer role. If only one endpoint
 closure is present, crossing evidence is excluded. Input subjects remain
-represented even when no selected relationship connects them.
+represented even when no selected relationship connects them; each input does
+not have to admit one of the selected relationship endpoint kinds.
 
 The projected document retains the typed request and records
 `queries.induced-subject-bound` with the explicit subject count. It assigns new
@@ -222,6 +225,11 @@ dense local ids while preserving retained relationship descriptors, occurrence
 evidence, identity, and semantic direction. A partially retained logical edge
 keeps only admitted physical receipts; aggregate characteristics that described
 the unfiltered edge are dropped rather than presented as complete.
+Before producer execution, the Integration query verifies that every requested
+subject has an acquisition-bound node or exact realized-package group in the
+workspace. The final document independently verifies every retained receipt
+against both endpoint closures and requires exactly one global subject bound
+whose count matches the retained request.
 
 An induced package set is not automatically a package-only lens. It may retain
 member/type evidence, package groups, package endpoints, or a mixed view as the
@@ -260,6 +268,7 @@ directed traversal entry; induced membership uses exact-or-strictly-owned typed
 endpoint closure on both semantic roles. Relationships outside the Integration
 catalog still fail before producer execution, and selected relationships alone
 determine producer demand. Input count does not multiply producer work.
+Invalid workspace identities fail before that producer plan starts.
 
 ## Shared contract
 

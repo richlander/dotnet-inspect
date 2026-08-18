@@ -750,6 +750,11 @@ distinct relationship descriptors, and its admission rule. The resulting
 document retains both its `ModeRequest` and `InducedSetRequest`, contains no
 seed bindings, keeps every explicit input as a node or group, and records the
 finite input count as `queries.induced-subject-bound`.
+Construction revalidates that every retained occurrence is admitted on both
+semantic roles and requires exactly one global subject-bound diagnostic whose
+count equals the request. `Document_RetainsExplicitInducedSetRequestWithoutSeeds`
+and `Document_RejectsExplicitOccurrenceOutsideSubjectClosure` gate those
+envelope invariants.
 
 Relationship producers may retain a stricter typed breadth budget alongside
 that shared request. The bounded call neighborhood records
@@ -781,6 +786,12 @@ occurrence lists are rebuilt from only those receipts. If that filters a
 multi-occurrence edge, characteristics that directly described the unfiltered
 edge are omitted rather than becoming success-shaped partial aggregates.
 
+Acquisition-bound member subjects retain their structured
+`MetadataTypeDefinitionName` declaring type beside the member anchor. Type-to-
+member ownership compares that typed identity, not the anchor's rendered
+generic spelling. `ProjectionOwnership_UsesStructuredGenericDeclaringType`
+gates the generic-type case.
+
 Projection assigns new dense document-local ids while retaining semantic
 subjects, relationship descriptors, occurrence evidence and occurrence
 identity. Failures from requested relationship producers and their required
@@ -804,6 +815,7 @@ contracts.
 `Execute_ExplicitPackageSetInducesOnlyInternalEvidence`,
 `Execute_ExplicitInducedSetRequiresBothEndpointClosures`,
 `Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance`,
+`Execute_ExplicitInducedSetRetainsIsolatedInput`,
 `Execute_ExplicitInducedSetRetainsOnlyInClosureFailures`, and
 `Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand` gate explicit-set
 projection.

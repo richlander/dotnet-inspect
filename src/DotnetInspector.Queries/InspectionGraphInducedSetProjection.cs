@@ -72,14 +72,14 @@ internal static class InspectionGraphInducedSetProjection
             ImmutableArray<int> admittedOccurrences =
             [
                 .. edge.OccurrenceIds.Where(id =>
-                    AdmitsEndpoint(
+                    InspectionGraphProjectionUtilities.AdmitsEndpoint(
                         source,
                         nodesBySubject,
                         request.Subjects,
                         edge,
                         source.Occurrences[id],
                         InspectionGraphEndpointRole.Source)
-                    && AdmitsEndpoint(
+                    && InspectionGraphProjectionUtilities.AdmitsEndpoint(
                         source,
                         nodesBySubject,
                         request.Subjects,
@@ -264,39 +264,6 @@ internal static class InspectionGraphInducedSetProjection
             [],
             limits,
             failures);
-    }
-
-    static bool AdmitsEndpoint(
-        InspectionGraphDocument source,
-        IReadOnlyDictionary<
-            InspectionGraphSubject,
-            InspectionGraphNode> nodesBySubject,
-        ImmutableArray<InspectionGraphSubject> inputSubjects,
-        InspectionGraphEdge edge,
-        InspectionGraphOccurrence occurrence,
-        InspectionGraphEndpointRole role)
-    {
-        InspectionGraphSubject edgeEndpoint =
-            role == InspectionGraphEndpointRole.Source
-                ? source.Nodes[edge.FromNodeId].Subject
-                : source.Nodes[edge.ToNodeId].Subject;
-        InspectionGraphSubject occurrenceEndpoint =
-            InspectionGraphProjectionUtilities.OccurrenceEndpoint(
-                occurrence,
-                role);
-        return inputSubjects.Any(subject =>
-            subject == edgeEndpoint
-            || subject == occurrenceEndpoint
-            || InspectionGraphProjectionUtilities.StrictlyOwns(
-                source,
-                nodesBySubject,
-                subject,
-                edgeEndpoint)
-            || InspectionGraphProjectionUtilities.StrictlyOwns(
-                source,
-                nodesBySubject,
-                subject,
-                occurrenceEndpoint));
     }
 
     static bool RelatedToSubjectClosure(

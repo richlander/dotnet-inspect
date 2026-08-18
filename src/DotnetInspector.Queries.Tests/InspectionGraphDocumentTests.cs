@@ -763,15 +763,16 @@ public sealed class InspectionGraphDocumentTests
                 [],
                 InspectionGraphInducedSetAdmissionRule
                     .BothEndpointsWithinSubjectClosure));
-        Assert.Throws<InspectionQueryException>(
-            () => new InspectionGraphInducedSetRequest(
+        InspectionGraphInducedSetRequest isolated =
+            new(
                 [first],
                 [
                     InspectionGraphIntegrationsCatalog
                         .MetadataReference,
                 ],
                 InspectionGraphInducedSetAdmissionRule
-                    .BothEndpointsWithinSubjectClosure));
+                    .BothEndpointsWithinSubjectClosure);
+        Assert.Equal([first], isolated.Subjects);
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new InspectionGraphInducedSubjectBoundEvidence(0));
     }
@@ -836,6 +837,88 @@ public sealed class InspectionGraphDocumentTests
                 [],
                 [],
                 [],
+                []));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphDocument(
+                InspectionGraphDocumentScope.SessionBound,
+                request,
+                nodes,
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+                []));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphDocument(
+                InspectionGraphDocumentScope.SessionBound,
+                request,
+                nodes,
+                [],
+                [],
+                [],
+                [],
+                [],
+                [
+                    new InspectionGraphLimit(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
+                        Evidence:
+                            new InspectionGraphInducedSubjectBoundEvidence(
+                                1)),
+                ],
+                []));
+    }
+
+    [Fact]
+    public void Document_RejectsExplicitOccurrenceOutsideSubjectClosure()
+    {
+        InspectionGraphSubject first = Subject("First");
+        InspectionGraphSubject second = Subject("Second");
+        InspectionGraphSubject outside = Subject("Outside");
+        var request = new InspectionGraphInducedSetRequest(
+            [first, second],
+            [TestRelationship],
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
+        InspectionGraphNode[] nodes =
+        [
+            new(0, first, InspectionGraphNodeRole.Ordinary, []),
+            new(1, second, InspectionGraphNodeRole.Ordinary, []),
+            new(2, outside, InspectionGraphNodeRole.Ordinary, []),
+        ];
+        var occurrence = new InspectionGraphOccurrence(
+            0,
+            TestRelationship,
+            first,
+            outside,
+            new TestOccurrenceEvidence(1),
+            []);
+
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphDocument(
+                InspectionGraphDocumentScope.SessionBound,
+                request,
+                nodes,
+                [],
+                [
+                    new InspectionGraphEdge(
+                        0,
+                        0,
+                        2,
+                        TestRelationship,
+                        [0]),
+                ],
+                [occurrence],
+                [],
+                [],
+                [
+                    new InspectionGraphLimit(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
+                        Evidence:
+                            new InspectionGraphInducedSubjectBoundEvidence(
+                                2)),
+                ],
                 []));
     }
 

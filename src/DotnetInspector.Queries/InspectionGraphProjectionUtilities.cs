@@ -11,6 +11,37 @@ internal static class InspectionGraphProjectionUtilities
             ? occurrence.SourceSubject
             : occurrence.TargetSubject;
 
+    internal static bool AdmitsEndpoint(
+        InspectionGraphDocument source,
+        IReadOnlyDictionary<
+            InspectionGraphSubject,
+            InspectionGraphNode> nodesBySubject,
+        IReadOnlyList<InspectionGraphSubject> inputSubjects,
+        InspectionGraphEdge edge,
+        InspectionGraphOccurrence occurrence,
+        InspectionGraphEndpointRole role)
+    {
+        InspectionGraphSubject edgeEndpoint =
+            role == InspectionGraphEndpointRole.Source
+                ? source.Nodes[edge.FromNodeId].Subject
+                : source.Nodes[edge.ToNodeId].Subject;
+        InspectionGraphSubject occurrenceEndpoint =
+            OccurrenceEndpoint(occurrence, role);
+        return inputSubjects.Any(subject =>
+            subject == edgeEndpoint
+            || subject == occurrenceEndpoint
+            || StrictlyOwns(
+                source,
+                nodesBySubject,
+                subject,
+                edgeEndpoint)
+            || StrictlyOwns(
+                source,
+                nodesBySubject,
+                subject,
+                occurrenceEndpoint));
+    }
+
     internal static bool StrictlyOwns(
         InspectionGraphDocument source,
         IReadOnlyDictionary<
@@ -53,10 +84,7 @@ internal static class InspectionGraphProjectionUtilities
                     Identity:
                         InspectionGraphMemberIdentity.AcquiredApi member,
                 } =>
-                string.Equals(
-                    ownerType.Type.ToMetadataFullName(),
-                    member.Member.TypeFullName,
-                    StringComparison.Ordinal),
+                ownerType.Type.Equals(member.DeclaringType),
             _ => false,
         };
     }

@@ -6,6 +6,7 @@ using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -515,6 +516,38 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
+    public void Execute_ExplicitInducedSetRetainsIsolatedInput()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument workspace =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject hub = FindType(
+            workspace,
+            "Microsoft.Extensions.AI.Abstractions",
+            "Microsoft.Extensions.AI",
+            "IChatClient");
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                new InspectionGraphInducedSetRequest(
+                    [hub],
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .MetadataReference,
+                    ],
+                    InspectionGraphInducedSetAdmissionRule
+                        .BothEndpointsWithinSubjectClosure));
+
+        Assert.Equal(
+            [hub],
+            document.Nodes.Select(static node => node.Subject));
+        Assert.Empty(document.Edges);
+        Assert.Empty(document.Occurrences);
+        Assert.Empty(document.Seeds);
+    }
+
+    [Fact]
     public void Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand()
     {
         using var fixture = IntegrationFixture.Create();
@@ -635,6 +668,7 @@ public sealed class InspectionGraphIntegrationsQueryTests
     public void Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance()
     {
         using var fixture = IntegrationFixture.Create();
+        var executions = new List<InspectionQueryDefinition>();
         InspectionGraphSubject missing =
             InspectionGraphSubject.ForRealizedPackage(
                 new RealizedMemberCoordinate.Package(
@@ -655,10 +689,72 @@ public sealed class InspectionGraphIntegrationsQueryTests
                                 .IntegrationObserved,
                         ],
                         InspectionGraphInducedSetAdmissionRule
-                            .BothEndpointsWithinSubjectClosure)));
+                            .BothEndpointsWithinSubjectClosure),
+                    (query, _) => executions.Add(query)));
 
         Assert.Contains("not present", exception.Message);
         Assert.Contains("workspace scope", exception.Message);
+        Assert.Empty(executions);
+    }
+
+    [Fact]
+    public void ProjectionOwnership_UsesStructuredGenericDeclaringType()
+    {
+        using var fixture = IntegrationFixture.Create();
+        AssemblyAcquisitionRegistration registration =
+            fixture.Context.Group.Participants[0]
+                .Assembly.Registration;
+        MetadataTypeDefinitionName declaringType =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["Container`1"]))
+                .Name;
+        InspectionGraphSubject owner =
+            InspectionGraphSubject.ForAcquiredType(
+                registration,
+                declaringType);
+        InspectionGraphSubject member =
+            InspectionGraphSubject.ForAcquiredApiMember(
+                registration,
+                declaringType,
+                new MemberAnchor(
+                    "M~1234567890",
+                    "M:Sample.Container<T>.M()",
+                    "1234567890",
+                    "Sample.Container<T>",
+                    "M"));
+        var source = new InspectionGraphDocument(
+            InspectionGraphDocumentScope.SessionBound,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.DocumentSubjects),
+            [
+                new InspectionGraphNode(
+                    0,
+                    owner,
+                    InspectionGraphNodeRole.Ordinary,
+                    []),
+                new InspectionGraphNode(
+                    1,
+                    member,
+                    InspectionGraphNodeRole.Ordinary,
+                    []),
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            []);
+
+        Assert.True(
+            InspectionGraphProjectionUtilities.StrictlyOwns(
+                source,
+                source.Nodes.ToDictionary(
+                    static node => node.Subject),
+                owner,
+                member));
     }
 
     [Fact]
