@@ -312,8 +312,8 @@ verify local siblings because that work is filesystem-only; ordinary remote view
 hidden network traffic. A coordinate-matching nuspec proves presence, authoritative absence
 renders `no`, and malformed or otherwise inconclusive probes remain `unknown`. A local sibling
 matches by NuGet's case-insensitive coordinate identity and must also pass bounded package-archive
-admission before its strict UTF-8 nuspec can prove presence; an existing but empty, corrupt,
-unreadable, or mismatched sibling remains `unknown`. An acquired redirect hop likewise proves its
+admission before its strict UTF-8 nuspec can prove presence; an existing but empty, non-regular,
+corrupt, unreadable, or mismatched sibling remains `unknown`. An acquired redirect hop likewise proves its
 mapped package present only when verification was requested and its extracted root nuspec has one
 consistently namespaced metadata, id, and version element that matches the acquired coordinate.
 Wrapper metadata uses the same bounded extracted-nuspec path. Bare effective discovery requests

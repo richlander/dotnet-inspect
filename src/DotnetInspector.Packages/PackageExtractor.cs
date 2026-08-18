@@ -1008,6 +1008,47 @@ public static class PackageExtractor
                 NuspecProbeStatus.Indeterminate);
         }
 
+        try
+        {
+            FileAttributes attributes = File.GetAttributes(packagePath);
+            if ((attributes & FileAttributes.Directory) != 0)
+            {
+                return IndeterminateLocalProbe(
+                    log,
+                    "Local RID package path was not a regular file.");
+            }
+
+            var info = new FileInfo(packagePath);
+            if (info.Length <= 0
+                || info.Length > PackagePayloadLimits.Default.MaxArchiveBytes)
+            {
+                return IndeterminateLocalProbe(
+                    log,
+                    "Local RID package was empty or exceeded the package archive limit.");
+            }
+        }
+        catch (FileNotFoundException)
+        {
+            return new NuspecProbeResult(
+                null,
+                NuspecProbeStatus.Absent);
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            return IndeterminateLocalProbe(
+                log,
+                $"Local RID package directory could not be read: {ex.GetType().Name}");
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException)
+        {
+            return IndeterminateLocalProbe(
+                log,
+                $"Local RID package metadata could not be read: {ex.GetType().Name}");
+        }
+
         FileStream stream;
         try
         {

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
@@ -12,6 +13,8 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class RidPackageVerifierTests
 {
+    const uint UserReadWritePermissions = 0x180;
+
     public RidPackageVerifierTests()
     {
         CoreCache.Initialize("dotnet-inspect-test");
@@ -495,6 +498,46 @@ public class RidPackageVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_FifoSiblingDoesNotBlockAndIsUnknown()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string packagePath = Path.Combine(
+            directory,
+            "TestPackage.linux-x64.1.0.0.nupkg");
+        try
+        {
+            Assert.Equal(
+                0,
+                MkFifo(packagePath, UserReadWritePermissions));
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                    new HttpClient(),
+                    result,
+                    "1.0.0",
+                    directory,
+                    new VerboseLogger(enabled: false))
+                .WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+            Assert.Null(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            File.Delete(packagePath);
+            Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
     public async Task VerifyAsync_MissingLocalSiblingSetsAvailabilityFalse()
     {
         string directory = Path.Combine(
@@ -792,4 +835,7 @@ public class RidPackageVerifierTests
             CancellationToken cancellationToken) =>
             throw new OfflineException("Network access is disabled for this test.");
     }
+
+    [DllImport("libc", EntryPoint = "mkfifo", SetLastError = true)]
+    private static extern int MkFifo(string path, uint mode);
 }
