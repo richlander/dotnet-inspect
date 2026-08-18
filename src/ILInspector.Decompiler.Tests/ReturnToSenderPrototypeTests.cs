@@ -348,6 +348,108 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_GenericBaseInterfaceImplementationDeclinesVisibly()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseHolder<T>
+            {
+                public virtual int GetHashCode(T value) => 42;
+            }
+
+            public sealed class Holder :
+                BaseHolder<object>,
+                System.Collections.IEqualityComparer
+            {
+                bool System.Collections.IEqualityComparer.Equals(
+                    object left,
+                    object right) =>
+                    ((System.Collections.IEqualityComparer)this).GetHashCode(left) == 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.Contains(
+                "external-interface-base-not-reconstructed",
+                result.Detail,
+                StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "System_Collections_IEqualityComparer_Equals",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                ": System.Collections.IEqualityComparer",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_GenericTargetInheritedInterfaceImplementationDeclinesVisibly()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseHolder
+            {
+                public virtual int GetHashCode(object value) => 42;
+            }
+
+            public sealed class Holder<T> :
+                BaseHolder,
+                System.Collections.IEqualityComparer
+            {
+                bool System.Collections.IEqualityComparer.Equals(
+                    object left,
+                    object right) =>
+                    ((System.Collections.IEqualityComparer)this).GetHashCode(left) == 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder`1",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.Contains(
+                "external-interface-base-not-reconstructed",
+                result.Detail,
+                StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "System_Collections_IEqualityComparer_Equals",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                ": System.Collections.IEqualityComparer",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullPreservesImplicitInterfaceOverrideSlot()
     {
         var assemblyPath = CompileFixture("""
@@ -473,6 +575,297 @@ public class ReturnToSenderPrototypeTests
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.DoesNotContain("Render", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ConsumedOperatorDoesNotExpandDeclaringTypeSurface()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class CounterBase
+            {
+                public abstract string Render();
+            }
+
+            public sealed class Counter : CounterBase
+            {
+                public int Value;
+
+                public Counter(int value) => Value = value;
+
+                public override string Render() => Value.ToString();
+
+                public static Counter operator ++(Counter value) =>
+                    new Counter(value.Value + 1);
+            }
+
+            public static class Holder
+            {
+                public static Counter Increment(Counter value) => value++;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "Increment", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.DoesNotContain("Render", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_KeepsOverrideWhenReconstructedBaseEmitsInternalSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseNode
+            {
+                internal virtual int Render() => 1;
+            }
+
+            public sealed class DerivedNode : BaseNode
+            {
+                internal override int Render() => 2;
+
+                public int Target() => Render();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("DerivedNode", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("virtual int Render()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override int Render()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsOverrideWhenExternalBaseIsNotReconstructed()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "public class ExternalBase { public virtual string Describe() => \"base\"; }",
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Impl : ExternalBase
+            {
+                public override string Describe() => "impl";
+
+                public string Target() => Describe();
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Impl", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("string Describe()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("override string Describe()", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "override-slot-unavailable");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsOverrideWhenGenericBaseSlotIsNotEmitted()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseNode
+            {
+                public virtual T Echo<T>(T value) => value;
+            }
+
+            public sealed class DerivedNode : BaseNode
+            {
+                public override T Echo<T>(T value) => value;
+
+                public int Target() => Echo(42);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("DerivedNode", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("T Echo<T>(T value)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("override T Echo<T>", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "override-slot-unavailable");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RepairsAbstractBasePropertyShell()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Shape
+            {
+                public abstract int Corners { get; }
+            }
+
+            public sealed class Triangle : Shape
+            {
+                public override int Corners => 3;
+
+                public int First => Corners;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Triangle", "get_First", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("virtual int Corners", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override int Corners", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "abstract-base-member-stubbed"
+                    && diagnostic.Detail.Contains("Corners", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesReconstructedEventOverrideSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Publisher
+            {
+                public virtual event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public sealed class ConcretePublisher : Publisher
+            {
+                public override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+
+                public void Target(System.Action handler) => Changed += handler;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("ConcretePublisher", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("virtual event", result.Source, StringComparison.Ordinal);
+            Assert.Contains("override event", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RepairsAbstractBaseEventShell()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class Publisher
+            {
+                public abstract event System.Action Changed;
+
+                public void Target(System.Action handler) => Changed += handler;
+            }
+
+            public sealed class ConcretePublisher : Publisher
+            {
+                public override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Publisher", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("virtual event", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "abstract-base-member-stubbed"
+                    && diagnostic.Detail.Contains("Changed", StringComparison.Ordinal));
         }
         finally
         {
