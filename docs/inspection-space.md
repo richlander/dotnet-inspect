@@ -338,6 +338,37 @@ all-group cleanup after an owned-resource failure, and
 `InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
 gates preservation of an in-flight callback failure when deferred cleanup also
 fails.
+`WorkspaceContextLoader` now realizes package, platform, and embedded
+coordinates without requiring a filesystem. A platform coordinate maps the
+`runtime` or `aspnetcore` family to its product-owned implementation-pack
+coordinate, selects the latest authorized version on the target framework's
+major/minor release line unless exactly pinned, and mints pathless participants
+with `PlatformAsset` provenance. A platform-qualified target such as
+`net10.0-browser` uses its `net10.0` base release line, and one family cannot
+mix versions or producers inside a group. Floating selection retains only the
+authorized producers that reported the selected version. Every authorized
+HTTP producer must first return an authoritative listing or prove the package
+absent; a failed producer makes the floating result unavailable rather than
+silently narrowing the candidate set. Local-folder and `file://` sources remain
+outside this remote listing evidence set. The implementation-pack RID is `linux-x64`
+because the assemblies are inspected as representative CoreCLR IL and never
+executed; the workspace target RID remains the caller's independent binding
+constraint. `WorkspaceContextLoaderTests.PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants`
+gates version selection, pathless platform provenance, and in-group platform
+binding; `PlatformMember_PlatformQualifiedTargetUsesBaseReleaseLine` gates
+qualified targets, `FloatingPlatformMember_AcquiresOnlyFromVersionReporters`
+gates source correspondence, and
+`FloatingPlatformMember_HttpSourceFailureIsUnavailable` with
+`FloatingPlatformMember_AuthoritativeAbsenceDoesNotHideReporter` gates the
+failure-versus-absence distinction. `InvalidPlatformCoordinate_UsesPlatformDiagnostic`
+gates the platform-owned public diagnostic boundary while retaining package
+detail in host logging, and
+`RealizedPlatformCoordinate_ReacquiresRecordedProducer` gates exact
+producer-bound transport.
+`FloatingPlatformMember_MixedMalformedCriticalResourceIsUnavailable` prevents
+a valid service-index sibling from masking a malformed critical resource, and
+`PackageCoordinateResolverTests.FloatingCoordinate_SkipsNonHttpSource` gates
+the same non-HTTP exclusion for floating package members.
 Portable-PDB acquisition now follows the same content-shaped boundary:
 `AcquiredPortablePdb` opens repeatable content from a host-supplied `IPdbStore`,
 and `PdbAcquisitionService` can load it for a pathless

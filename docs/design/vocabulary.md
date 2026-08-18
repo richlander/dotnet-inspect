@@ -59,6 +59,8 @@ target while retaining the static value IDs.
 | C# Style Choices | `csharp.style-choices` | Selectable rendering choice IDs |
 | C# Body Kinds | `csharp.body-kinds` | Exact rendered body-syntax kinds |
 
-Body-kind vocabulary now lands ahead of query consumption. The next slice moves
-kind predicates into scoped rich queries; once that replacement is complete,
-the standalone `body-shape` command is removed without a compatibility alias.
+The library `Body Shapes` section consumes body-kind IDs through
+`--where "Kind=<ID>"`; its first slice accepts one exact equality predicate and
+auto-selects that section when no explicit `-S` selection is present. Type and
+member scoping still need parity before the standalone `body-shape` command is
+removed without a compatibility alias.
