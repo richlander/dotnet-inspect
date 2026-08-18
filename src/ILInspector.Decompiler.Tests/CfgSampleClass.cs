@@ -5022,6 +5022,39 @@ public class CfgSampleClass
         return true;
     }
 
+    // Issue #4281: List<T>.Enumerator lowers this foreach to a try/finally whose
+    // failure arm leaves the protected region before the MoveNext latch in layout
+    // order. The post-loop statement keeps the leave target outside the loop's
+    // container, matching LambdaRaisingPass::RaiseLocalDisplayClasses.
+    public static List<int>? CollectValidDoubles(List<int> values)
+    {
+        var result = new List<int>(values.Count);
+        foreach (int value in values)
+        {
+            int index = value - 1;
+            if (index < 0
+                || TryDoubleForRegionExit(value, out IReadOnlyCollection<int> reads) is not { } doubled
+                || reads.Any(read => read >= doubled))
+            {
+                result = null;
+                break;
+            }
+
+            result.Add(doubled);
+        }
+
+        if (result is not null)
+            result.Add(42);
+
+        return result;
+    }
+
+    static int? TryDoubleForRegionExit(int value, out IReadOnlyCollection<int> reads)
+    {
+        reads = [value];
+        return value * 2;
+    }
+
     // #1710 / ConditionalStoreChainPass: a compare-chain switch that assigns a
     // local in each arm, followed by a non-duplicable continuation that uses it.
     // The pass folds the dispatch into a nested conditional store

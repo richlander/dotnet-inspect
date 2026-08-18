@@ -48,6 +48,32 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task RequestDeadline_DoesNotTranslateLateMetadataRejection()
+    {
+        using var operation = new NuGetOperationDeadline(
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)),
+            Timeout.InfiniteTimeSpan,
+            TestContext.Current.CancellationToken);
+
+        NuGetMetadataResponseTooLargeException error =
+            await Assert.ThrowsAsync<NuGetMetadataResponseTooLargeException>(
+                () => operation.RunRequestAsync<bool>(
+                    async cancellationToken =>
+                    {
+                        while (!cancellationToken.IsCancellationRequested)
+                        {
+                            await Task.Yield();
+                        }
+
+                        throw new NuGetMetadataResponseTooLargeException(8);
+                    }));
+
+        Assert.Equal(8, error.MaximumBytes);
+    }
+
+    [Fact]
     public void RequestTimeout_DoesNotCreateASecondResponseBodyTimer()
     {
         var options = new NuGetFetchOptions
@@ -120,6 +146,27 @@ public sealed class NuGetDeadlineTests
                     cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+    }
+
+    [Fact]
+    public async Task UnassociatedCancellation_IsNotReportedAsARequestTimeout()
+    {
+        using var client = new HttpClient(new DelayedHandler(
+            static (_, _) => throw new OperationCanceledException()));
+        var nuget = new NuGetClient(
+            client,
+            Options(
+                request: TimeSpan.FromSeconds(1),
+                operation: TimeSpan.FromSeconds(2)));
+
+        OperationCanceledException error =
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => nuget.GetVersionsAsync(
+                    "package",
+                    cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.IsNotType<NuGetRequestTimeoutException>(error);
+        Assert.IsNotType<NuGetOperationTimeoutException>(error);
     }
 
     [Fact]

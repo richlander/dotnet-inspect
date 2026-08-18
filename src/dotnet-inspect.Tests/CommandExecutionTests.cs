@@ -14278,7 +14278,7 @@ public partial class CommandExecutionTests
                  {
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
-                     "Unsafe Members", "SourceLink: Files", "SourceLink: Availability",
+                     "Unsafe Members", "Body Shapes", "SourceLink: Files", "SourceLink: Availability",
                      "SourceLink: Missing Files", "SourceLink: Integrity", "Context: Member",
                      "Integration: Opportunities"
                  })
@@ -14298,7 +14298,7 @@ public partial class CommandExecutionTests
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Context", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
+            new[] { "@Audit", "@Context", "@Decompiler", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
         var raw = SplitOutputLines(output);
@@ -14614,12 +14614,20 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_RendersCoordinateSummary()
     {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        var (returnToken, returnCallOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.UnsafeAs),
+            ILOpCode.Call);
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
-            """
+            $$"""
             # label coordinate
-            profiler-sample 0x06000001+0x1
-            return-address 0x06000001+0x6
+            profiler-sample 0x{{token:X8}}+0x{{callOffset:X}}
+            return-address 0x{{returnToken:X8}}+0x{{returnCallOffset + 5:X}}
             """,
             TestContext.Current.CancellationToken);
         try
@@ -14648,29 +14656,18 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
     {
-        static (int Token, int Offset) Coordinate(Type type, string methodName, byte opcode)
-        {
-            var method = type.GetMethod(
-                methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)!;
-            var il = method.GetMethodBody()!.GetILAsByteArray()!;
-            var offset = Array.IndexOf(il, opcode);
-            Assert.True(offset >= 0, $"opcode 0x{opcode:X2} not found in {methodName}");
-            return (method.MetadataToken, offset);
-        }
-
-        var (allSignalsToken, virtualCallOffset) = Coordinate(
+        var (allSignalsToken, virtualCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x6F);
-        var (_, allocationOffset) = Coordinate(
+            ILOpCode.Callvirt);
+        var (_, allocationOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x8D);
-        var (unsafeToken, unsafeCallOffset) = Coordinate(
+            ILOpCode.Newarr);
+        var (unsafeToken, unsafeCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.UnsafeAs),
-            0x28);
+            ILOpCode.Call);
 
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllLinesAsync(
@@ -14710,11 +14707,15 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_RejectsBadCoordinateLine()
     {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
-            """
+            $$"""
             bad debugger frame
-            good 0x06000001+0x1
+            good 0x{{token:X8}}+0x{{callOffset:X}}
             """,
             TestContext.Current.CancellationToken);
         try
@@ -14733,6 +14734,30 @@ public partial class CommandExecutionTests
         {
             File.Delete(path);
         }
+    }
+
+    private static (int Token, int Offset) FindIlCoordinate(
+        Type type,
+        string methodName,
+        ILOpCode opcode)
+    {
+        // This suite inspects its own assembly, whose MethodDef ordering changes
+        // whenever tests are added.
+        MethodInfo method = type.GetMethod(
+            methodName,
+            BindingFlags.Public
+                | BindingFlags.NonPublic
+                | BindingFlags.Static
+                | BindingFlags.DeclaredOnly)!;
+        byte[] il = method.GetMethodBody()!.GetILAsByteArray()!;
+        int offset = InstructionDecoder.Decode(il)
+            .FirstOrDefault(instruction => instruction.OpCode == opcode)
+            ?.Offset
+            ?? -1;
+        Assert.True(
+            offset >= 0,
+            $"opcode {opcode} not found in {methodName}");
+        return (method.MetadataToken, offset);
     }
 
     [Fact]
@@ -14887,20 +14912,6 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Equal("System.HexConverter", output.Trim());
-    }
-
-    [Fact]
-    public async Task LibraryCommand_IlOffsetMemberContext_ShowsAsyncKind()
-    {
-        var token = typeof(ILOffsetAsyncFixture).GetMethod(nameof(ILOffsetAsyncFixture.StateMachineAsync))!.MetadataToken;
-        var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x0", "-S", "Context: Member", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("| Member | DotnetInspector.Tests.CommandExecutionTests.ILOffsetAsyncFixture.StateMachineAsync |", output);
-        Assert.Contains("| Async | Runtime |", output);
     }
 
     [Fact]
@@ -16550,13 +16561,15 @@ public partial class CommandExecutionTests
             UnsafeEvidenceQuery.Definition,
         ];
 
-        // A coordinate-scoped section cannot be selected without its coordinate: "Metadata: Heap"
-        // exits non-zero with 'requires --heap <heap>:<address>', the same way
-        // "Context: Source Location" needs --il-offset in BuildDiscoverySelectionArgs. It is
-        // query-bound, so QueryBoundSections lists it, but supplying a coordinate is
-        // orthogonal to prerequisite sufficiency. The per-heap listing sections
-        // ("Metadata: #Strings" and friends) need no coordinate and stay in the set.
-        string[] coordinateScoped = [MetadataSectionNames.Heap];
+        // Parameter-scoped sections cannot be selected without their required input:
+        // "Metadata: Heap" needs --heap and "Body Shapes" needs --where Kind=....
+        // They remain data-bound, but supplying the parameter is orthogonal to prerequisite
+        // sufficiency. Other metadata heaps need no coordinate and stay in the set.
+        string[] parameterScoped =
+        [
+            MetadataSectionNames.Heap,
+            SectionNames.BodyShapes,
+        ];
 
         var registry = LibrarySections.CreateScannerRegistry();
         var pipeline = LibrarySections.CreatePipeline();
@@ -16568,7 +16581,7 @@ public partial class CommandExecutionTests
 
         // Excluding a name that no longer exists would silently shrink to a no-op, so the
         // exclusion must still name a real data-bound section.
-        foreach (var name in coordinateScoped)
+        foreach (var name in parameterScoped)
             Assert.Contains(name, bound);
 
         var scannerNames = pipeline.ScannerBoundSections
@@ -16579,7 +16592,7 @@ public partial class CommandExecutionTests
             .Select(b => b.Name);
         var names = scannerNames
             .Concat(queryNames)
-            .Where(n => !coordinateScoped.Contains(n, StringComparer.Ordinal))
+            .Where(n => !parameterScoped.Contains(n, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();

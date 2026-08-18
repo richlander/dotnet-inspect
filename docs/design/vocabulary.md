@@ -13,6 +13,7 @@ dotnet-inspect vocabulary
 dotnet-inspect vocabulary -D
 dotnet-inspect vocabulary -S Accessibility
 dotnet-inspect vocabulary -S "C# Style Choices" --json
+dotnet-inspect vocabulary -S "C# Body Kinds"
 dotnet-inspect vocabulary -S @Decompiler --count
 ```
 
@@ -36,6 +37,8 @@ reclassify their values:
   classification.
 - `StyleOptionCatalog` owns C# style tiers, selectable choices, conflicts,
   endorsement, and byte-divergence properties.
+- `BodyShapeSearch.SupportedKinds` owns searchable body-kind identity and order;
+  `AnnotatedSourceNodeKinds` owns their display labels.
 
 CLI and browser/WASM consume the same `VocabularyCatalog` and
 `VocabularyJson` projection. Hosts may select a section for a purpose-specific
@@ -54,8 +57,10 @@ target while retaining the static value IDs.
 | Accessibility | `api.accessibility` | API accessibility facet IDs |
 | C# Style Tiers | `csharp.style-tiers` | Style fidelity/presentation tiers |
 | C# Style Choices | `csharp.style-choices` | Selectable rendering choice IDs |
+| C# Body Kinds | `csharp.body-kinds` | Exact rendered body-syntax kinds |
 
-Body syntax kinds are deliberately not in this first slice. Their addition
-belongs with moving kind search into scoped rich queries, so vocabulary
-exposure and query consumption land together rather than preserving the
-standalone `body-shape` UX.
+The library `Body Shapes` section consumes body-kind IDs through
+`--where "Kind=<ID>"`; its first slice accepts one exact equality predicate and
+auto-selects that section when no explicit `-S` selection is present. Type and
+member scoping still need parity before the standalone `body-shape` command is
+removed without a compatibility alias.

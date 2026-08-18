@@ -145,11 +145,21 @@ public sealed class InspectionGraphPackageBoundary
                     registration,
                     packageSubject);
             }
+            else if (member.Realized
+                is RealizedMemberCoordinate.Platform platformCoordinate)
+            {
+                ValidatePlatformProvenance(
+                    platformCoordinate,
+                    assembly.Identity,
+                    assembly.Provenance,
+                    nameof(members));
+            }
             else if (assembly.Provenance
-                is AssemblyResolutionProvenance.PackageAsset)
+                is AssemblyResolutionProvenance.PackageAsset
+                    or AssemblyResolutionProvenance.PlatformAsset)
             {
                 throw new ArgumentException(
-                    "Package assembly provenance requires a realized package coordinate.",
+                    "Package and platform assembly provenance require matching realized coordinates.",
                     nameof(members));
             }
 
@@ -313,6 +323,34 @@ public sealed class InspectionGraphPackageBoundary
         {
             throw new ArgumentException(
                 "A realized package coordinate's package identity and version must match its assembly provenance.",
+                parameterName);
+        }
+    }
+
+    static void ValidatePlatformProvenance(
+        RealizedMemberCoordinate.Platform coordinate,
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionProvenance provenance,
+        string parameterName)
+    {
+        if (provenance
+                is not AssemblyResolutionProvenance.PlatformAsset platform
+            || !StringComparer.Ordinal.Equals(
+                coordinate.Family,
+                platform.Framework)
+            || !NuGetVersion.TryParse(
+                platform.FrameworkVersion,
+                out NuGetVersion? version)
+            || !StringComparer.Ordinal.Equals(
+                coordinate.Version,
+                version.ToNormalizedString().ToLowerInvariant())
+            || coordinate.Assembly is { } selectedAssembly
+                && !StringComparer.OrdinalIgnoreCase.Equals(
+                    selectedAssembly,
+                    identity.Name))
+        {
+            throw new ArgumentException(
+                "A realized platform coordinate's family, version, and selected assembly must match its assembly provenance and identity.",
                 parameterName);
         }
     }

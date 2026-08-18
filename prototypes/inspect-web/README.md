@@ -34,12 +34,17 @@ shortening the selected assembly set.
 
 ## How a workspace is opened
 
-1. **Resolve an exact identity.** `PackageCoordinateResolver` validates the
-   package id and resolves an omitted version through the authorized nuget.org
-   source without a filesystem cache. The Browser adapter then selects one
-   target framework — never "whatever the package happens to ship".
+1. **Resolve an exact identity.** `PackageSourceCoordinateResolver` validates
+   the package id. An exact pin bypasses discovery; an omitted version uses the
+   NuGet Gallery search endpoint and accepts only the exact package ID's listed
+   stable result. Neither path requests the NuGet.org v3 service index. The
+   Browser adapter then selects one target framework — never "whatever the
+   package happens to ship".
 2. **Mint typed participants.** `PackagePayloadAcquisition` downloads and
-   admits the package through the shared source, transport, and archive policy.
+   admits the package from the Gallery package CDN through the shared typed
+   source, transport, and archive policy. The Gallery payload carries its
+   advertised length into the Browser reservation policy before body
+   materialization.
    `PackageCompileAssetSelector` adds reference-group semantics around the
    implementation universe selected by `PackageAssetSelector`, decodes each
    healthy entry's real metadata identity, and creates one
@@ -52,6 +57,11 @@ shortening the selected assembly set.
    shared resolver, retry, response-body, archive-validation, and store paths;
    expiry is surfaced as a visible timeout instead of leaving the page behind
    an unbounded loading indicator.
+   Gallery version enumeration currently exposes raw flat-container versions
+   with unknown listing state. The version picker may display that partial
+   enumeration, but dependency wildcard and range selection fails closed until
+   registration-backed listing state is implemented; exact dependency pins
+   remain available.
 3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
    and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
    exposes exactly two hand-offs — `Use(group => query(group))` and
@@ -304,9 +314,13 @@ gates the Browser transport.
 [`docs/design/call-graph-projection.md`](../../docs/design/call-graph-projection.md)
 makes that split on purpose: the projection owns identity, direction, cycles,
 and boundaries, and each front end spells them for itself. The Mermaid renderer
-HTML-encodes delimiters and visibly encodes control and line-separator
-characters before artifact labels enter the grammar. The type-relationship
-renderer applies the same containment. Call-graph navigation receives typed
+HTML-encodes delimiters and visibly encodes control, line-separator, Unicode
+format, and unpaired-surrogate characters before artifact labels enter the
+grammar. The engine's `CallGraphMermaid_ContainsArtifactLabels` and JavaScript's
+`type graph rendering contains artifact labels` and
+`dependency graph rendering contains artifact labels` gate the final renderers'
+containment while preserving ordinary Unicode scalar text. Call-graph
+navigation receives typed
 targets for every projected node and uses the transport's normalized lowercase
 node kind rather than inferring identity from SVG text.
 Package participants never satisfy platform-scoped bindings. Incomplete node,
@@ -334,13 +348,10 @@ refusal rather than fixture results or success-shaped empty output.
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
-| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | runtime-pack acquisition that produces participants from content |
+| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | `WorkspaceContextLoader` now produces runtime-pack participants from content; the Browser host still needs platform scope caching, typed-result adaptation, and the missing group-scoped metadata/performance queries named above |
 
-One further gap is about acquisition rather than inspection:
-
-- `ResolvedAssemblyReference.CreateFromPathIfManaged` has **no content-shaped
-  sibling**, so a filesystem-free acquisition owner must decode assembly identity
-  itself before it can mint a participant the group will accept.
+`ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
+decoding, so Browser acquisition does not reconstruct assembly identity.
 
 Each gap has a tracking issue; the pull request that introduced this rebuild
 lists them.
@@ -463,6 +474,21 @@ the staging deployment job. The separate `inspect-web-staging` GitHub
 environment accepts only `main` and holds a deployment token scoped to the
 staging Azure Static Web App.
 
+`.github/workflows/deploy-inspect-web-coreclr.yml` publishes the same `main`
+commit to the isolated comparison site at
+`https://coreclr.dotnet-inspect.ca`. It uses a third Azure Static Web App, the
+main-only `inspect-web-coreclr-staging` environment, a distinct deployment
+token, and the non-promotable `inspect-web-coreclr-site` artifact. The site is
+interpreter-only while the .NET 11 Preview 7 SDK lacks the packaged headers and
+Emscripten cache wiring needed for CoreCLR native relinking. The workflow pins
+the proven preview SDK, enables `runtime-async=on` across this application
+graph, and applies the `UseMonoRuntime=false`, `WasmBuildNative=false`,
+`WasmNestedPublishAppDependsOn=`, and `WasmEnableExceptionHandling=true`
+overrides. This exercises runtime async only in the CoreCLR comparison
+deployment; Mono staging and ordinary non-AOT builds retain classic async
+lowering. The workflow verifies the CoreCLR-specific `GetDotNetRuntimeHeap`
+hook before and after artifact transfer.
+
 `.github/workflows/promote-inspect-web.yml` intentionally promotes one
 successful staging run to production at `https://dotnet-inspect.net`. The
 operator supplies the staging run ID and types `promote`; the workflow verifies
@@ -473,11 +499,11 @@ the run attempt, commit, artifact identity, and digest, downloads the exact
 artifact ID with digest mismatch configured as an error, and deploys the
 archived staging files. `validate-inspect-web-promotion.cs --self-test`, run
 by inspect-web CI, gates the evidence discriminator and close negative cases;
-the CI change-detection workflow contract gate keeps both deployment jobs free
-of candidate code, keeps production revalidation on the trusted dispatch
-revision, and orders each artifact download before only verification and
-deployment. Manual staging runs remain useful for recovery but are deliberately
-not promotable.
+the CI change-detection workflow contract gate keeps all deployment jobs free
+of candidate code, closes the CoreCLR runtime and credential contract, keeps
+production revalidation on the trusted dispatch revision, and orders each
+artifact download before only verification and deployment. Manual staging runs
+remain useful for recovery but are deliberately not promotable.
 
 Production promotion uses the distinct `inspect-web-production-promotion`
 environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`
@@ -489,15 +515,21 @@ repository-scoped token. Token rotation invalidates credentials already copied
 into queued parent-era jobs; deleting both old secret locations makes later
 reruns fail closed.
 
-Both deployment workflows pin the Azure deployment action to an exact commit
-and pin their checkout, SDK setup, and artifact actions to exact commits. The
-workflow contract gate enforces those references. Azure's pinned action still
-pulls Microsoft's `staticappsclient:stable` image; that vendor-controlled
-deployment dependency is not immutable and remains inside the Azure trust
-boundary. Both workflows disable Azure's own app build. The staging publish
-step embeds the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC
-build timestamp. The home and workspace status bars show that version, link
-the short commit to GitHub, and disclose the binary build time.
+All three deployment workflows pin the Azure deployment action to an exact
+commit and pin their checkout, SDK setup, and artifact actions to exact
+commits. The workflow contract gate enforces those references. Azure's pinned
+action still pulls Microsoft's `staticappsclient:stable` image; that
+vendor-controlled deployment dependency is not immutable and remains inside
+the Azure trust boundary. All three workflows disable Azure's own app build
+and require the published artifact to contain `staticwebapp.config.json`. That
+configuration serves `/` and `/index.html` with `Cache-Control: no-cache,
+no-store, must-revalidate`, so an Azure edge cannot retain an old browser boot
+graph after its fingerprinted Wasm assets rotate.
+`BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
+gates the header contract and publish wiring. The staging publish step embeds
+the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
+timestamp. The home and workspace status bars show that version, link the
+short commit to GitHub, and disclose the binary build time.
 `BuildIdentity_UsesVersionedRepositoryProvenance` and
 `ready status shows versioned linked build provenance` gate the engine and UI
 halves.
@@ -506,9 +538,8 @@ The Azure resources, custom-domain assignments, GitHub environments, branch
 restrictions, required production reviewer, and environment-scoped deployment
 tokens live outside this repository and are **not** verified by anything in it.
 Treat successful staging and promotion runs, not this file, as evidence that
-the corresponding deployed site is current. The staging domain is intentionally
-not publicized, but it is public infrastructure and is not a confidentiality
-boundary.
+the corresponding deployed site is current. Both staging domains are public
+infrastructure and are not confidentiality boundaries.
 
 See [architecture-spike.md](architecture-spike.md) for the proposed .NET 11
 browser engine and the NativeAOT decision.

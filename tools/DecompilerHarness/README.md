@@ -741,6 +741,56 @@ fidelity contract version independently defines what `Exact` and the other
 outcomes mean. Snapshot comparison rejects different contract versions instead
 of presenting incomparable movement.
 
+Snapshot schema v6 adds a non-offsettable control-flow-site ledger to each
+method row. The importer records branch, conditional-branch, switch, and EH
+transfer nodes by control-flow kind, IL source offset, and same-offset ordinal;
+it also records each slot's printable identity from stable source provenance,
+transfer kind, and targets. A provenance-less synthesized transfer falls back
+to its owning IL block and, inside a raised local function, that declaration's
+stable source name. After the pipeline, an imported slot is raised only
+when no equivalent residual transfer survives. A synthesized residual that does
+not correspond to an imported slot gets its own output-site identity. Rebuilding
+or reusing an equivalent goto is neutral. Reparenting is neutral when the
+transfer retains source provenance; a provenance-less transfer uses its owning
+IL block as its identity, so cross-block and cross-local-function movement
+remain visible. Adding a printable transfer is a loss. Site rows use one
+compact, validated string per method so the full baseline stays below
+repository file-size limits. Branch, conditional, and leave identities require
+exactly one target; switch identities retain their ordered target list.
+
+Only fixed `nuget:` rows carry the ledger. The configured `NUGET_PACKAGES` root
+is normalized to the same portable `nuget:` identity as the default cache, and
+comparison fails when the pinned method or site domain is empty. For those
+rows, a
+raised-to-residual transition is a hard regression even when another site gains
+a raise; a new synthesized residual is the same class of loss. Residual removal
+is a disclosed gain in quality cards and non-card Deep Inspect output. A
+changed pinned method or imported-site population fails closed instead of
+comparing unlike samples. Repo-built assembly rows remain advisory because
+their method and IL populations legitimately change as the repository evolves.
+
+This ledger detects loss of a previously observed raise; it does not prove that
+the replacement structured output is semantically correct. Keep render A/B,
+compile-back fidelity, and focused output fixtures in the evidence set. A
+boundary absent from the corpus also remains absent from this gate, so the fast
+compiler-produced decline-boundary fixture is load-bearing. IL site identities
+are stable only within the exact pinned artifact; package upgrades require a
+reviewed baseline regeneration. Older snapshots remain readable, but comparison
+against a pre-v6 baseline fails closed because that baseline cannot prove the
+site-level contract. The enforcing tests are
+`ControlFlowSiteLedger_ObservesCompilerProducedSwitchRaise`,
+`ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual`,
+`ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual`,
+`ControlFlowSiteLedger_DistinguishesNestedFunctionOwners`,
+`ControlFlowSiteLedger_NestedOwnerIdentitySurvivesSiblingCoverageChange`,
+`Compare_ControlFlowLossCannotBeOffsetByUnrelatedGain`,
+`Compare_NewOutputResidualIsLossAndRemovedOutputResidualIsGain`, and the
+`Compare_ControlFlowGateFailsClosed*` / `ControlFlowSites_Reject*` families.
+`Compare_PreV6BaselineFailsClosedControlFlowGate` prevents compatibility reads
+from becoming success-shaped comparisons, and
+`ControlFlowSites_EmptySwitchOutputIdentityRoundTrips` gates the shared
+writer/reader grammar.
+
 Policy v1 rolls multiple causes up per method in this order:
 
 1. **Recoverable roadmap:** every cause is mapped to recoverable work.
@@ -868,7 +918,7 @@ iterators, and a plain non-pattern `switch` control — none of which had
 dedicated corpus coverage before (#2818, a child of #2814). Its one fixture
 assembly,
 `ILInspector.Decompiler.Fixtures.ClassicStateMachines`, builds on the same
-`RuntimeAsync=off` axis as `ILInspector.Decompiler.Fixtures.ClassicAsync`
+compiler-default classic async mode as `ILInspector.Decompiler.Fixtures.ClassicAsync`
 rather than a downlevel TFM/LangVersion pack. The fixture spans `Task`,
 `async void`, and `ValueTask` builders; static, instance, generic, and
 non-generic iterators; and cancellation, exception-region, `await foreach`, and
@@ -974,6 +1024,27 @@ from the per-method snapshots both baseline and current carry, so no baseline
 regen is required; it falls back to aggregate counts/rates when a snapshot lacks
 per-method detail.
 
+Pinned method outcomes are also non-offsettable regardless of snapshot schema
+when both snapshots carry method ledgers: a previously `valid` method becoming
+invalid, a previously fully raised method acquiring residue, or a method
+dropping from `Full` fidelity is a hard regression even when another method
+improves and aggregate counts stay flat.
+Missing ledgers fail closed. A method that leaves the semantic sample is
+reported through coverage/sample disclosure rather than falsely classified as
+invalid. The enforcing gates are
+`Compare_PinnedValidityLossCannotBeOffsetByGain` and
+`Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`,
+`Compare_PinnedFullFidelityLossCannotBeOffsetByGainOrValidityCoverageChange`,
+plus
+`Compare_PinnedMethodGateFailsClosedWithoutBaselineLedger` and
+`Compare_PinnedMethodGateFailsClosedWithoutCurrentLedger`.
+
+The schema-v6 control-flow-site gate is stricter than that aggregate fallback:
+it runs only when both snapshots carry the v6 ledger and fails comparison
+otherwise. Its card line reports lost and gained raises over stable sites or
+the exact input mismatch. The non-card Deep Inspect path prints the same
+transition disclosure before its baseline verdict.
+
 Expand the fixed corpus only after that targeting step shows a shape gap. Prefer
 deterministic, pinned assemblies that add many examples of the missing lowering
 family (for example forward-merge or retained-label control flow), then refresh
@@ -1069,9 +1140,9 @@ assembly." Most fixtures are mode-agnostic (identical IL either way) and stay in
 the default assembly; only the mode-*sensitive* ones go into thin **overlay**
 projects that flip a single flag. Cost: one big default assembly plus a few
 progressively-smaller single-flag overlays — never the corpus times N. Axis
-switches live in `Directory.Build.targets`: `<RuntimeAsync>off</RuntimeAsync>`
-opts out of the global `runtime-async=on`; `<MemorySafetyRules>updated</MemorySafetyRules>`
-opts a fixture into `/features:updated-memory-safety-rules`.
+switches live in `Directory.Build.targets`.
+`<MemorySafetyRules>updated</MemorySafetyRules>` opts a fixture into
+`/features:updated-memory-safety-rules`.
 
 **On-demand, not a CI gate.** These overlays are a discovery and bring-down
 instrument, not a regression wall — build one and point `--library-report` at it.
@@ -1159,8 +1230,9 @@ for a reusable axis; (3) build it and baseline with `--library-report`. Keep it
 out of CI references so it stays a discovery tool. Candidate next axis:
 **checked arithmetic** (`CheckForOverflowUnderflow`). Classic iterators, async
 iterators, and classic async kickoff/resume are now pinned by the
-`classic-state-machines` corpus profile above, on the `RuntimeAsync=off` axis
-rather than a downlevel TFM; a genuinely older TFM/LangVersion pack (which
+`classic-state-machines` corpus profile above, using the compiler-default
+classic async mode rather than a downlevel TFM; a genuinely older
+TFM/LangVersion pack (which
 would also change the classic switch/iterator lowering shapes themselves)
 remains a candidate next axis.
 
