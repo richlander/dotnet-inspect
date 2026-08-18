@@ -293,10 +293,9 @@ public class CSharpStructuralComparisonTests
         string beforeBody = CSharpStructuralDiffPrinter.RenderAnnotatedBody(
             comparison,
             CSharpStructuralSide.Before);
-        string actual = ReconstructAnnotation(beforeBody, "raise: InvocationExpression");
+        var (actual, chunkCount) = ReconstructAnnotation(beforeBody, "raise: InvocationExpression");
 
-        Assert.True(beforeBody.Split('\n').Count(line =>
-            line.StartsWith("//", StringComparison.Ordinal)) > 1);
+        Assert.True(chunkCount > 1, "the fixture must wrap annotation detail");
         Assert.Equal($"raise: InvocationExpression; changed to {afterInvocation}", actual);
     }
 
@@ -1547,7 +1546,7 @@ public class CSharpStructuralComparisonTests
         Assert.Equal(caretLine.IndexOf('^'), detailLine.IndexOf(label, StringComparison.Ordinal));
     }
 
-    static string ReconstructAnnotation(string body, string prefix)
+    static (string Text, int ChunkCount) ReconstructAnnotation(string body, string prefix)
     {
         string[] lines = body.Split('\n');
         int lineIndex = Array.FindIndex(lines, line => line.Contains(prefix, StringComparison.Ordinal));
@@ -1556,7 +1555,7 @@ public class CSharpStructuralComparisonTests
         var chunks = new List<string> { lines[lineIndex][start..] };
         while (++lineIndex < lines.Length && lines[lineIndex].StartsWith("//", StringComparison.Ordinal))
             chunks.Add(lines[lineIndex][2..].TrimStart());
-        return string.Join(' ', chunks);
+        return (string.Join(' ', chunks), chunks.Count);
     }
 
     static AnnotatedSourceDocument TrustedDocument(
