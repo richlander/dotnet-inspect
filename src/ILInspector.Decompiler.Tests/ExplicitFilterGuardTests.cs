@@ -26,6 +26,12 @@ public class ExplicitFilterGuardTests
         + "AppHostAlias_ConcurrentProcessesAreIsolated";
     private const string AppHostWorkerEnvironmentVariable =
         "DOTNET_INSPECT_FILTER_GUARD_APPHOST_WORKER";
+    private const string AppHostAliasDirectoryEnvironmentVariable =
+        "DOTNET_INSPECT_FILTER_GUARD_APPHOST_ALIAS_DIRECTORY";
+    private const string AppHostEmptyPathEnvironmentVariable =
+        "DOTNET_INSPECT_FILTER_GUARD_APPHOST_EMPTY_PATH";
+    private const string ExpectedProcessPathEnvironmentVariable =
+        "DOTNET_INSPECT_EXPECTED_FILTER_GUARD_PROCESS";
     private const string AppHostReadyEnvironmentVariable =
         "DOTNET_INSPECT_FILTER_GUARD_APPHOST_READY";
     private const string AppHostReleaseEnvironmentVariable =
@@ -69,6 +75,22 @@ public class ExplicitFilterGuardTests
             "ILInspector.Decompiler.Tests.GateArgumentExpanderTests.ThisMethodDoesNotExist";
 
         ProcessResult valid = await RunHostAsync("-method", validMethod);
+        const string simulatedPreflightFailurePrefix =
+            "simulated filter preflight child failure";
+        const string simulatedPreflightFailureTail =
+            "simulated diagnostic tail";
+        string simulatedPreflightFailure =
+            simulatedPreflightFailurePrefix
+            + new string('x', 4096)
+            + simulatedPreflightFailureTail;
+        ProcessResult preflightFailure = await RunHostAsync(
+            new Dictionary<string, string?>
+            {
+                [ExplicitFilterGuard.SimulatedFailureEnvironmentVariable] =
+                    simulatedPreflightFailure,
+            },
+            "-method",
+            validMethod);
         ProcessResult appHostWithoutDotnetPath = await RunAppHostAsync(
             "-method",
             AppHostAliasMethod);
@@ -141,6 +163,21 @@ public class ExplicitFilterGuardTests
             valid.ExitCode == 0,
             $"Expected a valid filter to pass, got {valid.ExitCode}.\n{valid.Output}\n{valid.Error}");
         Assert.Contains("Total: 1,", valid.Output);
+
+        Assert.Equal(2, preflightFailure.ExitCode);
+        Assert.Contains(
+            "explicit xUnit filter preflight could not complete",
+            preflightFailure.Error);
+        Assert.Contains("Child exit code: 86", preflightFailure.Error);
+        Assert.Contains(
+            simulatedPreflightFailurePrefix,
+            preflightFailure.Error);
+        Assert.DoesNotContain(
+            simulatedPreflightFailureTail,
+            preflightFailure.Error);
+        Assert.DoesNotContain(
+            "TEST EXECUTION SUMMARY",
+            preflightFailure.Output);
 
         AssertSuccessfulAppHostRun(appHostWithoutDotnetPath);
 
@@ -222,7 +259,7 @@ public class ExplicitFilterGuardTests
     {
         string? expectedPath =
             Environment.GetEnvironmentVariable(
-                "DOTNET_INSPECT_EXPECTED_FILTER_GUARD_APPHOST");
+                ExpectedProcessPathEnvironmentVariable);
         if (expectedPath is not null)
         {
             Assert.Equal(
@@ -235,7 +272,10 @@ public class ExplicitFilterGuardTests
                 AppHostReleaseEnvironmentVariable);
         if (releasePath is not null)
         {
-            await WaitForMarkerAsync(releasePath);
+            await WaitForMarkerAsync(
+                releasePath,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
         }
     }
 
@@ -252,6 +292,36 @@ public class ExplicitFilterGuardTests
         }
 
         string markerId = Guid.NewGuid().ToString("N");
+        await RunConcurrentAppHostIsolationAsync(
+            markerId,
+            TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task AppHostAlias_CancellationCleansParentOwnedDirectories()
+    {
+        string markerId = Guid.NewGuid().ToString("N");
+        using var cancellation = new CancellationTokenSource();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => RunConcurrentAppHostIsolationAsync(
+                markerId,
+                cancellation.Token,
+                cancellation.Cancel));
+
+        foreach (string path in GetAppHostWorkerDirectories(markerId))
+        {
+            Assert.False(
+                Directory.Exists(path),
+                $"Canceled apphost worker left a directory behind: {path}");
+        }
+    }
+
+    private static async Task RunConcurrentAppHostIsolationAsync(
+        string markerId,
+        CancellationToken cancellationToken,
+        Action? workersReady = null)
+    {
         string readyPath1 = Path.Combine(
             Path.GetTempPath(),
             $"filter-guard-apphost-ready-{markerId}-1");
@@ -261,14 +331,26 @@ public class ExplicitFilterGuardTests
         string releasePath = Path.Combine(
             Path.GetTempPath(),
             $"filter-guard-apphost-release-{markerId}");
+        string[] workerDirectories =
+            GetAppHostWorkerDirectories(markerId);
         Task<ProcessResult>[] workers =
         [
             RunHostAsync(
-                CreateAppHostWorkerEnvironment(readyPath1, releasePath),
+                CreateAppHostWorkerEnvironment(
+                    readyPath1,
+                    releasePath,
+                    workerDirectories[0],
+                    workerDirectories[1]),
+                cancellationToken,
                 "-method",
                 AppHostConcurrencyMethod),
             RunHostAsync(
-                CreateAppHostWorkerEnvironment(readyPath2, releasePath),
+                CreateAppHostWorkerEnvironment(
+                    readyPath2,
+                    releasePath,
+                    workerDirectories[2],
+                    workerDirectories[3]),
+                cancellationToken,
                 "-method",
                 AppHostConcurrencyMethod),
         ];
@@ -276,11 +358,35 @@ public class ExplicitFilterGuardTests
         try
         {
             await Task.WhenAll(
-                WaitForMarkerAsync(readyPath1, workers[0]),
-                WaitForMarkerAsync(readyPath2, workers[1]));
+                WaitForMarkerAsync(
+                    readyPath1,
+                    workers[0],
+                    cancellationToken),
+                WaitForMarkerAsync(
+                    readyPath2,
+                    workers[1],
+                    cancellationToken));
 
-            ProcessResult consumer =
-                await RunHostAsync("-method", AppHostAliasMethod);
+            workersReady?.Invoke();
+
+            string appHostDirectory = GetAppHostDirectory();
+            string dotnetHostPath = GetDotnetHostPath();
+            string currentPath =
+                Environment.GetEnvironmentVariable("PATH")
+                ?? string.Empty;
+            var consumerEnvironment = new Dictionary<string, string?>
+            {
+                [ExpectedProcessPathEnvironmentVariable] = dotnetHostPath,
+                ["PATH"] =
+                    appHostDirectory
+                    + Path.PathSeparator
+                    + currentPath,
+            };
+            ProcessResult consumer = await RunHostAsync(
+                consumerEnvironment,
+                cancellationToken,
+                "-method",
+                AppHostAliasMethod);
             AssertSuccessfulRun(
                 consumer,
                 "muxer consumer while apphost aliases were live");
@@ -297,6 +403,10 @@ public class ExplicitFilterGuardTests
                 File.Delete(readyPath1);
                 File.Delete(readyPath2);
                 File.Delete(releasePath);
+                foreach (string path in workerDirectories)
+                {
+                    DeleteDirectoryIfExists(path);
+                }
             }
         }
 
@@ -352,10 +462,14 @@ public class ExplicitFilterGuardTests
 
     private static Dictionary<string, string?> CreateAppHostWorkerEnvironment(
         string readyPath,
-        string releasePath) =>
+        string releasePath,
+        string aliasDirectory,
+        string emptyPath) =>
         new()
         {
             [AppHostWorkerEnvironmentVariable] = "1",
+            [AppHostAliasDirectoryEnvironmentVariable] = aliasDirectory,
+            [AppHostEmptyPathEnvironmentVariable] = emptyPath,
             [AppHostReadyEnvironmentVariable] = readyPath,
             [AppHostReleaseEnvironmentVariable] = releasePath,
         };
@@ -364,20 +478,25 @@ public class ExplicitFilterGuardTests
         params string[] arguments)
     {
         string assemblyPath = typeof(Program).Assembly.Location;
+        string appHostDirectory = GetAppHostDirectory();
         string appHostPath = Path.Combine(
-            Path.GetDirectoryName(assemblyPath)
-                ?? throw new InvalidOperationException("Test assembly has no directory."),
+            appHostDirectory,
             Path.GetFileNameWithoutExtension(assemblyPath)
                 + (OperatingSystem.IsWindows() ? ".exe" : string.Empty));
         Assert.True(File.Exists(appHostPath), $"Test apphost not found: {appHostPath}");
 
-        string appHostDirectory = Path.GetDirectoryName(appHostPath)!;
-        string emptyPath = Path.Combine(
-            Path.GetTempPath(),
-            $"filter-guard-host-alias-{Guid.NewGuid():N}");
-        string aliasDirectory = Path.Combine(
-            appHostDirectory,
-            $"{AppHostAliasDirectoryPrefix}{Guid.NewGuid():N}");
+        string emptyPath =
+            Environment.GetEnvironmentVariable(
+                AppHostEmptyPathEnvironmentVariable)
+            ?? Path.Combine(
+                Path.GetTempPath(),
+                $"filter-guard-host-alias-{Guid.NewGuid():N}");
+        string aliasDirectory =
+            Environment.GetEnvironmentVariable(
+                AppHostAliasDirectoryEnvironmentVariable)
+            ?? Path.Combine(
+                appHostDirectory,
+                $"{AppHostAliasDirectoryPrefix}{Guid.NewGuid():N}");
         string aliasFileName =
             OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
         string aliasPath = Path.Combine(aliasDirectory, aliasFileName);
@@ -401,7 +520,7 @@ public class ExplicitFilterGuardTests
             {
                 ["PATH"] = emptyPath,
                 ["DOTNET_HOST_PATH"] = aliasPath,
-                ["DOTNET_INSPECT_EXPECTED_FILTER_GUARD_APPHOST"] = aliasPath,
+                [ExpectedProcessPathEnvironmentVariable] = aliasPath,
             };
             string? dotnetHostPath =
                 Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
@@ -418,19 +537,67 @@ public class ExplicitFilterGuardTests
                 File.WriteAllText(readyPath, "ready");
             }
 
-            return await RunProcessAsync(aliasPath, null, environment, arguments);
+            return await RunProcessAsync(
+                aliasPath,
+                null,
+                environment,
+                TestContext.Current.CancellationToken,
+                arguments);
         }
         finally
         {
-            if (Directory.Exists(aliasDirectory))
-            {
-                Directory.Delete(aliasDirectory, recursive: true);
-            }
+            DeleteDirectoryIfExists(aliasDirectory);
+            DeleteDirectoryIfExists(emptyPath);
+        }
+    }
 
-            if (Directory.Exists(emptyPath))
-            {
-                Directory.Delete(emptyPath);
-            }
+    private static string GetAppHostDirectory() =>
+        Path.GetDirectoryName(typeof(Program).Assembly.Location)
+        ?? throw new InvalidOperationException(
+            "Test assembly has no directory.");
+
+    private static string[] GetAppHostWorkerDirectories(
+        string markerId)
+    {
+        string appHostDirectory = GetAppHostDirectory();
+        string temporaryDirectory = Path.GetTempPath();
+        return
+        [
+            Path.Combine(
+                appHostDirectory,
+                $"{AppHostAliasDirectoryPrefix}{markerId}-1"),
+            Path.Combine(
+                temporaryDirectory,
+                $"filter-guard-host-alias-{markerId}-1"),
+            Path.Combine(
+                appHostDirectory,
+                $"{AppHostAliasDirectoryPrefix}{markerId}-2"),
+            Path.Combine(
+                temporaryDirectory,
+                $"filter-guard-host-alias-{markerId}-2"),
+        ];
+    }
+
+    private static string GetDotnetHostPath()
+    {
+        string dotnetRoot =
+            Environment.GetEnvironmentVariable("DOTNET_ROOT")
+            ?? throw new InvalidOperationException(
+                "DOTNET_ROOT must identify the test runner's dotnet host.");
+        string path = Path.Combine(
+            dotnetRoot,
+            OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+        Assert.True(
+            File.Exists(path),
+            $"The test runner's dotnet host was not found: {path}");
+        return Path.GetFullPath(path);
+    }
+
+    private static void DeleteDirectoryIfExists(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true);
         }
     }
 
@@ -468,7 +635,8 @@ public class ExplicitFilterGuardTests
 
     private static async Task WaitForMarkerAsync(
         string path,
-        Task<ProcessResult>? owner = null)
+        Task<ProcessResult>? owner = null,
+        CancellationToken cancellationToken = default)
     {
         while (!File.Exists(path))
         {
@@ -483,23 +651,34 @@ public class ExplicitFilterGuardTests
 
             await Task.Delay(
                 25,
-                TestContext.Current.CancellationToken);
+                cancellationToken);
         }
     }
 
     private static async Task<ProcessResult> RunHostAsync(
         IReadOnlyDictionary<string, string?>? environment,
         params string[] arguments) =>
+        await RunHostAsync(
+            environment,
+            TestContext.Current.CancellationToken,
+            arguments);
+
+    private static async Task<ProcessResult> RunHostAsync(
+        IReadOnlyDictionary<string, string?>? environment,
+        CancellationToken cancellationToken,
+        params string[] arguments) =>
         await RunProcessAsync(
             "dotnet",
             typeof(Program).Assembly.Location,
             environment,
+            cancellationToken,
             arguments);
 
     private static async Task<ProcessResult> RunProcessAsync(
         string fileName,
         string? firstArgument,
         IReadOnlyDictionary<string, string?>? environment,
+        CancellationToken cancellationToken,
         params string[] arguments)
     {
         var startInfo = new ProcessStartInfo(fileName)
@@ -539,7 +718,7 @@ public class ExplicitFilterGuardTests
         Task<string> error = process.StandardError.ReadToEndAsync();
         try
         {
-            await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
         }
         catch (OperationCanceledException)
         {

@@ -154,6 +154,8 @@ entry gate invalidates every later result, so run it first and report it.
    protects its renamed-apphost regression from concurrent test processes by
    holding isolated aliases live in independent workers while another host
    starts through the real muxer.
+   `ExplicitFilterGuardTests.AppHostAlias_CancellationCleansParentOwnedDirectories`
+   protects worker cleanup when the parent cancels those processes.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by

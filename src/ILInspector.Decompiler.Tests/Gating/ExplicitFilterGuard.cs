@@ -14,11 +14,16 @@ internal static class ExplicitFilterGuard
     internal const string PreflightArgument =
         "--internal-explicit-filter-preflight";
 
+    internal const string SimulatedFailureEnvironmentVariable =
+        "DOTNET_INSPECT_FILTER_GUARD_SIMULATED_FAILURE";
+
     private const string ProtocolPrefix =
         "__DOTNET_INSPECT_FILTER_PREFLIGHT__:";
 
     private const string InfrastructureError =
         "error: explicit xUnit filter preflight could not complete.";
+
+    private const int DiagnosticLimit = 2048;
 
     internal static IReadOnlyList<ExplicitFilter> FindIncludedFilters(IReadOnlyList<string> args)
     {
@@ -54,7 +59,8 @@ internal static class ExplicitFilterGuard
         ProcessStartInfo? startInfo = CreatePreflightStartInfo(assemblyPath);
         if (startInfo is null)
         {
-            return InfrastructureError;
+            return FormatInfrastructureError(
+                "The current process path is unavailable.");
         }
 
         startInfo.RedirectStandardOutput = true;
@@ -73,25 +79,67 @@ internal static class ExplicitFilterGuard
             Task<string> output = process.StandardOutput.ReadToEndAsync();
             Task<string> error = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
-            await error;
+            string standardOutput = await output;
+            string standardError = await error;
 
             if (process.ExitCode != 0)
             {
-                return InfrastructureError;
+                return FormatInfrastructureError(
+                    $"Child exit code: {process.ExitCode}.",
+                    standardOutput,
+                    standardError);
             }
 
-            PreflightResult? result = ParseProtocol(await output);
+            PreflightResult? result = ParseProtocol(standardOutput);
             return result?.Outcome switch
             {
                 PreflightOutcome.Pass or PreflightOutcome.Defer => null,
                 PreflightOutcome.Reject => result.Error,
-                _ => InfrastructureError,
+                _ => FormatInfrastructureError(
+                    "The child returned no valid protocol result.",
+                    standardOutput,
+                    standardError),
             };
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            return InfrastructureError;
+            return FormatInfrastructureError(
+                $"{ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    private static string FormatInfrastructureError(
+        string detail,
+        string? standardOutput = null,
+        string? standardError = null)
+    {
+        var message = new StringBuilder(InfrastructureError);
+        AppendDiagnostic(message, "detail", detail);
+        AppendDiagnostic(message, "stdout", standardOutput);
+        AppendDiagnostic(message, "stderr", standardError);
+        return message.ToString();
+    }
+
+    private static void AppendDiagnostic(
+        StringBuilder message,
+        string label,
+        string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        string diagnostic = value.Trim();
+        if (diagnostic.Length > DiagnosticLimit)
+        {
+            diagnostic = diagnostic[..DiagnosticLimit] + "...";
+        }
+
+        message.AppendLine();
+        message.Append(label);
+        message.Append(": ");
+        message.Append(diagnostic);
     }
 
     private static ProcessStartInfo? CreatePreflightStartInfo(
@@ -113,6 +161,13 @@ internal static class ExplicitFilterGuard
         string[] args,
         Assembly testAssembly)
     {
+        if (Environment.GetEnvironmentVariable(
+                SimulatedFailureEnvironmentVariable) is string simulatedFailure)
+        {
+            Console.Error.WriteLine(simulatedFailure);
+            return 86;
+        }
+
         PreflightResult result;
         try
         {
