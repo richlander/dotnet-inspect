@@ -34,12 +34,17 @@ shortening the selected assembly set.
 
 ## How a workspace is opened
 
-1. **Resolve an exact identity.** `PackageCoordinateResolver` validates the
-   package id and resolves an omitted version through the authorized nuget.org
-   source without a filesystem cache. The Browser adapter then selects one
-   target framework — never "whatever the package happens to ship".
+1. **Resolve an exact identity.** `PackageSourceCoordinateResolver` validates
+   the package id. An exact pin bypasses discovery; an omitted version uses the
+   NuGet Gallery search endpoint and accepts only the exact package ID's listed
+   stable result. Neither path requests the NuGet.org v3 service index. The
+   Browser adapter then selects one target framework — never "whatever the
+   package happens to ship".
 2. **Mint typed participants.** `PackagePayloadAcquisition` downloads and
-   admits the package through the shared source, transport, and archive policy.
+   admits the package from the Gallery package CDN through the shared typed
+   source, transport, and archive policy. The Gallery payload carries its
+   advertised length into the Browser reservation policy before body
+   materialization.
    `PackageCompileAssetSelector` adds reference-group semantics around the
    implementation universe selected by `PackageAssetSelector`, decodes each
    healthy entry's real metadata identity, and creates one
@@ -52,6 +57,11 @@ shortening the selected assembly set.
    shared resolver, retry, response-body, archive-validation, and store paths;
    expiry is surfaced as a visible timeout instead of leaving the page behind
    an unbounded loading indicator.
+   Gallery version enumeration currently exposes raw flat-container versions
+   with unknown listing state. The version picker may display that partial
+   enumeration, but dependency wildcard and range selection fails closed until
+   registration-backed listing state is implemented; exact dependency pins
+   remain available.
 3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
    and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
    exposes exactly two hand-offs — `Use(group => query(group))` and

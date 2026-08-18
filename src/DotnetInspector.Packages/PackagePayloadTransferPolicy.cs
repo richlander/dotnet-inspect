@@ -1,10 +1,12 @@
+using NuGetFetch;
+
 namespace DotnetInspector.Packages;
 
 /// <summary>
 /// One package response a host may reserve before its body is materialized.
 /// </summary>
 public sealed record PackagePayloadTransfer(
-    ResolvedPackageCoordinate Coordinate,
+    PackageSourceCoordinate Coordinate,
     string ProducerKey,
     long? AdvertisedLength);
 
