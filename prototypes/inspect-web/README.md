@@ -393,6 +393,15 @@ Open `http://127.0.0.1:5198`. Create a deployable static bundle with
 `dotnet publish -c Release`. Remote addresses require HTTPS because the .NET
 loader uses secure-context browser APIs.
 
+The Browser/Wasm host cannot execute .NET 11 runtime-async methods. The engine
+therefore disables runtime async late for its own compilation and passes the
+same compiler feature as a global property through every project reference.
+`RuntimeAsyncDisableCoversBrowserProjectGraph` gates that project and workflow
+wiring. Both Browser CI and staging deployment run
+`eng/validate-inspect-web-runtime-async.cs` against the published
+`InspectWeb.Engine` and `NuGetFetch` Wasm assemblies, so losing either the root
+or referenced-project disable fails before deployment.
+
 On a bare visit, `app.js` waits for the home page's first contentful paint
 before dynamically importing `engine.js`. Search and demo controls remain
 inert behind a loading indicator until the Wasm engine is ready; package and

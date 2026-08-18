@@ -48,6 +48,13 @@ jobs:
             -p:SourceRevisionId="$GITHUB_SHA" \
             -p:BuildTimestampUtc="$built_at"
 
+      - name: Validate browser runtime-async compatibility
+        run: >
+          dotnet run
+          eng/validate-inspect-web-runtime-async.cs
+          --
+          artifacts/inspect-web-publish/wwwroot/_framework
+
       - name: Upload staged site artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

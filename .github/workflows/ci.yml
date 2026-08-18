@@ -156,6 +156,14 @@ jobs:
           dotnet publish
           prototypes/inspect-web/engine/InspectWeb.Engine.csproj
           -c Release
+          --output artifacts/inspect-web-publish
+
+      - name: Validate browser runtime-async compatibility
+        run: >
+          dotnet run
+          eng/validate-inspect-web-runtime-async.cs
+          --
+          artifacts/inspect-web-publish/wwwroot/_framework
 
       - name: Test browser engine
         run: >

@@ -44,6 +44,36 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
+    public void RuntimeAsyncDisableCoversBrowserProjectGraph()
+    {
+        XDocument project = XDocument.Load(EngineProjectPath);
+
+        XElement rootDisable = Assert.Single(
+            project.Descendants("Target"),
+            item => item.Attribute("Name")?.Value == "DisableRuntimeAsync");
+        Assert.Equal("CoreCompile", rootDisable.Attribute("BeforeTargets")?.Value);
+        Assert.Equal(
+            "runtime-async=off",
+            Assert.Single(rootDisable.Descendants("Features")).Value);
+
+        XElement propagation = Assert.Single(
+            project.Descendants("ProjectReference"),
+            item => item.Attribute("Update")?.Value == "@(ProjectReference)");
+        Assert.Equal(
+            "Configuration=$(Configuration);Features=runtime-async=off",
+            propagation.Attribute("SetConfiguration")?.Value);
+
+        Assert.True(File.Exists(RuntimeAsyncGatePath), $"{RuntimeAsyncGatePath} is missing.");
+        foreach (string workflowPath in new[] { CiWorkflowPath, DeployWorkflowPath })
+        {
+            Assert.Contains(
+                "eng/validate-inspect-web-runtime-async.cs",
+                File.ReadAllText(workflowPath),
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void BanListForbidsEverySessionAndImageDoor()
     {
         IReadOnlyList<string> banned = BannedSymbols();
@@ -174,6 +204,23 @@ public sealed class BrowserEngineLayeringTests
     static string BanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,
         "BannedSymbols.txt");
+
+    static string RuntimeAsyncGatePath => Path.Combine(
+        RepositoryRoot(),
+        "eng",
+        "validate-inspect-web-runtime-async.cs");
+
+    static string CiWorkflowPath => Path.Combine(
+        RepositoryRoot(),
+        ".github",
+        "workflows",
+        "ci.yml");
+
+    static string DeployWorkflowPath => Path.Combine(
+        RepositoryRoot(),
+        ".github",
+        "workflows",
+        "deploy-inspect-web.yml");
 
     static string RepositoryRoot()
     {
