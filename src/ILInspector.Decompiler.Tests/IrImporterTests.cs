@@ -2155,6 +2155,20 @@ public class CSharpPrinterTests
 
 public class RaisingPassTests
 {
+    static readonly TypeRef[] Dragon4StableParameters =
+    [
+        TypeRef.CoreLib("System", "UInt64"),
+        TypeRef.CoreLib("System", "Int32"),
+        TypeRef.CoreLib("System", "UInt32"),
+        TypeRef.CoreLib("System", "Boolean"),
+        TypeRef.CoreLib("System", "Int32"),
+        TypeRef.CoreLib("System", "Boolean"),
+        TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Span`1"),
+            [TypeRef.CoreLib("System", "Byte")]),
+        TypeRef.ByRef(TypeRef.CoreLib("System", "Int32")),
+    ];
+
     static MethodDefinitionHandle ResolveMethodBySignature(
         MetadataSource source,
         string typeFullName,
@@ -2179,6 +2193,29 @@ public class RaisingPassTests
             overload.Index);
         Assert.True(handle.HasValue);
         return handle.Value;
+    }
+
+    static MethodDefinitionHandle ResolveDragon4Method(
+        MetadataSource source,
+        string typeFullName)
+    {
+        var optionalExactnessParameter =
+            TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
+        return ResolveMethodBySignature(
+            source,
+            typeFullName,
+            "Dragon4",
+            candidate =>
+                candidate.ReturnType.Equals(TypeRef.CoreLib("System", "UInt32"))
+                && !candidate.HasThis
+                && candidate.HasBody
+                && candidate.IsPrivate
+                && candidate.ParameterTypes.Length is 8 or 9
+                && candidate.ParameterTypes.Take(Dragon4StableParameters.Length)
+                    .SequenceEqual(Dragon4StableParameters)
+                && (candidate.ParameterTypes.Length == Dragon4StableParameters.Length
+                    || candidate.ParameterTypes[^1]
+                        .Equals(optionalExactnessParameter)));
     }
 
     static void AssertRefLocalBodyCompiles(string body)
@@ -3715,36 +3752,7 @@ public class RaisingPassTests
     public void Dragon4DoWhileNormalizedAfterEarlyPass_RaisesOnLatePass()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
-        TypeRef[] stableParameters =
-        [
-            TypeRef.CoreLib("System", "UInt64"),
-            TypeRef.CoreLib("System", "Int32"),
-            TypeRef.CoreLib("System", "UInt32"),
-            TypeRef.CoreLib("System", "Boolean"),
-            TypeRef.CoreLib("System", "Int32"),
-            TypeRef.CoreLib("System", "Boolean"),
-            TypeRef.GenericInstance(
-                TypeRef.CoreLib("System", "Span`1"),
-                [TypeRef.CoreLib("System", "Byte")]),
-            TypeRef.ByRef(TypeRef.CoreLib("System", "Int32")),
-        ];
-        var optionalExactnessParameter =
-            TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
-        var handle = ResolveMethodBySignature(
-            source,
-            "System.Number",
-            "Dragon4",
-            candidate =>
-                candidate.ReturnType.Equals(TypeRef.CoreLib("System", "UInt32"))
-                && !candidate.HasThis
-                && candidate.HasBody
-                && !candidate.IsPublic
-                && candidate.ParameterTypes.Length is 8 or 9
-                && candidate.ParameterTypes.Take(stableParameters.Length)
-                    .SequenceEqual(stableParameters)
-                && (candidate.ParameterTypes.Length == stableParameters.Length
-                    || candidate.ParameterTypes[^1]
-                        .Equals(optionalExactnessParameter)));
+        var handle = ResolveDragon4Method(source, "System.Number");
         var function = IrImporter.Import(source, handle);
         Assert.NotNull(function);
 
@@ -3759,7 +3767,40 @@ public class RaisingPassTests
     }
 
     [Fact]
-    public void SignatureResolution_DoesNotDependOnOverloadOrdinal()
+    public void Dragon4Resolution_DoesNotDependOnPreviewSevenOrdinal()
+    {
+        using var source = MetadataSource.Open(
+            typeof(Dragon4PreviewSixOverloads).Assembly.Location);
+        var handle = ResolveDragon4Method(
+            source,
+            typeof(Dragon4PreviewSixOverloads).FullName!);
+        var expected = typeof(Dragon4PreviewSixOverloads).GetMethod(
+            "Dragon4",
+            System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            [
+                typeof(ulong),
+                typeof(int),
+                typeof(uint),
+                typeof(bool),
+                typeof(int),
+                typeof(bool),
+                typeof(Span<byte>),
+                typeof(int).MakeByRefType(),
+            ],
+            modifiers: null);
+
+        Assert.NotNull(expected);
+        Assert.Equal(expected.MetadataToken, MetadataTokens.GetToken(handle));
+        Assert.Equal(1, IrImporter.Overloads(
+            source,
+            typeof(Dragon4PreviewSixOverloads).FullName!,
+            "Dragon4").Single(candidate => candidate.IsPrivate).Index);
+    }
+
+    [Fact]
+    public void SignatureResolution_SelectsExactPrivateAccessibility()
     {
         using var source = MetadataSource.Open(
             typeof(InterleavedVisibilityOverloads).Assembly.Location);
@@ -3773,7 +3814,7 @@ public class RaisingPassTests
                     [TypeRef.CoreLib("System", "Int32")])
                 && candidate.HasThis
                 && candidate.HasBody
-                && !candidate.IsPublic);
+                && candidate.IsPrivate);
         var expected = typeof(InterleavedVisibilityOverloads).GetMethod(
             nameof(InterleavedVisibilityOverloads.Marker),
             System.Reflection.BindingFlags.Instance

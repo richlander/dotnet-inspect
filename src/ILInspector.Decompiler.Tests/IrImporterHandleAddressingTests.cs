@@ -208,3 +208,24 @@ public class InterleavedVisibilityOverloads
     private int Marker(int a) => 20 + a;
     public int Marker(int a, int b) => 30 + a + b;
 }
+
+public class Dragon4PreviewSixOverloads
+{
+    public static uint Dragon4(ulong value) => (uint)value;
+
+    private static uint Dragon4(
+        ulong mantissa,
+        int exponent,
+        uint mantissaHighBit,
+        bool hasUnequalMargins,
+        int cutoffNumber,
+        bool isSignificantDigits,
+        Span<byte> buffer,
+        ref int decimalExponent)
+    {
+        decimalExponent = exponent;
+        return (uint)(mantissa + mantissaHighBit + (hasUnequalMargins ? 1u : 0u)
+            + (uint)cutoffNumber + (isSignificantDigits ? 1u : 0u)
+            + (uint)buffer.Length);
+    }
+}
