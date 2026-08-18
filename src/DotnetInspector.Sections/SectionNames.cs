@@ -205,6 +205,9 @@ public static class SectionNames
     /// <summary>Section for safe, local optimization opportunities inferred from IL/body evidence.</summary>
     public const string PerformanceTriage = "Performance Triage";
 
+    /// <summary>Section for exact rendered C# syntax occurrences in method bodies.</summary>
+    public const string BodyShapes = "Body Shapes";
+
     // Kind-scoped performance sections (library scope). Each renders one family of the
     // optimization-opportunity scan, is explicit-only, and is absent when its family has no
     // findings — following the il-offset context-section model. Grouped under @Performance.

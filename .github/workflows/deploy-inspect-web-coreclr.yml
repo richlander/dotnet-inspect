@@ -46,6 +46,7 @@ jobs:
             -p:VersionPrefix="$version" \
             -p:SourceRevisionId="$GITHUB_SHA" \
             -p:BuildTimestampUtc="$built_at" \
+            -p:Features=runtime-async=on \
             -p:UseMonoRuntime=false \
             -p:WasmBuildNative=false \
             -p:WasmNestedPublishAppDependsOn= \
