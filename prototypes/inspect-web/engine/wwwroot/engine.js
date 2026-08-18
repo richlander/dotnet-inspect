@@ -30,6 +30,8 @@ let searchTypes;
 let listStyleTiers;
 let listStyleOptions;
 let packageCacheStats;
+let configurePackageSource;
+let useDefaultPackageSource;
 
 export async function initializeEngine(onStatus = () => {}) {
   onStatus("Loading .NET 11 WebAssembly…");
@@ -66,6 +68,8 @@ export async function initializeEngine(onStatus = () => {}) {
   listStyleTiers = exports.BrowserInspectionEngine.ListStyleTiers;
   listStyleOptions = exports.BrowserInspectionEngine.ListStyleOptions;
   packageCacheStats = exports.BrowserInspectionEngine.PackageCacheStats;
+  configurePackageSource = exports.BrowserInspectionEngine.ConfigurePackageSource;
+  useDefaultPackageSource = exports.BrowserInspectionEngine.UseDefaultPackageSource;
   await runtime.runMain();
   onStatus("Reading package assemblies…");
 }
@@ -74,6 +78,16 @@ export async function inspectPackage(packageId, version, framework) {
   if (!queryPackage) throw new Error("The browser inspection engine is not initialized.");
   const json = await queryPackage(packageId, version, framework);
   return JSON.parse(json);
+}
+
+export async function inspectConfigurePackageSource(serviceIndexUrl) {
+  if (!configurePackageSource) throw new Error("The browser inspection engine is not initialized.");
+  return JSON.parse(await configurePackageSource(serviceIndexUrl));
+}
+
+export function inspectUseDefaultPackageSource() {
+  if (!useDefaultPackageSource) throw new Error("The browser inspection engine is not initialized.");
+  return JSON.parse(useDefaultPackageSource());
 }
 
 export async function inspectPackageDocument(request) {

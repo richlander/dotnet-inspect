@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Collections.Immutable;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -458,8 +459,15 @@ public sealed record BrowserMetadataHeaders(
     int? MinorRuntimeVersion,
     int? EntryPointToken);
 
+public sealed record BrowserPackageSourceConfiguration(
+    string ServiceIndexUrl,
+    string PackageBaseAddress,
+    string? SearchQueryService,
+    bool IsDefault);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
+[JsonSerializable(typeof(BrowserPackageSourceConfiguration))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberSource))]
 [JsonSerializable(typeof(BrowserCallGraph))]
@@ -484,6 +492,11 @@ internal sealed partial class BrowserJsonContext : JsonSerializerContext;
 [SupportedOSPlatform("browser")]
 public static partial class BrowserInspectionEngine
 {
+    const string DefaultServiceIndexUrl = "https://api.nuget.org/v3/index.json";
+    const string DefaultPackageBaseAddress = "https://api.nuget.org/v3-flatcontainer/";
+    const string DefaultSearchQueryService = "https://azuresearch-usnc.nuget.org/query";
+    const string PackageSourceUnavailableMarker = "[package-source-unreachable]";
+    const int MaxServiceIndexBytes = 1024 * 1024;
     static readonly HttpClient Http = new();
     static readonly InspectionQueryRegistry<AssemblyInspectionSession> AssemblyQueries =
         new InspectionQueryRegistry<AssemblyInspectionSession>()
@@ -494,6 +507,11 @@ public static partial class BrowserInspectionEngine
     const long MaxCachedPackageBytes = 128L * 1024 * 1024;
     static long _packageCacheClock;
     static readonly HashSet<string> DownloadedPackages = new(StringComparer.Ordinal);
+    static BrowserPackageSourceConfiguration _packageSource = DefaultPackageSource();
+    // Bumped on every SetPackageSource so in-flight downloads that outlive a
+    // source switch cannot repopulate the cleared caches or return old-source
+    // bytes labeled with the new source.
+    static int _packageSourceGeneration;
 
     sealed record PackageCacheEntry(byte[] Bytes, long LastAccess);
     sealed record SelectedPackageAssembly(
@@ -501,18 +519,114 @@ public static partial class BrowserInspectionEngine
         byte[] Image);
 
     [JSExport]
+    public static async Task<string> ConfigurePackageSource(string serviceIndexUrl)
+    {
+        Uri serviceIndex = ValidateServiceIndexUrl(serviceIndexUrl);
+        byte[] indexBytes;
+        try
+        {
+            indexBytes = await ReadBoundedServiceIndexAsync(serviceIndex);
+        }
+        catch (Exception exception) when (
+            exception is HttpRequestException
+            or TaskCanceledException)
+        {
+            throw new InvalidOperationException(
+                "The NuGet mirror service index could not be reached from this browser. "
+                + "Use an anonymous, CORS-enabled mirror.",
+                exception);
+        }
+
+        BrowserPackageSourceConfiguration configuration;
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(indexBytes);
+            if (!document.RootElement.TryGetProperty("resources", out JsonElement resources)
+                || resources.ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidDataException(
+                    "The NuGet mirror service index has no resources array.");
+            }
+
+            string? packageBaseAddress = null;
+            string? searchQueryService = null;
+            foreach (JsonElement resource in resources.EnumerateArray())
+            {
+                if (!resource.TryGetProperty("@id", out JsonElement idElement)
+                    || idElement.ValueKind != JsonValueKind.String
+                    || idElement.GetString() is not { Length: > 0 } resourceId)
+                {
+                    continue;
+                }
+
+                if (packageBaseAddress is null
+                    && ResourceHasType(resource, "PackageBaseAddress/"))
+                {
+                    packageBaseAddress = ValidateResourceUrl(
+                        serviceIndex,
+                        resourceId,
+                        "PackageBaseAddress");
+                }
+                else if (searchQueryService is null
+                    && ResourceHasType(resource, "SearchQueryService/"))
+                {
+                    searchQueryService = ValidateResourceUrl(
+                        serviceIndex,
+                        resourceId,
+                        "SearchQueryService");
+                }
+            }
+
+            if (packageBaseAddress is null)
+            {
+                throw new InvalidDataException(
+                    "The NuGet mirror does not publish a PackageBaseAddress resource.");
+            }
+
+            configuration = new BrowserPackageSourceConfiguration(
+                serviceIndex.AbsoluteUri,
+                EnsureTrailingSlash(packageBaseAddress),
+                searchQueryService,
+                IsDefault: false);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException(
+                "The NuGet mirror service index is not valid JSON.",
+                exception);
+        }
+
+        SetPackageSource(configuration);
+        return JsonSerializer.Serialize(
+            configuration,
+            BrowserJsonContext.Default.BrowserPackageSourceConfiguration);
+    }
+
+    [JSExport]
+    public static string UseDefaultPackageSource()
+    {
+        BrowserPackageSourceConfiguration configuration = DefaultPackageSource();
+        SetPackageSource(configuration);
+        return JsonSerializer.Serialize(
+            configuration,
+            BrowserJsonContext.Default.BrowserPackageSourceConfiguration);
+    }
+
+    [JSExport]
     public static async Task<string> QueryPackage(string packageId, string version, string targetFramework)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
+        var source = CapturePackageSource();
         var normalizedId = packageId.ToLowerInvariant();
         var resolvedVersion = await ResolvePackageVersionAsync(normalizedId, version);
         var normalizedVersion = resolvedVersion.ToLowerInvariant();
         var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        EnsurePackageSource(source.Generation);
         var content = new InMemoryPackageContent(
             packageBytes,
-            DownloadedPackages.Contains($"{normalizedId}@{normalizedVersion}"),
-            "nuget.org");
+            WasDownloaded(source.Configuration, normalizedId, normalizedVersion),
+            source.Configuration.ServiceIndexUrl);
         PackageCompileAssetSelection selection =
             PackageCompileAssetSelector.Select(content, packageId, targetFramework);
         if (selection.Status == PackageCompileAssetSelectionStatus.NoCompileAssets)
@@ -799,9 +913,10 @@ public static partial class BrowserInspectionEngine
             return requestedVersion;
         }
 
-        var indexUrl =
-            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(normalizedId)}/index.json";
-        var indexBytes = await Http.GetByteArrayAsync(indexUrl);
+        var source = CapturePackageSource();
+        var indexUrl = BuildPackageIndexUrl(source, normalizedId);
+        var indexBytes = await GetPackageSourceBytesAsync(indexUrl);
+        EnsurePackageSource(source.Generation);
         using var document = JsonDocument.Parse(indexBytes);
         var versions = document.RootElement.GetProperty("versions")
             .EnumerateArray()
@@ -931,9 +1046,9 @@ public static partial class BrowserInspectionEngine
                 normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
-            var symbolPackageUrl =
-                $"https://globalcdn.nuget.org/symbol-packages/" +
-                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            var symbolPackageUrl = BuildNuGetOrgSymbolPackageUrl(
+                normalizedId,
+                normalizedVersion);
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
             using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
@@ -1006,9 +1121,9 @@ public static partial class BrowserInspectionEngine
                 normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: false);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
-            var symbolPackageUrl =
-                $"https://globalcdn.nuget.org/symbol-packages/" +
-                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            var symbolPackageUrl = BuildNuGetOrgSymbolPackageUrl(
+                normalizedId,
+                normalizedVersion);
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
             using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
@@ -1168,13 +1283,15 @@ public static partial class BrowserInspectionEngine
         string targetFramework,
         string assemblyId)
     {
+        var source = CapturePackageSource();
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
         var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        EnsurePackageSource(source.Generation);
         var content = new InMemoryPackageContent(
             packageBytes,
-            DownloadedPackages.Contains($"{normalizedId}@{normalizedVersion}"),
-            "nuget.org");
+            WasDownloaded(source.Configuration, normalizedId, normalizedVersion),
+            source.Configuration.ServiceIndexUrl);
         PackageCompileAssetSelection selection =
             PackageCompileAssetSelector.Select(content, packageId, targetFramework);
         PackageCompileAsset? selectedAssembly = selection.Status
@@ -2354,9 +2471,9 @@ public static partial class BrowserInspectionEngine
                 normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
-            var symbolPackageUrl =
-                $"https://globalcdn.nuget.org/symbol-packages/" +
-                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            var symbolPackageUrl = BuildNuGetOrgSymbolPackageUrl(
+                normalizedId,
+                normalizedVersion);
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
             using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
@@ -2431,9 +2548,9 @@ public static partial class BrowserInspectionEngine
                 normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
-            var symbolPackageUrl =
-                $"https://globalcdn.nuget.org/symbol-packages/" +
-                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            var symbolPackageUrl = BuildNuGetOrgSymbolPackageUrl(
+                normalizedId,
+                normalizedVersion);
             await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
 
             using var inspection = AssemblyInspectionSession.Open(ResolvedAssemblyReference.Create(
@@ -2919,13 +3036,11 @@ public static partial class BrowserInspectionEngine
         return actual.Length > 0 && CryptographicOperations.FixedTimeEquals(actual, expected);
     }
 
-    // WASM PDB-acquisition policy: NuGet .snupkg only.
+    // WASM PDB-acquisition policy: NuGet.org's dedicated .snupkg endpoint only.
     //
-    // This runs inside the browser, so every fetch is subject to CORS. NuGet's
-    // symbol-package endpoint (globalcdn.nuget.org/symbol-packages) is CORS-open
-    // and works for packages that publish symbols. Packages that ship no snupkg
-    // (e.g. Microsoft runtime libraries like System.Text.Json) simply 404 here and
-    // we fall back to decompiling with pdb=null — that is expected, not an error.
+    // PackageBaseAddress is a package-content resource and does not serve symbol packages.
+    // NuGet.org's CORS-open symbol endpoint works for packages that publish symbols. If it is
+    // blocked, or a package publishes no snupkg, we fall back to decompiling with pdb=null.
     //
     // Do NOT add the Microsoft symbol server (MSDL) as a fallback in this engine.
     // MSDL answers with a cross-origin 302 to an Azure blob (SAS-signed, expiring,
@@ -2972,10 +3087,13 @@ public static partial class BrowserInspectionEngine
         string packageId,
         string targetFramework)
     {
+        // Caller already held package bytes for the active source; label with the
+        // current capture so a mid-flight source switch cannot rebrand them.
+        var source = CapturePackageSource();
         var content = new InMemoryPackageContent(
             packageBytes,
             fromCache: false,
-            producerKey: "nuget.org");
+            producerKey: source.Configuration.ServiceIndexUrl);
         PackageCompileAssetSelection selection =
             PackageCompileAssetSelector.Select(
                 content,
@@ -3037,10 +3155,11 @@ public static partial class BrowserInspectionEngine
         string targetFramework,
         string assemblyName)
     {
+        var source = CapturePackageSource();
         var content = new InMemoryPackageContent(
             packageBytes,
             fromCache: false,
-            producerKey: "nuget.org");
+            producerKey: source.Configuration.ServiceIndexUrl);
         PackageCompileAssetSelection selection =
             PackageCompileAssetSelector.Select(
                 content,
@@ -3432,14 +3551,12 @@ public static partial class BrowserInspectionEngine
     // the session. packId selects the CoreCLR or ASP.NET Core pack.
     static async Task<byte[]?> AcquireRuntimeFileAsync(string packId, string version, string fileName)
     {
-        var cacheKey = $"{packId}/{version}/{fileName}";
+        var source = CapturePackageSource();
+        var cacheKey = $"{source.Configuration.ServiceIndexUrl}\n{packId}/{version}/{fileName}";
         if (RuntimeFileCache.TryGetValue(cacheKey, out var cached))
             return cached;
 
-        var nupkgUrl =
-            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(packId)}/" +
-            $"{Uri.EscapeDataString(version)}/" +
-            $"{Uri.EscapeDataString(packId)}.{Uri.EscapeDataString(version)}.nupkg";
+        var nupkgUrl = BuildPackageContentUrl(source.Configuration, packId, version, "nupkg");
         bool IsWanted(string entryName) =>
             entryName.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase)
             && Path.GetFileName(entryName).Equals(fileName, StringComparison.OrdinalIgnoreCase);
@@ -3453,7 +3570,10 @@ public static partial class BrowserInspectionEngine
             bytes = ExtractEntryFromArchive(fullPack, IsWanted);
         }
         if (bytes is not null)
+        {
+            EnsurePackageSource(source.Generation);
             RuntimeFileCache[cacheKey] = bytes;
+        }
         return bytes;
     }
 
@@ -3546,8 +3666,10 @@ public static partial class BrowserInspectionEngine
 
     static async Task<string> ResolveRuntimePackVersionAsync(string packId, int major)
     {
-        var indexUrl = $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(packId)}/index.json";
-        var indexBytes = await Http.GetByteArrayAsync(indexUrl);
+        var source = CapturePackageSource();
+        var indexUrl = BuildPackageIndexUrl(source, packId);
+        var indexBytes = await GetPackageSourceBytesAsync(indexUrl);
+        EnsurePackageSource(source.Generation);
         using var document = JsonDocument.Parse(indexBytes);
         var versions = document.RootElement.GetProperty("versions")
             .EnumerateArray()
@@ -3779,7 +3901,8 @@ public static partial class BrowserInspectionEngine
 
     static async Task<byte[]> GetPackageBytesAsync(string normalizedId, string normalizedVersion)
     {
-        var key = $"{normalizedId}@{normalizedVersion}";
+        var source = CapturePackageSource();
+        var key = PackageCacheKey(source.Configuration, normalizedId, normalizedVersion);
         lock (PackageCacheLock)
         {
             if (PackageCache.TryGetValue(key, out var cached))
@@ -3789,20 +3912,26 @@ public static partial class BrowserInspectionEngine
             }
         }
 
-        var packageUrl =
-            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(normalizedId)}/" +
-            $"{Uri.EscapeDataString(normalizedVersion)}/" +
-            $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.nupkg";
-        var bytes = await Http.GetByteArrayAsync(packageUrl);
+        var packageUrl = BuildPackageContentUrl(
+            source.Configuration,
+            normalizedId,
+            normalizedVersion,
+            "nupkg");
+        var bytes = await GetPackageSourceBytesAsync(packageUrl);
+        EnsurePackageSource(source.Generation);
         lock (PackageCacheLock)
         {
+            // Re-check generation under the lock so a switch that lands between
+            // EnsurePackageSource and the cache write cannot repopulate a cleared cache.
+            if (source.Generation != _packageSourceGeneration)
+            {
+                throw new InvalidOperationException(
+                    $"{PackageSourceUnavailableMarker} The NuGet source changed during the request.");
+            }
             DownloadedPackages.Add(key);
-        }
-        if (bytes.LongLength > MaxCachedPackageBytes)
-            return bytes;
+            if (bytes.LongLength > MaxCachedPackageBytes)
+                return bytes;
 
-        lock (PackageCacheLock)
-        {
             while (PackageCache.Count >= MaxCachedPackages
                 || PackageCache.Values.Sum(entry => entry.Bytes.LongLength) + bytes.LongLength
                     > MaxCachedPackageBytes)
@@ -3818,6 +3947,196 @@ public static partial class BrowserInspectionEngine
             PackageCache[key] = new PackageCacheEntry(bytes, ++_packageCacheClock);
         }
         return bytes;
+    }
+
+    static BrowserPackageSourceConfiguration DefaultPackageSource() =>
+        new(
+            DefaultServiceIndexUrl,
+            DefaultPackageBaseAddress,
+            DefaultSearchQueryService,
+            IsDefault: true);
+
+    sealed record CapturedPackageSource(
+        BrowserPackageSourceConfiguration Configuration,
+        int Generation);
+
+    static CapturedPackageSource CapturePackageSource() =>
+        new(_packageSource, _packageSourceGeneration);
+
+    static void EnsurePackageSource(int generation)
+    {
+        if (generation != _packageSourceGeneration)
+        {
+            throw new InvalidOperationException(
+                $"{PackageSourceUnavailableMarker} The NuGet source changed during the request.");
+        }
+    }
+
+    static void SetPackageSource(BrowserPackageSourceConfiguration configuration)
+    {
+        _packageSource = configuration;
+        _packageSourceGeneration++;
+        lock (PackageCacheLock)
+        {
+            PackageCache.Clear();
+            DownloadedPackages.Clear();
+            _packageCacheClock = 0;
+        }
+        RuntimeFileCache.Clear();
+    }
+
+    static Uri ValidateServiceIndexUrl(string value)
+    {
+        if (!Uri.TryCreate(value?.Trim(), UriKind.Absolute, out Uri? uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !string.IsNullOrEmpty(uri.UserInfo)
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment))
+        {
+            throw new ArgumentException(
+                "Enter an HTTPS NuGet v3 service-index URL without credentials, query parameters, or a fragment.",
+                nameof(value));
+        }
+
+        return uri;
+    }
+
+    static async Task<byte[]> ReadBoundedServiceIndexAsync(Uri serviceIndex)
+    {
+        using HttpResponseMessage response = await Http.GetAsync(
+            serviceIndex,
+            HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength is > MaxServiceIndexBytes)
+        {
+            throw new InvalidDataException(
+                "The NuGet mirror service index exceeds the 1 MB limit.");
+        }
+
+        await using Stream input = await response.Content.ReadAsStreamAsync();
+        using var output = new MemoryStream();
+        var buffer = new byte[8192];
+        while (true)
+        {
+            int read = await input.ReadAsync(buffer);
+            if (read == 0)
+                break;
+            if (output.Length + read > MaxServiceIndexBytes)
+            {
+                throw new InvalidDataException(
+                    "The NuGet mirror service index exceeds the 1 MB limit.");
+            }
+            output.Write(buffer, 0, read);
+        }
+        return output.ToArray();
+    }
+
+    static bool ResourceHasType(JsonElement resource, string prefix)
+    {
+        if (!resource.TryGetProperty("@type", out JsonElement type))
+            return false;
+        if (type.ValueKind == JsonValueKind.String)
+            return type.GetString()?.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) == true;
+        if (type.ValueKind != JsonValueKind.Array)
+            return false;
+        return type.EnumerateArray().Any(candidate =>
+            candidate.ValueKind == JsonValueKind.String
+            && candidate.GetString()?.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) == true);
+    }
+
+    static string ValidateResourceUrl(
+        Uri serviceIndex,
+        string resourceId,
+        string resourceKind)
+    {
+        // Match ValidateServiceIndexUrl: no credentials, query, or fragment.
+        // A query on PackageBaseAddress is dropped or mangled by EnsureTrailingSlash
+        // + relative Uri resolution, so reject it at validation time.
+        if (!Uri.TryCreate(serviceIndex, resourceId, out Uri? resource)
+            || resource.Scheme != Uri.UriSchemeHttps
+            || !string.IsNullOrEmpty(resource.UserInfo)
+            || !string.IsNullOrEmpty(resource.Query)
+            || !string.IsNullOrEmpty(resource.Fragment))
+        {
+            throw new InvalidDataException(
+                $"The NuGet mirror publishes an invalid {resourceKind} resource.");
+        }
+        return resource.AbsoluteUri;
+    }
+
+    static string EnsureTrailingSlash(string value) =>
+        value.EndsWith("/", StringComparison.Ordinal) ? value : value + "/";
+
+    static string PackageCacheKey(
+        BrowserPackageSourceConfiguration source,
+        string normalizedId,
+        string normalizedVersion) =>
+        $"{source.ServiceIndexUrl}\n{normalizedId}@{normalizedVersion}";
+
+    static bool WasDownloaded(
+        BrowserPackageSourceConfiguration source,
+        string normalizedId,
+        string normalizedVersion)
+    {
+        lock (PackageCacheLock)
+        {
+            return DownloadedPackages.Contains(
+                PackageCacheKey(source, normalizedId, normalizedVersion));
+        }
+    }
+
+    static string BuildPackageIndexUrl(
+        CapturedPackageSource source,
+        string normalizedId) =>
+        BuildPackageIndexUrl(source.Configuration, normalizedId);
+
+    static string BuildPackageIndexUrl(
+        BrowserPackageSourceConfiguration source,
+        string normalizedId) =>
+        new Uri(
+            new Uri(source.PackageBaseAddress),
+            $"{Uri.EscapeDataString(normalizedId)}/index.json")
+        .AbsoluteUri;
+
+    static string BuildPackageContentUrl(
+        BrowserPackageSourceConfiguration source,
+        string normalizedId,
+        string normalizedVersion,
+        string extension) =>
+        new Uri(
+            new Uri(source.PackageBaseAddress),
+            $"{Uri.EscapeDataString(normalizedId)}/"
+            + $"{Uri.EscapeDataString(normalizedVersion)}/"
+            + $"{Uri.EscapeDataString(normalizedId)}."
+            + $"{Uri.EscapeDataString(normalizedVersion)}.{extension}")
+        .AbsoluteUri;
+
+    static string BuildNuGetOrgSymbolPackageUrl(
+        string normalizedId,
+        string normalizedVersion) =>
+        "https://globalcdn.nuget.org/symbol-packages/"
+        + $"{Uri.EscapeDataString(normalizedId)}."
+        + $"{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+
+    static async Task<byte[]> GetPackageSourceBytesAsync(string url)
+    {
+        try
+        {
+            return await Http.GetByteArrayAsync(url);
+        }
+        catch (HttpRequestException exception)
+            when (exception.StatusCode != HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException(
+                $"{PackageSourceUnavailableMarker} The active NuGet source could not be reached.",
+                exception);
+        }
+        catch (TaskCanceledException exception)
+        {
+            throw new InvalidOperationException(
+                $"{PackageSourceUnavailableMarker} The active NuGet source timed out.",
+                exception);
+        }
     }
 
     static BrowserTypeSurface ToBrowserType(ApiType type, string assembly)
