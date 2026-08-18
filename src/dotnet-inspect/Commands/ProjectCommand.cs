@@ -1050,7 +1050,7 @@ public class ProjectCommand
             "package" => row.Package,
             "version" => row.Version,
             "path" => row.Path,
-            "size" => row.Size.ToString(CultureInfo.InvariantCulture),
+            "size" => row.Size?.ToString(CultureInfo.InvariantCulture),
             "name" => row.Name,
             "description" => row.Description,
             _ => row.Path,

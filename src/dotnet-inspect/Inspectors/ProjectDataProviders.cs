@@ -47,6 +47,14 @@ internal sealed class ProjectSkillsProvider
                     file.PackageName,
                     file.Path,
                     "the restored assets file declares the skill, but the file is missing"));
+                skills.Add(new ProjectSkillData(
+                    file.PackageName,
+                    file.Version,
+                    file.Path,
+                    null,
+                    "",
+                    "",
+                    null));
                 continue;
             }
 
