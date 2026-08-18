@@ -17902,6 +17902,64 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData(false, "Version")]
+    [InlineData(true, "Version")]
+    [InlineData(false, "Ver*")]
+    [InlineData(true, "Ver*")]
+    public async Task MultiPackage_JsonColumnDiagnosticsAreIndependentOfPackageOrder(
+        bool emptyPackageFirst,
+        string column)
+    {
+        var (emptyPackagePath, emptyTempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonNoDependencies",
+            "README.md",
+            "# Empty package");
+        var (populatedPackagePath, populatedTempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonWithDependencies",
+            "README.md",
+            "# Populated package",
+            extraNuspecMetadata:
+            """
+            <dependencies>
+              <group targetFramework="net8.0">
+                <dependency id="Test.Dependency.One" version="3.1.4" />
+              </group>
+            </dependencies>
+            """);
+        try
+        {
+            string[] packagePaths = emptyPackageFirst
+                ? [emptyPackagePath, populatedPackagePath]
+                : [populatedPackagePath, emptyPackagePath];
+            var (exit, output, error) = await RunAppAsync(
+                [
+                    "package",
+                    .. packagePaths,
+                    "-S",
+                    "Dependencies",
+                    "--json",
+                    "--columns",
+                    column,
+                    "--tips",
+                    "q",
+                ]);
+
+            Assert.Equal(0, exit);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(2, document.RootElement.GetArrayLength());
+            Assert.DoesNotContain(
+                "column has no data",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(emptyTempDir, recursive: true);
+            Directory.Delete(populatedTempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Package_JsonRejectsUnknownProjectionInExplicitSection()
     {

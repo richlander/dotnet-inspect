@@ -1121,6 +1121,9 @@ public class PackageCommand
             results[0],
             options,
             pipeline);
+        writerOptions.IncludeSections = new HashSet<string>(
+            options.IncludeSections!,
+            StringComparer.OrdinalIgnoreCase);
         writerOptions.Projection = OutputFormatter.BuildProjection(
             renderedColumnArray,
             fields: null);
