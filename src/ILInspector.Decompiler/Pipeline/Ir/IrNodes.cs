@@ -1455,16 +1455,27 @@ public sealed class Branch : IrNode
 /// <summary>Branches to <see cref="TargetOffset"/> when the condition is true; falls through otherwise.</summary>
 public sealed class ConditionalBranch : IrNode
 {
-    public ConditionalBranch(IrExpression condition, int targetOffset)
+    public ConditionalBranch(
+        IrExpression condition,
+        int targetOffset,
+        ConditionalBranchOrigin origin = ConditionalBranchOrigin.Synthesized)
     {
         TargetOffset = targetOffset;
+        Origin = origin;
         AddChild(condition);
     }
 
     public IrExpression Condition => (IrExpression)Children[0];
     public int TargetOffset { get; }
+    public ConditionalBranchOrigin Origin { get; }
 
     public override string Describe() => $"ConditionalBranch IL_{TargetOffset:X4}";
+}
+
+public enum ConditionalBranchOrigin
+{
+    Synthesized,
+    Imported,
 }
 
 /// <summary>

@@ -102,6 +102,23 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
+    public void RetainedLoopSynthesizedConditionalMergeStaysFlat()
+    {
+        var blocks = RetainedLoopBlocks();
+        blocks[2] = Term(
+            2,
+            Cond(6, ConditionalBranchOrigin.Synthesized));
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Contains(
+            "retained-loop-synthesized-conditional-transfer",
+            diagnostics.RetainedDeclines);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
     public void RetainedBodyMergeWithoutRotatedEntryStaysFlat()
     {
         var blocks = RetainedLoopBlocks();
@@ -700,12 +717,15 @@ public class RetainedMergeStructuringTests
         return block;
     }
 
-    static ConditionalBranch Cond(int targetOffset)
+    static ConditionalBranch Cond(
+        int targetOffset,
+        ConditionalBranchOrigin origin = ConditionalBranchOrigin.Imported)
         => new(
             new Comparison(
                 ComparisonKind.Equal,
                 isUnsigned: false,
                 new Constant(1, I32),
                 new Constant(0, I32)),
-            targetOffset);
+            targetOffset,
+            origin);
 }

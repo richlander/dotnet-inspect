@@ -706,6 +706,9 @@ public sealed class StructuringPass : IIrPass
 
     static string? RetainedLoopCandidateDecline(Ctx sourceCtx, RetainedRange range)
     {
+        if (RetainedLoopHasSynthesizedConditionalTransfer(sourceCtx, range))
+            return "retained-loop-synthesized-conditional-transfer";
+
         var clonedBlocks = sourceCtx.Blocks.Select(CloneBlock).ToList();
         var ctx = CreateRetainedCtx(
             sourceCtx,
@@ -739,6 +742,27 @@ public sealed class StructuringPass : IIrPass
         return HasDanglingRetainedBranchTarget(ctx, built, range.RetainedMerges)
             ? "retained-dangling-merge-label"
             : null;
+    }
+
+    static bool RetainedLoopHasSynthesizedConditionalTransfer(
+        Ctx ctx,
+        RetainedRange range)
+    {
+        var targetOffsets = range.RetainedMerges
+            .Select(index => ctx.Blocks[index].StartOffset)
+            .ToHashSet();
+        for (int source = range.Start; source < range.Stop; source++)
+        {
+            if (ctx.Blocks[source].DescendantsOutsideNestedFunctions
+                .OfType<ConditionalBranch>()
+                .Any(branch =>
+                    branch.Origin == ConditionalBranchOrigin.Synthesized
+                    && targetOffsets.Contains(branch.TargetOffset)))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static string? RetainedCandidateDecline(
@@ -2843,7 +2867,8 @@ public sealed class StructuringPass : IIrPass
                         {
                             var retainedConditional = new ConditionalBranch(
                                 condition,
-                                conditional.TargetOffset);
+                                conditional.TargetOffset,
+                                conditional.Origin);
                             retainedConditional.InheritSourceOffset(conditional);
                             result.Add(retainedConditional);
                             i++;
