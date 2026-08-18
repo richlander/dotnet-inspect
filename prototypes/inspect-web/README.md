@@ -70,7 +70,8 @@ service-index URL (`n`). Opening that link validates the same way Settings does,
 persists the mirror on success, and loads packages from it. Shares from nuget.org
 omit `n` so they do not wipe a recipient's stored corporate mirror. A shared
 mirror that fails validation falls back to the recipient's stored source (if
-any) and surfaces a notice.
+any) and surfaces a notice. Settings rewrite the address-bar packet before
+reload so "Use nuget.org" or switching mirrors is not undone by a stale `n`.
 
 ## Run the .NET 11 browser-WASM prototype
 

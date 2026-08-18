@@ -398,10 +398,46 @@ function normalizeSharedNuGetMirror(value) {
 }
 
 function packageSourceUrlsMatch(left, right) {
-  const a = normalizeSharedNuGetMirror(left) || String(left || "").trim();
-  const b = normalizeSharedNuGetMirror(right) || String(right || "").trim();
-  if (!a || !b) return false;
-  return a.replace(/\/+$/, "").toLowerCase() === b.replace(/\/+$/, "").toLowerCase();
+  // Compare after WHATWG canonicalization only. Host/scheme case is already normalized by
+  // the URL parser; path case and trailing slashes are significant and must not be folded,
+  // or bootstrap/popstate can skip a real source change (or skip a stored fallback).
+  try {
+    const a = new URL(String(left || "").trim());
+    const b = new URL(String(right || "").trim());
+    if (a.protocol !== "https:" || b.protocol !== "https:") return false;
+    return a.origin === b.origin && a.pathname === b.pathname;
+  } catch {
+    return false;
+  }
+}
+
+// Rewrite the current address-bar share packet's `n` before a Settings-driven reload so
+// bootstrap does not re-apply (and re-persist) a stale mirror over the user's new choice.
+// serviceIndexUrl null/empty removes `n` (nuget.org); otherwise sets the validated URL.
+function rewriteSharePacketNuGetMirror(serviceIndexUrl) {
+  try {
+    const url = new URL(location.href);
+    const params = new URLSearchParams(url.search);
+    const encoded = params.get("w");
+    if (!encoded) return;
+    const raw = JSON.parse(base64UrlDecode(encoded));
+    if (!raw || Array.isArray(raw) || typeof raw !== "object") return;
+    const next = (typeof serviceIndexUrl === "string" && serviceIndexUrl.trim())
+      ? serviceIndexUrl.trim()
+      : "";
+    if (next) raw.n = next;
+    else delete raw.n;
+    params.set("w", base64UrlEncode(JSON.stringify(raw)));
+    url.search = params.toString();
+    history.replaceState(null, "", url.toString());
+  } catch {
+    // Best-effort: reload may still see a stale packet; Settings remains available.
+  }
+}
+
+function reloadAfterPackageSourceChange(serviceIndexUrl) {
+  rewriteSharePacketNuGetMirror(serviceIndexUrl);
+  location.reload();
 }
 
 function decodeShareState(value) {
@@ -7165,8 +7201,9 @@ function bindSettingsEvents() {
     if (!value) return;
     submit.disabled = true;
     try {
-      await configureNuGetMirror(value);
-      location.reload();
+      const configuration = await configureNuGetMirror(value);
+      // Drop/replace the previous share-packet mirror before reload so bootstrap honors this choice.
+      reloadAfterPackageSourceChange(configuration.serviceIndexUrl);
     } catch (error) {
       submit.disabled = false;
       showToast(`Mirror not saved: ${String(error?.message || error)}`, 6000);
@@ -7174,7 +7211,8 @@ function bindSettingsEvents() {
   });
   document.querySelector("#settings-nuget-source-reset")?.addEventListener("click", () => {
     useDefaultNuGetSource();
-    location.reload();
+    // Strip `n` from the address bar; otherwise reload re-applies and re-persists the old mirror.
+    reloadAfterPackageSourceChange("");
   });
 }
 
@@ -7269,7 +7307,8 @@ async function loadPackage(packageId, version, framework, options = {}) {
     state.loading = true;
     state.error = "";
     state.home = false;
-    state.queryNotice = "";
+    // History restore may set a mirror-validation notice just before load; keep it visible.
+    if (!options.keepQueryNotice) state.queryNotice = "";
     state.requestedPackage = packageId;
     state.requestedVersion = version;
     state.requestedFramework = framework;
@@ -7940,12 +7979,16 @@ document.addEventListener("mousedown", event => {
 // Re-apply state when the address bar changes underneath us (browser back/forward, or a
 // hand-edited URL). Within the loaded package we mutate selection directly; a different
 // package is (re)loaded with the URL selection queued as a deep link.
+// Serialize handlers: configureNuGetMirror has side effects (engine source + localStorage),
+// so overlapping popstates must not complete out of order against a newer address bar.
+let popStateQueue = Promise.resolve();
 window.addEventListener("popstate", () => {
-  void handlePopState();
+  popStateQueue = popStateQueue.then(() => handlePopState()).catch(() => {});
 });
 
 async function handlePopState() {
   if (!state.package && !state.home) return;
+  // Read location at the start of this serialized turn so we apply the latest bar state.
   const loc = parseLocation();
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
@@ -7961,8 +8004,9 @@ async function handlePopState() {
   // History may land on a share packet that named a different mirror. Apply it before
   // package fetch so back/forward keeps the feed that produced that view. Missing `n`
   // leaves the current source alone (same rule as cold bootstrap). Switching mirrors
-  // clears the workspace, so force a full package restore afterward.
+  // clears the workspace, so force a full multi-tab restore afterward.
   let mirrorSwitched = false;
+  let mirrorNotice = "";
   if (loc.nugetMirror
       && (state.packageSource.isDefault
         || !packageSourceUrlsMatch(state.packageSource.serviceIndexUrl, loc.nugetMirror))) {
@@ -7970,12 +8014,19 @@ async function handlePopState() {
       await configureNuGetMirror(loc.nugetMirror);
       mirrorSwitched = true;
     } catch (error) {
-      state.queryNotice = `Shared NuGet mirror could not be used: ${String(error?.message || error)}`;
+      mirrorNotice = `Shared NuGet mirror could not be used: ${String(error?.message || error)}`;
+      state.queryNotice = mirrorNotice;
     }
   }
+  const deep = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
+  if (mirrorSwitched) {
+    await restoreWorkspaceFromLocation(loc, deep);
+    if (mirrorNotice) state.queryNotice = mirrorNotice;
+    render();
+    return;
+  }
   const activePackage = state.package;
-  const samePackage = !mirrorSwitched
-    && activePackage
+  const samePackage = activePackage
     && loc.package
     && (isRuntimePackId(loc.package)
       ? isRuntimePackId(activePackage.id)
@@ -7985,7 +8036,7 @@ async function handlePopState() {
     if (isRuntimePackId(activePackage.id)) {
       // Back/forward within the platform: re-scope to the target library (or the
       // aggregate) before restoring selection, since scope is part of the view.
-      restorePlatformScopeThenDeepLink(loc);
+      await restorePlatformScopeThenDeepLink(loc);
     } else {
       applyDeepLink(loc);
       render();
@@ -7994,11 +8045,17 @@ async function handlePopState() {
   } else if (isRuntimePackId(loc.package)) {
     // The runtime pack has no nupkg; rebuild it from its TFM instead of 404-ing
     // on a NuGet fetch when back/forward lands on a platform state.
-    pendingDeepLink = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
-    restoreRuntimePackFromHistory(loc);
+    pendingDeepLink = deep;
+    await restoreRuntimePackFromHistory(loc);
   } else if (loc.package) {
-    pendingDeepLink = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
-    loadPackage(loc.package, loc.version || "latest", loc.framework || "");
+    pendingDeepLink = deep;
+    await loadPackage(loc.package, loc.version || "latest", loc.framework || "", {
+      keepQueryNotice: Boolean(mirrorNotice)
+    });
+    if (mirrorNotice) {
+      state.queryNotice = mirrorNotice;
+      render();
+    }
   }
 }
 
