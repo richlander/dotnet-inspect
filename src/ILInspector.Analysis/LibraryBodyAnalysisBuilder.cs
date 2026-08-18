@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -32,6 +31,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         _methodReferenceResolver;
     readonly LibraryBodyLiftedSourceOwnerResolver
         _liftedSourceOwnerResolver;
+    readonly LibraryBodyAsyncSourceResolver
+        _asyncSourceResolver;
     readonly LibraryBodyReferenceMetadataResolver? _referenceMetadataResolver;
     readonly AssemblyReferenceIdentity _assemblyIdentity;
     readonly object _asyncSiblingLookupCacheGate = new();
@@ -55,12 +56,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
     IReadOnlyDictionary<
         MetadataTypeDefinitionName,
         TypeDefinitionHandle>? _localTypeDefinitions;
-    IReadOnlyDictionary<
-        int,
-        MethodIdentity>? _asyncStateMachineSourceMethods;
-    IReadOnlySet<int>? _classicAsyncSourceMethodTokens;
-    IReadOnlySet<MetadataTypeDefinitionName>?
-        _ambiguousAsyncStateMachineTypes;
     readonly string _assemblyName;
     readonly Guid _mvid;
     readonly bool _memorySafetyRulesEnabled;
@@ -137,6 +132,14 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _methodReferenceResolver,
                 methodBodyReferenceIndexed,
                 typeDefinitionIndexBuilt);
+        _asyncSourceResolver =
+            new LibraryBodyAsyncSourceResolver(
+                reader,
+                _assemblyIdentity,
+                _primaryMetadataResolver,
+                IsSourceGeneratedTypeOrEnclosing,
+                LocalTypeDefinitions,
+                TypeFromEntity);
         if (resolver is not null && reader.IsAssembly)
             _referenceMetadataResolver =
                 new LibraryBodyReferenceMetadataResolver(
@@ -237,7 +240,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         MethodIdentity method,
         MethodDefinition methodDefinition,
         bool typeSourceGenerated) =>
-        _ = AsyncSourceMethod(
+        _ = _asyncSourceResolver.ResolveSourceMethod(
             method,
             methodDefinition,
             typeSourceGenerated);
@@ -251,7 +254,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 bool typeSourceGenerated,
                 ref MethodIdentity? asyncSource)
     {
-        asyncSource = AsyncSourceMethod(
+        asyncSource = _asyncSourceResolver.ResolveSourceMethod(
             context.Method,
             methodDefinition,
             typeSourceGenerated);
@@ -321,108 +324,20 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             && HasAttributeNamed(_reader.GetAssemblyDefinition().GetCustomAttributes(), "MemorySafetyRulesAttribute", ns);
     }
 
-    static bool IsBlazorRenderMethod(MethodIdentity method) =>
-        LibraryMethodAnalysisRunner.IsBlazorRenderMethod(method);
-
     internal bool ScopeMayRequireStateMachineBody(
-        IReadOnlySet<int> bodyScope)
-    {
-        foreach (int token in bodyScope)
-        {
-            EntityHandle handle =
-                MetadataTokens.EntityHandle(token);
-            if (handle.Kind
-                != HandleKind.MethodDefinition)
-            {
-                continue;
-            }
-            try
-            {
-                MethodDefinition method =
-                    _reader.GetMethodDefinition(
-                        (MethodDefinitionHandle)handle);
-                if (MethodClassificationScanner
-                        .ClassifyAsyncMethod(
-                            _reader,
-                            method)
-                    == MethodClassification.RuntimeAsync)
-                {
-                    continue;
-                }
-
-                AsyncStateMachineAttributeInfo attribute =
-                    AsyncStateMachineAttribute(
-                        method.GetCustomAttributes());
-                if (attribute.SerializedType is { } serializedType
-                    && StateMachineTypeDefinitionName(
-                        serializedType) is not null)
-                {
-                    return true;
-                }
-            }
-            catch (Exception ex)
-                when (IsRecoverableMethodFailure(ex))
-            {
-                continue;
-            }
-        }
-        return false;
-    }
+        IReadOnlySet<int> bodyScope) =>
+        _asyncSourceResolver.ScopeMayRequireStateMachineBody(
+            bodyScope);
 
     public LibraryBodyAnalysisResult Build(
         LibraryBodyAnalysisPlan plan)
     {
+        plan = _asyncSourceResolver.ExpandEvidenceScope(plan);
         bool includeMethodEvidence = plan.Includes(
             LibraryBodyAnalysisFeatures.MethodEvidence);
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
-        IReadOnlyDictionary<int, TypeRef>?
-            typeScopeEvidenceSources = null;
-        if (includeOpportunities
-            && (bodyScope is not null
-                || plan.TypeScope is not null))
-        {
-            bool mapRequired =
-                plan.TypeScope is not null
-                || bodyScope is not null
-                    && ScopeMayRequireStateMachineBody(
-                        bodyScope);
-            if (mapRequired)
-            {
-                var expandedScope =
-                    bodyScope is null
-                        ? new HashSet<int>()
-                        : new HashSet<int>(bodyScope);
-                var evidenceSources =
-                    new Dictionary<int, TypeRef>();
-                foreach ((
-                    int moveNextToken,
-                    MethodIdentity source)
-                    in AsyncStateMachineSourceMethods())
-                {
-                    evidenceSources.Add(
-                        moveNextToken,
-                        source.DeclaringType);
-                    if (bodyScope?.Contains(
-                            source.MetadataToken)
-                        == true)
-                    {
-                        expandedScope.Add(moveNextToken);
-                    }
-                }
-                if (bodyScope is not null)
-                    bodyScope = expandedScope;
-                typeScopeEvidenceSources =
-                    evidenceSources;
-            }
-        }
-        plan = plan with
-        {
-            MethodScope = bodyScope,
-            TypeScopeEvidenceSources =
-                typeScopeEvidenceSources,
-        };
         var methodRunner =
             new LibraryMethodAnalysisRunner(this);
         var accumulator =
@@ -436,8 +351,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         // method body. For a full (unscoped) build the analysis runs in parallel across cores;
         // each method writes only to method-local builders, and results are merged back in
         // metadata order below, so output is byte-identical to a sequential build. Metadata/PE
-        // reads are thread-safe on the immutable prefetched image (see Open); the lazily
-        // populated AsyncStateMachineTypes cache is prewarmed here.
+        // reads are thread-safe on the immutable prefetched image (see Open); lazily
+        // populated lookup snapshots are prewarmed here.
         var workItems = new List<(TypeDefinitionHandle TypeHandle, TypeDefinition TypeDef, bool TypeSourceGenerated, MethodDefinitionHandle MethodHandle)>();
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
@@ -465,10 +380,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _ = _primaryMetadataResolver
                     .AsyncStateMachineTypes();
             if (includeOpportunities)
-            {
-                _ = AsyncStateMachineSourceMethods();
-                _ = LocalTypeDefinitions();
-            }
+                _asyncSourceResolver.Prewarm();
             // Prewarm the async-state-machine set so it is fully computed before the parallel
             // pass reads it read-only.
             if (includeMethodEvidence || includeOpportunities)
@@ -528,450 +440,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         return IsWellKnownValueType(definition.Namespace, definition.Name);
     }
 
-    MethodIdentity? AsyncSourceMethod(
-        MethodIdentity physicalMethod,
-        MethodDefinition methodDefinition,
-        bool typeSourceGenerated)
-    {
-        MethodClassification? classification =
-            MethodClassificationScanner.ClassifyAsyncMethod(
-                _reader,
-                methodDefinition);
-        if (classification
-            == MethodClassification.RuntimeAsync)
-        {
-            if (!HasAnalyzableIlBody(methodDefinition))
-            {
-                throw new BadImageFormatException(
-                    "The async source method does not have an analyzable managed IL body.");
-            }
-            return !typeSourceGenerated
-                && !HasGeneratedCodeAttribute(
-                    methodDefinition.GetCustomAttributes())
-                && !HasCompilerGeneratedAttribute(
-                    methodDefinition.GetCustomAttributes())
-                && !IsBlazorRenderMethod(physicalMethod)
-                    ? physicalMethod
-                    : null;
-        }
-
-        AsyncStateMachineAttributeInfo stateMachineAttribute =
-            AsyncStateMachineAttribute(
-                methodDefinition.GetCustomAttributes());
-        if (stateMachineAttribute.Rejected)
-        {
-            throw new BadImageFormatException(
-                "The async state-machine attribute is malformed or ambiguous.");
-        }
-        if (stateMachineAttribute.Ignored)
-            return null;
-
-        if (methodDefinition.RelativeVirtualAddress == 0
-            && (stateMachineAttribute.Present
-                    && classification
-                        == MethodClassification.StateMachineAsync))
-        {
-            throw new BadImageFormatException(
-                "The async source method does not have an executable body.");
-        }
-
-        if (stateMachineAttribute.Present
-            && classification
-                == MethodClassification.StateMachineAsync)
-        {
-            if (typeSourceGenerated
-                || HasGeneratedCodeAttribute(
-                    methodDefinition.GetCustomAttributes())
-                || HasCompilerGeneratedAttribute(
-                    methodDefinition.GetCustomAttributes())
-                || IsBlazorRenderMethod(physicalMethod))
-            {
-                return null;
-            }
-
-            _ = AsyncStateMachineSourceMethods();
-            if (_classicAsyncSourceMethodTokens!.Contains(
-                    physicalMethod.MetadataToken))
-            {
-                return null;
-            }
-            throw new BadImageFormatException(
-                "The classic async source does not map to a unique valid state-machine body.");
-        }
-
-        if (physicalMethod.DeclaringType.Resolution?.Type
-                is not { } stateMachineType)
-        {
-            return null;
-        }
-        EntityHandle physicalHandle =
-            MetadataTokens.EntityHandle(
-                physicalMethod.MetadataToken);
-        if (physicalHandle.Kind
-                != HandleKind.MethodDefinition
-            || !ImplementsAsyncStateMachine(
-                _reader.GetTypeDefinition(
-                    methodDefinition.GetDeclaringType()))
-            || !IsMoveNextBody(
-                (MethodDefinitionHandle)physicalHandle))
-        {
-            return null;
-        }
-
-        IReadOnlyDictionary<
-            int,
-            MethodIdentity> sources =
-                AsyncStateMachineSourceMethods();
-        if (sources.TryGetValue(
-                physicalMethod.MetadataToken,
-                out MethodIdentity? source))
-        {
-            return source;
-        }
-        if (_ambiguousAsyncStateMachineTypes?.Contains(
-                stateMachineType) == true)
-        {
-            throw new BadImageFormatException(
-                "Multiple async source methods name this state-machine type.");
-        }
-        return null;
-    }
-
-    IReadOnlyDictionary<
-        int,
-        MethodIdentity> AsyncStateMachineSourceMethods()
-    {
-        if (_asyncStateMachineSourceMethods is not null)
-            return _asyncStateMachineSourceMethods;
-
-        var methodsByType = new Dictionary<
-            MetadataTypeDefinitionName,
-            MethodIdentity>();
-        var ambiguous = new HashSet<MetadataTypeDefinitionName>();
-        foreach (var typeHandle in _reader.TypeDefinitions)
-        {
-            TypeDefinition typeDefinition;
-            try
-            {
-                typeDefinition =
-                    _reader.GetTypeDefinition(typeHandle);
-                if (IsSourceGeneratedTypeOrEnclosing(typeHandle))
-                {
-                    continue;
-                }
-            }
-            catch (Exception ex)
-                when (IsRecoverableMethodFailure(ex))
-            {
-                continue;
-            }
-
-            foreach (var methodHandle in typeDefinition.GetMethods())
-            {
-                try
-                {
-                    var methodDefinition =
-                        _reader.GetMethodDefinition(methodHandle);
-                    if (HasGeneratedCodeAttribute(
-                            methodDefinition.GetCustomAttributes())
-                        || HasCompilerGeneratedAttribute(
-                            methodDefinition.GetCustomAttributes()))
-                    {
-                        continue;
-                    }
-
-                    AsyncStateMachineAttributeInfo attribute =
-                        AsyncStateMachineAttribute(
-                            methodDefinition.GetCustomAttributes());
-                    if (attribute.Rejected
-                        || MethodClassificationScanner
-                            .ClassifyAsyncMethod(
-                                _reader,
-                                methodDefinition)
-                            == MethodClassification.RuntimeAsync
-                        || methodDefinition.RelativeVirtualAddress
-                            == 0
-                        || attribute.SerializedType is not
-                            { } serializedType
-                        || StateMachineTypeDefinitionName(serializedType)
-                            is not { } stateMachineType
-                        || ambiguous.Contains(stateMachineType))
-                    {
-                        continue;
-                    }
-
-                    var scope = CreateScope(
-                        typeDefinition,
-                        methodDefinition);
-                    MethodIdentity method = CreateMethodIdentity(
-                        typeHandle,
-                        methodHandle,
-                        methodDefinition,
-                        scope);
-                    if (IsBlazorRenderMethod(method))
-                        continue;
-
-                    if (!methodsByType.TryAdd(
-                            stateMachineType,
-                            method))
-                    {
-                        methodsByType.Remove(stateMachineType);
-                        ambiguous.Add(stateMachineType);
-                    }
-                }
-                catch (Exception ex)
-                    when (IsRecoverableMethodFailure(ex))
-                {
-                    // The normal per-method pass retains the malformed method's
-                    // diagnostic; source-map prewarming must not abort the index.
-                }
-            }
-        }
-
-        var methods = new Dictionary<
-            int,
-            MethodIdentity>();
-        foreach ((
-            MetadataTypeDefinitionName stateMachineType,
-            MethodIdentity source) in methodsByType)
-        {
-            try
-            {
-                if (!LocalTypeDefinitions().TryGetValue(
-                        stateMachineType,
-                        out TypeDefinitionHandle typeHandle)
-                    || typeHandle.IsNil
-                    || !TryGetAsyncStateMachineMoveNext(
-                        typeHandle,
-                        out MethodDefinitionHandle moveNext))
-                {
-                    ambiguous.Add(stateMachineType);
-                    continue;
-                }
-
-                if (!methods.TryAdd(
-                        MetadataTokens.GetToken(moveNext),
-                        source))
-                {
-                    ambiguous.Add(stateMachineType);
-                    methods.Remove(
-                        MetadataTokens.GetToken(moveNext));
-                }
-            }
-            catch (Exception ex)
-                when (IsRecoverableMethodFailure(ex))
-            {
-                ambiguous.Add(stateMachineType);
-            }
-        }
-
-        _ambiguousAsyncStateMachineTypes = ambiguous;
-        _classicAsyncSourceMethodTokens =
-            new HashSet<int>(
-                methods.Values.Select(
-                    source => source.MetadataToken));
-        _asyncStateMachineSourceMethods = methods;
-        return methods;
-    }
-
-    bool TryGetAsyncStateMachineMoveNext(
-        TypeDefinitionHandle typeHandle,
-        out MethodDefinitionHandle moveNext)
-    {
-        moveNext = default;
-        var type = _reader.GetTypeDefinition(typeHandle);
-        if (!ImplementsAsyncStateMachine(type))
-            return false;
-
-        foreach (var handle
-            in type.GetMethodImplementations())
-        {
-            var implementation =
-                _reader.GetMethodImplementation(handle);
-            MemberRef declaration =
-                MemberResolver.ResolveMethod(
-                    _reader,
-                    implementation.MethodDeclaration,
-                    GenericScope.Empty);
-            if (!IsAsyncStateMachineMoveNextDeclaration(
-                    declaration))
-            {
-                continue;
-            }
-            if (!moveNext.IsNil
-                || implementation.MethodBody.Kind
-                    != HandleKind.MethodDefinition)
-            {
-                return false;
-            }
-
-            var body = (MethodDefinitionHandle)
-                implementation.MethodBody;
-            MethodDefinition bodyDefinition =
-                _reader.GetMethodDefinition(body);
-            if (bodyDefinition.GetDeclaringType()
-                    != typeHandle
-                || !HasAnalyzableIlBody(bodyDefinition)
-                || !IsMoveNextBody(body))
-            {
-                return false;
-            }
-            moveNext = body;
-        }
-        if (!moveNext.IsNil)
-            return true;
-
-        foreach (var handle in type.GetMethods())
-        {
-            if (!HasAnalyzableIlBody(
-                    _reader.GetMethodDefinition(handle))
-                || !IsMoveNextBody(handle)
-                || !_reader.StringComparer.Equals(
-                    _reader.GetMethodDefinition(handle).Name,
-                    "MoveNext"))
-            {
-                continue;
-            }
-            if (!moveNext.IsNil)
-                return false;
-            moveNext = handle;
-        }
-        return !moveNext.IsNil;
-    }
-
-    static bool HasAnalyzableIlBody(
-        MethodDefinition method)
-        => method.RelativeVirtualAddress != 0
-            && (method.Attributes
-                    & MethodAttributes.PinvokeImpl) == 0
-            && (method.ImplAttributes
-                    & (MethodImplAttributes.CodeTypeMask
-                        | MethodImplAttributes.ManagedMask
-                        | MethodImplAttributes.InternalCall))
-                == MethodImplAttributes.IL;
-
-    bool ImplementsAsyncStateMachine(
-        TypeDefinition type)
-    {
-        foreach (var handle
-            in type.GetInterfaceImplementations())
-        {
-            TypeRef interfaceType = TypeFromEntity(
-                _reader.GetInterfaceImplementation(
-                    handle).Interface);
-            if (FrameworkIdentity.IsKnownFrameworkType(
-                    DefinitionType(interfaceType),
-                    "System.Threading.Tasks",
-                    "System.Runtime.CompilerServices",
-                    "IAsyncStateMachine"))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
-    {
-        var declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0);
-        ImmutableArray<TypeRef> parameterTypes;
-        TypeRef returnType;
-        byte signatureHeader;
-        int requiredParameterCount;
-        if (SignatureBlobGuard.IsSafeToDecode(_reader, methodDef.Signature, SignatureBlobGuard.Kind.Method))
-        {
-            var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
-            parameterTypes = signature.ParameterTypes;
-            returnType = signature.ReturnType;
-            signatureHeader = signature.Header.RawValue;
-            requiredParameterCount = signature.RequiredParameterCount;
-        }
-        else
-        {
-            parameterTypes = [];
-            returnType = TypeRef.Unsupported("method signature nesting depth exceeded");
-            signatureHeader = 0;
-            requiredParameterCount = -1;
-        }
-        return new MethodIdentity(
-            _assemblyName,
-            _mvid,
-            declaringType,
-            _reader.GetString(methodDef.Name),
-            parameterTypes,
-            returnType,
-            MetadataTokens.GetToken(methodHandle),
-            (methodDef.Attributes & MethodAttributes.Static) != 0,
-            IsExtensionMethod(typeHandle, methodDef),
-            ComputeCallerUnsafeMode(typeHandle, methodDef, parameterTypes, returnType),
-            methodDef.GetGenericParameters().Count,
-            GenericParameterNames(methodDef))
-        {
-            SignatureHeader = signatureHeader,
-            RequiredParameterCount = requiredParameterCount,
-            IsVirtualDispatchOpen =
-                DispatchCanTargetOverride(
-                    _reader.GetTypeDefinition(typeHandle),
-                    methodDef),
-        };
-    }
-
-    static bool DispatchCanTargetOverride(
-        TypeDefinition declaringType,
-        MethodDefinition method) =>
-        (method.Attributes & MethodAttributes.Virtual) != 0
-        && (method.Attributes & MethodAttributes.Final) == 0
-        && (declaringType.Attributes & TypeAttributes.Sealed) == 0;
-
-    ImmutableArray<string> GenericParameterNames(MethodDefinition methodDef)
-    {
-        var handles = methodDef.GetGenericParameters();
-        if (handles.Count == 0)
-            return [];
-        var names = ImmutableArray.CreateBuilder<string>(handles.Count);
-        foreach (var handle in handles)
-            names.Add(_reader.GetString(_reader.GetGenericParameter(handle).Name));
-        return names.MoveToImmutable();
-    }
-
-    bool IsExtensionMethod(TypeDefinitionHandle typeHandle, MethodDefinition methodDef)
-    {
-        var type = _reader.GetTypeDefinition(typeHandle);
-        return (type.Attributes & TypeAttributes.Abstract) != 0
-            && (type.Attributes & TypeAttributes.Sealed) != 0
-            && (methodDef.Attributes & MethodAttributes.Static) != 0
-            && AttributeReader.HasExtensionAttribute(_reader, type.GetCustomAttributes())
-            && AttributeReader.HasExtensionAttribute(_reader, methodDef.GetCustomAttributes());
-    }
-
-    // Mirrors Roslyn's PEMethodSymbol.CallerUnsafeMode: a member "requires
-    // unsafe" when it carries RequiresUnsafeAttribute (the metadata form of
-    // the `unsafe` modifier) or has a pointer/function pointer in its
-    // signature; the mode is then gated on the module opting into the rules.
-    CallerUnsafeMode ComputeCallerUnsafeMode(
-        TypeDefinitionHandle typeHandle, MethodDefinition methodDef,
-        ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
-    {
-        bool requiresUnsafe =
-            HasRequiresUnsafe(methodDef.GetCustomAttributes())
-            || HasRequiresUnsafe(_reader.GetTypeDefinition(typeHandle).GetCustomAttributes())
-            || parameterTypes.Any(type => type.ContainsPointer())
-            || returnType.ContainsPointer();
-
-        if (!requiresUnsafe)
-            return CallerUnsafeMode.None;
-        return _memorySafetyRulesEnabled ? CallerUnsafeMode.Explicit : CallerUnsafeMode.Implicit;
-    }
-
-    // Read attributes straight from SRM — a simple has-attribute check needs
-    // no shared decode/render machinery, so Analysis stays independent.
-    bool HasRequiresUnsafe(CustomAttributeHandleCollection attributes)
-        // Match the distinctive simple name: the implemented attribute is in
-        // System.Diagnostics.CodeAnalysis, while the design doc says
-        // System.Runtime.CompilerServices — tolerate the namespace churn.
-        => HasAttributeNamed(attributes, "RequiresUnsafeAttribute",
-            "System.Diagnostics.CodeAnalysis", "System.Runtime.CompilerServices");
-
     bool HasAttributeNamed(CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
     {
         foreach (var handle in attributes)
@@ -981,268 +449,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 return true;
         }
         return false;
-    }
-
-    bool IsMoveNextBody(
-        MethodDefinitionHandle handle)
-    {
-        MemberRef method = MemberResolver.ResolveMethod(
-            _reader,
-            handle,
-            GenericScope.Empty);
-        return method.HasThis
-            && method.GenericArity == 0
-            && method.ParameterTypes.Length == 0
-            && method.SignatureHeader == 0x20
-            && method.RequiredParameterCount == 0
-            && FrameworkIdentity.IsCoreLibraryType(
-                method.ReturnType,
-                "System",
-                "Void");
-    }
-
-    static bool IsAsyncStateMachineMoveNextDeclaration(
-        MemberRef declaration)
-        => declaration.Name == "MoveNext"
-            && declaration.HasThis
-            && declaration.GenericArity == 0
-            && declaration.ParameterTypes.Length == 0
-            && declaration.SignatureHeader == 0x20
-            && declaration.RequiredParameterCount == 0
-            && FrameworkIdentity.IsKnownFrameworkType(
-                DefinitionType(
-                    declaration.DeclaringType),
-                "System.Threading.Tasks",
-                "System.Runtime.CompilerServices",
-                "IAsyncStateMachine")
-            && FrameworkIdentity.IsCoreLibraryType(
-                declaration.ReturnType,
-                "System",
-                "Void");
-
-    readonly record struct AsyncStateMachineAttributeInfo(
-        bool Present,
-        bool Rejected,
-        bool Ignored,
-        string? SerializedType);
-
-    AsyncStateMachineAttributeInfo AsyncStateMachineAttribute(
-        CustomAttributeHandleCollection attributes)
-    {
-        bool sawAttribute = false;
-        string? serializedType = null;
-        foreach (var handle in attributes)
-        {
-            var attribute = _reader.GetCustomAttribute(handle);
-            string? name = AttributeDecoder.GetAttributeTypeName(
-                _reader,
-                attribute.Constructor);
-            if (name is not (
-                    KnownAttributeNames.AsyncStateMachineAttribute
-                    or KnownAttributeNames.AsyncIteratorStateMachineAttribute))
-            {
-                continue;
-            }
-            if (!TryGetTrustedAsyncStateMachineAttribute(
-                    _reader,
-                    attribute.Constructor,
-                    name,
-                    out MemberRef constructor))
-            {
-                continue;
-            }
-            if (!HasAsyncStateMachineConstructorShape(
-                    constructor))
-            {
-                return new(
-                    Present: true,
-                    Rejected: true,
-                    Ignored: false,
-                    SerializedType: null);
-            }
-
-            if (sawAttribute)
-            {
-                return new(
-                    Present: true,
-                    Rejected: true,
-                    Ignored: false,
-                    SerializedType: null);
-            }
-            sawAttribute = true;
-
-            if (TryReadSerializedStateMachineType(
-                    attribute,
-                    out string? typeName))
-            {
-                if (IsCurrentAssemblyStateMachineType(typeName))
-                    serializedType = typeName;
-                continue;
-            }
-
-            return new(
-                Present: true,
-                Rejected: true,
-                Ignored: false,
-                SerializedType: null);
-        }
-        return new(
-            Present: sawAttribute,
-            Rejected: false,
-            Ignored: sawAttribute
-                && serializedType is null,
-            serializedType);
-    }
-
-    internal static bool IsTrustedAsyncStateMachineAttribute(
-        MetadataReader reader,
-        EntityHandle constructor,
-        string attributeName)
-        => TryGetTrustedAsyncStateMachineAttribute(
-                reader,
-                constructor,
-                attributeName,
-                out MemberRef member)
-            && HasAsyncStateMachineConstructorShape(member);
-
-    static bool TryGetTrustedAsyncStateMachineAttribute(
-        MetadataReader reader,
-        EntityHandle constructor,
-        string attributeName,
-        out MemberRef member)
-    {
-        member = MemberResolver.ResolveMethod(
-            reader,
-            constructor,
-            GenericScope.Empty);
-        int separator = attributeName.LastIndexOf('.');
-        string ns = separator < 0
-            ? ""
-            : attributeName[..separator];
-        string name = separator < 0
-            ? attributeName
-            : attributeName[(separator + 1)..];
-        return FrameworkIdentity.IsCoreLibraryType(
-                DefinitionType(member.DeclaringType),
-                ns,
-                name);
-    }
-
-    static bool HasAsyncStateMachineConstructorShape(
-        MemberRef member)
-        => member.Name == ".ctor"
-            && member.Kind == MemberKind.Constructor
-            && member.HasThis
-            && member.GenericArity == 0
-            && member.SignatureHeader == 0x20
-            && member.RequiredParameterCount == 1
-            && member.ParameterTypes.Length == 1
-            && FrameworkIdentity.IsCoreLibraryType(
-                member.ParameterTypes[0],
-                "System",
-                "Type")
-            && FrameworkIdentity.IsCoreLibraryType(
-                member.ReturnType,
-                "System",
-                "Void");
-
-    bool TryReadSerializedStateMachineType(
-        CustomAttribute attribute,
-        [NotNullWhen(true)] out string? serializedType)
-    {
-        serializedType = null;
-        try
-        {
-            BlobReader value = _reader.GetBlobReader(
-                attribute.Value);
-            if (value.ReadUInt16() != 0x0001)
-                return false;
-            serializedType = value.ReadSerializedString();
-            return serializedType is not null
-                && value.ReadUInt16() == 0
-                && value.RemainingBytes == 0;
-        }
-        catch (Exception ex)
-            when (IsRecoverableMethodFailure(ex))
-        {
-            serializedType = null;
-            return false;
-        }
-    }
-
-    bool IsCurrentAssemblyStateMachineType(
-        string serializedType)
-    {
-        int separator = serializedType.IndexOf(',');
-        if (separator < 0)
-            return true;
-
-        string[] assemblyParts =
-            serializedType[(separator + 1)..].Split(',');
-        if (assemblyParts.Length == 0
-            || !string.Equals(
-                assemblyParts[0].Trim(),
-                _assemblyIdentity.Name,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        foreach (string part in assemblyParts.Skip(1))
-        {
-            int equals = part.IndexOf('=');
-            if (equals < 0)
-                return false;
-            string key = part[..equals].Trim();
-            string value = part[(equals + 1)..].Trim();
-            if (key.Equals(
-                    "Version",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                if (!Version.TryParse(
-                        value,
-                        out Version? version)
-                    || version != _assemblyIdentity.Version)
-                {
-                    return false;
-                }
-            }
-            else if (key.Equals(
-                    "Culture",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                string? culture = value.Equals(
-                    "neutral",
-                    StringComparison.OrdinalIgnoreCase)
-                        ? null
-                        : value;
-                if (!string.Equals(
-                        culture,
-                        _assemblyIdentity.Culture,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-            }
-            else if (key.Equals(
-                    "PublicKeyToken",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                string? token = value.Equals(
-                    "null",
-                    StringComparison.OrdinalIgnoreCase)
-                        ? null
-                        : value;
-                if (!string.Equals(
-                        token,
-                        _assemblyIdentity.PublicKeyToken,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-            }
-        }
-        return true;
     }
 
     // True when the member/type is marked [System.CodeDom.Compiler.GeneratedCode] —
@@ -1322,33 +528,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         return inherited;
     }
 
-    static MetadataTypeDefinitionName?
-        StateMachineTypeDefinitionName(string serializedName)
-    {
-        int assemblySeparator = serializedName.IndexOf(',');
-        ReadOnlySpan<char> typeName = (
-            assemblySeparator < 0
-                ? serializedName.AsSpan()
-                : serializedName.AsSpan(0, assemblySeparator)).Trim();
-        if (typeName.IsEmpty || typeName.IndexOf('[') >= 0)
-            return null;
-        int nestedSeparator = typeName.IndexOf('+');
-        int rootEnd = nestedSeparator < 0
-            ? typeName.Length
-            : nestedSeparator;
-        int namespaceEnd = typeName[..rootEnd].LastIndexOf('.');
-        string ns = namespaceEnd < 0
-            ? ""
-            : typeName[..namespaceEnd].ToString();
-        string segments = typeName[(namespaceEnd + 1)..].ToString();
-        return MetadataTypeDefinitionName.Create(
-            ns,
-            [.. segments.Split('+')])
-            is MetadataTypeDefinitionNameResult.Valid valid
-                ? valid.Name
-                : null;
-    }
-
     static bool HasGenericConstraints(
         MetadataReader reader,
         MethodDefinition method)
@@ -1365,14 +544,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
         return false;
     }
-
-    // True when the method is marked [System.Runtime.CompilerServices.CompilerGenerated]
-    // — record synthesized members (EqualityContract/PrintMembers/Equals/GetHashCode/
-    // ToString), lambdas, iterators, and async state machines. These have ordinary names
-    // (e.g. get_EqualityContract) that the angle-bracket name heuristics miss, yet none
-    // are user-actionable source-shape rewrite targets, so exclude them from collection.
-    bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
-        => HasAttributeNamed(attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
 
     (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
     {

@@ -208,6 +208,36 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchAsync_OperationCanceledServiceIndex_TriesNextSource()
+    {
+        const string secondIndex = "https://second.example/v3/index.json";
+        const string secondSearch = "https://second.example/v3/query";
+        var handler = new RouteHandler
+        {
+            [secondIndex] = ServiceIndex(secondSearch),
+            [secondSearch] = """{"data":[{"id":"Contoso.Package","version":"1.0.0"}]}""",
+        };
+        handler.Throw(IndexUrl, new OperationCanceledException());
+        using var client = new HttpClient(handler);
+
+        NuGetSearchOutcome outcome = await NuGetSearchService.SearchAsync(
+            client,
+            "Contoso",
+            sourceOptions: new NuGetSourceOptions
+            {
+                Sources = [IndexUrl, secondIndex],
+            });
+
+        Assert.Equal("Contoso.Package", Assert.Single(outcome.Results).PackageId);
+        Assert.Single(outcome.Failures);
+        Assert.Collection(
+            handler.Requested,
+            request => Assert.Equal(IndexUrl, request),
+            request => Assert.Equal(secondIndex, request),
+            request => Assert.StartsWith(secondSearch + "?", request, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task SearchAsync_EquivalentEndpointFailover_IsBounded()
     {
         string[] searchUrls =

@@ -4,11 +4,11 @@ namespace ILInspector.Analysis;
 
 internal static class GeneratedFrameworkTypeAnalysis
 {
-    internal static IReadOnlySet<string> Collect(
+    internal static IReadOnlySet<TypeRef> Collect(
         ImmutableArray<DirectCall> directCalls,
         ImmutableArray<MethodIdentity> methods)
     {
-        var generated = new HashSet<string>(StringComparer.Ordinal);
+        var generated = new HashSet<TypeRef>();
 
         foreach (var call in directCalls)
         {
@@ -32,14 +32,10 @@ internal static class GeneratedFrameworkTypeAnalysis
                         "MessageParser")
                     && callee.Name == ".ctor");
             if (protobufBootstrap)
-            {
-                generated.Add(
-                    call.Caller.DeclaringType.ToQualifiedDisplayString());
-            }
+                generated.Add(NamedDefinition(call.Caller.DeclaringType));
         }
 
-        var typesCallingGrpcCore =
-            new HashSet<string>(StringComparer.Ordinal);
+        var typesCallingGrpcCore = new HashSet<TypeRef>();
         foreach (var call in directCalls)
         {
             if (call.Callee.Kind == MemberKind.Unsupported)
@@ -48,7 +44,7 @@ internal static class GeneratedFrameworkTypeAnalysis
                     NamedDefinition(call.Callee.DeclaringType).Namespace))
             {
                 typesCallingGrpcCore.Add(
-                    call.Caller.DeclaringType.ToQualifiedDisplayString());
+                    NamedDefinition(call.Caller.DeclaringType));
             }
         }
 
@@ -61,14 +57,91 @@ internal static class GeneratedFrameworkTypeAnalysis
                     StringComparison.Ordinal)
                 || method.Name.StartsWith("__Method_", StringComparison.Ordinal))
             {
-                var typeName =
-                    method.DeclaringType.ToQualifiedDisplayString();
-                if (typesCallingGrpcCore.Contains(typeName))
-                    generated.Add(typeName);
+                var declaring = NamedDefinition(method.DeclaringType);
+                if (typesCallingGrpcCore.Contains(declaring))
+                    generated.Add(declaring);
             }
         }
 
         return generated;
+    }
+
+    /// <summary>
+    /// True when <paramref name="type"/> is a classified generated-framework
+    /// type, or a metadata nested type of one. Prefers decoder
+    /// <c>Resolution.Type.Segments</c> so a literal <c>+</c> in one metadata
+    /// name segment is not treated as nesting. Falls back to walking flattened
+    /// <c>+</c> names only for synthesized refs with no resolution.
+    /// </summary>
+    internal static bool Contains(IReadOnlySet<TypeRef> generated, TypeRef type)
+    {
+        ArgumentNullException.ThrowIfNull(generated);
+        ArgumentNullException.ThrowIfNull(type);
+
+        var current = NamedDefinition(type);
+        if (generated.Contains(current))
+            return true;
+
+        if (current.Kind != TypeRefKind.Definition)
+            return false;
+
+        if (current.Resolution?.Type is { } resolved)
+        {
+            var segments = resolved.Segments;
+            for (int keep = segments.Length - 1; keep >= 1; keep--)
+            {
+                if (generated.Contains(
+                        TypeRef.Definition(
+                            current.Assembly,
+                            current.Namespace,
+                            NestedMetadataName(segments, keep))))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        string name = current.Name;
+        while (true)
+        {
+            int plus = name.LastIndexOf('+');
+            if (plus <= 0)
+                return false;
+
+            name = name[..plus];
+            if (generated.Contains(
+                    TypeRef.Definition(current.Assembly, current.Namespace, name)))
+            {
+                return true;
+            }
+        }
+    }
+
+    static string NestedMetadataName(ImmutableArray<string> segments, int keep)
+    {
+        if (keep == 1)
+            return segments[0];
+
+        int length = keep - 1;
+        for (int i = 0; i < keep; i++)
+            length += segments[i].Length;
+
+        return string.Create(
+            length,
+            (segments, keep),
+            static (span, state) =>
+            {
+                int written = 0;
+                for (int i = 0; i < state.keep; i++)
+                {
+                    if (i > 0)
+                        span[written++] = '+';
+                    state.segments[i].AsSpan().CopyTo(span[written..]);
+                    written += state.segments[i].Length;
+                }
+            });
     }
 
     static TypeRef NamedDefinition(TypeRef type)
