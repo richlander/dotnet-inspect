@@ -1647,7 +1647,7 @@ public class LibraryBodyIndexTests
                                 .AsyncStateMachineAttribute)
                         .Constructor;
                 }
-                return LibraryBodyAnalysisBuilder
+                return LibraryBodyAsyncSourceResolver
                     .IsTrustedAsyncStateMachineAttribute(
                         reader,
                         constructor,
