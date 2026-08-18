@@ -27,6 +27,7 @@
   <ItemGroup>
     <Content Include="corpus/paydirt-reference.json" CopyToOutputDirectory="PreserveNewest" Link="corpus/paydirt-reference.json" />
     <Content Include="corpus/structural-clone-relationships.json" CopyToOutputDirectory="PreserveNewest" Link="corpus/structural-clone-relationships.json" />
+    <Content Include="corpus/structural-clone-corelib.json" CopyToOutputDirectory="PreserveNewest" Link="corpus/structural-clone-corelib.json" />
     <Content Include="corpus/historical-performance-reference.json" CopyToOutputDirectory="PreserveNewest" Link="corpus/historical-performance-reference.json" />
   </ItemGroup>
 

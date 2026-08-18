@@ -309,7 +309,7 @@ public class LibraryFindingConsumerTests
             RootReach: 6);
         var result = new TopLeverageResult.Available(
             [leverage],
-            ImmutableHashSet<string>.Empty,
+            ImmutableHashSet<TypeRef>.Empty,
             [new AnalysisDiagnostic(0x06000001, MethodName, "decode\nfailed")]);
         var inspection = new LibraryInspection();
 

@@ -1647,7 +1647,7 @@ public class LibraryBodyIndexTests
                                 .AsyncStateMachineAttribute)
                         .Constructor;
                 }
-                return LibraryBodyAnalysisBuilder
+                return LibraryBodyAsyncSourceResolver
                     .IsTrustedAsyncStateMachineAttribute(
                         reader,
                         constructor,
@@ -5632,7 +5632,7 @@ public class LibraryBodyIndexTests
             _ = index.OptimizationOpportunities;
             _ = index.AllocationFanoutOpportunities;
             _ = index.GetUnsafeEvidenceByMember();
-            _ = index.GeneratedFrameworkTypeNames;
+            _ = index.GeneratedFrameworkTypes;
             return index;
         }
 
@@ -6757,28 +6757,28 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void GeneratedFrameworkTypeNames_DetectsGrpcStub_AndRejectsUnauthenticProtobufSpoof()
+    public void GeneratedFrameworkTypes_DetectsGrpcStub_AndRejectsUnauthenticProtobufSpoof()
     {
         var index = LibraryBodyIndex.Open(typeof(FakeProtobufReflection).Assembly.Location);
-        var generated = index.GeneratedFrameworkTypeNames;
+        var generated = index.GeneratedFrameworkTypes;
 
         // #1735: the bootstrap types are bound from an unsigned assembly literally named
         // Google.Protobuf (no real public-key-token), so these must NOT be classified as
         // protobuf-generated — otherwise a same-name spoof could suppress actionable product
         // rows. (Authentic Google.Protobuf identity is exercised by the unit test below.)
-        Assert.DoesNotContain(typeof(FakeProtobufReflection).FullName!, generated);
-        Assert.DoesNotContain(typeof(FakeProtobufMessage).FullName!, generated);
+        Assert.DoesNotContain(generated, type => SameClrType(type, typeof(FakeProtobufReflection)));
+        Assert.DoesNotContain(generated, type => SameClrType(type, typeof(FakeProtobufMessage)));
         // gRPC detection is identity-independent (namespace + generated __* members tied to a
         // Grpc.Core call), so the gRPC service stub is still correctly detected.
-        Assert.Contains(typeof(FakeGrpcServiceStub).FullName!, generated);
+        Assert.Contains(generated, type => SameClrType(type, typeof(FakeGrpcServiceStub)));
         // A normal protobuf-using type that doesn't bootstrap generated infrastructure stays out.
-        Assert.DoesNotContain(typeof(NormalProtobufConsumer).FullName!, generated);
+        Assert.DoesNotContain(generated, type => SameClrType(type, typeof(NormalProtobufConsumer)));
         // Hand-written gRPC registration calling ServerServiceDefinition.CreateBuilder (without
         // generated __* members) must not be flagged — gRPC calls alone are not a signal.
-        Assert.DoesNotContain(typeof(HandWrittenGrpcRegistration).FullName!, generated);
+        Assert.DoesNotContain(generated, type => SameClrType(type, typeof(HandWrittenGrpcRegistration)));
         // A user type with a generated-looking __Helper_* member but no Grpc.Core call must not
         // be flagged — a generated member name alone is not enough (#1574).
-        Assert.DoesNotContain(typeof(GeneratedLookalike).FullName!, generated);
+        Assert.DoesNotContain(generated, type => SameClrType(type, typeof(GeneratedLookalike)));
         // Because it is not classified as generated, its optimization opportunity stays visible
         // (Performance Triage suppresses opportunities only for generated-framework types).
         Assert.Contains(index.OptimizationOpportunities, opportunity =>
@@ -6816,24 +6816,453 @@ public class LibraryBodyIndexTests
             .FirstOrDefault();
     }
 
+    static bool SameClrType(TypeRef type, Type clr)
+        => type.Namespace == (clr.Namespace ?? "")
+            && type.Name == MetadataName(clr);
+
+    static string MetadataName(Type type)
+        => type.DeclaringType is null
+            ? type.Name
+            : MetadataName(type.DeclaringType) + "+" + type.Name;
+
+    static byte[] EmitDisplayNameCollisionAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("DisplayCollision.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("DisplayCollision"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: System.Reflection.AssemblyHashAlgorithm.Sha1);
+
+        var voidSignature = new BlobBuilder();
+        new BlobEncoder(voidSignature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(0, returnType => returnType.Void(), _ => { });
+        BlobHandle voidSignatureHandle = metadata.GetOrAddBlob(voidSignature);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var retIl = new BlobBuilder();
+        retIl.WriteByte((byte)ILOpCode.Ret);
+        int retBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(retIl),
+            maxStack: 0);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Grpc.Core"),
+            metadata.GetOrAddString("ServerServiceDefinition"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        MethodDefinitionHandle createBuilder = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("CreateBuilder"),
+            voidSignatureHandle,
+            retBody,
+            parameterList: default);
+
+        var bindIl = new BlobBuilder();
+        bindIl.WriteByte((byte)ILOpCode.Call);
+        bindIl.WriteInt32(MetadataTokens.GetToken(createBuilder));
+        bindIl.WriteByte((byte)ILOpCode.Ret);
+        int bindBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(bindIl),
+            maxStack: 0);
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("CollisionNs.A"),
+            metadata.GetOrAddString("GeneratedLeaf"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("__Helper_SerializeMessage"),
+            voidSignatureHandle,
+            retBody,
+            parameterList: default);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("BindService"),
+            voidSignatureHandle,
+            bindBody,
+            parameterList: default);
+
+        TypeDefinitionHandle collisionOuter = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("CollisionNs"),
+            metadata.GetOrAddString("A"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(4));
+        TypeDefinitionHandle collisionNested = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("GeneratedLeaf"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(4));
+        metadata.AddNestedType(collisionNested, collisionOuter);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("NotGenerated"),
+            voidSignatureHandle,
+            retBody,
+            parameterList: default);
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("ReverseNs.A"),
+            metadata.GetOrAddString("NestedLeaf"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(5));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("NotGenerated"),
+            voidSignatureHandle,
+            retBody,
+            parameterList: default);
+
+        TypeDefinitionHandle reverseOuter = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("ReverseNs"),
+            metadata.GetOrAddString("A"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(6));
+        TypeDefinitionHandle reverseNested = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("NestedLeaf"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(6));
+        metadata.AddNestedType(reverseNested, reverseOuter);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("__Helper_SerializeMessage"),
+            voidSignatureHandle,
+            retBody,
+            parameterList: default);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("BindService"),
+            voidSignatureHandle,
+            bindBody,
+            parameterList: default);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] EmitLiteralPlusVsNestedAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString("LiteralPlus.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("LiteralPlus"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: System.Reflection.AssemblyHashAlgorithm.Sha1);
+
+        var voidSignature = new BlobBuilder();
+        new BlobEncoder(voidSignature)
+            .MethodSignature(isInstanceMethod: false)
+            .Parameters(0, returnType => returnType.Void(), _ => { });
+        BlobHandle voidSignatureHandle = metadata.GetOrAddBlob(voidSignature);
+
+        var bodies = new BlobBuilder();
+        var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+        var retIl = new BlobBuilder();
+        retIl.WriteByte((byte)ILOpCode.Ret);
+        int retBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(retIl),
+            maxStack: 0);
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Grpc.Core"),
+            metadata.GetOrAddString("ServerServiceDefinition"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        MethodDefinitionHandle createBuilder = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("CreateBuilder"),
+            voidSignatureHandle,
+            retBody,
+            parameterList: default);
+
+        var bindIl = new BlobBuilder();
+        bindIl.WriteByte((byte)ILOpCode.Call);
+        bindIl.WriteInt32(MetadataTokens.GetToken(createBuilder));
+        bindIl.WriteByte((byte)ILOpCode.Ret);
+        int bindBody = bodyEncoder.AddMethodBody(
+            new InstructionEncoder(bindIl),
+            maxStack: 0);
+
+        TypeDefinitionHandle stub = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("GenStub"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(2));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("__Helper_SerializeMessage"),
+            voidSignatureHandle,
+            retBody,
+            parameterList: default);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("BindService"),
+            voidSignatureHandle,
+            bindBody,
+            parameterList: default);
+
+        TypeDefinitionHandle nested = metadata.AddTypeDefinition(
+            TypeAttributes.NestedPublic | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            default,
+            metadata.GetOrAddString("Inner"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(4));
+        metadata.AddNestedType(nested, stub);
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("InnerMethod"),
+            voidSignatureHandle,
+            retBody,
+            parameterList: default);
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("Ns"),
+            metadata.GetOrAddString("GenStub+LiteralPlus"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(5));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Static,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("UnrelatedUserMethod"),
+            voidSignatureHandle,
+            retBody,
+            parameterList: default);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            bodies,
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
     [Fact]
-    public void GeneratedFrameworkTypeNames_IgnoresUserDefinedProtobufLookalikes()
+    public void GeneratedFrameworkTypes_IgnoresUserDefinedProtobufLookalikes()
     {
         // The lookalike fixture assembly is NOT named Google.Protobuf; it declares its own
         // Google.Protobuf.* bootstrap-shaped types and calls them from product code. The
         // protobuf generated-bootstrap predicates require real Google.Protobuf assembly
         // identity, so the calling product type must not be classified as generated (#1580).
         var index = LibraryBodyIndex.Open(FixtureCatalog.AnalysisLookalike.AssemblyPath());
-        var generated = index.GeneratedFrameworkTypeNames;
+        var generated = index.GeneratedFrameworkTypes;
 
-        const string lookalikeType = "ILInspector.Analysis.LookalikeFixtures.ProtobufBootstrapLookalike";
-        Assert.DoesNotContain(lookalikeType, generated);
+        Assert.DoesNotContain(
+            generated,
+            type => type.Name == "ProtobufBootstrapLookalike");
 
         // Because it is not classified as generated, its optimization opportunity stays
         // visible — Performance Triage suppresses opportunities only for generated types.
         Assert.Contains(index.OptimizationOpportunities, opportunity =>
             opportunity.Method.DeclaringType.Name == "ProtobufBootstrapLookalike"
             && opportunity.Method.Name == "ShouldStillBeActionable");
+    }
+
+    [Fact]
+    public void GeneratedFrameworkTypes_DistinguishesNamespaceFromNestedDisplayCollision()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-framework-identity-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "DisplayCollision.dll");
+        try
+        {
+            File.WriteAllBytes(path, EmitDisplayNameCollisionAssembly());
+            var index = LibraryBodyIndex.Open(path);
+            var generated = index.GeneratedFrameworkTypes;
+
+            TypeRef namespaceLeaf = index.Methods
+                .First(method => method.DeclaringType.Namespace == "CollisionNs.A"
+                    && method.DeclaringType.Name == "GeneratedLeaf")
+                .DeclaringType;
+            TypeRef nestedLeaf = index.Methods
+                .First(method => method.DeclaringType.Namespace == "CollisionNs"
+                    && method.DeclaringType.Name == "A+GeneratedLeaf")
+                .DeclaringType;
+
+            Assert.Equal(
+                namespaceLeaf.ToQualifiedDisplayString(),
+                nestedLeaf.ToQualifiedDisplayString());
+            Assert.Contains(generated, type => type.Equals(namespaceLeaf));
+            Assert.DoesNotContain(generated, type => type.Equals(nestedLeaf));
+            Assert.True(index.IsGeneratedFrameworkType(namespaceLeaf));
+            Assert.False(index.IsGeneratedFrameworkType(nestedLeaf));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GeneratedFrameworkTypes_DistinguishesNestedGeneratedFromNamespaceLookalike()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-framework-identity-rev-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "DisplayCollision.dll");
+        try
+        {
+            File.WriteAllBytes(path, EmitDisplayNameCollisionAssembly());
+            var index = LibraryBodyIndex.Open(path);
+            var generated = index.GeneratedFrameworkTypes;
+
+            TypeRef nestedGenerated = index.Methods
+                .First(method => method.DeclaringType.Namespace == "ReverseNs"
+                    && method.DeclaringType.Name == "A+NestedLeaf")
+                .DeclaringType;
+            TypeRef namespaceLookalike = index.Methods
+                .First(method => method.DeclaringType.Namespace == "ReverseNs.A"
+                    && method.DeclaringType.Name == "NestedLeaf")
+                .DeclaringType;
+
+            Assert.Equal(
+                nestedGenerated.ToQualifiedDisplayString(),
+                namespaceLookalike.ToQualifiedDisplayString());
+            Assert.Contains(generated, type => type.Equals(nestedGenerated));
+            Assert.DoesNotContain(generated, type => type.Equals(namespaceLookalike));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GeneratedFrameworkTypes_NestedCompilerGeneratedWalksMetadataParentsNotDisplay()
+    {
+        var generated = TypeRef.Definition("Asm", "CollisionNs.A", "GeneratedLeaf");
+        var generatedNested = TypeRef.Definition(
+            "Asm",
+            "CollisionNs.A",
+            "GeneratedLeaf+<>c");
+        var lookalikeNested = TypeRef.Definition(
+            "Asm",
+            "CollisionNs",
+            "A+GeneratedLeaf+<>c");
+
+        Assert.Equal(
+            generatedNested.ToQualifiedDisplayString(),
+            lookalikeNested.ToQualifiedDisplayString());
+
+        var set = new HashSet<TypeRef> { generated };
+        Assert.True(LibraryBodyIndex.IsGeneratedFrameworkType(set, generatedNested));
+        Assert.False(LibraryBodyIndex.IsGeneratedFrameworkType(set, lookalikeNested));
+    }
+
+    [Fact]
+    public void GeneratedFrameworkTypes_DoesNotTreatLiteralPlusNameAsNested()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-literal-plus-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "LiteralPlus.dll");
+        try
+        {
+            File.WriteAllBytes(path, EmitLiteralPlusVsNestedAssembly());
+            var index = LibraryBodyIndex.Open(path);
+
+            TypeRef stub = index.Methods
+                .First(method => method.DeclaringType.Namespace == "Ns"
+                    && method.DeclaringType.Name == "GenStub")
+                .DeclaringType;
+            TypeRef nested = index.Methods
+                .First(method => method.Name == "InnerMethod")
+                .DeclaringType;
+            TypeRef literalPlus = index.Methods
+                .First(method => method.Name == "UnrelatedUserMethod")
+                .DeclaringType;
+
+            Assert.Equal(["GenStub"], stub.Resolution!.Type.Segments);
+            Assert.Equal(["GenStub", "Inner"], nested.Resolution!.Type.Segments);
+            Assert.Equal(["GenStub+LiteralPlus"], literalPlus.Resolution!.Type.Segments);
+
+            Assert.Contains(index.GeneratedFrameworkTypes, type => type.Equals(stub));
+            Assert.True(index.IsGeneratedFrameworkType(nested));
+            Assert.False(index.IsGeneratedFrameworkType(literalPlus));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]
