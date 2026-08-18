@@ -58,7 +58,7 @@ namespace DotnetInspector.Tests;
 /// had to be corrected for. It is the exact complement of the set that contains
 /// <i>in the row</i>. Membership is a fact about which idiom a column uses; some
 /// entries are producer-contained and correct as they stand, and the remainder
-/// are the residual tracked by issue #3463 -- which this measures at 261 members
+/// are the residual tracked by issue #3463 -- which this measures at 260 members
 /// across 56 types after the library-inspection boundary moved to typed inert text.</para>
 ///
 /// <para>Asserting it as a set is what makes the weaker property still bite. A
