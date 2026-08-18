@@ -125,6 +125,7 @@ public sealed class BodyShapeSearchMetadataTests
             InstanceInt32Signature(metadata),
             bodyOffset,
             MetadataTokens.ParameterHandle(1));
+        metadata.AddInterfaceImplementation(implementationType, probe);
         metadata.AddMethodImplementation(implementationType, body, declaration);
         return Serialize(metadata, methodBodies);
     }
