@@ -69,6 +69,9 @@ public class InspectionResult
     /// </summary>
     public bool? IsVerified { get; set; }
 
+    /// <summary>Whether this exact package version is listed by its NuGet registry.</summary>
+    public bool? Listed { get; set; }
+
     /// <summary>
     /// Package owners (from NuGet.org).
     /// </summary>
@@ -208,6 +211,12 @@ public class InspectionResult
     /// </summary>
     [JsonIgnore]
     public List<PackageFile>? PackageFiles { get; set; }
+
+    /// <summary>
+    /// Bounded findings from explicitly auditing text-bearing package content.
+    /// </summary>
+    [JsonIgnore]
+    public PackageContentAuditResult? PackageContentAudit { get; set; }
 
     /// <summary>
     /// Result of NuGet package signature verification.

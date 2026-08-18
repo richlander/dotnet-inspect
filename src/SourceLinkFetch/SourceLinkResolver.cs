@@ -39,6 +39,13 @@ public readonly record struct SourceLinkResolution(
     int SubstitutionOffset,
     int SubstitutionLength);
 
+/// <summary>A SourceLink document mapping exactly as decoded from the map.</summary>
+/// <param name="Document">The document key before path normalization.</param>
+/// <param name="Url">
+/// The decoded URL pattern, or null when the authored JSON value was not a string.
+/// </param>
+public sealed record SourceLinkDocumentMapping(string Document, string? Url);
+
 /// <summary>
 /// Parses a SourceLink map and maps PDB document paths to source URLs.
 /// </summary>
@@ -129,6 +136,13 @@ public partial class SourceLinkResolver
     public IReadOnlyList<string> RejectedKeys { get; }
 
     /// <summary>
+    /// Document mappings exactly as decoded from JSON, in document order. Unlike the matching
+    /// entries, this inventory retains rejected mappings so audit consumers can inspect the
+    /// authored evidence without reparsing the SourceLink grammar.
+    /// </summary>
+    public IReadOnlyList<SourceLinkDocumentMapping> DocumentMappings { get; private init; }
+
+    /// <summary>
     /// Why the map as a whole could not be read, or null when it was read. A map that fails here
     /// resolves nothing at all: a map with more than one valid reading (for example a duplicated
     /// <c>documents</c> key) must not bind one of them.
@@ -150,6 +164,7 @@ public partial class SourceLinkResolver
         _entries = entries;
         DocumentKeys = documentKeys;
         RejectedKeys = rejectedKeys;
+        DocumentMappings = [];
         ParseError = parseError;
     }
 
@@ -165,6 +180,8 @@ public partial class SourceLinkResolver
         _entries = Build(mappings, out var rejected);
         DocumentKeys = [.. mappings.Keys];
         RejectedKeys = rejected;
+        DocumentMappings = [.. mappings.Select(static mapping =>
+            new SourceLinkDocumentMapping(mapping.Key, mapping.Value))];
         ParseError = null;
     }
 
@@ -194,7 +211,11 @@ public partial class SourceLinkResolver
 
         var entries = Build(mappings, out var rejected);
         return new SourceLinkResolver(
-            entries, [.. mappings.Keys], rejected, parseError: null);
+            entries, [.. mappings.Keys], rejected, parseError: null)
+        {
+            DocumentMappings = [.. mappings.Select(static mapping =>
+                new SourceLinkDocumentMapping(mapping.Key, mapping.Value))],
+        };
     }
 
     /// <summary>

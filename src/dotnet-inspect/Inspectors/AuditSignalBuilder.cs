@@ -200,8 +200,11 @@ internal static class AuditSignalBuilder
             PackageSignalRows.LegalLicense,
             PackageSignalRows.ProvenanceSymbols,
             PackageSignalRows.ProvenanceSourceLink,
+            PackageSignalRows.ProvenanceSignature,
+            PackageSignalRows.TextPackageContent,
             PackageSignalRows.DependenciesDirectDependencies,
             PackageSignalRows.NuGetPackageAge,
+            PackageSignalRows.NuGetListing,
             PackageSignalRows.NuGetKnownVulnerabilities,
             PackageSignalRows.DependenciesWithVulnerabilities,
             PackageSignalRows.DependenciesDeprecatedDependencies,
@@ -406,11 +409,20 @@ internal static class AuditSignalBuilder
         public static SignalRow<PackageSignalContext> ProvenanceSourceLink =>
             new("Provenance", "SourceLink", ResolveProvenanceSourceLink);
 
+        public static SignalRow<PackageSignalContext> ProvenanceSignature =>
+            new("Provenance", "Signature", ResolveProvenanceSignature);
+
+        public static SignalRow<PackageSignalContext> TextPackageContent =>
+            new("Audit", "Findings", ResolveTextPackageContent);
+
         public static SignalRow<PackageSignalContext> DependenciesDirectDependencies =>
             new("Dependencies", "Direct dependencies", ResolveDependenciesDirectDependencies);
 
         public static SignalRow<PackageSignalContext> NuGetPackageAge =>
             new("NuGet", "Package age", ResolveNuGetPackageAge);
+
+        public static SignalRow<PackageSignalContext> NuGetListing =>
+            new("NuGet", "Listing", ResolveNuGetListing);
 
         public static SignalRow<PackageSignalContext> NuGetKnownVulnerabilities =>
             new("NuGet", "Known vulnerabilities", ResolveNuGetKnownVulnerabilities);
@@ -470,12 +482,55 @@ internal static class AuditSignalBuilder
                 ? new SignalValue(FormatCoverage(binarySignals.SourceLinkAvailable, binarySignals.TotalBinaries), FormatSourceLinkEvidence(binarySignals))
                 : null;
 
+        private static SignalValue? ResolveProvenanceSignature(in PackageSignalContext context) =>
+            context.Result.SignatureResult switch
+            {
+                null => null,
+                { AuthorVerified: true } => new("Author verified", "author signature"),
+                { RepositoryVerified: true } => new(
+                    "Repository verified",
+                    "repository signature; no verified author signature"),
+                { IsUnsigned: true } => new("Unsigned", "no package signature"),
+                _ => new(
+                    "Unverified",
+                    "signature verification did not establish trust"),
+            };
+
+        private static SignalValue? ResolveTextPackageContent(in PackageSignalContext context)
+        {
+            if (context.Result.PackageContentAudit is not { } audit)
+                return null;
+
+            string findingCount = $"{audit.Findings.Count} "
+                + (audit.Findings.Count == 1 ? "finding" : "findings");
+            string scannedFileCount = $"{audit.ScannedFiles} text-bearing "
+                + (audit.ScannedFiles == 1 ? "file" : "files");
+            string scannedInputs = audit.ScannedSourceLinkMaps > 0
+                ? $"{scannedFileCount} and {audit.ScannedSourceLinkMaps} SourceLink "
+                    + (audit.ScannedSourceLinkMaps == 1 ? "map" : "maps")
+                : scannedFileCount;
+            string evidence = audit.Complete
+                ? $"{findingCount} across {scannedInputs}"
+                : $"{findingCount}; scanned {audit.ScannedFiles}/{audit.EligibleFiles} text-bearing files"
+                    + (audit.ScannedSourceLinkMaps > 0
+                        ? $" and {audit.ScannedSourceLinkMaps} SourceLink maps"
+                        : "");
+            return new(
+                !audit.Complete ? "Partial" : audit.Findings.Count > 0 ? "Detected" : "None",
+                evidence);
+        }
+
         private static SignalValue? ResolveDependenciesDirectDependencies(in PackageSignalContext context) =>
             new(context.DirectDependencies.Dependencies.Count.ToString(), context.DirectDependencies.Evidence);
 
         private static SignalValue? ResolveNuGetPackageAge(in PackageSignalContext context) =>
             context.Result.Published is { Year: > 1901 } published
                 ? new SignalValue(FormatAge(DateTimeOffset.UtcNow - published), "NuGet registration")
+                : null;
+
+        private static SignalValue? ResolveNuGetListing(in PackageSignalContext context) =>
+            context.Result.Listed is bool listed
+                ? new(listed ? "Listed" : "Unlisted", "NuGet registration")
                 : null;
 
         private static SignalValue? ResolveNuGetKnownVulnerabilities(in PackageSignalContext context) =>

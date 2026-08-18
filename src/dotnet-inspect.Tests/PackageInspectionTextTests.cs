@@ -429,6 +429,25 @@ public class PackageInspectionTextTests
         Assert.Null(signing.Publisher);
     }
 
+    [Fact]
+    public void SigningSection_RepositorySignatureExplicitlyReportsNoVerifiedAuthor()
+    {
+        var result = new InspectionResult
+        {
+            SignatureResult = new SignatureVerificationResult
+            {
+                RepositoryVerified = true,
+                Repository = "nuget.org",
+            },
+        };
+
+        var signing = new InspectionResultView(result).SigningSectionData;
+
+        Assert.NotNull(signing);
+        Assert.Equal("No", signing.AuthorVerified);
+        Assert.Equal("Yes", signing.RepositoryVerified);
+    }
+
     private static Type? CurrencyType(Type modelType, IReadOnlyDictionary<Type, Type> mappings)
     {
         if (modelType == typeof(string))

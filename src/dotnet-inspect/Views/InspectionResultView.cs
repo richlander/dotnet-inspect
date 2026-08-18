@@ -3,6 +3,7 @@ using InertText;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Services;
 using Markout;
 
 namespace DotnetInspector.Views;
@@ -131,6 +132,53 @@ public class InspectionResultView
         .ToList();
 
     [MarkoutIgnore]
+    public bool HasAuditFindings =>
+        _data.PackageContentAudit?.Findings.Count > 0;
+
+    [MarkoutSection(
+        Name = PackageSections.AuditFindings,
+        ShowWhenProperty = nameof(HasAuditFindings))]
+    public List<PackageAuditFindingRow> AuditFindings =>
+        _data.PackageContentAudit?.Findings
+            .Select(value => new PackageAuditFindingRow(
+                new InertString(TextPolicy.Field, value.Path),
+                PackageContentFindingKindText(value),
+                value.EncodedText.EnsurePermitted(TextPolicy.Field)))
+            .ToList()
+        ?? [];
+
+    private static InertString PackageContentFindingKindText(
+        PackageContentAuditFinding finding)
+        => new(
+            TextPolicy.Field,
+            finding.Kind switch
+            {
+                PackageContentFindingKind.NonGraphicText =>
+                    TextConcernDisplay.Describe(finding.Concerns),
+                PackageContentFindingKind.NonGraphicSourceLinkText =>
+                    $"SourceLink {TextConcernDisplay.Describe(finding.Concerns)}",
+                PackageContentFindingKind.SourceLinkParentPathSegment =>
+                    "SourceLink parent path segment",
+                PackageContentFindingKind.InvalidSourceLinkMap =>
+                    "invalid SourceLink map",
+                PackageContentFindingKind.RejectedSourceLinkMapping =>
+                    "rejected SourceLink mapping",
+                PackageContentFindingKind.RestoreSourcesCleared =>
+                    "restore sources cleared",
+                PackageContentFindingKind.PackageSourceDeclared =>
+                    "package source declared",
+                PackageContentFindingKind.InvalidTextEncoding =>
+                    "invalid text encoding",
+                PackageContentFindingKind.InvalidNuGetConfiguration =>
+                    "invalid NuGet configuration",
+                PackageContentFindingKind.ScanLimit =>
+                    "scan limit",
+                PackageContentFindingKind.ReadFailure =>
+                    "read failure",
+                _ => "unknown",
+            });
+
+    [MarkoutIgnore]
     public bool HasIdentifierConfusion =>
         IdentifierConfusionAudit.InspectPackage(_data).Count > 0;
 
@@ -143,7 +191,7 @@ public class InspectionResultView
     [MarkoutSection(Name = PackageSections.Signature)]
     public SigningSection? SigningSectionData => Text.SignatureResult is { } signature
         ? new SigningSection(
-            signature.AuthorVerified ? "Yes" : signature.IsUnsigned ? "No" : null,
+            signature.AuthorVerified ? "Yes" : "No",
             signature.Publisher is { IsEmpty: false } publisher
                 ? InertString.Format(
                     TextPolicy.Field,
@@ -859,6 +907,19 @@ public sealed record PackageTextConcernRow(
 }
 
 [MarkoutSerializable]
+public sealed record PackageAuditFindingRow(
+    [property: MarkoutIgnore] InertString PathText,
+    [property: MarkoutIgnore] InertString KindText,
+    [property: MarkoutIgnore] InertString EncodedTextValue)
+{
+    public string Path => PathText.ToString();
+    public string Kind => KindText.ToString();
+
+    [MarkoutPropertyName("Encoded Text")]
+    public string EncodedText => EncodedTextValue.ToString();
+}
+
+[MarkoutSerializable]
 public record PackageSourceLinkFileRow(
     [property: MarkoutIgnore] InertString LibraryText,
     [property: MarkoutIgnore] InertString FileText,
@@ -969,6 +1030,7 @@ public sealed record PackageSourceIntegritySection(
 [MarkoutContext(typeof(AuditSignalRow))]
 [MarkoutContext(typeof(PackageAuditSignalRow))]
 [MarkoutContext(typeof(PackageTextConcernRow))]
+[MarkoutContext(typeof(PackageAuditFindingRow))]
 [MarkoutContext(typeof(IdentifierConfusionRow))]
 [MarkoutContext(typeof(InspectionFailureRow))]
 [MarkoutContext(typeof(SwitchRow))]

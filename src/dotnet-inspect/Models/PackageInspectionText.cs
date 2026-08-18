@@ -573,6 +573,7 @@ internal sealed class PackageFileContentText
         Size = value.Size;
         Found = value.Found;
         Content = value.Content;
+        EncodedContent = new InertString(TextPolicy.Prose, value.Content);
     }
 
     public static PackageFileContentText Create(PackageFileContent value) => new(value);
@@ -580,6 +581,7 @@ internal sealed class PackageFileContentText
     internal InertString PackageText { get; }
     internal InertString VersionText { get; }
     internal InertString PathText { get; }
+    internal InertString EncodedContent { get; }
 
     public string Package => PackageText.ToString();
     public string Version => VersionText.ToString();

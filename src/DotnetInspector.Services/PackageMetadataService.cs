@@ -710,6 +710,8 @@ public static class PackageMetadataService
         using var doc = HardenedJson.Parse(json);
         JsonElement root = doc.RootElement;
 
+        ApplyListingState(root, metadata, log);
+
         if (root.TryGetProperty("published", out JsonElement publishedElement)
             && DateTimeOffset.TryParse(
                 publishedElement.GetString(),
@@ -831,6 +833,8 @@ public static class PackageMetadataService
         PackageMetadata metadata,
         Action<string>? log)
     {
+        ApplyListingState(root, metadata, log);
+
         if (root.TryGetProperty("published", out JsonElement publishedElement)
             && DateTimeOffset.TryParse(
                 publishedElement.GetString(),
@@ -845,6 +849,21 @@ public static class PackageMetadataService
             metadata.Deprecation = ParseDeprecation(deprecationElement);
             log?.Invoke($"Deprecation: {metadata.Deprecation.Summary}");
         }
+    }
+
+    private static void ApplyListingState(
+        JsonElement root,
+        PackageMetadata metadata,
+        Action<string>? log)
+    {
+        if (!root.TryGetProperty("listed", out JsonElement listedElement)
+            || listedElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return;
+        }
+
+        metadata.Listed = listedElement.GetBoolean();
+        log?.Invoke($"Listed: {metadata.Listed.Value}");
     }
 
     private static SearchPageResult ApplySearchMetadata(

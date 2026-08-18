@@ -1297,8 +1297,8 @@ structure and must not interpret inspected text as authority.
 > caller, while refusing is a policy only a caller can choose — but it means the
 > trust axis currently exists only where a command line can express it.
 
-The package inspection path now has the enabling boundary and a bounded audit
-summary, but not the refusal policy:
+The package inspection path now has the enabling boundary and bounded audit
+detail, but not the refusal policy:
 `PackageInspectionText` carries every package-model text field to Markdown,
 direct JSON, and focused package table/JSONL metadata as `InertString`;
 content-output rows do the same for their package, version, and path framing.
@@ -1306,14 +1306,22 @@ content-output rows do the same for their package, version, and path framing.
 aggregate before a sink unwraps it, and package `Signals` reports whether that
 aggregate is empty plus its `TextConcern` category kinds. The explicit
 `Audit: Artifact Text` section lists package-model field locations and concern
-kinds, but never the field values. It is not the scalar-by-scalar refusal survey
-mode described below: it reports one row per contained presentation field and
-does not change rendering policy. Explicit document payloads remain raw by
-contract. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
+kinds, but never the field values. `Audit: Findings` explicitly scans
+text-bearing files and SourceLink mappings, reporting bounded, visually encoded
+evidence plus NuGet restore-source semantics. It also reports every literal
+`../` in a decoded SourceLink document key or URL as a review-oriented parent
+path finding. This does not classify the mapping as malicious; the existing
+provenance boundary above remains responsible for canonicalizing resolved URLs
+before attribution. Neither audit section is the scalar-by-scalar refusal
+survey mode described below, and neither changes acceptance policy. Document payloads are
+encoded on stdout; exact bytes require `--out`.
+`PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
 and `Package_MultiplePackages_SignalsIncludePackageFileConcerns` gate the
 summary across single-package and survey modes;
 `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gates the
-detail reporting boundary. This is intentionally not a global CLI signal.
+model-detail boundary; `PackageContentAuditTests` and
+`PackageAudit_RendersContentAndSourceLinkFindings` gate the file and
+PDB scan and its detail shape. This is intentionally not a global CLI signal.
 Other commands and projections still have their own presentation models, so
 adopting the flags at the root today would claim coverage they do not have.
 

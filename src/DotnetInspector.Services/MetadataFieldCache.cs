@@ -17,8 +17,8 @@ internal static class MetadataFieldCache
 
     private const string Category = "metadata";
     private static readonly TimeSpan Ttl = TimeSpan.FromHours(1);
-    private static ReadOnlySpan<byte> PresentPrefix => "metadata-v6:present\n"u8;
-    private static ReadOnlySpan<byte> AbsentEntry => "metadata-v6:absent\n"u8;
+    private static ReadOnlySpan<byte> PresentPrefix => "metadata-v7:present\n"u8;
+    private static ReadOnlySpan<byte> AbsentEntry => "metadata-v7:absent\n"u8;
 
     /// <summary>
     /// Tries to load cached metadata. Returns null on cache miss or expiry.
@@ -58,6 +58,10 @@ internal static class MetadataFieldCache
                 DeprecationMetadataAvailable =
                     doc.GetBool("deprecationMetadataAvailable"),
                 IsVerified = doc.GetBool("isVerified") ? true : null,
+                Listed = doc.GetString("listed") is string listed
+                    && bool.TryParse(listed, out bool parsedListed)
+                        ? parsedListed
+                        : null,
                 VersionCount = doc.GetInt32("versionCount") is > 0 and var vc ? vc : null,
             };
 
@@ -154,7 +158,7 @@ internal static class MetadataFieldCache
 
             // Keep even an otherwise empty metadata result parseable. A feed may advertise a
             // package without any optional aggregate metadata fields.
-            WriteField(buf, "formatVersion"u8, "6");
+            WriteField(buf, "formatVersion"u8, "7");
 
             // Scalars
             if (metadata.Published.HasValue)
@@ -169,6 +173,8 @@ internal static class MetadataFieldCache
                 WriteField(buf, "packageSize"u8, metadata.PackageSize.Value.ToString());
             if (metadata.IsVerified == true)
                 WriteField(buf, "isVerified"u8, "true");
+            if (metadata.Listed.HasValue)
+                WriteField(buf, "listed"u8, metadata.Listed.Value ? "true" : "false");
             if (metadata.DeprecationMetadataAvailable)
             {
                 WriteField(

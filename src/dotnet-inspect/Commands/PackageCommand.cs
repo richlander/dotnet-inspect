@@ -696,6 +696,8 @@ public class PackageCommand
             result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
 
             PopulatePackageFileSections(result, extractPath, options);
+            if (ShouldPopulatePackageContentAudit(options, pipeline))
+                PopulatePackageContentAudit(result, extractPath);
             HashSet<InspectionQueryDefinition> sourceQueries =
                 pipeline.GetRequiredQueries(
                     options.Verbosity,
@@ -965,6 +967,7 @@ public class PackageCommand
                 && pipeline.BareSelectSectionNames.Any(IsPackageFileSection))
             || options.IncludeSections?.Contains(PackageSections.Signals) == true
             || options.IncludeSections?.Contains(PackageSections.AuditArtifactText) == true
+            || options.IncludeSections?.Contains(PackageSections.AuditFindings) == true
             || options.FixedOverview
             || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
         if (!options.Count && !options.JsonOutput && rowSection == null)
@@ -2015,6 +2018,13 @@ public class PackageCommand
             if (wantsFilesSection)
                 PopulatePackageFileSections(result, extractPath, options);
 
+            if (ShouldPopulatePackageContentAudit(options, pipeline))
+            {
+                if (result.PackageFiles is null)
+                    PopulatePackageFileSections(result, extractPath, options);
+                PopulatePackageContentAudit(result, extractPath);
+            }
+
             HashSet<InspectionQueryDefinition> sourceQueries =
                 pipeline.GetRequiredQueries(
                     options.Verbosity,
@@ -2380,6 +2390,24 @@ public class PackageCommand
         }
     }
 
+    private static bool ShouldPopulatePackageContentAudit(
+        InspectionOptions options,
+        SectionPipeline<InspectionResult> pipeline)
+        => options.IncludeSections?.Contains(PackageSections.AuditFindings) == true
+            || DiscoverRequestsSection(
+                options.Discover,
+                PackageSections.AuditFindings,
+                pipeline);
+
+    private static void PopulatePackageContentAudit(
+        InspectionResult result,
+        string extractPath)
+    {
+        result.PackageContentAudit = PackageContentAudit.Scan(
+            extractPath,
+            result.PackageFiles?.Select(file => file.Path) ?? []);
+    }
+
     private static PackageFileContentSet ReadPackageFileContents(
         string extractPath,
         string packageName,
@@ -2608,7 +2636,7 @@ public class PackageCommand
                 continue;
             }
 
-            builder.Append(row.Content);
+            builder.Append(row.EncodedContent);
             if (row.Content.Length == 0 || row.Content[^1] != '\n')
                 builder.AppendLine();
         }
@@ -3056,7 +3084,7 @@ public class PackageCommand
         if (!string.IsNullOrEmpty(outputPath))
             File.WriteAllText(outputPath, output);
         else
-            Console.Write(output);
+            Console.Write(new InertString(TextPolicy.Prose, output));
         return 0;
     }
 

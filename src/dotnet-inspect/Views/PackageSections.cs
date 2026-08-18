@@ -10,6 +10,7 @@ public static class PackageSections
     public const string PackageInfo = "Package Info";
     public const string Signals = "Signals";
     public const string AuditArtifactText = "Audit: Artifact Text";
+    public const string AuditFindings = "Audit: Findings";
     public const string AuditIdentifierConfusion = "Audit: Identifier Confusion";
     public const string Statistics = "Statistics";
     public const string TargetFrameworks = "Target Frameworks";

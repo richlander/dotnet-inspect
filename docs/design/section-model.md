@@ -397,7 +397,7 @@ The package command's current authored ownership is:
 | `@Package` | `Package Info`, `Signals`, `Statistics`, `Target Frameworks`, `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime Dependencies`, `Package files` |
 | `@Files` | `Package nuspec file`, `Package README file`, `Package skill files` |
 | `@Dependencies` | `Dependencies`, `Runtime Dependencies` |
-| `@Audit` | `Signals`, `Audit: Artifact Text`, `Audit: Identifier Confusion`, `Signature`, `Vulnerabilities`, `SourceLink: Availability`, `SourceLink: Missing Files`, `SourceLink: Integrity` |
+| `@Audit` | `Signals`, `Audit: Artifact Text`, `Audit: Findings`, `Audit: Identifier Confusion`, `Signature`, `Vulnerabilities`, `SourceLink: Availability`, `SourceLink: Missing Files`, `SourceLink: Integrity` |
 | `@SourceLink` | All `SourceLink:*` sections |
 
 `@Package` and `@Files` are base categories. The remaining categories are

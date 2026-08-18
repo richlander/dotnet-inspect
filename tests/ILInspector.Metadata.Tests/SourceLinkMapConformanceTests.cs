@@ -32,6 +32,18 @@ public class SourceLinkMapConformanceTests
     /// </summary>
     private const string ConformanceSha = "0123456789012345678901234567890123456789";
 
+    [Fact]
+    public void AuthoredMappingInventory_RetainsDecodedTextForAuditConsumers()
+    {
+        SLF.SourceLinkResolver resolver = SLF.SourceLinkResolver.Parse(
+            """{"documents":{"*":"https://hostile.example/\u202Ewrong\u202C/\u000B/*"}}""");
+
+        SLF.SourceLinkDocumentMapping mapping = Assert.Single(resolver.DocumentMappings);
+        Assert.Equal("*", mapping.Document);
+        Assert.Equal("https://hostile.example/\u202Ewrong\u202C/\u000B/*", mapping.Url);
+        Assert.DoesNotContain("\\u202E", mapping.Url, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// The nine inputs measured across the two replaced implementations, each paired with the
     /// URL the specification requires. <see cref="EveryRow_IsOneTheReplacedImplementationsGot"/>

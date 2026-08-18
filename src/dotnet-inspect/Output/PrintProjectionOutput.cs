@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using InertText;
 
 namespace DotnetInspector.Output;
 
@@ -124,8 +125,16 @@ public static class PrintProjectionOutput
             return 0;
         }
 
-        WriteOutput(selected.Content, options.OutputPath);
+        WriteContentOutput(selected.Content, options.OutputPath);
         return 0;
+    }
+
+    private static void WriteContentOutput(string output, string? outputPath)
+    {
+        if (!string.IsNullOrWhiteSpace(outputPath))
+            File.WriteAllText(outputPath, output);
+        else
+            Console.Write(new InertString(TextPolicy.Prose, output));
     }
 
     private static void WriteOutput(string output, string? outputPath)

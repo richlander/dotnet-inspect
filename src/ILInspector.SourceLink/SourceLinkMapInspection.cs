@@ -12,6 +12,9 @@ public enum SourceLinkMapStatus
     Unusable,
 }
 
+/// <summary>A SourceLink document mapping exactly as decoded from the portable PDB.</summary>
+public sealed record SourceLinkMapEntry(string Document, string? Url);
+
 /// <summary>
 /// Parse and entry-validation facts for one SourceLink document map.
 /// </summary>

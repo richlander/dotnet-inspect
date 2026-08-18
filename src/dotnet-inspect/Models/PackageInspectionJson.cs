@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using DotnetInspector.Services;
 using InertText;
 
 namespace DotnetInspector.Models;
@@ -37,6 +38,7 @@ internal sealed class PackageInspectionJson
     public int? VersionCount => _data.VersionCount;
     public long? PackageSize => _data.PackageSize;
     public bool? IsVerified => _data.IsVerified;
+    public bool? Listed => _data.Listed;
     public List<string>? Owners => Render(_text.Owners);
     public PackageDeprecationJson? Deprecation => _text.Deprecation is { } value
         ? new(value)
@@ -92,6 +94,10 @@ internal sealed class PackageInspectionJson
     public List<PackageAuditSignalJson>? AuditSignals => _text.AuditSignals?
         .Select(value => new PackageAuditSignalJson(value))
         .ToList();
+    public List<PackageAuditFindingJson>? AuditFindings =>
+        _data.PackageContentAudit?.Findings
+            .Select(value => new PackageAuditFindingJson(value))
+            .ToList();
 
     [JsonIgnore]
     public bool RequiredContainment => _text.RequiredContainment;
@@ -220,4 +226,30 @@ internal sealed class PackageAuditSignalJson(PackageAuditSignalText text)
     public string Signal => text.Signal.ToString();
     public string Value => text.Value.ToString();
     public string Evidence => text.Evidence.ToString();
+}
+
+internal sealed class PackageAuditFindingJson(PackageContentAuditFinding finding)
+{
+    public string Path => new InertString(TextPolicy.Field, finding.Path).ToString();
+    public string Kind => finding.Kind switch
+    {
+        PackageContentFindingKind.NonGraphicText =>
+            TextConcernDisplay.Describe(finding.Concerns),
+        PackageContentFindingKind.NonGraphicSourceLinkText =>
+            $"SourceLink {TextConcernDisplay.Describe(finding.Concerns)}",
+        PackageContentFindingKind.SourceLinkParentPathSegment =>
+            "SourceLink parent path segment",
+        PackageContentFindingKind.InvalidSourceLinkMap => "invalid SourceLink map",
+        PackageContentFindingKind.RejectedSourceLinkMapping => "rejected SourceLink mapping",
+        PackageContentFindingKind.RestoreSourcesCleared => "restore sources cleared",
+        PackageContentFindingKind.PackageSourceDeclared => "package source declared",
+        PackageContentFindingKind.InvalidTextEncoding => "invalid text encoding",
+        PackageContentFindingKind.InvalidNuGetConfiguration => "invalid NuGet configuration",
+        PackageContentFindingKind.ScanLimit => "scan limit",
+        PackageContentFindingKind.ReadFailure => "read failure",
+        _ => "unknown",
+    };
+    public string EncodedText => finding.EncodedText
+        .EnsurePermitted(TextPolicy.Field)
+        .ToString();
 }

@@ -51,6 +51,7 @@ another command merely to continue a package inspection.
 | Section | Purpose |
 | --- | --- |
 | `Signals` | package and dependency evidence, plus binary/source provenance summaries |
+| `Audit: Findings` | network-free findings from decoded SourceLink map text and text-bearing package files |
 | `SourceLink: Files` | SourceLink URL rows aggregated from package libraries, with library provenance |
 | `SourceLink: Availability` | aggregate reachability and embedded-source coverage across selected package libraries |
 | `SourceLink: Missing Files` | unreachable source paths plus unavailable/failed library rows, with package-library provenance |
@@ -70,6 +71,14 @@ the file listing. `type` still spells its equivalent `Source Files`.
 
 Effective discovery never executes the unbounded availability or integrity
 queries merely to list these package sections.
+
+`Audit: Findings` opens only package-local and embedded PDBs. It consumes the
+SourceLink owner's decoded mapping inventory, so JSON escape sequences are
+audited as their semantic Unicode values without creating a second map parser.
+It also emits a review-oriented finding for every literal `../` in a decoded
+document key or URL. That finding is intentionally suspiciousness, not a
+maliciousness verdict. The audit does not acquire PDBs or contact SourceLink
+URLs.
 
 ### Type and member
 

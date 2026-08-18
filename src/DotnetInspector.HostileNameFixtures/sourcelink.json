@@ -1,1 +1,1 @@
-{ "documents": { "*": "https://hostile.example/\u202EINJECTEDSOURCELINK/\u000BX/*" } }
+{ "documents": { "*": "https://example.test/organization/repository-a/../repository-b/0123456789012345678901234567890123456789/\u202EINJECTEDSOURCELINK/\u000BX/*" } }

@@ -244,6 +244,18 @@ coverage. `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`,
 `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gate the
 summary, single/multi-package parity, provenance, and listing.
 
+Select `Audit: Findings` (or `@Audit`) to scan text-bearing files and decoded
+SourceLink mappings inside the package. It reports one row per finding with
+`Path`, `Kind`, and `Encoded Text`, including control/bidi text, cleared restore
+sources, declared package sources, concerning SourceLink map text, and literal
+`../` references in SourceLink document keys or URLs. A parent-path row is a
+prompt to review the mapping, not a maliciousness verdict. The scan is explicit
+because its work scales with package content; text reads are bounded. Package
+document payloads are visually encoded on stdout; `--out
+<path>` remains the exact-payload export. `PackageContentAuditTests` and
+`PackageAudit_RendersContentAndSourceLinkFindings` gates the scan and
+its Markdown/JSONL shape with compiler-produced PDB evidence.
+
 Library and package Signals also report `Identifier confusion` for assembly
 names and package IDs. Every non-ASCII identifier character is reported as an
 identity concern. Names whose leading characters exactly match `System`,
@@ -267,6 +279,7 @@ transitive reference closure.
 | `library X -S "SourceLink: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
 | `package X -S Signals` | Full package signals | Package and dependency signals, including identifier confusion, artifact-text containment kinds, known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 | `package X -S "Signals,Audit: Artifact Text"` | Artifact-text audit | Adds a content-free listing of the package-model field locations and Unicode concern kinds that required containment. |
+| `package X -S "Signals,Audit: Findings"` | Package audit | Scans text-bearing package files and decoded SourceLink maps, listing each finding as path, kind, and safely encoded evidence. |
 | `package X -S "Signals,Audit: Identifier Confusion"` | Identifier audit | Adds content-free package-ID and dependency-ID locations, classifications, similarity, and code points. |
 | `package X -S "SourceLink: Availability,SourceLink: Missing Files"` | Package SourceLink reachability | Audits the selected package libraries and retains library provenance on missing-file rows. |
 | `package X -S "SourceLink: Integrity"` | Package content verification (slow, opt-in) | Aggregates checksum results across selected package libraries; any mismatch exits non-zero. |
@@ -706,6 +719,7 @@ dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,Sou
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"
+dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package System.Text.Json -S @Package
 dotnet-inspect package System.Text.Json -S @Dependencies
 dotnet-inspect package System.Text.Json -S @Audit

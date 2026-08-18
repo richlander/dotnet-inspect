@@ -8,6 +8,7 @@ dotnet-inspect library System.Text.Json -S "Signals,Audit: Identifier Confusion"
 dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect library System.Text.Json -S "SourceLink: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
+dotnet-inspect package System.Text.Json -S "Signals,Audit: Findings"
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Identifier Confusion"
 dotnet-inspect package System.Text.Json -S "SourceLink: Availability,SourceLink: Missing Files"
 dotnet-inspect package System.Text.Json -S "SourceLink: Integrity"
@@ -73,6 +74,49 @@ presentation model still unwraps containment to bare strings at individual row
 properties rather than carrying `InertString` through the complete model.
 Reporting a library-wide result before that migration would overstate its
 coverage.
+
+## Package findings audit
+
+`Audit: Findings` explicitly scans text-bearing package files and SourceLink
+document maps decoded by the SourceLink owner. Candidate text files include
+known text extensions and names plus files under `content/`, `contentFiles/`,
+`build/`, `buildTransitive/`, and `skills/`; known binary extensions are
+excluded from the text pass. That pass is limited to 4 MiB per file and 32 MiB
+per package, uses strict UTF-8/UTF-16/UTF-32 decoding, and reports read,
+encoding, configuration, and limit failures instead of treating an incomplete
+scan as clean. The local PDB pass reuses the product SourceLink parser and does
+not acquire symbols or source over the network.
+
+The detail table has exactly `Path`, `Kind`, and `Encoded Text`. A source line
+produces one rendering finding containing all Unicode concern kinds on that
+line. NuGet configuration also produces semantic rows for `<clear/>` and each
+declared package source, even when the same line already has a text finding.
+Each SourceLink mapping with concerning decoded text adds one row attributed to
+its package PDB (or assembly for an embedded PDB). A decoded document key or URL
+containing the literal `../` adds a separate `SourceLink parent path segment`
+row. That row means “certainly take a look,” not “certainly malicious”:
+legitimate mappings can contain parent references, while HTTP clients can
+canonicalize them to a different repository path. Evidence is bounded around
+the first rendering hazard and is always visually encoded before it reaches a
+terminal.
+
+When the scan runs, Signals adds `Audit | Findings` with `Detected`, `None`, or
+`Partial`. Registry-backed package Signals also distinguish an
+unlisted exact version and author-, repository-, unsigned-, and unverified
+signature states. These remain observations rather than a trust verdict.
+
+```bash
+dotnet-inspect package X -S "Signals,Audit: Findings"
+dotnet-inspect package X -S @Audit
+```
+
+`PackageContentAuditTests` gates bidi, OSC 52, NuGet configuration, strict
+decoding, BOM, binary-file, bounded-evidence, resource-limit, and literal
+parent-path cases, including close negatives.
+`PackageAudit_RendersContentAndSourceLinkFindings` gates the
+three-column Markdown and JSONL contract with a compiler-produced hostile
+SourceLink PDB. `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
+gates encoded stdout and exact `--out` export.
 
 ## Identifier confusion
 

@@ -128,6 +128,23 @@ public sealed class SourceLinkService : IDisposable
             return _sourceLinkJson;
         }
     }
+    /// <summary>
+    /// SourceLink document mappings exactly as decoded from the map, including entries the
+    /// SourceLink grammar rejected. Consumers can audit authored text without reparsing it.
+    /// </summary>
+    public IReadOnlyList<SourceLinkMapEntry> SourceLinkMapEntries
+    {
+        get
+        {
+            EnsureCurrentPdbState();
+            return _map?.DocumentMappings
+                .Select(static mapping => new SourceLinkMapEntry(
+                    mapping.Document,
+                    mapping.Url))
+                .ToArray()
+                ?? [];
+        }
+    }
     public SourceLinkMapInspection SourceLinkMap
     {
         get

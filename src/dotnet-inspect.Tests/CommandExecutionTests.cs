@@ -17038,6 +17038,24 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DiscoverSchema_ListsPackageContentAuditColumns()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "-D",
+            PackageSections.AuditFindings,
+            "--schema",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Path | column |", output);
+        Assert.Contains("| Kind | column |", output);
+        Assert.Contains("| Encoded Text | column |", output);
+    }
+
+    [Fact]
     public async Task Package_DiscoverSchema_ListsIdentifierConfusionAuditColumns()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -20742,13 +20760,13 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_NuspecPrint_KeepsAByteOrderMarkThePackageShipped()
+    public async Task Package_NuspecPrint_EncodesBomOnStdoutAndPreservesItInExplicitExport()
     {
         // ReadAllText consumes a byte order mark, so a document that ships with one would be
         // printed three bytes shorter than it exists in the package -- silently, and invisibly
         // in any text comparison, because a StreamReader strips it from the expectation too.
         // Real packages ship BOM'd manifests (EntityFramework does), and a caller printing a
-        // manifest to hash or diff it is asking for the bytes, not for an equivalent document.
+        // manifest to hash or diff it can ask for exact bytes through --out.
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
         Directory.CreateDirectory(packageRoot);
@@ -20778,8 +20796,24 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal(shipped, Encoding.UTF8.GetBytes(output));
-            Assert.StartsWith("\uFEFF", output, StringComparison.Ordinal);
+            Assert.StartsWith(@"\uFEFF", output, StringComparison.Ordinal);
+            Assert.DoesNotContain('\uFEFF', output);
+
+            string outputPath = Path.Combine(tempDir, "exported.nuspec");
+            var export = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package nuspec file",
+                "--print",
+                "--bare",
+                "--out",
+                outputPath);
+
+            Assert.Equal(0, export.Exit);
+            Assert.Empty(export.Output);
+            Assert.Empty(export.Error);
+            Assert.Equal(shipped, File.ReadAllBytes(outputPath));
         }
         finally
         {
@@ -23836,6 +23870,149 @@ public partial class CommandExecutionTests
             Assert.Contains("Deprecated dependencies", output);
             Assert.DoesNotContain("| Signals | Scope |", output);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAudit_RendersContentAndSourceLinkFindings()
+    {
+        const string HostileSource = "https://api.\u202Etegun\u202C.org/v3/index.json";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageContentAudit",
+            "README.md",
+            $"Use {HostileSource}",
+            extraFiles:
+            [
+                ("content/INSTRUCTIONS.md", "\u001B]52;c;WW91IHRvb2sgYSB3cm9uZyB0dXJuLgo=\u0007"),
+                ("content/nuget.config", $$"""
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <configuration>
+                      <packageSources>
+                        <clear />
+                        <add key="nuget.org" value="{{HostileSource}}" />
+                      </packageSources>
+                    </configuration>
+                    """),
+            ]);
+        try
+        {
+            string hostileAssembly = FixtureCatalog.HostileLiterals.AssemblyPath();
+            using (ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Update))
+            {
+                archive.CreateEntryFromFile(
+                    hostileAssembly,
+                    "lib/net11.0/AuditCanary.dll");
+                archive.CreateEntryFromFile(
+                    Path.ChangeExtension(hostileAssembly, ".pdb"),
+                    "lib/net11.0/AuditCanary.pdb");
+            }
+
+            var markdown = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                $"Signals,{PackageSections.AuditFindings}",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, markdown.Exit);
+            Assert.Empty(markdown.Error);
+            Assert.Contains("| Audit | Findings | Detected | 7 findings", markdown.Output);
+            Assert.Contains("4 text-bearing files and 1 SourceLink map", markdown.Output);
+            Assert.Contains("## Audit: Findings", markdown.Output);
+            Assert.Contains("| Path | Kind | Encoded Text |", markdown.Output);
+            Assert.Contains("| README.md | format/bidi (Cf) | Use https://api.\\u202Etegun\\u202C.org/v3/index.json |", markdown.Output);
+            Assert.Contains("| content/INSTRUCTIONS.md | control (Cc) | \\^[]52;", markdown.Output);
+            Assert.Contains("| content/nuget.config | restore sources cleared |", markdown.Output);
+            Assert.Contains("| content/nuget.config | package source declared |", markdown.Output);
+            Assert.Contains(
+                "| lib/net11.0/AuditCanary.pdb | SourceLink control (Cc), format/bidi (Cf) |",
+                markdown.Output);
+            Assert.Contains(
+                "| lib/net11.0/AuditCanary.pdb | SourceLink parent path segment |",
+                markdown.Output);
+            Assert.Contains(
+                "https://example.test/organization/repository-a/../repository-b/",
+                markdown.Output);
+            Assert.Contains("\\^KX/*", markdown.Output);
+            Assert.DoesNotContain('\u202E', markdown.Output);
+            Assert.DoesNotContain('\u202C', markdown.Output);
+            Assert.DoesNotContain('\u001B', markdown.Output);
+            Assert.DoesNotContain('\u0007', markdown.Output);
+
+            var jsonl = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                PackageSections.AuditFindings,
+                "--jsonl",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, jsonl.Exit);
+            Assert.Empty(jsonl.Error);
+            string[] lines = jsonl.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(7, lines.Length);
+            using JsonDocument document = JsonDocument.Parse(lines[1]);
+            Assert.Equal("content/INSTRUCTIONS.md", document.RootElement.GetProperty("path").GetString());
+            Assert.Equal("control (Cc)", document.RootElement.GetProperty("kind").GetString());
+            Assert.Contains("\\^[", document.RootElement.GetProperty("encoded_text").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport()
+    {
+        const string Hostile = "prefix\u202E\u001B]52;c;QQ==\u0007suffix\n";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageContentOutput",
+            "README.md",
+            "readme",
+            extraFiles: [("content/INSTRUCTIONS.md", Hostile)]);
+        string outputPath = Path.Combine(tempDir, "exported.txt");
+        try
+        {
+            var stdout = await RunAppAsync(
+                "package",
+                packagePath,
+                "--path",
+                "content/INSTRUCTIONS.md",
+                "--content",
+                "--bare",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, stdout.Exit);
+            Assert.Empty(stdout.Error);
+            Assert.Contains("prefix\\u202E\\^[]52;c;QQ==\\^Gsuffix", stdout.Output);
+            Assert.DoesNotContain('\u202E', stdout.Output);
+            Assert.DoesNotContain('\u001B', stdout.Output);
+            Assert.DoesNotContain('\u0007', stdout.Output);
+
+            var export = await RunAppAsync(
+                "package",
+                packagePath,
+                "--path",
+                "content/INSTRUCTIONS.md",
+                "--content",
+                "--bare",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, export.Exit);
+            Assert.Empty(export.Output);
+            Assert.Empty(export.Error);
+            Assert.Equal(Hostile, File.ReadAllText(outputPath));
         }
         finally
         {
