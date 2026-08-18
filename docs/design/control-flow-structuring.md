@@ -1050,3 +1050,69 @@ add to the step-4 plan:
    `= default` (`Matrix4x4::Decompose` was 1→7 in the probe).
 4. **Sequencing** (unchanged from the spike): wire the rec-#2 real-world
    corpus baseline as the regression sensor before the rewrite lands.
+
+5. **Regression sensor implementation in #4094.** Snapshot schema v6 records
+   every imported branch, switch, and EH-transfer slot by stable method
+   identity, control-flow kind, IL offset, and same-offset ordinal. Its outcome
+   is output-visible: matching uses source provenance, transfer kind, and
+   targets, with the owning IL block as the fallback for provenance-less
+   synthesized transfers and the recovered source name when that block belongs
+   to a raised local function. The name remains stable when sibling raise
+   coverage changes. Unmatched residuals receive stable output-site identities.
+   Reusing or rebuilding an equivalent retained goto is neutral; reparenting is
+   neutral when source provenance remains available. A
+   provenance-less transfer is intentionally keyed to its owning IL block and
+   nested owner, so cross-block and cross-local-function movement remain visible.
+   Adding a printable residual is a loss. On fixed NuGet artifacts, every loss
+   fails independently of unrelated gains, and pinned method, imported-site, or
+   empty-domain drift fails closed. The named gates are
+   `ControlFlowSiteLedger_ObservesCompilerProducedSwitchRaise`,
+   `ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual`,
+   `ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual`,
+   `ControlFlowSiteLedger_DistinguishesNestedFunctionOwners`,
+   `ControlFlowSiteLedger_NestedOwnerIdentitySurvivesSiblingCoverageChange`,
+   `Compare_ControlFlowLossCannotBeOffsetByUnrelatedGain`, and
+   `Compare_NewOutputResidualIsLossAndRemovedOutputResidualIsGain`. Repo-built
+   assemblies remain advisory because their IL population churns. This is the
+   required non-offsettable prerequisite for the retained-label rewrite; it
+   detects output loss that CFG-model agreement cannot, but does not replace
+   focused compiler-produced boundary fixtures, render A/B, or fidelity
+   evidence. The migration also makes pinned `valid` → invalid, fully-raised
+   → residual, and `Full` → non-`Full` fidelity method transitions
+   non-offsettable
+   (`Compare_PinnedValidityLossCannotBeOffsetByGain` and
+   `Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`, plus
+   `Compare_PinnedFullFidelityLossCannotBeOffsetByGainOrValidityCoverageChange`).
+   #4238/#4255 restored the 13 validity and fully-raised regressions exposed by
+   the first attempted migration, and #4281/#4301 restored its hidden six-site
+   region-exit loss before the schema-v6 baselines were activated.
+
+   The final activation partitioned every intervening pinned transition by
+   owning product change rather than netting directions together: #4314
+   contributed 179 losses and 9 gains from its sparse-switch soundness decline,
+   #4154 contributed 8 losses and 100 gains while rejecting EH entries into
+   recovered do-while bodies, and #4301 contributed 10 losses and 6 gains while
+   restoring the target region-exit raise and preserving sibling transfers.
+   Other intervening changes contributed no site movement. The exact generated
+   baselines then compared to themselves with zero losses, zero gains, and no
+   changed methods. These measurements classify reviewed product transitions;
+   they do not weaken the non-offsettable comparison contract above.
+
+   Round-1 review then found that equal block offsets in two raised local
+   functions could collapse to one fallback identity. Adding the nested-owner
+   ordinal reclassified 30 residual identities in two Roslyn methods as 30
+   losses and 30 gains; every pair differed only by the new `@local_0` owner
+   component, so this was measurement migration rather than product movement.
+   The baseline was regenerated only after that partition. The same review also
+   closed a persisted-data false green by requiring branch, conditional, and
+   leave output identities to carry exactly one target; the gates are
+   `ControlFlowSiteLedger_DistinguishesNestedFunctionOwners` and
+   `ControlFlowSites_RejectMultipleTargetsForSingleTargetTransfer`.
+
+   Follow-up review showed that the first owner ordinal was fail-closed but
+   coverage-dependent: adding an earlier raised sibling renumbered an unchanged
+   later owner. Replacing it with the recovered source name reclassified the
+   same 30 Roslyn identities as another 30 losses and 30 gains, again with no
+   product outcome movement. The compiler-backed
+   `ControlFlowSiteLedger_NestedOwnerIdentitySurvivesSiblingCoverageChange`
+   gate keeps the later owner's key fixed when its sibling coverage changes.

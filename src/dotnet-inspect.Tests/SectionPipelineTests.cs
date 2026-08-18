@@ -6579,7 +6579,7 @@ public class SectionPipelineTests
                         MaxDepth: 1,
                         LoopCallCount: 0)
                 ],
-                ImmutableHashSet<string>.Empty,
+                ImmutableHashSet<Analysis.TypeRef>.Empty,
                 []),
             TopLeverage = [new MethodLeverageSummary { Member = "T.M()", Callers = 1 }],
             OptimizationOpportunities =
