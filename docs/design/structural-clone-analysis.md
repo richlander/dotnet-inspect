@@ -319,10 +319,70 @@ The corpus includes authored arithmetic and metadata-operand exact pairs,
 constant and call-target near pairs, control-flow, operation-reordering, and
 two-operation hard negatives, exact parameter-type and return-type semantic
 hazards, and the EH unsupported boundary. Exact discovery still finds four
-families and does not cluster near pairs. Three seeded fixture queries gate one exact
-and two near peers against hard negatives. Broad source-reviewed precision
-labeling remains a later evidence expansion; whole-assembly exact scale runs
-belong to the census.
+families and does not cluster near pairs. Three seeded fixture queries gate one
+exact and two near peers against hard negatives.
+
+## Source-reviewed CoreLib corpus
+
+`tools/AnalysisHarness/corpus/structural-clone-corelib.json` is a separate
+real-artifact evidence plane. It does not extend the fixture corpus's
+closed-world relationship or discovery claims. The ledger pins one CoreLib by
+file name, SHA-256, MVID, and corresponding VMR source commit. MethodDef tokens
+are artifact identity. Type and method names are mechanically checked audit
+fields; signatures and source locations are human-review audit fields. The
+harness does not fetch or parse source, so the source relevance judgment
+remains independent of product structural evidence.
+
+Each seeded query declares a reviewed K and labels every actual top-K candidate
+with one of four source-review categories:
+
+- `Relevant` means the source review considers the candidate part of the
+  intended family.
+- `HardNegative` means the candidate is a deliberately close but unrelated
+  operation.
+- `OrdinaryNegative` is an unrelated control.
+- `SemanticHazard` means structural identity is misleading without method
+  semantics, such as distinct runtime intrinsic operations sharing fallback
+  throw bodies.
+
+Relevant labels beyond K are explicit known misses. Unlabeled methods are
+unknown, never negatives. Therefore "labeled precision" is relevant rows
+divided by reviewed top-K rows, while "labeled recall" is relevant rows
+recovered at K divided by all relevant labels declared for that query. Neither
+metric estimates all possible relationships in CoreLib.
+If a top-K row lacks a label, the query fails, the row remains visible as
+`Unreviewed`, and precision is unavailable rather than treating the unknown row
+as a negative.
+Aggregate evidence separates actual reviewed rows from requested review slots;
+suppressed or absent rows never enter a reviewed-row denominator.
+A nonempty fully labeled prefix retains precision over its actual returned
+rows, while incomplete retrieval still fails the query and makes recall
+unavailable.
+
+`analysis-harness --clone-corelib-corpus` enumerates the full pinned MethodDef
+population, calls product `RetrieveSimilar`, and separately calls product
+`Compare` for every label under the declared comparison limit. It gates
+complete retrieval, full top-K labeling, maximum ranks, strict score
+contrasts, expected comparison disposition/relation, and per-query metric
+floors. The harness owns none of those product calculations.
+
+The pinned six-query corpus covers Guid operators, Convert hex wrappers,
+ASCII/Latin-1 narrowing, stream wrappers, comparer boilerplate, and `Unsafe`
+intrinsic stubs. Its 27 reviewed rows contain 16 relevant candidates, nine
+semantic hazards, and two hard negatives; 16 of 20 declared relevant labels
+are recovered at K. Four relevant methods remain explicit misses. The
+resulting 59.25% labeled precision and 80.00% labeled recall describe only this
+ledger. `StructuralCloneCoreLibCorpusTests.CommittedCorpus_GradesPinnedCoreLib`
+gates the fixed artifact, top-K label coverage, aggregate card, known misses,
+strict contrast, and semantic-hazard separation. The same test class gates
+strict schema, catalog completeness, and artifact/method identity drift.
+Real-artifact tests locate the pinned hash in the installed runtimes or through
+`DOTNET_INSPECT_CORELIB_CORPUS_ARTIFACT` and explicitly skip when it is absent;
+they do not bind the pin to CI's floating preview host. The always-running
+`CommittedCorpus_PinsNonVacuousReviewCoverage` test gates the artifact/source
+pins and declared review-set counts. Re-pinning is one corpus-maintainer
+operation: artifact and source pins, source labels, expected metrics, and
+coverage counts move together.
 
 ## Census and demo projection
 
