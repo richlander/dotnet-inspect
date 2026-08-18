@@ -1073,10 +1073,23 @@ add to the step-4 plan:
    required non-offsettable prerequisite for the retained-label rewrite; it
    detects output loss that CFG-model agreement cannot, but does not replace
    focused compiler-produced boundary fixtures, render A/B, or fidelity
-   evidence. The migration also makes pinned `valid` → invalid and fully-raised
-   → residual method transitions non-offsettable
+   evidence. The migration also makes pinned `valid` → invalid, fully-raised
+   → residual, and `Full` → non-`Full` fidelity method transitions
+   non-offsettable
    (`Compare_PinnedValidityLossCannotBeOffsetByGain` and
-   `Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`). #4238 restored the
-   regressions exposed by the first attempted migration before the schema-v6
-   baselines were activated, rather than accepting those regressions as the new
-   floor.
+   `Compare_PinnedFullyRaisedLossCannotBeOffsetByGain`, plus
+   `Compare_PinnedFullFidelityLossCannotBeOffsetByGainOrValidityCoverageChange`).
+   #4238/#4255 restored the 13 validity and fully-raised regressions exposed by
+   the first attempted migration, and #4281/#4301 restored its hidden six-site
+   region-exit loss before the schema-v6 baselines were activated.
+
+   The final activation partitioned every intervening pinned transition by
+   owning product change rather than netting directions together: #4314
+   contributed 179 losses and 9 gains from its sparse-switch soundness decline,
+   #4154 contributed 8 losses and 100 gains while rejecting EH entries into
+   recovered do-while bodies, and #4301 contributed 10 losses and 6 gains while
+   restoring the target region-exit raise and preserving sibling transfers.
+   Other intervening changes contributed no site movement. The exact generated
+   baselines then compared to themselves with zero losses, zero gains, and no
+   changed methods. These measurements classify reviewed product transitions;
+   they do not weaken the non-offsettable comparison contract above.
