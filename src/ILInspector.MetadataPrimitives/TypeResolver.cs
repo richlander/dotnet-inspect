@@ -978,7 +978,8 @@ public static class TypeResolver
     /// </summary>
     public static string ApplyGenericArguments(
         IReadOnlyList<string> metadataNameSegments,
-        IReadOnlyList<string> typeArguments)
+        IReadOnlyList<string> typeArguments,
+        bool preserveMismatchedArguments = false)
     {
         ArgumentNullException.ThrowIfNull(metadataNameSegments);
         ArgumentNullException.ThrowIfNull(typeArguments);
@@ -1006,7 +1007,9 @@ public static class TypeResolver
         if (declaredArity != typeArguments.Count
             && !completeCompilerGeneratedName)
         {
-            return rawName;
+            return preserveMismatchedArguments
+                ? $"{rawName}<{string.Join(", ", typeArguments)}>"
+                : rawName;
         }
 
         int argIndex = 0;

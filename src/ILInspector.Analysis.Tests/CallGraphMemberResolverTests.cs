@@ -459,6 +459,52 @@ public sealed class CallGraphMemberResolverTests
             CallGraphMemberResolver.CreateSelector(reference).Key);
     }
 
+    [Fact]
+    public void Resolve_UsesTokenWhenApiSignatureCannotProjectExactDelimiter()
+    {
+        TypeRef parameter = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "A+B",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Name("Samples", ["A+B"])));
+        var member = Method("Samples.A+B");
+        member.MetadataToken = 0x06000001;
+        var owner = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [member],
+        };
+        CallGraphMemberSelector referenceSelector =
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method)
+            {
+                HasThis = true,
+            });
+
+        Assert.NotEqual(
+            CallGraphMemberResolver.CreateSelector(owner, member).Key,
+            referenceSelector.Key);
+        Assert.Null(CallGraphMemberResolver.Resolve(
+            owner,
+            referenceSelector.Name,
+            referenceSelector.Key));
+        Assert.Same(
+            member,
+            CallGraphMemberResolver.Resolve(
+                owner,
+                referenceSelector.Name,
+                referenceSelector.Key,
+                metadataToken: 0x06000001)!
+                .Member);
+    }
+
     // End-to-end: the identity the product projects for a call-graph target's declaring type is
     // the identity its resolver matches, and it distinguishes nesting from a literal delimiter.
     // The flattened metadata spelling — which cannot — is published only where it names one type.

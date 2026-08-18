@@ -1518,7 +1518,6 @@ public sealed class CSharpFormatterTests
             IntroducedTypeParameterCounts = [1, 1],
             TypeParameters =
             [
-                new TypeParameter { Name = "T" },
                 new TypeParameter { Name = "U" },
             ],
         };
@@ -1573,6 +1572,9 @@ public sealed class CSharpFormatterTests
             malformedLeaf,
             CSharpFormatter.FormatDeclarationLeafMetadataName(
                 malformed));
+        Assert.Equal(
+            malformedLeaf,
+            CSharpFormatter.FormatTypeName(malformed));
 
         const string delegateLeaf = "<>A{00000000}`2";
         var generatedDelegate = new ApiType

@@ -156,7 +156,10 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             reader,
             static _ => new ReaderNameCache());
         lock (cache.Names)
-            cache.Names.TryAdd(handle, read);
+        {
+            if (cache.TryReserve(read))
+                cache.Names.TryAdd(handle, read);
+        }
     }
 
     sealed record NamedTypeRead(
@@ -175,6 +178,31 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     sealed class ReaderNameCache
     {
         internal Dictionary<EntityHandle, NamedTypeRead> Names { get; } = [];
+
+        long _retainedCharacters;
+
+        internal bool TryReserve(NamedTypeRead read)
+        {
+            if (Names.Count >= SignatureDecoder.MaxAcceptedNameCacheEntries)
+                return false;
+
+            long characters = read.Name?.Length ?? 0;
+            if (read.MetadataName is { } structured)
+            {
+                characters += structured.Namespace.Length;
+                foreach (string segment in structured.Segments)
+                    characters += segment.Length;
+            }
+            if (characters
+                > SignatureDecoder.MaxAcceptedNameCacheCharacters
+                    - _retainedCharacters)
+            {
+                return false;
+            }
+
+            _retainedCharacters += characters;
+            return true;
+        }
     }
 
     public TypeNode GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)

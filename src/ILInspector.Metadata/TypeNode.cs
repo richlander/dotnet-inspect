@@ -342,7 +342,8 @@ internal sealed class GenericTypeNode(
         {
             result = TypeResolver.ApplyGenericArguments(
                 metadataName.Segments,
-                renderedArguments);
+                renderedArguments,
+                preserveMismatchedArguments: canonicalTuples);
             if (metadataName.Namespace.Length > 0)
                 result = $"{metadataName.Namespace}.{result}";
         }

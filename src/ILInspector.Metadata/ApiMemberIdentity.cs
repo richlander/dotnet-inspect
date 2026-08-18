@@ -1267,11 +1267,9 @@ public static class ApiMemberIdentity
             if (i > 0)
                 AppendAnchorName(builder, '+');
 
-            if ((i > 0 || @namespace.Length > 0)
-                && remainingTypeNameCharacters == 0)
+            if (remainingTypeNameCharacters == 0)
                 throw TypeNameBudgetExceeded();
-            if (i > 0 || @namespace.Length > 0)
-                remainingTypeNameCharacters--;
+            remainingTypeNameCharacters--;
 
             var type = reader.GetTypeDefinition(chain[i]);
             if (!MetadataSafetyPolicy.TryReadTypeNameComponent(

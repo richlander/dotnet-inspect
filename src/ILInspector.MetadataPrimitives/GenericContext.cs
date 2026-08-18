@@ -63,6 +63,7 @@ public class GenericContext
         TypeDefinition typeDef,
         Action<int>? beforeMaterialize)
     {
+        ValidateDeclaringTypeParameterCounts(reader, typeDef);
         var typeParameters = ReadParameters(
             reader,
             typeDef.GetGenericParameters(),
@@ -75,6 +76,7 @@ public class GenericContext
     /// </summary>
     public static GenericContext ForMethod(MetadataReader reader, TypeDefinition typeDef, MethodDefinition methodDef)
     {
+        ValidateDeclaringTypeParameterCounts(reader, typeDef);
         var typeParameters = ReadParameters(
             reader,
             typeDef.GetGenericParameters(),
@@ -88,6 +90,56 @@ public class GenericContext
             methodParameters.Names,
             typeParameters.ValueTypeConstraints,
             methodParameters.ValueTypeConstraints);
+    }
+
+    static void ValidateDeclaringTypeParameterCounts(
+        MetadataReader reader,
+        TypeDefinition typeDef)
+    {
+        TypeDefinitionHandle declaringType = typeDef.GetDeclaringType();
+        if (declaringType.IsNil)
+            return;
+
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        if (!MetadataRelationshipTraversal
+                .TryWalkTypeDefinitionDeclaringChain(
+                    reader,
+                    declaringType,
+                    chain,
+                    out int consumed,
+                    out EntityHandle terminal,
+                    out RelationshipTraversalRejection? rejection)
+            || consumed == 0
+            || !terminal.IsNil)
+        {
+            throw new BadImageFormatException(
+                rejection?.Detail
+                    ?? "The type has an invalid declaring-type chain.");
+        }
+
+        int cumulativeCount = 0;
+        for (int i = 0; i < consumed; i++)
+        {
+            GenericParameterHandleCollection parameters =
+                reader.GetTypeDefinition(chain[i]).GetGenericParameters();
+            ValidateParameterIndices(reader, parameters);
+            if (parameters.Count < cumulativeCount)
+            {
+                throw new BadImageFormatException(
+                    "Nested generic parameter counts must be cumulative.");
+            }
+            cumulativeCount = parameters.Count;
+        }
+
+        GenericParameterHandleCollection currentParameters =
+            typeDef.GetGenericParameters();
+        if (currentParameters.Count < cumulativeCount)
+        {
+            throw new BadImageFormatException(
+                "Nested generic parameter counts must be cumulative.");
+        }
     }
 
     /// <summary>

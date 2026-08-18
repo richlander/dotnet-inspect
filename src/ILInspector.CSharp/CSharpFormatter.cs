@@ -568,26 +568,36 @@ public sealed class CSharpFormatter
         foreach (string segment in name.Segments)
             declaredArity += MetadataNameArity.OfSegment(segment);
 
-        bool hasExactParameterOwnership =
+        bool hasParameterOwnership =
             introducedTypeParameterCounts is not null
             && introducedTypeParameterCounts.Count
                 == name.Segments.Length
             && introducedTypeParameterCounts.All(
-                static count => count >= 0)
-            && introducedTypeParameterCounts.Sum(
-                static count => (long)count)
-                == typeParameters.Count;
-        bool arityMatches = hasExactParameterOwnership
-            ? name.Segments
+                static count => count >= 0);
+        bool ownershipMatchesArity =
+            hasParameterOwnership
+            && name.Segments
                 .Select(MetadataNameArity.OfSegment)
-                .SequenceEqual(introducedTypeParameterCounts!)
-            : declaredArity == typeParameters.Count;
+                .SequenceEqual(introducedTypeParameterCounts!);
+        long expectedParameterCount = leafOnly
+            ? introducedTypeParameterCounts is { Count: > 0 }
+                ? introducedTypeParameterCounts[^1]
+                : -1
+            : declaredArity;
+        bool arityMatches =
+            hasParameterOwnership
+                ? ownershipMatchesArity
+                    && expectedParameterCount == typeParameters.Count
+                : !leafOnly
+                    && declaredArity == typeParameters.Count;
         bool unboundOuterDisplay =
             typeParameters.Count == 0
-            && !hasExactParameterOwnership;
+            && !hasParameterOwnership;
         int parameterIndex = 0;
         var parts = new List<string>(name.Segments.Length);
-        for (int segmentIndex = 0;
+        for (int segmentIndex = leafOnly
+                ? name.Segments.Length - 1
+                : 0;
             segmentIndex < name.Segments.Length;
             segmentIndex++)
         {
@@ -602,6 +612,7 @@ public sealed class CSharpFormatter
                 : segment;
             simpleName =
                 segmentIndex == name.Segments.Length - 1
+                && arityMatches
                 && leafNameOverride is not null
                     ? CSharpIdentifier.ContainIdentifierForDeclaration(
                         leafNameOverride)

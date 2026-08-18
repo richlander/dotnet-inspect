@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using System.Text;
 using CSharpText;
 
@@ -158,6 +159,10 @@ public static class ApiSurfaceExtractor
 {
     private const string OptionalAttributeName = "System.Runtime.InteropServices.Optional";
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
+    private static readonly ConditionalWeakTable<
+        MetadataReader,
+        PrimitiveDefinitionClassification>
+        PrimitiveDefinitionClassifications = new();
 
     /// <summary>
     /// Extracts the public type identities and member-kind counts needed by the compact platform
@@ -4005,16 +4010,33 @@ public static class ApiSurfaceExtractor
     }
 
     static bool DefinesPrimitiveTypes(MetadataReader reader)
+        => PrimitiveDefinitionClassifications.GetValue(
+            reader,
+            static value => new(
+                ComputeDefinesPrimitiveTypes(value)))
+            .Value;
+
+    static bool ComputeDefinesPrimitiveTypes(MetadataReader reader)
     {
         if (!reader.IsAssembly)
             return false;
 
         try
         {
+            AssemblyDefinition definition =
+                reader.GetAssemblyDefinition();
+            string name = reader.GetString(definition.Name);
+            if (name is not ("System.Private.CoreLib" or "mscorlib"))
+                return false;
+            if (reader.GetBlobReader(definition.PublicKey).Length
+                > MetadataSafetyPolicy.MaxStructuralSignatureChars / 2)
+            {
+                return false;
+            }
+
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-            return identity.Name is "System.Private.CoreLib" or "mscorlib"
-                && identity.PublicKeyToken is { } token
+            return identity.PublicKeyToken is { } token
                 && PlatformKeys.IsPlatform(token);
         }
         catch (Exception ex) when (
@@ -4023,6 +4045,8 @@ public static class ApiSurfaceExtractor
             return false;
         }
     }
+
+    sealed record PrimitiveDefinitionClassification(bool Value);
 
     internal static MetadataTypeDefinitionName? GetLocalPrimitiveDefinition(
         PrimitiveTypeCode typeCode)
@@ -4218,6 +4242,7 @@ public static class ApiSurfaceExtractor
         AddText(ref count, member.ObsoleteMessage);
         AddText(ref count, member.ExtendedType);
         AddText(ref count, member.DeclaringType);
+        AddText(ref count, member.DeclaringTypeCanonicalName);
         AddText(ref count, member.EnumValueLiteral);
         return count;
     }

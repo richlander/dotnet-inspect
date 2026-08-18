@@ -357,6 +357,13 @@ public class MetadataNameArityTests
             MetadataDeclarationQuery.GetTypeParameters(
                 reader,
                 leaf));
+        Assert.Throws<BadImageFormatException>(() =>
+            GenericContext.ForType(reader, leaf));
+        Assert.Throws<BadImageFormatException>(() =>
+            GenericContext.ForMethod(
+                reader,
+                leaf,
+                reader.GetMethodDefinition(methodHandle)));
     }
 
     [Theory]
@@ -396,6 +403,68 @@ public class MetadataNameArityTests
             GenericContext.ForType(
                 reader,
                 reader.GetTypeDefinition(typeHandle)));
+    }
+
+    [Fact]
+    public void MalformedGenericInstantiations_PreserveArgumentsInCanonicalIdentity()
+    {
+        byte[] image = BuildImageWithMalformedGenericInstantiations();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader).Types,
+            candidate => candidate.Name == "C");
+        ApiMember withInt = Assert.Single(
+            type.Members,
+            member => member.Name == "WithInt");
+        ApiMember withString = Assert.Single(
+            type.Members,
+            member => member.Name == "WithString");
+
+        Assert.Equal(
+            "N.Widget`2",
+            withInt.SignatureModel!.Parameters[0].Type);
+        Assert.Equal(
+            "N.Widget`2",
+            withString.SignatureModel!.Parameters[0].Type);
+        Assert.Equal(
+            "N.Widget`2<int>",
+            withInt.SignatureModel.Parameters[0].CanonicalType);
+        Assert.Equal(
+            "N.Widget`2<string>",
+            withString.SignatureModel.Parameters[0].CanonicalType);
+        Assert.NotEqual(
+            ApiMemberIdentity.GetMemberAnchor(type, withInt),
+            ApiMemberIdentity.GetMemberAnchor(type, withString));
+    }
+
+    [Fact]
+    public void GlobalDirectAnchor_ChargesRootSegmentDelimiter()
+    {
+        var metadata = CreateMetadata("GlobalDirectAnchor");
+        BlobHandle signature = AddVoidMethodSignature(metadata);
+        MethodDefinitionHandle method = AddMethod(metadata, signature);
+        TypeDefinitionHandle type = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString(
+                new string(
+                    'A',
+                    MetadataSafetyPolicy.MaxTypeNameCharacters)),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: method);
+        byte[] image = Serialize(metadata);
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        MetadataReader reader = peReader.GetMetadataReader();
+
+        Assert.IsType<MetadataTypeDefinitionNameReadResult.Rejected>(
+            MetadataTypeDefinitionNameReader.Read(reader, type));
+        Assert.Throws<BadImageFormatException>(() =>
+            ApiMemberIdentity.CreateMethodAnchor(
+                reader,
+                type,
+                reader.GetMethodDefinition(method)));
     }
 
     [Fact]
@@ -749,6 +818,73 @@ public class MetadataNameArityTests
             GenericParameterAttributes.None,
             metadata.GetOrAddString("B"),
             secondIndex);
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildImageWithMalformedGenericInstantiations()
+    {
+        var metadata = CreateMetadata("MalformedGenericInstantiations");
+        AssemblyReferenceHandle scope = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Referenced"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        TypeReferenceHandle widget = metadata.AddTypeReference(
+            scope,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Widget`2"));
+
+        BlobHandle Signature(Action<SignatureTypeEncoder> argument)
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature)
+                .MethodSignature()
+                .Parameters(
+                    1,
+                    returnType => returnType.Void(),
+                    parameters =>
+                    {
+                        GenericTypeArgumentsEncoder arguments = parameters
+                            .AddParameter()
+                            .Type()
+                            .GenericInstantiation(
+                                widget,
+                                genericArgumentCount: 1,
+                                isValueType: false);
+                        argument(arguments.AddArgument());
+                    });
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        MethodDefinitionHandle first = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("WithInt"),
+            Signature(type => type.Int32()),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("WithString"),
+            Signature(type => type.String()),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Interface,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("C"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: first);
         return Serialize(metadata);
     }
 

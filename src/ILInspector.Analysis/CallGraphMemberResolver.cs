@@ -179,17 +179,26 @@ public static class CallGraphMemberResolver
         ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
         ArgumentException.ThrowIfNullOrWhiteSpace(selectorKey);
 
+        CallGraphMemberResolution? tokenCandidate = null;
         if (metadataToken is int token)
         {
             var tokenMatches = type.Members
                 .SelectMany(member => CandidateBodies(type, member))
                 .Where(candidate =>
                     candidate.Resolution.BodyToken == token
-                    && string.Equals(candidate.MemberName, memberName, StringComparison.Ordinal)
-                    && string.Equals(candidate.SelectorKey, selectorKey, StringComparison.Ordinal))
+                    && string.Equals(candidate.MemberName, memberName, StringComparison.Ordinal))
                 .ToArray();
             if (tokenMatches.Length == 1)
-                return tokenMatches[0].Resolution;
+            {
+                tokenCandidate = tokenMatches[0].Resolution;
+                if (string.Equals(
+                    tokenMatches[0].SelectorKey,
+                    selectorKey,
+                    StringComparison.Ordinal))
+                {
+                    return tokenCandidate;
+                }
+            }
         }
 
         var matches = type.Members
@@ -198,7 +207,9 @@ public static class CallGraphMemberResolver
                 string.Equals(candidate.MemberName, memberName, StringComparison.Ordinal)
                 && string.Equals(candidate.SelectorKey, selectorKey, StringComparison.Ordinal))
             .ToArray();
-        return matches.Length == 1 ? matches[0].Resolution : null;
+        return matches.Length == 1
+            ? matches[0].Resolution
+            : tokenCandidate;
     }
 
     static IEnumerable<AccessorCandidate> CandidateBodies(ApiType type, ApiMember member)

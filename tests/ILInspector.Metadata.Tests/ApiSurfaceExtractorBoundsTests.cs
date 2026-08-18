@@ -304,6 +304,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
     public void ExtensionReceiverIdentityContributesItsOwnRetainedText()
     {
         const string receiver = "System.Collections.Generic.IEnumerable<T>";
+        const string declaringType = "Samples.Extensions";
         var withoutReceiver = new ApiMember
         {
             Name = "M",
@@ -318,10 +319,11 @@ public sealed class ApiSurfaceExtractorBoundsTests
             {
                 ExtensionReceiverType = receiver,
             },
+            DeclaringTypeCanonicalName = declaringType,
         };
 
         Assert.Equal(
-            receiver.Length,
+            receiver.Length + declaringType.Length,
             ApiSurfaceExtractor.CountRetainedText(withReceiver)
                 - ApiSurfaceExtractor.CountRetainedText(withoutReceiver));
     }
@@ -1027,6 +1029,27 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Assert.True(
             allocated < 64L * 1024 * 1024,
             $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void ExtensionScan_DoesNotHashNonCoreLibraryPublicKeyPerMethod()
+    {
+        byte[] image = BuildLocalExtensionFloodImage(
+            methodCount: 64,
+            assemblyPublicKeyLength: 1024 * 1024);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurface surface = ApiSurfaceExtractor.ExtractSummary(peReader);
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(
+            128,
+            surface.Types.Sum(type => type.Members.Count));
+        Assert.True(
+            allocated < 24L * 1024 * 1024,
+            $"extension scan allocated {allocated:N0} bytes");
     }
 
     [Fact]
@@ -3329,9 +3352,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildLocalExtensionFloodImage(int methodCount)
+    static byte[] BuildLocalExtensionFloodImage(
+        int methodCount,
+        int assemblyPublicKeyLength = 0)
     {
-        var metadata = Metadata("ExtensionFlood");
+        var metadata = Metadata(
+            "ExtensionFlood",
+            assemblyPublicKeyLength == 0
+                ? null
+                : new byte[assemblyPublicKeyLength]);
         AssemblyReferenceHandle coreLibrary = metadata.AddAssemblyReference(
             metadata.GetOrAddString("System.Private.CoreLib"),
             new Version(11, 0, 0, 0),
@@ -3897,7 +3926,9 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Dynamic,
     }
 
-    static MetadataBuilder Metadata(string assemblyName)
+    static MetadataBuilder Metadata(
+        string assemblyName,
+        byte[]? publicKey = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -3910,8 +3941,12 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddString(assemblyName),
             new Version(1, 0, 0, 0),
             default,
-            default,
-            default,
+            publicKey is null
+                ? default
+                : metadata.GetOrAddBlob(publicKey),
+            publicKey is null
+                ? default
+                : AssemblyFlags.PublicKey,
             default);
         return metadata;
     }

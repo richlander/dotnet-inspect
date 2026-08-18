@@ -320,6 +320,74 @@ public class SignatureDecoderSafetyTests
     }
 
     [Fact]
+    public void SignatureDecoder_DoesNotRetainAcceptedNamesPastCacheBudget()
+    {
+        int count =
+            SignatureDecoder.MaxAcceptedNameCacheCharacters
+                / ((MetadataSafetyPolicy.MaxTypeNameCharacters - 8) * 2)
+            + 2;
+        TypeReferenceHandle[] handles = new TypeReferenceHandle[count];
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            StringHandle sharedName = metadata.GetOrAddString(
+                new string(
+                    'A',
+                    MetadataSafetyPolicy.MaxTypeNameCharacters - 8));
+            for (int i = 0; i < handles.Length; i++)
+            {
+                handles[i] = metadata.AddTypeReference(
+                    default,
+                    default,
+                    sharedName);
+            }
+        });
+
+        var decoder = new SignatureDecoder();
+        (WeakReference<string> first, WeakReference<string> last) =
+            DecodeAcceptedNames(decoder, reader, handles);
+        ForceCollection();
+
+        Assert.True(first.TryGetTarget(out _));
+        Assert.False(last.TryGetTarget(out _));
+        GC.KeepAlive(decoder);
+        GC.KeepAlive(reader);
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(
+        System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    static (WeakReference<string> First, WeakReference<string> Last)
+        DecodeAcceptedNames(
+            SignatureDecoder decoder,
+            MetadataReader reader,
+            IReadOnlyList<TypeReferenceHandle> handles)
+    {
+        WeakReference<string>? first = null;
+        WeakReference<string>? last = null;
+        for (int i = 0; i < handles.Count; i++)
+        {
+            string name = decoder.GetTypeFromReference(
+                reader,
+                handles[i],
+                rawTypeKind: 0);
+            if (i == 0)
+                first = new(name);
+            if (i == handles.Count - 1)
+                last = new(name);
+        }
+        return (first!, last!);
+    }
+
+    static void ForceCollection()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+    }
+
+    [Fact]
     public void SignatureDecoder_RejectsExactNameBeforeOversizedSegmentDecode()
     {
         TypeReferenceHandle leaf = default;

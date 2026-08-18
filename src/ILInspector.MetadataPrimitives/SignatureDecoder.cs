@@ -11,6 +11,10 @@ namespace ILInspector.Metadata;
 public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 {
     const string Unresolved = "object";
+    internal const int MaxAcceptedNameCacheEntries =
+        MetadataSafetyPolicy.MaxRelationshipNodes * 16;
+    internal const int MaxAcceptedNameCacheCharacters =
+        MetadataSafetyPolicy.MaxStructuralSignatureChars;
     // SRM's string provider callback erases segment boundaries before
     // GetGenericInstantiation runs. Every TypeDef/TypeRef head keeps exact parts:
     // display-decoration characters are legal metadata-name text, so a flat
@@ -321,9 +325,12 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             }
             if (value.Length == 0)
             {
-                cache.Names.Add(
-                    handle,
-                    new(value, materializationWork));
+                if (cache.TryReserve(value, structured))
+                {
+                    cache.Names.Add(
+                        handle,
+                        new(value, materializationWork));
+                }
                 return value;
             }
 
@@ -333,9 +340,12 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
                 static (destination, source) =>
                     source.AsSpan().CopyTo(destination));
             structuredNames.Add(name, structured);
-            cache.Names.Add(
-                handle,
-                new(name, materializationWork));
+            if (cache.TryReserve(name, structured))
+            {
+                cache.Names.Add(
+                    handle,
+                    new(name, materializationWork));
+            }
             return name;
         }
     }
@@ -392,6 +402,27 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     {
         internal Dictionary<EntityHandle, CachedName> Names { get; } = [];
         internal Dictionary<EntityHandle, CachedRejection> Rejections { get; } = [];
+
+        long _retainedCharacters;
+
+        internal bool TryReserve(
+            string name,
+            MetadataTypeNameParts structured)
+        {
+            long characters = name.Length + structured.Namespace.Length;
+            foreach (string segment in structured.Segments)
+                characters += segment.Length;
+            if (Names.Count >= MaxAcceptedNameCacheEntries
+                || characters
+                    > MaxAcceptedNameCacheCharacters
+                        - _retainedCharacters)
+            {
+                return false;
+            }
+
+            _retainedCharacters += characters;
+            return true;
+        }
     }
 
     sealed record CachedName(
