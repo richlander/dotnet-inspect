@@ -184,7 +184,7 @@ public static class RidPackageVerifier
             try
             {
                 int entryCount = 0;
-                foreach (string path in Directory.EnumerateFiles(
+                foreach (string path in Directory.EnumerateFileSystemEntries(
                              LocalDirectory,
                              "*",
                              SearchOption.TopDirectoryOnly))

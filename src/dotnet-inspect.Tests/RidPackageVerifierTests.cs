@@ -464,6 +464,37 @@ public class RidPackageVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_CaseVariantDirectorySiblingIsUnknown()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            Directory.CreateDirectory(
+                Path.Combine(
+                    directory,
+                    "testpackage.linux-x64.1.0.0.nupkg"));
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.Null(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task VerifyAsync_MissingLocalSiblingSetsAvailabilityFalse()
     {
         string directory = Path.Combine(
