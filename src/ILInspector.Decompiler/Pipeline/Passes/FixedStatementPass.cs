@@ -141,7 +141,12 @@ public sealed class FixedStatementPass : IIrPass
                 && !pinStores.Contains(c) && !unpins.Contains(c))
             .OrderBy(c => c.ChildIndex)
             .ToList();
-        if (HasExternalTransferIntoBody(function, bodyStmts))
+        var removedStatements = pinStores
+            .Cast<IrNode>()
+            .Concat(unpins)
+            .Concat(foldedDerives.Values)
+            .ToList();
+        if (RewriteWouldInvalidateLabels(function, bodyStmts, removedStatements))
             return;
 
         // A body statement wedged before the innermost pin is reordered under it,
@@ -296,35 +301,62 @@ public sealed class FixedStatementPass : IIrPass
     static bool ReferencesAnySlot(IrNode root, IReadOnlySet<int> pinnedSlots, IReadOnlySet<int> derivedSlots)
         => Loads(root).Any(l => pinnedSlots.Contains(l.Index) || derivedSlots.Contains(l.Index));
 
-    internal static bool HasExternalTransferIntoBody(
+    internal static bool RewriteWouldInvalidateLabels(
         IrFunction function,
-        IReadOnlyList<IrNode> bodyStatements)
+        IReadOnlyList<IrNode> bodyStatements,
+        IReadOnlyList<IrNode> removedStatements)
     {
         var bodyLabels = bodyStatements
             .SelectMany(statement => statement.DescendantsOutsideNestedFunctions.Prepend(statement))
             .Where(node => node.OwnsSourceLabel && node.SourceOffset >= 0)
             .Select(node => node.SourceOffset)
             .ToHashSet();
-        if (bodyLabels.Count == 0)
+        var removedLabels = removedStatements
+            .SelectMany(statement => statement.DescendantsOutsideNestedFunctions.Prepend(statement))
+            .Where(node => node.OwnsSourceLabel && node.SourceOffset >= 0)
+            .Select(node => node.SourceOffset)
+            .ToHashSet();
+        if (bodyLabels.Count == 0 && removedLabels.Count == 0)
             return false;
 
         foreach (var transfer in function.DescendantsOutsideNestedFunctions)
         {
-            if (bodyStatements.Any(statement => ReferenceOwnership.IsInside(transfer, statement)))
-                continue;
+            bool transferMovesIntoBody = bodyStatements.Any(
+                statement => ReferenceOwnership.IsInside(transfer, statement));
+            bool transferIsRemoved = removedStatements.Any(
+                statement => ReferenceOwnership.IsInside(transfer, statement));
 
-            bool entersBody = transfer switch
+            foreach (int targetOffset in TransferTargets(transfer))
             {
-                Branch branch => bodyLabels.Contains(branch.TargetOffset),
-                ConditionalBranch conditional => bodyLabels.Contains(conditional.TargetOffset),
-                SwitchBranch switchBranch => switchBranch.TargetOffsets.Any(bodyLabels.Contains),
-                Leave leave => bodyLabels.Contains(leave.TargetOffset),
-                _ => false,
-            };
-            if (entersBody)
-                return true;
+                if (!transferIsRemoved
+                    && ((!transferMovesIntoBody && bodyLabels.Contains(targetOffset))
+                        || removedLabels.Contains(targetOffset)))
+                {
+                    return true;
+                }
+            }
         }
         return false;
+    }
+
+    static IEnumerable<int> TransferTargets(IrNode node)
+    {
+        switch (node)
+        {
+            case Branch branch:
+                yield return branch.TargetOffset;
+                break;
+            case ConditionalBranch conditional:
+                yield return conditional.TargetOffset;
+                break;
+            case SwitchBranch switchBranch:
+                foreach (int target in switchBranch.TargetOffsets)
+                    yield return target;
+                break;
+            case Leave leave:
+                yield return leave.TargetOffset;
+                break;
+        }
     }
 
     static IEnumerable<LoadLocal> Loads(IrNode root)

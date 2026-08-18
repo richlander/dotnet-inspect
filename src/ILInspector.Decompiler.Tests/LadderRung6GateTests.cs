@@ -847,6 +847,24 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6StringPinningTargetedUnpinLabelStaysLowered()
+    {
+        var function = SyntheticStringPin(
+            aliasPointerLocal: false,
+            includeUnpin: true,
+            targetUnpinLabel: true);
+
+        new FixedStatementPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Fixed>());
+        Assert.Contains(function.Descendants.OfType<Branch>(), branch => branch.TargetOffset == 100);
+        Assert.Contains(
+            function.Descendants,
+            node => node.OwnsSourceLabel && node.SourceOffset == 100);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void Rung6StackallocInitializerResiduals_RecoverFully()
     {
         AssertStackallocInitializerResiduals(NewUnsafePath, StackallocInitializerType);
@@ -955,7 +973,8 @@ public class LadderRung6GateTests
         bool collideStackSlotName = false,
         bool sourceLocal = false,
         bool overwriteAlias = false,
-        bool externalBodyLabel = false)
+        bool externalBodyLabel = false,
+        bool targetUnpinLabel = false)
     {
         var charType = TypeRef.CoreLib("System", "Char");
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -1001,6 +1020,12 @@ public class LadderRung6GateTests
             anchor.SetSourceOffset(100);
             block.Add(anchor);
         }
+        if (targetUnpinLabel)
+        {
+            var jumpArm = new Block(3);
+            jumpArm.Add(new Branch(100));
+            block.Add(new IfStatement(new LogicalNot(SourceRead()), jumpArm, null));
+        }
         if (aliasPointerLocal)
         {
             var basePointer = new ILInspector.Decompiler.Pipeline.Convert(charPointer, isChecked: false, isUnsigned: false, new LoadStackSlot(0, nativeUInt));
@@ -1021,7 +1046,19 @@ public class LadderRung6GateTests
             block.Add(new Return(new LoadIndirect(charType, new LoadStackSlot(0, nativeUInt))));
         }
         if (includeUnpin)
-            block.Add(new StoreLocal(0, pinnedCharRef, new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: false, new Constant(0, intType))));
+        {
+            var unpin = new StoreLocal(
+                0,
+                pinnedCharRef,
+                new ILInspector.Decompiler.Pipeline.Convert(
+                    nativeUInt,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new Constant(0, intType)));
+            if (targetUnpinLabel)
+                unpin.SetSourceOffset(100);
+            block.Add(unpin);
+        }
 
         var container = new BlockContainer();
         container.Add(block);

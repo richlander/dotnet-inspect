@@ -57,6 +57,56 @@ public class StructuringGotoScopeTests
     }
 
     [Fact]
+    public void RegionExitDiamondWithCrossArmTransferStaysFlat()
+    {
+        var crossArm = new Block(21);
+        crossArm.Add(new Branch(30));
+        var blocks = new[]
+        {
+            Block(0, new ConditionalBranch(Cond(), 40)),
+            Block(10, new ConditionalBranch(Cond(), 30)),
+            Block(
+                20,
+                new IfStatement(
+                    new Constant(true, TypeRef.CoreLib("System", "Boolean")),
+                    crossArm,
+                    null),
+                new Branch(40)),
+            Block(
+                30,
+                new StoreLocal(0, Int32, new Constant(7, Int32)),
+                new Branch(40)),
+            Block(40, new Return(new LoadLocal(0, Int32))),
+        };
+
+        var function = Structured(blocks);
+
+        Assert.Equal(blocks.Length, function.Body.Blocks.Count);
+        Assert.Single(function.Descendants.OfType<IfStatement>());
+        Assert.Contains(
+            function.Descendants.OfType<Branch>(),
+            branch => branch.TargetOffset == 30);
+    }
+
+    [Fact]
+    public void CompilerTwoCaseSwitchReturnKeepsDissolvingCrossArmStructured()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoCaseSwitchReturn));
+        Assert.NotNull(function);
+
+        IrPasses.Run(function!, IrPasses.Default, PassContext.None);
+        function!.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+        Assert.Contains("throw new IndexOutOfRangeException();", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
     public void SwitchTargetInsideArm_StaysFlat()
     {
         // Same diamond, but a leading (unraised) switch also dispatches into the
@@ -107,6 +157,14 @@ public class StructuringGotoScopeTests
         // label and the Leave survives at top level (legal goto).
         Assert.Empty(function.Descendants.OfType<IfStatement>());
         Assert.NotEmpty(function.Descendants.OfType<Leave>());
+    }
+
+    static Block Block(int offset, params IrNode[] statements)
+    {
+        var block = new Block(offset);
+        foreach (var statement in statements)
+            block.Add(statement);
+        return block;
     }
 
     [Fact]

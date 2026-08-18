@@ -2695,6 +2695,19 @@ public class CfgSampleClass
         }
     }
 
+    public static object TwoCaseSwitchReturn(int index, object first, object second)
+    {
+        switch (index)
+        {
+            case 0:
+                return first;
+            case 1:
+                return second;
+            default:
+                throw new IndexOutOfRangeException();
+        }
+    }
+
     // #4008: a sparse jump table whose successful labels use `break;` to reach the
     // method's final void return. csc places that ret after the throwing default,
     // so switch raising must preserve it as the post-switch continuation rather

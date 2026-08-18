@@ -225,6 +225,9 @@ public sealed class StructuringPass : IIrPass
         public required HashSet<int> ScatteredReturnDispatchTargets { get; init; }
         public int? RegionExitLeaveTarget { get; init; }
         public required HashSet<int> RetainedMergeIndices { get; init; }
+        // Validation and build query the same immutable source shape. Reuse the
+        // clone proof instead of rebuilding its short target region twice.
+        public Dictionary<(int Target, int OwningGuard), bool> PastRegionInlineCache { get; } = [];
         /// <summary>
         /// Permits retained gotos before the end of a range only after the
         /// canonical loop planner proves their targets stay inside that loop.
@@ -815,22 +818,28 @@ public sealed class StructuringPass : IIrPass
     {
         foreach (var node in block.DescendantsOutsideNestedFunctions)
         {
-            switch (node)
-            {
-                case Branch branch:
-                    yield return branch.TargetOffset;
-                    break;
-                case ConditionalBranch conditional:
-                    yield return conditional.TargetOffset;
-                    break;
-                case SwitchBranch switchBranch:
-                    foreach (int target in switchBranch.TargetOffsets)
-                        yield return target;
-                    break;
-                case Leave leave:
-                    yield return leave.TargetOffset;
-                    break;
-            }
+            foreach (int target in TransferTargets(node))
+                yield return target;
+        }
+    }
+
+    static IEnumerable<int> TransferTargets(IrNode node)
+    {
+        switch (node)
+        {
+            case Branch branch:
+                yield return branch.TargetOffset;
+                break;
+            case ConditionalBranch conditional:
+                yield return conditional.TargetOffset;
+                break;
+            case SwitchBranch switchBranch:
+                foreach (int target in switchBranch.TargetOffsets)
+                    yield return target;
+                break;
+            case Leave leave:
+                yield return leave.TargetOffset;
+                break;
         }
     }
 
@@ -1187,7 +1196,7 @@ public sealed class StructuringPass : IIrPass
                     // Guard: if (c) goto M with M ending this region's view.
                     // Diamond: the fallthrough arm ends with goto M past the
                     // true arm.
-                    if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex) is { } exitDiamond)
+                    if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex, continueTarget) is { } exitDiamond)
                     {
                         if (RegionExternallyEntered(ctx, falseStart, target)
                             || RegionExternallyEntered(ctx, target, exitDiamond.LocalJoin))
@@ -1203,7 +1212,7 @@ public sealed class StructuringPass : IIrPass
                         i = exitDiamond.LocalJoin;
                         break;
                     }
-                    if (FindDiamondJoin(blocks, offsetToIndex, falseStart, target, stop) is { } join)
+                    if (FindDiamondJoin(ctx, falseStart, target, stop, continueTarget) is { } join)
                     {
                         // Neither arm may enclose a block an outside goto still
                         // targets (e.g. a surviving SwitchBranch dispatch, or the
@@ -1677,7 +1686,13 @@ public sealed class StructuringPass : IIrPass
     /// helper must not return it as the local join or it would swallow the next
     /// sibling block.
     /// </summary>
-    static (int LocalJoin, int ExitTarget)? FindRegionExitDiamond(Ctx ctx, int falseStart, int trueStart, int stop, int joinIndex)
+    static (int LocalJoin, int ExitTarget)? FindRegionExitDiamond(
+        Ctx ctx,
+        int falseStart,
+        int trueStart,
+        int stop,
+        int joinIndex,
+        int? continueTarget)
     {
         if (falseStart >= trueStart || trueStart >= stop)
             return null;
@@ -1692,6 +1707,8 @@ public sealed class StructuringPass : IIrPass
         {
             return null;
         }
+        if (HasSiblingArmEntry(ctx, falseStart, trueStart, stop, continueTarget))
+            return null;
         return (stop, joinIndex);
     }
 
@@ -1707,10 +1724,18 @@ public sealed class StructuringPass : IIrPass
     }
 
     static bool CanInlinePastRegionTarget(Ctx ctx, int target, int owningGuard)
-        => !ctx.FlowFacts.UnconditionalTargets.Contains(ctx.Blocks[target].StartOffset)
+    {
+        var key = (target, owningGuard);
+        if (ctx.PastRegionInlineCache.TryGetValue(key, out bool cached))
+            return cached;
+
+        bool result = !ctx.FlowFacts.UnconditionalTargets.Contains(ctx.Blocks[target].StartOffset)
             && !ctx.FallenInto.Contains(ctx.Blocks[target].StartOffset)
             && TryBuildPastRegionTarget(ctx, target, out var body, out int inlinedStop)
             && CanDuplicatePastRegionBody(ctx, target, inlinedStop, owningGuard, body);
+        ctx.PastRegionInlineCache[key] = result;
+        return result;
+    }
 
     static bool CanClonePastRegionTerminator(Ctx ctx, int target)
         => TryClonePastRegionTerminator(ctx, target, out _);
@@ -1967,10 +1992,17 @@ public sealed class StructuringPass : IIrPass
 
     /// <summary>
     /// The diamond join: the false arm's last block ends with a goto past the
-    /// true arm, and no other false-arm transfer enters the true arm.
+    /// true arm, and no surviving false-arm transfer enters the true arm.
     /// </summary>
-    static int? FindDiamondJoin(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int falseStart, int trueStart, int stop)
+    static int? FindDiamondJoin(
+        Ctx ctx,
+        int falseStart,
+        int trueStart,
+        int stop,
+        int? continueTarget)
     {
+        var blocks = ctx.Blocks;
+        var offsetToIndex = ctx.FlowFacts.OffsetToIndex;
         if (falseStart >= trueStart)
             return null;
         if (blocks[trueStart - 1].Children.Count == 0)
@@ -1979,21 +2011,50 @@ public sealed class StructuringPass : IIrPass
             && offsetToIndex.TryGetValue(branch.TargetOffset, out int join)
             && join > trueStart && join <= stop)
         {
-            for (int source = falseStart; source < trueStart; source++)
-            {
-                foreach (int targetOffset in TransferTargets(blocks[source]))
-                {
-                    if (offsetToIndex.TryGetValue(targetOffset, out int target)
-                        && target >= trueStart
-                        && target < join)
-                    {
-                        return null;
-                    }
-                }
-            }
+            if (HasSiblingArmEntry(ctx, falseStart, trueStart, join, continueTarget))
+                return null;
             return join;
         }
         return null;
+    }
+
+    static bool HasSiblingArmEntry(
+        Ctx ctx,
+        int falseStart,
+        int trueStart,
+        int join,
+        int? continueTarget)
+    {
+        for (int source = falseStart; source < trueStart; source++)
+        {
+            var block = ctx.Blocks[source];
+            foreach (var transfer in block.DescendantsOutsideNestedFunctions)
+            {
+                foreach (int targetOffset in TransferTargets(transfer))
+                {
+                    if (!ctx.FlowFacts.OffsetToIndex.TryGetValue(targetOffset, out int target)
+                        || target < trueStart
+                        || target >= join)
+                    {
+                        continue;
+                    }
+
+                    bool directConditionalDissolves = transfer is ConditionalBranch
+                        && ReferenceEquals(transfer.Parent, block)
+                        && ReferenceEquals(block.Children.LastOrDefault(), transfer)
+                        && (IsInlinableTerminator(ctx, target)
+                            || (target > trueStart
+                                && (CanClonePastRegionTerminatorInLeaveRetryLoop(
+                                        ctx,
+                                        continueTarget,
+                                        target)
+                                    || CanInlinePastRegionTarget(ctx, target, source))));
+                    if (!directConditionalDissolves)
+                        return true;
+                }
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -2698,7 +2759,7 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
-                    if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex) is { } exitDiamond)
+                    if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex, continueTarget) is { } exitDiamond)
                     {
                         var thenArm = BuildRegion(ctx, falseStart, target, joinIndex: exitDiamond.ExitTarget, breakTarget, continueTarget, regionExitBreakTarget);
                         var elseArm = BuildRegion(ctx, target, exitDiamond.LocalJoin, joinIndex: exitDiamond.ExitTarget, breakTarget, continueTarget, regionExitBreakTarget);
@@ -2706,7 +2767,7 @@ public sealed class StructuringPass : IIrPass
                         i = exitDiamond.LocalJoin;
                         break;
                     }
-                    if (FindDiamondJoin(blocks, offsetToIndex, falseStart, target, stop) is { } join)
+                    if (FindDiamondJoin(ctx, falseStart, target, stop, continueTarget) is { } join)
                     {
                         // Fallthrough arm first, current-emitter guard style:
                         // the negated condition selects it.
