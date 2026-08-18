@@ -74,7 +74,9 @@ packaged CoreCLR interpreter from .NET 11 Preview 7 without changing the
 prototype's Mono default or production promotion path. It remains an
 experimental deployment rather than a product dependency until the browser
 runtime and native toolchain are complete enough to replace those explicit
-preview workarounds.
+preview workarounds. Its publish explicitly enables runtime async across the
+application graph so the comparison continuously exercises that CoreCLR
+capability while Mono staging retains classic async lowering.
 
 Create a focused engine spike before wiring the full app:
 

@@ -2,7 +2,7 @@
 
   <!--
     Minimal stand-ins for the protobuf runtime, compiled into an assembly literally
-    named Google.Protobuf so that LibraryBodyIndex.GeneratedFrameworkTypeNames can
+    named Google.Protobuf so that LibraryBodyIndex.GeneratedFrameworkTypes can
     require real protobuf assembly identity (#1580). Test consumers that reference
     this assembly model real generated code calling into the protobuf runtime; a
     user assembly that defines its own Google.Protobuf.* lookalikes does not match.

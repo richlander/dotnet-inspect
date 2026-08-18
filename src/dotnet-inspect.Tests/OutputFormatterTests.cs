@@ -1071,15 +1071,28 @@ public class OutputFormatterTests
 
         Assert.False(LibraryMetadataService.IncludePerformanceOpportunity(
             opportunity,
-            new HashSet<string>(StringComparer.Ordinal)
+            new HashSet<TypeRef>
             {
-                "Ns.GeneratedOuter",
+                TypeRef.Definition("Asm", "Ns", "GeneratedOuter"),
             }));
     }
 
     [Fact]
-    public void IncludePerformanceOpportunity_KeepsOrdinaryNestedSourceFunction()
+    public void IncludePerformanceOpportunity_DoesNotTreatDisplayCollisionAsGeneratedFramework()
     {
+        var compilerGenerated = TypeRef.Definition(
+            "Asm",
+            "Ns",
+            "GeneratedOuter+Leaf+<>c__DisplayClass0_0");
+        var collidingGenerated = TypeRef.Definition(
+            "Asm",
+            "Ns.GeneratedOuter",
+            "Leaf");
+        Assert.Equal(
+            collidingGenerated.ToQualifiedDisplayString()
+                + ".<>c__DisplayClass0_0",
+            compilerGenerated.ToQualifiedDisplayString());
+
         var opportunity = Opp(
             "<Build>b__0",
             inLoop: false,
@@ -1090,19 +1103,13 @@ public class OutputFormatterTests
         {
             Method = opportunity.Method with
             {
-                DeclaringType = ILInspector.Analysis.TypeRef.Definition(
-                    "Asm",
-                    "Ns",
-                    "GeneratedOuter+Worker"),
+                DeclaringType = compilerGenerated,
             },
         };
 
         Assert.True(LibraryMetadataService.IncludePerformanceOpportunity(
             opportunity,
-            new HashSet<string>(StringComparer.Ordinal)
-            {
-                "Ns.GeneratedOuter",
-            }));
+            new HashSet<TypeRef> { collidingGenerated }));
     }
 
     [Fact]
