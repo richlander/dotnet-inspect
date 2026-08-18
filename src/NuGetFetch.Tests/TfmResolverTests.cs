@@ -169,6 +169,37 @@ public class TfmResolverTests
     }
 
     [Theory]
+    [InlineData("net10.0", TfmFamily.NetModern, 10, 0)]
+    [InlineData("net10.0-browser", TfmFamily.NetModern, 10, 0)]
+    [InlineData(
+        "net10.0-windows10.0.19041.0",
+        TfmFamily.NetModern,
+        10,
+        0)]
+    [InlineData("netcoreapp3.1-linux", TfmFamily.NetCore, 3, 1)]
+    public void TryGetBaseFrameworkIdentity_ParsesPlatformQualifiedMonikers(
+        string tfm,
+        TfmFamily family,
+        int major,
+        int minor)
+    {
+        Assert.True(
+            TfmResolver.TryGetBaseFrameworkIdentity(
+                tfm,
+                out TfmResolver.FrameworkIdentity identity));
+        Assert.Equal(family, identity.Family);
+        Assert.Equal(new Version(major, minor, 0), identity.Version);
+    }
+
+    [Theory]
+    [InlineData("-browser")]
+    [InlineData("net10.0-")]
+    public void TryGetBaseFrameworkIdentity_RejectsMissingSegments(string tfm)
+    {
+        Assert.False(TfmResolver.TryGetBaseFrameworkIdentity(tfm, out _));
+    }
+
+    [Theory]
     [InlineData("uap10.0")]
     [InlineData("netmf")]
     [InlineData("")]

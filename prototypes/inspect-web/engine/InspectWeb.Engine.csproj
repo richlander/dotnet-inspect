@@ -56,9 +56,4 @@
     <Content Include="..\assets\platform-index.tsv" Link="wwwroot\assets\platform-index.tsv" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <Target Name="DisableRuntimeAsync" BeforeTargets="CoreCompile">
-    <PropertyGroup>
-      <Features>runtime-async=off</Features>
-    </PropertyGroup>
-  </Target>
 </Project>

@@ -389,6 +389,18 @@ public static class HttpClientFactory
             if (HasPrefix(address, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 96))
                 return true;
 
+            // ISATAP can appear beneath other transition prefixes. Treat a private
+            // embedded destination as non-public before a prefix-specific branch
+            // can return a public verdict.
+            if ((address[8] is 0x00 or 0x02)
+                && address[9] == 0x00
+                && address[10] == 0x5e
+                && address[11] == 0xfe
+                && IsNonPublic(new IPAddress(address.AsSpan(12, 4))))
+            {
+                return true;
+            }
+
             // The globally reachable NAT64 prefix carries an IPv4 destination in its final
             // 32 bits. Apply the same policy to that destination rather than letting the
             // translation hide it.

@@ -536,6 +536,14 @@ public class ApiSignature
     internal string? ExtensionReceiverType { get; set; }
     public string? ReturnType { get; set; }
     public string? CanonicalReturnType { get; set; }
+
+    /// <summary>
+    /// Opaque structural return-type identity for call-graph selectors. Null on
+    /// older serialized surfaces and members whose display spelling is already
+    /// injective.
+    /// </summary>
+    public string? StructuralReturnType { get; set; }
+
     public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
     public bool IsRequired { get; set; }
@@ -583,6 +591,14 @@ public class ApiParameter
     public string Name { get; set; } = "";
     public string Type { get; set; } = "";
     public string? CanonicalType { get; set; }
+
+    /// <summary>
+    /// Opaque structural parameter-type identity for call-graph selectors. Null on
+    /// older serialized surfaces and parameters whose display spelling is already
+    /// injective.
+    /// </summary>
+    public string? StructuralType { get; set; }
+
     public string? Modifier { get; set; }
     public bool HasDefault { get; set; }
     public string? DefaultValueText { get; set; }
@@ -611,6 +627,14 @@ public class ApiAccessor
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];
+
+    /// <summary>
+    /// Opaque structural return-type identity for the accessor method itself.
+    /// Null when the display spelling is already injective, including ordinary
+    /// <c>void</c> setters. <c>init</c> setters carry
+    /// <c>modreq(IsExternalInit)</c> here so call-graph selectors match MemberRef.
+    /// </summary>
+    public string? StructuralReturnType { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<SignatureDecodeStatus>))]

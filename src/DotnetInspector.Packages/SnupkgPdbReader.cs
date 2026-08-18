@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Reflection.Metadata;
 
@@ -49,15 +50,53 @@ public static class SnupkgPdbReader
         string assemblyName,
         Guid expectedGuid,
         Action<string>? log = null,
-        uint? expectedStamp = null)
+        uint? expectedStamp = null,
+        SymbolAcquisitionLimits? limits = null) =>
+        ExtractPortablePdbCancelable(
+            snupkg,
+            assemblyName,
+            expectedGuid,
+            log,
+            expectedStamp,
+            limits,
+            CancellationToken.None);
+
+    internal static SnupkgPdbResult ExtractPortablePdbCancelable(
+        Stream snupkg,
+        string assemblyName,
+        Guid expectedGuid,
+        Action<string>? log,
+        uint? expectedStamp,
+        SymbolAcquisitionLimits? limits,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(snupkg);
         ArgumentException.ThrowIfNullOrEmpty(assemblyName);
 
         var pdbFileName = $"{assemblyName}.pdb";
         bool windowsPdbDetected = false;
+        long expandedPdbBytes = 0;
 
+        if (limits is not null)
+        {
+            if (!snupkg.CanSeek
+                || snupkg.Length > limits.MaxSymbolPackageBytes)
+            {
+                throw new InvalidDataException(
+                    "The symbol package exceeds the configured byte limit.");
+            }
+            ValidateArchiveEntryCount(
+                snupkg,
+                limits.MaxSymbolPackageEntries);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
         using var archive = new ZipArchive(snupkg, ZipArchiveMode.Read, leaveOpen: true);
+        if (limits is not null
+            && archive.Entries.Count > limits.MaxSymbolPackageEntries)
+        {
+            throw new InvalidDataException(
+                "The symbol package exceeds the configured archive-entry limit.");
+        }
 
         // Match by file name in any directory, mirroring the desktop behavior of
         // Directory.GetFiles(root, "{assembly}.pdb", AllDirectories). Order by the
@@ -69,12 +108,39 @@ public static class SnupkgPdbReader
 
         foreach (var entry in candidates)
         {
-            byte[] bytes;
-            using (var entryStream = entry.Open())
-            using (var buffer = new MemoryStream())
+            cancellationToken.ThrowIfCancellationRequested();
+            long maxPdbBytes =
+                limits?.MaxPortablePdbBytes
+                ?? SymbolPackageDownloader.DefaultMaximumSymbolBytes;
+            // ZipArchiveEntry.Length is a signed value copied verbatim from the
+            // archive's ZIP64 extra field, so a hostile package can declare a
+            // negative length that clears every ">" ceiling and then narrows,
+            // unchecked, to a large positive allocation. Reject it explicitly,
+            // as Storage/InMemoryPackageContent does at its own allocation site.
+            ValidateDeclaredPdbLength(entry.Length, maxPdbBytes);
+            if (limits is not null
+                && expandedPdbBytes
+                    > limits.MaxExpandedPdbBytes - entry.Length)
             {
-                entryStream.CopyTo(buffer);
-                bytes = buffer.ToArray();
+                throw new InvalidDataException(
+                    "Symbol-package PDB expansion exceeds the configured aggregate byte limit.");
+            }
+            expandedPdbBytes += entry.Length;
+
+            byte[] bytes =
+                GC.AllocateUninitializedArray<byte>((int)entry.Length);
+            using (var entryStream = entry.Open())
+            {
+                ReadExactly(
+                    entryStream,
+                    bytes,
+                    cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (entryStream.ReadByte() != -1)
+                {
+                    throw new InvalidDataException(
+                        "A symbol-package PDB exceeds its declared length.");
+                }
             }
 
             var header = CheckPdbHeader(bytes);
@@ -100,6 +166,138 @@ public static class SnupkgPdbReader
         }
 
         return new SnupkgPdbResult(null, windowsPdbDetected);
+    }
+
+    /// <summary>
+    /// Rejects a declared symbol-package PDB length that must not reach the
+    /// allocation site. The lower bound matters as much as the ceilings:
+    /// <see cref="ZipArchiveEntry.Length"/> is a signed value taken verbatim
+    /// from the archive's ZIP64 extra field, and a negative one clears every
+    /// <c>&gt;</c> comparison before narrowing, unchecked, to a large positive
+    /// allocation.
+    /// </summary>
+    /// <remarks>
+    /// <c>SnupkgPdbReaderTests.ValidateDeclaredPdbLength_RejectsNegativeDeclaredLength</c>
+    /// gates the lower bound on every runtime;
+    /// <c>SnupkgPdbReaderTests.ExtractPortablePdb_RejectsNegativeZip64DeclaredLength</c>
+    /// is the end-to-end canary. The end-to-end case is only load-bearing on
+    /// runtimes whose <see cref="ZipArchive"/> surfaces a negative length —
+    /// .NET 10, which official builds target — because .NET 11 rejects the
+    /// archive while reading the central directory.
+    /// </remarks>
+    internal static void ValidateDeclaredPdbLength(
+        long declaredLength,
+        long maxPdbBytes)
+    {
+        if (declaredLength < 0
+            || declaredLength > maxPdbBytes
+            || declaredLength > Array.MaxLength)
+        {
+            throw new InvalidDataException(
+                "A symbol-package PDB exceeds the configured byte limit.");
+        }
+    }
+
+    static void ReadExactly(
+        Stream source,
+        byte[] destination,
+        CancellationToken cancellationToken)    {
+        int offset = 0;
+        while (offset < destination.Length)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int read = source.Read(
+                destination,
+                offset,
+                Math.Min(81920, destination.Length - offset));
+            if (read == 0)
+                throw new EndOfStreamException();
+            offset += read;
+        }
+    }
+
+    static void ValidateArchiveEntryCount(
+        Stream snupkg,
+        int maxEntries)
+    {
+        if (!snupkg.CanSeek)
+        {
+            throw new InvalidDataException(
+                "Bounded symbol-package inspection requires a seekable stream.");
+        }
+
+        const uint EndOfCentralDirectorySignature = 0x06054b50;
+        const int MinimumRecordLength = 22;
+        const int MaximumCommentLength = ushort.MaxValue;
+        long originalPosition = snupkg.Position;
+        try
+        {
+            int tailLength =
+                (int)Math.Min(
+                    snupkg.Length,
+                    MinimumRecordLength + MaximumCommentLength);
+            byte[] tail = GC.AllocateUninitializedArray<byte>(tailLength);
+            snupkg.Position = snupkg.Length - tailLength;
+            snupkg.ReadExactly(tail);
+
+            for (int offset = tail.Length - MinimumRecordLength;
+                 offset >= 0;
+                 offset--)
+            {
+                ReadOnlySpan<byte> record = tail.AsSpan(offset);
+                if (BinaryPrimitives.ReadUInt32LittleEndian(record)
+                        != EndOfCentralDirectorySignature)
+                {
+                    continue;
+                }
+
+                ushort commentLength =
+                    BinaryPrimitives.ReadUInt16LittleEndian(record[20..]);
+                if (offset + MinimumRecordLength + commentLength
+                    != tail.Length)
+                {
+                    continue;
+                }
+
+                ushort diskNumber =
+                    BinaryPrimitives.ReadUInt16LittleEndian(record[4..]);
+                ushort centralDirectoryDisk =
+                    BinaryPrimitives.ReadUInt16LittleEndian(record[6..]);
+                ushort entriesOnDisk =
+                    BinaryPrimitives.ReadUInt16LittleEndian(record[8..]);
+                ushort entryCount =
+                    BinaryPrimitives.ReadUInt16LittleEndian(record[10..]);
+                uint centralDirectorySize =
+                    BinaryPrimitives.ReadUInt32LittleEndian(record[12..]);
+                uint centralDirectoryOffset =
+                    BinaryPrimitives.ReadUInt32LittleEndian(record[16..]);
+                if (diskNumber == ushort.MaxValue
+                    || centralDirectoryDisk == ushort.MaxValue
+                    || entriesOnDisk == ushort.MaxValue
+                    || entryCount == ushort.MaxValue
+                    || centralDirectorySize == uint.MaxValue
+                    || centralDirectoryOffset == uint.MaxValue)
+                {
+                    throw new InvalidDataException(
+                        "ZIP64 symbol packages are unavailable under bounded inspection.");
+                }
+                if (entryCount > maxEntries)
+                {
+                    throw new InvalidDataException(
+                        "The symbol package exceeds the configured archive-entry limit.");
+                }
+
+                snupkg.Position = originalPosition;
+                return;
+            }
+
+            throw new InvalidDataException(
+                "The symbol package has no valid end-of-central-directory record.");
+        }
+        finally
+        {
+            snupkg.Position = originalPosition;
+        }
     }
 
     /// <summary>

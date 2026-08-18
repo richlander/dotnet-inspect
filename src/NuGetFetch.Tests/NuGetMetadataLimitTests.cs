@@ -285,6 +285,42 @@ public sealed class NuGetMetadataLimitTests
                 cancellationToken: cancellation.Token));
     }
 
+    [Theory]
+    [InlineData(CallerCancellationFailure.OperationCanceled)]
+    [InlineData(CallerCancellationFailure.Io)]
+    public async Task DirectNuGetApiCallerCancellationRetainsCallerToken(
+        CallerCancellationFailure failure)
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        await using var stream = new CallerCancellingStream(
+            cancellation,
+            failure);
+
+        OperationCanceledException error =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => NuGetApi.GetServiceIndexAsync(
+                    stream,
+                    cancellation.Token).AsTask());
+
+        Assert.Equal(cancellation.Token, error.CancellationToken);
+    }
+
+    [Fact]
+    public async Task DirectNuGetApiCallerCancellationPreservesTypedMetadataFailure()
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        await using var stream = new CallerCancellingStream(
+            cancellation,
+            CallerCancellationFailure.MetadataTooLarge);
+
+        await Assert.ThrowsAsync<NuGetMetadataResponseTooLargeException>(
+            () => NuGetApi.GetServiceIndexAsync(
+                stream,
+                cancellation.Token).AsTask());
+    }
+
     [Fact]
     public async Task DirectNuGetApiReadersUseTheDefaultLimit()
     {
@@ -470,6 +506,62 @@ public sealed class NuGetMetadataLimitTests
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             return 0;
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    public enum CallerCancellationFailure
+    {
+        OperationCanceled,
+        Io,
+        MetadataTooLarge,
+    }
+
+    private sealed class CallerCancellingStream(
+        CancellationTokenSource caller,
+        CallerCancellationFailure failure) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            caller.Cancel();
+            Exception exception = failure switch
+            {
+                CallerCancellationFailure.OperationCanceled =>
+                    new OperationCanceledException(cancellationToken),
+                CallerCancellationFailure.Io =>
+                    new IOException("Simulated cancellation transport abort."),
+                CallerCancellationFailure.MetadataTooLarge =>
+                    new NuGetMetadataResponseTooLargeException(1),
+                _ => throw new InvalidOperationException(),
+            };
+            return ValueTask.FromException<int>(exception);
         }
 
         public override int Read(
