@@ -829,10 +829,12 @@ public sealed class BrowserEngineBoundaryTests
     public void MermaidLabel_ContainsGrammarSignificantArtifactText()
     {
         string encoded = BrowserInspectionEngine.MermaidLabel(
-            "A\"B\n<x>&\\\u2028");
+            "A\"B\n<x>&\\\u2028\u202E\u200D\uD800X\uDC00\U000E0001-Caf\u00E9\U0001F600");
 
         Assert.Equal(
-            "A&quot;B&#92;u000A&lt;x&gt;&amp;&#92;&#92;u2028",
+            "A&quot;B&#92;u000A&lt;x&gt;&amp;&#92;&#92;u2028"
+                + "&#92;u202E&#92;u200D&#92;uD800X&#92;uDC00"
+                + "&#92;uDB40&#92;uDC01-Caf\u00E9\U0001F600",
             encoded);
         Assert.DoesNotContain('"', encoded);
         Assert.DoesNotContain('\n', encoded);
@@ -840,6 +842,41 @@ public sealed class BrowserEngineBoundaryTests
         Assert.DoesNotContain('>', encoded);
         Assert.DoesNotContain('\\', encoded);
         Assert.DoesNotContain('\u2028', encoded);
+        Assert.DoesNotContain('\u202E', encoded);
+        Assert.DoesNotContain('\u200D', encoded);
+        Assert.DoesNotContain('\uD800', encoded);
+        Assert.DoesNotContain('\uDC00', encoded);
+        Assert.EndsWith("-Caf\u00E9\U0001F600", encoded, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CallGraphMermaid_ContainsArtifactLabels()
+    {
+        TypeRef declaringType = TypeRef.Definition(
+            "Sample",
+            "Example",
+            "A\u202E\uD800-Caf\u00E9\U0001F600");
+        var member = new MemberRef(
+            declaringType,
+            "Run",
+            [],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+        var tree = new CallTreeNode(
+            member,
+            Kind: null,
+            CallTreeStatus.Leaf,
+            Children: []);
+        CallGraphProjection projection = CallGraphProjection.FromCallees(tree);
+
+        string mermaid = BrowserInspectionEngine.Mermaid(projection);
+
+        Assert.Contains(
+            "&#92;u202E&#92;uD800-Caf\u00E9\U0001F600",
+            mermaid,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain('\u202E', mermaid);
+        Assert.DoesNotContain('\uD800', mermaid);
     }
 
     [Fact]
@@ -868,17 +905,24 @@ public sealed class BrowserEngineBoundaryTests
             CallTreeStatus.Leaf,
             [],
             new CallTreePerf(0, 0, 1, true, "loop"));
+        var nonLoopNode = new CallTreeNode(
+            callee with { Name = "Wait" },
+            null,
+            CallTreeStatus.Leaf,
+            [],
+            new CallTreePerf(0, 0, 1, false));
         var root = new CallTreeNode(
             caller,
             null,
             CallTreeStatus.Expanded,
-            [calleeNode],
+            [calleeNode, nonLoopNode],
             new CallTreePerf(0, 0, 1, false));
 
         string mermaid = BrowserInspectionEngine.Mermaid(
             CallGraphProjection.FromCallees(root));
 
         Assert.Contains("n0 -- loop --> n1", mermaid);
+        Assert.Contains("n0 --> n2", mermaid);
     }
 
     [Fact]

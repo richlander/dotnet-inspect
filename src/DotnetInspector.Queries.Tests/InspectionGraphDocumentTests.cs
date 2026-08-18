@@ -574,7 +574,7 @@ public sealed class InspectionGraphDocumentTests
         Assert.Equal(
             [CallGraphInspectionGraphCatalog.Call],
             request.Relationships);
-        Assert.Equal(member, request.Seed);
+        Assert.Equal([member], request.Seeds);
         Assert.Equal(2, request.MaxDepth);
         Assert.Equal(
             InspectionGraphTraversalDirection.Outgoing,
@@ -615,6 +615,54 @@ public sealed class InspectionGraphDocumentTests
                 maxDepth: -1));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new InspectionGraphNeighborhoodDepthBoundEvidence(-1));
+    }
+
+    [Fact]
+    public void PeerNeighborhoodRequest_ValidatesEverySeedAndSnapshotsPeers()
+    {
+        InspectionGraphSubject member = Subject("Member");
+        InspectionGraphSubject second = Subject("Second");
+        var peers = new List<InspectionGraphSubject>
+        {
+            member,
+            second,
+        };
+        InspectionGraphNeighborhoodRequest request =
+            InspectionGraphNeighborhoodRequest.PeerSeeds(
+                peers,
+                [CallGraphInspectionGraphCatalog.Call],
+                InspectionGraphTraversalDirection.Both,
+                maxDepth: 2);
+
+        peers.Clear();
+
+        Assert.Equal(InspectionGraphMode.PeerSeeds, request.ModeRequest.Mode);
+        Assert.Equal([member, second], request.Seeds);
+        Assert.Throws<ArgumentException>(
+            () => InspectionGraphNeighborhoodRequest.PeerSeeds(
+                [member],
+                [CallGraphInspectionGraphCatalog.Call],
+                InspectionGraphTraversalDirection.Both,
+                maxDepth: 1));
+
+        InspectionGraphSubject package =
+            InspectionGraphSubject.ForRealizedPackage(
+                new RealizedMemberCoordinate.Package(
+                    "sample.package",
+                    "1.0.0",
+                    "feed",
+                    "net11.0",
+                    null));
+        InspectionQueryException unsupported = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphNeighborhoodRequest.PeerSeeds(
+                    [member, package],
+                    [CallGraphInspectionGraphCatalog.Call],
+                    InspectionGraphTraversalDirection.Both,
+                    maxDepth: 1));
+
+        Assert.Contains("package seed", unsupported.Message);
+        Assert.Contains("peer seeds", unsupported.Message);
     }
 
     [Fact]
@@ -659,7 +707,7 @@ public sealed class InspectionGraphDocumentTests
         Assert.Contains("package seed", unsupported.Message);
         Assert.Contains("call", unsupported.Message);
         Assert.Contains("incoming", wrongDirection.Message);
-        Assert.Equal(package, outgoing.Seed);
+        Assert.Equal([package], outgoing.Seeds);
     }
 
     [Fact]

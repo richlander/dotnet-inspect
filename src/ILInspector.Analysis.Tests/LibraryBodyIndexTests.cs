@@ -4722,8 +4722,7 @@ public class LibraryBodyIndexTests
 
             Assert.True(
                 overlayAllocation < OverlaySize / 2,
-                $"Method-evidence acquisition allocated {overlayAllocation:N0} additional bytes "
-                    + $"for the file overlay (baseline {baseline:N0}; padded {padded:N0}).");
+                $"Method-evidence acquisition allocated {overlayAllocation:N0} additional bytes for the file overlay.");
             Assert.Equal(0, resolver.ResolveCalls);
         }
         finally
@@ -4733,12 +4732,14 @@ public class LibraryBodyIndexTests
 
         long AllocatedFor(string path)
         {
-            long before = GC.GetAllocatedBytesForCurrentThread();
+            long before =
+                GC.GetAllocatedBytesForCurrentThread();
             _ = LibraryBodyIndex.Open(
                 path,
                 LibraryBodyAnalysisFeatures.MethodEvidence,
                 resolver);
-            return GC.GetAllocatedBytesForCurrentThread() - before;
+            return GC.GetAllocatedBytesForCurrentThread()
+                - before;
         }
     }
 
