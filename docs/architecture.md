@@ -320,7 +320,9 @@ Wrapper metadata uses the same bounded extracted-nuspec path. Bare effective dis
 every discoverable section, so it performs the same Manifest verification as targeted discovery;
 an explicit section selection constrains both discovery output and its producers.
 `RidPackageVerifierTests` and `PackageInspectorMetadataSourceTests` gate these local, remote, and
-acquired distinctions.
+acquired distinctions. Verification deduplicates case-insensitive package ids, probes at most 64
+distinct coordinates, and snapshots a bounded local sibling directory once; mappings beyond those
+limits and candidates that race with the snapshot remain `unknown`.
 Availability is not retained in the payload index; each explicit request evaluates the current
 source policy and available cache replicas. Redirect and RID package ids must satisfy the canonical
 NuGet id grammar before cache or network use; probe versions compare by normalized NuGet identity,

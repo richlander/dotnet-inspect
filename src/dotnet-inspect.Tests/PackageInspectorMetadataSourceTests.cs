@@ -599,6 +599,45 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.True(Assert.Single(result.RuntimeIdentifierPackages).Exists);
     }
 
+    [Fact]
+    public async Task MarkAcquiredRidPackages_AppliesOneCoordinateToDuplicateMappings()
+    {
+        WriteNuspec(
+            _root,
+            "Wrapper.Package.any",
+            "1.0.0");
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "any",
+                    PackageId = "Wrapper.Package.any",
+                },
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "portable",
+                    PackageId = "wrapper.package.ANY",
+                },
+            ],
+        };
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: "Wrapper.Package.any",
+            Version: "1.0.0");
+
+        await PackageInspector.MarkAcquiredRidPackagesAsync(
+            result,
+            resolution,
+            wrapperVersion: "1.0.0");
+
+        Assert.All(
+            result.RuntimeIdentifierPackages,
+            package => Assert.True(package.Exists));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("Wrong.Payload.Identity")]

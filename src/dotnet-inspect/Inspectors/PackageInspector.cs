@@ -316,7 +316,7 @@ internal static class PackageInspector
         if (result.RuntimeIdentifierPackages is not { Count: > 0 })
             return;
 
-        IEnumerable<(
+        List<(
             string ExtractPath,
             string? PackageName,
             string? Version)> acquiredPackages =
@@ -329,19 +329,22 @@ internal static class PackageInspector
                 .Append((
                     resolution.ExtractPath,
                     resolution.PackageName,
-                    resolution.Version));
-        foreach (RidPackageReference package in result.RuntimeIdentifierPackages)
+                    resolution.Version))
+                .ToList();
+        HashSet<string> requestedPackageIds = result.RuntimeIdentifierPackages
+            .Select(package => package.PackageId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> presentPackageIds =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var acquired in acquiredPackages)
         {
-            var acquired = acquiredPackages.FirstOrDefault(acquired =>
-                string.Equals(
-                    package.PackageId,
-                    acquired.PackageName,
-                    StringComparison.OrdinalIgnoreCase)
-                && VersionsEqual(
-                    wrapperVersion,
-                    acquired.Version));
             if (acquired.PackageName is not null
                 && acquired.Version is not null
+                && requestedPackageIds.Contains(acquired.PackageName)
+                && VersionsEqual(
+                    wrapperVersion,
+                    acquired.Version)
                 && (await PackageExtractor.ProbeExtractedPackageNuspecAsync(
                     acquired.ExtractPath,
                     acquired.PackageName,
@@ -349,8 +352,14 @@ internal static class PackageInspector
                     log).ConfigureAwait(false)).Status
                 == NuspecProbeStatus.Present)
             {
-                package.Exists = true;
+                presentPackageIds.Add(acquired.PackageName);
             }
+        }
+
+        foreach (RidPackageReference package in result.RuntimeIdentifierPackages)
+        {
+            if (presentPackageIds.Contains(package.PackageId))
+                package.Exists = true;
         }
     }
 
