@@ -2151,9 +2151,6 @@ public sealed class StructuringPass : IIrPass
         {
             return true;
         }
-        if (target <= siblingStart)
-            return false;
-
         if (continueTarget is { } head
             && IsLeaveRetryLoopHead(ctx, head)
             && TryClonePastRegionTerminator(ctx, target, out var retryBody)
