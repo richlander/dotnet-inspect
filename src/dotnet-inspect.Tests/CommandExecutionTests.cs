@@ -17802,6 +17802,100 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task Package_JsonSelectedFieldDiagnosticsUseSelectedSection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonSelectedFieldEvidence",
+            "README.md",
+            "# Package",
+            extraNuspecMetadata:
+            """
+            <repository type="git" url="https://example.invalid/repository" />
+            """);
+        try
+        {
+            var (statusExit, statusOutput, statusError) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Signature",
+                "--json",
+                "--fields",
+                "Status",
+                "--tips",
+                "q");
+            var (repositoryExit, repositoryOutput, repositoryError) =
+                await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "-S",
+                    "Signature",
+                    "--json",
+                    "--fields",
+                    "Repository",
+                    "--tips",
+                    "q");
+
+            Assert.Equal(0, statusExit);
+            Assert.Empty(statusError);
+            using var _ = JsonDocument.Parse(statusOutput);
+            Assert.Contains(
+                "\"status_message\"",
+                statusOutput,
+                StringComparison.Ordinal);
+
+            Assert.Equal(0, repositoryExit);
+            using var __ = JsonDocument.Parse(repositoryOutput);
+            Assert.Contains(
+                "\"repository\": \"https://example.invalid/repository\"",
+                repositoryOutput,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "1 field has no data: Repository",
+                repositoryError,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_JsonRejectsTableColumnAsField()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Dependencies",
+                "--json",
+                "--fields",
+                "Version",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "field 'Version' not found",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "No fields matched projection: Version",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("--table")]
     [InlineData("--tsv")]
