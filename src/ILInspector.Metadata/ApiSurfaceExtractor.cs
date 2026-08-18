@@ -2047,15 +2047,24 @@ public static class ApiSurfaceExtractor
     private static bool HasExplicitInterfaceImplementationShape(
         MethodDefinition method)
     {
-        const MethodAttributes shape =
-            MethodAttributes.Private
-            | MethodAttributes.Final
+        MethodAttributes attributes = method.Attributes;
+        if ((attributes & MethodAttributes.MemberAccessMask)
+            != MethodAttributes.Private)
+        {
+            return false;
+        }
+        if ((attributes & MethodAttributes.Static) != 0)
+            return (attributes & MethodAttributes.Abstract) == 0;
+
+        const MethodAttributes instanceShape =
+            MethodAttributes.Final
             | MethodAttributes.Virtual;
-        const MethodAttributes mask =
-            MethodAttributes.MemberAccessMask
-            | MethodAttributes.Final
-            | MethodAttributes.Virtual;
-        return (method.Attributes & mask) == shape;
+        const MethodAttributes instanceMask =
+            MethodAttributes.Final
+            | MethodAttributes.Virtual
+            | MethodAttributes.Static
+            | MethodAttributes.Abstract;
+        return (attributes & instanceMask) == instanceShape;
     }
 
     private static ApiExplicitInterfaceProvenance?

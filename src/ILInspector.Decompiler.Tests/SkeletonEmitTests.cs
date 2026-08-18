@@ -1,6 +1,9 @@
 using ILInspector.DecompilerHarness;
+using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -160,6 +163,42 @@ public class SkeletonEmitTests
     [Fact]
     public void SkeletonRetainsSealedCrossAssemblyPropertyOverride()
     {
+        using (var stream = File.OpenRead(
+            typeof(CrossAssemblyAccessorCompileBackFixture)
+                .Assembly.Location))
+        using (var peReader = new PEReader(stream))
+        {
+            var reader = peReader.GetMetadataReader();
+            var surface = ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll: true);
+            var type = Assert.Single(
+                surface.Types,
+                type => type.FullName ==
+                    "ILInspector.Decompiler.Tests."
+                    + "CrossAssemblyAccessorCompileBackFixture");
+            var property = Assert.Single(
+                type.Members,
+                member => member.Kind == "property"
+                    && member.Name == "Value");
+            Assert.Null(property.ExplicitInterfaceProvenance);
+
+            MethodDefinitionHandle getter = reader
+                .TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(type => reader.GetString(type.Name)
+                    == nameof(CrossAssemblyAccessorCompileBackFixture))
+                .GetProperties()
+                .Select(reader.GetPropertyDefinition)
+                .Single(property => reader.GetString(property.Name) == "Value")
+                .GetAccessors()
+                .Getter;
+            Assert.Null(
+                FidelityCheck.ExplicitInterfaceProvenance(
+                    peReader,
+                    getter));
+        }
+
         var result = Assert.Single(FidelityCheck.Evaluate(
             typeof(CrossAssemblyAccessorCompileBackFixture).Assembly.Location,
             type => type ==

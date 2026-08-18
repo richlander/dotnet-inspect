@@ -1412,8 +1412,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
                     | MethodAttributes.Final
                     | MethodAttributes.Virtual
                     | MethodAttributes.NewSlot
-                    | MethodAttributes.SpecialName
-                    | MethodAttributes.Abstract,
+                    | MethodAttributes.SpecialName,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("get_Value"),
                 signature,

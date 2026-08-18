@@ -491,6 +491,21 @@ public class ApiMemberIdentityTests
             staticAbstract.Members,
             member => member.Name == "get_Value");
 
+        var staticExplicit = surface.Types.Single(
+            type => type.Name.EndsWith(
+                $".{nameof(StaticExplicitAccessorFixture)}",
+                StringComparison.Ordinal));
+        var staticExplicitProperty = Assert.Single(
+            staticExplicit.Members,
+            member => member.Kind == "property"
+                && member.Name.EndsWith(
+                    ".ExplicitValue",
+                    StringComparison.Ordinal));
+        Assert.True(staticExplicitProperty.IsStatic);
+        Assert.Equal("private", staticExplicitProperty.Accessibility);
+        Assert.NotNull(
+            staticExplicitProperty.ExplicitInterfaceProvenance);
+
         var genericExplicit = surface.Types.Single(
             type => type.Name.EndsWith(
                 $".{nameof(GenericExplicitPropertyFixture)}",
@@ -647,6 +662,17 @@ public class ApiMemberIdentityTests
         IStaticAbstractAccessorFixture
     {
         public static int Value => 42;
+    }
+
+    interface IStaticExplicitAccessorFixture
+    {
+        static abstract int ExplicitValue { get; }
+    }
+
+    sealed class StaticExplicitAccessorFixture :
+        IStaticExplicitAccessorFixture
+    {
+        static int IStaticExplicitAccessorFixture.ExplicitValue => 42;
     }
 
     interface IGenericExplicitPropertyFixture<T>

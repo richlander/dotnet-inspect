@@ -4696,12 +4696,15 @@ static class FidelityCheck
                         ? "sealed override "
                         : "override "
                     : "";
+        string emittedName = isExplicit
+            ? ExplicitMemberName(
+                metadataName,
+                explicitProvenance,
+                explicitAlias)
+            : Identifier(metadataName);
         sb.AppendLine(
             $"{pad}{accessibilityPrefix}{modifier}event {eventType} "
-                + $"{ExplicitMemberName(
-                    metadataName,
-                    explicitProvenance,
-                    explicitAlias)} "
+                + $"{emittedName} "
                 + $"{{{addBody}{removeBody} }}");
     }
 
@@ -5428,7 +5431,8 @@ static class FidelityCheck
         if (interfaceName is null)
         {
             throw new CompileBackPlanningException(
-                "explicit-interface-name-unavailable");
+                "explicit-interface-name-unavailable: "
+                + metadataName);
         }
         interfaceName = EscapeMetadataTypeName(
             RemoveSourceAlias(interfaceName));
@@ -6395,15 +6399,52 @@ static class FidelityCheck
             return false;
         }
 
-        HashSet<ApiExplicitInterfaceDeclarationContext>
-            expectedDeclarations =
-                [.. expected.Declarations];
-        HashSet<ApiExplicitInterfaceDeclarationContext>
-            actualDeclarations =
-                [.. actual.Declarations];
-        return expectedDeclarations.SetEquals(
-            actualDeclarations);
+        if (expected.Declarations.Length
+            != actual.Declarations.Length)
+        {
+            return false;
+        }
+
+        var unmatched = actual.Declarations.ToList();
+        foreach (ApiExplicitInterfaceDeclarationContext declaration
+            in expected.Declarations)
+        {
+            int match = unmatched.FindIndex(candidate =>
+                ExplicitInterfaceDeclarationEquals(
+                    declaration,
+                    candidate));
+            if (match < 0)
+                return false;
+            unmatched.RemoveAt(match);
+        }
+        return true;
     }
+
+    static bool ExplicitInterfaceDeclarationEquals(
+        ApiExplicitInterfaceDeclarationContext expected,
+        ApiExplicitInterfaceDeclarationContext actual)
+    {
+        if (expected.Kind != actual.Kind
+            || expected.DefinitionName != actual.DefinitionName
+            || expected.InterfaceTypeName != actual.InterfaceTypeName)
+        {
+            return false;
+        }
+        if (expected.Assembly == actual.Assembly)
+            return true;
+        return expected.Assembly is { } expectedAssembly
+            && actual.Assembly is { } actualAssembly
+            && IsPlatformAssembly(expectedAssembly.Name)
+            && IsPlatformAssembly(actualAssembly.Name);
+    }
+
+    static bool IsPlatformAssembly(string name)
+        => name is "mscorlib" or "netstandard" or "System"
+            || name.StartsWith("System.", StringComparison.Ordinal)
+            || name == "Microsoft.CSharp"
+            || name.StartsWith(
+                "Microsoft.VisualBasic",
+                StringComparison.Ordinal);
 
     static string CorrespondenceMethodName(
         string metadataName,

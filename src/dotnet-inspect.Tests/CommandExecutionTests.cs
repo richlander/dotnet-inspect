@@ -3212,8 +3212,12 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("Parse", output);
-        Assert.Contains("Return Type", output);
+        Assert.Contains("Digest", output);
+        Assert.Contains("Signature", output);
         Assert.Contains("int", output);
+        Assert.DoesNotContain(
+            "explicit-interface-implementation",
+            output);
         Assert.Empty(error);
     }
 
