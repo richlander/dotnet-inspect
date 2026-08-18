@@ -281,7 +281,6 @@ public class MarkoutRowContainmentTests
         "OptimizationOpportunityRow.DirectSites",
         "OptimizationOpportunityRow.Evidence",
         "OptimizationOpportunityRow.Finding",
-        "OptimizationOpportunityRow.Fix",
         "OptimizationOpportunityRow.IL",
         "OptimizationOpportunityRow.Loop",
         "OptimizationOpportunityRow.Member",
