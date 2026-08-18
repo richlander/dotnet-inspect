@@ -2944,8 +2944,7 @@ internal static class ProgramSupport
                     "library",
                     StringComparison.Ordinal)
                     && !supersededIds.Contains(candidate.Id))
-                .GroupBy(static candidate =>
-                    candidate.ModuleVersionId)
+                .GroupBy(GetLibraryBuildKey)
                 .ToArray();
             var otherCandidates = coordinateCandidates
                 .Where(static candidate =>
@@ -2999,8 +2998,7 @@ internal static class ProgramSupport
                 candidate.Source,
                 "library",
                 StringComparison.Ordinal))
-            .GroupBy(static candidate =>
-                candidate.ModuleVersionId)
+            .GroupBy(GetLibraryBuildKey)
             .ToList();
         var superseded = new List<AllocationCandidate>();
 
@@ -3009,7 +3007,8 @@ internal static class ProgramSupport
         {
             int matchingLibrary = libraryGroups.FindIndex(
                 libraryGroup =>
-                    libraryGroup.Key == triageGroup.Key);
+                    libraryGroup.Key.ModuleVersionId ==
+                        triageGroup.Key);
             if (matchingLibrary < 0)
                 continue;
 
@@ -3033,6 +3032,22 @@ internal static class ProgramSupport
 
         return superseded;
     }
+
+    static LibraryBuildKey GetLibraryBuildKey(
+        AllocationCandidate candidate)
+    {
+        if (candidate.ModuleVersionId is Guid moduleVersionId)
+            return new(moduleVersionId, "");
+
+        string path = Path.GetFullPath(candidate.LibraryPath);
+        if (OperatingSystem.IsWindows())
+            path = path.ToUpperInvariant();
+        return new(null, path);
+    }
+
+    readonly record struct LibraryBuildKey(
+        Guid? ModuleVersionId,
+        string UnknownInputPath);
 
     readonly record struct TypeConfirmationSitePlan(
         IReadOnlyList<AllocationCandidate> Candidates,

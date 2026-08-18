@@ -441,6 +441,150 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_DoesNotCollapseUnknownLibraryInputs()
+    {
+        var firstLibrary = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            libraryPath: "/tmp/first/Fixture.dll");
+        var secondLibrary = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            libraryPath: "/tmp/second/Fixture.dll");
+        var triage = CandidateWithType(
+            3,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage");
+        var result = new CorrelationResult();
+        result.Candidates.Add(firstLibrary);
+        result.Candidates.Add(secondLibrary);
+        result.Candidates.Add(triage);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.False(firstLibrary.SupersededByTriage);
+        Assert.False(secondLibrary.SupersededByTriage);
+        Assert.True(firstLibrary.TypeConfirmed);
+        Assert.True(secondLibrary.TypeConfirmed);
+        Assert.True(triage.TypeConfirmed);
+        Assert.Equal(3, triage.TypeConfirmedSiteCount);
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_CollapsesRepeatedUnknownLibraryInput()
+    {
+        var firstLibraryRow = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            libraryPath: "/tmp/shared/Fixture.dll");
+        var secondLibraryRow = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            libraryPath: "/tmp/shared/Fixture.dll");
+        var triage = CandidateWithType(
+            3,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage");
+        var result = new CorrelationResult();
+        result.Candidates.Add(firstLibraryRow);
+        result.Candidates.Add(secondLibraryRow);
+        result.Candidates.Add(triage);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(firstLibraryRow.SupersededByTriage);
+        Assert.True(secondLibraryRow.SupersededByTriage);
+        Assert.True(triage.TypeConfirmed);
+        Assert.Equal(1, triage.TypeConfirmedSiteCount);
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_CollapsesKnownBuildAcrossInputPaths()
+    {
+        Guid moduleVersionId = Guid.Parse(
+            "11111111-1111-1111-1111-111111111111");
+        var firstLibraryRow = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            moduleVersionId: moduleVersionId,
+            libraryPath: "/tmp/first/Fixture.dll");
+        var secondLibraryRow = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            moduleVersionId: moduleVersionId,
+            libraryPath: "/tmp/second/Fixture.dll");
+        var triage = CandidateWithType(
+            3,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage");
+        var result = new CorrelationResult();
+        result.Candidates.Add(firstLibraryRow);
+        result.Candidates.Add(secondLibraryRow);
+        result.Candidates.Add(triage);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(firstLibraryRow.SupersededByTriage);
+        Assert.True(secondLibraryRow.SupersededByTriage);
+        Assert.True(triage.TypeConfirmed);
+        Assert.Equal(1, triage.TypeConfirmedSiteCount);
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_KnownTriageDoesNotCollapseUnknownLibrary()
+    {
+        var library = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library");
+        var triage = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage",
+            moduleVersionId: Guid.Parse(
+                "11111111-1111-1111-1111-111111111111"));
+        var result = new CorrelationResult();
+        result.Candidates.Add(library);
+        result.Candidates.Add(triage);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.False(library.SupersededByTriage);
+        Assert.True(library.TypeConfirmed);
+        Assert.True(triage.TypeConfirmed);
+        Assert.Equal(2, triage.TypeConfirmedSiteCount);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_CollapsesOnlyMatchingTriageModuleVersion()
     {
         Guid firstMvid = Guid.Parse(
@@ -794,7 +938,8 @@ public class TypeConfirmationTests
         string assemblyName = "Fixture",
         int methodToken = 0x06000001,
         int ilOffset = 0x0010,
-        Guid? moduleVersionId = null)
+        Guid? moduleVersionId = null,
+        string libraryPath = "/tmp/Fixture.dll")
     {
         string methodKey = method[..method.IndexOf('(')];
         int lastDot = methodKey.LastIndexOf('.');
@@ -802,7 +947,7 @@ public class TypeConfirmationTests
         return new(
             id,
             source,
-            "/tmp/Fixture.dll",
+            libraryPath,
             assemblyName,
             moduleVersionId,
             methodToken,
