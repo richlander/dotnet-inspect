@@ -14405,7 +14405,9 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "queries requested    Assembly references, Metadata image",
             error);
-        Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, error);
+        Assert.DoesNotContain(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            error);
         Assert.DoesNotContain("body index", error);
         Assert.DoesNotContain("drill map", error);
     }
@@ -16544,11 +16546,11 @@ public partial class CommandExecutionTests
         // would only make the test slower, never wrong.
         string[] bodyIndexScanners =
         [
-            LibrarySections.ScannerOptimizationOpportunities,
             LibrarySections.ScannerResourceTriage,
         ];
         InspectionQueryDefinition[] bodyIndexQueries =
         [
+            OptimizationOpportunitiesQuery.Definition,
             TopLeverageQuery.Definition,
             UnsafeEvidenceQuery.Definition,
         ];

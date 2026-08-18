@@ -2658,6 +2658,15 @@ public class LibraryCommand
                    || section.Equals("Async Methods", StringComparison.OrdinalIgnoreCase);
         }
 
+        if (failureSection.Equals(
+                SectionNames.PerformanceTriage,
+                StringComparison.Ordinal))
+        {
+            return PerformanceKinds.Sections.Contains(
+                section,
+                StringComparer.OrdinalIgnoreCase);
+        }
+
         if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
         {
             return failureSection is "Extension Methods"

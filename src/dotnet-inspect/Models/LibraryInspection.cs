@@ -468,6 +468,29 @@ public class LibraryInspection
     [JsonIgnore]
     public List<OptimizationOpportunitySummary>? OptimizationOpportunities { get; set; }
 
+    private OptimizationOpportunitiesResult?
+        _optimizationOpportunitiesQueryResult;
+
+    /// <summary>Typed whole-assembly optimization evidence.</summary>
+    [JsonIgnore]
+    public OptimizationOpportunitiesResult?
+        OptimizationOpportunitiesQueryResult
+    {
+        get => _optimizationOpportunitiesQueryResult;
+        set
+        {
+            _optimizationOpportunitiesQueryResult = value;
+            ResetFindingProjectionCaches();
+        }
+    }
+
+    /// <summary>
+    /// CLI-filtered and ranked typed opportunities retained through presentation.
+    /// </summary>
+    [JsonIgnore]
+    public ImmutableArray<OptimizationOpportunity>
+        PerformanceTriageOpportunities { get; set; } = [];
+
     /// <summary>
     /// Nested performance projection: the optimization opportunities bucketed by kind, mirroring
     /// the kind-scoped sections and the il-offset nested model. Null (absent) when the scan did
@@ -752,6 +775,14 @@ public class LibraryInspection
                     SectionNames.TopLeverage,
                     TopLeverageQuery.Definition.Name,
                     leverageFailure.Error.Message));
+            }
+            if (OptimizationOpportunitiesQueryResult
+                is OptimizationOpportunitiesResult.Failed optimizationFailure)
+            {
+                failures.Add(new LibraryInspectionFailureJson(
+                    SectionNames.PerformanceTriage,
+                    OptimizationOpportunitiesQuery.Definition.Name,
+                    optimizationFailure.Error.Message));
             }
             AddFailure(failures, "Extension Methods", ExtensionMemberInspection);
             AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);

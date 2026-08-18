@@ -22,7 +22,6 @@ public static class LibrarySections
     // Scanner keys identify data collection steps in LibraryMetadataService.
     // Every key here must be registered in CreateScannerRegistry and declared by at least one
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
-    public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
     public const string ScannerResourceTriage = "ResourceTriage";
     public const string ScannerBodyShapes = "BodyShapes";
 
@@ -132,14 +131,30 @@ public static class LibrarySections
                 TopLeverageQuery.Definition,
                 HasMethodBodies)
             .Add<BodyShapes>(HasMethodBodies)
-            .Add<PerformanceBoxing>(HasMethodBodies)
-            .Add<PerformanceArrays>(HasMethodBodies)
-            .Add<PerformanceClosures>(HasMethodBodies)
-            .Add<PerformanceEnumerators>(HasMethodBodies)
-            .Add<PerformanceLoops>(HasMethodBodies)
-            .Add<PerformanceHotspots>(HasMethodBodies)
-            .Add<PerformanceAsync>(HasMethodBodies)
-            .Add<PerformanceOther>(HasMethodBodies)
+            .Add<PerformanceBoxing>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceArrays>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceClosures>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceEnumerators>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceLoops>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceHotspots>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceAsync>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
+            .Add<PerformanceOther>(
+                OptimizationOpportunitiesQuery.Definition,
+                HasMethodBodies)
             .Add<ArrayPoolEscapes>(HasMethodBodies)
             .Add<PInvokeMethods>(ClassifiedMethodsQuery.Definition)
             .Add<AsyncMethods>(ClassifiedMethodsQuery.Definition)
@@ -199,9 +214,6 @@ public static class LibrarySections
     public static ScannerRegistry CreateScannerRegistry()
     {
         return new ScannerRegistry()
-            .Add(ScannerOptimizationOpportunities, SectionCost.Unbounded, ctx =>
-                ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
-                    ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
             .Add(ScannerResourceTriage, SectionCost.Unbounded, ctx =>
                 ctx.Model.Apply(LibraryMetadataService.ScanResourceTriage(
                     ctx.BodyIndex,
@@ -346,6 +358,9 @@ public static class LibrarySections
                     ctx.MetadataContext?.HasMetadata != false,
                     ctx.BodyIndex))
             .Add(
+                OptimizationOpportunitiesQuery.Definition,
+                ExecuteOptimizationOpportunitiesQuery)
+            .Add(
                 TopLeverageQuery.Definition,
                 ExecuteTopLeverageQuery)
             .AddSourceLinkQueries(RequireSourceLinkContext);
@@ -383,6 +398,40 @@ public static class LibrarySections
         if (result is TopLeverageResult.Available)
             _ = context.DrillMap();
         return result;
+    }
+
+    internal static OptimizationOpportunitiesResult
+        ExecuteOptimizationOpportunitiesQuery(ScannerContext context)
+        => ExecuteOptimizationOpportunitiesQuery(
+            context.MetadataContext?.HasMetadata != false,
+            context.BodyIndex,
+            context.Model.PerformanceTriageOptions.IncludesAllocationFanout);
+
+    internal static OptimizationOpportunitiesResult
+        ExecuteOptimizationOpportunitiesQuery(
+            bool hasMetadata,
+            Func<ILInspector.Analysis.LibraryBodyIndex> acquireIndex,
+            bool includeAllocationFanout)
+    {
+        ArgumentNullException.ThrowIfNull(acquireIndex);
+
+        if (!hasMetadata)
+            return new OptimizationOpportunitiesResult.NoMetadata();
+
+        try
+        {
+            return OptimizationOpportunitiesQuery.Execute(
+                acquireIndex(),
+                includeAllocationFanout);
+        }
+        catch (CostDeclarationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new OptimizationOpportunitiesResult.Failed(ex);
+        }
     }
 
     internal static TopLeverageResult ExecuteTopLeverageQuery(
@@ -832,15 +881,16 @@ public static class LibrarySections
     // Registration supplies the pre-scan method-body applicability gate; these predicates report
     // actual post-scan row effectiveness.
     private static bool HasPerformanceKind(LibraryInspection model, string section)
-        => model.OptimizationOpportunities is { } rows
-           && rows.Any(o => PerformanceKinds.SectionForShape(o.Shape) == section);
+        => model.PerformanceTriageOpportunities.Any(
+            opportunity =>
+                PerformanceKinds.SectionForShape(opportunity.Shape) == section);
 
     public sealed class PerformanceBoxing : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceBoxing;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceBoxing);
     }
@@ -850,7 +900,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceArrays;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceArrays);
     }
@@ -860,7 +910,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceClosures;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceClosures);
     }
@@ -869,7 +919,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceEnumerators;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceEnumerators);
     }
@@ -878,7 +928,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceLoops;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceLoops);
     }
@@ -887,7 +937,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceHotspots;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceHotspots);
     }
@@ -896,7 +946,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceAsync;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceAsync);
     }
@@ -905,7 +955,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.PerformanceOther;
         public static bool IsExpensive => false;
-        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceOther);
     }

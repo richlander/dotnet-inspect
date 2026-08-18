@@ -72,13 +72,14 @@ The library catalog calls `WithoutComputedPoles`; it does not expose computed
 
 ```csharp
 registry.Add(
-    ScannerOptimizationOpportunities,
+    ScannerResourceTriage,
     SectionCost.Unbounded,
-    ctx => ctx.Model.OptimizationOpportunities =
-        LibraryMetadataService.ScanOptimizationOpportunities(
+    ctx => ctx.Model.Apply(
+        LibraryMetadataService.ScanResourceTriage(
             ctx.BodyIndex,
+            ctx.DrillMap,
             ctx.AssemblyPath,
-            ctx.Logger));
+            ctx.Logger)));
 ```
 
 `AddBundle` registers prerequisite closure without adding work or declaring a
@@ -99,9 +100,14 @@ and retains raw unsafe evidence through the Finding and presentation boundary.
 `MethodLeverage`, generated-framework evidence, and Analysis diagnostics until
 the presentation boundary. The CLI joins its API-surface drill map for legacy
 JSON and row selectors; the query does not own visibility or selector policy.
+The eight Performance sections share `OptimizationOpportunitiesQuery`, which
+retains raw `OptimizationOpportunity`, generated-framework `TypeRef` identity,
+and Analysis diagnostics. The CLI owns generated-code suppression, row
+filtering, ranking, kind bucketing, MVID-preserving compatibility JSON, and
+presentation containment.
 
-The residual `ScannerRegistry` now contains only the unbounded Analysis-backed
-Performance and Resource Triage producers.
+The residual `ScannerRegistry` now contains only Resource Triage and Body
+Shapes.
 
 The registry rejects:
 

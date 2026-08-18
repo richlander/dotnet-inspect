@@ -10,6 +10,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using Markout;
@@ -534,12 +535,9 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void ScanOptimizationOpportunities_PreservesGeneratedGenericObjectBox()
+    public void OptimizationOpportunitiesQuery_PreservesGeneratedGenericObjectBox()
     {
-        var rows = LibraryMetadataService.ScanOptimizationOpportunities(
-            () => LibraryBodyIndex.Open(typeof(OutputFormatterTests).Assembly.Location),
-            typeof(OutputFormatterTests).Assembly.Location,
-            new VerboseLogger(false));
+        var rows = QueryOptimizationOpportunities();
 
         var row = Assert.Single(rows!, row =>
             row.Member.Contains(
@@ -552,10 +550,9 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void ScanOptimizationOpportunities_OrdersByTriagePriority()
+    public void OptimizationOpportunitiesQuery_OrdersByTriagePriority()
     {
-        var rows = LibraryMetadataService.ScanOptimizationOpportunities(
-            () => LibraryBodyIndex.Open(typeof(OutputFormatterTests).Assembly.Location), typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
+        var rows = QueryOptimizationOpportunities();
 
         Assert.NotNull(rows);
         Assert.NotEmpty(rows);
@@ -647,34 +644,26 @@ public class OutputFormatterTests
     {
         var view = new LibraryInspectionView(new LibraryInspection
         {
-            OptimizationOpportunities =
+            PerformanceTriageOpportunities =
             [
-                new OptimizationOpportunitySummary
-                {
-                    Member = "T.Algorithmic()",
-                    Shape = "string-build-in-loop",
-                    Evidence = "string += in a loop",
-                    Priority = "high",
-                    Confidence = "high",
-                    Loop = "loop",
-                },
-                new OptimizationOpportunitySummary
-                {
-                    Member = "T.Boxing()",
-                    Shape = "box-value-type",
-                    Evidence = "box int",
-                    Priority = "medium",
-                    Confidence = "high",
-                    Loop = "loop",
-                },
-                new OptimizationOpportunitySummary
-                {
-                    Member = "T.Array()",
-                    Shape = "small-array",
-                    Evidence = "newarr",
-                    Priority = "low",
-                    Confidence = "medium",
-                },
+                Opp(
+                    "Algorithmic",
+                    inLoop: true,
+                    confidence: "high",
+                    rootReach: 1,
+                    shape: "string-build-in-loop"),
+                Opp(
+                    "Boxing",
+                    inLoop: true,
+                    confidence: "high",
+                    rootReach: 1,
+                    shape: "box-value-type"),
+                Opp(
+                    "Array",
+                    inLoop: false,
+                    confidence: "medium",
+                    rootReach: 1,
+                    shape: "small-array"),
             ],
         });
 
@@ -682,9 +671,9 @@ public class OutputFormatterTests
 
         Assert.Equal(
             [
-                MarkoutInline.Code("T.Algorithmic()"),
-                MarkoutInline.Code("T.Boxing()"),
-                MarkoutInline.Code("T.Array()"),
+                MarkoutInline.Code("Ns.Type.Algorithmic()"),
+                MarkoutInline.Code("Ns.Type.Boxing()"),
+                MarkoutInline.Code("Ns.Type.Array()"),
             ],
             rows.Select(row => row.Member));
         Assert.Equal(
@@ -1020,6 +1009,27 @@ public class OutputFormatterTests
         };
     }
 
+    static List<OptimizationOpportunitySummary>? QueryOptimizationOpportunities(
+        PerformanceTriageOptions? options = null)
+    {
+        string path = typeof(OutputFormatterTests).Assembly.Location;
+        var result = OptimizationOpportunitiesQuery.Execute(
+            LibraryBodyIndex.Open(path),
+            includeAllocationFanout:
+                options?.IncludesAllocationFanout == true);
+        var inspection = new LibraryInspection
+        {
+            PerformanceTriageOptions =
+                options ?? PerformanceTriageOptions.Default,
+        };
+        LibraryMetadataService.ApplyOptimizationOpportunitiesResult(
+            path,
+            inspection,
+            new VerboseLogger(false),
+            result);
+        return inspection.OptimizationOpportunities;
+    }
+
     [Fact]
     public void IteratesInLoop_TrustsSemanticMultiplicityOverStructuralInLoop()
     {
@@ -1049,10 +1059,9 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void ScanOptimizationOpportunities_SuppressesGeneratedMethodsExceptGenericObjectBox()
+    public void OptimizationOpportunitiesQuery_SuppressesGeneratedMethodsExceptGenericObjectBox()
     {
-        var rows = LibraryMetadataService.ScanOptimizationOpportunities(
-            () => LibraryBodyIndex.Open(typeof(OutputFormatterTests).Assembly.Location), typeof(OutputFormatterTests).Assembly.Location, new VerboseLogger(false));
+        var rows = QueryOptimizationOpportunities();
 
         Assert.NotNull(rows);
         Assert.NotEmpty(rows);

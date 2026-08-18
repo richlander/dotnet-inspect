@@ -488,9 +488,11 @@ public class SectionPipelineTests
         Assert.DoesNotContain(
             AssemblyContextIntegrationOpportunitiesQuery.Definition,
             detailedQueries);
-        Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerResourceTriage, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerBodyShapes, detailedScanners);
+        Assert.DoesNotContain(
+            OptimizationOpportunitiesQuery.Definition,
+            detailedQueries);
         Assert.DoesNotContain(TopLeverageQuery.Definition, detailedQueries);
     }
 
@@ -502,12 +504,15 @@ public class SectionPipelineTests
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var scanners = pipeline.GetRequiredScanners(Verbosity.Minimal, performance);
+        var queries = pipeline.GetRequiredQueries(Verbosity.Minimal, performance);
 
-        Assert.Contains(LibrarySections.ScannerOptimizationOpportunities, scanners);
         Assert.Contains(LibrarySections.ScannerResourceTriage, scanners);
         Assert.Contains(
             TopLeverageQuery.Definition,
-            pipeline.GetRequiredQueries(Verbosity.Minimal, performance));
+            queries);
+        Assert.Contains(
+            OptimizationOpportunitiesQuery.Definition,
+            queries);
 
         var decompiler = pipeline.GetCategoryMap()[SectionCategoryNames.Decompiler]
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -741,17 +746,9 @@ public class SectionPipelineTests
         var model = new LibraryInspection
         {
             AssemblyInfo = new AssemblyInfo(),
-            OptimizationOpportunities =
+            PerformanceTriageOpportunities =
             [
-                new OptimizationOpportunitySummary
-                {
-                    Member = "Some.Type.Method()",
-                    Shape = "capturing-delegate",
-                    Evidence = "delegate over a captured receiver or closure",
-                    Fix = "Each call allocates a closure delegate; a static local function with explicit state parameters avoids it.",
-                    Confidence = "high",
-                    Loop = "",
-                }
+                PerformanceOpportunity("capturing-delegate"),
             ]
         };
 
@@ -762,7 +759,7 @@ public class SectionPipelineTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section });
 
         // Having rows makes the section renderable, not automatic: it is backed by the
-        // OptimizationOpportunities scanner, which declares Cost=Unbounded, so it leaves the
+        // Optimization Opportunities query, which declares Cost=Unbounded, so it leaves the
         // -v:d ladder and is reached through -S or the @Performance door instead. Asserting both
         // directions keeps this test honest about which of the two properties it is pinning.
         Assert.DoesNotContain(section, effective);
@@ -777,16 +774,9 @@ public class SectionPipelineTests
         {
             AssemblyInfo = new AssemblyInfo(),
             HasMethodBodies = true,
-            OptimizationOpportunities =
+            PerformanceTriageOpportunities =
             [
-                new OptimizationOpportunitySummary
-                {
-                    Member = "Some.Type.Method()",
-                    Shape = "capturing-delegate",
-                    Evidence = "delegate over a captured receiver or closure",
-                    Fix = "Use a static local function.",
-                    Confidence = "high",
-                }
+                PerformanceOpportunity("capturing-delegate"),
             ]
         };
 
@@ -1714,6 +1704,7 @@ public class SectionPipelineTests
                 CustomAttributesQuery.Definition,
                 ExtensionMethodsQuery.Definition,
                 MetadataImageQuery.Definition,
+                OptimizationOpportunitiesQuery.Definition,
                 ResourcesQuery.Definition,
                 SourceAvailabilityQuery.Definition,
                 SourceIntegrityQuery.Definition,
@@ -4296,20 +4287,6 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void ProductionScannerCatchBoundary_DoesNotSwallowDeclarationViolation()
-    {
-        var registry = new ScannerRegistry()
-            .Add("cheap", SectionCost.NetworkFree, ctx =>
-                LibraryMetadataService.ScanOptimizationOpportunities(
-                    ctx.BodyIndex,
-                    ctx.AssemblyPath,
-                    ctx.Logger));
-
-        Assert.Throws<ScannerCostDeclarationException>(
-            () => registry.RunScanners(["cheap"], NullScannerContext()));
-    }
-
-    [Fact]
     public async Task ProductionQueryCatchBoundary_DoesNotSwallowDeclarationViolation()
     {
         var query = new InspectionQuery<TopLeverageResult>(
@@ -4526,7 +4503,7 @@ public class SectionPipelineTests
         };
 
         // Performance: Boxing declares no cost of its own; it is expensive only because the
-        // OptimizationOpportunities scanner behind it is. If the pipeline stopped consulting the
+        // Optimization Opportunities query behind it is. If the pipeline stopped consulting the
         // registry it would return to the -v:d ladder.
         Assert.DoesNotContain(
             SectionNames.PerformanceBoxing,
@@ -4557,10 +4534,13 @@ public class SectionPipelineTests
 
         // The scanner axis: sections that are expensive because the scan behind them is. This is
         // the family this change moved off the ladder.
-        string[] expectedBodyIndexFamily =
+        string[] expectedScannerBodyIndexFamily =
         [
             SectionNames.ArrayPoolEscapes,
             SectionNames.BodyShapes,
+        ];
+        string[] expectedQueryBodyIndexFamily =
+        [
             SectionNames.PerformanceHotspots,
             SectionNames.PerformanceArrays,
             SectionNames.PerformanceAsync,
@@ -4578,7 +4558,9 @@ public class SectionPipelineTests
             .ToList();
 
         Assert.Equal(
-            expectedBodyIndexFamily.OrderBy(name => name, StringComparer.Ordinal),
+            expectedScannerBodyIndexFamily.OrderBy(
+                name => name,
+                StringComparer.Ordinal),
             scannerAboveCheap);
 
         // The effective axis: everything the ladder will refuse to auto-render, whichever
@@ -4587,7 +4569,8 @@ public class SectionPipelineTests
         // of cost declaration crossing the boundary requires an explicit review update.
         string[] expectedAboveCheap =
         [
-            .. expectedBodyIndexFamily,
+            .. expectedScannerBodyIndexFamily,
+            .. expectedQueryBodyIndexFamily,
             SectionNames.TopLeverage,
             SectionNames.UnsafeMembers,
             .. LibraryIntegrationCatalog.CategorySections,
@@ -5151,6 +5134,150 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void OptimizationOpportunitiesQuery_RecordsAndReturnsTheBodyIndexItBuilds()
+    {
+        var registry = LibrarySections.CreateQueryRegistry();
+        var trace = new InspectionTrace();
+        using var service = SourceLinkService.OpenPrefetched(
+            typeof(SectionPipelineTests).Assembly.Location,
+            _ => { });
+        using var context = new ScannerContext
+        {
+            AssemblyPath = typeof(SectionPipelineTests).Assembly.Location,
+            Model = new LibraryInspection(),
+            Logger = new Output.VerboseLogger(false),
+            MetadataContext = service.Context,
+            BodyAnalysisFeatures =
+                Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+            Trace = trace,
+        };
+
+        InspectionQueryResults results = registry.Run(
+            [OptimizationOpportunitiesQuery.Definition],
+            context,
+            trace.RecordQueryExecution);
+
+        var available =
+            Assert.IsType<OptimizationOpportunitiesResult.Available>(
+                results.Get(OptimizationOpportunitiesQuery.Definition));
+        Assert.NotEmpty(available.Opportunities);
+        Assert.Empty(available.AllocationFanoutOpportunities);
+        var bodyIndex = Assert.Single(
+            trace.Resources,
+            resource => resource.Resource == "body index");
+        Assert.StartsWith("built in", bodyIndex.Detail.ToString());
+        Assert.Contains(
+            "OptimizationOpportunities",
+            bodyIndex.Detail.ToString());
+        Assert.DoesNotContain(
+            trace.Resources,
+            resource => resource.Resource == "drill map");
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_AllocationFanoutRemainsOptIn()
+    {
+        var index = Analysis.LibraryBodyIndex.Open(
+            typeof(SectionPipelineTests).Assembly.Location,
+            Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+
+        var ordinary =
+            Assert.IsType<OptimizationOpportunitiesResult.Available>(
+                OptimizationOpportunitiesQuery.Execute(
+                    index,
+                    includeAllocationFanout: false));
+        var fanout =
+            Assert.IsType<OptimizationOpportunitiesResult.Available>(
+                OptimizationOpportunitiesQuery.Execute(
+                    index,
+                    includeAllocationFanout: true));
+
+        Assert.Empty(ordinary.AllocationFanoutOpportunities);
+        Assert.NotEmpty(fanout.AllocationFanoutOpportunities);
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_BodyIndexFailureRemainsTyped()
+    {
+        InspectionQueryResults results = LibrarySections.CreateQueryRegistry().Run(
+            [OptimizationOpportunitiesQuery.Definition],
+            NullScannerContext());
+
+        var failed =
+            Assert.IsType<OptimizationOpportunitiesResult.Failed>(
+                results.Get(OptimizationOpportunitiesQuery.Definition));
+        Assert.IsType<InvalidOperationException>(failed.Error);
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_NoMetadata_DoesNotAcquireBodyIndex()
+    {
+        bool acquired = false;
+
+        OptimizationOpportunitiesResult result =
+            LibrarySections.ExecuteOptimizationOpportunitiesQuery(
+                hasMetadata: false,
+                () =>
+                {
+                    acquired = true;
+                    throw new InvalidOperationException("must not acquire");
+                },
+                includeAllocationFanout: false);
+
+        Assert.IsType<OptimizationOpportunitiesResult.NoMetadata>(result);
+        Assert.False(acquired);
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_FailureProjectsToPerformanceSections()
+    {
+        var inspection = new LibraryInspection();
+        var error = new IOException("body index failed");
+
+        LibraryMetadataService.ApplyOptimizationOpportunitiesResult(
+            "broken.dll",
+            inspection,
+            new Output.VerboseLogger(false),
+            new OptimizationOpportunitiesResult.Failed(error));
+
+        var failed =
+            Assert.IsType<OptimizationOpportunitiesResult.Failed>(
+                inspection.OptimizationOpportunitiesQueryResult);
+        Assert.Same(error, failed.Error);
+        var projected = Assert.Single(inspection.InspectionFailures!);
+        Assert.Equal(SectionNames.PerformanceTriage, projected.Section);
+        Assert.Equal(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            projected.Finding);
+        foreach (string section in PerformanceKinds.Sections)
+        {
+            Assert.True(LibraryCommand.FailureAffectsSection(
+                projected.Section,
+                section));
+        }
+        Assert.Empty(inspection.PerformanceTriageOpportunities);
+        Assert.Null(inspection.OptimizationOpportunities);
+    }
+
+    [Fact]
+    public void OptimizationOpportunitiesQuery_NoMetadataDoesNotProjectFailure()
+    {
+        var inspection = new LibraryInspection();
+
+        LibraryMetadataService.ApplyOptimizationOpportunitiesResult(
+            "native.dll",
+            inspection,
+            new Output.VerboseLogger(false),
+            new OptimizationOpportunitiesResult.NoMetadata());
+
+        Assert.IsType<OptimizationOpportunitiesResult.NoMetadata>(
+            inspection.OptimizationOpportunitiesQueryResult);
+        Assert.Empty(inspection.PerformanceTriageOpportunities);
+        Assert.Null(inspection.OptimizationOpportunities);
+        Assert.Null(inspection.InspectionFailures);
+    }
+
+    [Fact]
     public void TopLeverageQuery_RecordsAndReturnsTheBodyIndexItBuilds()
     {
         var registry = LibrarySections.CreateQueryRegistry();
@@ -5677,6 +5804,26 @@ public class SectionPipelineTests
         Model = new LibraryInspection(),
         Logger = new Output.VerboseLogger(false),
     };
+
+    private static Analysis.OptimizationOpportunity PerformanceOpportunity(
+        string shape)
+        => new(
+            new Analysis.MethodIdentity(
+                "Test",
+                Guid.Empty,
+                Analysis.TypeRef.Definition("Test", "Some", "Type"),
+                "Method",
+                [],
+                Analysis.TypeRef.CoreLib("System", "Void"),
+                0x06000001,
+                IsStatic: true),
+            shape,
+            "delegate over a captured receiver or closure",
+            "Use a static local function.",
+            "high",
+            InLoop: false,
+            ILOffset: 0,
+            Caveat: null);
 
     // ===== Presence flag / CanRender discovery tests =====
 
@@ -6564,6 +6711,10 @@ public class SectionPipelineTests
                     Fix = "Use a static local function.",
                     Confidence = "high"
                 }
+            ],
+            PerformanceTriageOpportunities =
+            [
+                PerformanceOpportunity("capturing-delegate"),
             ],
             PInvokeMethods = [new ClassifiedMethodSummary { MethodName = "P", DeclaringType = "T", Signature = "void P()" }],
             AsyncMethods = [new AsyncMethodSummary { MethodName = "A", DeclaringType = "T", Signature = "void A()" }],
