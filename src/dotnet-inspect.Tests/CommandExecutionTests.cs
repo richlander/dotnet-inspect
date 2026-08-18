@@ -6882,6 +6882,69 @@ public partial class CommandExecutionTests
         Assert.Contains("has no IL body", error);
     }
 
+    [Theory]
+    [InlineData("Facts,Signature", false)]
+    [InlineData("Signature,Facts", false)]
+    [InlineData("Facts,Signature", true)]
+    public async Task Member_FactsWithSignature_BodylessAccessor_PreservesSignature(
+        string sections,
+        bool json)
+    {
+        var args = new List<string>
+        {
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            sections,
+            "--tips",
+            "q"
+        };
+        if (json)
+            args.Add("--json");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Note: The selected accessor has no IL body.", error);
+        Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Facts", output, StringComparison.Ordinal);
+        if (json)
+        {
+            using var _ = JsonDocument.Parse(output);
+        }
+        else
+        {
+            Assert.Contains("## Signature", output, StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData("Facts,Calls")]
+    [InlineData("Calls,Facts")]
+    public async Task Member_FactsWithOnlyInapplicableBodySections_BodylessAccessor_FailsVisibly(
+        string sections)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            sections,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Error: The selected accessor has no IL body.", error);
+    }
+
     [Fact]
     public async Task Member_OriginalSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
     {

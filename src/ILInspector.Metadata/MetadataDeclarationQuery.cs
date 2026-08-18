@@ -267,7 +267,8 @@ public static class MetadataDeclarationQuery
                         && (!canonicalAccessorMethods.Contains(methodHandle)
                             || (!includeNonPublicMembers
                                 && hiddenAggregateAccessorMethods.Contains(methodHandle)))));
-            if ((accessorMethods.Contains(methodHandle)
+            if (((accessorMethods.Contains(methodHandle)
+                        && canonicalAccessorMethods.Contains(methodHandle))
                     || extensionPropertyImplementationMethods.Contains(methodHandle))
                 && !isRetainedImplementationAccessor)
                 continue;

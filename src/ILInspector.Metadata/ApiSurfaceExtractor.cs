@@ -713,7 +713,8 @@ public static class ApiSurfaceExtractor
                             && (!canonicalAccessorMethods.Contains(methodHandle)
                                 || (!includeAll
                                     && hiddenAggregateAccessorMethods.Contains(methodHandle)))));
-                if ((accessorMethods.Contains(methodHandle)
+                if (((accessorMethods.Contains(methodHandle)
+                            && canonicalAccessorMethods.Contains(methodHandle))
                         || extensionPropertyImplementationMethods.Contains(methodHandle))
                     && !isRetainedImplementationAccessor)
                     continue;
@@ -1410,7 +1411,8 @@ public static class ApiSurfaceExtractor
                     || (explicitInterfaceImplementationBodies.Contains(methodHandle)
                         && (!canonicalAccessorMethods.Contains(methodHandle)
                             || hiddenAggregateAccessorMethods.Contains(methodHandle))));
-            if ((accessorMethods.Contains(methodHandle)
+            if (((accessorMethods.Contains(methodHandle)
+                        && canonicalAccessorMethods.Contains(methodHandle))
                     || extensionPropertyImplementationMethods.Contains(methodHandle))
                 && !isRetainedImplementationAccessor)
                 continue;

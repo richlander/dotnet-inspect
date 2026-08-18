@@ -621,9 +621,20 @@ public static class MemberCommand
             requestedSections,
             options.OverloadIndex);
         if (!requestedSections.Contains(SectionNames.Facts)
-            || executionSections.Contains(SectionNames.Facts)
-            || executionSections.Count > 0)
+            || executionSections.Contains(SectionNames.Facts))
         {
+            return false;
+        }
+
+        bool hasOtherRenderableSection = executionSections.Count > 0
+            || ApiMemberSectionPipelines.Create(options)
+                .GetInspectionViews(apiType)
+                .Any(view => requestedSections.Contains(view.Id)
+                    && !view.Id.Equals(SectionNames.Facts, StringComparison.OrdinalIgnoreCase)
+                    && view.CanRender);
+        if (hasOtherRenderableSection)
+        {
+            CommandError.WriteNote("The selected accessor has no IL body.");
             return false;
         }
 

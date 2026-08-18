@@ -152,6 +152,88 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void NoncanonicalAssociatedMethods_AreRetainedAcrossInventoriesAndBudgets()
+    {
+        byte[] image = BuildNoncanonicalAccessorInventoryImage();
+
+        using var fullStream = new MemoryStream(image, writable: false);
+        using var fullReader = new PEReader(fullStream);
+        ApiSurface full = ApiSurfaceExtractor.Extract(fullReader);
+
+        using var summaryStream = new MemoryStream(image, writable: false);
+        using var summaryReader = new PEReader(summaryStream);
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(summaryReader);
+
+        using var queryStream = new MemoryStream(image, writable: false);
+        using var queryReader = new PEReader(queryStream);
+        MetadataReader metadata = queryReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = metadata.TypeDefinitions.Single(handle =>
+            metadata.GetString(metadata.GetTypeDefinition(handle).Name) == "Host");
+        ApiType queried = MetadataDeclarationQuery.GetTypeSurface(metadata, typeHandle);
+
+        foreach (ApiType type in new[]
+        {
+            Assert.Single(full.Types),
+            Assert.Single(summary.Types),
+            queried
+        })
+        {
+            Assert.Contains(
+                type.Members,
+                member => member is { Name: "Value", Kind: "property" });
+            Assert.Contains(
+                type.Members,
+                member => member is { Name: "Canonical", Kind: "property" });
+            Assert.Contains(
+                type.Members,
+                member => member is { Name: "Read", Kind: "method" });
+            Assert.Contains(
+                type.Members,
+                member => member is { Name: "get_Standalone", Kind: "method" });
+            Assert.Contains(
+                type.Members,
+                member => member is { Name: "set_Standalone", Kind: "method" });
+            Assert.DoesNotContain(
+                type.Members,
+                member => member is { Name: "get_Canonical", Kind: "method" });
+            Assert.Equal(3, type.Members.Count(member => member.Kind == "method"));
+        }
+
+        Assert.Equal(3, full.PublicMethodCount);
+        Assert.Equal(full.PublicMethodCount, summary.PublicMethodCount);
+
+        using var exactStream = new MemoryStream(image, writable: false);
+        using var exactReader = new PEReader(exactStream);
+        var exact = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                exactReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 1,
+                    maxMembers: 5,
+                    maxInspectionFailures: 0,
+                    maxTypeForwarders: 0,
+                    maxMetadataRows: int.MaxValue,
+                    maxRetainedTextCharacters: int.MaxValue)));
+        Assert.Equal(5, Assert.Single(exact.Surface.Types).Members.Count);
+
+        using var shortStream = new MemoryStream(image, writable: false);
+        using var shortReader = new PEReader(shortStream);
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(
+            ApiSurfaceExtractor.ExtractBounded(
+                shortReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 1,
+                    maxMembers: 4,
+                    maxInspectionFailures: 0,
+                    maxTypeForwarders: 0,
+                    maxMetadataRows: int.MaxValue,
+                    maxRetainedTextCharacters: int.MaxValue)));
+        Assert.Equal(ApiSurfaceExtractionBound.Members, exceeded.Bound);
+    }
+
+    [Fact]
     public void OneTypeForwarderShortOfTheSurfaceSize_IsAbandoned()
     {
         ApiSurface unbounded = Unbounded();
@@ -2143,6 +2225,111 @@ public sealed class ApiSurfaceExtractorBoundsTests
             MethodSemanticsAttributes.Getter,
             getter);
         return Serialize(metadata);
+    }
+
+    static byte[] BuildNoncanonicalAccessorInventoryImage()
+    {
+        var metadata = Metadata("NoncanonicalAccessorInventory");
+        TypeDefinitionHandle type = AddModuleAndPublicType(metadata, "Host");
+
+        BlobHandle getterSignature = GetterSignature();
+        MethodDefinitionHandle noncanonicalGetter = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Read"),
+            getterSignature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        MethodDefinitionHandle canonicalGetter = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_Canonical"),
+            getterSignature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("get_Standalone"),
+            getterSignature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+
+        var setterSignature = new BlobBuilder();
+        new BlobEncoder(setterSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                1,
+                returnType => returnType.Void(),
+                parameters => parameters.AddParameter().Type().Int32());
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("set_Standalone"),
+            metadata.GetOrAddBlob(setterSignature),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+
+        BlobHandle propertySignature = PropertySignature();
+        PropertyDefinitionHandle value = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("Value"),
+            propertySignature);
+        PropertyDefinitionHandle canonical = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("Canonical"),
+            propertySignature);
+        metadata.AddPropertyMap(type, value);
+        metadata.AddMethodSemantics(
+            value,
+            MethodSemanticsAttributes.Getter,
+            noncanonicalGetter);
+        metadata.AddMethodSemantics(
+            canonical,
+            MethodSemanticsAttributes.Getter,
+            canonicalGetter);
+        return Serialize(metadata);
+
+        BlobHandle GetterSignature()
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature).MethodSignature(
+                SignatureCallingConvention.Default,
+                genericParameterCount: 0,
+                isInstanceMethod: true).Parameters(
+                    0,
+                    returnType => returnType.Type().Int32(),
+                    _ => { });
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        BlobHandle PropertySignature()
+        {
+            var signature = new BlobBuilder();
+            new BlobEncoder(signature).PropertySignature(
+                isInstanceProperty: true).Parameters(
+                    0,
+                    returnType => returnType.Type().Int32(),
+                    _ => { });
+            return metadata.GetOrAddBlob(signature);
+        }
     }
 
     static byte[] BuildHugeParameterDefaultImage(int characterCount)
