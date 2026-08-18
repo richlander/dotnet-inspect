@@ -16,7 +16,7 @@ public abstract record TopLeverageResult
     /// </summary>
     public sealed record Available(
         ImmutableArray<MethodLeverage> Methods,
-        ImmutableHashSet<string> GeneratedFrameworkTypeNames,
+        ImmutableHashSet<TypeRef> GeneratedFrameworkTypes,
         ImmutableArray<AnalysisDiagnostic> Diagnostics) : TopLeverageResult;
 
     /// <summary>The image contains no managed metadata and therefore has no method bodies.</summary>
@@ -40,7 +40,7 @@ public static class TopLeverageQuery
         {
             return new TopLeverageResult.Available(
                 index.TopLeverage(int.MaxValue),
-                index.GeneratedFrameworkTypeNames.ToImmutableHashSet(StringComparer.Ordinal),
+                index.GeneratedFrameworkTypes.ToImmutableHashSet(),
                 index.Diagnostics);
         }
         catch (Exception ex)

@@ -343,7 +343,7 @@ public static partial class BrowserInspectionEngine
         (
             BrowserInspectionScope scope,
             BrowserWorkspaceParticipant participant,
-            int implementationToken
+            Analysis.CallGraphMemberResolution resolution
         ) = await ImplementationMemberAsync(
             packageId,
             version,
@@ -363,7 +363,7 @@ public static partial class BrowserInspectionEngine
                     new AssemblyContextMemberProjectionRequest(
                         typeQueryId,
                         memberName,
-                        MethodToken: implementationToken,
+                        MethodToken: resolution.BodyToken,
                         SourceDocument: true,
                         PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson)))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
@@ -736,7 +736,7 @@ public static partial class BrowserInspectionEngine
             scope.Coordinate(resolution.RequestedCoordinates[0]);
         (
             BrowserWorkspaceParticipant participant,
-            int implementationToken
+            Analysis.CallGraphMemberResolution memberResolution
         ) = ResolveImplementationMember(
             scope,
             rootCoordinate,
@@ -751,7 +751,7 @@ public static partial class BrowserInspectionEngine
             using var session = new MemberCallGraphSession(
                 group,
                 participant.Assembly,
-                implementationToken);
+                memberResolution.BodyToken);
             return session.HasCrossLibraryScope ? session.CrossLibrary() : session.Callers();
         });
 
@@ -1014,7 +1014,7 @@ public static partial class BrowserInspectionEngine
     static async Task<(
         BrowserInspectionScope Scope,
         BrowserWorkspaceParticipant Participant,
-        int MethodToken)> ImplementationMemberAsync(
+        Analysis.CallGraphMemberResolution Resolution)> ImplementationMemberAsync(
             string packageId,
             string version,
             string targetFramework,
@@ -1022,16 +1022,19 @@ public static partial class BrowserInspectionEngine
             string typeId,
             string memberName,
             string selectorKey,
-            int metadataToken)
+            int metadataToken,
+            CancellationToken cancellationToken = default)
     {
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-            packageId,
-            version,
-            targetFramework);
+            BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         (
             BrowserWorkspaceParticipant participant,
-            int methodToken
+            Analysis.CallGraphMemberResolution resolution
         ) = ResolveImplementationMember(
             scope,
             coordinate,
@@ -1040,10 +1043,12 @@ public static partial class BrowserInspectionEngine
             memberName,
             selectorKey,
             metadataToken);
-        return (scope, participant, methodToken);
+        return (scope, participant, resolution);
     }
 
-    static (BrowserWorkspaceParticipant Participant, int MethodToken)
+    static (
+        BrowserWorkspaceParticipant Participant,
+        Analysis.CallGraphMemberResolution Resolution)
         ResolveImplementationMember(
             BrowserInspectionScope scope,
             BrowserPackageCoordinate coordinate,
@@ -1091,7 +1096,7 @@ public static partial class BrowserInspectionEngine
             ?? throw new InvalidOperationException(
                 $"The implementation of '{typeId}.{memberName}' does not contain the selected "
                 + "API body.");
-        return (participant, resolution.BodyToken);
+        return (participant, resolution);
     }
 
     /// <summary>
