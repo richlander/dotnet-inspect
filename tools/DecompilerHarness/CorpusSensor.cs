@@ -539,12 +539,12 @@ internal static class CorpusSensor
     static ImmutableArray<ControlFlowCandidate> CaptureControlFlowCandidates(IrFunction function)
     {
         var ordinals = new Dictionary<(string Kind, int IlOffset), int>();
-        var localFunctionOrdinals = LocalFunctionOrdinals(function);
+        var localFunctionOwners = LocalFunctionOwners(function);
         var candidates = ImmutableArray.CreateBuilder<ControlFlowCandidate>();
         foreach (var node in function.Descendants)
         {
             string? kind = ControlFlowKind(node);
-            string? outputKey = ControlFlowOutputKey(node, kind, localFunctionOrdinals);
+            string? outputKey = ControlFlowOutputKey(node, kind, localFunctionOwners);
             if (kind is null || node.SourceOffset < 0 || outputKey is null)
                 continue;
 
@@ -564,9 +564,9 @@ internal static class CorpusSensor
         IrFunction function,
         ImmutableArray<ControlFlowCandidate> candidates)
     {
-        var localFunctionOrdinals = LocalFunctionOrdinals(function);
+        var localFunctionOwners = LocalFunctionOwners(function);
         var finalCounts = function.Descendants
-            .Select(node => ControlFlowOutputKey(node, ControlFlowKind(node), localFunctionOrdinals))
+            .Select(node => ControlFlowOutputKey(node, ControlFlowKind(node), localFunctionOwners))
             .Where(static key => key is not null)
             .GroupBy(static key => key!, StringComparer.Ordinal)
             .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
@@ -654,12 +654,12 @@ internal static class CorpusSensor
     static string? ControlFlowOutputKey(
         IrNode node,
         string? kind,
-        IReadOnlyDictionary<LocalFunctionStatement, int> localFunctionOrdinals)
+        IReadOnlyDictionary<LocalFunctionStatement, string> localFunctionOwners)
     {
         if (kind is null)
             return null;
 
-        int? localFunctionOrdinal = ContainingLocalFunctionOrdinal(node, localFunctionOrdinals);
+        string? localFunctionOwner = ContainingLocalFunctionOwner(node, localFunctionOwners);
         string targets = node switch
         {
             Branch branch => $"IL_{branch.TargetOffset:X4}",
@@ -677,7 +677,7 @@ internal static class CorpusSensor
                 source: true,
                 node.SourceOffset,
                 targets,
-                localFunctionOrdinal);
+                localFunctionOwner);
 
         var block = ContainingBlock(node);
         if (block is null)
@@ -687,23 +687,35 @@ internal static class CorpusSensor
             source: false,
             block.StartOffset,
             targets,
-            localFunctionOrdinal);
+            localFunctionOwner);
     }
 
-    static Dictionary<LocalFunctionStatement, int> LocalFunctionOrdinals(IrFunction function)
-        => function.Descendants
+    static Dictionary<LocalFunctionStatement, string> LocalFunctionOwners(IrFunction function)
+    {
+        var localFunctions = function.Descendants
             .OfType<LocalFunctionStatement>()
-            .Select(static (localFunction, ordinal) => (localFunction, ordinal))
-            .ToDictionary(static pair => pair.localFunction, static pair => pair.ordinal);
+            .ToArray();
+        var duplicate = localFunctions
+            .GroupBy(static localFunction => localFunction.Name, StringComparer.Ordinal)
+            .FirstOrDefault(static group => group.Skip(1).Any());
+        if (duplicate is not null)
+        {
+            throw new InvalidDataException(
+                $"Duplicate raised local-function owner '{duplicate.Key}'.");
+        }
+        return localFunctions.ToDictionary(
+            static localFunction => localFunction,
+            static localFunction => localFunction.Name);
+    }
 
-    static int? ContainingLocalFunctionOrdinal(
+    static string? ContainingLocalFunctionOwner(
         IrNode node,
-        IReadOnlyDictionary<LocalFunctionStatement, int> localFunctionOrdinals)
+        IReadOnlyDictionary<LocalFunctionStatement, string> localFunctionOwners)
     {
         for (IrNode? current = node.Parent; current is not null; current = current.Parent)
         {
             if (current is LocalFunctionStatement localFunction)
-                return localFunctionOrdinals[localFunction];
+                return localFunctionOwners[localFunction];
         }
         return null;
     }

@@ -1058,8 +1058,14 @@ public class CorpusSensorComparisonTests
             static site => site.OutputIdentity is not null && site.Kind == "branch");
 
         Assert.NotEqual(firstOutput.StableKey, secondOutput.StableKey);
-        Assert.Contains("@local_0", firstOutput.StableKey, StringComparison.Ordinal);
-        Assert.Contains("@local_1", secondOutput.StableKey, StringComparison.Ordinal);
+        Assert.Contains(
+            $"@local_n{System.Convert.ToHexString("QuadrantA"u8)}",
+            firstOutput.StableKey,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"@local_n{System.Convert.ToHexString("QuadrantB"u8)}",
+            secondOutput.StableKey,
+            StringComparison.Ordinal);
         var method = SnapshotMethod("NestedOwner") with
         {
             ControlFlowSites = [firstOutput, secondOutput],
@@ -1068,6 +1074,41 @@ public class CorpusSensorComparisonTests
         var restored = JsonSerializer.Deserialize<CorpusMethodSnapshot>(json);
         Assert.NotNull(restored);
         Assert.Equal(method.ControlFlowSites, restored.ControlFlowSites);
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_NestedOwnerIdentitySurvivesSiblingCoverageChange()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var baselineFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoLocalFunctionQuadrants));
+        var currentFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoLocalFunctionQuadrants));
+        Assert.NotNull(baselineFunction);
+        Assert.NotNull(currentFunction);
+
+        var baselineSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            baselineFunction,
+            IrPasses.Default
+                .Add(new RemoveLocalFunctionPass("QuadrantA"))
+                .Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var currentSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            currentFunction,
+            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var baselineOutput = Assert.Single(
+            baselineSites,
+            static site => site.OutputIdentity is not null && site.Kind == "branch");
+        var currentOutput = Assert.Single(
+            currentSites,
+            static site => site.OutputIdentity is not null && site.Kind == "branch");
+
+        Assert.Equal(baselineOutput.StableKey, currentOutput.StableKey);
     }
 
     [Fact]
@@ -2534,6 +2575,19 @@ public class CorpusSensorComparisonTests
             var block = localFunction.Body.Blocks[0];
             block.DetachChildren();
             block.Add(new Branch(block.StartOffset));
+        }
+    }
+
+    sealed class RemoveLocalFunctionPass(string name) : IIrPass
+    {
+        public string Name => "remove-local-function";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            var localFunction = Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                local => local.Name == name);
+            localFunction.Detach();
         }
     }
 

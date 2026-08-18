@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -75,11 +76,11 @@ internal static class CorpusControlFlowOutputIdentity
         bool source,
         int ilOffset,
         string targets,
-        int? localFunctionOrdinal = null)
+        string? localFunctionName = null)
     {
         if (!CorpusControlFlowSiteSnapshot.IsSupportedKind(kind)
             || ilOffset < 0
-            || localFunctionOrdinal < 0
+            || localFunctionName is { Length: 0 }
             || !IsValidTargets(kind, targets))
         {
             throw new InvalidOperationException(
@@ -88,8 +89,8 @@ internal static class CorpusControlFlowOutputIdentity
         }
 
         string marker = source ? SourceMarker : BlockMarker;
-        string owner = localFunctionOrdinal is int ordinal
-            ? $"{LocalFunctionMarker}{ordinal}"
+        string owner = localFunctionName is not null
+            ? $"{LocalFunctionMarker}n{Convert.ToHexString(Encoding.UTF8.GetBytes(localFunctionName))}"
             : "";
         return $"{kind}{marker}{ilOffset:X4}{owner}->{targets}";
     }
@@ -174,12 +175,10 @@ internal static class CorpusControlFlowOutputIdentity
         int offsetEnd = ownerStart >= 0 ? ownerStart : arrow;
         bool ownerIsValid = ownerStart < 0
             || ownerStart < arrow
-                && int.TryParse(
-                    key.AsSpan(ownerStart + LocalFunctionMarker.Length, arrow - ownerStart - LocalFunctionMarker.Length),
-                    NumberStyles.None,
-                    CultureInfo.InvariantCulture,
-                    out int localFunctionOrdinal)
-                && localFunctionOrdinal >= 0;
+                && IsValidLocalFunctionOwner(
+                    key.AsSpan(
+                        ownerStart + LocalFunctionMarker.Length,
+                        arrow - ownerStart - LocalFunctionMarker.Length));
         return offsetEnd > offsetStart
             && arrow >= offsetEnd
             && int.TryParse(
@@ -190,6 +189,26 @@ internal static class CorpusControlFlowOutputIdentity
             && ilOffset >= 0
             && ownerIsValid
             && IsValidTargets(kind, key.AsSpan(arrow + 2));
+    }
+
+    static bool IsValidLocalFunctionOwner(ReadOnlySpan<char> owner)
+    {
+        if (int.TryParse(
+                owner,
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out int legacyOrdinal))
+        {
+            return legacyOrdinal >= 0;
+        }
+        if (owner.Length < 3 || owner[0] != 'n' || (owner.Length - 1) % 2 != 0)
+            return false;
+        foreach (char digit in owner[1..])
+        {
+            if (digit is not (>= '0' and <= '9') and not (>= 'A' and <= 'F'))
+                return false;
+        }
+        return true;
     }
 
     static bool IsValidTargets(string kind, ReadOnlySpan<char> targets)

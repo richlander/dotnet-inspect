@@ -1056,10 +1056,11 @@ add to the step-4 plan:
    identity, control-flow kind, IL offset, and same-offset ordinal. Its outcome
    is output-visible: matching uses source provenance, transfer kind, and
    targets, with the owning IL block as the fallback for provenance-less
-   synthesized transfers and a stable per-host local-function ordinal when that
-   block belongs to a raised local function. Unmatched residuals receive stable
-   output-site identities. Reusing or rebuilding an equivalent retained goto is
-   neutral; reparenting is neutral when source provenance remains available. A
+   synthesized transfers and the recovered source name when that block belongs
+   to a raised local function. The name remains stable when sibling raise
+   coverage changes. Unmatched residuals receive stable output-site identities.
+   Reusing or rebuilding an equivalent retained goto is neutral; reparenting is
+   neutral when source provenance remains available. A
    provenance-less transfer is intentionally keyed to its owning IL block and
    nested owner, so cross-block and cross-local-function movement remain visible.
    Adding a printable residual is a loss. On fixed NuGet artifacts, every loss
@@ -1069,6 +1070,7 @@ add to the step-4 plan:
    `ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual`,
    `ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual`,
    `ControlFlowSiteLedger_DistinguishesNestedFunctionOwners`,
+   `ControlFlowSiteLedger_NestedOwnerIdentitySurvivesSiblingCoverageChange`,
    `Compare_ControlFlowLossCannotBeOffsetByUnrelatedGain`, and
    `Compare_NewOutputResidualIsLossAndRemovedOutputResidualIsGain`. Repo-built
    assemblies remain advisory because their IL population churns. This is the
@@ -1106,3 +1108,11 @@ add to the step-4 plan:
    leave output identities to carry exactly one target; the gates are
    `ControlFlowSiteLedger_DistinguishesNestedFunctionOwners` and
    `ControlFlowSites_RejectMultipleTargetsForSingleTargetTransfer`.
+
+   Follow-up review showed that the first owner ordinal was fail-closed but
+   coverage-dependent: adding an earlier raised sibling renumbered an unchanged
+   later owner. Replacing it with the recovered source name reclassified the
+   same 30 Roslyn identities as another 30 losses and 30 gains, again with no
+   product outcome movement. The compiler-backed
+   `ControlFlowSiteLedger_NestedOwnerIdentitySurvivesSiblingCoverageChange`
+   gate keeps the later owner's key fixed when its sibling coverage changes.

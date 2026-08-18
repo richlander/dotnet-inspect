@@ -746,7 +746,7 @@ transfer nodes by control-flow kind, IL source offset, and same-offset ordinal;
 it also records each slot's printable identity from stable source provenance,
 transfer kind, and targets. A provenance-less synthesized transfer falls back
 to its owning IL block and, inside a raised local function, that declaration's
-stable per-host ordinal. After the pipeline, an imported slot is raised only
+stable source name. After the pipeline, an imported slot is raised only
 when no equivalent residual transfer survives. A synthesized residual that does
 not correspond to an imported slot gets its own output-site identity. Rebuilding
 or reusing an equivalent goto is neutral. Reparenting is neutral when the
@@ -781,6 +781,7 @@ site-level contract. The enforcing tests are
 `ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual`,
 `ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual`,
 `ControlFlowSiteLedger_DistinguishesNestedFunctionOwners`,
+`ControlFlowSiteLedger_NestedOwnerIdentitySurvivesSiblingCoverageChange`,
 `Compare_ControlFlowLossCannotBeOffsetByUnrelatedGain`,
 `Compare_NewOutputResidualIsLossAndRemovedOutputResidualIsGain`, and the
 `Compare_ControlFlowGateFailsClosed*` / `ControlFlowSites_Reject*` families.
