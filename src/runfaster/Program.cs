@@ -452,6 +452,8 @@ static void AddTriageDocumentCandidates(
     List<AllocationCandidate> candidates,
     ref int rows)
 {
+    ValidateEvidenceMethodTokens(root);
+
     if (root.ValueKind == JsonValueKind.Object)
     {
         if (LooksLikeTriageRow(root))
@@ -547,6 +549,24 @@ static void AddTriageCandidates(
             defaultAssembly,
             candidates,
             ref rows);
+}
+
+static void ValidateEvidenceMethodTokens(
+    JsonElement element)
+{
+    if (element.ValueKind == JsonValueKind.Object)
+    {
+        ReadOptionalEvidenceMethodToken(element);
+        foreach (var property in element.EnumerateObject())
+            ValidateEvidenceMethodTokens(property.Value);
+        return;
+    }
+
+    if (element.ValueKind != JsonValueKind.Array)
+        return;
+
+    foreach (var item in element.EnumerateArray())
+        ValidateEvidenceMethodTokens(item);
 }
 
 static bool LooksLikeTriageRow(JsonElement element)
@@ -685,6 +705,13 @@ static int? ReadOptionalEvidenceMethodToken(
     {
         if (!IsEvidenceMethodProperty(property.Name))
             continue;
+
+        if (property.Value.ValueKind == JsonValueKind.String
+            && string.IsNullOrWhiteSpace(
+                property.Value.GetString()))
+        {
+            continue;
+        }
 
         string? tokenText = property.Value.ValueKind switch
         {

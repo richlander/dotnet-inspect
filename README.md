@@ -399,8 +399,8 @@ human-facing columns and therefore cannot support an exact trace join.
 `runfaster` reports those rows as not runtime-correlatable rather than treating
 them as negative workload evidence. For nested rows, it preserves the
 source-facing `MethodToken` but uses `EvidenceMethod` as the physical body token
-when supplied; invalid or conflicting supplied evidence-method tokens fail
-visibly.
+when supplied. Blank flattened cells are treated as absent; invalid non-empty
+or conflicting supplied evidence-method tokens fail visibly.
 For filtered triage exports, allocation-stack correlation stops at the first
 frame in the represented assembly. If that method has no exported row, the
 allocation remains unattributed rather than being credited to an outer caller.

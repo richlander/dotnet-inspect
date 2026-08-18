@@ -245,7 +245,6 @@ public class E2EFixtureTests
     [InlineData("{}")]
     [InlineData("null")]
     [InlineData("true")]
-    [InlineData("\"\"")]
     [InlineData("\"not-a-token\"")]
     [InlineData("\"0x06000000\"")]
     [InlineData("\"0x0A000001\"")]
@@ -262,6 +261,95 @@ public class E2EFixtureTests
                 $$$"""
                 {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"RunFaster.AllocationFixture","method_token":"0x06000001","evidence_method":{{{evidenceMethodJson}}},"shape":"object-allocation","il":"IL_0000","allocation":"System.Object"}]}}
                 """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "Invalid evidence method token in "
+                    + "'evidence_method'",
+                result.Error);
+            Assert.Empty(result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Theory]
+    [InlineData("Evidence Method", "")]
+    [InlineData("evidence_method", " ")]
+    [InlineData("EvidenceMethod", "   ")]
+    [InlineData("evidenceMethod", "  ")]
+    public void Correlate_TreatsBlankEvidenceMethodAsAbsent(
+        string evidenceMethodProperty,
+        string evidenceMethodValue)
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"RunFaster.AllocationFixture","method_token":"0x06000001","{{{evidenceMethodProperty}}}":"{{{evidenceMethodValue}}}","shape":"object-allocation","il":"IL_0000","allocation":"System.Object"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output = JsonDocument.Parse(result.Output);
+            var candidate = Assert.Single(
+                output.RootElement.GetProperty(
+                    "candidates").EnumerateArray());
+            Assert.False(
+                candidate.TryGetProperty(
+                    "evidenceMethodToken",
+                    out _));
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Theory]
+    [InlineData("root")]
+    [InlineData("performance")]
+    public void Correlate_RejectsInvalidEvidenceMethodOutsideRow(
+        string location)
+    {
+        const string row =
+            """
+            {"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"RunFaster.AllocationFixture","method_token":"0x06000001","shape":"object-allocation","il":"IL_0000","allocation":"System.Object"}
+            """;
+        string document = location == "root"
+            ? $$$"""
+              {"evidence_method":null,"performance":{"objects":[{{{row}}}]}}
+              """
+            : $$$"""
+              {"performance":{"evidence_method":null,"objects":[{{{row}}}]}}
+              """;
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(triagePath, document);
 
             var result = RunCorrelate(
                 "--triage",
@@ -801,6 +889,71 @@ public class E2EFixtureTests
             Assert.Equal(
                 "not-runtime-correlatable",
                 candidate.GetProperty("status").GetString());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_AcceptsRealFlattenedPerformanceTriageJsonl()
+    {
+        string inspectDll =
+            Path.Combine(AppContext.BaseDirectory, "dotnet-inspect.dll");
+        var produced = RunTool(
+            inspectDll,
+            "type",
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "runfaster.Tests.dll"),
+            "runfaster.Tests.E2EFixtureTests",
+            "-S",
+            "Performance Triage",
+            "--jsonl");
+        Assert.Equal(0, produced.ExitCode);
+        Assert.Empty(produced.Error);
+        string[] rows = produced.Output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(rows);
+        bool hasBlankEvidenceMethod = false;
+        foreach (string rowText in rows)
+        {
+            using var row = JsonDocument.Parse(rowText);
+            if (row.RootElement.TryGetProperty(
+                    "evidence_method",
+                    out var evidenceMethod)
+                && evidenceMethod.ValueKind
+                    == JsonValueKind.String
+                && string.IsNullOrEmpty(
+                    evidenceMethod.GetString()))
+            {
+                hasBlankEvidenceMethod = true;
+            }
+        }
+        Assert.True(hasBlankEvidenceMethod);
+
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.jsonl");
+        try
+        {
+            File.WriteAllText(triagePath, produced.Output);
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output = JsonDocument.Parse(result.Output);
+            Assert.True(
+                output.RootElement.GetProperty(
+                    "staticCandidates").GetInt32() > 0);
         }
         finally
         {
