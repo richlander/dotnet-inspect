@@ -112,12 +112,12 @@ public static class SnupkgPdbReader
             long maxPdbBytes =
                 limits?.MaxPortablePdbBytes
                 ?? SymbolPackageDownloader.DefaultMaximumSymbolBytes;
-            if (entry.Length > maxPdbBytes
-                || entry.Length > Array.MaxLength)
-            {
-                throw new InvalidDataException(
-                    "A symbol-package PDB exceeds the configured byte limit.");
-            }
+            // ZipArchiveEntry.Length is a signed value copied verbatim from the
+            // archive's ZIP64 extra field, so a hostile package can declare a
+            // negative length that clears every ">" ceiling and then narrows,
+            // unchecked, to a large positive allocation. Reject it explicitly,
+            // as Storage/InMemoryPackageContent does at its own allocation site.
+            ValidateDeclaredPdbLength(entry.Length, maxPdbBytes);
             if (limits is not null
                 && expandedPdbBytes
                     > limits.MaxExpandedPdbBytes - entry.Length)
@@ -168,11 +168,40 @@ public static class SnupkgPdbReader
         return new SnupkgPdbResult(null, windowsPdbDetected);
     }
 
+    /// <summary>
+    /// Rejects a declared symbol-package PDB length that must not reach the
+    /// allocation site. The lower bound matters as much as the ceilings:
+    /// <see cref="ZipArchiveEntry.Length"/> is a signed value taken verbatim
+    /// from the archive's ZIP64 extra field, and a negative one clears every
+    /// <c>&gt;</c> comparison before narrowing, unchecked, to a large positive
+    /// allocation.
+    /// </summary>
+    /// <remarks>
+    /// <c>SnupkgPdbReaderTests.ValidateDeclaredPdbLength_RejectsNegativeDeclaredLength</c>
+    /// gates the lower bound on every runtime;
+    /// <c>SnupkgPdbReaderTests.ExtractPortablePdb_RejectsNegativeZip64DeclaredLength</c>
+    /// is the end-to-end canary. The end-to-end case is only load-bearing on
+    /// runtimes whose <see cref="ZipArchive"/> surfaces a negative length —
+    /// .NET 10, which official builds target — because .NET 11 rejects the
+    /// archive while reading the central directory.
+    /// </remarks>
+    internal static void ValidateDeclaredPdbLength(
+        long declaredLength,
+        long maxPdbBytes)
+    {
+        if (declaredLength < 0
+            || declaredLength > maxPdbBytes
+            || declaredLength > Array.MaxLength)
+        {
+            throw new InvalidDataException(
+                "A symbol-package PDB exceeds the configured byte limit.");
+        }
+    }
+
     static void ReadExactly(
         Stream source,
         byte[] destination,
-        CancellationToken cancellationToken)
-    {
+        CancellationToken cancellationToken)    {
         int offset = 0;
         while (offset < destination.Length)
         {

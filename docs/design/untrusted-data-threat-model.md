@@ -605,7 +605,8 @@ count, or disk consumption. Symbol acquisition now accepts optional
 host-supplied limits for response bytes, expanded PDB bytes, archive entry
 count, aggregate candidate-PDB expansion, and in-memory retention; the Browser
 supplies those limits on every symbol-server and symbol-package path. Bounded
-symbol-package inspection rejects ZIP64 before archive enumeration and observes
+symbol-package inspection rejects ZIP64 sentinels in the end-of-central-directory
+record before archive enumeration and observes
 cancellation while expanding candidates. Browser source operations are
 exclusive and superseding, and each operation leases its workspace and package
 archives until its bounded PDB and source stores are released. This prevents
@@ -619,7 +620,16 @@ inside the aggregate package-cache reservation for other consumers;
 Callers that do not supply limits retain the shared 500 MB transport ceiling
 as the per-PDB expansion ceiling;
 `ExtractPortablePdb_WithoutHostLimitsRejectsDeclaredExpansionAboveTransportCeiling`
-gates that a hostile ZIP declaration cannot bypass it. Product-wide default
+gates that a hostile ZIP declaration cannot bypass it. That end-of-central-directory
+sentinel check does not cover a per-entry ZIP64 extra field, which is where
+`ZipArchiveEntry.Length` actually comes from, so every declared PDB length is
+also rejected when it is negative. A negative length clears every ceiling
+comparison and then narrows, unchecked, to a large positive allocation — .NET 10,
+which official builds target, surfaces such a length, while .NET 11 rejects the
+archive earlier. `SnupkgPdbReaderTests.ValidateDeclaredPdbLength_RejectsNegativeDeclaredLength`
+gates the lower bound on every runtime and
+`ExtractPortablePdb_RejectsNegativeZip64DeclaredLength` is the end-to-end canary.
+Product-wide default
 aggregate expansion, entry-count, and retention budgets remain an open
 requirement below.
 

@@ -289,6 +289,72 @@ public class SnupkgPdbReaderTests
                 cancellationToken: cancellation.Token));
     }
 
+    /// <summary>
+    /// Runtime-independent gate for the lower bound on a declared PDB length.
+    /// <c>ZipArchiveEntry.Length</c> is a signed value taken verbatim from the
+    /// archive's ZIP64 extra field; a negative one clears every <c>&gt;</c>
+    /// ceiling and then narrows, unchecked, to a large positive allocation.
+    /// </summary>
+    [Theory]
+    [InlineData(-1L)]
+    [InlineData(long.MinValue)]
+    [InlineData(unchecked((long)0xFFFFFFFF00000000UL) | (512L * 1024 * 1024))]
+    public void ValidateDeclaredPdbLength_RejectsNegativeDeclaredLength(
+        long declaredLength)
+    {
+        InvalidDataException error = Assert.Throws<InvalidDataException>(
+            () => SnupkgPdbReader.ValidateDeclaredPdbLength(
+                declaredLength,
+                maxPdbBytes: SymbolPackageDownloader.DefaultMaximumSymbolBytes));
+
+        Assert.Contains("PDB exceeds", error.Message);
+    }
+
+    /// <summary>
+    /// End-to-end canary for the same property: a 200-byte archive whose ZIP64
+    /// extra field declares a negative uncompressed size must be rejected
+    /// without allocating the value that length narrows to. This is only
+    /// load-bearing on runtimes whose <c>ZipArchive</c> surfaces the negative
+    /// length — .NET 10, which official builds target — because .NET 11 rejects
+    /// the archive while reading the central directory. Either way the outcome
+    /// asserted here is the one that matters: rejection, and no large
+    /// allocation.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExtractPortablePdb_RejectsNegativeZip64DeclaredLength(
+        bool withHostLimits)
+    {
+        var guid = Guid.NewGuid();
+        var (pdbBytes, _) = BuildPortablePdb(guid);
+        byte[] snupkg = InjectZip64UncompressedSize(
+            MakeSnupkg(("lib/net8.0/Foo.pdb", pdbBytes)),
+            declared: unchecked((long)0xFFFFFFFF00000000UL) | (512L * 1024 * 1024));
+        var limits = withHostLimits
+            ? new SymbolAcquisitionLimits(
+                maxSymbolPackageBytes: 24L * 1024 * 1024,
+                maxPortablePdbBytes: 8L * 1024 * 1024,
+                maxSymbolPackageEntries: 8,
+                maxExpandedPdbBytes: 24L * 1024 * 1024)
+            : null;
+
+        using var stream = new MemoryStream(snupkg);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Assert.Throws<InvalidDataException>(
+            () => SnupkgPdbReader.ExtractPortablePdb(
+                stream,
+                "Foo",
+                guid,
+                limits: limits));
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(
+            allocated < 16L * 1024 * 1024,
+            $"Rejecting the entry allocated {allocated} bytes; the declared "
+                + "length must never reach the allocation site.");
+    }
+
     static int FindEndOfCentralDirectory(byte[] archive)
     {
         for (int offset = archive.Length - 22; offset >= 0; offset--)
@@ -319,6 +385,54 @@ public class SnupkgPdbReaderTests
 
         throw new InvalidDataException(
             "Test archive has no central-directory file header.");
+    }
+
+    /// <summary>
+    /// Rewrites the single central-directory file header to carry a ZIP64
+    /// extra field (<c>0x0001</c>) holding <paramref name="declared"/> as the
+    /// uncompressed size, leaving the end-of-central-directory record free of
+    /// ZIP64 sentinels so the archive reaches per-entry inspection.
+    /// </summary>
+    static byte[] InjectZip64UncompressedSize(byte[] archive, long declared)
+    {
+        int header = FindCentralDirectoryFileHeader(archive);
+        ushort nameLength =
+            BinaryPrimitives.ReadUInt16LittleEndian(archive.AsSpan(header + 28));
+        ushort extraLength =
+            BinaryPrimitives.ReadUInt16LittleEndian(archive.AsSpan(header + 30));
+        int insertAt = header + 46 + nameLength + extraLength;
+
+        const int Zip64FieldLength = 12;
+        byte[] rewritten =
+            new byte[archive.Length + Zip64FieldLength];
+        archive.AsSpan(0, insertAt).CopyTo(rewritten);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            rewritten.AsSpan(insertAt),
+            0x0001);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            rewritten.AsSpan(insertAt + 2),
+            8);
+        BinaryPrimitives.WriteInt64LittleEndian(
+            rewritten.AsSpan(insertAt + 4),
+            declared);
+        archive.AsSpan(insertAt).CopyTo(
+            rewritten.AsSpan(insertAt + Zip64FieldLength));
+
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            rewritten.AsSpan(header + 24),
+            uint.MaxValue);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            rewritten.AsSpan(header + 30),
+            checked((ushort)(extraLength + Zip64FieldLength)));
+
+        int endRecord = FindEndOfCentralDirectory(rewritten);
+        uint centralDirectorySize =
+            BinaryPrimitives.ReadUInt32LittleEndian(
+                rewritten.AsSpan(endRecord + 12));
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            rewritten.AsSpan(endRecord + 12),
+            centralDirectorySize + Zip64FieldLength);
+        return rewritten;
     }
 
     internal static (byte[] Bytes, Guid Guid) BuildPortablePdb(

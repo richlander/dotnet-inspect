@@ -276,7 +276,11 @@ responses are capped at 24 MiB, expanded PDBs at 8 MiB, and archives at 2,048
 entries before either response or expanded content is copied into the
 request-scoped store. Candidate PDB expansion across one symbol package is
 capped at 24 MiB, checks cancellation between decompression chunks, and rejects
-all ZIP64 sentinels before `ZipArchive` enumeration. The store independently
+all ZIP64 sentinels in the end-of-central-directory record before `ZipArchive`
+enumeration. Because that record does not carry the per-entry ZIP64 extra field
+that supplies `ZipArchiveEntry.Length`, a negative declared PDB length — which
+would clear every ceiling and then narrow to a large allocation — is rejected at
+the allocation site as well. The store independently
 caps all retained PDB bytes at 24 MiB. SourceLink requests are authorized before
 dispatch for HTTPS URLs on GitHub, Azure DevOps, GitLab, and Bitbucket source
 hosts, and the Browser transport refuses redirects; unsupported hosts visibly
