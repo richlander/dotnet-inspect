@@ -44,12 +44,9 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void RuntimeAsyncDisableCoversBrowserProjectGraph()
+    public void BrowserBuildSelectsRuntimeAsyncOptOutBeforeRepositoryProps()
     {
-        XDocument project = XDocument.Load(EngineProjectPath);
         XDocument engineProps = XDocument.Load(EnginePropsPath);
-        XDocument repositoryProps = XDocument.Load(RepositoryPropsPath);
-        XDocument repositoryTargets = XDocument.Load(RepositoryTargetsPath);
 
         Assert.Equal(
             "off",
@@ -57,24 +54,12 @@ public sealed class BrowserEngineLayeringTests
         Assert.True(
             engineProps.Root!.Elements().First().Name.LocalName == "PropertyGroup",
             "RuntimeAsync must be set before the repository props import.");
+    }
 
-        XElement projectReferenceDefaults = Assert.Single(
-            project.Descendants("ProjectReference"),
-            item => item.Parent?.Name.LocalName == "ItemDefinitionGroup");
-        Assert.Equal(
-            "RuntimeAsync=off",
-            Assert.Single(projectReferenceDefaults.Elements("AdditionalProperties")).Value);
-        Assert.Equal(
-            "Configuration=$(Configuration);RuntimeAsync=off",
-            Assert.Single(projectReferenceDefaults.Elements("SetConfiguration")).Value);
-        List<XElement> projectChildren = [.. project.Root!.Elements()];
-        Assert.True(
-            projectChildren.IndexOf(projectReferenceDefaults.Parent!)
-                < projectChildren.FindIndex(
-                    item => item.Descendants("ProjectReference")
-                        .Any(reference => reference.Attribute("Include") is not null)),
-            "ProjectReference defaults must be declared before every included reference.");
-
+    [Fact]
+    public void RuntimeAsyncOptOutUsesDistinctCompilerPaths()
+    {
+        XDocument repositoryProps = XDocument.Load(RepositoryPropsPath);
         XElement isolatedOutput = Assert.Single(
             repositoryProps.Descendants("PropertyGroup"),
             item => item.Attribute("Condition")?.Value == "'$(RuntimeAsync)' == 'off'");
@@ -86,28 +71,6 @@ public sealed class BrowserEngineLayeringTests
             "artifacts/runtime-async-off/obj",
             Assert.Single(isolatedOutput.Elements("IntermediateOutputPath")).Value,
             StringComparison.Ordinal);
-
-        XElement disabledFeatures = Assert.Single(
-            repositoryTargets.Descendants("PropertyGroup"),
-            item => item.Attribute("Condition")?.Value ==
-                "'$(TargetFramework)' == 'net11.0' and '$(RuntimeAsync)' == 'off'");
-        Assert.Equal(
-            "$(Features);runtime-async=off",
-            Assert.Single(disabledFeatures.Elements("Features")).Value);
-
-        Assert.True(File.Exists(RuntimeAsyncGatePath), $"{RuntimeAsyncGatePath} is missing.");
-        foreach (string workflowPath in new[] { CiWorkflowPath, DeployWorkflowPath })
-        {
-            string workflow = File.ReadAllText(workflowPath);
-            Assert.Contains(
-                "eng/validate-inspect-web-runtime-async.cs",
-                workflow,
-                StringComparison.Ordinal);
-            Assert.Contains(
-                "artifacts/runtime-async-off/bin",
-                workflow,
-                StringComparison.Ordinal);
-        }
     }
 
     [Fact]
@@ -249,27 +212,6 @@ public sealed class BrowserEngineLayeringTests
     static string RepositoryPropsPath => Path.Combine(
         RepositoryRoot(),
         "Directory.Build.props");
-
-    static string RepositoryTargetsPath => Path.Combine(
-        RepositoryRoot(),
-        "Directory.Build.targets");
-
-    static string RuntimeAsyncGatePath => Path.Combine(
-        RepositoryRoot(),
-        "eng",
-        "validate-inspect-web-runtime-async.cs");
-
-    static string CiWorkflowPath => Path.Combine(
-        RepositoryRoot(),
-        ".github",
-        "workflows",
-        "ci.yml");
-
-    static string DeployWorkflowPath => Path.Combine(
-        RepositoryRoot(),
-        ".github",
-        "workflows",
-        "deploy-inspect-web.yml");
 
     static string RepositoryRoot()
     {

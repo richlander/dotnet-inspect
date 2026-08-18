@@ -396,8 +396,9 @@ loader uses secure-context browser APIs.
 The Browser/Wasm host cannot execute .NET 11 runtime-async methods. The engine
 therefore selects `RuntimeAsync=off` before repository build properties are
 evaluated and passes that mode through every project reference.
-`RuntimeAsyncDisableCoversBrowserProjectGraph` gates that project and workflow
-wiring. Both Browser CI and staging deployment run
+`BrowserBuildSelectsRuntimeAsyncOptOutBeforeRepositoryProps` and
+`RuntimeAsyncOptOutUsesDistinctCompilerPaths` gate the two build invariants.
+Both Browser CI and staging deployment run
 `eng/validate-inspect-web-runtime-async.cs` against the published
 managed-assembly closure and reject the runtime-async method implementation
 flag. Browser builds use separate
