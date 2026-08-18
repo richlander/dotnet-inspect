@@ -76,8 +76,10 @@ medium priority unless loop evidence proves repetition), `small-array`,
 `scan-method-in-recursive-traversal` (a scan repeated once per recursive
 traversal node), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
 that can be hoisted), `string-build-in-loop`, `enumerator-allocation`,
-`async-state-machine`, and `allocation-hotspot`. Query the algorithmic shapes
-explicitly: scan helpers stay low-confidence because static analysis cannot
+`async-state-machine`, `sync-call-in-async` (an async method calling a
+synchronous API with a signature-compatible `Async` sibling), and
+`allocation-hotspot`. Query the algorithmic shapes explicitly:
+scan helpers stay low-confidence because static analysis cannot
 prove that the scanned sequence grows with the loop or traversal, so a
 `--min-confidence high` pass intentionally excludes them.
 
@@ -113,11 +115,15 @@ Exact rows retain machine-readable provenance from the native Analysis
 producer in structured JSON:
 `Candidate`, `Finding` (`analysis.allocation` or `analysis.call-site`),
 `Provenance=exact`,
-`Assembly`, `MethodToken`, `Operation`, `Token`, and `IL`.
-`Assembly` + `MethodToken` + `IL` form the runtime allocation-trace coordinate;
-`Token` is the operand of `Operation`. Use these fields for runtime/static joins or to
-carry one triage row into the matching `diff`/`timeline` confirmation workflow
-without parsing `Evidence` text:
+`Assembly`, `MethodToken`, `Operation`, `Token`, `EvidenceMethod`, and `IL`.
+`MethodToken` identifies the source-facing member, while `EvidenceMethod`
+is present when the instruction is mapped to a separate MethodDef; for an async
+source member, it can name the generated `MoveNext` body whose offset appears in
+`IL`. The exact body coordinate is `Assembly` + (`EvidenceMethod` when present,
+otherwise `MethodToken`) + `IL`, and `Token` is the operand of `Operation`. Use
+these fields for runtime/static joins or to carry one triage row into the
+matching `diff`/`timeline` confirmation workflow without parsing `Evidence`
+text:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \

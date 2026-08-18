@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
@@ -31,6 +32,11 @@ internal static class MemberResolver
                     SignatureHeader = signature.Header.RawValue,
                     RequiredParameterCount =
                         signature.RequiredParameterCount,
+                    ParameterDirections =
+                        ParameterDirections(
+                            reader,
+                            method,
+                            signature.ParameterTypes),
                     GenericArity = signature.GenericParameterCount,
                     IsOperator = MetadataOperatorFacts.FromMethodDefinition(reader, method),
                 };
@@ -101,5 +107,63 @@ internal static class MemberResolver
         foreach (var handle in handles)
             names.Add(reader.GetString(reader.GetGenericParameter(handle).Name));
         return names.MoveToImmutable();
+    }
+
+    internal static ImmutableArray<ParameterDirection>
+        ParameterDirections(
+            MetadataReader reader,
+            MethodDefinition method,
+            ImmutableArray<TypeRef> parameterTypes)
+    {
+        if (parameterTypes.Length == 0)
+            return [];
+
+        var directions =
+            ImmutableArray.CreateBuilder<ParameterDirection>(
+                parameterTypes.Length);
+        for (int i = 0; i < parameterTypes.Length; i++)
+        {
+            directions.Add(
+                parameterTypes[i].Kind
+                    == TypeRefKind.ByRef
+                        ? ParameterDirection.UnknownByRef
+                        : ParameterDirection.Value);
+        }
+        var seen = new bool[parameterTypes.Length];
+        foreach (var handle in method.GetParameters())
+        {
+            Parameter parameter =
+                reader.GetParameter(handle);
+            int index = parameter.SequenceNumber - 1;
+            if ((uint)index
+                    >= (uint)parameterTypes.Length
+                || parameterTypes[index].Kind
+                    != TypeRefKind.ByRef)
+            {
+                continue;
+            }
+            if (seen[index])
+            {
+                directions[index] =
+                    ParameterDirection.UnknownByRef;
+                continue;
+            }
+            seen[index] = true;
+            bool isIn = (parameter.Attributes
+                & ParameterAttributes.In) != 0;
+            bool isOut = (parameter.Attributes
+                & ParameterAttributes.Out) != 0;
+            directions[index] = (isIn, isOut) switch
+            {
+                (false, false) =>
+                    ParameterDirection.Ref,
+                (true, false) =>
+                    ParameterDirection.In,
+                (false, true) =>
+                    ParameterDirection.Out,
+                _ => ParameterDirection.UnknownByRef,
+            };
+        }
+        return directions.MoveToImmutable();
     }
 }

@@ -20,6 +20,15 @@ public enum CallKind
     CallIndirect,
 }
 
+internal enum ParameterDirection
+{
+    Value,
+    Ref,
+    Out,
+    In,
+    UnknownByRef,
+}
+
 /// <summary>
 /// Whether a member is an operator in the CLI metadata sense. A MethodDef
 /// carries the exact answer (its <c>SpecialName</c> flag, generic arity, and
@@ -187,6 +196,8 @@ public sealed record MemberRef(
         = ImmutableArrayValueEquality.RequireInitialized(ParameterTypes, nameof(ParameterTypes));
     ImmutableArray<TypeRef> _typeArguments = [];
     ImmutableArray<TypeRef> _openParameterTypes = [];
+    ImmutableArray<ParameterDirection>
+        _parameterDirections = [];
 
     public ImmutableArray<TypeRef> ParameterTypes
     {
@@ -198,6 +209,17 @@ public sealed record MemberRef(
     {
         get => _typeArguments;
         init => _typeArguments = ImmutableArrayValueEquality.RequireInitialized(value, nameof(TypeArguments));
+    }
+
+    internal ImmutableArray<ParameterDirection>
+        ParameterDirections
+    {
+        get => _parameterDirections;
+        init => _parameterDirections =
+            ImmutableArrayValueEquality
+                .RequireInitialized(
+                    value,
+                    nameof(ParameterDirections));
     }
 
     /// <summary>
@@ -214,6 +236,9 @@ public sealed record MemberRef(
     public byte SignatureHeader { get; init; }
 
     internal int RequiredParameterCount { get; init; } = -1;
+
+    // Candidate metadata only; this affects rewrite compatibility, not method identity.
+    internal bool TrailingParameterCanBeOmitted { get; init; }
 
     /// <summary>The method-signature generic parameter count.</summary>
     public int GenericArity { get; init; }
