@@ -2,7 +2,6 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Vocabulary;
 using Markout;
-using System.Globalization;
 
 namespace DotnetInspector.Commands;
 
@@ -85,15 +84,33 @@ public static class VocabularyCommand
             }
             else
             {
-                Dictionary<string, int> counts = sections.ToDictionary(
-                    section => section.Name,
-                    section => RowWindow.Apply(options.Rows, section.Values).Count,
-                    StringComparer.Ordinal);
                 string[] orderedSections = [.. sections.Select(section => section.Name)];
-                if (options.PlainText)
-                    WritePlainTextCountMap(counts, orderedSections);
-                else
-                    CountOutput.WriteCountMap(counts, orderedSections);
+                OutputFormat format = ResolveCountFormat(options);
+                if (!CountOutput.ValidateMapFormat(
+                        format,
+                        orderedSections,
+                        options.Tree))
+                {
+                    return 1;
+                }
+
+                var renderedNames = renderedSections
+                    .Select(section => section.Name)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var projection = new CountProjection();
+                foreach (VocabularySection section in sections)
+                {
+                    projection.SetRows(
+                        section.Name,
+                        renderedNames.Contains(section.Name)
+                            ? RowWindow.Apply(options.Rows, section.Values).Count
+                            : 0);
+                }
+                CountOutput.Write(
+                    projection,
+                    orderedSections,
+                    format,
+                    options.NoHeader);
             }
             return 0;
         }
@@ -202,27 +219,18 @@ public static class VocabularyCommand
         writer.WriteTable(labels, ids, rows);
     }
 
-    private static void WritePlainTextCountMap(
-        IReadOnlyDictionary<string, int> counts,
-        IReadOnlyList<string> orderedSections)
-    {
-        using var output = new StringWriter(CultureInfo.InvariantCulture);
-        var writer = new MarkoutWriter(output, new PlainTextFormatter());
-        writer.WriteTable(
-            ["Section", "Count"],
-            ["section", "count"],
-            [
-                .. orderedSections.Select(section =>
-                    new[]
-                    {
-                        section,
-                        counts.GetValueOrDefault(section)
-                            .ToString(CultureInfo.InvariantCulture),
-                    }),
-            ]);
-        writer.Flush();
-        CountOutput.WriteCountResult(output.ToString(), outputPath: null);
-    }
+    private static OutputFormat ResolveCountFormat(VocabularyOptions options) =>
+        options.JsonOutput
+            ? OutputFormat.Json
+            : options.Tsv
+                ? OutputFormat.Tsv
+                : options.Jsonl
+                    ? OutputFormat.Jsonl
+                    : options.Tabular
+                        ? OutputFormat.Table
+                        : options.PlainText
+                            ? OutputFormat.PlainText
+                            : OutputFormat.Markdown;
 
     private static DocumentSchema CreateSchema(VocabularyDocument document)
     {

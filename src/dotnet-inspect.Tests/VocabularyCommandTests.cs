@@ -333,7 +333,7 @@ public sealed class VocabularyCommandTests
     }
 
     [Fact]
-    public async Task Command_CountUsesRowCardinalityBeforeColumnProjection()
+    public async Task Command_CountUsesRowCardinalityAfterColumnProjection()
     {
         var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
             VocabularyCommand.Execute(new VocabularyOptions
@@ -346,19 +346,38 @@ public sealed class VocabularyCommandTests
                 Count = true,
                 Columns = ["byte_divergent"],
             })));
-        VocabularySection accessibility =
-            VocabularyCatalog.GetById("api.accessibility");
         VocabularySection tiers =
             VocabularyCatalog.GetById("csharp.style-tiers");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
         Assert.Contains(
-            $"| Accessibility | {accessibility.Values.Length} |",
+            "| Accessibility | 0 |",
             result.Output);
         Assert.Contains(
             $"| C# Style Tiers | {tiers.Values.Length} |",
             result.Output);
+    }
+
+    [Fact]
+    public async Task Command_MultiSectionCountUsesNativeJsonNumbers()
+    {
+        var result = await ConsoleCapture.RunAsync(() => Task.FromResult(
+            VocabularyCommand.Execute(new VocabularyOptions
+            {
+                Select = ["@Decompiler"],
+                Count = true,
+                JsonOutput = true,
+            })));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.All(
+            document.RootElement.EnumerateArray(),
+            row => Assert.Equal(
+                JsonValueKind.Number,
+                row.GetProperty("count").ValueKind));
     }
 
     private static string ValueId(VocabularyRow row) =>
