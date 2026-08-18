@@ -77,6 +77,33 @@ internal sealed class NuGetOperationDeadline : IDisposable
         }
     }
 
+    public async Task DelayAsync(TimeSpan delay)
+    {
+        ThrowIfExpired();
+        try
+        {
+            await Task.Delay(
+                delay,
+                _operationCancellation.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception)
+        {
+            if (_callerToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(
+                    "NuGet operation was canceled by the caller.",
+                    exception,
+                    _callerToken);
+            }
+
+            throw new NuGetOperationTimeoutException(
+                _operationTimeout,
+                exception);
+        }
+
+        ThrowIfExpired();
+    }
+
     public async Task<Stream> RunStreamingRequestAsync(
         Func<CancellationToken, Task<(Stream Stream, IDisposable Owner)>> request)
     {

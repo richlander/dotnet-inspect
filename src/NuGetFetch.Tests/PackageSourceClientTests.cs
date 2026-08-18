@@ -1000,6 +1000,7 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             PackageSourceFailureKind.ResponseRejected,
             failure.Kind);
+        Assert.Equal([GalleryVersions], handler.Requested);
     }
 
     [Fact]
@@ -1452,6 +1453,28 @@ public sealed class PackageSourceClientTests
                     nameof(operation));
         }
 
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
+    public async Task GalleryRetryBackoffUsesOperationNotRequestTimeout()
+    {
+        var handler = new TransientGalleryHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(50),
+                    OperationTimeout = TimeSpan.FromSeconds(1),
+                });
+
+        Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+            .Candidates);
         Assert.Equal(2, handler.Requests);
     }
 

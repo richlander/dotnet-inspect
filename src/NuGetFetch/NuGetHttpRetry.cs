@@ -51,21 +51,18 @@ internal static class NuGetHttpRetry
         }
     }
 
-    private static Task<bool> DelayAsync(
+    private static Task DelayAsync(
         NuGetOperationDeadline operation,
         int retry) =>
-        operation.RunRequestAsync(
-            async cancellationToken =>
-            {
-                await Task.Delay(
-                    TimeSpan.FromMilliseconds(100 * (1 << retry)),
-                    cancellationToken).ConfigureAwait(false);
-                return true;
-            });
+        operation.DelayAsync(
+            TimeSpan.FromMilliseconds(100 * (1 << retry)));
 
     private static bool IsTransient(Exception exception) =>
         exception is NuGetRequestTimeoutException
+            or NuGetMetadataBodyTimeoutException
         || exception is IOException
+            and not NuGetMetadataResponseTooLargeException
+            and not NuGetRedirectLimitExceededException
         || exception is HttpRequestException request
             && (request.StatusCode is
                     HttpStatusCode.RequestTimeout
