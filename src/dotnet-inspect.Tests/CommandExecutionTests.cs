@@ -16562,6 +16562,18 @@ public partial class CommandExecutionTests
             SectionNames.BodyShapes,
         ];
 
+        // Network SourceLink audits issue one HEAD/GET per source file. Their counts move with
+        // host load and rate limits between the together process and each alone process, so a
+        // mismatch proves transport nondeterminism, not a missing prerequisite. Offline
+        // SourceLink: Diagnostics (cache-only PDB facts) stays in the set. SourceLink: Files is
+        // registered without a scanner or query key, so it is not in this coverage set.
+        string[] networkSourceLink =
+        [
+            SectionNames.SourceLinkAvailability,
+            SectionNames.SourceLinkMissingFiles,
+            SectionNames.SourceLinkIntegrity,
+        ];
+
         var registry = LibrarySections.CreateScannerRegistry();
         var pipeline = LibrarySections.CreatePipeline();
 
@@ -16572,7 +16584,7 @@ public partial class CommandExecutionTests
 
         // Excluding a name that no longer exists would silently shrink to a no-op, so the
         // exclusion must still name a real data-bound section.
-        foreach (var name in parameterScoped)
+        foreach (var name in parameterScoped.Concat(networkSourceLink))
             Assert.Contains(name, bound);
 
         var scannerNames = pipeline.ScannerBoundSections
@@ -16584,6 +16596,7 @@ public partial class CommandExecutionTests
         var names = scannerNames
             .Concat(queryNames)
             .Where(n => !parameterScoped.Contains(n, StringComparer.Ordinal))
+            .Where(n => !networkSourceLink.Contains(n, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();
