@@ -286,7 +286,16 @@ export function workspaceCoordinatesMatch(packages, tabs) {
 }
 
 export function callGraphTargetTypeId(target) {
-  return target?.typeMetadataId || "";
+  return target?.typeDefinitionId || target?.typeMetadataId || "";
+}
+
+export function callGraphTargetMatchesType(target, type) {
+  if (target?.typeDefinitionId)
+    return (type?.definitionId ?? type?.id) === target.typeDefinitionId;
+  if (target?.typeMetadataId)
+    return (type?.metadataId ?? type?.queryId ?? type?.id)
+      === target.typeMetadataId;
+  return false;
 }
 
 export function uniqueTypeByQueryId(types, queryId) {
@@ -332,7 +341,7 @@ export function resolveLoadedGraphTargetCandidate(packages, target) {
               === assembly.toLowerCase());
       if (assembly.toLowerCase() === target.assembly.toLowerCase()
           && callGraphAssemblyIdentityMatches(target, descriptor)
-          && (type.metadataId ?? type.queryId ?? type.id) === typeId) {
+          && callGraphTargetMatchesType(target, type)) {
         matches.push({ pkg, type });
         if (matches.length > 1) return { status: "ambiguous" };
       }
@@ -357,6 +366,17 @@ export function graphTargetNavigationDisposition(candidate, target) {
       && callGraphTargetTypeId(target)
     ? "platform"
     : "none";
+}
+
+export function authoredSourceLimitationHtml(source) {
+  if (!source?.authoredLimitation) return "";
+  const escaped = String(source.authoredLimitation)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+  return `<span class="graph-source-status">Original source unavailable: ${escaped}</span>`;
 }
 
 export function callGraphDiagnosticsMessage(diagnostics) {
@@ -427,6 +447,100 @@ export function scopedRequestState(activeKey, requestKey, loading, error) {
 
 export function memberRequestKey(parts, taste = []) {
   return [...parts, ...taste].join("\u0000");
+}
+
+function sourceWorkbenchIsVisible(state) {
+  if (state.settings
+    || state.explorer?.open
+    || state.loading
+    || state.error
+    || state.home
+    || !state.package) {
+    return false;
+  }
+  return true;
+}
+
+export function activeSourceOperationKind(state) {
+  if (!sourceWorkbenchIsVisible(state)) return null;
+  if (state.graphSourceOpen) return "graph";
+  if (state.atPackageRoot) return null;
+  if (state.lens === "source") return "type";
+  if (state.lens === "api"
+    && state.selectedMemberKey
+    && state.memberSection === "source") {
+    return "member";
+  }
+  return null;
+}
+
+export function sourceSurfaceIsVisible(state) {
+  return activeSourceOperationKind(state) !== null;
+}
+
+export function sourceReloadKind(state) {
+  const active = activeSourceOperationKind(state);
+  if (active) return active;
+  if (!sourceWorkbenchIsVisible(state)
+    || state.atPackageRoot
+    || state.graphSourceOpen) {
+    return null;
+  }
+  if (state.lens === "api"
+    && state.selectedMemberKey
+    && state.memberSection === "annotated") {
+    return "annotated";
+  }
+  return null;
+}
+
+export function sourceRequestNeedsLoad(
+  sameRequest,
+  loading,
+  result,
+  error) {
+  return !sameRequest || (!loading && !result && !error);
+}
+
+export function beginSourceRequestState(state) {
+  state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
+  clearInFlightSourceState(state);
+  return state.sourceRequestGeneration;
+}
+
+export function cancelSourceRequestState(state) {
+  if (!state.memberSourceLoading
+    && !state.typeSourceLoading
+    && !state.graphSourceLoading) {
+    return false;
+  }
+  state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
+  clearInFlightSourceState(state);
+  return true;
+}
+
+function clearInFlightSourceState(state) {
+  if (state.memberSourceLoading) {
+    state.memberSourceLoading = false;
+    state.memberSourceKey = "";
+    state.memberSourceError = "";
+  }
+  if (state.typeSourceLoading) {
+    state.typeSourceLoading = false;
+    state.typeSourceKey = "";
+    state.typeSourceError = "";
+  }
+  if (state.graphSourceLoading) {
+    state.graphSourceLoading = false;
+    state.graphSourceError = "";
+    state.graphSourceSeq++;
+  }
+}
+
+export function memberSectionIdsFor(member) {
+  return ["property", "field", "event", "constant"].includes(member?.kind)
+    ? ["overview"]
+    : ["overview", "call-graph", "facts", "source", "annotated"];
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;

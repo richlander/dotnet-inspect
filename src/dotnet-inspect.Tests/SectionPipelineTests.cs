@@ -322,7 +322,7 @@ public class SectionPipelineTests
         // trips this. The @Metadata family is derived from MetadataTableProjector.ProjectedTables
         // (see MetadataSectionNames), so it is counted by derivation rather than re-pinned here —
         // otherwise adding a table to the projector would fail an unrelated test.
-        Assert.Equal(54 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
+        Assert.Equal(55 + MetadataSectionNames.All.Length, pipeline.AllSectionNames.Length);
         Assert.Contains("Integration: AI", pipeline.AllSectionNames);
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
@@ -490,6 +490,7 @@ public class SectionPipelineTests
             detailedQueries);
         Assert.DoesNotContain(LibrarySections.ScannerOptimizationOpportunities, detailedScanners);
         Assert.DoesNotContain(LibrarySections.ScannerResourceTriage, detailedScanners);
+        Assert.DoesNotContain(LibrarySections.ScannerBodyShapes, detailedScanners);
         Assert.DoesNotContain(TopLeverageQuery.Definition, detailedQueries);
     }
 
@@ -507,6 +508,13 @@ public class SectionPipelineTests
         Assert.Contains(
             TopLeverageQuery.Definition,
             pipeline.GetRequiredQueries(Verbosity.Minimal, performance));
+
+        var decompiler = pipeline.GetCategoryMap()[SectionCategoryNames.Decompiler]
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Equal([SectionNames.BodyShapes], decompiler);
+        Assert.Contains(
+            LibrarySections.ScannerBodyShapes,
+            pipeline.GetRequiredScanners(Verbosity.Minimal, decompiler));
     }
 
     [Fact]
@@ -4575,6 +4583,7 @@ public class SectionPipelineTests
         string[] expectedBodyIndexFamily =
         [
             SectionNames.ArrayPoolEscapes,
+            SectionNames.BodyShapes,
             SectionNames.PerformanceHotspots,
             SectionNames.PerformanceArrays,
             SectionNames.PerformanceAsync,
@@ -6565,7 +6574,7 @@ public class SectionPipelineTests
                         MaxDepth: 1,
                         LoopCallCount: 0)
                 ],
-                ImmutableHashSet<string>.Empty,
+                ImmutableHashSet<Analysis.TypeRef>.Empty,
                 []),
             TopLeverage = [new MethodLeverageSummary { Member = "T.M()", Callers = 1 }],
             OptimizationOpportunities =
