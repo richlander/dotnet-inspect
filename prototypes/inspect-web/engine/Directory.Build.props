@@ -1,8 +1,0 @@
-<Project>
-  <!-- Set this before importing the repository props so output isolation sees it. -->
-  <PropertyGroup>
-    <RuntimeAsync>off</RuntimeAsync>
-  </PropertyGroup>
-
-  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)..'))" />
-</Project>

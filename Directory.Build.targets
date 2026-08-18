@@ -15,19 +15,10 @@
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
   </PropertyGroup>
 
-  <!-- Runtime async (compiler "async v2") is only valid on net11.0. Enable it there.
-       This lives in Directory.Build.targets (not .props) because TargetFramework is
-       not yet set when .props files are imported, so a net11.0 condition would never
-       match there.
-
-       A project can opt out with <RuntimeAsync>off</RuntimeAsync> to compile classic
-       async state machines instead — the async axis of the multi-mode fixture matrix
-       (see tools/DecompilerHarness/README.md). Default (property unset) is on. -->
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0' and '$(RuntimeAsync)' != 'off'">
+  <!-- Runtime async is a NativeAOT optimization. Other runtimes use the compiler
+       default, which emits classic async state machines. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0' and '$(PublishAot)' == 'true'">
     <Features>$(Features);runtime-async=on</Features>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0' and '$(RuntimeAsync)' == 'off'">
-    <Features>$(Features);runtime-async=off</Features>
   </PropertyGroup>
 
   <!-- Updated memory-safety rules are a compiler feature and a decompiler

@@ -11,14 +11,6 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
 
-  <!-- Defaults cover every current and future project reference, independent of item order. -->
-  <ItemDefinitionGroup>
-    <ProjectReference>
-      <AdditionalProperties>RuntimeAsync=off</AdditionalProperties>
-      <SetConfiguration>Configuration=$(Configuration);RuntimeAsync=off</SetConfiguration>
-    </ProjectReference>
-  </ItemDefinitionGroup>
-
   <ItemGroup>
     <AssemblyMetadata Include="RepositoryCommit" Value="$(SourceRevisionId)" Condition="'$(SourceRevisionId)' != ''" />
     <AssemblyMetadata Include="RepositoryUrl" Value="$(RepositoryUrl)" />

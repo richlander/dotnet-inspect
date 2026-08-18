@@ -27,10 +27,4 @@
     <IsPublishable>false</IsPublishable>
   </PropertyGroup>
 
-  <!-- RuntimeAsync is not an incremental compiler input. Keep opt-out outputs
-       separate so a normal build can never satisfy a Browser build. -->
-  <PropertyGroup Condition="'$(RuntimeAsync)' == 'off'">
-    <BaseOutputPath>$(MSBuildThisFileDirectory)artifacts/runtime-async-off/bin/$(MSBuildProjectName)/</BaseOutputPath>
-    <IntermediateOutputPath>$(MSBuildThisFileDirectory)artifacts/runtime-async-off/obj/$(MSBuildProjectName)/$(Configuration)/</IntermediateOutputPath>
-  </PropertyGroup>
 </Project>
