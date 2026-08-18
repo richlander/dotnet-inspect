@@ -18,9 +18,12 @@ public static class VocabularyCommandDefinitions
         opts.AddOutputOptionsTo(command);
         opts.AddSectionOptionsTo(command);
         opts.AddCountOptionTo(command);
+        command.Options.Add(opts.PlainText);
 
-        command.SetAction((parseResult) => VocabularyCommand.Execute(
-            new VocabularyOptions
+        command.SetAction((parseResult) =>
+        {
+            OutputFormat format = opts.ResolveFormat(parseResult);
+            return VocabularyCommand.Execute(new VocabularyOptions
             {
                 Discover = opts.ParseDiscover(parseResult),
                 Select = opts.ParseSelect(parseResult),
@@ -31,12 +34,14 @@ public static class VocabularyCommandDefinitions
                 Tree = opts.ParseTree(parseResult),
                 Count = parseResult.GetValue(opts.Count),
                 Rows = opts.ParseRows(parseResult),
-                JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
+                JsonOutput = format == OutputFormat.Json,
+                PlainText = format == OutputFormat.PlainText,
                 Tabular = opts.ResolveTabular(parseResult),
                 Tsv = opts.ResolveTsv(parseResult),
                 Jsonl = opts.ResolveJsonl(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
-            }));
+            });
+        });
 
         return command;
     }

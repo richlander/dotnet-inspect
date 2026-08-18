@@ -13,7 +13,9 @@ internal static class FrameworkIdentity
         var definition = NamedDefinition(type);
         return definition.Kind != TypeRefKind.Unsupported
             && definition.TrustedFrameworkAssembly
-            && definition.Assembly == TypeRef.CoreLibrary
+            && StringComparer.OrdinalIgnoreCase.Equals(
+                definition.Assembly,
+                TypeRef.CoreLibrary)
             && definition.Namespace == ns
             && definition.Name == name;
     }
@@ -43,10 +45,18 @@ internal static class FrameworkIdentity
         return definition.Kind != TypeRefKind.Unsupported
             && definition.TrustedFrameworkAssembly
             && (definition.Namespace == nsPrefix || definition.Namespace.StartsWith(nsPrefix + ".", StringComparison.Ordinal))
-            && (definition.Assembly == TypeRef.CoreLibrary
-                || definition.Assembly == assemblyPrefix
-                || definition.Assembly.StartsWith(assemblyPrefix + ".", StringComparison.Ordinal)
-                || definition.Assembly == LegacyCombinedFacadeAssembly);
+            && (StringComparer.OrdinalIgnoreCase.Equals(
+                    definition.Assembly,
+                    TypeRef.CoreLibrary)
+                || StringComparer.OrdinalIgnoreCase.Equals(
+                    definition.Assembly,
+                    assemblyPrefix)
+                || definition.Assembly.StartsWith(
+                    assemblyPrefix + ".",
+                    StringComparison.OrdinalIgnoreCase)
+                || StringComparer.OrdinalIgnoreCase.Equals(
+                    definition.Assembly,
+                    LegacyCombinedFacadeAssembly));
     }
 
     static TypeRef NamedDefinition(TypeRef type)
@@ -60,7 +70,14 @@ internal static class FrameworkIdentity
     // facades only widen matching for non-corelib expectations so corelib checks stay
     // exact.
     internal static bool MatchesFrameworkAssembly(string actual, string expected)
-        => actual == expected
-            || actual == TypeRef.CoreLibrary
-            || (expected != TypeRef.CoreLibrary && actual == LegacyCombinedFacadeAssembly);
+        => StringComparer.OrdinalIgnoreCase.Equals(actual, expected)
+            || StringComparer.OrdinalIgnoreCase.Equals(
+                actual,
+                TypeRef.CoreLibrary)
+            || (!StringComparer.OrdinalIgnoreCase.Equals(
+                    expected,
+                    TypeRef.CoreLibrary)
+                && StringComparer.OrdinalIgnoreCase.Equals(
+                    actual,
+                    LegacyCombinedFacadeAssembly));
 }

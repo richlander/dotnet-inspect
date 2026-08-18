@@ -128,14 +128,33 @@ artifact, reissues its correspondence, and renders it later. Both forms read
 untrusted input through Decompiler-owned `AnnotatedSourceJson`, so the CLI
 document writer and harness reader share one model-owned contract while
 retaining separate writer and strict-reader policies. Unsupported and ambiguous
-nodes remain a separate correspondence-gap section; an incomplete result is
+nodes remain a separate correspondence-gap section. The default Markdown table
+keeps change, structure, and region, adds fidelity only when populated, and
+omits absolute spans. Gaps are grouped by side and reason with counts and at
+most five node examples. Any gap marks the review partial because matched rows
+cannot establish changes represented only by unsupported or ambiguous nodes.
+That status appears before either body so a long artifact cannot bury the
+evidence limit. The portable JSON remains exhaustive for spans, unmatched
+nodes, and IL provenance. `AuthoredCorpusHarnessProcessTests.
+Harness_BoundsStructuralReviewGapsWithoutDiscardingJsonEvidence` gates that
+bounded-presentation/exhaustive-evidence boundary. An incomplete result is
 never reported as "no structural changes."
 This model exists only for node/span structure that the line-oriented
 `CSharpDiffRow` cannot represent; it does not introduce another generic
 diff-row hierarchy. Ordinary indented spans reuse the annotation comment gutter
-and its stacking rules. A span too close to the left edge for that gutter uses
-an exact gutter-free caret row instead; it is never shifted, widened, clipped,
-or silently dropped.
+and its stacking rules. When a covered extent includes indentation and a
+non-whitespace token, the display caret starts at that token; whitespace-only
+extents preserve their exact geometry. Tab-indented extents retain the source
+tab prefix in an exact fallback row so the renderer's tab stops remain aligned;
+a tabbed member indent also selects exact fallback because it cannot establish
+a stable comment-gutter column for differently indented lines. A resulting span
+too close to the left edge for the gutter uses an exact gutter-free caret row
+instead. Typed UTF-16 spans are unchanged.
+`CSharpStructuralComparisonTests.
+RenderAnnotatedBody_IndentedExtentAlignsCaretToFirstCoveredToken` and
+`RenderAnnotatedBody_TabIndentedExtentPreservesTabAlignment` and
+`RenderAnnotatedBody_TabbedMemberIndentUsesExactFallback` gate this display-only
+alignment.
 
 ## Research comparison model
 

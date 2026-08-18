@@ -20,7 +20,7 @@ dotnet-inspect vocabulary -S @Decompiler --count
 - `-D` discovers sections, categories, and fields.
 - `-S` selects the values to materialize.
 - `--columns`, `--fields`, `--rows`, and `--count` narrow those values.
-- Markdown, table, TSV, JSONL, and JSON use the same section and row identities.
+- Markdown, plain text, table, TSV, JSONL, and JSON use the same section and row identities.
 
 The structured document carries a schema version. Every section declares its
 stable ID, categories, accepted query inputs, field schema, legal operators, and

@@ -23,7 +23,9 @@ relationship set, semantic traversal direction, and finite edge-depth bound.
 The Integration query validates that relationship set before execution,
 requests only its required producers and prerequisites, and projects the
 bounded neighborhood without reversing stored edges or changing occurrence
-identity. Peer connecting neighborhoods, induced explicit-subject sets, and
+identity. The call session exposes the same request envelope for an outgoing,
+call-only member neighborhood while retaining its Analysis-owned node budget.
+Peer connecting neighborhoods, induced explicit-subject sets, and
 command/presentation surfaces remain design targets.
 
 `CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap`,
@@ -112,6 +114,16 @@ the request and a typed depth-bound limit.
 The current `member -S "Call Graph"` path is the worked example. The member is
 the focus, while caller scopes widen evidence coverage without becoming seeds.
 The `call` relationship remains directed caller to callee.
+
+`CrossLibraryCalleeNeighborhood` is the bounded L1 form: one member seed,
+`call` as its only selected relationship, outgoing traversal, and finite depth
+and node bounds. Depth zero and a node budget exhausted at the seed both retain
+the seed without fabricating an edge. Depth truncation, node truncation,
+external targets, and incomplete catalog correspondence remain typed limits or
+node roles rather than changing the seed role. The
+`CrossLibraryCalleeNeighborhood_*` tests gate these contracts and prove that an
+acquired callee can continue into another assembly while every retained edge
+keeps its physical call-site receipt.
 
 ### Type seed
 
@@ -247,9 +259,12 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
    construct finite single-seed Integration neighborhoods from explicit
    relationship, direction, and depth axes. Selected relationships drive
    deterministic producer demand.
-4. **Partially implemented:** bind peer-seed requests without choosing a hero
+4. **Implemented:** expose the existing Analysis-owned cross-library callee
+   traversal as a finite outgoing member-seeded `call` neighborhood with
+   explicit depth and node bounds.
+5. **Partially implemented:** bind peer-seed requests without choosing a hero
    node. Connecting-neighborhood construction remains.
-5. **Partially implemented:** declare workspace-participant and
+6. **Partially implemented:** declare workspace-participant and
    document-subject induced-set rules. Explicit-subject admission and bounds
    remain.
 
