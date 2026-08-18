@@ -127,6 +127,64 @@ public class ImplicitFinalizerDetectionTests
         Assert.False(member.IsFinalizer);
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void ExplicitObjectFinalizeOverride_RequiresExactBodyAndDeclarationSignatures(
+        bool malformedBody,
+        bool malformedDeclaration)
+    {
+        byte[] image = BuildImage(
+            new TypeSpec(
+                "Handle",
+                BaseKind.Object,
+                new MethodSpec(
+                    "Finalize",
+                    malformedDeclaration ? NewSlot : ReuseSlot,
+                    malformedBody ? VoidOneParam : VoidNullary),
+                OverrideDeclarationSignature:
+                    malformedDeclaration ? VoidOneParam : VoidNullary));
+
+        Assert.False(ExtractMember(image, "Handle", "Finalize").IsFinalizer);
+    }
+
+    [Fact]
+    public void ExplicitObjectFinalizeOverride_WithExactSignatures_IsClassifiedAsFinalizer()
+    {
+        byte[] image = BuildImage(
+            new TypeSpec(
+                "Handle",
+                BaseKind.Object,
+                new MethodSpec("Finalize", ReuseSlot, VoidNullary),
+                OverrideDeclarationSignature: VoidNullary));
+
+        Assert.True(ExtractMember(image, "Handle", "Finalize").IsFinalizer);
+    }
+
+    [Fact]
+    public void InterfaceMethodImplTargetingObjectFinalize_IsNotRetainedAsFinalizer()
+    {
+        byte[] image = BuildImage(
+            new TypeSpec(
+                "IHandle",
+                BaseKind.Nil,
+                new MethodSpec("Finalize", ReuseSlot, VoidNullary),
+                Attributes: TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                OverrideDeclarationSignature: VoidNullary));
+
+        using var fullStream = new MemoryStream(image);
+        using var fullReader = new PEReader(fullStream);
+        var full = ApiSurfaceExtractor.Extract(fullReader);
+        Assert.Empty(Assert.Single(full.Types, type => type.Name == "IHandle").Members);
+
+        using var summaryStream = new MemoryStream(image);
+        using var summaryReader = new PEReader(summaryStream);
+        var summary = ApiSurfaceExtractor.ExtractSummary(summaryReader);
+        Assert.Equal(0, summary.PublicMethodCount);
+    }
+
     [Fact]
     public void InAssemblyObjectRoot_DerivedFinalize_IsClassifiedAsFinalizer()
     {
@@ -240,7 +298,13 @@ public class ImplicitFinalizerDetectionTests
 
     sealed record MethodSpec(string Name, MethodAttributes Attributes, byte[] Signature);
 
-    sealed record TypeSpec(string Name, BaseKind Base, MethodSpec Method, string? Namespace = null);
+    sealed record TypeSpec(
+        string Name,
+        BaseKind Base,
+        MethodSpec Method,
+        string? Namespace = null,
+        TypeAttributes Attributes = TypeAttributes.Public | TypeAttributes.Class,
+        byte[]? OverrideDeclarationSignature = null);
 
     static byte[] BuildImage(params TypeSpec[] types)
     {
@@ -263,7 +327,8 @@ public class ImplicitFinalizerDetectionTests
         EntityHandle exceptionRef = default;
         if (Array.Exists(
                 types,
-                static type => type.Base.Tag is BaseTag.Object or BaseTag.Exception))
+                static type => type.Base.Tag is BaseTag.Object or BaseTag.Exception
+                    || type.OverrideDeclarationSignature is not null))
         {
             // Cross-assembly fixtures use the real core-library identity. The
             // in-assembly System.Object fixture stays reference-free like a corelib.
@@ -320,7 +385,7 @@ public class ImplicitFinalizerDetectionTests
                 _ => default,
             };
             var handle = metadata.AddTypeDefinition(
-                TypeAttributes.Public | TypeAttributes.Class,
+                types[i].Attributes,
                 types[i].Namespace is { } ns ? metadata.GetOrAddString(ns) : default,
                 metadata.GetOrAddString(types[i].Name),
                 baseHandle,
@@ -330,16 +395,32 @@ public class ImplicitFinalizerDetectionTests
             methodRow++;
         }
 
+        var methodHandles = new List<MethodDefinitionHandle>(types.Length);
         foreach (var type in types)
         {
             var spec = type.Method;
-            metadata.AddMethodDefinition(
+            methodHandles.Add(metadata.AddMethodDefinition(
                 spec.Attributes,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(spec.Name),
                 metadata.GetOrAddBlob(spec.Signature),
                 bodyOffset,
-                parameterList: MetadataTokens.ParameterHandle(1));
+                parameterList: MetadataTokens.ParameterHandle(1)));
+        }
+
+        for (int i = 0; i < types.Length; i++)
+        {
+            if (types[i].OverrideDeclarationSignature is not { } declarationSignature)
+                continue;
+
+            var declaration = metadata.AddMemberReference(
+                objectRef,
+                metadata.GetOrAddString("Finalize"),
+                metadata.GetOrAddBlob(declarationSignature));
+            metadata.AddMethodImplementation(
+                defHandles[types[i].Name],
+                methodHandles[i],
+                declaration);
         }
 
         var pe = new ManagedPEBuilder(

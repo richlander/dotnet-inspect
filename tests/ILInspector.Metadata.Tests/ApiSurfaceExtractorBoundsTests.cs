@@ -152,6 +152,54 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void TypesOnlyExtraction_DoesNotBuildMemberOrLocalTypeIndexes()
+    {
+        byte[] image = BuildSharedLongTypeDefinitionNameImage(
+            typeCount: 5_000,
+            nameLength: 4_000,
+            publicTypes: false);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 1,
+                maxMembers: 0,
+                maxInspectionFailures: 0,
+                maxTypeForwarders: 0,
+                maxMetadataRows: 10_000,
+                maxRetainedTextCharacters: 32_000_000),
+            typesOnly: true);
+
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+        Assert.Empty(extracted.Surface.Types);
+    }
+
+    [Fact]
+    public void ModuleScopedFinalizerLookup_DoesNotRescanAllTypeDefinitions()
+    {
+        byte[] image = BuildModuleScopedFinalizerImage(typePairCount: 3_000);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 6_000,
+                maxMembers: 3_000,
+                maxInspectionFailures: 0,
+                maxTypeForwarders: 0,
+                maxMetadataRows: 20_000,
+                maxRetainedTextCharacters: 8_000_000));
+
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+        Assert.Equal(3_000, extracted.Surface.PublicMethodCount);
+    }
+
+    [Fact]
     public void OneTypeForwarderShortOfTheSurfaceSize_IsAbandoned()
     {
         ApiSurface unbounded = Unbounded();
@@ -1451,7 +1499,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
 
     static byte[] BuildSharedLongTypeDefinitionNameImage(
         int typeCount,
-        int nameLength)
+        int nameLength,
+        bool publicTypes = true)
     {
         var metadata = Metadata("LocalTypesAmplification");
         metadata.AddTypeDefinition(
@@ -1466,12 +1515,80 @@ public sealed class ApiSurfaceExtractorBoundsTests
         for (int index = 0; index < typeCount; index++)
         {
             metadata.AddTypeDefinition(
-                TypeAttributes.Public | TypeAttributes.Abstract,
+                (publicTypes ? TypeAttributes.Public : TypeAttributes.NotPublic)
+                    | TypeAttributes.Abstract,
                 metadata.GetOrAddString($"N{index:D5}"),
                 sharedName,
                 default,
                 MetadataTokens.FieldDefinitionHandle(1),
                 MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildModuleScopedFinalizerImage(int typePairCount)
+    {
+        var metadata = Metadata("ModuleScopedFinalizers");
+        AssemblyReferenceHandle coreLibrary = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[] { 0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e }),
+            default,
+            default);
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            coreLibrary,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+
+        for (int index = 0; index < typePairCount; index++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString($"Base{index}"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        for (int index = 0; index < typePairCount; index++)
+        {
+            TypeReferenceHandle baseType = metadata.AddTypeReference(
+                MetadataTokens.EntityHandle(0x00000001),
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString($"Base{index}"));
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("Samples"),
+                metadata.GetOrAddString($"Derived{index}"),
+                baseType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(index + 1));
+        }
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+        for (int index = 0; index < typePairCount; index++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("Finalize"),
+                signatureHandle,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
         }
 
         return Serialize(metadata);

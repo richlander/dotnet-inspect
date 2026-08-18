@@ -222,7 +222,7 @@ public static class ApiSurfaceExtractor
                         MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
                             reader,
                             typeDefHandle),
-                    Kind = "class",
+                    Kind = SummaryTypeKind(reader, typeDef),
                     Members = []
                 };
 
@@ -666,11 +666,15 @@ public static class ApiSurfaceExtractor
                 }
             }
         }
-        var currentScope = ReadCurrentScope(reader, surface, budget);
-        var localTypes = currentScope is null
+        var currentScope = typesOnly
+            ? null
+            : ReadCurrentScope(reader, surface, budget);
+        var localTypes = typesOnly || currentScope is null
             ? []
             : LocalTypes(reader, currentScope, surface, budget);
-        var accessorMethods = AccessorMethods(reader, surface, budget);
+        var accessorMethods = typesOnly
+            ? []
+            : AccessorMethods(reader, surface, budget);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -974,7 +978,10 @@ public static class ApiSurfaceExtractor
                 typeDef,
                 surface,
                 budget,
-                owningTypeDefinition);
+                owningTypeDefinition,
+                currentScope,
+                localTypes,
+                observeDecodeWork);
             var explicitImplementationBodies = GetExplicitImplementationBodies(
                 reader,
                 typeDef,
@@ -1337,6 +1344,16 @@ public static class ApiSurfaceExtractor
             {
                 var prop = reader.GetPropertyDefinition(propHandle);
                 var accessors = prop.GetAccessors();
+                MethodDefinitionHandle getterHandle =
+                    !accessors.Getter.IsNil && accessorMethods.Contains(accessors.Getter)
+                        ? accessors.Getter
+                        : default;
+                MethodDefinitionHandle setterHandle =
+                    !accessors.Setter.IsNil && accessorMethods.Contains(accessors.Setter)
+                        ? accessors.Setter
+                        : default;
+                if (getterHandle.IsNil && setterHandle.IsNil)
+                    continue;
 
                 // Determine best accessor visibility
                 MethodAttributes bestAccess = 0;
@@ -1345,9 +1362,9 @@ public static class ApiSurfaceExtractor
                 bool isAbstractProperty = false;
                 bool isOverrideProperty = false;
                 bool isSealedProperty = false;
-                if (!accessors.Getter.IsNil)
+                if (!getterHandle.IsNil)
                 {
-                    var getter = reader.GetMethodDefinition(accessors.Getter);
+                    var getter = reader.GetMethodDefinition(getterHandle);
                     var getterAttributes = getter.Attributes;
                     bestAccess = getter.Attributes & MethodAttributes.MemberAccessMask;
                     isStaticProperty = (getterAttributes & MethodAttributes.Static) != 0;
@@ -1356,9 +1373,9 @@ public static class ApiSurfaceExtractor
                     isOverrideProperty = isVirtualProperty && (getterAttributes & MethodAttributes.NewSlot) == 0;
                     isSealedProperty = isOverrideProperty && (getterAttributes & MethodAttributes.Final) != 0;
                 }
-                if (!accessors.Setter.IsNil)
+                if (!setterHandle.IsNil)
                 {
-                    var setter = reader.GetMethodDefinition(accessors.Setter);
+                    var setter = reader.GetMethodDefinition(setterHandle);
                     var setterAttributes = setter.Attributes;
                     var setterAccess = setterAttributes & MethodAttributes.MemberAccessMask;
                     if (setterAccess > bestAccess)
@@ -1394,7 +1411,8 @@ public static class ApiSurfaceExtractor
                     reader,
                     typeContext,
                     prop,
-                    accessors,
+                    getterHandle,
+                    setterHandle,
                     typeNullableContext,
                     includeAll,
                     observeText,
@@ -1471,20 +1489,20 @@ public static class ApiSurfaceExtractor
                         prop.GetCustomAttributes(),
                         observeText,
                         observeAttributeMaterialize),
-                    GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
-                    SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter),
-                    HasGetter = !accessors.Getter.IsNil,
-                    GetterAccessibility = accessors.Getter.IsNil
+                    GetterToken = getterHandle.IsNil ? null : MetadataTokens.GetToken(getterHandle),
+                    SetterToken = setterHandle.IsNil ? null : MetadataTokens.GetToken(setterHandle),
+                    HasGetter = !getterHandle.IsNil,
+                    GetterAccessibility = getterHandle.IsNil
                         ? null
                         : GetAccessibility(
-                            reader.GetMethodDefinition(accessors.Getter)
+                            reader.GetMethodDefinition(getterHandle)
                                 .Attributes
                                 & MethodAttributes.MemberAccessMask),
-                    HasSetter = !accessors.Setter.IsNil,
-                    SetterAccessibility = accessors.Setter.IsNil
+                    HasSetter = !setterHandle.IsNil,
+                    SetterAccessibility = setterHandle.IsNil
                         ? null
                         : GetAccessibility(
-                            reader.GetMethodDefinition(accessors.Setter)
+                            reader.GetMethodDefinition(setterHandle)
                                 .Attributes
                                 & MethodAttributes.MemberAccessMask),
                 };
@@ -1988,7 +2006,10 @@ public static class ApiSurfaceExtractor
             typeDef,
             surface,
             budget: null,
-            apiType.DefinitionName);
+            apiType.DefinitionName,
+            currentScope,
+            localTypes,
+            beforeDecodeWork: null);
         var explicitImplementationBodies = GetExplicitImplementationBodies(
             reader,
             typeDef,
@@ -2010,7 +2031,8 @@ public static class ApiSurfaceExtractor
                 && (!accessorMethods.Contains(methodHandle)
                     || methodAccess != MethodAttributes.Public
                     || methodName.Contains('.', StringComparison.Ordinal));
-            bool isFinalizer = method.GetGenericParameters().Count == 0
+            bool isFinalizer = apiType.Kind == "class"
+                && method.GetGenericParameters().Count == 0
                 && (objectFinalizeOverrides.Contains(methodHandle)
                     || IsImplicitObjectFinalizeOverride(
                         reader,
@@ -2070,15 +2092,26 @@ public static class ApiSurfaceExtractor
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
             var accessors = property.GetAccessors();
+            MethodDefinitionHandle getterHandle =
+                !accessors.Getter.IsNil && accessorMethods.Contains(accessors.Getter)
+                    ? accessors.Getter
+                    : default;
+            MethodDefinitionHandle setterHandle =
+                !accessors.Setter.IsNil && accessorMethods.Contains(accessors.Setter)
+                    ? accessors.Setter
+                    : default;
+            if (getterHandle.IsNil && setterHandle.IsNil)
+                continue;
+
             MethodAttributes bestAccess = 0;
-            if (!accessors.Getter.IsNil)
+            if (!getterHandle.IsNil)
             {
-                bestAccess = reader.GetMethodDefinition(accessors.Getter).Attributes
+                bestAccess = reader.GetMethodDefinition(getterHandle).Attributes
                     & MethodAttributes.MemberAccessMask;
             }
-            if (!accessors.Setter.IsNil)
+            if (!setterHandle.IsNil)
             {
-                var setterAccess = reader.GetMethodDefinition(accessors.Setter).Attributes
+                var setterAccess = reader.GetMethodDefinition(setterHandle).Attributes
                     & MethodAttributes.MemberAccessMask;
                 if (setterAccess > bestAccess)
                     bestAccess = setterAccess;
@@ -2483,6 +2516,16 @@ public static class ApiSurfaceExtractor
                     {
                         var property = reader.GetPropertyDefinition(propertyHandle);
                         var accessors = property.GetAccessors();
+                        if (!accessors.Getter.IsNil
+                                && reader.GetMethodDefinition(accessors.Getter).GetDeclaringType()
+                                    != groupingTypeHandle
+                            || !accessors.Setter.IsNil
+                                && reader.GetMethodDefinition(accessors.Setter).GetDeclaringType()
+                                    != groupingTypeHandle)
+                        {
+                            continue;
+                        }
+
                         if (!TryGetExtensionMarkerName(
                                 reader,
                                 property,
@@ -2940,6 +2983,25 @@ public static class ApiSurfaceExtractor
             : (rootNamespace, fullName);
     }
 
+    private static string SummaryTypeKind(
+        MetadataReader reader,
+        TypeDefinition typeDef)
+    {
+        if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
+            return "interface";
+
+        if (typeDef.BaseType.IsNil)
+            return "class";
+
+        return TypeResolver.GetTypeName(reader, typeDef.BaseType) switch
+        {
+            "System.Enum" => "enum",
+            "System.ValueType" => "struct",
+            "System.Delegate" or "System.MulticastDelegate" => "delegate",
+            _ => "class"
+        };
+    }
+
     private static string GetMetadataName(
         MetadataReader reader,
         TypeDefinitionHandle handle)
@@ -3014,21 +3076,129 @@ public static class ApiSurfaceExtractor
         TypeDefinition typeDef,
         ApiSurface surface,
         ExtractionBudget? budget,
-        MetadataTypeDefinitionName? owningTypeDefinition)
+        MetadataTypeDefinitionName? owningTypeDefinition,
+        MetadataTypeScope? currentScope,
+        IReadOnlyDictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle?> localTypes,
+        Action<int>? beforeDecodeWork)
     {
         List<OwnedMethodImplementation> implementations = [];
+        HashSet<EntityHandle> declarations = [];
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             try
             {
                 var implementation =
                     reader.GetMethodImplementation(implementationHandle);
-                if (implementation.MethodBody.Kind != HandleKind.MethodDefinition)
+                if (!declarations.Add(implementation.MethodDeclaration))
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "method implementation declaration",
+                        implementationHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            implementationHandle,
+                            $"Declaration 0x{MetadataTokens.GetToken(implementation.MethodDeclaration):x8} "
+                            + "appears more than once for the same MethodImpl owner."),
+                        owningType: owningType,
+                        owningTypeDefinition: owningTypeDefinition);
                     continue;
+                }
+
+                if (implementation.MethodBody.Kind == HandleKind.MemberReference)
+                {
+                    var memberReference = reader.GetMemberReference(
+                        (MemberReferenceHandle)implementation.MethodBody);
+                    if (TryResolveKnownLocalType(
+                            reader,
+                            memberReference.Parent,
+                            currentScope,
+                            localTypes,
+                            beforeDecodeWork,
+                            out var referencedType))
+                    {
+                        if (referencedType != owningType
+                            && !IsLocalBaseType(
+                                reader,
+                                owningType,
+                                referencedType,
+                                currentScope,
+                                localTypes,
+                                beforeDecodeWork))
+                        {
+                            AddInspectionFailure(
+                                surface,
+                                budget,
+                                "method implementation body",
+                                implementationHandle,
+                                MetadataTypeNameFailure.Malformed(
+                                    implementationHandle,
+                                    $"MemberRef body 0x{MetadataTokens.GetToken(implementation.MethodBody):x8} "
+                                    + $"belongs to unrelated type 0x{MetadataTokens.GetToken(referencedType):x8}."),
+                                owningType: owningType,
+                                owningTypeDefinition: owningTypeDefinition);
+                        }
+                        else if (referencedType == owningType)
+                        {
+                            var resolvedBody = ResolveLocalMemberReferenceBody(
+                                reader,
+                                referencedType,
+                                memberReference,
+                                beforeDecodeWork);
+                            if (resolvedBody is { } localBody)
+                            {
+                                implementations.Add(
+                                    new OwnedMethodImplementation(
+                                        localBody,
+                                        implementation.MethodDeclaration));
+                            }
+                            else if (memberReference.Parent.Kind
+                                != HandleKind.TypeSpecification)
+                            {
+                                AddInspectionFailure(
+                                    surface,
+                                    budget,
+                                    "method implementation body",
+                                    implementationHandle,
+                                    MetadataTypeNameFailure.Malformed(
+                                        implementationHandle,
+                                        $"MemberRef body 0x{MetadataTokens.GetToken(implementation.MethodBody):x8} "
+                                        + "does not identify one method on the MethodImpl owner."),
+                                    owningType: owningType,
+                                    owningTypeDefinition: owningTypeDefinition);
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                if (implementation.MethodBody.Kind != HandleKind.MethodDefinition)
+                {
+                    AddInspectionFailure(
+                        surface,
+                        budget,
+                        "method implementation body",
+                        implementationHandle,
+                        MetadataTypeNameFailure.Malformed(
+                            implementationHandle,
+                            $"Unsupported MethodImpl body kind {implementation.MethodBody.Kind}."),
+                        owningType: owningType,
+                        owningTypeDefinition: owningTypeDefinition);
+                    continue;
+                }
 
                 var body = (MethodDefinitionHandle)implementation.MethodBody;
                 var declaringType =
                     reader.GetMethodDefinition(body).GetDeclaringType();
+                if (declaringType != owningType
+                    && IsLocalBaseType(
+                        reader,
+                        owningType,
+                        declaringType,
+                        currentScope,
+                        localTypes,
+                        beforeDecodeWork))
+                    continue;
                 if (declaringType != owningType)
                 {
                     AddInspectionFailure(
@@ -3040,7 +3210,7 @@ public static class ApiSurfaceExtractor
                             implementationHandle,
                             $"Method body 0x{MetadataTokens.GetToken(body):x8} belongs to type "
                             + $"0x{MetadataTokens.GetToken(declaringType):x8}, not MethodImpl owner "
-                            + $"0x{MetadataTokens.GetToken(owningType):x8}."),
+                            + $"0x{MetadataTokens.GetToken(owningType):x8} or one of its base types."),
                         owningType: owningType,
                         owningTypeDefinition: owningTypeDefinition);
                     continue;
@@ -3068,6 +3238,91 @@ public static class ApiSurfaceExtractor
         }
         return implementations;
         return implementations;
+    }
+
+    private static MethodDefinitionHandle? ResolveLocalMemberReferenceBody(
+        MetadataReader reader,
+        TypeDefinitionHandle declaringType,
+        MemberReference memberReference,
+        Action<int>? beforeDecodeWork)
+    {
+        MethodDefinitionHandle match = default;
+        string memberName = DecodeString(
+            reader,
+            memberReference.Name,
+            beforeDecodeWork);
+        foreach (var candidateHandle in reader.GetTypeDefinition(declaringType).GetMethods())
+        {
+            var candidate = reader.GetMethodDefinition(candidateHandle);
+            if (!reader.StringComparer.Equals(candidate.Name, memberName)
+                || !SignaturesEqual(
+                    reader,
+                    candidate.Signature,
+                    memberReference.Signature,
+                    beforeDecodeWork))
+            {
+                continue;
+            }
+
+            if (!match.IsNil)
+                return null;
+            match = candidateHandle;
+        }
+
+        return match.IsNil ? null : match;
+    }
+
+    private static bool SignaturesEqual(
+        MetadataReader reader,
+        BlobHandle leftHandle,
+        BlobHandle rightHandle,
+        Action<int>? beforeDecodeWork)
+    {
+        var left = reader.GetBlobReader(leftHandle);
+        var right = reader.GetBlobReader(rightHandle);
+        beforeDecodeWork?.Invoke(checked(left.Length + right.Length));
+        if (left.Length != right.Length)
+            return false;
+
+        while (left.RemainingBytes > 0)
+        {
+            if (left.ReadByte() != right.ReadByte())
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsLocalBaseType(
+        MetadataReader reader,
+        TypeDefinitionHandle derivedType,
+        TypeDefinitionHandle candidateBase,
+        MetadataTypeScope? currentScope,
+        IReadOnlyDictionary<MetadataNamedTypeIdentity, TypeDefinitionHandle?> localTypes,
+        Action<int>? beforeDecodeWork)
+    {
+        HashSet<TypeDefinitionHandle> visited = [derivedType];
+        var current = reader.GetTypeDefinition(derivedType);
+        for (int depth = 0; depth < MaxBaseChainDepth; depth++)
+        {
+            if (!TryResolveKnownLocalType(
+                    reader,
+                    current.BaseType,
+                    currentScope,
+                    localTypes,
+                    beforeDecodeWork,
+                    out var baseType)
+                || !visited.Add(baseType))
+            {
+                return false;
+            }
+
+            if (baseType == candidateBase)
+                return true;
+            current = reader.GetTypeDefinition(baseType);
+        }
+
+        return false;
     }
 
     private static HashSet<MethodDefinitionHandle> GetExplicitImplementationBodies(
@@ -3325,7 +3580,8 @@ public static class ApiSurfaceExtractor
                         handle,
                         MetadataTypeNameFailure.Malformed(
                             handle,
-                            $"Duplicate type definition identity '{identity.Name}'."));
+                            "Duplicate type definition identity "
+                            + $"'{identity.Name.ToMetadataFullName()}'."));
                 }
             }
         }
@@ -3375,16 +3631,6 @@ public static class ApiSurfaceExtractor
         {
             return true;
         }
-        if (type.Kind == HandleKind.TypeReference
-            && TryResolvePhysicalLocalType(
-                reader,
-                type,
-                beforeDecodeWork) is { } fallbackPhysical)
-        {
-            definition = fallbackPhysical;
-            return true;
-        }
-
         definition = default;
         return false;
     }
@@ -3438,6 +3684,7 @@ public static class ApiSurfaceExtractor
         TypeDefinitionHandle match = default;
         foreach (var candidate in reader.TypeDefinitions)
         {
+            beforeDecodeWork?.Invoke(1);
             var result = MetadataTypeDefinitionNameReader.Matches(
                 reader,
                 candidate,
@@ -3974,11 +4221,10 @@ public static class ApiSurfaceExtractor
     /// <summary>
     /// The set of methods on <paramref name="typeDef"/> whose explicit
     /// <c>.override</c> MethodImpl targets <c>System.Object::Finalize</c> — the
-    /// slot a C# <c>~Type()</c> destructor compiles to. Keying on the overridden
-    /// declaration (not the method's own name/slot/signature) is what lets the
-    /// C# writer spell <c>~Type()</c> for real finalizers while excluding a
-    /// same-named override of an unrelated <c>Finalize</c> slot or an explicit
-    /// interface implementation.
+    /// slot a C# <c>~Type()</c> destructor compiles to. Requiring exact body and
+    /// declaration signatures lets the C# writer spell <c>~Type()</c> for real
+    /// finalizers while excluding malformed MethodImpl rows, an unrelated
+    /// <c>Finalize</c> slot, or an explicit interface implementation.
     /// </summary>
     private static HashSet<MethodDefinitionHandle> GetObjectFinalizeOverrides(
         MetadataReader reader,
@@ -3988,7 +4234,12 @@ public static class ApiSurfaceExtractor
         HashSet<MethodDefinitionHandle> handles = [];
         foreach (var implementation in implementations)
         {
-            if (ReferencesObjectFinalize(
+            var body = reader.GetMethodDefinition(implementation.Body);
+            if (IsFinalizerBodyShape(
+                    reader,
+                    body,
+                    beforeDecodeWork)
+                && ReferencesObjectFinalize(
                     reader,
                     implementation.Declaration,
                     beforeDecodeWork))
@@ -4012,9 +4263,7 @@ public static class ApiSurfaceExtractor
     internal static bool IsFinalizerMethod(MetadataReader reader, MethodDefinitionHandle methodHandle)
     {
         var method = reader.GetMethodDefinition(methodHandle);
-        if (!string.Equals(reader.GetString(method.Name), "Finalize", StringComparison.Ordinal))
-            return false;
-        if (method.GetGenericParameters().Count != 0)
+        if (!IsFinalizerBodyShape(reader, method))
             return false;
 
         var typeHandle = method.GetDeclaringType();
@@ -4201,11 +4450,20 @@ public static class ApiSurfaceExtractor
     private static bool HasVoidNullaryInstanceSignature(
         MetadataReader reader,
         MethodDefinition method,
+        Action<int>? beforeDecodeWork = null) =>
+        HasVoidNullaryInstanceSignature(
+            reader,
+            method.Signature,
+            beforeDecodeWork);
+
+    private static bool HasVoidNullaryInstanceSignature(
+        MetadataReader reader,
+        BlobHandle signature,
         Action<int>? beforeDecodeWork = null)
     {
         try
         {
-            var blob = reader.GetBlobReader(method.Signature);
+            var blob = reader.GetBlobReader(signature);
             beforeDecodeWork?.Invoke(blob.Length);
             var header = blob.ReadSignatureHeader();
             // object.Finalize is `instance void ()` with the default managed calling convention.
@@ -4254,8 +4512,32 @@ public static class ApiSurfaceExtractor
         }
     }
 
+    private static bool IsFinalizerBodyShape(
+        MetadataReader reader,
+        MethodDefinition method,
+        Action<int>? beforeDecodeWork = null)
+    {
+        if (!string.Equals(
+                DecodeString(reader, method.Name, beforeDecodeWork),
+                "Finalize",
+                StringComparison.Ordinal)
+            || method.GetGenericParameters().Count != 0)
+        {
+            return false;
+        }
+
+        var attributes = method.Attributes;
+        return (attributes & MethodAttributes.Static) == 0
+            && (attributes & MethodAttributes.Abstract) == 0
+            && HasVoidNullaryInstanceSignature(
+                reader,
+                method,
+                beforeDecodeWork);
+    }
+
     /// <summary>
-    /// <c>.override</c> MethodImpl) names <c>Finalize</c> on <c>System.Object</c>.
+    /// True when a <c>.override</c> MethodImpl declaration names the exact
+    /// <c>void System.Object::Finalize()</c> slot.
     /// The target is a <see cref="MemberReferenceHandle"/> in the common case
     /// (object lives in another assembly) and a <see cref="MethodDefinitionHandle"/>
     /// only when inspecting the assembly that defines <c>System.Object</c>.
@@ -4276,6 +4558,10 @@ public static class ApiSurfaceExtractor
                     && IsSystemObjectType(
                         reader,
                         memberRef.Parent,
+                        beforeDecodeWork)
+                    && HasVoidNullaryInstanceSignature(
+                        reader,
+                        memberRef.Signature,
                         beforeDecodeWork);
             case HandleKind.MethodDefinition:
                 var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)methodDeclaration);
@@ -4286,6 +4572,10 @@ public static class ApiSurfaceExtractor
                     && IsSystemObjectType(
                         reader,
                         methodDef.GetDeclaringType(),
+                        beforeDecodeWork)
+                    && HasVoidNullaryInstanceSignature(
+                        reader,
+                        methodDef,
                         beforeDecodeWork);
             default:
                 return false;
@@ -5913,7 +6203,8 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         GenericContext context,
         PropertyDefinition prop,
-        PropertyAccessors accessors,
+        MethodDefinitionHandle getterHandle,
+        MethodDefinitionHandle setterHandle,
         byte typeNullableContext,
         bool includeAll = false,
         Action<string>? beforeRetainText = null,
@@ -5958,18 +6249,18 @@ public static class ApiSurfaceExtractor
         // Determine accessor visibility
         MethodAttributes getterAccess = 0;
         MethodAttributes setterAccess = 0;
-        bool hasGetter = !accessors.Getter.IsNil;
-        bool hasSetter = !accessors.Setter.IsNil;
+        bool hasGetter = !getterHandle.IsNil;
+        bool hasSetter = !setterHandle.IsNil;
 
         if (hasGetter)
         {
-            var getter = reader.GetMethodDefinition(accessors.Getter);
+            var getter = reader.GetMethodDefinition(getterHandle);
             getterAccess = getter.Attributes & MethodAttributes.MemberAccessMask;
         }
 
         if (hasSetter)
         {
-            var setter = reader.GetMethodDefinition(accessors.Setter);
+            var setter = reader.GetMethodDefinition(setterHandle);
             setterAccess = setter.Attributes & MethodAttributes.MemberAccessMask;
         }
 
@@ -5991,7 +6282,7 @@ public static class ApiSurfaceExtractor
                     Accessibility = AccessorAccessibility(getterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
-                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        reader.GetMethodDefinition(getterHandle).GetParameters(),
                         beforeRetainText,
                         attributeMaterialize)
                 });
@@ -6002,7 +6293,7 @@ public static class ApiSurfaceExtractor
                     Accessibility = AccessorAccessibility(setterAccess, Math.Max((int)getterAccess, (int)setterAccess)),
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
-                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        reader.GetMethodDefinition(setterHandle).GetParameters(),
                         beforeRetainText,
                         attributeMaterialize)
                 });
@@ -6024,7 +6315,7 @@ public static class ApiSurfaceExtractor
                     Kind = "get",
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
-                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        reader.GetMethodDefinition(getterHandle).GetParameters(),
                         beforeRetainText,
                         attributeMaterialize)
                 });
@@ -6033,7 +6324,7 @@ public static class ApiSurfaceExtractor
                     Kind = "set",
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
-                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        reader.GetMethodDefinition(setterHandle).GetParameters(),
                         beforeRetainText,
                         attributeMaterialize)
                 });
@@ -6046,7 +6337,7 @@ public static class ApiSurfaceExtractor
                     Kind = "get",
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
-                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        reader.GetMethodDefinition(getterHandle).GetParameters(),
                         beforeRetainText,
                         attributeMaterialize)
                 });
@@ -6056,7 +6347,7 @@ public static class ApiSurfaceExtractor
                     Accessibility = "private",
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
-                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        reader.GetMethodDefinition(setterHandle).GetParameters(),
                         beforeRetainText,
                         attributeMaterialize)
                 });
@@ -6069,7 +6360,7 @@ public static class ApiSurfaceExtractor
                     Kind = "get",
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
-                        reader.GetMethodDefinition(accessors.Getter).GetParameters(),
+                        reader.GetMethodDefinition(getterHandle).GetParameters(),
                         beforeRetainText,
                         attributeMaterialize)
                 });
@@ -6082,7 +6373,7 @@ public static class ApiSurfaceExtractor
                     Kind = "set",
                     ReturnAttributes = ReturnParameterAttributes(
                         reader,
-                        reader.GetMethodDefinition(accessors.Setter).GetParameters(),
+                        reader.GetMethodDefinition(setterHandle).GetParameters(),
                         beforeRetainText,
                         attributeMaterialize)
                 });
@@ -6117,8 +6408,8 @@ public static class ApiSurfaceExtractor
         var isRequired = requiredPrefix.Length > 0;
 
         MethodDefinitionHandle parameterAccessor = hasGetter
-            ? accessors.Getter
-            : accessors.Setter;
+            ? getterHandle
+            : setterHandle;
         var parameterAccessorMethod = parameterAccessor.IsNil
             ? default
             : reader.GetMethodDefinition(parameterAccessor);
