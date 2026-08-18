@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
+using ILInspector.Decompiler;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 
 namespace InspectWeb.Engine.Tests;
@@ -35,6 +36,30 @@ public sealed class BrowserStyleOptionsTests
                 actual[i].TryGetProperty("conflict_group", out JsonElement conflict)
                     ? conflict.GetString()
                     : null);
+        }
+    }
+
+    [Fact]
+    public void ListVocabulary_ProjectsProductOwnedBodyKinds()
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            BrowserInspectionEngine.ListVocabulary());
+        JsonElement actual = document.RootElement
+            .GetProperty("sections")
+            .EnumerateArray()
+            .Single(section =>
+                section.GetProperty("id").GetString()
+                    == "csharp.body-kinds")
+            .GetProperty("values");
+
+        Assert.Equal(BodyShapeSearch.SupportedKinds.Count, actual.GetArrayLength());
+        for (int i = 0; i < actual.GetArrayLength(); i++)
+        {
+            string expected = BodyShapeSearch.SupportedKinds[i];
+            Assert.Equal(expected, actual[i].GetProperty("id").GetString());
+            Assert.Equal(
+                AnnotatedSourceNodeKinds.GetDisplayLabel(expected),
+                actual[i].GetProperty("label").GetString());
         }
     }
 

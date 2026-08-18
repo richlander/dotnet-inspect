@@ -567,6 +567,21 @@ public class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
+        if (options.ShowDependencies)
+        {
+            CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
+            string packageReference = target.IsLocalFile
+                ? target.OriginalArgument
+                : version.Length > 0
+                    ? $"{packageName}@{version}"
+                    : packageName;
+            return await ShowDependencyTreeAsync(
+                client,
+                packageReference,
+                options,
+                logger);
+        }
+
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
 
@@ -601,7 +616,7 @@ public class PackageCommand
             if (options.ListTfms)
                 return ListPackageTfms(extractPath, options);
 
-            // Parse nuspec (needed for the --dependencies early exit and full inspection)
+            // Parse nuspec for full package inspection.
             var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
             // Handle file content modes and exit early.
@@ -613,15 +628,6 @@ public class PackageCommand
                 return PrintPackageFileContents(
                     [ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, nuspec?.ReadmeFile, options)],
                     options);
-            }
-
-            // Handle --dependencies mode: resolve transitive deps and show tree
-            if (options.ShowDependencies)
-            {
-                CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
-                var depResult = new InspectionResult { PackageName = packageName, Version = version };
-                if (nuspec != null) ApplyNuspec(nuspec, depResult);
-                return await ShowDependencyTreeAsync(client, depResult, options, logger);
             }
 
             if (options.AllLibraries)
@@ -4718,64 +4724,83 @@ public class PackageCommand
     }
 
     private static async Task<int> ShowDependencyTreeAsync(
-        HttpClient client, InspectionResult result, InspectionOptions options, VerboseLogger logger)
+        HttpClient client,
+        string packageReference,
+        InspectionOptions options,
+        VerboseLogger logger)
     {
-        var selection = DependencyResolutionService.SelectDependencyGroup(
-            result.DependencyGroups,
-            options.Tfm,
-            allowCompatibleFallbackForRequestedTfm: false);
-        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups)
-        {
-            CommandError.WriteLine("No dependencies declared in package.");
-            return 0;
-        }
+        PackageDependencyGraphResult result =
+            await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                client,
+                packageReference,
+                options.Tfm,
+                options.SourceOptions,
+                logger,
+                includePrerelease: options.IncludePrerelease,
+                allowCompatibleFallbackForRequestedTfm: false);
 
-        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework)
+        if (result is PackageDependencyGraphResult.Error error)
         {
-            CommandError.Write($"No dependencies found for TFM '{selection.TargetFramework}'.");
-            CommandError.WriteLine("Available TFMs: " + string.Join(", ", selection.AvailableTargetFrameworks));
+            CommandError.Write(
+                error.Message,
+                error.Detail is null ? [] : [error.Detail]);
             return 1;
         }
 
-        var group = selection.Group!;
-        var tfm = selection.TargetFramework ?? group.TargetFramework;
-        var packageText = new PackageInspectionText(result);
-        var tfmText = new InertString(TextPolicy.Field, tfm);
-
-        if (group.Dependencies.Count == 0)
+        if (result is PackageDependencyGraphResult.Empty empty)
         {
+            if (empty.Kind
+                == PackageDependencyGraphResult.EmptyKind.NoDependencyGroups)
+            {
+                CommandError.WriteLine(empty.Message);
+                return 0;
+            }
+
+            var packageName =
+                new InertString(
+                    TextPolicy.Field,
+                    empty.ManifestPackageName);
+            var version =
+                new InertString(
+                    TextPolicy.Field,
+                    empty.ManifestVersion);
+            var description =
+                new InertString(TextPolicy.Field, empty.Message);
             var emptyView = new EmptyDepsView
             {
                 Title = InertString.Format(
                     TextPolicy.Field,
-                    $"{packageText.PackageName} ({packageText.Version})").ToString(),
-                Description = InertString.Format(
-                    TextPolicy.Field,
-                    $"No additional dependencies for {tfmText}.").ToString()
+                    $"{packageName} ({version})").ToString(),
+                Description = description.ToString()
             };
-            Console.WriteLine(MarkoutSerializer.Serialize(emptyView, InspectionContext.Default));
+            Console.WriteLine(
+                MarkoutSerializer.Serialize(
+                    emptyView,
+                    InspectionContext.Default));
             return 0;
         }
 
-        // Resolve transitive dependencies
-        var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
-            client,
-            group.Dependencies,
-            tfm,
-            globalSeen,
-            logger.Log,
-            options.SourceOptions);
-
+        var graph = (PackageDependencyGraphResult.Graph)result;
+        var packageText =
+            new InertString(
+                TextPolicy.Field,
+                graph.ManifestPackageName);
+        var versionText =
+            new InertString(
+                TextPolicy.Field,
+                graph.ManifestVersion);
         var view = new PackageDependenciesView
         {
             Title = InertString.Format(
                 TextPolicy.Field,
-                $"{packageText.PackageName} {packageText.Version}").ToString(),
-            Dependencies = ToTreeNodes(depNodes)
+                $"{packageText} {versionText}").ToString(),
+            Dependencies = ToTreeNodes(graph.Dependencies)
         };
 
-        MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+        MarkoutSerializer.Serialize(
+            view,
+            Console.Out,
+            PackageDependenciesContext.Default);
         return 0;
     }
 
