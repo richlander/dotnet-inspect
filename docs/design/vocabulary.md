@@ -37,6 +37,8 @@ reclassify their values:
   classification.
 - `StyleOptionCatalog` owns C# style tiers, selectable choices, conflicts,
   endorsement, and byte-divergence properties.
+- `BodyShapeSearch.SupportedKinds` owns searchable body-kind identity and order;
+  `AnnotatedSourceNodeKinds` owns their display labels.
 
 CLI and browser/WASM consume the same `VocabularyCatalog` and
 `VocabularyJson` projection. Hosts may select a section for a purpose-specific
