@@ -754,9 +754,13 @@ internal sealed class ReturnToSenderSourceIndex
     /// <para>
     /// Raw syntax indexes created by <see cref="TryCreate(IReadOnlyList{string})"/>
     /// retain normal source-probe lookup behavior, but cannot support attribution:
-    /// they lack the original build configuration and semantic identity. Fault
-    /// isolation is not attempted for those indexes; #3835 tracks restoring it
-    /// through exact PDB method spans.
+    /// they lack the original build configuration and semantic identity.
+    /// <c>TryIsolateRecompileFailure_DeclinesRawSourceIndex</c> gates that boundary.
+    /// PDB method spans cannot supply the missing provenance because an unsupplied
+    /// input can map its sequence points into another document. No PDB-specific
+    /// token map is constructed here; that broader absence has no dedicated gate.
+    /// #3835 remains blocked on an independently trusted complete-source manifest
+    /// or stronger per-method provenance.
     /// </para>
     /// </remarks>
     public static ReturnToSenderSourceIndex FromCorrelatedMembers(
