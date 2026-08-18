@@ -130,6 +130,7 @@ body selector even when the graph has no `MethodDef` token.
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
 | `engine/BrowserInspectionEngine.cs` | the supported `[JSExport]` operations |
+| `engine/BrowserSourceOperations.cs` | pathless authored-or-decompiled type/member source and Browser source capabilities |
 | `engine/BrowserUnsupportedOperations.cs` | the `[JSExport]` operations this engine refuses |
 
 Inspected assemblies are read with System.Reflection.Metadata only, are never
@@ -162,8 +163,9 @@ coordinate to rewrite the resource path.
 `BrowserEngineBoundaryTests.PackageAcquisition_StallBecomesVisibleOperationTimeout`,
 `BrowserEngineBoundaryTests.PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller`,
 `BrowserEngineBoundaryTests.PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent`,
+`BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout`,
 and
-`BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout`
+`BrowserEngineBoundaryTests.PackageOperation_LateCallerCancellationRemainsCancellation`
 gate these boundaries.
 
 Acquisition is bounded before content enters either cache or workspace. A
@@ -209,6 +211,7 @@ the full budget.
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
+| `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
 | `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
 | `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
@@ -263,6 +266,58 @@ whole-assembly fact context could not be built, a visible `contextLimitation` so
 a short fact list is never read as an honest absence of facts. Printer options
 are resolved from `StyleOptionCatalog`; an id the catalog does not know is a
 visible failure, not a silently ignored selection.
+
+The three source exports resolve the exact structured type identity and opaque
+member body selector against the implementation participant before calling
+`AssemblyContextSourceQuery`. The query tries checksum-verified authored source
+through Browser HTTP and explicit nuget.org authorization, then falls back to
+pathless decompilation under the workspace binding policy. Symbol-package
+responses are capped at 24 MiB, expanded PDBs at 8 MiB, and archives at 2,048
+entries before either response or expanded content is copied into the
+request-scoped store. Candidate PDB expansion across one symbol package is
+capped at 24 MiB, checks cancellation between decompression chunks, and rejects
+all ZIP64 sentinels in the end-of-central-directory record before `ZipArchive`
+enumeration. Because that record does not carry the per-entry ZIP64 extra field
+that supplies `ZipArchiveEntry.Length`, a negative declared PDB length — which
+would clear every ceiling and then narrow to a large allocation — is rejected at
+the allocation site as well. The store independently
+caps all retained PDB bytes at 24 MiB. SourceLink requests are authorized before
+dispatch for HTTPS URLs on GitHub, Azure DevOps, GitLab, and Bitbucket source
+hosts, and the Browser transport refuses redirects; unsupported hosts visibly
+fall back to decompilation.
+
+Source operations are exclusive across the Browser process: a new request
+cancels the previous request, and leaving every source view cancels hidden work.
+The operation holds its workspace and package archives until its fresh bounded
+PDB and source stores are released, so concurrent or evicted requests cannot
+multiply those request-local budgets. This lifetime is gated by
+`SourceOperations_AreExclusiveAndSuperseding` and
+`ActiveScopeLease_PreventsWorkspaceAndPackageEviction`. Cancellation also
+releases a caller waiting on shared package acquisition without canceling that
+bounded cache operation for other consumers; `CancelledWait_ReleasesSharedPackageAcquisition`
+gates that separation. Source lookup therefore adds no ambient filesystem
+dependency or unbounded retained cache. Typed rejection and unavailable
+outcomes become visible failures; only an `Available` result crosses the
+bridge. Decompiled results disclose why the authored attempt was unavailable.
+Reference-only type source is refused rather than presented as a body-free
+decompilation. Printer options apply to decompiled fallback and never rewrite
+authored source. Whole-member source remains MethodDef-scoped: a
+call-graph accessor body reports that limitation rather than returning its owner
+property or the whole type as a success-shaped substitute, and bodiless API
+groups do not offer a Source section.
+`BrowserEngineBoundaryTests.SourceContexts_UseFreshMemoryOnlyPdbStores`,
+`BrowserEngineBoundaryTests.SourceFetchPolicy_AuthorizesBeforeDispatch`,
+`BrowserEngineBoundaryTests.TypeSourceParticipant_RefusesReferenceOnlyAssembly`,
+`SnupkgPdbReaderTests.ExtractPortablePdb_EntryLimitRejectsArchiveBeforeExpansion`,
+`SnupkgPdbReaderTests.ExtractPortablePdb_EveryZip64SentinelIsRejected`,
+`SnupkgPdbReaderTests.ExtractPortablePdb_AggregateExpansionRejectsRepeatedCandidates`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_LimitedHostRejectsOversizedSymbolPackage`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_LimitedHostRejectsOversizedMsdlBeforeStore`,
+`AssemblyContextSourceQueryTests.DecompilerFallback_AppliesRequestPrinterOptions`,
+and the JavaScript `source requests carry exact type and member identities`,
+`member request identity distinguishes colliding type queries`, `annotated
+source request identity includes the selected body`, and `call graph source
+identity prefers the structured type definition` cases gate these boundaries.
 
 [#3964]: https://github.com/richlander/dotnet-inspect/pull/3964
 
@@ -336,25 +391,20 @@ ambiguity and diagnostic cases gate these host behaviors.
 
 ## Unsupported
 
-Each remaining gap is either a missing public query that owns its own group
-session or missing Browser host capability and adapter wiring around such a
-query. Each export keeps the signature the browser bridge binds and throws a
-`NotSupportedException` naming the gap, so the site reports the engine's
-refusal rather than fixture results or success-shaped empty output.
+Each remaining gap is a missing public query that owns its own group session.
+Each export keeps the signature the browser bridge binds and throws a
+`NotSupportedException` naming the gap, so the site reports the engine's refusal
+rather than fixture results or success-shaped empty output.
 
-| Unsupported export | Missing product or host wiring |
+| Unsupported export | Missing product query |
 | --- | --- |
-| `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | `AssemblyContextSourceQuery` now owns pathless SourceLink and decompiled source; the Browser host still needs symbol/source clients, authorization, in-memory stores, and typed-result adaptation |
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
-| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | runtime-pack acquisition that produces participants from content |
+| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | `WorkspaceContextLoader` now produces runtime-pack participants from content; the Browser host still needs platform scope caching, typed-result adaptation, and the missing group-scoped metadata/performance queries named above |
 
-One further gap is about acquisition rather than inspection:
-
-- `ResolvedAssemblyReference.CreateFromPathIfManaged` has **no content-shaped
-  sibling**, so a filesystem-free acquisition owner must decode assembly identity
-  itself before it can mint a participant the group will accept.
+`ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
+decoding, so Browser acquisition does not reconstruct assembly identity.
 
 Each gap has a tracking issue; the pull request that introduced this rebuild
 lists them.
@@ -477,6 +527,21 @@ the staging deployment job. The separate `inspect-web-staging` GitHub
 environment accepts only `main` and holds a deployment token scoped to the
 staging Azure Static Web App.
 
+`.github/workflows/deploy-inspect-web-coreclr.yml` publishes the same `main`
+commit to the isolated comparison site at
+`https://coreclr.dotnet-inspect.ca`. It uses a third Azure Static Web App, the
+main-only `inspect-web-coreclr-staging` environment, a distinct deployment
+token, and the non-promotable `inspect-web-coreclr-site` artifact. The site is
+interpreter-only while the .NET 11 Preview 7 SDK lacks the packaged headers and
+Emscripten cache wiring needed for CoreCLR native relinking. The workflow pins
+the proven preview SDK, enables `runtime-async=on` across this application
+graph, and applies the `UseMonoRuntime=false`, `WasmBuildNative=false`,
+`WasmNestedPublishAppDependsOn=`, and `WasmEnableExceptionHandling=true`
+overrides. This exercises runtime async only in the CoreCLR comparison
+deployment; Mono staging and ordinary non-AOT builds retain classic async
+lowering. The workflow verifies the CoreCLR-specific `GetDotNetRuntimeHeap`
+hook before and after artifact transfer.
+
 `.github/workflows/promote-inspect-web.yml` intentionally promotes one
 successful staging run to production at `https://dotnet-inspect.net`. The
 operator supplies the staging run ID and types `promote`; the workflow verifies
@@ -487,11 +552,11 @@ the run attempt, commit, artifact identity, and digest, downloads the exact
 artifact ID with digest mismatch configured as an error, and deploys the
 archived staging files. `validate-inspect-web-promotion.cs --self-test`, run
 by inspect-web CI, gates the evidence discriminator and close negative cases;
-the CI change-detection workflow contract gate keeps both deployment jobs free
-of candidate code, keeps production revalidation on the trusted dispatch
-revision, and orders each artifact download before only verification and
-deployment. Manual staging runs remain useful for recovery but are deliberately
-not promotable.
+the CI change-detection workflow contract gate keeps all deployment jobs free
+of candidate code, closes the CoreCLR runtime and credential contract, keeps
+production revalidation on the trusted dispatch revision, and orders each
+artifact download before only verification and deployment. Manual staging runs
+remain useful for recovery but are deliberately not promotable.
 
 Production promotion uses the distinct `inspect-web-production-promotion`
 environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`
@@ -503,16 +568,16 @@ repository-scoped token. Token rotation invalidates credentials already copied
 into queued parent-era jobs; deleting both old secret locations makes later
 reruns fail closed.
 
-Both deployment workflows pin the Azure deployment action to an exact commit
-and pin their checkout, SDK setup, and artifact actions to exact commits. The
-workflow contract gate enforces those references. Azure's pinned action still
-pulls Microsoft's `staticappsclient:stable` image; that vendor-controlled
-deployment dependency is not immutable and remains inside the Azure trust
-boundary. Both workflows disable Azure's own app build and require the
-published artifact to contain `staticwebapp.config.json`. That configuration
-serves `/` and `/index.html` with `Cache-Control: no-cache, no-store,
-must-revalidate`, so an Azure edge cannot retain an old browser boot graph
-after its fingerprinted Wasm assets rotate.
+All three deployment workflows pin the Azure deployment action to an exact
+commit and pin their checkout, SDK setup, and artifact actions to exact
+commits. The workflow contract gate enforces those references. Azure's pinned
+action still pulls Microsoft's `staticappsclient:stable` image; that
+vendor-controlled deployment dependency is not immutable and remains inside
+the Azure trust boundary. All three workflows disable Azure's own app build
+and require the published artifact to contain `staticwebapp.config.json`. That
+configuration serves `/` and `/index.html` with `Cache-Control: no-cache,
+no-store, must-revalidate`, so an Azure edge cannot retain an old browser boot
+graph after its fingerprinted Wasm assets rotate.
 `BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
 gates the header contract and publish wiring. The staging publish step embeds
 the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
@@ -526,9 +591,8 @@ The Azure resources, custom-domain assignments, GitHub environments, branch
 restrictions, required production reviewer, and environment-scoped deployment
 tokens live outside this repository and are **not** verified by anything in it.
 Treat successful staging and promotion runs, not this file, as evidence that
-the corresponding deployed site is current. The staging domain is intentionally
-not publicized, but it is public infrastructure and is not a confidentiality
-boundary.
+the corresponding deployed site is current. Both staging domains are public
+infrastructure and are not confidentiality boundaries.
 
 See [architecture-spike.md](architecture-spike.md) for the proposed .NET 11
 browser engine and the NativeAOT decision.

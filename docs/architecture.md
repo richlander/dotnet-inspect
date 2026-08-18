@@ -814,6 +814,17 @@ Research overlay bridge, and the application layer:
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
   the top-level local-function tests gate the lifted-owner caches and execution
   mapping.
+  `LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime/classic
+  async source resolution, classic source-to-`MoveNext` mapping, state-machine
+  attribute authentication, and scoped evidence expansion. It reuses primary
+  metadata identity and generated-code judgments plus the builder's shared
+  local type-definition index.
+  `OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
+  `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
+  `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and
+  `OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis`
+  gate projection, authentication, close-negative scope behavior, and
+  read-only parallel cache consumption.
   `LibraryBodyAnalysisAccumulator` receives the completed per-method result
   array in metadata order, merges every topic and partial diagnostic, computes
   the call-derived non-heap and exception-type assembly projections, and
@@ -822,8 +833,8 @@ Research overlay bridge, and the application layer:
   output, while `BuildCallTree_PreservesRecoverableBodyAnalysisFailure` also
   gates partial-result accumulation.
   The assembly builder retains the metadata-ordered work list, parallel
-  scheduling, async source-to-evidence mapping, and service lifetime
-  composition.
+  scheduling, shared local type-definition infrastructure, and service
+  lifetime composition.
   Cross-assembly type-definition binding,
   referenced-image metadata lifetime, and the registration-keyed cache belong
   to `LibraryBodyReferenceMetadataResolver`, which composes

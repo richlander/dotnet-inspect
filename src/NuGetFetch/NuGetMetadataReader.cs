@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace NuGetFetch;
 
 internal static class NuGetMetadataReader
@@ -78,6 +80,7 @@ internal static class NuGetMetadataReader
             return await operation(cancellationToken).ConfigureAwait(false);
         }
 
+        long started = Stopwatch.GetTimestamp();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
         timeout.CancelAfter(options.MetadataBodyTimeout);
@@ -85,12 +88,45 @@ internal static class NuGetMetadataReader
         try
         {
             T result = await operation(timeout.Token).ConfigureAwait(false);
-            timeout.Token.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (HasBodyTimeoutExpired(
+                    started,
+                    timeout,
+                    options.MetadataBodyTimeout))
+            {
+                var cancellation = new OperationCanceledException(
+                    "NuGet metadata body completed after its deadline expired.",
+                    timeout.Token);
+                throw new NuGetMetadataBodyTimeoutException(
+                    options.MetadataBodyTimeout,
+                    cancellation);
+            }
+
             return result;
         }
         catch (OperationCanceledException ex)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                "NuGet metadata read was canceled by the caller.",
+                ex,
+                cancellationToken);
+        }
+        catch (Exception ex)
+            when (cancellationToken.IsCancellationRequested
+                && IsDeadlineAbort(ex))
+        {
+            throw new OperationCanceledException(
+                "NuGet metadata read was canceled by the caller.",
+                ex,
+                cancellationToken);
+        }
+        catch (OperationCanceledException ex)
             when (!cancellationToken.IsCancellationRequested
-                && timeout.IsCancellationRequested)
+                && HasBodyTimeoutExpired(
+                    started,
+                    timeout,
+                    options.MetadataBodyTimeout))
         {
             throw new NuGetMetadataBodyTimeoutException(
                 options.MetadataBodyTimeout,
@@ -98,7 +134,10 @@ internal static class NuGetMetadataReader
         }
         catch (Exception ex)
             when (!cancellationToken.IsCancellationRequested
-                && timeout.IsCancellationRequested
+                && HasBodyTimeoutExpired(
+                    started,
+                    timeout,
+                    options.MetadataBodyTimeout)
                 && IsDeadlineAbort(ex))
         {
             var cancellation = new OperationCanceledException(
@@ -110,6 +149,13 @@ internal static class NuGetMetadataReader
                 cancellation);
         }
     }
+
+    private static bool HasBodyTimeoutExpired(
+        long started,
+        CancellationTokenSource timeout,
+        TimeSpan bodyTimeout) =>
+        timeout.IsCancellationRequested
+        || Stopwatch.GetElapsedTime(started) >= bodyTimeout;
 
     private static bool IsDeadlineAbort(Exception exception) =>
         exception is IOException
