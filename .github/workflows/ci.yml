@@ -163,7 +163,7 @@ jobs:
           dotnet run
           eng/validate-inspect-web-runtime-async.cs
           --
-          artifacts/inspect-web-publish/wwwroot/_framework
+          artifacts/runtime-async-off/bin
 
       - name: Test browser engine
         run: >

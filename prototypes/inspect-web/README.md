@@ -399,8 +399,10 @@ same compiler feature as a global property through every project reference.
 `RuntimeAsyncDisableCoversBrowserProjectGraph` gates that project and workflow
 wiring. Both Browser CI and staging deployment run
 `eng/validate-inspect-web-runtime-async.cs` against the published
-`InspectWeb.Engine` and `NuGetFetch` Wasm assemblies, so losing either the root
-or referenced-project disable fails before deployment.
+managed-assembly closure and reject any metadata reference to
+`System.Runtime.CompilerServices.AsyncHelpers`. Runtime-async builds use a
+separate output tree, so an incrementally reused normal build cannot enter the
+Browser publish.
 
 On a bare visit, `app.js` waits for the home page's first contentful paint
 before dynamically importing `engine.js`. Search and demo controls remain

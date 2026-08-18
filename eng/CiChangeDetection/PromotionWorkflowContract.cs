@@ -528,7 +528,7 @@ internal static class PromotionWorkflowContract
             dotnet run \
               eng/validate-inspect-web-runtime-async.cs \
               -- \
-              artifacts/inspect-web-publish/wwwroot/_framework
+              artifacts/runtime-async-off/bin
             """;
         if (GetRequiredScalar(publish, "run", "staging publish step").TrimEnd() !=
             ExpectedPublish)

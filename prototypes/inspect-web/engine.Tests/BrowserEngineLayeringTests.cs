@@ -47,28 +47,61 @@ public sealed class BrowserEngineLayeringTests
     public void RuntimeAsyncDisableCoversBrowserProjectGraph()
     {
         XDocument project = XDocument.Load(EngineProjectPath);
+        XDocument engineProps = XDocument.Load(EnginePropsPath);
+        XDocument repositoryProps = XDocument.Load(RepositoryPropsPath);
+        XDocument repositoryTargets = XDocument.Load(RepositoryTargetsPath);
 
-        XElement rootDisable = Assert.Single(
-            project.Descendants("Target"),
-            item => item.Attribute("Name")?.Value == "DisableRuntimeAsync");
-        Assert.Equal("CoreCompile", rootDisable.Attribute("BeforeTargets")?.Value);
         Assert.Equal(
-            "runtime-async=off",
-            Assert.Single(rootDisable.Descendants("Features")).Value);
+            "off",
+            Assert.Single(engineProps.Descendants("RuntimeAsync")).Value);
+        Assert.True(
+            engineProps.Root!.Elements().First().Name.LocalName == "PropertyGroup",
+            "RuntimeAsync must be set before the repository props import.");
 
-        XElement propagation = Assert.Single(
+        XElement projectReferenceDefaults = Assert.Single(
             project.Descendants("ProjectReference"),
-            item => item.Attribute("Update")?.Value == "@(ProjectReference)");
+            item => item.Parent?.Name.LocalName == "ItemDefinitionGroup");
         Assert.Equal(
-            "Configuration=$(Configuration);Features=runtime-async=off",
-            propagation.Attribute("SetConfiguration")?.Value);
+            "RuntimeAsync=off",
+            Assert.Single(projectReferenceDefaults.Elements("AdditionalProperties")).Value);
+        Assert.Equal(
+            "Configuration=$(Configuration);RuntimeAsync=off",
+            Assert.Single(projectReferenceDefaults.Elements("SetConfiguration")).Value);
+        List<XElement> projectChildren = [.. project.Root!.Elements()];
+        Assert.True(
+            projectChildren.IndexOf(projectReferenceDefaults.Parent!)
+                < projectChildren.FindIndex(
+                    item => item.Descendants("ProjectReference")
+                        .Any(reference => reference.Attribute("Include") is not null)),
+            "ProjectReference defaults must be declared before every included reference.");
+
+        XElement isolatedOutput = Assert.Single(
+            repositoryProps.Descendants("PropertyGroup"),
+            item => item.Attribute("Condition")?.Value == "'$(RuntimeAsync)' == 'off'");
+        Assert.Contains(
+            "artifacts/runtime-async-off/bin",
+            Assert.Single(isolatedOutput.Elements("BaseOutputPath")).Value,
+            StringComparison.Ordinal);
+
+        XElement disabledFeatures = Assert.Single(
+            repositoryTargets.Descendants("PropertyGroup"),
+            item => item.Attribute("Condition")?.Value ==
+                "'$(TargetFramework)' == 'net11.0' and '$(RuntimeAsync)' == 'off'");
+        Assert.Equal(
+            "$(Features);runtime-async=off",
+            Assert.Single(disabledFeatures.Elements("Features")).Value);
 
         Assert.True(File.Exists(RuntimeAsyncGatePath), $"{RuntimeAsyncGatePath} is missing.");
         foreach (string workflowPath in new[] { CiWorkflowPath, DeployWorkflowPath })
         {
+            string workflow = File.ReadAllText(workflowPath);
             Assert.Contains(
                 "eng/validate-inspect-web-runtime-async.cs",
-                File.ReadAllText(workflowPath),
+                workflow,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "artifacts/runtime-async-off/bin",
+                workflow,
                 StringComparison.Ordinal);
         }
     }
@@ -204,6 +237,18 @@ public sealed class BrowserEngineLayeringTests
     static string BanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,
         "BannedSymbols.txt");
+
+    static string EnginePropsPath => Path.Combine(
+        Path.GetDirectoryName(EngineProjectPath)!,
+        "Directory.Build.props");
+
+    static string RepositoryPropsPath => Path.Combine(
+        RepositoryRoot(),
+        "Directory.Build.props");
+
+    static string RepositoryTargetsPath => Path.Combine(
+        RepositoryRoot(),
+        "Directory.Build.targets");
 
     static string RuntimeAsyncGatePath => Path.Combine(
         RepositoryRoot(),

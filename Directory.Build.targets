@@ -26,6 +26,9 @@
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0' and '$(RuntimeAsync)' != 'off'">
     <Features>$(Features);runtime-async=on</Features>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0' and '$(RuntimeAsync)' == 'off'">
+    <Features>$(Features);runtime-async=off</Features>
+  </PropertyGroup>
 
   <!-- Updated memory-safety rules are a compiler feature and a decompiler
        fixture axis. Keep the repo default as whatever the project requested
