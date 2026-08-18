@@ -1664,7 +1664,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. `.nettrace` allocation ticks stop at the first frame in a represented assembly and join only that method token and nearest-preceding IL offset; an unexported in-assembly callee is not attributed to its caller.");
     Console.WriteLine("- The kind-first table ranks realized allocation volume by static `AllocationKind`; `EscapeKind` is the static promotion prior for that hot site.");
     Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `il-offset-hot` means a `.nettrace` allocation tick joined to a single nearest-preceding static IL allocation site. `allocation-hot` means raw allocation events occurred with the method on-stack. `shape-hot` means the allocated type matched the static allocation shape. `shape-hot-ambiguous` means multiple same-shape static rows share that evidence. `confirmed-hot` means an exact token+IL coordinate was observed.");
-    Console.WriteLine("- `superseded-by-triage` means the same physical site was observed through a richer shape-compatible triage row; it is not workload-cold.");
+    Console.WriteLine("- `superseded-by-triage` means runtime evidence for the same physical candidate is carried by a richer shape-compatible triage row; it is not workload-cold.");
 }
 
 static void RenderPlainText(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates)
@@ -2542,48 +2542,28 @@ sealed class CandidateLookup
 
     static IEnumerable<string> CandidateModuleKeys(AllocationCandidate candidate)
     {
-        if (NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
+        if (ProgramSupport.NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
             yield return assembly;
         if (string.Equals(
                 candidate.Source,
                 "library",
                 StringComparison.Ordinal))
         {
-            if (NormalizeModuleKey(candidate.LibraryPath) is { Length: > 0 } path)
+            if (ProgramSupport.NormalizeModuleKey(candidate.LibraryPath) is { Length: > 0 } path)
                 yield return path;
-            if (NormalizeModuleKey(Path.GetFileName(candidate.LibraryPath)) is { Length: > 0 } file)
+            if (ProgramSupport.NormalizeModuleKey(Path.GetFileName(candidate.LibraryPath)) is { Length: > 0 } file)
                 yield return file;
         }
     }
 
     static IEnumerable<string> ModuleLookupKeys(string? modulePath, string? moduleName)
     {
-        if (NormalizeModuleKey(modulePath) is { Length: > 0 } path)
+        if (ProgramSupport.NormalizeModuleKey(modulePath) is { Length: > 0 } path)
             yield return path;
-        if (NormalizeModuleKey(Path.GetFileName(modulePath)) is { Length: > 0 } file)
+        if (ProgramSupport.NormalizeModuleKey(Path.GetFileName(modulePath)) is { Length: > 0 } file)
             yield return file;
-        if (NormalizeModuleKey(moduleName) is { Length: > 0 } name)
+        if (ProgramSupport.NormalizeModuleKey(moduleName) is { Length: > 0 } name)
             yield return name;
-    }
-
-    static string NormalizeModuleKey(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return "";
-
-        value = Path.GetFileName(value.Trim());
-        if (value.EndsWith(".ni.dll", StringComparison.OrdinalIgnoreCase))
-            value = value[..^7];
-        else if (value.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase))
-            value = value[..^7];
-        else if (value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            || value.EndsWith(".ni", StringComparison.OrdinalIgnoreCase))
-        {
-            value = Path.GetFileNameWithoutExtension(value);
-        }
-
-        return value.ToLowerInvariant();
     }
 
     static bool MethodMatches(AllocationCandidate candidate, string? method)
@@ -2655,6 +2635,26 @@ static partial class Patterns
 
 internal static class ProgramSupport
 {
+    public static string NormalizeModuleKey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        value = Path.GetFileName(value.Trim());
+        if (value.EndsWith(".ni.dll", StringComparison.OrdinalIgnoreCase))
+            value = value[..^7];
+        else if (value.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase))
+            value = value[..^7];
+        else if (value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith(".ni", StringComparison.OrdinalIgnoreCase))
+        {
+            value = Path.GetFileNameWithoutExtension(value);
+        }
+
+        return value.ToLowerInvariant();
+    }
+
     public static string NormalizeProducerTypeName(string value)
     {
         value = value.Trim();
@@ -2810,15 +2810,108 @@ internal static class ProgramSupport
         {
             if (!runtimeByCanon.TryGetValue(canon, out var volume) || volume < TypeConfirmMinBytes)
                 continue;
-            if (candidates.Count > TypeConfirmMaxSites)
+
+            var plan = PlanTypeConfirmationSites(candidates);
+            if (plan.SiteCount > TypeConfirmMaxSites)
                 continue;
-            foreach (var candidate in candidates)
+
+            foreach (var candidate in plan.SupersededLibraries)
+                candidate.SupersededByTriage = true;
+            foreach (var candidate in plan.Candidates)
             {
                 candidate.TypeConfirmedBytes = volume;
-                candidate.TypeConfirmedSiteCount = candidates.Count;
+                candidate.TypeConfirmedSiteCount = plan.SiteCount;
             }
         }
     }
+
+    static TypeConfirmationSitePlan PlanTypeConfirmationSites(
+        IReadOnlyList<AllocationCandidate> candidates)
+    {
+        var selected = new List<AllocationCandidate>();
+        var supersededLibraries = new List<AllocationCandidate>();
+        int siteCount = 0;
+
+        foreach (var candidate in candidates.Where(static candidate =>
+                     !candidate.HasRuntimeCoordinate))
+        {
+            selected.Add(candidate);
+            siteCount++;
+        }
+
+        foreach (var coordinateGroup in candidates
+                     .Where(static candidate =>
+                         candidate.HasRuntimeCoordinate)
+                     .GroupBy(static candidate => (
+                         Assembly: NormalizeModuleKey(candidate.AssemblyName),
+                         candidate.MethodToken,
+                         candidate.IlOffset)))
+        {
+            var triageCandidates = coordinateGroup
+                .Where(static candidate => string.Equals(
+                    candidate.Source,
+                    "triage",
+                    StringComparison.Ordinal))
+                .ToArray();
+            var libraryGroups = coordinateGroup
+                .Where(static candidate => string.Equals(
+                    candidate.Source,
+                    "library",
+                    StringComparison.Ordinal))
+                .GroupBy(static candidate =>
+                    candidate.ModuleVersionId)
+                .ToArray();
+            var otherCandidates = coordinateGroup
+                .Where(static candidate =>
+                    !string.Equals(
+                        candidate.Source,
+                        "triage",
+                        StringComparison.Ordinal)
+                    && !string.Equals(
+                        candidate.Source,
+                        "library",
+                        StringComparison.Ordinal))
+                .ToArray();
+
+            bool oneResolvableSite = triageCandidates.Length > 0
+                && libraryGroups.Length == 1
+                && otherCandidates.Length == 0;
+            if (oneResolvableSite)
+            {
+                siteCount++;
+                selected.AddRange(triageCandidates);
+                supersededLibraries.AddRange(
+                    libraryGroups[0]);
+                continue;
+            }
+
+            if (triageCandidates.Length > 0)
+            {
+                siteCount++;
+                selected.AddRange(triageCandidates);
+            }
+            foreach (var libraryGroup in libraryGroups)
+            {
+                siteCount++;
+                selected.AddRange(libraryGroup);
+            }
+            foreach (var candidate in otherCandidates)
+            {
+                siteCount++;
+                selected.Add(candidate);
+            }
+        }
+
+        return new TypeConfirmationSitePlan(
+            selected,
+            supersededLibraries,
+            siteCount);
+    }
+
+    readonly record struct TypeConfirmationSitePlan(
+        IReadOnlyList<AllocationCandidate> Candidates,
+        IReadOnlyList<AllocationCandidate> SupersededLibraries,
+        int SiteCount);
 
     // Canonical type signature: the ordered leaf identifier tokens of a type name, with generic-arity
     // digits and namespaces dropped and C# keyword aliases mapped to CLR simple names. This reconciles

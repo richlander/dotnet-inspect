@@ -34,12 +34,17 @@ shortening the selected assembly set.
 
 ## How a workspace is opened
 
-1. **Resolve an exact identity.** `PackageCoordinateResolver` validates the
-   package id and resolves an omitted version through the authorized nuget.org
-   source without a filesystem cache. The Browser adapter then selects one
-   target framework — never "whatever the package happens to ship".
+1. **Resolve an exact identity.** `PackageSourceCoordinateResolver` validates
+   the package id. An exact pin bypasses discovery; an omitted version uses the
+   NuGet Gallery search endpoint and accepts only the exact package ID's listed
+   stable result. Neither path requests the NuGet.org v3 service index. The
+   Browser adapter then selects one target framework — never "whatever the
+   package happens to ship".
 2. **Mint typed participants.** `PackagePayloadAcquisition` downloads and
-   admits the package through the shared source, transport, and archive policy.
+   admits the package from the Gallery package CDN through the shared typed
+   source, transport, and archive policy. The Gallery payload carries its
+   advertised length into the Browser reservation policy before body
+   materialization.
    `PackageCompileAssetSelector` adds reference-group semantics around the
    implementation universe selected by `PackageAssetSelector`, decodes each
    healthy entry's real metadata identity, and creates one
@@ -52,6 +57,11 @@ shortening the selected assembly set.
    shared resolver, retry, response-body, archive-validation, and store paths;
    expiry is surfaced as a visible timeout instead of leaving the page behind
    an unbounded loading indicator.
+   Gallery version enumeration currently exposes raw flat-container versions
+   with unknown listing state. The version picker may display that partial
+   enumeration, but dependency wildcard and range selection fails closed until
+   registration-backed listing state is implemented; exact dependency pins
+   remain available.
 3. **Hand the group to a query.** The participants open one `InspectionWorkspace`
    and one binding-consistent `AssemblyContextGroup`. `BrowserInspectionScope`
    exposes exactly two hand-offs — `Use(group => query(group))` and
@@ -304,9 +314,13 @@ gates the Browser transport.
 [`docs/design/call-graph-projection.md`](../../docs/design/call-graph-projection.md)
 makes that split on purpose: the projection owns identity, direction, cycles,
 and boundaries, and each front end spells them for itself. The Mermaid renderer
-HTML-encodes delimiters and visibly encodes control and line-separator
-characters before artifact labels enter the grammar. The type-relationship
-renderer applies the same containment. Call-graph navigation receives typed
+HTML-encodes delimiters and visibly encodes control, line-separator, Unicode
+format, and unpaired-surrogate characters before artifact labels enter the
+grammar. The engine's `CallGraphMermaid_ContainsArtifactLabels` and JavaScript's
+`type graph rendering contains artifact labels` and
+`dependency graph rendering contains artifact labels` gate the final renderers'
+containment while preserving ordinary Unicode scalar text. Call-graph
+navigation receives typed
 targets for every projected node and uses the transport's normalized lowercase
 node kind rather than inferring identity from SVG text.
 Package participants never satisfy platform-scoped bindings. Incomplete node,
@@ -454,24 +468,67 @@ not answer report the engine's failure rather than fixture results.
 
 ## Deploy
 
-`.github/workflows/deploy-inspect-web.yml` publishes the browser-Wasm project and
-uploads the prebuilt `wwwroot` to an Azure Static Web App with Azure's own app
-build disabled. It runs on every push to `main`; `workflow_dispatch` remains
-available, but the deploy job itself requires `refs/heads/main`, so a manual run
-cannot publish another ref. Its deployment credential is the
-`AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB` GitHub Actions secret.
-The publish step embeds the CLI's authoritative `VersionPrefix`, the exact
-`GITHUB_SHA`, and a UTC build timestamp in the engine. The home and workspace
-status bars show that version, link the short commit to GitHub, and disclose the
-binary build time. `BuildIdentity_UsesVersionedRepositoryProvenance` and
+`.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
+archives the resulting `wwwroot` as the run-scoped `inspect-web-site` GitHub
+artifact, then uses a fresh environment-gated job to download that artifact by
+ID with digest mismatch configured as an error and deploy it to the public
+staging site at `https://dotnet-inspect.ca`. Candidate build code never runs in
+the staging deployment job. The separate `inspect-web-staging` GitHub
+environment accepts only `main` and holds a deployment token scoped to the
+staging Azure Static Web App.
+
+`.github/workflows/promote-inspect-web.yml` intentionally promotes one
+successful staging run to production at `https://dotnet-inspect.net`. The
+operator supplies the staging run ID and types `promote`; the workflow verifies
+that the run was a successful `main` push through the staging workflow, that
+its `Publish staging` job succeeded, and that it produced one unexpired,
+nonempty `inspect-web-site` artifact. After production approval it revalidates
+the run attempt, commit, artifact identity, and digest, downloads the exact
+artifact ID with digest mismatch configured as an error, and deploys the
+archived staging files. `validate-inspect-web-promotion.cs --self-test`, run
+by inspect-web CI, gates the evidence discriminator and close negative cases;
+the CI change-detection workflow contract gate keeps both deployment jobs free
+of candidate code, keeps production revalidation on the trusted dispatch
+revision, and orders each artifact download before only verification and
+deployment. Manual staging runs remain useful for recovery but are deliberately
+not promotable.
+
+Production promotion uses the distinct `inspect-web-production-promotion`
+environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`
+secret. Legacy deployment workflows reference neither name. During cutover,
+cancel outstanding legacy deployment runs, reset the production Static Web App
+deployment token, put the replacement token only in the promotion environment,
+and delete both the old `inspect-web-production` environment secret and the
+repository-scoped token. Token rotation invalidates credentials already copied
+into queued parent-era jobs; deleting both old secret locations makes later
+reruns fail closed.
+
+Both deployment workflows pin the Azure deployment action to an exact commit
+and pin their checkout, SDK setup, and artifact actions to exact commits. The
+workflow contract gate enforces those references. Azure's pinned action still
+pulls Microsoft's `staticappsclient:stable` image; that vendor-controlled
+deployment dependency is not immutable and remains inside the Azure trust
+boundary. Both workflows disable Azure's own app build and require the
+published artifact to contain `staticwebapp.config.json`. That configuration
+serves `/` and `/index.html` with `Cache-Control: no-cache, no-store,
+must-revalidate`, so an Azure edge cannot retain an old browser boot graph
+after its fingerprinted Wasm assets rotate.
+`BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
+gates the header contract and publish wiring. The staging publish step embeds
+the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
+timestamp. The home and workspace status bars show that version, link the
+short commit to GitHub, and disclose the binary build time.
+`BuildIdentity_UsesVersionedRepositoryProvenance` and
 `ready status shows versioned linked build provenance` gate the engine and UI
 halves.
 
-Two prerequisites live outside this repository and are **not** verified by
-anything in it: the secret must be present, and the Static Web App resource's
-production Branch setting must name the branch being deployed. Neither has been
-confirmed from this branch, so treat a green workflow run — not this file — as
-the evidence that a deployed site is current.
+The Azure resources, custom-domain assignments, GitHub environments, branch
+restrictions, required production reviewer, and environment-scoped deployment
+tokens live outside this repository and are **not** verified by anything in it.
+Treat successful staging and promotion runs, not this file, as evidence that
+the corresponding deployed site is current. The staging domain is intentionally
+not publicized, but it is public infrastructure and is not a confidentiality
+boundary.
 
 See [architecture-spike.md](architecture-spike.md) for the proposed .NET 11
 browser engine and the NativeAOT decision.
