@@ -105,6 +105,23 @@ internal static class NuGetMetadataReader
             return result;
         }
         catch (OperationCanceledException ex)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                "NuGet metadata read was canceled by the caller.",
+                ex,
+                cancellationToken);
+        }
+        catch (Exception ex)
+            when (cancellationToken.IsCancellationRequested
+                && IsDeadlineAbort(ex))
+        {
+            throw new OperationCanceledException(
+                "NuGet metadata read was canceled by the caller.",
+                ex,
+                cancellationToken);
+        }
+        catch (OperationCanceledException ex)
             when (!cancellationToken.IsCancellationRequested
                 && HasBodyTimeoutExpired(
                     started,

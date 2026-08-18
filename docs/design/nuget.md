@@ -27,8 +27,9 @@ must resolve entirely to public addresses. These guarded clients connect directl
 through an ambient HTTP proxy, whose endpoint would hide the redirect destination from the
 address check. Cross-origin URLs discovered from service-index, catalog, or vulnerability data
 never receive feed credentials. IPv4-mapped, NAT64, 6to4, and ISATAP IPv6 addresses are classified
-by their embedded IPv4 destination without allowing a public embedded address to override a
-non-public outer IPv6 prefix, gated by
+by their embedded IPv4 destination. A private ISATAP destination remains blocked beneath another
+transition prefix, while a public embedded address cannot override a non-public outer IPv6 prefix,
+gated by
 `HttpClientFactoryTests.UntrustedFetchAddressClassification_MatchesNonPublicContract`.
 
 Equivalent endpoints at the selected capability version are tried in service-index order,
@@ -40,6 +41,9 @@ Request, operation, and metadata-body expiry are also checked against monotonic 
 delayed timer callbacks cannot admit late work. `NuGetDeadlineRaceTests` gates request completion,
 stream consumption, and metadata-body completion and aborts, and
 `NuGetSearchDeadlineRaceTests` gates service-index completion under delayed callbacks.
+Direct metadata readers preserve the caller token when cancellation surfaces as an operation
+cancellation or transport abort, gated by
+`NuGetMetadataLimitTests.DirectNuGetApiCallerCancellationRetainsCallerToken`.
 Search discovery supports the unversioned,
 `3.0.0-beta`, `3.0.0-rc`, `3.0.0`, and `3.5.0` service types. Unknown future types do not eclipse
 the highest supported capability.
