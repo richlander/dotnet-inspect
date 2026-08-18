@@ -882,6 +882,60 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
+    public void Execute_ReportsTypeDeclarationRejectionBeforeProducers()
+    {
+        using var fixture = IntegrationFixture.Create(
+            includeRejectedDeclarationParticipant: true);
+        AssemblyContextParticipant participant =
+            fixture.Context.Group.Participants[^1];
+        MetadataTypeDefinitionName type =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Microsoft.Extensions.Logging",
+                    ["ILogger"]))
+                .Name;
+        AssemblyImageAccessResult<TypeDeclarationResult> probe =
+            fixture.Context.Group.UseAssemblySession(
+                participant.Assembly,
+                session => session.ProbeDeclaration(type));
+        var rejected = Assert.IsType<TypeDeclarationResult.Rejected>(
+            Assert.IsType<
+                AssemblyImageAccessResult<
+                    TypeDeclarationResult>.Available>(probe).Value);
+        Assert.Equal(
+            RelationshipTraversalRejectionKind.Cycle,
+            rejected.Rejection.RelationshipKind);
+        InspectionGraphSubject subject =
+            InspectionGraphSubject.ForAcquiredType(
+                participant.Assembly.Registration,
+                type);
+        var executions = new List<InspectionQueryDefinition>();
+
+        InspectionQueryException exception = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphIntegrationsQuery.Execute(
+                    fixture.Context,
+                    new InspectionGraphInducedSetRequest(
+                        [subject],
+                        [
+                            InspectionGraphIntegrationsCatalog
+                                .IntegrationObserved,
+                        ],
+                        InspectionGraphInducedSetAdmissionRule
+                            .BothEndpointsWithinSubjectClosure),
+                    (query, _) => executions.Add(query)));
+
+        Assert.Contains(
+            "metadata declaration was rejected",
+            exception.Message);
+        Assert.Contains(
+            nameof(RelationshipTraversalRejectionKind.Cycle),
+            exception.Message);
+        Assert.DoesNotContain("not present", exception.Message);
+        Assert.Empty(executions);
+    }
+
+    [Fact]
     public void ProjectionOwnership_UsesStructuredGenericDeclaringType()
     {
         using var fixture = IntegrationFixture.Create();
@@ -2259,7 +2313,8 @@ public sealed class InspectionGraphIntegrationsQueryTests
             bool multipleUnavailableReferenceBindings = false,
             bool overloadedOpenAiAdapter = false,
             bool overBudgetIntegrationTypeName = false,
-            bool includeMalformedExtensionParticipant = false)
+            bool includeMalformedExtensionParticipant = false,
+            bool includeRejectedDeclarationParticipant = false)
         {
             (
                 PersistedAssemblyBuilder abstractions,
@@ -2417,6 +2472,11 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 assemblies.Add(MalformedExtensionsAssembly());
                 packageIds.Add("malformed.extensions");
             }
+            if (includeRejectedDeclarationParticipant)
+            {
+                assemblies.Add(RejectedDeclarationAssembly());
+                packageIds.Add("rejected.declaration");
+            }
             var policy = new FixtureBindingPolicy(
                 assemblies,
                 unavailableOpenAiBinding,
@@ -2440,6 +2500,83 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 "net11.0",
                 null);
             return new IntegrationFixture(workspace, loaded);
+        }
+
+        static ResolvedAssemblyReference RejectedDeclarationAssembly()
+        {
+            const TypeAttributes forwarder =
+                (TypeAttributes)0x00200000;
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("Rejected.Declaration.dll"),
+                metadata.GetOrAddGuid(
+                    new Guid(
+                        "db923d60-8f88-4602-80ef-3af86f07482e")),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("Rejected.Declaration"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            metadata.AddTypeDefinition(
+                TypeAttributes.NotPublic,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract,
+                metadata.GetOrAddString(
+                    "Microsoft.Extensions.Logging"),
+                metadata.GetOrAddString("ILogger"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddExportedType(
+                forwarder,
+                metadata.GetOrAddString(
+                    "Microsoft.Extensions.Logging"),
+                metadata.GetOrAddString("ILogger"),
+                MetadataTokens.ExportedTypeHandle(2),
+                typeDefinitionId: 0);
+            metadata.AddExportedType(
+                forwarder,
+                default,
+                metadata.GetOrAddString("Second"),
+                MetadataTokens.ExportedTypeHandle(1),
+                typeDefinitionId: 0);
+            var pe = new ManagedPEBuilder(
+                new PEHeaderBuilder(
+                    imageCharacteristics:
+                        Characteristics.Dll
+                        | Characteristics.ExecutableImage),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                new BlobBuilder());
+            var output = new BlobBuilder();
+            pe.Serialize(output);
+            byte[] bytes = output.ToArray();
+            return ResolvedAssemblyReference.Create(
+                new AssemblyReferenceIdentity(
+                    "Rejected.Declaration",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                path: null,
+                () => new MemoryStream(bytes, writable: false),
+                AssemblyResolutionProvenance.Package(
+                    "rejected.declaration",
+                    "1.0.0",
+                    "net11.0",
+                    null));
         }
 
         static ResolvedAssemblyReference MalformedExtensionsAssembly()

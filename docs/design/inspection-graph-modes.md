@@ -240,6 +240,8 @@ retained request.
 If retained-image decoding prevents exact declaration validation, preflight
 fails visibly with the artifact failure before producers run; it does not
 misreport the subject as absent or let a raw scanner exception escape.
+A typed metadata declaration rejection likewise retains its mechanism, kind,
+and detail; only a successfully decoded non-definition is reported as absent.
 
 An induced package set is not automatically a package-only lens. It may retain
 member/type evidence, package groups, package endpoints, or a mixed view as the

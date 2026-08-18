@@ -819,6 +819,7 @@ contracts.
 `Execute_RejectsUndeclaredInScopeTypeBeforeProducerExecution`,
 `Execute_RejectsUndeclaredInScopeMemberBeforeProducerExecution`,
 `Execute_ReportsMemberPreflightDecodeFailureBeforeProducers`,
+`Execute_ReportsTypeDeclarationRejectionBeforeProducers`,
 `Execute_ExplicitInducedSetRetainsIsolatedInput`,
 `Execute_ExplicitInducedSetRetainsDeclaredMemberInput`,
 `Execute_ExplicitInducedSetRetainsOnlyInClosureFailures`, and

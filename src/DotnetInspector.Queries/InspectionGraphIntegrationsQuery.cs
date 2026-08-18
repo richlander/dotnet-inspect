@@ -955,8 +955,8 @@ public static class InspectionGraphIntegrationsQuery
                         participant,
                         subject,
                         session =>
-                            session.ProbeDeclaration(type.Type)
-                                is TypeDeclarationResult.Defined);
+                            DeclarationValidation.From(
+                                session.ProbeDeclaration(type.Type)));
                     break;
                 case InspectionGraphSubject.MemberSubject
                 {
@@ -967,12 +967,9 @@ public static class InspectionGraphIntegrationsQuery
                         participant,
                         subject,
                         session =>
-                            session.ProbeDeclaration(
-                                member.DeclaringType)
-                                is TypeDeclarationResult.Defined
-                            && session.DeclaresExtensionMember(
-                                member.DeclaringType,
-                                member.Member));
+                            ValidateMemberDeclaration(
+                                session,
+                                member));
                     break;
                 default:
                     throw new InvalidOperationException(
@@ -985,9 +982,11 @@ public static class InspectionGraphIntegrationsQuery
         void EnsureDeclared(
             AssemblyContextParticipant participant,
             InspectionGraphSubject subject,
-            Func<AssemblyInspectionSession, bool> predicate)
+            Func<
+                AssemblyInspectionSession,
+                DeclarationValidation> predicate)
         {
-            AssemblyImageAccessResult<bool> access;
+            AssemblyImageAccessResult<DeclarationValidation> access;
             try
             {
                 access = _context.Group.UseAssemblySession(
@@ -1006,7 +1005,8 @@ public static class InspectionGraphIntegrationsQuery
             }
 
             if (access
-                is AssemblyImageAccessResult<bool>.Rejected rejected)
+                is AssemblyImageAccessResult<
+                    DeclarationValidation>.Rejected rejected)
             {
                 throw new InspectionQueryException(
                     $"Explicit induced-set subject '{subject}' could not "
@@ -1016,8 +1016,64 @@ public static class InspectionGraphIntegrationsQuery
                     + "this workspace.");
             }
 
-            if (!((AssemblyImageAccessResult<bool>.Available)access).Value)
+            DeclarationValidation validation =
+                ((AssemblyImageAccessResult<
+                    DeclarationValidation>.Available)access).Value;
+            if (validation
+                is DeclarationValidation.Rejected declarationRejected)
+            {
+                MetadataTypeNameFailure failure =
+                    declarationRejected.Failure;
+                throw new InspectionQueryException(
+                    $"Explicit induced-set subject '{subject}' could not "
+                    + "be validated because its metadata declaration "
+                    + $"was rejected ({failure.Mechanism}/"
+                    + $"{failure.Kind}: {failure.Detail}).");
+            }
+
+            if (validation is not DeclarationValidation.Declared)
                 throw SubjectNotPresent(subject);
+        }
+
+        static DeclarationValidation ValidateMemberDeclaration(
+            AssemblyInspectionSession session,
+            InspectionGraphMemberIdentity.AcquiredApi member)
+        {
+            DeclarationValidation declaration = DeclarationValidation.From(
+                session.ProbeDeclaration(member.DeclaringType));
+            if (declaration is not DeclarationValidation.Declared)
+                return declaration;
+            return session.DeclaresExtensionMember(
+                member.DeclaringType,
+                member.Member)
+                ? new DeclarationValidation.Declared()
+                : new DeclarationValidation.Absent();
+        }
+
+        abstract record DeclarationValidation
+        {
+            private protected DeclarationValidation()
+            {
+            }
+
+            internal static DeclarationValidation From(
+                TypeDeclarationResult declaration) =>
+                declaration switch
+                {
+                    TypeDeclarationResult.Defined =>
+                        new Declared(),
+                    TypeDeclarationResult.Rejected rejected =>
+                        new Rejected(rejected.Rejection),
+                    _ => new Absent(),
+                };
+
+            internal sealed record Declared :
+                DeclarationValidation;
+            internal sealed record Absent :
+                DeclarationValidation;
+            internal sealed record Rejected(
+                MetadataTypeNameFailure Failure) :
+                DeclarationValidation;
         }
 
         internal void AddTypeCurrency(

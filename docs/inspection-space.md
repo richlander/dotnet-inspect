@@ -65,7 +65,9 @@ contract; `Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance`,
 `Execute_RejectsUndeclaredInScopeTypeBeforeProducerExecution`, and
 `Execute_RejectsUndeclaredInScopeMemberBeforeProducerExecution` gate exact
 membership; `Execute_ReportsMemberPreflightDecodeFailureBeforeProducers` gates
-visible artifact failure at the preflight boundary.
+visible artifact failure, and
+`Execute_ReportsTypeDeclarationRejectionBeforeProducers` gates typed metadata
+rejection at the preflight boundary.
 
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
