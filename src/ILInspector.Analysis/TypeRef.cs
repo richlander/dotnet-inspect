@@ -507,12 +507,26 @@ public sealed class TypeRef : IEquatable<TypeRef>
             left.Resolution?.Type;
         MetadataTypeDefinitionName? rightName =
             right.Resolution?.Type;
-        if (leftName is null || rightName is null)
-            return leftName is null
-                && rightName is null
-                && left.Name == right.Name;
+        if (leftName is null)
+            return rightName is null
+                ? left.Name == right.Name
+                : SameUnambiguousLegacyName(left.Name, rightName);
+        if (rightName is null)
+            return SameUnambiguousLegacyName(right.Name, leftName);
         return leftName == rightName;
     }
+
+    static bool SameUnambiguousLegacyName(
+        string legacyName,
+        MetadataTypeDefinitionName exactName) =>
+        exactName.Segments.Length == 1
+        && IsUnambiguousLegacyName(legacyName)
+        && exactName.Segments[0] == legacyName;
+
+    static bool IsUnambiguousLegacyName(string name) =>
+        name.IndexOf('.') < 0
+        && name.IndexOf('+') < 0
+        && name.IndexOf('\\') < 0;
 
     static void AddNameIdentity(ref HashCode hash, TypeRef type)
     {
@@ -529,8 +543,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return;
         }
 
-        hash.Add(1);
-        hash.Add(exactName);
+        if (exactName.Segments.Length == 1
+            && IsUnambiguousLegacyName(exactName.Segments[0]))
+        {
+            hash.Add(0);
+            hash.Add(exactName.Segments[0]);
+        }
+        else
+        {
+            hash.Add(1);
+            hash.Add(exactName);
+        }
     }
 
     string DisplayName()

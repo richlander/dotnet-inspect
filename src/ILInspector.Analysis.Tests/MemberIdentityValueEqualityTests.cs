@@ -89,6 +89,52 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void TypeRefExactAndLegacySimpleNames_AgreeWithoutDelimiterInference()
+    {
+        static TypeRef Exact(params string[] segments)
+        {
+            MetadataTypeDefinitionName name =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Sample",
+                        [.. segments]))
+                .Name;
+            return TypeRef.Definition(
+                "Sample",
+                "Sample",
+                string.Join('+', segments),
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    name));
+        }
+
+        TypeRef legacy =
+            TypeRef.Definition("Sample", "Sample", "Widget");
+        TypeRef exact = Exact("Widget");
+
+        Assert.Equal(legacy, exact);
+        Assert.Equal(legacy.GetHashCode(), exact.GetHashCode());
+        Assert.Equal(
+            0,
+            MeasureEqualityAllocations(legacy, exact));
+        Assert.Equal(
+            0,
+            MeasureHashAllocations(exact));
+        Assert.NotEqual(
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Outer+Inner"),
+            Exact("Outer+Inner"));
+        Assert.NotEqual(
+            TypeRef.Definition(
+                "Sample",
+                "Sample",
+                "Outer+Inner"),
+            Exact("Outer", "Inner"));
+    }
+
+    [Fact]
     public void AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag()
     {
         MetadataTypeDefinitionName name =
