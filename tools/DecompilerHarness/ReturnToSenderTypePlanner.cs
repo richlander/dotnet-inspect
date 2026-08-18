@@ -1271,7 +1271,8 @@ public static class CompileBackSourceComposer
                 PrimaryConstructor: null,
                 targetFacts)
             {
-                IncludeMemberSurface = targetFacts.Any(fact => fact.Id == "closure-member")
+                IncludeMemberSurface = targetFacts.Any(fact => fact.Id == "closure-member"),
+                IncludeOperatorSurface = targetMembers.Any(member => member.IsOperator),
             }
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetRoot);
@@ -2886,7 +2887,8 @@ public static class CompileBackSourceComposer
                 PrimaryConstructor: null,
                 targetFacts)
             {
-                IncludeMemberSurface = targetFacts.Any(fact => fact.Id == "closure-member")
+                IncludeMemberSurface = targetFacts.Any(fact => fact.Id == "closure-member"),
+                IncludeOperatorSurface = targetMembers.Any(member => member.IsOperator),
             }
         };
         AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
@@ -3038,7 +3040,8 @@ public static class CompileBackSourceComposer
                 // coherent explicit-interface reconstruction is out of #3007's plain-event scope.
                 IncludeMemberSurface = bodyPolicy == RoundTripBodyPolicy.Full
                     && explicitEvent is null
-                    && targetFacts.Any(fact => fact.Id == "closure-member")
+                    && targetFacts.Any(fact => fact.Id == "closure-member"),
+                IncludeOperatorSurface = targetMembers.Any(member => member.IsOperator),
             }
         };
         AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
@@ -3177,6 +3180,13 @@ public static class CompileBackSourceComposer
                 "type identity",
                 "external-interface-base-not-reconstructed",
                 externalInterfaceDeclineReason));
+        }
+        if (ExternalImplicitInterfaceTargetIsOmitted(reader, targetTypeDef, method))
+        {
+            diagnostics.Add(new CompileBackPlanningDiagnostic(
+                "type identity",
+                "external-implicit-interface-not-reconstructed",
+                $"{targetIdentity.MetadataFullName}::{reader.GetString(method.Name)}"));
         }
         string? explicitInterfaceMemberName =
             sameAssemblyExplicitInterfaceMemberName
@@ -3318,7 +3328,8 @@ public static class CompileBackSourceComposer
             {
                 IncludeMemberSurface = includeRecordSurface
                     || targetFacts.Any(fact => fact.Id == "closure-member"),
-                IncludeOperatorSurface = targetOperatorIsRepresentable,
+                IncludeOperatorSurface = targetOperatorIsRepresentable
+                    || targetMembers.Any(member => member.IsOperator),
                 ExternalInterfaces = externalExplicitInterfaceMethod is null
                     ? []
                     : [externalExplicitInterfaceMethod.InterfaceDisplayName],
@@ -3857,6 +3868,29 @@ public static class CompileBackSourceComposer
     static bool IsOverrideSlotReuse(MethodDefinition method)
         => method.Attributes.HasFlag(MethodAttributes.Virtual)
             && !method.Attributes.HasFlag(MethodAttributes.NewSlot);
+
+    static bool ExternalImplicitInterfaceTargetIsOmitted(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+    {
+        if (ShellKind(reader, typeDef) != CompileBackTypeKind.Class)
+            return false;
+
+        string name = reader.GetString(method.Name);
+        if (name.Contains('.', StringComparison.Ordinal)
+            || method.Attributes.HasFlag(MethodAttributes.Static)
+            || (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
+            || !method.Attributes.HasFlag(MethodAttributes.Virtual)
+            || !method.Attributes.HasFlag(MethodAttributes.Final)
+            || !method.Attributes.HasFlag(MethodAttributes.NewSlot))
+        {
+            return false;
+        }
+
+        return typeDef.GetInterfaceImplementations().Any(handle =>
+            reader.GetInterfaceImplementation(handle).Interface.Kind != HandleKind.TypeDefinition);
+    }
 
     static bool IsProtectedMethod(MethodDefinition method)
         => MetadataDeclarationQuery.AccessibilityKeyword(method) is "protected" or "protected internal";
@@ -5766,13 +5800,26 @@ public static class CompileBackSourceComposer
             {
                 if (!requirementsByIdentity.TryGetValue(baseIdentity, out var baseRequirement))
                     return true;
-                if ((baseRequirement.IncludeMemberSurface
-                        && member.TypeParameters.Count == 0)
-                    || baseRequirement.RequiredMembers.Any(baseMember =>
-                        (baseMember.IsVirtual || baseMember.IsAbstract || baseMember.IsOverride)
-                        && SameOverrideSlot(baseMember, member)))
+                var requiredSlot = DeclaredOverrideSlotState(
+                    baseRequirement.RequiredMembers,
+                    member);
+                if (requiredSlot == OverrideSlotState.Usable)
                 {
                     return true;
+                }
+                if (requiredSlot == OverrideSlotState.Unusable)
+                    return false;
+                if (baseRequirement.IncludeMemberSurface)
+                {
+                    var surfaceSlot = MemberSurfaceOverrideSlotState(
+                        reader,
+                        (TypeDefinitionHandle)reader.GetTypeDefinition(current).BaseType,
+                        baseRequirement,
+                        member);
+                    if (surfaceSlot == OverrideSlotState.Usable)
+                        return true;
+                    if (surfaceSlot == OverrideSlotState.Unusable)
+                        return false;
                 }
 
                 var baseType = reader.GetTypeDefinition(current).BaseType;
@@ -5782,6 +5829,95 @@ public static class CompileBackSourceComposer
             }
 
             return IsSystemObjectOverride(member);
+        }
+
+        enum OverrideSlotState
+        {
+            Missing,
+            Usable,
+            Unusable,
+        }
+
+        static OverrideSlotState MemberSurfaceOverrideSlotState(
+            MetadataReader reader,
+            TypeDefinitionHandle baseHandle,
+            CompileBackTypeRequirement baseRequirement,
+            CompileBackMemberRequirement member)
+        {
+            if (member.TypeParameters.Count != 0)
+                return OverrideSlotState.Missing;
+
+            var baseDef = reader.GetTypeDefinition(baseHandle);
+            var candidates = new List<CompileBackMemberRequirement>();
+            if (member.Kind == CompileBackMemberKind.Method)
+            {
+                foreach (var methodHandle in baseDef.GetMethods())
+                {
+                    if (MethodRequirement(
+                            reader,
+                            baseDef,
+                            baseRequirement.Type,
+                            methodHandle) is { } candidate)
+                    {
+                        candidates.Add(candidate);
+                    }
+                }
+            }
+            else if (member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet)
+            {
+                foreach (var propertyHandle in baseDef.GetProperties())
+                {
+                    var accessors = reader.GetPropertyDefinition(propertyHandle).GetAccessors();
+                    var accessor = member.Kind == CompileBackMemberKind.PropertyGet
+                        ? accessors.Getter
+                        : accessors.Setter;
+                    if (!accessor.IsNil
+                        && PropertyRequirement(
+                            reader,
+                            baseDef,
+                            baseRequirement.Type,
+                            propertyHandle,
+                            reader.GetString(reader.GetMethodDefinition(accessor).Name)) is { } candidate)
+                    {
+                        candidates.Add(candidate);
+                    }
+                }
+            }
+            else if (member.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove)
+            {
+                foreach (var eventHandle in baseDef.GetEvents())
+                {
+                    var accessors = reader.GetEventDefinition(eventHandle).GetAccessors();
+                    var accessor = member.Kind == CompileBackMemberKind.EventAdd
+                        ? accessors.Adder
+                        : accessors.Remover;
+                    if (!accessor.IsNil
+                        && EventRequirement(
+                            reader,
+                            baseDef,
+                            baseRequirement.Type,
+                            eventHandle,
+                            reader.GetString(reader.GetMethodDefinition(accessor).Name)) is { } candidate)
+                    {
+                        candidates.Add(candidate);
+                    }
+                }
+            }
+
+            return DeclaredOverrideSlotState(candidates, member);
+        }
+
+        static OverrideSlotState DeclaredOverrideSlotState(
+            IEnumerable<CompileBackMemberRequirement> candidates,
+            CompileBackMemberRequirement member)
+        {
+            var matching = candidates.Where(candidate => SameOverrideSlot(candidate, member)).ToArray();
+            if (matching.Length == 0)
+                return OverrideSlotState.Missing;
+            return matching.Any(candidate =>
+                candidate.IsVirtual || candidate.IsAbstract || candidate.IsOverride)
+                    ? OverrideSlotState.Usable
+                    : OverrideSlotState.Unusable;
         }
 
         static bool SameOverrideSlot(

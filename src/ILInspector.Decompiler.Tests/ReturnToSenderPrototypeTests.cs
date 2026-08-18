@@ -629,6 +629,52 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_TargetOwnedOperatorDependencyIncludesRequiredPair()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Counter
+            {
+                public static bool operator ==(Counter left, Counter right) => true;
+                public static bool operator !=(Counter left, Counter right) => false;
+
+                public bool Self() => this == this;
+                public bool Same => this == this;
+
+                public override bool Equals(object value) => value is Counter;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var method = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Counter", "Self", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected));
+            var property = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Counter", "get_Same", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.All(
+                [method, property],
+                result =>
+                {
+                    Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+                    Assert.False(result.UsedCompileBackFloor, result.Detail);
+                    Assert.Contains("operator ==", result.Source, StringComparison.Ordinal);
+                    Assert.Contains("operator !=", result.Source, StringComparison.Ordinal);
+                    Assert.DoesNotContain("op_Equality", result.Source, StringComparison.Ordinal);
+                });
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_KeepsOverrideWhenReconstructedBaseEmitsInternalSlot()
     {
         var assemblyPath = CompileFixture("""
@@ -904,6 +950,103 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains("override int Value", result.Source, StringComparison.Ordinal);
             Assert.Contains("virtual event", result.Source, StringComparison.Ordinal);
             Assert.Contains("override event", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DropsOverridesWhoseSlotsExistOnlyOnDroppedAncestor()
+    {
+        var assemblyPath = CompileFixture("""
+            public class GenericBase<T>
+            {
+                public virtual int Read() => 1;
+                public virtual int Value => 1;
+                public virtual event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+
+            public class MiddleNode : GenericBase<int>
+            {
+            }
+
+            public sealed class LeafNode : MiddleNode
+            {
+                public override int Read() => 3;
+                public override int Value => 3;
+                public override event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+
+                public int Target(System.Action handler)
+                {
+                    Changed += handler;
+                    return Read() + Value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("LeafNode", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.DoesNotContain("override int Read()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("override int Value", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("override event", result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "override-slot-unavailable");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalImplicitInterfaceTargetDeclinesNatively()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "public interface IProbe { int Read(); }",
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Probe : IProbe
+            {
+                public int Read() => 42;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "external-implicit-interface-not-reconstructed",
+                result.Detail,
+                StringComparison.Ordinal);
         }
         finally
         {
