@@ -16557,9 +16557,9 @@ public partial class CommandExecutionTests
     [InlineData("System.Data.Common")]
     public async Task LibrarySections_RenderIdenticallyAloneAndTogether(string assembly)
     {
-        // Every generated section must render the same content whether it is asked for alone or
-        // alongside all the others. Asking for a section alone runs only its declared scanner or
-        // query closure, so undeclared dependencies render less in isolation.
+        // Every deterministic generated section must render the same content whether it is asked
+        // for alone or alongside all the others. Asking for a section alone runs only its declared
+        // scanner or query closure, so undeclared dependencies render less in isolation.
         //
         // The section set is derived from the pipeline, not from the prerequisite declarations,
         // so deleting a declaration does not also delete the coverage that would catch it.
@@ -16578,6 +16578,11 @@ public partial class CommandExecutionTests
         [
             TopLeverageQuery.Definition,
             UnsafeEvidenceQuery.Definition,
+        ];
+        InspectionQueryDefinition[] liveNetworkQueries =
+        [
+            SourceAvailabilityQuery.Definition,
+            SourceIntegrityQuery.Definition,
         ];
 
         // Parameter-scoped sections cannot be selected without their required input:
@@ -16607,7 +16612,11 @@ public partial class CommandExecutionTests
             .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
             .Select(b => b.Name);
         var queryNames = pipeline.QueryBoundSections
-            .Where(b => !bodyIndexQueries.Contains(b.Query))
+            // Availability and integrity intentionally observe live per-file network state, so
+            // separate invocations cannot promise byte-for-byte identical results. Their query
+            // closure and costs are pinned by LibrarySourceLinkSections_DemandSharedTypedQueries.
+            .Where(b => !bodyIndexQueries.Contains(b.Query)
+                && !liveNetworkQueries.Contains(b.Query))
             .Select(b => b.Name);
         var names = scannerNames
             .Concat(queryNames)
