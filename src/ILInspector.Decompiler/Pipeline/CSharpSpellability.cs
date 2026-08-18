@@ -44,6 +44,7 @@ internal static class CSharpSpellability
             && type.ExplicitParameterModifiersAreExact(refKind)
             && HasExplicitParameterTypeShape(type, ExplicitTypeContext.Parameter, host)
             && TypeIssue(type) is null
+            && !AnyDeclarationContextualNamePrintedBare(type)
             && !AnyConstituentLeadingSegmentShadowed(type, host, [type])
             && !AnyPrintedAliasInTypeShadowed(type, isDynamic, host, [type])
             && !AnyBareNameInTypeShadowed(type, host, [type]);
@@ -840,6 +841,83 @@ internal static class CSharpSpellability
         }
 
         return false;
+    }
+
+    // TypeNameSegment uses body escape, so declaration-contextual keywords
+    // (scoped, file, record, required, init) print bare. In an explicit
+    // lambda parameter list those tokens parse as modifiers (CS0748/CS9048
+    // for scoped). Decline rather than emit the invalid spelling. Reserved
+    // keywords already print as @name and stay accepted.
+    static bool AnyDeclarationContextualNamePrintedBare(TypeRef type)
+    {
+        switch (type.Kind)
+        {
+            case TypeRefKind.Definition:
+                if (IsCoreLibPrimitive(type))
+                    return false;
+                foreach (var segment in type.Name.Split('+'))
+                {
+                    if (PrintsBareDeclarationContextualName(segment))
+                        return true;
+                }
+
+                return false;
+
+            case TypeRefKind.GenericInstance:
+                if (type.ElementType is { } definition
+                    && AnyDeclarationContextualNamePrintedBare(definition))
+                {
+                    return true;
+                }
+
+                return AnyDeclarationContextualNamePrintedBareList(type.TypeArguments);
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && AnyDeclarationContextualNamePrintedBare(element);
+
+            case TypeRefKind.GenericParameter:
+            case TypeRefKind.MethodGenericParameter:
+                return PrintsBareDeclarationContextualName(type.GenericParameterName);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && AnyDeclarationContextualNamePrintedBare(returnType))
+                {
+                    return true;
+                }
+
+                return AnyDeclarationContextualNamePrintedBareList(type.TypeArguments);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool AnyDeclarationContextualNamePrintedBareList(IReadOnlyList<TypeRef> types)
+    {
+        for (int i = 0; i < types.Count; i++)
+        {
+            if (AnyDeclarationContextualNamePrintedBare(types[i]))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool PrintsBareDeclarationContextualName(string metadataName)
+    {
+        if (metadataName.Length == 0)
+            return false;
+
+        string simple = StripArity(metadataName);
+        string printed = CSharpNaming.TypeNameSegment(simple);
+        return printed == simple
+            && CSharpIdentifier.ContainIdentifierForDeclaration(simple) != printed;
     }
 
     internal static bool AnyPrintedNameIdentityCollision(

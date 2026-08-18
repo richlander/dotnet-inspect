@@ -1465,6 +1465,67 @@ public class LambdaRaisingPassTests
         Assert.Empty(host.Descendants.OfType<Lambda>());
     }
 
+    [Theory]
+    [InlineData("scoped")]
+    [InlineData("file")]
+    [InlineData("init")]
+    [InlineData("record")]
+    [InlineData("required")]
+    public void DeclarationContextualTypeNamePrintedBare_StaysLowered(string name)
+    {
+        var sibling = TypeRef.Definition("Synthetic", "Samples", name);
+        var host = RunSyntheticSiblingLambdaRaise(sibling);
+
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            sibling,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void ReservedKeywordTypeNameClass_StillRaises()
+    {
+        var sibling = TypeRef.Definition("Synthetic", "Samples", "class");
+        var host = RunSyntheticSiblingLambdaRaise(sibling);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            sibling,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void AwaitContextualTypeName_StillRaises()
+    {
+        var sibling = TypeRef.Definition("Synthetic", "Samples", "await");
+        var host = RunSyntheticSiblingLambdaRaise(sibling);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            sibling,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void CompilerProducedScopedTypeSibling_StaysLowered()
+    {
+        var host = RunIsolatedCompilerLambdaRaise(
+            typeof(ScopedTypeLambdaSamples),
+            nameof(ScopedTypeLambdaSamples.ByRefLambdaWithScopedSibling),
+            out var candidate);
+
+        Assert.Equal("scoped", candidate.ParameterTypes[1].Name);
+        Assert.False(CSharpSpellability.CanSpellExplicitParameterType(
+            candidate.ParameterTypes[1],
+            host,
+            ArgumentRefKind.Value));
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+        Assert.Single(host.Descendants.OfType<DelegateCreation>());
+    }
+
     [Fact]
     public void DynamicObjectSiblingCollidingWithHostGenericParameter_StaysLowered()
     {
@@ -2518,6 +2579,16 @@ public static class VoidLambdaRaisingSamples
             if (x > 0)
                 System.Console.WriteLine(x);
         };
+}
+
+public sealed class @scoped { }
+
+public static class ScopedTypeLambdaSamples
+{
+    public delegate void RefScopedCallback(ref int value, @scoped sibling);
+
+    public static RefScopedCallback ByRefLambdaWithScopedSibling()
+        => (ref int value, @scoped sibling) => System.Console.WriteLine(value);
 }
 
 public static class GenericLambdaRaisingSamples<T>
