@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <!-- This assembly contains compiled runtime-async specimens for decompiler tests. -->
+    <Features>$(Features);runtime-async=on</Features>
 
     <!-- This project compiles the DecompilerHarness sources directly, so it
          inherits the harness's reporting and with it the harness exemption from

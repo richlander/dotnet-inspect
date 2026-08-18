@@ -1,0 +1,103 @@
+name: Deploy inspect-web CoreCLR staging
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-inspect-web-coreclr-staging
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
+  DOTNET_SDK_VERSION: '11.0.100-preview.7.26381.103'
+
+jobs:
+  build:
+    name: Build CoreCLR staging artifact
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Install browser Wasm workload
+        run: dotnet workload install wasm-tools
+
+      - name: Publish CoreCLR browser app
+        shell: bash
+        run: |
+          version=$(dotnet msbuild src/dotnet-inspect/dotnet-inspect.csproj -getProperty:VersionPrefix -nologo)
+          built_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          dotnet publish \
+            prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+            -c Release \
+            --output artifacts/inspect-web-coreclr-publish \
+            -p:VersionPrefix="$version" \
+            -p:SourceRevisionId="$GITHUB_SHA" \
+            -p:BuildTimestampUtc="$built_at" \
+            -p:UseMonoRuntime=false \
+            -p:WasmBuildNative=false \
+            -p:WasmNestedPublishAppDependsOn= \
+            -p:WasmEnableExceptionHandling=true
+
+      - name: Verify CoreCLR site artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f artifacts/inspect-web-coreclr-publish/wwwroot/index.html
+          test -f artifacts/inspect-web-coreclr-publish/wwwroot/staticwebapp.config.json
+          test "$(find artifacts/inspect-web-coreclr-publish/wwwroot/_framework -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
+          grep -q GetDotNetRuntimeHeap artifacts/inspect-web-coreclr-publish/wwwroot/_framework/dotnet.native.*.js
+
+      - name: Upload CoreCLR staged site artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: inspect-web-coreclr-site
+          path: artifacts/inspect-web-coreclr-publish/wwwroot
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy:
+    name: Publish CoreCLR staging
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: inspect-web-coreclr-staging
+      url: https://coreclr.dotnet-inspect.ca
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Download CoreCLR staged site artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-coreclr-site
+          path: artifacts/inspect-web-coreclr-publish/wwwroot
+          digest-mismatch: error
+
+      - name: Verify CoreCLR staged site artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f artifacts/inspect-web-coreclr-publish/wwwroot/index.html
+          test -f artifacts/inspect-web-coreclr-publish/wwwroot/staticwebapp.config.json
+          test "$(find artifacts/inspect-web-coreclr-publish/wwwroot/_framework -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
+          grep -q GetDotNetRuntimeHeap artifacts/inspect-web-coreclr-publish/wwwroot/_framework/dotnet.native.*.js
+
+      - name: Deploy to CoreCLR staging
+        uses: Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1 # v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_CORECLR }}
+          action: upload
+          app_location: artifacts/inspect-web-coreclr-publish/wwwroot
+          output_location: ''
+          skip_app_build: true
