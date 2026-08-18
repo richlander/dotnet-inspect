@@ -4387,6 +4387,7 @@ public class PackageCommand
                     .Select(row => new
                     {
                         Library = inspection.FileName,
+                        Tfm = inspection.Tfm ?? "",
                         row.Integration,
                         Api = CodeCell(row.Api),
                         row.IntegrationType,
@@ -4398,12 +4399,17 @@ public class PackageCommand
             if (opportunityRows.Count == 0)
                 return;
 
-            var includeLibrary = opportunityRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
             AppendAggregatedTable(sb, section, new MarkoutTable(
-                includeLibrary ? ["Library", "Integration", "API", "Integration Type", "Look For"] : ["Integration", "API", "Integration Type", "Look For"],
-                opportunityRows.Select(row => includeLibrary
-                    ? new[] { CodeCell(row.Library), row.Integration, row.Api, row.IntegrationType, row.LookFor }
-                    : [row.Integration, row.Api, row.IntegrationType, row.LookFor]).ToList()), rows);
+                ["Library", "TFM", "Integration", "API", "Integration Type", "Look For"],
+                opportunityRows.Select(row => new[]
+                {
+                    CodeCell(row.Library),
+                    row.Tfm,
+                    row.Integration,
+                    row.Api,
+                    row.IntegrationType,
+                    row.LookFor
+                }).ToList()), rows);
             return;
         }
 
@@ -4414,6 +4420,7 @@ public class PackageCommand
                     .Select(row => new
                     {
                         Library = inspection.FileName,
+                        Tfm = inspection.Tfm ?? "",
                         row.Kind,
                         Switch = CodeCell(row.Switch),
                         Api = CodeCell(row.Api)
@@ -4424,12 +4431,16 @@ public class PackageCommand
             if (switchRows.Count == 0)
                 return;
 
-            var includeLibrary = switchRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
             AppendAggregatedTable(sb, section, new MarkoutTable(
-                includeLibrary ? ["Library", "Kind", "Switch", "API"] : ["Kind", "Switch", "API"],
-                switchRows.Select(row => includeLibrary
-                    ? new[] { CodeCell(row.Library), row.Kind, row.Switch, row.Api }
-                    : [row.Kind, row.Switch, row.Api]).ToList()), rows);
+                ["Library", "TFM", "Kind", "Switch", "API"],
+                switchRows.Select(row => new[]
+                {
+                    CodeCell(row.Library),
+                    row.Tfm,
+                    row.Kind,
+                    row.Switch,
+                    row.Api
+                }).ToList()), rows);
             return;
         }
 
@@ -4440,7 +4451,12 @@ public class PackageCommand
 
         var signals = inspections
             .SelectMany(inspection => descriptor.GetSignals(inspection)
-                .Select(signal => new { Library = inspection.FileName, Signal = signal }))
+                .Select(signal => new
+                {
+                    Library = inspection.FileName,
+                    Tfm = inspection.Tfm ?? "",
+                    Signal = signal
+                }))
             .ToList();
         if (signals.Count == 0)
             return;
@@ -4455,19 +4471,16 @@ public class PackageCommand
         if (focusedRows.Count == 0)
             return;
 
-        var includeLibraryColumn = focusedRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
         var includeKindColumn = focusedRows.Select(row => row.Signal.Kind).Distinct(StringComparer.Ordinal).Count() > 1;
         var valueColumn = hasApis ? "API" : "Type";
 
-        List<string> headers = [];
-        if (includeLibraryColumn) headers.Add("Library");
+        List<string> headers = ["Library", "TFM"];
         if (includeKindColumn) headers.Add("Kind");
         headers.Add(valueColumn);
 
         AppendAggregatedTable(sb, section, new MarkoutTable(headers, focusedRows.Select(row =>
         {
-            List<string> values = [];
-            if (includeLibraryColumn) values.Add(CodeCell(row.Library));
+            List<string> values = [CodeCell(row.Library), row.Tfm];
             if (includeKindColumn) values.Add(row.Signal.Kind);
             values.Add(CodeCell(row.Signal.Name));
             return values.ToArray();

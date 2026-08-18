@@ -15344,7 +15344,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Equal(0, windowedExit);
         Assert.Contains("## Switches", all, StringComparison.Ordinal);
-        Assert.Contains("| Kind | Switch | API |", all, StringComparison.Ordinal);
+        Assert.Contains("| Library | TFM | Kind | Switch | API |", all, StringComparison.Ordinal);
         Assert.Contains("| ---- | ------ | --- |", all, StringComparison.Ordinal);
         Assert.DoesNotContain('\r', all);
         Assert.DoesNotContain('\r', windowed);
@@ -18034,7 +18034,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Integration: Configuration", output);
-            Assert.Contains("| Library | Kind | API |", output);
+            Assert.Contains("| Library | TFM | Kind | API |", output);
             Assert.Contains("Microsoft.Extensions.Configuration.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonFile(...)", output);
@@ -18471,6 +18471,39 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageCommand_AllLibraries_AggregatedMarkdown_PreservesSingleLibraryProvenance()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalIntegrationOpportunityPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "| Library | TFM | Integration | API | Integration Type | Look For |",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "| `lib/net10.0/IntegrationOpportunityFixture.dll` | net10.0 |",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_IntegrationOpportunities_UsesGroupQueryResult()
     {
         var (packagePath, tempDir) =
@@ -18837,6 +18870,7 @@ public partial class CommandExecutionTests
             var tsvProjection = new[]
             {
                 tsvRow[2],
+                tsvRow[3],
                 tsvRow[4],
                 tsvRow[5],
                 tsvRow[6]
@@ -18899,6 +18933,7 @@ public partial class CommandExecutionTests
                 .Select(row => string.Join(
                     '\t',
                     row[2],
+                    row[3],
                     row[4],
                     row[5],
                     row[6],
