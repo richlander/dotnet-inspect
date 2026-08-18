@@ -15417,12 +15417,20 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_RendersCoordinateSummary()
     {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        var (returnToken, returnCallOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.UnsafeAs),
+            ILOpCode.Call);
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
-            """
+            $$"""
             # label coordinate
-            profiler-sample 0x06000001+0x1
-            return-address 0x06000001+0x6
+            profiler-sample 0x{{token:X8}}+0x{{callOffset:X}}
+            return-address 0x{{returnToken:X8}}+0x{{returnCallOffset + 5:X}}
             """,
             TestContext.Current.CancellationToken);
         try
@@ -15451,29 +15459,18 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
     {
-        static (int Token, int Offset) Coordinate(Type type, string methodName, byte opcode)
-        {
-            var method = type.GetMethod(
-                methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)!;
-            var il = method.GetMethodBody()!.GetILAsByteArray()!;
-            var offset = Array.IndexOf(il, opcode);
-            Assert.True(offset >= 0, $"opcode 0x{opcode:X2} not found in {methodName}");
-            return (method.MetadataToken, offset);
-        }
-
-        var (allSignalsToken, virtualCallOffset) = Coordinate(
+        var (allSignalsToken, virtualCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x6F);
-        var (_, allocationOffset) = Coordinate(
+            ILOpCode.Callvirt);
+        var (_, allocationOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x8D);
-        var (unsafeToken, unsafeCallOffset) = Coordinate(
+            ILOpCode.Newarr);
+        var (unsafeToken, unsafeCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.UnsafeAs),
-            0x28);
+            ILOpCode.Call);
 
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllLinesAsync(
@@ -15513,11 +15510,15 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_RejectsBadCoordinateLine()
     {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
-            """
+            $$"""
             bad debugger frame
-            good 0x06000001+0x1
+            good 0x{{token:X8}}+0x{{callOffset:X}}
             """,
             TestContext.Current.CancellationToken);
         try
@@ -15536,6 +15537,30 @@ public partial class CommandExecutionTests
         {
             File.Delete(path);
         }
+    }
+
+    private static (int Token, int Offset) FindIlCoordinate(
+        Type type,
+        string methodName,
+        ILOpCode opcode)
+    {
+        // This suite inspects its own assembly, whose MethodDef ordering changes
+        // whenever tests are added.
+        MethodInfo method = type.GetMethod(
+            methodName,
+            BindingFlags.Public
+                | BindingFlags.NonPublic
+                | BindingFlags.Static
+                | BindingFlags.DeclaredOnly)!;
+        byte[] il = method.GetMethodBody()!.GetILAsByteArray()!;
+        int offset = InstructionDecoder.Decode(il)
+            .FirstOrDefault(instruction => instruction.OpCode == opcode)
+            ?.Offset
+            ?? -1;
+        Assert.True(
+            offset >= 0,
+            $"opcode {opcode} not found in {methodName}");
+        return (method.MetadataToken, offset);
     }
 
     [Fact]

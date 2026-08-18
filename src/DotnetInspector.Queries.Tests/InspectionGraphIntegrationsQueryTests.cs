@@ -163,6 +163,216 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
+    public void Execute_PeerNeighborhoodConnectsEqualSeeds()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject hub = FindType(
+            induced,
+            "Microsoft.Extensions.AI.Abstractions",
+            "Microsoft.Extensions.AI",
+            "IChatClient");
+        InspectionGraphSubject.PackageSubject openAi =
+            PackageSubject(induced, "microsoft.extensions.ai.openai");
+        InspectionGraphSubject.PackageSubject bedrock =
+            PackageSubject(induced, "awssdk.extensions.bedrock.meai");
+        InspectionGraphSubject[] peers = [hub, openAi, bedrock];
+        InspectionGraphNeighborhoodRequest request =
+            InspectionGraphNeighborhoodRequest.PeerSeeds(
+                peers,
+                [
+                    InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved,
+                ],
+                InspectionGraphTraversalDirection.Both,
+                maxDepth: 1);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                request);
+
+        Assert.Same(request, document.NeighborhoodRequest);
+        Assert.Same(request.ModeRequest, document.ModeRequest);
+        Assert.Equal(
+            peers,
+            document.Seeds.Select(static seed => seed.Subject));
+        Assert.All(
+            document.Seeds,
+            seed => Assert.Equal(
+                InspectionGraphSeedRole.Peer,
+                seed.Role));
+        Assert.DoesNotContain(
+            document.Seeds,
+            seed => seed.Role == InspectionGraphSeedRole.Primary);
+        Assert.Equal(2, document.Edges.Length);
+        Assert.All(
+            document.Edges,
+            edge =>
+            {
+                Assert.Same(
+                    InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved,
+                    edge.Relationship);
+                Assert.Equal(
+                    hub,
+                    document.Nodes[edge.ToNodeId].Subject);
+            });
+        Assert.Equal(
+            [
+                "awssdk.extensions.bedrock.meai",
+                "microsoft.extensions.ai.openai",
+            ],
+            document.Edges
+                .Select(edge => PackageId(
+                    document,
+                    document.Nodes[edge.FromNodeId]))
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(2, document.Occurrences.Length);
+        InspectionGraphLimit[] depthBounds =
+        [
+            .. document.Limits.Where(limit =>
+                limit.Descriptor
+                    == InspectionGraphNeighborhoodCatalog.DepthBound),
+        ];
+        Assert.Equal(peers.Length, depthBounds.Length);
+        Assert.Equal(
+            document.Seeds.Select(static seed => seed.Target),
+            depthBounds.Select(static limit => limit.Target!.Value));
+        Assert.All(
+            depthBounds,
+            limit => Assert.Equal(
+                1,
+                Assert.IsType<
+                    InspectionGraphNeighborhoodDepthBoundEvidence>(
+                        limit.Evidence)
+                    .MaxDepth));
+    }
+
+    [Fact]
+    public void Execute_ZeroDepthPeerNeighborhoodRetainsEverySeed()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject hub = FindType(
+            induced,
+            "Microsoft.Extensions.AI.Abstractions",
+            "Microsoft.Extensions.AI",
+            "IChatClient");
+        InspectionGraphSubject.PackageSubject openAi =
+            PackageSubject(induced, "microsoft.extensions.ai.openai");
+        InspectionGraphSubject.PackageSubject bedrock =
+            PackageSubject(induced, "awssdk.extensions.bedrock.meai");
+        InspectionGraphSubject[] peers = [hub, openAi, bedrock];
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                InspectionGraphNeighborhoodRequest.PeerSeeds(
+                    peers,
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved,
+                    ],
+                    InspectionGraphTraversalDirection.Both,
+                    maxDepth: 0));
+
+        Assert.Empty(document.Edges);
+        Assert.Empty(document.Occurrences);
+        Assert.Equal(
+            peers,
+            document.Seeds.Select(static seed => seed.Subject));
+        Assert.Contains(document.Nodes, node => node.Subject == hub);
+        Assert.Contains(document.Groups, group => group.Subject == openAi);
+        Assert.Contains(document.Groups, group => group.Subject == bedrock);
+        Assert.Equal(
+            peers.Length,
+            document.Limits.Count(limit =>
+                limit.Descriptor
+                    == InspectionGraphNeighborhoodCatalog.DepthBound));
+    }
+
+    [Fact]
+    public void Execute_PeerCountDoesNotMultiplyProducerDemand()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject hub = FindType(
+            induced,
+            "Microsoft.Extensions.AI.Abstractions",
+            "Microsoft.Extensions.AI",
+            "IChatClient");
+        InspectionGraphSubject.PackageSubject openAi =
+            PackageSubject(induced, "microsoft.extensions.ai.openai");
+        InspectionGraphSubject.PackageSubject bedrock =
+            PackageSubject(induced, "awssdk.extensions.bedrock.meai");
+        var executions = new List<InspectionQueryDefinition>();
+
+        InspectionGraphIntegrationsQuery.Execute(
+            fixture.Context,
+            InspectionGraphNeighborhoodRequest.PeerSeeds(
+                [hub, openAi, bedrock],
+                [
+                    InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved,
+                ],
+                InspectionGraphTraversalDirection.Both,
+                maxDepth: 1),
+            (query, _) => executions.Add(query));
+
+        Assert.Equal(
+            [AssemblyContextIntegrationsQuery.Definition],
+            executions);
+    }
+
+    [Fact]
+    public void Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument induced =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.TypeSubject hub = FindType(
+            induced,
+            "Microsoft.Extensions.AI.Abstractions",
+            "Microsoft.Extensions.AI",
+            "IChatClient");
+        InspectionGraphSubject.TypeSubject disconnected = FindType(
+            induced,
+            "OpenAI",
+            "OpenAI.Chat",
+            "ChatClient");
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                InspectionGraphNeighborhoodRequest.PeerSeeds(
+                    [hub, disconnected],
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved,
+                    ],
+                    InspectionGraphTraversalDirection.Both,
+                    maxDepth: 1));
+
+        Assert.Equal(
+            [hub, disconnected],
+            document.Seeds.Select(static seed => seed.Subject));
+        Assert.Contains(
+            document.Nodes,
+            node => node.Subject == disconnected);
+        Assert.DoesNotContain(
+            document.Edges,
+            edge =>
+                document.Nodes[edge.FromNodeId].Subject
+                    == disconnected
+                || document.Nodes[edge.ToNodeId].Subject
+                    == disconnected);
+    }
+
+    [Fact]
     public void Execute_RejectsSeedOutsideWorkspaceWithGuidance()
     {
         using var fixture = IntegrationFixture.Create();
