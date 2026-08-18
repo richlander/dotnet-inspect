@@ -3,9 +3,14 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  activeSourceOperationKind,
   assemblyDescriptorForType,
+  authoredSourceLimitationHtml,
+  beginSourceRequestState,
+  cancelSourceRequestState,
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
+  callGraphTargetMatchesType,
   callGraphTargetTypeId,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
@@ -22,6 +27,7 @@ import {
   MAX_SHARE_STATE_CHARACTERS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
+  memberSectionIdsFor,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
@@ -34,6 +40,9 @@ import {
   shareStateLengthError,
   scopedRequestState,
   selectedDependencyGroup,
+  sourceSurfaceIsVisible,
+  sourceReloadKind,
+  sourceRequestNeedsLoad,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
@@ -395,6 +404,282 @@ test("member source request identity includes decompiler taste", () => {
   assert.notEqual(
     memberRequestKey(request, ["prefer-var"]),
     memberRequestKey(request, ["prefer-explicit-types"]));
+});
+
+test("member request identity distinguishes colliding type queries", () => {
+  const memberSignature =
+    appSource.match(/function memberRequestSignature\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    memberSignature,
+    /type\?\.queryId \?\? type\?\.id,\s+type\?\.definitionId \?\? type\?\.id/);
+
+  const request = [
+    "Example.Package",
+    "1.0.0",
+    "net8.0",
+    "Example.dll",
+    "Example.Outer.Inner"
+  ];
+  assert.notEqual(
+    memberRequestKey([...request, "Example.Outer+Inner", "M:Run"]),
+    memberRequestKey([...request, "Example.Outer\\.Inner", "M:Run"]));
+});
+
+test("annotated source request identity includes the selected body", () => {
+  const annotatedLoader =
+    appSource.match(
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+    ?? "";
+  assert.match(
+    annotatedLoader,
+    /const signature = memberRequestSignature\(type, overload, true, true\)/);
+  assert.equal(
+    [...annotatedLoader.matchAll(
+      /memberRequestIsCurrent\(signature, true, true\)/g)].length,
+    2);
+  assert.match(
+    annotatedLoader,
+    /selectorKey: state\.selectedBodyTarget\?\.selectorKey[\s\S]*?metadataToken: state\.selectedBodyTarget\?\.metadataToken/);
+
+  const request = [
+    "Example.Package",
+    "1.0.0",
+    "net8.0",
+    "Example.dll",
+    "Example.Outer.Inner",
+    "Example.Outer+Inner",
+    "M:Run"
+  ];
+  assert.notEqual(
+    memberRequestKey([...request, 0x06000001, "M:Run"]),
+    memberRequestKey([...request, 0x06000002, "M:<Run>b__0_0"]));
+});
+
+test("type source identity includes decompiler taste", () => {
+  const typeSignature =
+    appSource.match(/function typeSourceSignature\(item\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(typeSignature, /memberRequestKey\(/);
+  assert.match(typeSignature, /state\.taste/);
+});
+
+test("source operations cancel when superseded or hidden", () => {
+  assert.match(
+    engineSource,
+    /cancelSourceQuery = exports\.BrowserInspectionEngine\.CancelSourceQuery/);
+  assert.match(
+    engineSource,
+    /export function cancelSourceInspection\(\)[\s\S]*?cancelSourceQuery\?\.\(\)/);
+
+  const renderBody =
+    appSource.match(/function render\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(renderBody, /sourceSurfaceIsVisible\(state\)/);
+  assert.match(renderBody, /cancelSourceRequestState\(state\)/);
+  assert.match(renderBody, /cancelSourceInspection\?\.\(\)/);
+  const reloadBody =
+    appSource.match(/function reloadVisibleSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(reloadBody, /switch \(sourceReloadKind\(state\)\)/);
+  const autoLoadBody =
+    appSource.match(
+      /function maybeAutoLoadVisibleSource\(\)[\s\S]*?\n}\n\nfunction maybeAutoLoadTypeMetadata/)?.[0]
+    ?? "";
+  assert.match(
+    autoLoadBody,
+    /const kind = activeSourceOperationKind\(state\)/);
+  assert.match(autoLoadBody, /kind === "type"/);
+  assert.match(autoLoadBody, /kind === "member"/);
+  assert.match(autoLoadBody, /kind === "graph"/);
+  assert.match(autoLoadBody, /loadSelectedTypeSource\(\)/);
+  assert.match(autoLoadBody, /loadSelectedMemberSource\(\)/);
+  assert.match(autoLoadBody, /openGraphSource\(/);
+  const annotatedLoader =
+    appSource.match(
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+    ?? "";
+  assert.match(annotatedLoader, /sourceRequestNeedsLoad\(/);
+  assert.match(annotatedLoader, /state\.memberAnnotatedLoading/);
+  assert.match(annotatedLoader, /state\.memberAnnotated/);
+  assert.match(annotatedLoader, /state\.memberAnnotatedError/);
+
+  const visible = {
+    settings: false,
+    explorer: null,
+    loading: false,
+    error: "",
+    home: false,
+    package: {},
+    atPackageRoot: false,
+    graphSourceOpen: false,
+    lens: "source",
+    selectedMemberKey: "",
+    memberSection: "overview"
+  };
+  assert.equal(sourceSurfaceIsVisible(visible), true);
+  for (const hidden of [
+    { home: true },
+    { atPackageRoot: true },
+    { settings: true },
+    { loading: true },
+    { error: "failed" },
+    { explorer: { open: true } },
+    { package: null }
+  ]) {
+    assert.equal(sourceSurfaceIsVisible({ ...visible, ...hidden }), false);
+  }
+  assert.equal(
+    activeSourceOperationKind({
+      ...visible,
+      atPackageRoot: true,
+      graphSourceOpen: true
+    }),
+    "graph");
+  assert.equal(
+    activeSourceOperationKind({
+      ...visible,
+      atPackageRoot: true
+    }),
+    null);
+  assert.equal(
+    sourceReloadKind({
+      ...visible,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "annotated"
+    }),
+    "annotated");
+  assert.equal(
+    sourceReloadKind({
+      ...visible,
+      settings: true,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "annotated"
+    }),
+    null);
+  assert.equal(
+    sourceRequestNeedsLoad(true, false, null, ""),
+    true);
+  assert.equal(
+    sourceRequestNeedsLoad(true, true, null, ""),
+    false);
+  assert.equal(
+    sourceRequestNeedsLoad(true, false, { text: "source" }, ""),
+    false);
+  assert.equal(
+    sourceRequestNeedsLoad(true, false, null, "failed"),
+    false);
+  assert.equal(
+    sourceRequestNeedsLoad(false, true, { text: "stale" }, ""),
+    true);
+
+  const requestState = {
+    sourceRequestGeneration: 4,
+    memberSourceLoading: true,
+    memberSourceKey: "member",
+    memberSourceError: "",
+    typeSourceLoading: false,
+    typeSourceKey: "",
+    typeSourceError: "",
+    graphSourceLoading: false,
+    graphSourceError: "",
+    graphSourceSeq: 0
+  };
+  assert.equal(beginSourceRequestState(requestState), 5);
+  assert.equal(requestState.memberSourceLoading, false);
+  assert.equal(requestState.memberSourceKey, "");
+  requestState.typeSourceLoading = true;
+  requestState.typeSourceKey = "type";
+  assert.equal(cancelSourceRequestState(requestState), true);
+  assert.equal(requestState.sourceRequestGeneration, 6);
+  assert.equal(requestState.typeSourceLoading, false);
+  assert.equal(requestState.typeSourceKey, "");
+  assert.equal(requestState.typeSourceError, "");
+});
+
+test("MethodDef-only member sections are hidden for bodiless APIs", () => {
+  for (const kind of ["property", "field", "event", "constant"]) {
+    assert.deepEqual(
+      memberSectionIdsFor({ kind }),
+      ["overview"]);
+  }
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method" }),
+    ["overview", "call-graph", "facts", "source", "annotated"]);
+});
+
+test("source requests carry exact type and member identities", () => {
+  const memberBridge =
+    engineSource.match(/export async function inspectMemberSource\(request\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const memberLoader =
+    appSource.match(/async function loadSelectedMemberSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    memberBridge,
+    /request\.typeIdentity \?\? request\.type/);
+  assert.match(memberBridge, /request\.selectorKey \?\? ""/);
+  assert.match(memberBridge, /request\.metadataToken \?\? 0/);
+  assert.match(
+    memberLoader,
+    /typeIdentity: type\.definitionId \?\? type\.id,\s+member:[\s\S]*?selectorKey:[\s\S]*?metadataToken:/);
+  assert.doesNotMatch(memberLoader, /signature:/);
+});
+
+test("call graph source identity prefers the structured type definition", () => {
+  assert.equal(
+    callGraphTargetTypeId({
+      typeDefinitionId: "Example.Outer\\+Literal",
+      typeMetadataId: ""
+    }),
+    "Example.Outer\\+Literal");
+  assert.equal(
+    callGraphTargetTypeId({ typeMetadataId: "Example.Legacy" }),
+    "Example.Legacy");
+
+  const nested = {
+    id: "Example.Outer+Inner",
+    definitionId: "Example.Outer+Inner",
+    metadataId: "Example.Outer+Inner",
+    assembly: "Example"
+  };
+  const literal = {
+    id: "Example.Outer\\+Inner",
+    definitionId: "Example.Outer\\+Inner",
+    metadataId: "Example.Outer+Inner",
+    assembly: "Example"
+  };
+  const target = {
+    assembly: "Example",
+    typeDefinitionId: literal.definitionId
+  };
+  const candidate = resolveLoadedGraphTargetCandidate(
+    [{ id: "Example", types: [nested, literal] }],
+    target);
+  assert.equal(candidate.status, "unique");
+  assert.equal(candidate.type, literal);
+  assert.equal(callGraphTargetMatchesType(target, nested), false);
+  assert.equal(callGraphTargetMatchesType(target, literal), true);
+});
+
+test("decompiled source discloses the authored-source limitation", () => {
+  const html = authoredSourceLimitationHtml({
+    authoredLimitation: "<img src=x onerror=alert(1)>"
+  });
+  assert.match(html, /Original source unavailable:/);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /&lt;img/);
+  assert.match(
+    appSource,
+    /authoredSourceLimitationHtml\(state\.memberSource\)/);
+  assert.match(
+    appSource,
+    /authoredSourceLimitationHtml\(state\.typeSource\)/);
+  assert.match(
+    appSource,
+    /authoredSourceLimitationHtml\(state\.graphSource\)/);
 });
 
 test("history never applies a selection to another coordinate", () => {

@@ -581,6 +581,23 @@ public class OutputFormatterTests
         }
     }
 
+    [Fact]
+    public void ProjectOptimizationOpportunity_OmitsUnknownModuleVersionId()
+    {
+        var opportunity = Opp(
+            "UnknownModule",
+            inLoop: false,
+            confidence: "medium",
+            rootReach: 1,
+            shape: "small-array");
+
+        var projected =
+            LibraryMetadataService.ProjectOptimizationOpportunity(
+                opportunity);
+
+        Assert.Null(projected.ModuleVersionId);
+    }
+
     // #1623 rung 5: a labeled, non-vacuous ranking guard for the Performance Triage
     // model. Unlike the monotonicity check above (which re-derives the production key and
     // only proves self-consistency), this asserts the model's intended priority on seeded
@@ -1071,10 +1088,45 @@ public class OutputFormatterTests
 
         Assert.False(LibraryMetadataService.IncludePerformanceOpportunity(
             opportunity,
-            new HashSet<string>(StringComparer.Ordinal)
+            new HashSet<TypeRef>
             {
-                "Ns.GeneratedOuter",
+                TypeRef.Definition("Asm", "Ns", "GeneratedOuter"),
             }));
+    }
+
+    [Fact]
+    public void IncludePerformanceOpportunity_DoesNotTreatDisplayCollisionAsGeneratedFramework()
+    {
+        var compilerGenerated = TypeRef.Definition(
+            "Asm",
+            "Ns",
+            "GeneratedOuter+Leaf+<>c__DisplayClass0_0");
+        var collidingGenerated = TypeRef.Definition(
+            "Asm",
+            "Ns.GeneratedOuter",
+            "Leaf");
+        Assert.Equal(
+            collidingGenerated.ToQualifiedDisplayString()
+                + ".<>c__DisplayClass0_0",
+            compilerGenerated.ToQualifiedDisplayString());
+
+        var opportunity = Opp(
+            "<Build>b__0",
+            inLoop: false,
+            confidence: "medium",
+            rootReach: 1,
+            shape: "generic-parameter-object-box");
+        opportunity = opportunity with
+        {
+            Method = opportunity.Method with
+            {
+                DeclaringType = compilerGenerated,
+            },
+        };
+
+        Assert.True(LibraryMetadataService.IncludePerformanceOpportunity(
+            opportunity,
+            new HashSet<TypeRef> { collidingGenerated }));
     }
 
     [Fact]

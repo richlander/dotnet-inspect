@@ -128,6 +128,41 @@ restore/build first if dependencies changed. `--bin` remains the output director
 context for copied DLLs. A future `--deps` source can represent runtime
 `.deps.json` context.
 
+## Demo: query rendered C# body shapes
+
+Discover the exact stable IDs accepted by body queries:
+
+```bash
+dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds" \
+  --columns "ID;Label" --rows 5 --table
+```
+
+Then use one as a typed library predicate. `Kind=...` auto-selects the
+explicit-only `Body Shapes` section, while the ordinary section query options
+control the returned columns and rows:
+
+```bash
+dnx dotnet-inspect -y -- library System.Text.Json \
+  --where "Kind=ObjectCreationExpression" \
+  --columns "Member;Token;Match" --rows 3
+```
+
+```text
+# System.Text.Json.dll
+
+## Body Shapes
+
+| Member | Token | Match |
+| ------ | ----- | ----- |
+| `System.Text.Json.JsonDocument.RootElement~2810741072` | `0x06000260` | `new JsonElement(this, 0)` |
+| `System.Text.Json.JsonDocumentOptions.CommentHandling~4fc3b6f99d` | `0x060002DC` | `new ArgumentOutOfRangeException("value", SR.JsonDocumentDoesNotSupportComments)` |
+| `System.Text.Json.JsonElement.GetProperty~b07c7787dc` | `0x060002EA` | `new KeyNotFoundException(SR.Format(SR.Arg_KeyNotFoundWithKey, propertyName))` |
+```
+
+Use `--jsonl` for one machine-readable match per row or `--count` for the
+matching row count. Bodies that cannot be reconstructed at full fidelity are
+reported on stderr rather than mixed into structured output.
+
 ## Capability inventory
 
 | Capability | Commands | Highlights |
@@ -141,7 +176,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
-| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
+| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `library X --where "Kind=ObjectCreationExpression"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
@@ -151,7 +186,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | ------- | ------- |
 | `package X` | Inspect NuGet metadata, versions, dependencies, TFMs, layout, and vulnerabilities. |
 | `project [path]` | Inspect restored direct package references for skill files and package docs. |
-| `library X` | Inspect assembly metadata, symbols, SourceLink, references (`-S References`, optionally `--tree --depth N`), resources, and async methods. |
+| `library X` | Inspect assembly metadata, symbols, SourceLink, references (`-S References`, optionally `--tree --depth N`), resources, async methods, and rendered body shapes (`--where "Kind=<ID>"`). |
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
@@ -310,8 +345,8 @@ keep the single `Performance Triage` lens.
 The tight markdown columns carry the ranked, human-facing fields, including a
 static `Priority` that is separate from evidence/rewrite `Confidence`; the full
 per-row diagnostics (shape, provenance, candidate id, native `Finding`,
-declaring `Assembly` and `MethodToken`, operation-operand metadata `Token`, IL
-offset, allocation `Weight`, path/loop evidence, and the fix
+declaring `Assembly`, module version ID, and `MethodToken`, operation-operand
+metadata `Token`, IL offset, allocation `Weight`, path/loop evidence, and the fix
 sentence) are preserved in the nested `performance` object of `--json`.
 Allocation rows carry `Weight`, a coarse size x multiplicity x reach static
 prior that you can query or sort when choosing pre-profile instrumentation
@@ -319,9 +354,11 @@ targets. Exact allocation and call-site rows also retain a `Candidate` id, their
 native `Finding` descriptor, `Provenance=exact`, `Operation`, and metadata
 `Token`. Aggregate rows are marked `Provenance=aggregate`; `unmatched`
 identifies an instruction-level row that could not be joined to a producer
-occurrence. `Assembly` + `MethodToken` + `IL` form the runtime allocation-trace coordinate;
-`Token` is the operand of the reported IL operation and must not be used as the
-declaring method token. Those fields let trace and version-diff tooling join a triage row to
+occurrence. `Assembly` + `MethodToken` + `IL` form the allocation-trace join
+coordinate; `ModuleVersionId` distinguishes physical module builds when static
+inputs carry it. `Token` is the operand of the reported IL operation and must
+not be used as the declaring method token. Those fields let trace and
+version-diff tooling join a triage row to
 `analysis.allocation` or `analysis.call-site` evidence without parsing
 `Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
 `--triage-shape` to ask the tool for the curated pay-dirt rows directly instead
@@ -370,6 +407,11 @@ Type-level ambiguity and its site cap count that shared coordinate once rather
 than counting the two input rows as separate allocation sites. If several
 library MVIDs share that coordinate, they remain distinct because the
 coordinate-only triage row cannot identify which module version it describes.
+Older nested exports without `ModuleVersionId` remain accepted and use that
+conservative ambiguity behavior.
+If triage was exported from a different build than a supplied library, their
+MVIDs do not collapse; the additional physical site can increase ambiguity or
+move the type above the confirmation site cap.
 
 `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
 cross-method repetition fact. `CallerLoop=direct` means a resolved invocation
