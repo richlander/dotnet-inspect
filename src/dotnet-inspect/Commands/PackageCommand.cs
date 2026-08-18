@@ -3922,9 +3922,6 @@ public class PackageCommand
             return null;
         }
 
-        if (resolution.Tfm != null && string.IsNullOrWhiteSpace(options.Tfm))
-            CommandError.WriteLine($"Using TFM: {resolution.Tfm}");
-
         return resolution.Paths
             .Select(path => new PackageLibrarySelection(path))
             .ToList();

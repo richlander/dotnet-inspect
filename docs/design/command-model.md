@@ -49,6 +49,16 @@ network/content checks.
 
 ## Command Patterns
 
+### Output channels
+
+Successful inspection payloads are written to stdout, or to the path selected
+by `--out`. Successful resolution context such as the selected TFM belongs in
+that payload rather than in a separate progress message.
+
+Stderr is reserved for diagnostics and tips: errors, warnings, notes,
+deprecation guidance, and optional usage suggestions. Use `--tips q` when a
+caller needs diagnostic-only stderr for machine consumption.
+
 ### Package-centric workflow
 
 Start with a package, drill down into details:

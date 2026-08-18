@@ -13113,7 +13113,7 @@ public partial class CommandExecutionTests
                 "q");
 
             Assert.Equal(0, exit);
-            Assert.Contains("Using TFM: net8.0", error);
+            Assert.Empty(error);
             Assert.Contains("IdentifierConfusionReferenceClosure[", output);
             Assert.Contains("U+03BF→O", output);
         }
@@ -13346,13 +13346,10 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Contains("U+0405→S", output);
             Assert.Equal(
-                [
-                    "Using TFM: net8.0",
-                    "Warning: Identifier audit failed for "
-                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
-                ],
-                error.ReplaceLineEndings("\n")
-                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+                "Warning: Identifier audit failed for "
+                + "'lib/net8.0/Root.dll': invalid assembly metadata"
+                + Environment.NewLine,
+                error);
             Assert.DoesNotContain("Bridge", error);
         }
         finally
@@ -13540,13 +13537,10 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Contains("U+0405→S", output);
             Assert.Equal(
-                [
-                    "Using TFM: net8.0",
-                    "Warning: Identifier audit failed for "
-                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
-                ],
-                error.ReplaceLineEndings("\n")
-                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+                "Warning: Identifier audit failed for "
+                + "'lib/net8.0/Root.dll': invalid assembly metadata"
+                + Environment.NewLine,
+                error);
             Assert.DoesNotContain("System.Runtime", error);
 
             var signals = await RunAppAsync(
@@ -13567,13 +13561,10 @@ public partial class CommandExecutionTests
                 "| Identity | Identifier confusion | None |",
                 signals.Output);
             Assert.Equal(
-                [
-                    "Using TFM: net8.0",
-                    "Warning: Identifier audit failed for "
-                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
-                ],
-                signals.Error.ReplaceLineEndings("\n")
-                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+                "Warning: Identifier audit failed for "
+                + "'lib/net8.0/Root.dll': invalid assembly metadata"
+                + Environment.NewLine,
+                signals.Error);
         }
         finally
         {
@@ -20096,7 +20087,8 @@ public partial class CommandExecutionTests
 
                 Assert.Equal(0, baseline.Exit);
                 Assert.Equal(baseline.Exit, redirected.Exit);
-                Assert.Equal(baseline.Error, redirected.Error);
+                Assert.Empty(baseline.Error);
+                Assert.Empty(redirected.Error);
                 Assert.Empty(redirected.Output);
                 Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
                 if (name == "json")
