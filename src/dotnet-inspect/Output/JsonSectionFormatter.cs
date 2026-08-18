@@ -204,6 +204,7 @@ internal sealed class JsonSectionFormatter :
     private readonly List<MarkoutField> _rootFields = [];
     private readonly List<Section> _sections = [];
     private readonly TextWriter _contentWriter;
+    private IReadOnlyList<string>? _sectionOrder;
     private Section? _current;
     private Section? _streamingTable;
     private int _sectionLevel = 2;
@@ -226,26 +227,28 @@ internal sealed class JsonSectionFormatter :
         _sections.Clear();
         _current = null;
         _streamingTable = null;
+        _sectionOrder = options.SectionOrder?.ToArray();
         _sectionLevel = Math.Clamp(2 + options.HeadingLevelOffset, 1, 6);
     }
 
     /// <summary>
-    /// Names the sections that produced content, in emission order. Callers use this to report
+    /// Names the sections that produced content, in output order. Callers use this to report
     /// which sections a projection actually reached.
     /// </summary>
-    internal IReadOnlyList<string> SectionNames => _sections.Select(section => section.Name).ToArray();
+    internal IReadOnlyList<string> SectionNames =>
+        SectionsInOutputOrder().Select(section => section.Name).ToArray();
 
     internal IReadOnlyList<string> EmittedSectionNames =>
-        [.. _sections.Where(section => section.HasContent).Select(section => section.Name)];
+        [.. SectionsInOutputOrder().Where(section => section.HasContent).Select(section => section.Name)];
 
     internal IReadOnlyList<string> EmittedColumns =>
-        [.. _sections
+        [.. SectionsInOutputOrder()
             .Where(section => section.Kind == SectionKind.Table)
             .SelectMany(section => section.Headers)
             .Distinct(StringComparer.OrdinalIgnoreCase)];
 
     internal IReadOnlyList<string> EmittedTableRowSections =>
-        [.. _sections
+        [.. SectionsInOutputOrder()
             .Where(section => section.Kind == SectionKind.Table && section.Rows.Count > 0)
             .Select(section => section.Name)];
 
@@ -256,7 +259,7 @@ internal sealed class JsonSectionFormatter :
             var fields = new List<OutputFormatter.ProjectedJsonFieldEvidence>();
             fields.AddRange(_rootFields.Select(
                 item => new OutputFormatter.ProjectedJsonFieldEvidence(null, item.Key)));
-            foreach (var section in _sections)
+            foreach (var section in SectionsInOutputOrder())
             {
                 foreach (var item in section.Fields)
                 {
@@ -486,13 +489,28 @@ internal sealed class JsonSectionFormatter :
 
             // A heading whose projected body emitted nothing is not itself data. Explicit empty
             // fields, tables, lists, and trees still call Adopt and retain their shape.
-            foreach (var section in _sections.Where(section => section.HasContent))
+            foreach (var section in SectionsInOutputOrder().Where(section => section.HasContent))
                 WriteSection(json, section, RequireUniqueKey(emitted, section.Name));
 
             json.WriteEndObject();
         }
 
         return System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    private IEnumerable<Section> SectionsInOutputOrder()
+    {
+        if (_sectionOrder is not { Count: > 0 })
+            return _sections;
+
+        var order = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < _sectionOrder.Count; index++)
+            order.TryAdd(_sectionOrder[index], index);
+
+        return _sections.OrderBy(
+            section => order.TryGetValue(section.Name, out var index)
+                ? index
+                : int.MaxValue);
     }
 
     /// <summary>

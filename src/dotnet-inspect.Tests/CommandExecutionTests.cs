@@ -7022,6 +7022,53 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_AllSelectorProjectedJsonUsesPipelineSectionOrder()
+    {
+        var library = typeof(AssemblyDependencyResolver).Assembly.Location;
+        var markdown = await RunAppAsync(
+            "member",
+            nameof(AssemblyDependencyResolver),
+            "--library",
+            library,
+            "-m",
+            nameof(AssemblyDependencyResolver.Resolve),
+            "-S",
+            "@All",
+            "--columns",
+            "Selector",
+            "--markdown",
+            "--tips",
+            "q");
+        var json = await RunAppAsync(
+            "member",
+            nameof(AssemblyDependencyResolver),
+            "--library",
+            library,
+            "-m",
+            nameof(AssemblyDependencyResolver.Resolve),
+            "-S",
+            "@All",
+            "--columns",
+            "Selector",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, markdown.Exit);
+        Assert.Empty(markdown.Error);
+        Assert.True(
+            markdown.Output.IndexOf("## Member Index", StringComparison.Ordinal)
+            < markdown.Output.IndexOf("## Source Locations", StringComparison.Ordinal));
+
+        Assert.Equal(0, json.Exit);
+        Assert.Empty(json.Error);
+        using var document = JsonDocument.Parse(json.Output);
+        Assert.Equal(
+            ["member_index", "source_locations"],
+            document.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Fact]
     public async Task MemberDetail_ProjectedJson_MatchesSingleTableJsonlShape()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -17795,6 +17842,40 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Contains("\"is_unsigned\"", output, StringComparison.Ordinal);
             Assert.Empty(error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("Status")]
+    [InlineData("Stat*")]
+    public async Task Package_JsonRecognizesStatusDisplayAliasInTypedOutput(string field)
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonStatusAlias",
+            "README.md",
+            "# Package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-v:n",
+                "--json",
+                "--fields",
+                field,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.True(
+                document.RootElement.GetProperty("signature_result")
+                    .TryGetProperty("status_message", out _));
         }
         finally
         {

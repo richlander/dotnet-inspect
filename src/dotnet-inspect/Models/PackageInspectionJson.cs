@@ -34,6 +34,7 @@ internal sealed class PackageInspectionJson
             ["Runtime Identifiers"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(SupportedRids)),
             ["Signed"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(PackageSignatureJson.IsUnsigned)),
             ["Size"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(PackageSize)),
+            ["Status"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(PackageSignatureJson.StatusMessage)),
             ["TFM Count"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(TargetFrameworks)),
             ["Type"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(IsToolPackage)),
             ["Verified"] = JsonNamingPolicy.SnakeCaseLower.ConvertName(nameof(IsVerified)),

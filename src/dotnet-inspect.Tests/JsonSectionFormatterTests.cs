@@ -80,6 +80,29 @@ public class JsonSectionFormatterTests
     }
 
     [Fact]
+    public void SectionOrder_ReordersJsonAndAppendsUnlistedSections()
+    {
+        var formatter = new JsonSectionFormatter();
+        formatter.BeginDocument(new MarkoutWriterOptions
+        {
+            SectionOrder = ["Beta", "Alpha"],
+        });
+
+        formatter.FormatHeading(TextWriter.Null, 2, "Alpha", null);
+        formatter.FormatArray(TextWriter.Null, "items", ["a"], false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Gamma", null);
+        formatter.FormatArray(TextWriter.Null, "items", ["g"], false);
+        formatter.FormatHeading(TextWriter.Null, 2, "Beta", null);
+        formatter.FormatArray(TextWriter.Null, "items", ["b"], false);
+
+        using var document = JsonDocument.Parse(formatter.Finish());
+
+        Assert.Equal(
+            ["beta", "alpha", "gamma"],
+            document.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+    }
+
+    [Fact]
     public void UnmatchedColumn_Throws()
     {
         // A bad column name must not yield a success-shaped empty document. Markout owns the
