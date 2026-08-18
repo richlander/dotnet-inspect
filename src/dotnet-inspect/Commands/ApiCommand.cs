@@ -1848,6 +1848,14 @@ public class ApiCommand
         if (unsupported.Length == 0)
             return true;
 
+        if (unsupported.Contains(
+                SectionNames.PerformanceTriage,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            WritePerformanceTriageDocumentJsonError();
+            return false;
+        }
+
         var schema = GetTypeDocumentSchema(new TypeOptions());
         bool includesDocumentSection = unsupported.Any(
             section => schema.GetSection(section) is { Items.Length: 0 });
@@ -1858,6 +1866,11 @@ public class ApiCommand
                 : "Use Markdown, --table, --tsv, or --jsonl so section-produced rows are preserved.");
         return false;
     }
+
+    private static void WritePerformanceTriageDocumentJsonError()
+        => CommandError.Write(
+            "Document --json cannot represent Performance Triage analysis. "
+            + "Use --jsonl, --tsv, --table, or --print.");
 
     internal static void WarnEmptySelectedSections(
         ApiType type,
@@ -1974,9 +1987,7 @@ public class ApiCommand
                     .Contains(SectionNames.PerformanceTriage)
                 && HasExplicitPerformanceTriageSelector(options))
             {
-                CommandError.Write(
-                    "Document --json cannot represent Performance Triage analysis. "
-                    + "Use --jsonl, --tsv, --table, or --print.");
+                WritePerformanceTriageDocumentJsonError();
                 return 1;
             }
             // --fields/--columns select table columns; document JSON has no column-slicing
