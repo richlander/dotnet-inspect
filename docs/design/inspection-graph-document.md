@@ -728,8 +728,9 @@ automatically. The same relationship, identity, direction, limit, and failure
 contracts apply in every mode.
 
 `InspectionGraphNeighborhoodRequest` is the first composed request over these
-orthogonal axes. It currently requires one seed, one or more typed relationship
-descriptors, semantic traversal direction, and a finite maximum edge depth.
+orthogonal axes. It currently requires one seed or two or more equal peer
+seeds, one or more typed relationship descriptors, semantic traversal
+direction, and a finite maximum edge depth.
 The resulting document retains both its `ModeRequest` and
 `NeighborhoodRequest`; a consumer never has to infer selection or bounds from
 the surviving topology.
@@ -749,10 +750,13 @@ The Integration implementation validates catalog membership before producer
 execution. Its relationship set drives the deterministic query-registry plan,
 including opportunity's Integration and extension prerequisites for
 fulfillment reconciliation. Projection begins through the selected
-descriptor's exact edge, original-occurrence, or typed owned-subject seed
-admission, then walks logical endpoints for the remaining hops. Incoming
+descriptor's exact edge, original-occurrence, or typed owned-subject admission
+for each seed, then walks logical endpoints for the remaining hops. Incoming
 traversal changes which endpoint is followed, never the stored edge or
-occurrence direction.
+occurrence direction. Peer projection is one deterministic multi-source walk:
+every peer begins at depth zero, reached topology is the union of their bounded
+neighborhoods, and shared edges and occurrences retain one identity. It does
+not fabricate a primary seed or require every peer to be connected.
 
 Projection assigns new dense document-local ids while retaining semantic
 subjects, relationship descriptors, occurrence evidence and occurrence
@@ -761,9 +765,14 @@ composition prerequisites remain visible even when their target is outside
 healthy reached topology. A typed `queries.neighborhood-depth-bound` limit
 records the requested bound, including depth zero. An admissible owner-issued
 seed remains bound even when selected producers emit no relationship evidence.
+For peer requests, the same bound is targeted at every equal seed so no peer's
+completeness is inferred from another's topology.
 `Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
 `Execute_ZeroDepthRetainsSeedWithoutEdges`,
 `Execute_ZeroDepthRetainsAdmissibleSeedWithoutSelectedEvidence`,
+`Execute_PeerNeighborhoodConnectsEqualSeeds`,
+`Execute_ZeroDepthPeerNeighborhoodRetainsEverySeed`,
+`Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed`,
 `Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression`,
 `Execute_NeighborhoodRetainsSelectedProducerFailures`,
 `Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures`, and
