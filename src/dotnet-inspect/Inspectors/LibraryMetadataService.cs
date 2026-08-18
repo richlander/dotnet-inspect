@@ -67,10 +67,14 @@ internal static class LibraryMetadataService
             var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(
                 requiredScanners,
                 requiredQueries);
-            IAssemblyReferenceResolver? bodyReferenceResolver =
+            bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities)
+                || requiredScanners?.Contains(
+                    Sections.LibrarySections.ScannerBodyShapes) == true;
+            IAssemblyReferenceResolver? bodyReferenceResolver =
+                needsBodyReferenceResolver
                     ? new AssemblyDependencyResolver(
                         new AssemblyDependencyResolutionOptions(path)
                         {
@@ -168,7 +172,8 @@ internal static class LibraryMetadataService
                     : MetadataFindings.InspectAssemblySurface(
                         surfaceClassification,
                         FindingSubjectFor(path)),
-                PerformanceTriageOptions = options.PerformanceTriage
+                PerformanceTriageOptions = options.PerformanceTriage,
+                BodyKindQueryOptions = options.BodyKindQuery,
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
@@ -508,6 +513,8 @@ internal static class LibraryMetadataService
         }
         if (scanners?.Contains(Sections.LibrarySections.ScannerResourceTriage) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.LeakTriage;
+        if (scanners?.Contains(Sections.LibrarySections.ScannerBodyShapes) == true)
+            features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         return features;
     }
 
@@ -1345,16 +1352,20 @@ internal static class LibraryMetadataService
            || IsSystemTextJsonContextGeneratedMethod(method);
 
     // Overload that also treats members of structurally-detected generated framework types
-    // (protobuf/gRPC, see LibraryBodyIndex.GeneratedFrameworkTypeNames) as generated, so their
+    // (protobuf/gRPC, see LibraryBodyIndex.GeneratedFrameworkTypes) as generated, so their
     // thick static initializers and stubs are marked in Top Leverage and suppressed from
     // Performance Triage even though no [GeneratedCode] attribute is emitted.
-    internal static bool IsGeneratedMethod(Analysis.MethodIdentity method, IReadOnlySet<string> generatedFrameworkTypes)
+    internal static bool IsGeneratedMethod(
+        Analysis.MethodIdentity method,
+        IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes)
         => IsGeneratedMethod(method)
-           || generatedFrameworkTypes.Contains(method.DeclaringType.ToQualifiedDisplayString());
+           || Analysis.LibraryBodyIndex.IsGeneratedFrameworkType(
+               generatedFrameworkTypes,
+               method.DeclaringType);
 
     internal static bool IncludePerformanceOpportunity(
         Analysis.OptimizationOpportunity opportunity,
-        IReadOnlySet<string> generatedFrameworkTypes)
+        IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes)
         => !IsGeneratedMethod(opportunity.Method, generatedFrameworkTypes)
             || opportunity.Shape == "generic-parameter-object-box"
                 && !IsInGeneratedFrameworkType(
@@ -1364,23 +1375,19 @@ internal static class LibraryMetadataService
 
     static bool IsInGeneratedFrameworkType(
         Analysis.OptimizationOpportunity opportunity,
-        IReadOnlySet<string> generatedFrameworkTypes)
+        IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes)
     {
         if (opportunity.SourceOwner is { } sourceOwner
-            && generatedFrameworkTypes.Contains(
-                sourceOwner.DeclaringType.ToQualifiedDisplayString()))
+            && Analysis.LibraryBodyIndex.IsGeneratedFrameworkType(
+                generatedFrameworkTypes,
+                sourceOwner.DeclaringType))
         {
             return true;
         }
 
-        string name =
-            opportunity.Method.DeclaringType.ToQualifiedDisplayString();
-        if (generatedFrameworkTypes.Contains(name))
-            return true;
-
-        int generatedNested = name.IndexOf(".<>", StringComparison.Ordinal);
-        return generatedNested >= 0
-            && generatedFrameworkTypes.Contains(name[..generatedNested]);
+        return Analysis.LibraryBodyIndex.IsGeneratedFrameworkType(
+            generatedFrameworkTypes,
+            opportunity.Method.DeclaringType);
     }
 
     static bool IsSourceFunctionName(string methodName)
@@ -1458,7 +1465,7 @@ internal static class LibraryMetadataService
         {
             var index = openIndex();
             ReportOptimizationDiagnostics(index);
-            var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
+            var generatedFrameworkTypes = index.GeneratedFrameworkTypes;
             var rows = FilterAndOrderTriageOpportunities(
                     TriageOpportunities(index, options)
                         .Where(opportunity => IncludePerformanceOpportunity(
@@ -2244,7 +2251,7 @@ internal static class LibraryMetadataService
                             LoopCalls = entry.LoopCallCount,
                             Generated = IsGeneratedMethod(
                                 entry.Method,
-                                available.GeneratedFrameworkTypeNames),
+                                available.GeneratedFrameworkTypes),
                             Visibility = drill.Visibility,
                             Stable = drill.Stable,
                             Selector = drill.Selector,
