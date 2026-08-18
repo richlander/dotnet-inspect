@@ -1203,6 +1203,22 @@ public static class ApiSurfaceExtractor
                     });
                 }
 
+                var eventTypeNodeProvider = observeText is null
+                    ? TypeNodeProvider.Instance
+                    : new TypeNodeProvider(observeText, observeDecodeWork);
+                ApplyAccessorStructuralReturns(
+                    accessorModels,
+                    reader,
+                    kind => kind switch
+                    {
+                        "add" => accessors.Adder,
+                        "remove" => accessors.Remover,
+                        _ => default,
+                    },
+                    eventTypeNodeProvider,
+                    typeContext,
+                    observeText);
+
                 string eventName = DecodeString(
                     reader,
                     evt.Name,
@@ -3815,6 +3831,19 @@ public static class ApiSurfaceExtractor
             }
         }
 
+        ApplyAccessorStructuralReturns(
+            accessorModels,
+            reader,
+            kind => kind switch
+            {
+                "get" => accessors.Getter,
+                "set" => accessors.Setter,
+                _ => default,
+            },
+            typeNodeProvider,
+            context,
+            beforeRetainText);
+
         var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(
                 reader,
                 prop.GetCustomAttributes(),
@@ -3957,6 +3986,50 @@ public static class ApiSurfaceExtractor
             model,
             treeSignature.ReturnType.IsDegraded
                 || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
+    }
+
+    static void ApplyAccessorStructuralReturns(
+        List<ApiAccessor> accessors,
+        MetadataReader reader,
+        Func<string, MethodDefinitionHandle> handleForKind,
+        TypeNodeProvider provider,
+        GenericContext context,
+        Action<string>? beforeRetainText)
+    {
+        foreach (ApiAccessor accessor in accessors)
+        {
+            accessor.StructuralReturnType = MethodStructuralReturnType(
+                reader,
+                handleForKind(accessor.Kind),
+                provider,
+                context,
+                beforeRetainText);
+        }
+    }
+
+    static string? MethodStructuralReturnType(
+        MetadataReader reader,
+        MethodDefinitionHandle handle,
+        TypeNodeProvider provider,
+        GenericContext context,
+        Action<string>? beforeRetainText)
+    {
+        if (handle.IsNil)
+            return null;
+
+        var method = reader.GetMethodDefinition(handle);
+        var signature = GuardedProviderDecode.Method(
+            reader,
+            method,
+            provider,
+            context,
+            (TypeNode)new DegradedTypeNode());
+        if (!signature.ReturnType.HasStructuralPayload)
+            return null;
+
+        string identity = signature.ReturnType.StructuralIdentity();
+        beforeRetainText?.Invoke(identity);
+        return identity;
     }
 
     /// <summary>
@@ -4113,6 +4186,7 @@ public static class ApiSurfaceExtractor
             AddText(ref count, accessor.Kind);
             AddText(ref count, accessor.Accessibility);
             AddText(ref count, accessor.ReturnAttributes);
+            AddText(ref count, accessor.StructuralReturnType);
         }
     }
 

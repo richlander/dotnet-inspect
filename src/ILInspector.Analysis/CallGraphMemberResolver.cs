@@ -16,6 +16,8 @@ namespace ILInspector.Analysis;
 /// gates the instance/static identity discriminator across both producers and structural remapping.
 /// <c>CallGraphMemberResolverTests.Selector_DistinguishesCustomModifiersPinnedAndFunctionPointerHeaders</c>
 /// gates modifier, pinned, and function-pointer header identity across both producers.
+/// <c>CallGraphMemberResolverTests.Resolve_MatchesCompiledInitSetterAcrossProducers</c>
+/// gates <c>init</c> setter <c>modreq(IsExternalInit)</c> identity from extract through MemberRef.
 /// </remarks>
 public static class CallGraphMemberResolver
 {
@@ -224,7 +226,7 @@ public static class CallGraphMemberResolver
                 owner.ParameterTypes,
                 owner.ReturnType,
                 owner.StructuralParameterTypes,
-                owner.StructuralReturnType);
+                AccessorStructuralReturn(member, "get", owner.StructuralReturnType));
             yield return new(selector.Name, selector.Key, new(type, member, getter));
         }
 
@@ -237,7 +239,7 @@ public static class CallGraphMemberResolver
                 owner.ParameterTypes.Append(owner.ReturnType),
                 "System.Void",
                 owner.StructuralParameterTypes.Append(owner.StructuralReturnType),
-                "System.Void");
+                AccessorStructuralReturn(member, "set", "System.Void"));
             yield return new(selector.Name, selector.Key, new(type, member, setter));
         }
 
@@ -250,7 +252,7 @@ public static class CallGraphMemberResolver
                 [owner.ReturnType],
                 "System.Void",
                 [owner.StructuralReturnType],
-                "System.Void");
+                AccessorStructuralReturn(member, "add", "System.Void"));
             yield return new(selector.Name, selector.Key, new(type, member, adder));
         }
 
@@ -263,9 +265,18 @@ public static class CallGraphMemberResolver
                 [owner.ReturnType],
                 "System.Void",
                 [owner.StructuralReturnType],
-                "System.Void");
+                AccessorStructuralReturn(member, "remove", "System.Void"));
             yield return new(selector.Name, selector.Key, new(type, member, remover));
         }
+    }
+
+    static string AccessorStructuralReturn(ApiMember member, string kind, string fallback)
+    {
+        string? structural = member.SignatureModel?.Accessors
+            .FirstOrDefault(accessor =>
+                string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
+            ?.StructuralReturnType;
+        return string.IsNullOrEmpty(structural) ? fallback : structural;
     }
 
     static CallGraphMemberSelector CreateSelector(

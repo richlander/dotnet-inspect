@@ -109,6 +109,29 @@ public sealed class ApiSignatureModelTests
         Assert.Equal("this[]", member.SignatureModel.MemberName);
         Assert.Equal("(int)", member.SignatureModel.ParameterTypesSummary);
         Assert.Equal("get", member.SignatureModel.PublicAccessorsSummary);
+        Assert.Null(
+            member.SignatureModel.Accessors.Single(accessor => accessor.Kind == "set")
+                .StructuralReturnType);
+    }
+
+    [Fact]
+    public void PropertySignatureModel_ExposesInitSetterStructuralReturn()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.InitValue));
+
+        Assert.NotNull(member.SignatureModel);
+        ApiAccessor setter = Assert.Single(
+            member.SignatureModel.Accessors,
+            accessor => accessor.Kind == "set");
+        Assert.Equal(
+            StructuralTypeIdentity.Modified(
+                required: true,
+                "System.Runtime.CompilerServices.IsExternalInit",
+                "System.Void"),
+            setter.StructuralReturnType);
+        Assert.Null(
+            member.SignatureModel.Accessors.Single(accessor => accessor.Kind == "get")
+                .StructuralReturnType);
     }
 
     [Fact]
@@ -506,6 +529,8 @@ public sealed class ApiSignatureFixtures
         get => index.ToString();
         private set { }
     }
+
+    public int InitValue { get; init; }
 }
 
 public sealed class StructuralGenericPayloadFixtures

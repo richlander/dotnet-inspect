@@ -627,6 +627,14 @@ public class ApiAccessor
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];
+
+    /// <summary>
+    /// Opaque structural return-type identity for the accessor method itself.
+    /// Null when the display spelling is already injective, including ordinary
+    /// <c>void</c> setters. <c>init</c> setters carry
+    /// <c>modreq(IsExternalInit)</c> here so call-graph selectors match MemberRef.
+    /// </summary>
+    public string? StructuralReturnType { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<SignatureDecodeStatus>))]

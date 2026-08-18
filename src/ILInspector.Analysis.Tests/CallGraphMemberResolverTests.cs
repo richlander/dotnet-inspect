@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
@@ -255,6 +257,89 @@ public sealed class CallGraphMemberResolverTests
         Assert.NotEqual(
             CallGraphMemberResolver.CreateSelector(type, member).Key,
             body.SelectorKey);
+    }
+
+    [Fact]
+    public void Resolve_MatchesInitSetterReturnModifierAcrossProducers()
+    {
+        var member = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            ReturnType = "int",
+            SetterToken = 0x06000002,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "set",
+                        StructuralReturnType = StructuralTypeIdentity.Modified(
+                            required: true,
+                            "System.Runtime.CompilerServices.IsExternalInit",
+                            "System.Void"),
+                    },
+                ],
+            },
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [member],
+        };
+        var graph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "set_Value",
+            [TypeRef.CoreLib("System", "Int32")],
+            TypeRef.UnsupportedModified(
+                TypeRef.CoreLib("System.Runtime.CompilerServices", "IsExternalInit"),
+                TypeRef.CoreLib("System", "Void"),
+                isRequired: true),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
+
+        var setter = Assert.Single(
+            CallGraphMemberResolver.CreateBodySelectors(type, member),
+            selector => selector.MemberName == "set_Value");
+
+        Assert.Equal(graph.Key, setter.SelectorKey);
+        Assert.Equal(
+            0x06000002,
+            CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.BodyToken);
+    }
+
+    [Fact]
+    public void Resolve_MatchesCompiledInitSetterAcrossProducers()
+    {
+        using var stream = File.OpenRead(typeof(InitAccessorFixtures).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == nameof(InitAccessorFixtures));
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == nameof(InitAccessorFixtures.Value));
+        CallGraphMemberBodySelector setter = Assert.Single(
+            CallGraphMemberResolver.CreateBodySelectors(type, member),
+            selector => selector.MemberName == "set_Value");
+
+        MemberRef reference = MemberResolver.ResolveMethod(
+            peReader.GetMetadataReader(),
+            MetadataTokens.EntityHandle(setter.BodyToken),
+            GenericScope.Empty);
+        CallGraphMemberSelector graph = CallGraphMemberResolver.CreateSelector(reference);
+
+        Assert.Equal(graph.Key, setter.SelectorKey);
+        Assert.Contains("IsExternalInit", setter.SelectorKey, StringComparison.Ordinal);
+        Assert.Equal(
+            setter.BodyToken,
+            CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.BodyToken);
     }
 
     [Fact]
@@ -1004,4 +1089,9 @@ public sealed class CallGraphMemberResolverTests
             ],
         },
     };
+}
+
+public sealed class InitAccessorFixtures
+{
+    public int Value { get; init; }
 }
