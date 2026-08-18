@@ -1143,7 +1143,7 @@ kbd {
     radial-gradient(circle at 50% 35%, rgba(229,102,63,.08), transparent 26rem),
     var(--bg);
 }
-.loading-brand { position: fixed; top: 20px; left: 22px; color: var(--muted); font: 13px var(--mono); }
+.loading-brand { position: fixed; top: 20px; left: 22px; color: var(--muted); text-decoration: none; font: 13px var(--mono); }
 .loading-brand span { color: var(--accent); font-size: 19px; }
 .load-progress { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .loading-bot {
