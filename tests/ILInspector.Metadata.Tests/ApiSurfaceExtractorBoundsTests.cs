@@ -542,6 +542,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void LocalTypes_ChargesSharedLongTypeDefinitionNamesBeforeIndexing()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildSharedLongTypeDefinitionNameImage(
+                typeCount: 12_000,
+                nameLength: 4_000));
+    }
+
+    [Fact]
     public void RepeatedLongSkippedFieldName_StopsBeforeLargeAllocationAmplification()
     {
         AssertTextAmplificationIsBounded(
@@ -1438,6 +1447,34 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Assert.True(
             allocated < 64L * 1024 * 1024,
             $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    static byte[] BuildSharedLongTypeDefinitionNameImage(
+        int typeCount,
+        int nameLength)
+    {
+        var metadata = Metadata("LocalTypesAmplification");
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        StringHandle sharedName = metadata.GetOrAddString(
+            new string('T', nameLength));
+        for (int index = 0; index < typeCount; index++)
+        {
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Abstract,
+                metadata.GetOrAddString($"N{index:D5}"),
+                sharedName,
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+        }
+
+        return Serialize(metadata);
     }
 
     static byte[] BuildRepeatedLongMethodNameImage(

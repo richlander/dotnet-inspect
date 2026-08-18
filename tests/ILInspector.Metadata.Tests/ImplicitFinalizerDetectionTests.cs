@@ -142,6 +142,71 @@ public class ImplicitFinalizerDetectionTests
         Assert.True(ExtractMember(image, "Derived", "Finalize").IsFinalizer);
     }
 
+    [Fact]
+    public void ModuleScopedLocalBase_IsFollowedToObjectFinalizeSlot()
+    {
+        byte[] image = BuildImage(
+            new TypeSpec(
+                "VbBase",
+                BaseKind.Object,
+                new MethodSpec("Finalize", ReuseSlot, VoidNullary)),
+            new TypeSpec(
+                "Derived",
+                BaseKind.ModuleRef("VbBase"),
+                new MethodSpec("Finalize", ReuseSlot, VoidNullary)));
+
+        using (var stream = new MemoryStream(image))
+        using (var pe = new PEReader(stream))
+        {
+            var reader = pe.GetMetadataReader();
+            TypeDefinitionHandle derived = reader.TypeDefinitions.Single(
+                handle => reader.StringComparer.Equals(
+                    reader.GetTypeDefinition(handle).Name,
+                    "Derived"));
+            MethodDefinitionHandle finalizer = reader
+                .GetTypeDefinition(derived)
+                .GetMethods()
+                .Single(handle => reader.StringComparer.Equals(
+                    reader.GetMethodDefinition(handle).Name,
+                    "Finalize"));
+            Assert.True(
+                ApiSurfaceExtractor.IsFinalizerMethod(reader, finalizer));
+        }
+        Assert.True(ExtractMember(image, "Derived", "Finalize").IsFinalizer);
+    }
+
+    [Fact]
+    public void CyclicModuleScopedBaseReference_IsRejectedVisibly()
+    {
+        byte[] image = BuildImage(
+            new TypeSpec(
+                "Derived",
+                BaseKind.MalformedModuleRef("Cycle"),
+                new MethodSpec("Finalize", ReuseSlot, VoidNullary)));
+        using var stream = new MemoryStream(image);
+        using var pe = new PEReader(stream);
+
+        var reader = pe.GetMetadataReader();
+        TypeDefinitionHandle derived = reader.TypeDefinitions.Single(
+            handle => reader.StringComparer.Equals(
+                reader.GetTypeDefinition(handle).Name,
+                "Derived"));
+        MethodDefinitionHandle finalizer = reader
+            .GetTypeDefinition(derived)
+            .GetMethods()
+            .Single();
+        Assert.False(
+            ApiSurfaceExtractor.IsFinalizerMethod(reader, finalizer));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: true);
+
+        Assert.DoesNotContain(
+            surface.Types,
+            type => type.Name == "Derived");
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation == "type name");
+    }
+
     static ApiMember ExtractMember(byte[] image, string typeName, string memberName)
     {
         using var stream = new MemoryStream(image);
@@ -151,7 +216,15 @@ public class ImplicitFinalizerDetectionTests
         return Assert.Single(type.Members, m => m.Name == memberName);
     }
 
-    enum BaseTag { Object, Exception, Def, Nil }
+    enum BaseTag
+    {
+        Object,
+        Exception,
+        Def,
+        ModuleRef,
+        MalformedModuleRef,
+        Nil
+    }
 
     readonly record struct BaseKind(BaseTag Tag, string? DefName)
     {
@@ -159,6 +232,10 @@ public class ImplicitFinalizerDetectionTests
         public static readonly BaseKind Exception = new(BaseTag.Exception, null);
         public static readonly BaseKind Nil = new(BaseTag.Nil, null);
         public static BaseKind Def(string name) => new(BaseTag.Def, name);
+        public static BaseKind ModuleRef(string name) =>
+            new(BaseTag.ModuleRef, name);
+        public static BaseKind MalformedModuleRef(string name) =>
+            new(BaseTag.MalformedModuleRef, name);
     }
 
     sealed record MethodSpec(string Name, MethodAttributes Attributes, byte[] Signature);
@@ -168,7 +245,7 @@ public class ImplicitFinalizerDetectionTests
     static byte[] BuildImage(params TypeSpec[] types)
     {
         var metadata = new MetadataBuilder();
-        metadata.AddModule(
+        ModuleDefinitionHandle module = metadata.AddModule(
             generation: 0,
             moduleName: metadata.GetOrAddString("Synthetic.dll"),
             mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
@@ -232,6 +309,14 @@ public class ImplicitFinalizerDetectionTests
                 BaseTag.Object => objectRef,
                 BaseTag.Exception => exceptionRef,
                 BaseTag.Def => defHandles[types[i].Base.DefName!],
+                BaseTag.ModuleRef => metadata.AddTypeReference(
+                    module,
+                    default,
+                    metadata.GetOrAddString(types[i].Base.DefName!)),
+                BaseTag.MalformedModuleRef => metadata.AddTypeReference(
+                    MetadataTokens.TypeReferenceHandle(1),
+                    default,
+                    metadata.GetOrAddString(types[i].Base.DefName!)),
                 _ => default,
             };
             var handle = metadata.AddTypeDefinition(
