@@ -8665,12 +8665,21 @@ public class ReturnToSenderPrototypeTests
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             var number = Assert.Single(result.Plan.Types, type => type.Name == "CustomNumber");
-            Assert.Contains(number.Members, member =>
-                member.Name == "op_CheckedAddition"
-                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "op_CheckedAddition"));
-            Assert.Contains(number.Members, member =>
-                member.Name == "op_Addition"
-                && member.SourceFacts.Any(fact => fact.Id == "typed-closure-method" && fact.Detail == "op_Addition"));
+            var checkedAddition = Assert.Single(number.Members, member => member.Name == "op_CheckedAddition");
+            Assert.Contains(
+                checkedAddition.SourceFacts,
+                fact => fact.Id == "typed-closure-method" && fact.Detail == "op_CheckedAddition");
+            Assert.DoesNotContain(
+                checkedAddition.SourceFacts,
+                fact => fact.Id == "operator-pair-sibling");
+
+            var addition = Assert.Single(number.Members, member => member.Name == "op_Addition");
+            Assert.Contains(
+                addition.SourceFacts,
+                fact => fact.Id == "operator-pair-sibling" && fact.Detail == "op_Addition");
+            Assert.DoesNotContain(
+                addition.SourceFacts,
+                fact => fact.Id == "typed-closure-method");
         }
         finally
         {
