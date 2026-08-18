@@ -155,7 +155,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | `type X` | Discover types or render a single type shape. |
 | `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
-| `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility` or `C# Style Choices` to enumerate their legal values. |
+| `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility`, `C# Style Choices`, or `C# Body Kinds` to enumerate their legal values. |
 | `body-shape X` | Search one library's full-fidelity bodies for an exact stable rendered-syntax kind, returning the containing member, MethodDef token, exact range, and selected text. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
@@ -628,6 +628,7 @@ dotnet-inspect project ./src/App -S Skills --print --row 1
 dotnet-inspect vocabulary -D
 dotnet-inspect vocabulary -S Accessibility --json
 dotnet-inspect vocabulary -S "C# Style Choices" --columns "ID,Title,Tier" --tsv
+dotnet-inspect vocabulary -S "C# Body Kinds" --rows 10
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 ```
