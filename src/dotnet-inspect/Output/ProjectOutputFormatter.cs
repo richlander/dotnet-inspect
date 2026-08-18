@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using DotnetInspector.Options;
@@ -94,13 +95,17 @@ internal static class ProjectOutputFormatter
                 MergeProjectionNames(options.Columns, options.Fields)),
             RowWindow = RowWindow.ToMarkout(options.Rows),
         };
-        string markdown = MarkoutSerializer.Serialize(
+        using var markdownOutput = new StringWriter(CultureInfo.InvariantCulture)
+        {
+            NewLine = "\n",
+        };
+        MarkoutSerializer.Serialize(
             view,
+            markdownOutput,
+            new MarkdownFormatter(),
             ProjectViewContext.Default,
             markdownOptions);
-        return markdown.EndsWith('\n')
-            ? markdown
-            : markdown + '\n';
+        return markdownOutput.ToString().TrimEnd('\r', '\n') + '\n';
     }
 
     static string RenderJsonl(
@@ -135,7 +140,12 @@ internal static class ProjectOutputFormatter
                     if (Include("Path"))
                         writer.WriteString("path", row.Path);
                     if (Include("Size"))
-                        writer.WriteNumber("size", row.Size);
+                    {
+                        if (row.Size is long size)
+                            writer.WriteNumber("size", size);
+                        else
+                            writer.WriteNull("size");
+                    }
                     if (Include("Name"))
                         writer.WriteString("name", row.Name);
                     if (Include("Description"))

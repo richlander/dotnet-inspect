@@ -26,14 +26,14 @@ internal sealed record ProjectSkillRow(
     string Package,
     string Version,
     string Path,
-    long Size,
+    long? Size,
     string Name,
     string Description)
 {
     public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
     public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
     public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
-    public long Size { get; init; } = Size;
+    public long? Size { get; init; } = Size;
     public string Name { get; init; } = CSharpIdentifier.ContainRenderedText(Name);
     public string Description { get; init; } = CSharpIdentifier.ContainRenderedText(Description);
 }

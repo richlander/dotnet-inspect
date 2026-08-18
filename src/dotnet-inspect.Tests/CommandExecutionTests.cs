@@ -22393,6 +22393,7 @@ public partial class CommandExecutionTests
                 "--out", outputPath);
 
             Assert.Equal(0, direct.Exit);
+            Assert.DoesNotContain('\r', direct.Output);
             Assert.EndsWith(
                 "\n",
                 direct.Output,
@@ -22407,6 +22408,7 @@ public partial class CommandExecutionTests
             Assert.Empty(artifact.Output);
             Assert.Empty(artifact.Error);
             string file = File.ReadAllText(outputPath);
+            Assert.DoesNotContain('\r', file);
             Assert.EndsWith("\n", file, StringComparison.Ordinal);
             Assert.False(file.EndsWith("\r\n", StringComparison.Ordinal));
             Assert.False(file.EndsWith("\n\n", StringComparison.Ordinal));
@@ -22443,12 +22445,19 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Project_MissingDeclaredSkill_IsVisibleAndIncomplete()
     {
-        const string id = "Test.Project.Missing.Skill";
+        const string id = "A.Project.Missing.Skill";
         const string version = "1.0.0";
         const string skill = "skills/missing/SKILL.md";
+        const string presentSkill = "skills/present/SKILL.md";
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage(id, version, "README.md", "readme", Skills:
-                [new ProjectSkillDoc(skill, "selected")]));
+                [new ProjectSkillDoc(skill, "missing")]),
+            new ProjectDocPackage(
+                "B.Project.Present.Skill",
+                version,
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc(presentSkill, "present")]));
         File.Delete(Path.Combine(
             tempDir,
             "packages",
@@ -22458,14 +22467,51 @@ public partial class CommandExecutionTests
 
         try
         {
-            var (exit, output, error) = await RunProjectFixtureAsync(
+            var listed = await RunProjectFixtureAsync(
                 projectPath, "-S", "Skills", "--jsonl");
+            var missing = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "--print", "--row", "1");
+            var present = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", "Skills",
+                "--print", "--row", "2");
 
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(id, error);
-            Assert.Contains(skill, error);
-            Assert.Contains("Could not read", error);
+            Assert.Equal(1, listed.Exit);
+            string[] rows = listed.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, rows.Length);
+            using (JsonDocument missingRow = JsonDocument.Parse(rows[0]))
+            {
+                Assert.Equal(
+                    skill,
+                    missingRow.RootElement.GetProperty("path").GetString());
+                Assert.Equal(
+                    JsonValueKind.Null,
+                    missingRow.RootElement.GetProperty("size").ValueKind);
+            }
+            using (JsonDocument presentRow = JsonDocument.Parse(rows[1]))
+            {
+                Assert.Equal(
+                    presentSkill,
+                    presentRow.RootElement.GetProperty("path").GetString());
+            }
+            Assert.Contains(id, listed.Error);
+            Assert.Contains(skill, listed.Error);
+            Assert.Contains("Could not read", listed.Error);
+
+            Assert.Equal(1, missing.Exit);
+            Assert.Empty(missing.Output);
+            Assert.Contains(
+                "row 1 has no printable document",
+                missing.Error,
+                StringComparison.Ordinal);
+
+            Assert.Equal(1, present.Exit);
+            Assert.Equal("present", present.Output);
+            Assert.Contains(id, present.Error);
         }
         finally
         {

@@ -13,10 +13,10 @@ public sealed record ProjectSkillData(
     string Package,
     string Version,
     string Path,
-    long Size,
+    long? Size,
     string Name,
     string Description,
-    string Content);
+    string? Content);
 
 /// <summary>Typed result of inspecting dependency skill files.</summary>
 public sealed record ProjectSkillsResult(
