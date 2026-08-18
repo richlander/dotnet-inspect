@@ -237,6 +237,9 @@ public sealed class StructuringPass : IIrPass
         public Dictionary<(int Target, int OwningGuard), PastRegionInlineProof> PastRegionInlineCache { get; } = [];
         public Dictionary<int, bool> LeaveRetryLoopHeadCache { get; } = [];
         public Dictionary<int, Block?> PastRegionTerminatorCache { get; } = [];
+        // A sibling-head exemption is valid only at the exact recursive stop
+        // where its accepted clone proof will be consumed during build.
+        public HashSet<(int Target, int OwningGuard, int Stop)> DissolvingSiblingHeadEntries { get; } = [];
         /// <summary>
         /// Permits retained gotos before the end of a range only after the
         /// canonical loop planner proves their targets stay inside that loop.
@@ -2142,16 +2145,14 @@ public sealed class StructuringPass : IIrPass
         int siblingEnd,
         int? continueTarget)
     {
-        if (IsInlinableTerminator(ctx, target)
+        bool canDissolve = IsInlinableTerminator(ctx, target)
             && !TransfersIntoRange(
                 ctx,
                 TransferTargets(ctx.TerminatorSnapshots[target]),
                 siblingStart,
-                siblingEnd))
-        {
-            return true;
-        }
-        if (continueTarget is { } head
+                siblingEnd);
+        if (!canDissolve
+            && continueTarget is { } head
             && IsLeaveRetryLoopHead(ctx, head)
             && TryClonePastRegionTerminator(ctx, target, out var retryBody)
             && !TransfersIntoRange(
@@ -2160,12 +2161,17 @@ public sealed class StructuringPass : IIrPass
                 siblingStart,
                 siblingEnd))
         {
-            return true;
+            canDissolve = true;
         }
-
-        var proof = GetPastRegionInlineProof(ctx, target, owningGuard);
-        return proof.CanInline
-            && !TransfersIntoRange(ctx, proof.TransferTargetOffsets, siblingStart, siblingEnd);
+        if (!canDissolve)
+        {
+            var proof = GetPastRegionInlineProof(ctx, target, owningGuard);
+            canDissolve = proof.CanInline
+                && !TransfersIntoRange(ctx, proof.TransferTargetOffsets, siblingStart, siblingEnd);
+        }
+        if (canDissolve && target == siblingStart)
+            ctx.DissolvingSiblingHeadEntries.Add((target, owningGuard, siblingStart));
+        return canDissolve;
     }
 
     static bool TransfersIntoRange(
@@ -2832,7 +2838,9 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
-                    if (target > stop
+                    bool dissolvesSiblingHead = target == stop
+                        && ctx.DissolvingSiblingHeadEntries.Contains((target, i, stop));
+                    if ((target > stop || dissolvesSiblingHead)
                         && continueTarget is { } loopHead
                         && IsLeaveRetryLoopHead(ctx, loopHead)
                         && TryClonePastRegionTerminator(ctx, target, out var clonedTerminatorArm))
@@ -2841,7 +2849,7 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
-                    var pastRegionProof = target > stop
+                    var pastRegionProof = target > stop || dissolvesSiblingHead
                         ? GetPastRegionInlineProof(ctx, target, i)
                         : default;
                     if (pastRegionProof.CanInline)
@@ -2883,7 +2891,7 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
-                    if (target > stop)
+                    if (target > stop || dissolvesSiblingHead)
                         throw new InvalidOperationException("Validated past-region target was not buildable.");
                     if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex, continueTarget) is { } exitDiamond)
                     {

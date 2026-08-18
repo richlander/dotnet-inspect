@@ -689,8 +689,10 @@ only when the post-dominator machinery is proven.
    Direct conditional transfers whose terminator or short past-region target is
    provably cloned into the first arm are exempt because they dissolve rather
    than enter the sibling, but only when the clone has no surviving nested
-   transfer back into that sibling range. The same proof gates ordinary and
-   region-exit diamonds. This preserves the non-low-surrogate fallback in
+   transfer back into that sibling range. A clone whose target is the sibling
+   head is accepted only when build consumes that proof at the exact recursive
+   stop; otherwise the transfer stays explicit. The same proof gates ordinary
+   and region-exit diamonds. This preserves the non-low-surrogate fallback in
    `OrdinalCasing.ToUpperOrdinal` and `ToLowerOrdinal`, whose third predecessor
    is valid C# fallthrough rather than an `else` arm, without flattening
    compiler-lowered two-case return switches. Retained loops reject
@@ -724,6 +726,8 @@ only when the post-dominator machinery is proven.
    cloned target cannot carry a nested goto back into the sibling scope, and
    `ReverseNestedSiblingTransferStaysOutOfDiamond` proves the reverse sibling
    direction stays flat as well;
+   `SiblingHeadPastRegionCloneIsEmittedAtConsumingDepth` proves the sibling-head
+   exemption emits the clone instead of dropping that path;
    `CompilerTwoCaseSwitchReturnKeepsDissolvingCrossArmStructured` proves a
    cloned transfer is not over-rejected;
    `LeaveRetryPastRegionExitUsesValidatedCloneAfterHeadDetaches` proves a

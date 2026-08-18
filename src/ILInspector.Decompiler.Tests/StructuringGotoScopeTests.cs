@@ -148,6 +148,43 @@ public class StructuringGotoScopeTests
     }
 
     [Fact]
+    public void SiblingHeadPastRegionCloneIsEmittedAtConsumingDepth()
+    {
+        var boolean = TypeRef.CoreLib("System", "Boolean");
+        var blocks = new[]
+        {
+            Block(0, new ConditionalBranch(new LoadArgument(0, "outer", boolean), 3)),
+            Block(1, new ConditionalBranch(new LoadArgument(1, "inner", boolean), 3)),
+            Block(2, new Branch(5)),
+            Block(3, new Return(new Constant(10, Int32))),
+            Block(4, new Branch(0)),
+            Block(5, new Return(new Constant(20, Int32))),
+        };
+        var container = new BlockContainer();
+        foreach (var block in blocks)
+            container.Add(block);
+        var function = new IrFunction(
+            "M",
+            Owner,
+            new MethodSignature(
+                Int32,
+                [
+                    new Parameter("outer", boolean),
+                    new Parameter("inner", boolean),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            container);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Equal(2, output.Split("return 10;", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
     public void CompilerTwoCaseSwitchReturnKeepsDissolvingCrossArmStructured()
     {
         var (function, output) = GeneratedFixtureRunner.RunWithMaterializedFixtures(
