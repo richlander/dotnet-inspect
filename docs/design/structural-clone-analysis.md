@@ -353,6 +353,8 @@ metric estimates all possible relationships in CoreLib.
 If a top-K row lacks a label, the query fails, the row remains visible as
 `Unreviewed`, and precision is unavailable rather than treating the unknown row
 as a negative.
+Aggregate evidence separates actual reviewed rows from requested review slots;
+suppressed or absent rows never enter a reviewed-row denominator.
 
 `analysis-harness --clone-corelib-corpus` enumerates the full pinned MethodDef
 population, calls product `RetrieveSimilar`, and separately calls product

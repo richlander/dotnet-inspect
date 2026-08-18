@@ -25,6 +25,7 @@ public class StructuralCloneCoreLibCorpusTests
         Assert.Equal(6, report.PassedQueries);
         Assert.Equal(6, report.TotalQueries);
         Assert.Equal(27, report.ReviewedCandidates);
+        Assert.Equal(27, report.RequestedReviewSlots);
         Assert.Equal(16, report.RelevantAtK);
         Assert.Equal(20, report.RelevantLabels);
         Assert.Equal(5925, report.PrecisionBasisPoints);
@@ -230,6 +231,17 @@ public class StructuralCloneCoreLibCorpusTests
                     label.ActualDisposition
                         == StructuralCloneDisposition.LimitReached);
         Assert.NotEmpty(failed.ActualBlockers);
+        Assert.Equal(
+            report.Queries.Sum(
+                static query => query.TopCandidates.Length),
+            report.ReviewedCandidates);
+        Assert.Equal(
+            report.Queries.Sum(
+                static query => query.ReviewedTopK),
+            report.RequestedReviewSlots);
+        Assert.True(
+            report.ReviewedCandidates
+                < report.RequestedReviewSlots);
         Assert.Contains(
             "comparison blocker",
             StructuralCloneCoreLibCorpus.Format(report));

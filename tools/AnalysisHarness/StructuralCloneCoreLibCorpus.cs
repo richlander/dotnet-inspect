@@ -133,6 +133,7 @@ public sealed record StructuralCloneCoreLibCorpusReport(
     int PassedQueries,
     int TotalQueries,
     int ReviewedCandidates,
+    int RequestedReviewSlots,
     int RelevantAtK,
     int RelevantLabels,
     int? PrecisionBasisPoints,
@@ -500,6 +501,8 @@ public static class StructuralCloneCoreLibCorpus
         ImmutableArray<StructuralCloneCoreLibQueryResult> queries =
             queryResults.ToImmutable();
         int reviewedCandidates = queries.Sum(
+            static query => query.TopCandidates.Length);
+        int requestedReviewSlots = queries.Sum(
             static query => query.ReviewedTopK);
         int aggregateRelevantAtK = queries.Sum(
             static query => query.RelevantAtK);
@@ -514,6 +517,7 @@ public static class StructuralCloneCoreLibCorpus
             queries.Count(static query => query.Passed),
             queries.Length,
             reviewedCandidates,
+            requestedReviewSlots,
             aggregateRelevantAtK,
             aggregateRelevantLabels,
             queries.All(static query =>
@@ -568,7 +572,11 @@ public static class StructuralCloneCoreLibCorpus
         output.Append(report.SourceRepository);
         output.Append('@');
         output.AppendLine(report.SourceCommit);
-        output.Append("  reviewed top-k: relevant=");
+        output.Append("  reviewed top-k: rows=");
+        output.Append(report.ReviewedCandidates);
+        output.Append('/');
+        output.Append(report.RequestedReviewSlots);
+        output.Append(" relevant=");
         output.Append(report.RelevantAtK);
         output.Append('/');
         output.Append(report.ReviewedCandidates);

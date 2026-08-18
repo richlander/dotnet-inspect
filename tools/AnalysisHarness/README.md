@@ -118,6 +118,9 @@ and labeled recall. It does not reconstruct similarity, promote `Exact` or
 If a returned top-K method is missing a label, the query fails, the method is
 retained as `Unreviewed` in text and structured output, and precision is
 reported as unavailable.
+Aggregate output reports actual reviewed rows separately from requested review
+slots, so a partial retrieval never counts a suppressed or absent row as
+reviewed or negative.
 
 The pinned six-query card passes with 16 relevant rows among 27 reviewed rows
 (59.25% labeled precision) and recovers 16 of 20 declared relevant labels
