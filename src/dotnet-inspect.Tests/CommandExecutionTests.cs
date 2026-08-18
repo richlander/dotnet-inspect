@@ -6886,6 +6886,7 @@ public partial class CommandExecutionTests
     [InlineData("Facts,Signature", false)]
     [InlineData("Signature,Facts", false)]
     [InlineData("Facts,Signature", true)]
+    [InlineData("Signature,Facts", true)]
     public async Task Member_FactsWithSignature_BodylessAccessor_PreservesSignature(
         string sections,
         bool json)
@@ -6911,7 +6912,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Note: The selected accessor has no IL body.", error);
         Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
-        Assert.DoesNotContain("Facts", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Facts", output, StringComparison.OrdinalIgnoreCase);
         if (json)
         {
             using var _ = JsonDocument.Parse(output);
@@ -6919,6 +6920,47 @@ public partial class CommandExecutionTests
         else
         {
             Assert.Contains("## Signature", output, StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData("Facts,Source Locations", false)]
+    [InlineData("Source Locations,Facts", false)]
+    [InlineData("Facts,Source Locations", true)]
+    [InlineData("Source Locations,Facts", true)]
+    public async Task Member_FactsWithSourceLocations_BodylessAccessor_PreservesSourceLocations(
+        string sections,
+        bool json)
+    {
+        var args = new List<string>
+        {
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            sections,
+            "--tips",
+            "q"
+        };
+        if (json)
+            args.Add("--json");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Note: The selected accessor has no IL body.", error);
+        Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Facts", output, StringComparison.OrdinalIgnoreCase);
+        if (json)
+        {
+            using var _ = JsonDocument.Parse(output);
+        }
+        else
+        {
+            Assert.Contains("## Source Locations", output, StringComparison.Ordinal);
         }
     }
 
@@ -6943,6 +6985,100 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Error: The selected accessor has no IL body.", error);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_Facts_BodylessAbstractMethod_FailsVisibly(bool json)
+    {
+        var args = new List<string>
+        {
+            "member",
+            "JsonConverter<T>",
+            "--platform",
+            "System.Text.Json",
+            "Read",
+            "-S",
+            "Facts",
+            "--tips",
+            "q"
+        };
+        if (json)
+            args.Add("--json");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Error: The selected method has no IL body.", error);
+    }
+
+    [Theory]
+    [InlineData("Facts,Signature", false, "Signature")]
+    [InlineData("Signature,Facts", false, "Signature")]
+    [InlineData("Facts,Signature", true, "Signature")]
+    [InlineData("Signature,Facts", true, "Signature")]
+    [InlineData("Facts,Source Locations", false, "Source Locations")]
+    [InlineData("Source Locations,Facts", false, "Source Locations")]
+    [InlineData("Facts,Source Locations", true, "Source Locations")]
+    [InlineData("Source Locations,Facts", true, "Source Locations")]
+    public async Task Member_FactsWithRenderableSection_BodylessAbstractMethod_PreservesOutput(
+        string sections,
+        bool json,
+        string expectedSection)
+    {
+        var args = new List<string>
+        {
+            "member",
+            "JsonConverter<T>",
+            "--platform",
+            "System.Text.Json",
+            "Read",
+            "-S",
+            sections,
+            "--tips",
+            "q"
+        };
+        if (json)
+            args.Add("--json");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Note: The selected method has no IL body.", error);
+        Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Facts", output, StringComparison.OrdinalIgnoreCase);
+        if (json)
+        {
+            using var _ = JsonDocument.Parse(output);
+        }
+        else
+        {
+            Assert.Contains($"## {expectedSection}", output, StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData("Facts,Calls")]
+    [InlineData("Calls,Facts")]
+    public async Task Member_FactsWithOnlyInapplicableBodySections_BodylessAbstractMethod_FailsVisibly(
+        string sections)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "JsonConverter<T>",
+            "--platform",
+            "System.Text.Json",
+            "Read",
+            "-S",
+            sections,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Error: The selected method has no IL body.", error);
     }
 
     [Fact]
@@ -16882,6 +17018,17 @@ public partial class CommandExecutionTests
             TopLeverageQuery.Definition,
             UnsafeEvidenceQuery.Definition,
         ];
+        InspectionQueryDefinition[] liveSourceLinkQueries =
+        [
+            SourceAvailabilityQuery.Definition,
+            SourceIntegrityQuery.Definition,
+        ];
+        string[] liveSourceLinkSections =
+        [
+            SectionNames.SourceLinkAvailability,
+            SectionNames.SourceLinkIntegrity,
+            SectionNames.SourceLinkMissingFiles,
+        ];
 
         // Parameter-scoped sections cannot be selected without their required input:
         // "Metadata: Heap" needs --heap and "Body Shapes" needs --where Kind=....
@@ -16894,6 +17041,7 @@ public partial class CommandExecutionTests
         ];
 
         var registry = LibrarySections.CreateScannerRegistry();
+        var queryRegistry = LibrarySections.CreateQueryRegistry();
         var pipeline = LibrarySections.CreatePipeline();
 
         var bound = pipeline.ScannerBoundSections
@@ -16905,12 +17053,29 @@ public partial class CommandExecutionTests
         // exclusion must still name a real data-bound section.
         foreach (var name in parameterScoped)
             Assert.Contains(name, bound);
+        foreach (var query in liveSourceLinkQueries)
+        {
+            Assert.Contains(query, queryRegistry.RegisteredQueries);
+            Assert.Contains(pipeline.QueryBoundSections, binding => binding.Query == query);
+        }
+        foreach (var name in liveSourceLinkSections)
+        {
+            Assert.Contains(
+                pipeline.QueryBoundSections,
+                binding => binding.Name == name
+                    && liveSourceLinkQueries.Contains(binding.Query));
+        }
 
         var scannerNames = pipeline.ScannerBoundSections
             .Where(b => !registry.ExpandRequired([b.ScannerKey]).Overlaps(bodyIndexScanners))
             .Select(b => b.Name);
         var queryNames = pipeline.QueryBoundSections
-            .Where(b => !bodyIndexQueries.Contains(b.Query))
+            // Availability and integrity perform separate live HTTP audits. Comparing their
+            // bytes across a combined run and later isolated runs would test temporal network
+            // stability, not prerequisite closure. Separate typed query-family tests retain the
+            // deterministic dependency and cost contract.
+            .Where(b => !bodyIndexQueries.Contains(b.Query)
+                && !liveSourceLinkSections.Contains(b.Name, StringComparer.Ordinal))
             .Select(b => b.Name);
         var names = scannerNames
             .Concat(queryNames)

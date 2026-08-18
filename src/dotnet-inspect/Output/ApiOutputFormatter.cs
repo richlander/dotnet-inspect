@@ -1458,28 +1458,34 @@ public static class ApiOutputFormatter
         int? selectedOrdinal)
     {
         if (selectedOrdinal is not { } ordinal
-            || type.Members is not [{ } single]
-            || !ApiMemberSectionDescriptors.HasAccessorTokens(single))
+            || type.Members is not [{ } single])
         {
             return requestedSections;
         }
 
-        var accessors = AccessorMethods(single, type).ToList();
-        return ordinal > 0 && ordinal <= accessors.Count
-            ? GetSelectedAccessorSections(accessors[ordinal - 1], requestedSections)
+        if (ApiMemberSectionDescriptors.HasAccessorTokens(single))
+        {
+            var accessors = AccessorMethods(single, type).ToList();
+            return ordinal > 0 && ordinal <= accessors.Count
+                ? GetBodylessExecutionSections(accessors[ordinal - 1], requestedSections)
+                : requestedSections;
+        }
+
+        return ApiMemberSectionDescriptors.DefinitelyHasNoBody(single)
+            ? GetBodylessExecutionSections(single, requestedSections)
             : requestedSections;
     }
 
     private static bool CanAnalyzeSelectedAccessor(
         ApiMember accessor,
         IReadOnlySet<string> requestedSections)
-        => GetSelectedAccessorSections(accessor, requestedSections).Count > 0;
+        => GetBodylessExecutionSections(accessor, requestedSections).Count > 0;
 
-    private static HashSet<string> GetSelectedAccessorSections(
-        ApiMember accessor,
+    private static HashSet<string> GetBodylessExecutionSections(
+        ApiMember member,
         IReadOnlySet<string> requestedSections)
     {
-        if (accessor.HasMethodBody is not false)
+        if (!ApiMemberSectionDescriptors.DefinitelyHasNoBody(member))
             return new HashSet<string>(requestedSections, StringComparer.OrdinalIgnoreCase);
 
         var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1493,7 +1499,7 @@ public static class ApiOutputFormatter
             sections.Add(SectionNames.SourceDiff);
         if (requestedSections.Contains(SectionNames.AnnotatedSource))
             sections.Add(SectionNames.AnnotatedSource);
-        if (!accessor.IsAbstract)
+        if (!member.IsAbstract)
         {
             if (requestedSections.Contains(SectionNames.DecompiledSource))
                 sections.Add(SectionNames.DecompiledSource);
@@ -1503,6 +1509,18 @@ public static class ApiOutputFormatter
                 sections.Add(SectionNames.CallGraph);
         }
 
+        return sections;
+    }
+
+    internal static IReadOnlySet<string> ResolveBodylessRenderableSections(
+        IReadOnlySet<string> requestedSections,
+        IReadOnlySet<string> executionSections)
+    {
+        HashSet<string> sections = new(executionSections, StringComparer.OrdinalIgnoreCase);
+        if (requestedSections.Contains(SectionNames.Signature))
+            sections.Add(SectionNames.Signature);
+        if (requestedSections.Contains(SectionNames.SourceLocations))
+            sections.Add(SectionNames.SourceLocations);
         return sections;
     }
 
@@ -1695,7 +1713,7 @@ public static class ApiOutputFormatter
             && ApiMemberSectionDescriptors.HasAccessorTokens(owner)
             && bodyMethods is [{ HasMethodBody: false }];
         if (selectedBodylessAccessor)
-            requestedSections = GetSelectedAccessorSections(bodyMethods[0], requestedSections);
+            requestedSections = GetBodylessExecutionSections(bodyMethods[0], requestedSections);
 
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)

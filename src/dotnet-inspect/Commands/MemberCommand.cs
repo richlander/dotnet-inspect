@@ -260,7 +260,7 @@ public static class MemberCommand
                     SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
             }
 
-            if (RejectBodylessAccessorFactsRequest(apiType, effectiveOptions))
+            if (RejectBodylessFactsRequest(apiType, effectiveOptions))
                 return 1;
 
             bool selectedMemberDefinitelyHasNoBody =
@@ -611,7 +611,7 @@ public static class MemberCommand
                    || sections.Contains(SectionNames.Facts));
     }
 
-    private static bool RejectBodylessAccessorFactsRequest(
+    private static bool RejectBodylessFactsRequest(
         ApiType apiType,
         MemberOptions options)
     {
@@ -626,21 +626,32 @@ public static class MemberCommand
             return false;
         }
 
-        bool hasOtherRenderableSection = executionSections.Count > 0
-            || ApiMemberSectionPipelines.Create(options)
-                .GetInspectionViews(apiType)
-                .Any(view => requestedSections.Contains(view.Id)
-                    && !view.Id.Equals(SectionNames.Facts, StringComparison.OrdinalIgnoreCase)
-                    && view.CanRender);
+        IReadOnlySet<string> renderableSections =
+            ApiOutputFormatter.ResolveBodylessRenderableSections(
+                requestedSections,
+                executionSections);
+        bool hasOtherRenderableSection = ApiMemberSectionPipelines.Create(options)
+            .GetInspectionViews(apiType, includeInapplicable: true)
+            .Any(view => renderableSections.Contains(view.Id)
+                && !view.Id.Equals(SectionNames.Facts, StringComparison.OrdinalIgnoreCase)
+                && view.CanRender);
+        string target = SelectedTargetIsAccessor(apiType, options)
+            ? "accessor"
+            : "method";
         if (hasOtherRenderableSection)
         {
-            CommandError.WriteNote("The selected accessor has no IL body.");
+            CommandError.WriteNote($"The selected {target} has no IL body.");
             return false;
         }
 
-        CommandError.Write("The selected accessor has no IL body.");
+        CommandError.Write($"The selected {target} has no IL body.");
         return true;
     }
+
+    private static bool SelectedTargetIsAccessor(ApiType apiType, MemberOptions options)
+        => options.OverloadIndex is { } ordinal
+           && apiType.Members is [{ } selected]
+           && ResolveSourceAccessor(apiType, selected, ordinal) is not null;
 
     private static bool SelectedMemberDefinitelyHasNoBody(
         ApiType apiType,

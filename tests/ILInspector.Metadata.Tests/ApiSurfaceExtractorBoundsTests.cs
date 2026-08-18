@@ -449,6 +449,40 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 prefix: "get_"));
     }
 
+    [Theory]
+    [InlineData(CanonicalAccessorLargeName.Aggregate)]
+    [InlineData(CanonicalAccessorLargeName.Method)]
+    public void CanonicalAccessorScan_ChargesLargeNamesBeforeMaterializing(
+        CanonicalAccessorLargeName largeName)
+    {
+        byte[] image = BuildLargeCanonicalAccessorNameImage(
+            largeName,
+            nameLength: 4_000_000);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 10,
+                maxMembers: 10,
+                maxInspectionFailures: 10,
+                maxTypeForwarders: 10,
+                maxMetadataRows: 100,
+                maxRetainedTextCharacters: 8_000_000));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var exceeded = Assert.IsType<ApiSurfaceExtractionResult.Exceeded>(result);
+        Assert.Equal(
+            ApiSurfaceExtractionBound.RetainedTextCharacters,
+            exceeded.Bound);
+        Assert.True(
+            allocated < 4L * 1024 * 1024,
+            $"bounded canonical-accessor scan allocated {allocated:N0} bytes");
+    }
+
     [Fact]
     public void RepeatedLongSkippedFieldName_StopsBeforeLargeAllocationAmplification()
     {
@@ -2332,6 +2366,58 @@ public sealed class ApiSurfaceExtractorBoundsTests
         }
     }
 
+    static byte[] BuildLargeCanonicalAccessorNameImage(
+        CanonicalAccessorLargeName largeName,
+        int nameLength)
+    {
+        var metadata = Metadata("LargeCanonicalAccessorName");
+        TypeDefinitionHandle type = AddModuleAndPublicType(metadata, "Host");
+        string propertyName = largeName == CanonicalAccessorLargeName.Aggregate
+            ? new string('P', nameLength)
+            : "Value";
+        string methodName = largeName == CanonicalAccessorLargeName.Method
+            ? new string('M', nameLength)
+            : "get_" + propertyName;
+
+        var getterSignature = new BlobBuilder();
+        new BlobEncoder(getterSignature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        MethodDefinitionHandle getter = metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(methodName),
+            metadata.GetOrAddBlob(getterSignature),
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+
+        var propertySignature = new BlobBuilder();
+        new BlobEncoder(propertySignature).PropertySignature(
+            isInstanceProperty: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        PropertyDefinitionHandle property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString(propertyName),
+            metadata.GetOrAddBlob(propertySignature));
+        metadata.AddPropertyMap(type, property);
+        metadata.AddMethodSemantics(
+            property,
+            MethodSemanticsAttributes.Getter,
+            getter);
+        return Serialize(metadata);
+    }
+
     static byte[] BuildHugeParameterDefaultImage(int characterCount)
     {
         var metadata = Metadata("DefaultBomb");
@@ -4070,6 +4156,12 @@ public sealed class ApiSurfaceExtractorBoundsTests
     {
         Property,
         Event,
+    }
+
+    public enum CanonicalAccessorLargeName
+    {
+        Aggregate,
+        Method,
     }
 
     public enum TransformArrayKind

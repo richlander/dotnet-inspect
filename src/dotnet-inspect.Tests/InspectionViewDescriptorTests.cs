@@ -439,6 +439,71 @@ public class InspectionViewDescriptorTests
     }
 
     [Fact]
+    public void DirectBodylessMethodFiltersFactsButUnknownBodyStateRemainsEligible()
+    {
+        HashSet<string> requested =
+        [
+            SectionNames.Facts,
+            SectionNames.Signature,
+            SectionNames.SourceLocations,
+            SectionNames.Calls,
+        ];
+        var bodyless = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    MetadataToken = 0x06000001,
+                    HasMethodBody = false,
+                    IsAbstract = true,
+                }
+            ],
+        };
+        var unknown = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    MetadataToken = 0x06000001,
+                }
+            ],
+        };
+
+        IReadOnlySet<string> bodylessSections =
+            ApiOutputFormatter.ResolveExecutionSections(
+                bodyless,
+                requested,
+                selectedOrdinal: 1);
+        IReadOnlySet<string> unknownSections =
+            ApiOutputFormatter.ResolveExecutionSections(
+                unknown,
+                requested,
+                selectedOrdinal: 1);
+        IReadOnlySet<string> bodylessRenderableSections =
+            ApiOutputFormatter.ResolveBodylessRenderableSections(
+                requested,
+                bodylessSections);
+
+        Assert.Empty(bodylessSections);
+        Assert.Equal(
+            [SectionNames.Signature, SectionNames.SourceLocations],
+            bodylessRenderableSections.OrderBy(section => section, StringComparer.Ordinal));
+        Assert.Equal(
+            requested.OrderBy(section => section, StringComparer.Ordinal),
+            unknownSections.OrderBy(section => section, StringComparer.Ordinal));
+    }
+
+    [Fact]
     public void MemberViewSelection_RoundTripsThroughOwningPipeline()
     {
         var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();

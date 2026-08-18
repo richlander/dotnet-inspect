@@ -679,7 +679,8 @@ public static class ApiSurfaceExtractor
             var explicitInterfaceImplementationBodies =
                 GetExplicitInterfaceImplementationBodies(reader, typeDef);
             var accessorMethods = GetAccessorMethods(reader, typeDef);
-            var canonicalAccessorMethods = GetCanonicalAccessorMethods(reader, typeDef);
+            var canonicalAccessorMethods =
+                GetCanonicalAccessorMethods(reader, typeDef, observeDecodeWork);
             var hiddenAggregateAccessorMethods =
                 GetNonPublicAggregateAccessorMethods(reader, typeDef);
             var extensionPropertyImplementationMethods = isExtensionClass
@@ -2515,38 +2516,57 @@ public static class ApiSurfaceExtractor
 
     internal static HashSet<MethodDefinitionHandle> GetCanonicalAccessorMethods(
         MetadataReader reader,
-        TypeDefinition type)
+        TypeDefinition type,
+        Action<int>? observeDecodeWork = null)
     {
         HashSet<MethodDefinitionHandle> methods = [];
 
         foreach (var propertyHandle in type.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
-            string name = reader.GetString(property.Name);
             var accessors = property.GetAccessors();
-            AddIfCanonical(accessors.Getter, $"get_{name}");
-            AddIfCanonical(accessors.Setter, $"set_{name}");
+            if (accessors.Getter.IsNil && accessors.Setter.IsNil)
+                continue;
+
+            string name = DecodeString(reader, property.Name, observeDecodeWork);
+            AddIfCanonical(accessors.Getter, "get_", name);
+            AddIfCanonical(accessors.Setter, "set_", name);
         }
 
         foreach (var eventHandle in type.GetEvents())
         {
             var @event = reader.GetEventDefinition(eventHandle);
-            string name = reader.GetString(@event.Name);
             var accessors = @event.GetAccessors();
-            AddIfCanonical(accessors.Adder, $"add_{name}");
-            AddIfCanonical(accessors.Remover, $"remove_{name}");
-            AddIfCanonical(accessors.Raiser, $"raise_{name}");
+            if (accessors.Adder.IsNil
+                && accessors.Remover.IsNil
+                && accessors.Raiser.IsNil)
+            {
+                continue;
+            }
+
+            string name = DecodeString(reader, @event.Name, observeDecodeWork);
+            AddIfCanonical(accessors.Adder, "add_", name);
+            AddIfCanonical(accessors.Remover, "remove_", name);
+            AddIfCanonical(accessors.Raiser, "raise_", name);
         }
 
         return methods;
 
-        void AddIfCanonical(MethodDefinitionHandle handle, string expectedName)
+        void AddIfCanonical(
+            MethodDefinitionHandle handle,
+            string prefix,
+            string aggregateName)
         {
-            if (!handle.IsNil
-                && string.Equals(
-                    reader.GetString(reader.GetMethodDefinition(handle).Name),
-                    expectedName,
-                    StringComparison.Ordinal))
+            if (handle.IsNil)
+                return;
+
+            string methodName = DecodeString(
+                reader,
+                reader.GetMethodDefinition(handle).Name,
+                observeDecodeWork);
+            if (methodName.Length == prefix.Length + aggregateName.Length
+                && methodName.StartsWith(prefix, StringComparison.Ordinal)
+                && methodName.AsSpan(prefix.Length).SequenceEqual(aggregateName))
             {
                 methods.Add(handle);
             }
