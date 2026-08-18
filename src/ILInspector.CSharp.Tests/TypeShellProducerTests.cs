@@ -208,7 +208,8 @@ public sealed class TypeShellProducerTests
             TypeParameters: [],
             BodyKind: CSharpShellBodyKind.TargetBody,
             Body: "return;",
-            Attributes: ["Contoso.NotIndexerName"]));
+            Attributes: ["Contoso.NotIndexerName"],
+            MetadataName: "Custom"));
 
         Assert.Contains("Contoso.NotIndexerName", policy.Member.Attributes);
         Assert.Contains(
@@ -234,7 +235,8 @@ public sealed class TypeShellProducerTests
                 TypeParameters: [],
                 BodyKind: CSharpShellBodyKind.Throw,
                 Body: null,
-                ExplicitInterfaceMemberName: "IValues.Custom"));
+                ExplicitInterfaceMemberName: "IValues.Custom",
+                MetadataName: "Custom"));
 
         Assert.DoesNotContain(
             ordinary.Member.Attributes,
@@ -242,6 +244,21 @@ public sealed class TypeShellProducerTests
         Assert.DoesNotContain(
             explicitImplementation.Member.Attributes,
             attribute => attribute.Contains("IndexerName", StringComparison.Ordinal));
+
+        var keyword = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "@class",
+            Kind: CSharpShellMemberKind.PropertyGet,
+            IsStatic: false,
+            Parameters: [new CSharpShellParameter("index", "int")],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.Throw,
+            Body: null,
+            MetadataName: "class"));
+
+        Assert.Contains(
+            "System.Runtime.CompilerServices.IndexerNameAttribute(\"class\")",
+            keyword.Member.Attributes);
     }
 
     [Fact]

@@ -215,12 +215,12 @@ public class ReturnToSenderPrototypeTests
         var assemblyPath = CompileFixture("""
             using System.Collections;
 
-            public sealed class Holder : IEqualityComparer
+            public class Holder : IEqualityComparer
             {
                 bool IEqualityComparer.Equals(object left, object right) =>
                     ReferenceEquals(left, right);
 
-                public int GetHashCode(object value) => 42;
+                public virtual int GetHashCode(object value) => 42;
             }
             """);
         try
@@ -243,11 +243,51 @@ public class ReturnToSenderPrototypeTests
                 result.Source,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "public int GetHashCode(object value)",
+                "public virtual int GetHashCode(object value)",
                 result.Source,
                 StringComparison.Ordinal);
             Assert.DoesNotContain(
                 "System.Collections.IEqualityComparer.GetHashCode",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullKeepsAbstractInterfaceImplementationAbstract()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections;
+
+            public abstract class Holder : IEqualityComparer
+            {
+                bool IEqualityComparer.Equals(object left, object right) =>
+                    ReferenceEquals(left, right);
+
+                public abstract int GetHashCode(object value);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains(
+                "public abstract int GetHashCode(object value);",
                 result.Source,
                 StringComparison.Ordinal);
         }
@@ -3357,6 +3397,64 @@ public class ReturnToSenderPrototypeTests
             // interface's full required surface is satisfied.
             Assert.Contains("IConvertible.GetTypeCode(", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("System_IConvertible_ToBoolean", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalImplicitKeywordMethodDoesNotDuplicate()
+    {
+        var fixtureDir = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            namespace RtsKeyword;
+
+            public interface IProbe
+            {
+                void Run();
+                int @class();
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsKeywordContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Holder : RtsKeyword.IProbe
+            {
+                void RtsKeyword.IProbe.Run()
+                {
+                    _ = @class();
+                }
+
+                public int @class() => 42;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "RtsKeyword.IProbe.Run",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Equal(
+                1,
+                result.Source.Split("public int @class()", StringSplitOptions.None).Length - 1);
         }
         finally
         {
@@ -9010,6 +9108,48 @@ public class ReturnToSenderPrototypeTests
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains("IndexerName", result.Source, StringComparison.Ordinal);
             Assert.Contains("public int this[int index]", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("get_class")]
+    [InlineData("set_class")]
+    public void CompileBackTargets_RoundTripsKeywordNamedIndexer(string methodName)
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Runtime.CompilerServices;
+
+            public sealed class Holder
+            {
+                private int _value;
+
+                [IndexerName("class")]
+                public int this[int index]
+                {
+                    get => _value + index;
+                    set { _value = value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", methodName, 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains(
+                "IndexerNameAttribute(\"class\")",
+                result.Source,
+                StringComparison.Ordinal);
         }
         finally
         {

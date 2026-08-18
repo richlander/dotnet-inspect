@@ -86,7 +86,8 @@ public sealed record CSharpMemberShellSpec(
     int? AdderToken = null,
     int? RemoverToken = null,
     bool SuppressDestructorSyntax = false,
-    bool? CSharpOperatorDeclaration = null);
+    bool? CSharpOperatorDeclaration = null,
+    string? MetadataName = null);
 
 /// <summary>
 /// Composes product-owned C# member models and body policies from a neutral shell
@@ -349,15 +350,16 @@ public static class CSharpMemberShellProducer
         bool isExplicitInterface)
     {
         var attributes = spec.Attributes?.ToList() ?? [];
+        string metadataName = spec.MetadataName ?? spec.Name;
         if (isProperty
             && spec.Parameters.Count > 0
             && !isExplicitInterface
-            && spec.Name != "Item"
-            && CSharpIdentifier.IsIdentifierLike(spec.Name)
+            && metadataName != "Item"
+            && CSharpIdentifier.IsIdentifierLike(metadataName)
             && !attributes.Any(IsIndexerNameAttribute))
         {
             attributes.Add(
-                $"System.Runtime.CompilerServices.IndexerNameAttribute(\"{spec.Name}\")");
+                $"System.Runtime.CompilerServices.IndexerNameAttribute(\"{metadataName}\")");
         }
 
         return attributes;

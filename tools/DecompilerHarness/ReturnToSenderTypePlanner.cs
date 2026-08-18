@@ -436,7 +436,8 @@ public sealed record CompileBackMemberRequirement(
     int? SetterToken = null,
     int? AdderToken = null,
     int? RemoverToken = null,
-    bool SuppressDestructorSyntax = false)
+    bool SuppressDestructorSyntax = false,
+    string? MetadataName = null)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -1241,7 +1242,8 @@ public static class CompileBackSourceComposer
                 GetterToken: MetadataTokens.GetToken(targetGetter),
                 SetterToken: accessors.Setter.IsNil
                     ? null
-                    : MetadataTokens.GetToken(accessors.Setter))
+                    : MetadataTokens.GetToken(accessors.Setter),
+                MetadataName: metadataPropertyName)
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -1689,6 +1691,8 @@ public static class CompileBackSourceComposer
                 if (index == matchIndex)
                     continue;
                 var requiredMethod = requiredMethods[index];
+                if (!MetadataIdentifierRoundTrips(requiredMethod.Name))
+                    return null;
                 var implicitImplementation = FindImplicitInterfaceMethod(
                     reader,
                     targetMethodDefinition.GetDeclaringType(),
@@ -1771,43 +1775,12 @@ public static class CompileBackSourceComposer
         MethodDefinitionHandle methodHandle)
     {
         var typeDef = reader.GetTypeDefinition(targetType);
-        var method = reader.GetMethodDefinition(methodHandle);
-        try
-        {
-            var signature = GuardedSignatureText.MethodText(
-                reader,
-                method,
-                GenericContext.ForMethod(reader, typeDef, method));
-            var declaration = MetadataDeclarationQuery.GetMethod(
-                reader,
-                typeDef,
-                method,
-                signature);
-            if (declaration.Signature.ReturnType is not { } returnType)
-                return null;
-            string name = reader.GetString(method.Name);
-            return new CompileBackMemberRequirement(
-                new CompileBackMethodIdentity(
-                    CompileBackTypeIdentity.FromDefinition(reader, typeDef).FullName,
-                    Identifier(name),
-                    0,
-                    MethodSignatureText(name, signature)),
-                CompileBackMemberKind.Method,
-                IsStatic: false,
-                ToCompileBackParameters(declaration.Signature.Parameters),
-                CompileBackTypeSignature.Display(returnType),
-                ToCompileBackTypeParameters(declaration.Signature.TypeParameters),
-                CompileBackStubBodyKind.Throw,
-                TargetBody: null,
-                [new CompileBackFact("metadata", "external-interface-implicit-method", name)],
-                declaration.Attributes,
-                declaration.Signature.ReturnAttributes,
-                MetadataToken: MetadataTokens.GetToken(methodHandle));
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
-        {
-            return null;
-        }
+        return TypeProducer.MethodRequirement(
+            reader,
+            typeDef,
+            CompileBackTypeIdentity.FromDefinition(reader, typeDef),
+            methodHandle,
+            "external-interface-implicit-method");
     }
 
     // Synthesizes a `throw null` explicit-interface stub for a NON-target member of an external
@@ -2822,7 +2795,8 @@ public static class CompileBackSourceComposer
                 GetterToken: property.GetAccessors().Getter.IsNil
                     ? null
                     : MetadataTokens.GetToken(property.GetAccessors().Getter),
-                SetterToken: MetadataTokens.GetToken(targetSetter))
+                SetterToken: MetadataTokens.GetToken(targetSetter),
+                MetadataName: metadataPropertyName)
         };
         AddRequiredMembers(targetMembers, closureMemberRequirements, targetType);
 
@@ -3436,7 +3410,8 @@ public static class CompileBackSourceComposer
             SuppressDestructorSyntax: requirement.SuppressDestructorSyntax,
             CSharpOperatorDeclaration: requirement.Kind == CompileBackMemberKind.Operator
                 ? requirement.IsOperator
-                : null);
+                : null,
+            MetadataName: requirement.MetadataName);
 
     static CSharpShellParameter ToShellParameter(CompileBackParameter parameter)
         => new(
@@ -4778,7 +4753,8 @@ public static class CompileBackSourceComposer
                     : MetadataTokens.GetToken(accessors.Getter),
                 SetterToken: accessors.Setter.IsNil
                     ? null
-                    : MetadataTokens.GetToken(accessors.Setter));
+                    : MetadataTokens.GetToken(accessors.Setter),
+                MetadataName: propertyName);
         }
 
         static CompileBackStubBodyKind PropertyStubBody(
@@ -5834,7 +5810,8 @@ public static class CompileBackSourceComposer
                         ? CompileBackAccessibility.Public
                         : MethodAccessibility(accessorMethod),
                     GetterToken: surfaceProperty.GetterToken,
-                    SetterToken: surfaceProperty.SetterToken));
+                    SetterToken: surfaceProperty.SetterToken,
+                    MetadataName: propertyName));
             }
 
             foreach (var surfaceEvent in surface.Members.Where(member => member.Kind == "event"))
