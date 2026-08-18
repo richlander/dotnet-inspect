@@ -54,15 +54,102 @@ public sealed class NuGetDeadlineRaceTests
             });
     }
 
+    [Fact]
+    public async Task MetadataBodyCompletion_UsesElapsedTimeWhenTimerCallbackIsDelayed()
+    {
+        await WithDelayedTimerCallbacksAsync(
+            async () =>
+            {
+                await using var stream = new MemoryStream();
+
+                NuGetMetadataBodyTimeoutException error =
+                    await Assert.ThrowsAsync<NuGetMetadataBodyTimeoutException>(
+                        () => NuGetMetadataReader.ReadStreamAsync(
+                            stream,
+                            static (_, _) =>
+                            {
+                                Thread.Sleep(TimeSpan.FromMilliseconds(250));
+                                return ValueTask.FromResult(42);
+                            },
+                            CreateOptions(),
+                            TestContext.Current.CancellationToken).AsTask());
+
+                Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+            });
+    }
+
+    [Fact]
+    public async Task MetadataBodyAbort_UsesElapsedTimeWhenTimerCallbackIsDelayed()
+    {
+        await WithDelayedTimerCallbacksAsync(
+            async () =>
+            {
+                await using var stream = new MemoryStream();
+
+                NuGetMetadataBodyTimeoutException error =
+                    await Assert.ThrowsAsync<NuGetMetadataBodyTimeoutException>(
+                        () => NuGetMetadataReader.ReadStreamAsync<int>(
+                            stream,
+                            static (_, _) =>
+                            {
+                                Thread.Sleep(TimeSpan.FromMilliseconds(250));
+                                return ValueTask.FromException<int>(
+                                    new IOException(
+                                        "Simulated post-deadline transport failure."));
+                            },
+                            CreateOptions(),
+                            TestContext.Current.CancellationToken).AsTask());
+
+                OperationCanceledException cancellation =
+                    Assert.IsType<OperationCanceledException>(
+                        error.InnerException);
+                Assert.IsType<IOException>(
+                    cancellation.InnerException);
+                Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+            });
+    }
+
+    [Fact]
+    public async Task MetadataBodyCancellation_UsesElapsedTimeWhenTimerCallbackIsDelayed()
+    {
+        await WithDelayedTimerCallbacksAsync(
+            async () =>
+            {
+                await using var stream = new MemoryStream();
+
+                NuGetMetadataBodyTimeoutException error =
+                    await Assert.ThrowsAsync<NuGetMetadataBodyTimeoutException>(
+                        () => NuGetMetadataReader.ReadStreamAsync<int>(
+                            stream,
+                            static (_, _) =>
+                            {
+                                Thread.Sleep(TimeSpan.FromMilliseconds(250));
+                                return ValueTask.FromException<int>(
+                                    new OperationCanceledException(
+                                        "Simulated unassociated cancellation."));
+                            },
+                            CreateOptions(),
+                            TestContext.Current.CancellationToken).AsTask());
+
+                Assert.IsType<OperationCanceledException>(
+                    error.InnerException);
+                Assert.Equal(TimeSpan.FromMilliseconds(40), error.Timeout);
+            });
+    }
+
     private static NuGetOperationDeadline CreateOperation() =>
         new(
-            new NuGetFetchOptions
-            {
-                RequestTimeout = TimeSpan.FromMilliseconds(40),
-                OperationTimeout = TimeSpan.FromSeconds(2),
-            },
+            CreateOptions(),
             Timeout.InfiniteTimeSpan,
             TestContext.Current.CancellationToken);
+
+    private static NuGetFetchOptions CreateOptions() =>
+        new()
+        {
+            RequestTimeout = TimeSpan.FromMilliseconds(40),
+            OperationTimeout = TimeSpan.FromSeconds(2),
+            MetadataBodyTimeout = TimeSpan.FromMilliseconds(40),
+        };
 
     private static async Task WithDelayedTimerCallbacksAsync(
         Func<Task> action)

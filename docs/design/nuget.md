@@ -36,10 +36,10 @@ including after malformed successful responses. Search failover tries at most fo
 endpoints within one logical operation ceiling. Each service-index or search request receives the
 configured request deadline, tightened by a shorter finite `HttpClient.Timeout`, while the
 operation ceiling spans discovery, equivalent-endpoint failover, and all selected sources.
-Request and operation expiry are also checked against monotonic elapsed time, so delayed timer
-callbacks cannot admit late work. `NuGetDeadlineRaceTests` gates request completion and stream
-consumption, and `NuGetSearchDeadlineRaceTests` gates service-index completion under delayed
-callbacks.
+Request, operation, and metadata-body expiry are also checked against monotonic elapsed time, so
+delayed timer callbacks cannot admit late work. `NuGetDeadlineRaceTests` gates request completion,
+stream consumption, and metadata-body completion and aborts, and
+`NuGetSearchDeadlineRaceTests` gates service-index completion under delayed callbacks.
 Search discovery supports the unversioned,
 `3.0.0-beta`, `3.0.0-rc`, `3.0.0`, and `3.5.0` service types. Unknown future types do not eclipse
 the highest supported capability.
