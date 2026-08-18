@@ -2551,8 +2551,7 @@ sealed class CandidateLookup
 
         foreach (var candidate in candidates)
         {
-            if (candidate.RuntimeMethodToken != 0
-                && candidate.IlOffset >= 0)
+            if (candidate.HasRuntimeCoordinate)
             {
                 var key = (
                     candidate.RuntimeMethodToken,
@@ -2576,6 +2575,12 @@ sealed class CandidateLookup
                     }
                     tokenList.Add(candidate);
                 }
+            }
+
+            if (candidate.EvidenceMethodToken is int evidenceMethodToken
+                && evidenceMethodToken != candidate.MethodToken)
+            {
+                continue;
             }
 
             AddFragment(candidate.MethodKey, candidate);

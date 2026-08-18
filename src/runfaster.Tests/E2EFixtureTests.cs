@@ -241,6 +241,102 @@ public class E2EFixtureTests
         }
     }
 
+    [Fact]
+    public void Correlate_DoesNotMatchSourceTextForDistinctEvidenceMethod()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var sourceMethod =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "Main",
+                BindingFlags.Public | BindingFlags.Static);
+        var evidenceMethod =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "AllocateOne",
+                BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(sourceMethod);
+        Assert.NotNull(evidenceMethod);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    evidenceMethod.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"RunFaster.AllocationFixture","method_token":"0x{{{sourceMethod.MetadataToken:X8}}}","evidence_method":"0x{{{evidenceMethod.MetadataToken:X8}}}","shape":"object-allocation","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object"}]}}
+                """);
+            File.WriteAllText(
+                logPath,
+                $"RunFaster.AllocationFixture.Program.Main() "
+                    + $"IL_{occurrence.ILOffset:X4} 512 bytes");
+
+            var sourceTextResult = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, sourceTextResult.ExitCode);
+            Assert.Empty(sourceTextResult.Error);
+            using (var output =
+                JsonDocument.Parse(sourceTextResult.Output))
+            {
+                Assert.Equal(
+                    0,
+                    output.RootElement.GetProperty(
+                        "observedCandidates").GetInt32());
+                var candidate = Assert.Single(
+                    output.RootElement.GetProperty(
+                        "candidates").EnumerateArray());
+                Assert.Equal(
+                    "cold-for-this-workload",
+                    candidate.GetProperty(
+                        "status").GetString());
+            }
+
+            File.WriteAllText(
+                logPath,
+                $"0x{evidenceMethod.MetadataToken:X8}"
+                    + $"+{occurrence.ILOffset:X4} 512 bytes");
+            var tokenResult = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, tokenResult.ExitCode);
+            Assert.Empty(tokenResult.Error);
+            using var tokenOutput =
+                JsonDocument.Parse(tokenResult.Output);
+            Assert.Equal(
+                1,
+                tokenOutput.RootElement.GetProperty(
+                    "observedCandidates").GetInt32());
+            var tokenCandidate = Assert.Single(
+                tokenOutput.RootElement.GetProperty(
+                    "candidates").EnumerateArray());
+            Assert.Equal(
+                "confirmed-hot",
+                tokenCandidate.GetProperty(
+                    "status").GetString());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
+        }
+    }
+
     [Theory]
     [InlineData("{}")]
     [InlineData("null")]
@@ -958,6 +1054,92 @@ public class E2EFixtureTests
         finally
         {
             File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_DoesNotTokenMatchAssemblylessFlattenedTriage()
+    {
+        string inspectDll =
+            Path.Combine(AppContext.BaseDirectory, "dotnet-inspect.dll");
+        var produced = RunTool(
+            inspectDll,
+            "type",
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "runfaster.Tests.dll"),
+            "runfaster.Tests.E2EFixtureTests.EvidenceMethodAsyncFixture",
+            "-S",
+            "Performance Triage",
+            "--jsonl");
+        Assert.Equal(0, produced.ExitCode);
+        Assert.Empty(produced.Error);
+        using var producedRow =
+            JsonDocument.Parse(produced.Output);
+        Assert.False(
+            producedRow.RootElement.TryGetProperty(
+                "assembly",
+                out _));
+        Assert.False(
+            producedRow.RootElement.TryGetProperty(
+                "method_token",
+                out _));
+        string evidenceMethod = Assert.IsType<string>(
+            producedRow.RootElement.GetProperty(
+                "evidence_method").GetString());
+        Assert.NotEmpty(evidenceMethod);
+        string ilOffset = Assert.IsType<string>(
+            producedRow.RootElement.GetProperty(
+                "il").GetString());
+        Assert.StartsWith(
+            "IL_",
+            ilOffset,
+            StringComparison.Ordinal);
+
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.jsonl");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(triagePath, produced.Output);
+            File.WriteAllText(
+                logPath,
+                $"GC alloc at {evidenceMethod}"
+                    + $"+{ilOffset["IL_".Length..]} "
+                    + "in SomeOtherAssembly 512 bytes");
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                0,
+                output.RootElement.GetProperty(
+                    "observedCandidates").GetInt32());
+            var candidate = Assert.Single(
+                output.RootElement.GetProperty(
+                    "candidates").EnumerateArray());
+            Assert.False(
+                candidate.GetProperty(
+                    "runtimeCorrelatable").GetBoolean());
+            Assert.Equal(
+                "not-runtime-correlatable",
+                candidate.GetProperty(
+                    "status").GetString());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
         }
     }
 
