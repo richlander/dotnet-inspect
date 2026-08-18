@@ -15,8 +15,10 @@
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
   </PropertyGroup>
 
-  <!-- Runtime async is a NativeAOT optimization. Other runtimes use the compiler
-       default, which emits classic async state machines. -->
+  <!-- Runtime async is enabled by default only for NativeAOT. Ordinary non-AOT
+       builds use the compiler default, which emits classic async state machines.
+       The CoreCLR Browser comparison workflow opts in explicitly for that one
+       published application graph. -->
   <PropertyGroup Condition="'$(TargetFramework)' == 'net11.0' and '$(PublishAot)' == 'true'">
     <Features>$(Features);runtime-async=on</Features>
   </PropertyGroup>
