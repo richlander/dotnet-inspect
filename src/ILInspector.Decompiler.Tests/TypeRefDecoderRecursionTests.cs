@@ -162,12 +162,11 @@ public class TypeRefDecoderRecursionTests
             MetadataTokens.TypeSpecificationHandle(1),
             0);
 
-        // The cyclic modifier decodes as Unsupported and therefore cannot attach
-        // to the underlying I4. The guard's contract here is crash-avoidance:
-        // reaching this assertion proves the decode terminated instead of
-        // overflowing the stack.
-        Assert.NotNull(result);
-        Assert.Equal("Int32", result.Name);
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "type-specification",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
     }
 
     [Fact]

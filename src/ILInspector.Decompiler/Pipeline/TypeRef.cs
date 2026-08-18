@@ -296,36 +296,17 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// Used to stamp value-type-ness recovered by cross-assembly resolution onto
     /// a bare token whose signature carried no <c>VALUETYPE</c>/<c>CLASS</c> byte.
     /// Only a <see cref="TypeRefKind.Definition"/> is stamped; any other kind is
-    /// returned unchanged.
+    /// returned unchanged. <c>DefinitionFactStamping_PreservesCustomModifiers</c>
+    /// gates attached signature evidence.
     /// </summary>
     public TypeRef WithValueTypeHint(ValueTypeHint hint)
         => Kind == TypeRefKind.Definition
-            ? CreateDefinition(
-                Assembly,
-                Namespace,
-                Name,
-                hint,
-                InlineArray,
-                EnclosingType,
-                DefinitionName,
-                ResolutionAssembly,
-                DefinitionHandle,
-                DefinitionModuleVersionId)
+            ? Copy(valueTypeHint: hint)
             : this;
 
     public TypeRef WithInlineArrayFact(MetadataFactState fact)
         => Kind == TypeRefKind.Definition
-            ? CreateDefinition(
-                Assembly,
-                Namespace,
-                Name,
-                ValueTypeHint,
-                fact,
-                EnclosingType,
-                DefinitionName,
-                ResolutionAssembly,
-                DefinitionHandle,
-                DefinitionModuleVersionId)
+            ? Copy(inlineArray: fact)
             : this;
 
     public static TypeRef CoreLib(string ns, string name)
@@ -441,7 +422,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
         TypeRef? elementType = null,
         ImmutableArray<TypeRef>? typeArguments = null,
         ImmutableArray<TypeRefCustomModifier>? customModifiers = null,
-        ImmutableArray<ArgumentRefKind>? functionPointerParameterRefKinds = null)
+        ImmutableArray<ArgumentRefKind>? functionPointerParameterRefKinds = null,
+        string? callingConvention = null,
+        ValueTypeHint? valueTypeHint = null,
+        MetadataFactState? inlineArray = null)
         => new(Kind)
         {
             Assembly = Assembly,
@@ -458,10 +442,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
             ResolutionAssembly = ResolutionAssembly,
             DefinitionHandle = DefinitionHandle,
             DefinitionModuleVersionId = DefinitionModuleVersionId,
-            CallingConvention = CallingConvention,
+            CallingConvention = callingConvention ?? CallingConvention,
             FunctionPointerParameterRefKinds = functionPointerParameterRefKinds ?? FunctionPointerParameterRefKinds,
-            ValueTypeHint = ValueTypeHint,
-            InlineArray = InlineArray,
+            ValueTypeHint = valueTypeHint ?? ValueTypeHint,
+            InlineArray = inlineArray ?? InlineArray,
             EnclosingType = EnclosingType,
             CustomModifiers = customModifiers ?? CustomModifiers,
         };
@@ -529,10 +513,22 @@ public sealed class TypeRef : IEquatable<TypeRef>
                     changed |= !ReferenceEquals(substituted, parameter);
                     builder.Add(substituted);
                 }
+                ImmutableArray<TypeRef> parameters =
+                    builder.MoveToImmutable();
                 instantiated = changed
                     ? Copy(
                         elementType: returnType,
-                        typeArguments: builder.MoveToImmutable())
+                        typeArguments: parameters,
+                        functionPointerParameterRefKinds:
+                            FunctionPointerParameterRefKindsFor(
+                                parameters),
+                        callingConvention: AddSuppressGcTransition(
+                            CallingConvention,
+                            HasCustomModifier(
+                                returnType,
+                                isRequired: false,
+                                "System.Runtime.CompilerServices",
+                                "CallConvSuppressGCTransition")))
                     : this;
                 break;
             }

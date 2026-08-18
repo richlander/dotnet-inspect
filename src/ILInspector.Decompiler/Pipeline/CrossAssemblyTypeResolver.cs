@@ -355,7 +355,7 @@ internal sealed class CrossAssemblyTypeResolver
                     break;
                 }
                 var method = reader.GetMethodDefinition(methodHandle);
-                if (string.Equals(reader.GetString(method.Name), methodName, StringComparison.Ordinal)
+                if (reader.StringComparer.Equals(method.Name, methodName)
                     && MethodDefinitionFacts.IsOperator(
                         method,
                         methodName,
@@ -369,9 +369,17 @@ internal sealed class CrossAssemblyTypeResolver
                 break;
 
             var typeArguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
+            if (!TryCreateOperatorHierarchyScope(
+                typeDef.GetGenericParameters(),
+                ref remainingWork,
+                out var scope))
+            {
+                unresolved = true;
+                break;
+            }
             if ((typeDef.Attributes & System.Reflection.TypeAttributes.Interface) != 0)
             {
-                foreach (var baseInterface in DecodeInterfaces(reader, typeDef, typeArguments))
+                foreach (var implHandle in typeDef.GetInterfaceImplementations())
                 {
                     if (remainingWork-- <= 0)
                     {
@@ -379,19 +387,72 @@ internal sealed class CrossAssemblyTypeResolver
                         budgetExhausted = true;
                         break;
                     }
+                    var implementation =
+                        reader.GetInterfaceImplementation(implHandle);
+                    if (DecodeType(
+                        reader,
+                        implementation.Interface,
+                        scope) is not { } openInterface)
+                    {
+                        unresolved = true;
+                        continue;
+                    }
+                    TypeRef baseInterface =
+                        openInterface.Instantiate(typeArguments, []);
                     pending.Push((baseInterface, resolved.Assembly.Assembly));
                 }
                 if (budgetExhausted)
                     break;
             }
-            else if (DecodeBaseType(reader, typeDef, typeArguments) is { } baseType)
+            else if (!typeDef.BaseType.IsNil)
             {
+                if (remainingWork-- <= 0)
+                {
+                    unresolved = true;
+                    break;
+                }
+                if (DecodeType(
+                    reader,
+                    typeDef.BaseType,
+                    scope) is not { } openBaseType)
+                {
+                    unresolved = true;
+                    continue;
+                }
+                TypeRef baseType =
+                    openBaseType.Instantiate(typeArguments, []);
                 if (!IsObject(baseType))
                     pending.Push((baseType, resolved.Assembly.Assembly));
             }
         }
 
         return !unresolved && pending.Count == 0;
+    }
+
+    static bool TryCreateOperatorHierarchyScope(
+        GenericParameterHandleCollection parameters,
+        ref int remainingWork,
+        out GenericScope scope)
+    {
+        if (parameters.Count == 0)
+        {
+            scope = new GenericScope([], []);
+            return true;
+        }
+        if (parameters.Count > remainingWork)
+        {
+            remainingWork = 0;
+            scope = new GenericScope([], []);
+            return false;
+        }
+
+        var names = ImmutableArray.CreateBuilder<string>(
+            parameters.Count);
+        remainingWork -= parameters.Count;
+        foreach (var _ in parameters)
+            names.Add("");
+        scope = new GenericScope(names.MoveToImmutable(), []);
+        return true;
     }
 
     static bool IsObject(TypeRef type)

@@ -488,6 +488,43 @@ public sealed class DynamicTypeViewTests
         Assert.InRange(allocated, 0, 500_000);
     }
 
+    [Fact]
+    public void TruncatedConstructorSignature_IsRejectedBeforeReturnMaterialization()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        for (int i = 0; i < 400; i++)
+            signature.WriteByte(0x1d);
+        signature.WriteByte(0x08);
+
+        long allocated = 0;
+        int observed = 0;
+        byte[]? flags = ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            constructorSignatureBytes: signature.ToArray(),
+            read: (reader, attributes) =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                long before =
+                    GC.GetAllocatedBytesForCurrentThread();
+                byte[]? result = DynamicReader.GetDynamicFlags(
+                    reader,
+                    attributes,
+                    amount => observed += amount);
+                allocated =
+                    GC.GetAllocatedBytesForCurrentThread() - before;
+                return result;
+            });
+
+        Assert.Null(flags);
+        Assert.InRange(observed, 0, 4096);
+        Assert.InRange(allocated, 0, 500_000);
+    }
+
     static byte[]? ReadDynamicFlags(
         byte[] attributeBlob,
         bool transformFlagsConstructor,

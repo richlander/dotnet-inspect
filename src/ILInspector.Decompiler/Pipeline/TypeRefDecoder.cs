@@ -117,8 +117,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 definitionName,
                 resolutionAssembly: null,
                 definitionHandle: handle,
-                definitionModuleVersionId: reader.GetGuid(
-                    reader.GetModuleDefinition().Mvid));
+                definitionModuleVersionId: ModuleVersionId(reader));
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
         {
@@ -303,10 +302,17 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     /// cross-assembly signature matching can distinguish overloads whose metadata
     /// signatures differ only by <c>modreq</c>/<c>modopt</c>.
     /// <c>CrossAssemblyMethodFactsTests.CustomModifierSignatureCollision_UsesExactModifiers</c>
-    /// gates that distinction.
+    /// gates that distinction, and
+    /// <c>SelfReferentialTypeSpecification_DoesNotStackOverflow</c> gates visible
+    /// rejection propagation.
     /// </summary>
     public TypeRef GetModifiedType(TypeRef modifier, TypeRef unmodifiedType, bool isRequired)
-        => unmodifiedType.WithCustomModifier(modifier, isRequired);
+        => modifier.ContainsUnsupported
+            ? modifier.Kind == TypeRefKind.Unsupported
+                ? modifier
+                : TypeRef.Unsupported(
+                    "custom modifier type contains an unsupported shape")
+            : unmodifiedType.WithCustomModifier(modifier, isRequired);
 
     static string NameAt(ImmutableArray<string> names, int index)
         => index >= 0 && index < names.Length ? names[index] : "";
@@ -327,6 +333,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         => MethodDefinitionFacts.HasInlineArrayAttribute(reader, typeDef)
             ? MetadataFactState.Yes
             : MetadataFactState.No;
+
+    static Guid? ModuleVersionId(MetadataReader reader)
+    {
+        Guid mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        return mvid == Guid.Empty ? null : mvid;
+    }
 
     /// <summary>
     /// Canonicalizes corelib spellings so facade choice never affects identity.

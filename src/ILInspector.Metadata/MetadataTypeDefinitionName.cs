@@ -210,7 +210,7 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
     /// <summary>
     /// Compares a TypeDef to an exact structured name without materializing
     /// metadata-authored strings. Gated by
-    /// <c>OperatorHierarchyLookup_DoesNotMaterializeUnrelatedTypeNames</c>.
+    /// <c>OperatorHierarchyFallback_StopsBeforeMaterializingUnrelatedNames</c>.
     /// </summary>
     public static MetadataTypeDefinitionNameMatchResult Matches(
         MetadataReader reader,

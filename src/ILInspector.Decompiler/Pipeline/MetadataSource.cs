@@ -11,7 +11,8 @@ internal static class OperatorHierarchyLimits
 {
     // Bound both graph depth and breadth: malformed metadata can attach an
     // arbitrary number of duplicate InterfaceImpl rows to one definition.
-    // Gated by WideInterfaceHierarchy_EnforcesWorkBudget.
+    // Gated by WideInterfaceHierarchy_EnforcesWorkBudget and
+    // CrossAssemblyGenericParameters_EnforceWorkBudget.
     public const int Types = 256;
     public const int WorkItems = 4096;
 }
@@ -427,8 +428,6 @@ public sealed class MetadataSource : IDisposable
     HashSet<TypeRef>? _unionTypes;
     HashSet<TypeRef>? _byRefLikeTypes;
     HashSet<TypeRef>? _delegates;
-    HashSet<TypeRef>? _equalityOperatorTypes;
-    HashSet<TypeRef>? _inequalityOperatorTypes;
     readonly ConcurrentDictionary<(TypeDefinitionIdentity Type, string MethodName), MetadataFactState> _operatorHierarchyFacts = new();
 
     /// <summary>
@@ -649,7 +648,10 @@ public sealed class MetadataSource : IDisposable
             }
 
             TypeDefinitionHandle handle =
-                currentDefinition.DefinitionModuleVersionId == ModuleVersionId
+                currentDefinition.DefinitionModuleVersionId is { } sourceMvid
+                    && sourceMvid != Guid.Empty
+                    && ModuleVersionId != Guid.Empty
+                    && sourceMvid == ModuleVersionId
                     ? currentDefinition.DefinitionHandle
                     : default;
             if (handle.IsNil)
@@ -829,18 +831,18 @@ public sealed class MetadataSource : IDisposable
             scope = new GenericScope([], []);
             return true;
         }
+        if (parameters.Count > remainingWork)
+        {
+            remainingWork = 0;
+            scope = new GenericScope([], []);
+            return false;
+        }
 
         var names = ImmutableArray.CreateBuilder<string>(
             parameters.Count);
+        remainingWork -= parameters.Count;
         foreach (var _ in parameters)
-        {
-            if (remainingWork-- <= 0)
-            {
-                scope = new GenericScope([], []);
-                return false;
-            }
             names.Add("");
-        }
         scope = new GenericScope(names.MoveToImmutable(), []);
         return true;
     }
@@ -886,8 +888,6 @@ public sealed class MetadataSource : IDisposable
         var unionTypes = new HashSet<TypeRef>();
         var byRefLikeTypes = new HashSet<TypeRef>();
         var delegates = new HashSet<TypeRef>();
-        var equalityOperatorTypes = new HashSet<TypeRef>();
-        var inequalityOperatorTypes = new HashSet<TypeRef>();
         foreach (var handle in Reader.TypeDefinitions)
         {
             var typeDef = Reader.GetTypeDefinition(handle);
@@ -923,22 +923,6 @@ public sealed class MetadataSource : IDisposable
                 if (ResolveEnumUnderlyingType(typeDef, scope) is { } underlying)
                     enumUnderlyingTypes[key] = underlying;
             }
-            foreach (var methodHandle in typeDef.GetMethods())
-            {
-                var method = Reader.GetMethodDefinition(methodHandle);
-                string methodName = Reader.GetString(method.Name);
-                bool hasThis = (method.Attributes & System.Reflection.MethodAttributes.Static) == 0;
-                if (methodName == "op_Equality"
-                    && MethodDefinitionFacts.IsOperator(method, methodName, hasThis))
-                {
-                    equalityOperatorTypes.Add(key);
-                }
-                else if (methodName == "op_Inequality"
-                    && MethodDefinitionFacts.IsOperator(method, methodName, hasThis))
-                {
-                    inequalityOperatorTypes.Add(key);
-                }
-            }
         }
         _enumMembers = enums;
         _enumUnderlyingTypes = enumUnderlyingTypes;
@@ -949,8 +933,6 @@ public sealed class MetadataSource : IDisposable
         _unionTypes = unionTypes;
         _byRefLikeTypes = byRefLikeTypes;
         _delegates = delegates;
-        _equalityOperatorTypes = equalityOperatorTypes;
-        _inequalityOperatorTypes = inequalityOperatorTypes;
         _shapes = shapes;   // assign last: ResolveShape gates on _shapes
         }
     }

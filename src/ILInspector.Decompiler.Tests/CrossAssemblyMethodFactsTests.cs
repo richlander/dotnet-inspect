@@ -130,6 +130,59 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void DefinitionFactStamping_PreservesCustomModifiers()
+    {
+        var modifier = TypeRef.CoreLib(
+            "System.Runtime.InteropServices",
+            "OutAttribute");
+        TypeRef modified = TypeRef.Definition(
+                "External",
+                "N",
+                "C")
+            .WithCustomModifier(
+                modifier,
+                isRequired: true);
+
+        TypeRef withHint = modified.WithValueTypeHint(
+            ValueTypeHint.ReferenceType);
+        TypeRef withInlineArray = modified.WithInlineArrayFact(
+            MetadataFactState.No);
+
+        Assert.Equal(
+            modified.CustomModifiers,
+            withHint.CustomModifiers);
+        Assert.Equal(
+            modified.CustomModifiers,
+            withInlineArray.CustomModifiers);
+    }
+
+    [Fact]
+    public void FunctionPointerInstantiation_RecomputesParameterRefKinds()
+    {
+        var parameter = TypeRef.ByRef(
+                TypeRef.CoreLib("System", "Int32"))
+            .WithCustomModifier(
+                TypeRef.GenericParameter(0, "T"),
+                isRequired: true);
+        TypeRef pointer = TypeRef.FunctionPointer(
+            TypeRef.CoreLib("System", "Void"),
+            [parameter],
+            "");
+
+        TypeRef instantiated = pointer.Instantiate(
+            [
+                TypeRef.CoreLib(
+                    "System.Runtime.InteropServices",
+                    "OutAttribute"),
+            ],
+            []);
+
+        Assert.Equal(
+            [ArgumentRefKind.Out],
+            instantiated.FunctionPointerParameterRefKinds);
+    }
+
+    [Fact]
     public void AmbiguousMethodCandidates_KeepFactsUnknown()
     {
         using var fixture = MethodCollisionFixture.Create();

@@ -101,7 +101,88 @@ public class ReferenceEqualityMetadataFactsTests
     }
 
     [Fact]
-    public void TypeDefHandleProvenance_IsBoundToItsModule()
+    public void OperatorHierarchyFallback_StopsBeforeMaterializingUnrelatedNames()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-hierarchy-fallback-").FullName;
+        string path = Path.Combine(directory, "HierarchyAllocation.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildHierarchyAllocationImage(
+                    typeCount: 8192,
+                    nameLength: 4000));
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            TypeRef root = Definition(
+                TypeRefDecoder.CanonicalSelf(source.Reader),
+                "N",
+                "IRoot",
+                ["IRoot"],
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    source.Reader));
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            MetadataFactState result =
+                source.HasOperatorInBindingHierarchy(
+                    root,
+                    "op_Equality");
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.Equal(MetadataFactState.Unknown, result);
+            Assert.InRange(allocated, 0, 1_000_000);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TypeMapInitialization_DoesNotMaterializeMethodNames()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-map-allocation-").FullName;
+        string path = Path.Combine(directory, "MapAllocation.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildTypeMapMethodAllocationImage(
+                    methodCount: 8192,
+                    nameLength: 4000));
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            TypeRef root = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                source.Reader,
+                MetadataTokens.TypeDefinitionHandle(2),
+                rawTypeKind: 0);
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            TypeShape shape = source.ResolveShape(root);
+            long allocated =
+                GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.Equal(TypeShape.Reference, shape);
+            Assert.InRange(allocated, 0, 1_000_000);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TypeDefHandleProvenance_IsBoundToItsModule(
+        bool emptyMvid)
     {
         string directory = Directory.CreateTempSubdirectory(
             "reference-equality-handle-provenance-").FullName;
@@ -111,10 +192,14 @@ public class ReferenceEqualityMetadataFactsTests
         {
             File.WriteAllBytes(
                 firstPath,
-                BuildHandleProvenanceImage(shiftRoot: false));
+                BuildHandleProvenanceImage(
+                    shiftRoot: false,
+                    emptyMvid));
             File.WriteAllBytes(
                 secondPath,
-                BuildHandleProvenanceImage(shiftRoot: true));
+                BuildHandleProvenanceImage(
+                    shiftRoot: true,
+                    emptyMvid));
             using var first = MetadataSource.OpenWithoutSymbols(firstPath);
             using var second = MetadataSource.OpenWithoutSymbols(secondPath);
             TypeRef root = TypeRefDecoder.Instance.GetTypeFromDefinition(
@@ -225,6 +310,50 @@ public class ReferenceEqualityMetadataFactsTests
         finally
         {
             Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CrossAssemblyGenericParameters_EnforceWorkBudget()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-cross-budget-").FullName;
+        string path = Path.Combine(directory, "WideGeneric.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildWideGenericParameterImage(5000));
+            var resolver = new SingleAssemblyResolver(
+                "WideGeneric",
+                path);
+            using var context = new MetadataContext(resolver);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                typeof(ReferenceEqualityMetadataFactsTests)
+                    .Assembly.Location,
+                resolver,
+                context);
+            var identity = new AssemblyReferenceIdentity(
+                "WideGeneric",
+                new Version(1, 0, 0, 0),
+                null,
+                null);
+            TypeRef type = Definition(
+                "WideGeneric",
+                "N",
+                "Wide",
+                ["Wide"],
+                identity);
+
+            Assert.Equal(
+                MetadataFactState.Unknown,
+                source.HasOperatorInBindingHierarchy(
+                    type,
+                    "op_Equality"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 
@@ -736,6 +865,24 @@ public class ReferenceEqualityMetadataFactsTests
                         path,
                         AssemblyResolutionProvenance.Local("ReferenceEqualityMetadataFactsTests"))
                     : _runtime.Resolve(identity, scope);
+    }
+
+    sealed class SingleAssemblyResolver(
+        string assemblyName,
+        string path) : IAssemblyReferenceResolver
+    {
+        readonly IAssemblyReferenceResolver _runtime =
+            TestAssemblyReferenceResolvers.RuntimeAssemblies();
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => identity.Name == assemblyName
+                ? ResolvedAssemblyReference.CreateFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local(
+                        "ReferenceEqualityMetadataFactsTests"))
+                : _runtime.Resolve(identity, scope);
     }
 
     static string Emit(
@@ -1480,13 +1627,126 @@ public class ReferenceEqualityMetadataFactsTests
         return Serialize(metadata, new BlobBuilder());
     }
 
-    static byte[] BuildHandleProvenanceImage(bool shiftRoot)
+    static byte[] BuildTypeMapMethodAllocationImage(
+        int methodCount,
+        int nameLength)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MapAllocation.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MapAllocation"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var systemRuntime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0xb0, 0x3f, 0x5f, 0x7f,
+                    0x11, 0xd5, 0x0a, 0x3a,
+                }),
+            default,
+            default);
+        var objectType = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Root"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        StringHandle methodName =
+            metadata.GetOrAddString(new string('M', nameLength));
+        BlobHandle signature = metadata.GetOrAddBlob(
+            new byte[] { 0x00, 0x00, 0x01 });
+        for (int i = 0; i < methodCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                methodName,
+                signature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return Serialize(metadata, new BlobBuilder());
+    }
+
+    static byte[] BuildWideGenericParameterImage(
+        int parameterCount)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("WideGeneric.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("WideGeneric"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var wide = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Wide"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        StringHandle parameterName =
+            metadata.GetOrAddString(new string('T', 4000));
+        for (int i = 0; i < parameterCount; i++)
+        {
+            metadata.AddGenericParameter(
+                wide,
+                GenericParameterAttributes.None,
+                parameterName,
+                i);
+        }
+        return Serialize(metadata, new BlobBuilder());
+    }
+
+    static byte[] BuildHandleProvenanceImage(
+        bool shiftRoot,
+        bool emptyMvid)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
             0,
             metadata.GetOrAddString("HandleProvenance.dll"),
-            metadata.GetOrAddGuid(Guid.NewGuid()),
+            emptyMvid
+                ? default
+                : metadata.GetOrAddGuid(Guid.NewGuid()),
             default,
             default);
         metadata.AddAssembly(

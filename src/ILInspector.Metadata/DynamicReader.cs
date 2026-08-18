@@ -102,7 +102,7 @@ public static class DynamicReader
                         reader,
                         method.Signature))
                         return null;
-                    if (!SignatureBlobGuard.IsSafeToDecode(
+                    if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
                         reader,
                         method.Signature,
                         SignatureBlobGuard.Kind.Method))
@@ -122,7 +122,7 @@ public static class DynamicReader
                         reader,
                         member.Signature))
                         return null;
-                    if (!SignatureBlobGuard.IsSafeToDecode(
+                    if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
                         reader,
                         member.Signature,
                         SignatureBlobGuard.Kind.Method))
