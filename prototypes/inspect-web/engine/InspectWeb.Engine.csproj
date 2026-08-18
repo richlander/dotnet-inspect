@@ -38,6 +38,7 @@
     <ProjectReference Include="..\..\..\src\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <Content Include="..\index.html" Link="wwwroot\index.html" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\staticwebapp.config.json" Link="wwwroot\staticwebapp.config.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\src\app.js" Link="wwwroot\src\app.js" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\src\graph-mermaid.js" Link="wwwroot\src\graph-mermaid.js" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\src\annotated-source-view.js" Link="wwwroot\src\annotated-source-view.js" CopyToOutputDirectory="PreserveNewest" />
