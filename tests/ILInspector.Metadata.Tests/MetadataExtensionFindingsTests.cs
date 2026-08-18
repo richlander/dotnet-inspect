@@ -288,6 +288,7 @@ public static class ExtensionPropertyIdentityFixture
     extension(string value)
     {
         public bool HasValue => value.Length > 0;
+        public char this[int index] => value[index];
         public static int StaticValue => 42;
 
         [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]

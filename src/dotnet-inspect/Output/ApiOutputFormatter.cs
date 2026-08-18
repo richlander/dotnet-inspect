@@ -1479,7 +1479,7 @@ public static class ApiOutputFormatter
         ApiMember accessor,
         IReadOnlySet<string> requestedSections)
     {
-        if (accessor.HasMethodBody)
+        if (accessor.HasMethodBody is not false)
             return new HashSet<string>(requestedSections, StringComparer.OrdinalIgnoreCase);
 
         var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1613,13 +1613,35 @@ public static class ApiOutputFormatter
                 ?? owner.IsAbstract,
             IsOverride = owner.IsOverride,
             IsSealed = owner.IsSealed,
-            HasMethodBody = accessorFact?.HasMethodBody
-                ?? presentationAccessor?.HasMethodBody
-                ?? owner.HasMethodBody,
+            HasMethodBody = AccessorHasMethodBody(
+                owner,
+                accessorFact,
+                presentationAccessor),
             IsUnsafe = owner.IsUnsafe,
             Accessibility = accessibility,
             Documentation = owner.Documentation,
         };
+    }
+
+    static bool? AccessorHasMethodBody(
+        ApiMember owner,
+        ApiAccessor? accessorFact,
+        ApiAccessor? presentationAccessor)
+    {
+        if (accessorFact is not null)
+            return accessorFact.HasMethodBody;
+        if (presentationAccessor is not null)
+            return presentationAccessor.HasMethodBody;
+
+        if (owner.HasMethodBody is false)
+            return false;
+
+        int accessorCount =
+            (owner.GetterToken.HasValue ? 1 : 0)
+            + (owner.SetterToken.HasValue ? 1 : 0)
+            + (owner.AdderToken.HasValue ? 1 : 0)
+            + (owner.RemoverToken.HasValue ? 1 : 0);
+        return accessorCount == 1 ? owner.HasMethodBody : null;
     }
 
     static ApiParameter CloneAccessorParameter(ApiParameter parameter) => new()

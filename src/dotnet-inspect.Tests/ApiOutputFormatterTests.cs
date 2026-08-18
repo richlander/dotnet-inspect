@@ -85,6 +85,111 @@ public class ApiOutputFormatterTests
         Assert.Null(accessor.Accessibility);
     }
 
+    public static TheoryData<bool?> AccessorBodyStates => new()
+    {
+        true,
+        false,
+        (bool?)null,
+    };
+
+    [Theory]
+    [MemberData(nameof(AccessorBodyStates))]
+    public void AccessorMethods_PreserveKnownAndUnknownBodyState(bool? hasMethodBody)
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            GetterToken = 0x06000001,
+            HasMethodBody = hasMethodBody,
+            AccessorFacts = hasMethodBody.HasValue
+                ?
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        HasMethodBody = hasMethodBody,
+                    }
+                ]
+                : [],
+        };
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members = [property],
+        };
+
+        var accessor = Assert.Single(ApiOutputFormatter.AccessorMethods(property, type));
+
+        Assert.Equal(hasMethodBody, accessor.HasMethodBody);
+    }
+
+    [Fact]
+    public void AccessorMethods_DoNotProjectAggregateBodyPresenceOntoOneUnknownAccessor()
+    {
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            GetterToken = 0x06000001,
+            SetterToken = 0x06000002,
+            HasMethodBody = true,
+        };
+        var type = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members = [property],
+        };
+
+        var accessors = ApiOutputFormatter.AccessorMethods(property, type).ToArray();
+
+        Assert.Equal(2, accessors.Length);
+        Assert.All(accessors, accessor => Assert.Null(accessor.HasMethodBody));
+    }
+
+    [Fact]
+    public void ApiTypeJson_PreservesKnownFalseAndTreatsOmittedBodyFactAsUnknown()
+    {
+        const string legacyJson =
+            """{"name":"Widget","kind":"class","members":[{"name":"Value","kind":"property","getter_token":100663297}]}""";
+        var legacy = System.Text.Json.JsonSerializer.Deserialize(
+            legacyJson,
+            ApiTypeJsonContext.Default.ApiType)!;
+        var legacyProperty = Assert.Single(legacy.Members);
+        var legacyAccessor = Assert.Single(
+            ApiOutputFormatter.AccessorMethods(legacyProperty, legacy));
+
+        Assert.Null(legacyProperty.HasMethodBody);
+        Assert.Null(legacyAccessor.HasMethodBody);
+
+        var knownBodyless = new ApiType
+        {
+            Name = "Widget",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    HasMethodBody = false,
+                }
+            ],
+        };
+        string json = System.Text.Json.JsonSerializer.Serialize(
+            knownBodyless,
+            ApiTypeJsonContext.Default.ApiType);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+
+        Assert.Contains("\"has_method_body\": false", json, StringComparison.Ordinal);
+        Assert.False(Assert.Single(roundTripped.Members).HasMethodBody);
+    }
+
     [Fact]
     public void SameType_NestedType_StillMatches()
     {

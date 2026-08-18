@@ -551,7 +551,32 @@ public static class ApiMemberSectionDescriptors
     /// method identity for explicit CLI diagnostics but do not advertise body-dependent views.
     /// </summary>
     public static bool HasExecutableBody(ApiMember member) =>
-        member.HasMethodBody && IsBodyBacked(member);
+        member.HasMethodBody is true && IsBodyBacked(member);
+
+    /// <summary>
+    /// True only when metadata positively established that the selected body target is bodyless.
+    /// A null body fact is unknown, not evidence of absence.
+    /// </summary>
+    public static bool DefinitelyHasNoBody(ApiMember member) =>
+        IsBodyBacked(member)
+        && (member.IsAbstract || member.HasMethodBody is false);
+
+    /// <summary>
+    /// True when a body target is known executable or remains addressable with unknown body state.
+    /// Source acquisition may probe the latter, while ordinary body views still require
+    /// <see cref="HasExecutableBody(ApiMember)"/>.
+    /// </summary>
+    public static bool MayHaveExecutableBody(ApiMember member)
+    {
+        if (!IsBodyBacked(member) || DefinitelyHasNoBody(member))
+            return false;
+        if (member.HasMethodBody is true)
+            return true;
+
+        return IsMethodLike(member)
+            ? member.MetadataToken is > 0
+            : HasAccessorTokens(member);
+    }
 
     /// <summary>
     /// True when body-oriented analysis can address the member even if the target itself has no
@@ -623,7 +648,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<Methods>()
             .Add<ApiMemberSectionDescriptors.MemberIndex>()
             .Add<ApiMemberSectionDescriptors.SourceLocations>(
-                isViewApplicable: HasExecutableBodyMember)
+                isViewApplicable: MayHaveExecutableBodyMember)
             .Add<ApiMemberSectionDescriptors.Operators>()
             .Add<ApiMemberSectionDescriptors.ExplicitInterfaceImplementations>()
             .Add<ApiMemberSectionDescriptors.ExtensionMethods>()
@@ -708,6 +733,9 @@ public static class ApiMemberOverloadSectionDescriptors
     private static bool HasExecutableBodyMember(ApiType model)
         => model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
 
+    private static bool MayHaveExecutableBodyMember(ApiType model)
+        => model.Members.Any(ApiMemberSectionDescriptors.MayHaveExecutableBody);
+
     public sealed class Methods : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.Methods;
@@ -737,9 +765,9 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<AnnotatedSourceDocument>(isViewApplicable: HasExecutableBody)
             .Add<CostOverlay>(isViewApplicable: HasExecutableBody)
             .Add<SemanticsOverlay>(isViewApplicable: HasExecutableBody)
-            .Add<OriginalSource>(isViewApplicable: HasExecutableBody)
-            .Add<SourceDiff>(isViewApplicable: HasExecutableBody)
-            .Add<SourceLocations>(isViewApplicable: HasExecutableBody)
+            .Add<OriginalSource>(isViewApplicable: MayHaveExecutableBody)
+            .Add<SourceDiff>(isViewApplicable: MayHaveExecutableBody)
+            .Add<SourceLocations>(isViewApplicable: MayHaveExecutableBody)
             .Add<Calls>(isViewApplicable: HasExecutableBody)
             .Add<ExceptionRegions>(isViewApplicable: HasExecutableBody)
             .Add<ApiMemberSectionDescriptors.AllocationFacts>(isViewApplicable: HasExecutableBody)
@@ -774,8 +802,24 @@ public static class ApiMemberDetailSectionDescriptors
            && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
 
     private static bool HasExecutableBody(ApiMember member, ApiAccessor? accessor)
-        => accessor?.HasMethodBody
-            ?? ApiMemberSectionDescriptors.HasExecutableBody(member);
+        => accessor is null
+            ? ApiMemberSectionDescriptors.HasExecutableBody(member)
+            : accessor.HasMethodBody is true;
+
+    private static bool MayHaveExecutableBody(ApiType model)
+        => model.Members.Count == 1
+           && MayHaveExecutableBody(model.Members[0], SelectedAccessor(model));
+
+    private static bool MayHaveExecutableBody(ApiMember member, ApiAccessor? accessor)
+    {
+        if (accessor is null)
+            return ApiMemberSectionDescriptors.MayHaveExecutableBody(member);
+        if (accessor.IsAbstract is true || accessor.HasMethodBody is false)
+            return false;
+        if (accessor.HasMethodBody is true)
+            return true;
+        return ApiMemberSectionDescriptors.HasAccessorTokens(member);
+    }
 
     private static bool HasBodyAnalysisTarget(ApiMember member, ApiAccessor? accessor)
         => accessor?.IsAbstract is { } isAbstract

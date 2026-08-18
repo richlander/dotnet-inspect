@@ -827,11 +827,13 @@ public class ApiMember
     public int? MetadataToken { get; set; }
 
     /// <summary>
-    /// True when this member has at least one executable method body. For methods this reflects
+    /// Whether this member has at least one executable method body. For methods this reflects
     /// the MethodDef RVA; for properties and events it reflects their accessor MethodDefs.
+    /// Null preserves the unknown state of older or incomplete serialized surfaces that omitted
+    /// false-valued body facts.
     /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public bool HasMethodBody { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasMethodBody { get; set; }
 
     /// <summary>
     /// MethodDef tokens of a property's get/set accessors when known. Lets accessor-level

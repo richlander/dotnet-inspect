@@ -81,6 +81,56 @@ public class InspectionViewDescriptorTests
         Assert.Equal(hasBodyViews, ids.Contains(SectionNames.OriginalSource));
     }
 
+    [Fact]
+    public void MemberViews_KeepSourceSectionsForUnknownBodyStateButNotKnownBodylessState()
+    {
+        var pipeline = ApiMemberDetailSectionDescriptors.CreatePipeline();
+        var unknown = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    MetadataToken = 0x06000001,
+                }
+            ],
+        };
+        var bodyless = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    MetadataToken = 0x06000001,
+                    HasMethodBody = false,
+                }
+            ],
+        };
+
+        IReadOnlySet<string> unknownIds = pipeline.GetInspectionViews(unknown)
+            .Select(view => view.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        IReadOnlySet<string> bodylessIds = pipeline.GetInspectionViews(bodyless)
+            .Select(view => view.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Contains(SectionNames.OriginalSource, unknownIds);
+        Assert.Contains(SectionNames.SourceDiff, unknownIds);
+        Assert.Contains(SectionNames.SourceLocations, unknownIds);
+        Assert.DoesNotContain(SectionNames.IL, unknownIds);
+        Assert.DoesNotContain(SectionNames.OriginalSource, bodylessIds);
+        Assert.DoesNotContain(SectionNames.SourceDiff, bodylessIds);
+        Assert.DoesNotContain(SectionNames.SourceLocations, bodylessIds);
+    }
+
     public static TheoryData<ApiMember, bool, bool> BodyAnalysisApplicabilityCases => new()
     {
         {

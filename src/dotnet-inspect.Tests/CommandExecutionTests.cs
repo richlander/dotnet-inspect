@@ -10107,6 +10107,93 @@ public partial class CommandExecutionTests
         Assert.False(MemberCommand.NeedsMemberSourceResolution(type, options));
     }
 
+    public static TheoryData<bool?, bool> MemberSourceResolutionBodyStates => new()
+    {
+        { true, true },
+        { false, false },
+        { null, true },
+    };
+
+    [Theory]
+    [MemberData(nameof(MemberSourceResolutionBodyStates))]
+    public void Member_SourceResolutionPreservesKnownAndUnknownAccessorBodyState(
+        bool? hasMethodBody,
+        bool expected)
+    {
+        var type = new ApiType
+        {
+            Name = "Contract",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    HasMethodBody = hasMethodBody,
+                    AccessorFacts = hasMethodBody.HasValue
+                        ?
+                        [
+                            new ApiAccessor
+                            {
+                                Kind = "get",
+                                HasMethodBody = hasMethodBody,
+                            }
+                        ]
+                        : [],
+                }
+            ],
+        };
+        var options = new MemberOptions
+        {
+            OverloadIndex = 1,
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.OriginalSource,
+            },
+        };
+
+        Assert.Equal(expected, MemberCommand.NeedsMemberSourceResolution(type, options));
+    }
+
+    [Fact]
+    public async Task Member_SourceLocations_SkipsCollectorOnlyForDefinitelyBodylessExactTarget()
+    {
+        MemberSourceLocationCollector.EnrichCountForTests = 0;
+
+        var bodyless = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Source Locations",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, bodyless.Exit);
+        Assert.Empty(bodyless.Error);
+        Assert.Equal(0, MemberSourceLocationCollector.EnrichCountForTests);
+
+        var bodyBearing = await RunAppAsync(
+            "member",
+            typeof(CommandCaretGestureFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "Pump:1",
+            "-S",
+            "Source Locations",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, bodyBearing.Exit);
+        Assert.Empty(bodyBearing.Error);
+        Assert.Equal(1, MemberSourceLocationCollector.EnrichCountForTests);
+    }
+
     [Fact]
     public async Task Member_BodylessConcreteAccessor_DecompiledSourceRendersDiagnostic()
     {

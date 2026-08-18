@@ -263,10 +263,14 @@ public static class MemberCommand
             if (RejectBodylessAccessorFactsRequest(apiType, effectiveOptions))
                 return 1;
 
-            if (SelectedMemberDefinitelyHasNoBody(apiType, effectiveOptions))
+            bool selectedMemberDefinitelyHasNoBody =
+                SelectedMemberDefinitelyHasNoBody(apiType, effectiveOptions);
+            if (selectedMemberDefinitelyHasNoBody)
                 effectiveOptions = effectiveOptions with { MemberHasNoBody = true };
 
-            if (apiDllPath != null && NeedsMemberSourceLocationResolution(effectiveOptions))
+            if (apiDllPath != null
+                && !selectedMemberDefinitelyHasNoBody
+                && NeedsMemberSourceLocationResolution(effectiveOptions))
             {
                 var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
                 var pdbPath = await MemberSourceLocationCollector.EnrichAsync(
@@ -636,10 +640,8 @@ public static class MemberCommand
         {
             return false;
         }
-
         var bodyMember = ResolveSourceAccessor(apiType, selected, ordinal) ?? selected;
-        return !bodyMember.HasMethodBody
-            && (bodyMember.IsAbstract || bodyMember.MetadataToken is > 0);
+        return ApiMemberSectionDescriptors.DefinitelyHasNoBody(bodyMember);
     }
 
     private static bool NeedsMemberSourceLocationResolution(MemberOptions options)

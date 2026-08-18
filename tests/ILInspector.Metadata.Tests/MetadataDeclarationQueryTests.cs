@@ -301,6 +301,49 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void TypeSurface_FoldsCompilerProducedExtensionPropertyAndIndexerImplementations()
+    {
+        using var stream = File.OpenRead(typeof(ExtensionPropertyIdentityFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = GetTypeDefinitionHandle(
+            reader,
+            typeof(ExtensionPropertyIdentityFixture).FullName!);
+        var queried = MetadataDeclarationQuery.GetTypeSurface(reader, typeHandle);
+        var extracted = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader).Types,
+            type => type.FullName == typeof(ExtensionPropertyIdentityFixture).FullName);
+
+        using var summaryStream =
+            File.OpenRead(typeof(ExtensionPropertyIdentityFixture).Assembly.Location);
+        using var summaryReader = new PEReader(summaryStream);
+        var summarized = Assert.Single(
+            ApiSurfaceExtractor.ExtractSummary(summaryReader).Types,
+            type => type.FullName == typeof(ExtensionPropertyIdentityFixture).FullName);
+
+        foreach (var surface in new[] { queried, extracted, summarized })
+        {
+            Assert.Equal(
+                2,
+                surface.Members.Count(member => member.Kind == "method"));
+            Assert.Contains(
+                surface.Members,
+                member => member is { Name: "get_Standalone", Kind: "method" });
+            Assert.Contains(
+                surface.Members,
+                member => member is { Name: "set_Standalone", Kind: "method" });
+            Assert.DoesNotContain(
+                surface.Members,
+                member => member.Kind == "method"
+                    && member.Name is "get_HasValue"
+                        or "get_Item"
+                        or "get_StaticValue"
+                        or "get_Capacity"
+                        or "set_Capacity");
+        }
+    }
+
+    [Fact]
     public void TypeSurface_PreservesQualifiedMethodImplAccessors()
     {
         var queried = MetadataDeclarationQuery.GetTypeSurface(
@@ -353,6 +396,8 @@ public sealed class MetadataDeclarationQueryTests
 
             foreach (var surface in new[] { queried, queriedAll })
             {
+                // Read is a real Property accessor with a deliberately noncanonical name.
+                // Association alone must not hide it as compiler extension-property plumbing.
                 Assert.Contains(
                     surface.Members,
                     member => member is { Name: "Read", Kind: "method" });

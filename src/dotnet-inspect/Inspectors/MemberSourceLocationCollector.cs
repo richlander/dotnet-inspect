@@ -8,6 +8,8 @@ namespace DotnetInspector.Inspectors;
 
 internal static class MemberSourceLocationCollector
 {
+    internal static int EnrichCountForTests;
+
     public static async Task<string?> EnrichAsync(
         ApiType apiType,
         string assemblyPath,
@@ -17,6 +19,7 @@ internal static class MemberSourceLocationCollector
         HttpClient httpClient,
         VerboseLogger logger)
     {
+        System.Threading.Interlocked.Increment(ref EnrichCountForTests);
         try
         {
             using var service = SourceLinkService.Open(assemblyPath, logger.Log);

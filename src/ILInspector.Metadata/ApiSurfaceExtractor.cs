@@ -160,7 +160,9 @@ public static class ApiSurfaceExtractor
 
     /// <summary>
     /// Extracts the public type identities and member-kind counts needed by the compact platform
-    /// API view without decoding signatures or materializing rich member models.
+    /// API view without materializing rich member models. Ordinary member signatures stay
+    /// undecoded; extension-property compiler skeletons are matched to their implementation
+    /// methods by the minimal structural signatures needed to keep those methods out of counts.
     /// </summary>
     public static ApiSurface ExtractSummary(PEReader peReader)
     {
@@ -680,6 +682,12 @@ public static class ApiSurfaceExtractor
             var canonicalAccessorMethods = GetCanonicalAccessorMethods(reader, typeDef);
             var hiddenAggregateAccessorMethods =
                 GetNonPublicAggregateAccessorMethods(reader, typeDef);
+            var extensionPropertyImplementationMethods = isExtensionClass
+                ? ExtensionMethodScanner.GetDeclaredExtensionPropertyImplementationMethods(
+                    reader,
+                    typeDef,
+                    observeDecodeWork)
+                : [];
 
             // Methods whose explicit `.override` MethodImpl targets
             // `System.Object::Finalize` — i.e. genuine class finalizers, the
@@ -705,7 +713,9 @@ public static class ApiSurfaceExtractor
                             && (!canonicalAccessorMethods.Contains(methodHandle)
                                 || (!includeAll
                                     && hiddenAggregateAccessorMethods.Contains(methodHandle)))));
-                if (accessorMethods.Contains(methodHandle) && !isRetainedImplementationAccessor)
+                if ((accessorMethods.Contains(methodHandle)
+                        || extensionPropertyImplementationMethods.Contains(methodHandle))
+                    && !isRetainedImplementationAccessor)
                     continue;
                 if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
                     continue;
@@ -1374,6 +1384,17 @@ public static class ApiSurfaceExtractor
         bool isExtensionClass)
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+        var explicitInterfaceImplementationBodies =
+            GetExplicitInterfaceImplementationBodies(reader, typeDef);
+        var accessorMethods = GetAccessorMethods(reader, typeDef);
+        var canonicalAccessorMethods = GetCanonicalAccessorMethods(reader, typeDef);
+        var hiddenAggregateAccessorMethods =
+            GetNonPublicAggregateAccessorMethods(reader, typeDef);
+        var extensionPropertyImplementationMethods = isExtensionClass
+            ? ExtensionMethodScanner.GetDeclaredExtensionPropertyImplementationMethods(
+                reader,
+                typeDef)
+            : [];
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
@@ -1384,14 +1405,17 @@ public static class ApiSurfaceExtractor
                 continue;
 
             string methodName = reader.GetString(method.Name);
-            if (methodName.StartsWith("get_", StringComparison.Ordinal)
-                || methodName.StartsWith("set_", StringComparison.Ordinal)
-                || methodName.StartsWith("add_", StringComparison.Ordinal)
-                || methodName.StartsWith("remove_", StringComparison.Ordinal)
-                || methodName.StartsWith('<'))
-            {
+            var isRetainedImplementationAccessor = isExplicitImplementation
+                && (methodName.Contains('.', StringComparison.Ordinal)
+                    || (explicitInterfaceImplementationBodies.Contains(methodHandle)
+                        && (!canonicalAccessorMethods.Contains(methodHandle)
+                            || hiddenAggregateAccessorMethods.Contains(methodHandle))));
+            if ((accessorMethods.Contains(methodHandle)
+                    || extensionPropertyImplementationMethods.Contains(methodHandle))
+                && !isRetainedImplementationAccessor)
                 continue;
-            }
+            if (methodName.StartsWith('<'))
+                continue;
 
             if (!isExplicitImplementation
                 && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))

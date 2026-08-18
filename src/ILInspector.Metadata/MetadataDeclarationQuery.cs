@@ -107,11 +107,20 @@ public static class MetadataDeclarationQuery
         }
 
         type.IsStatic = type.IsSealed && type.IsAbstract;
+        bool isExtensionClass = type.IsStatic
+            && AttributeReader.HasExtensionAttribute(
+                reader,
+                typeDef.GetCustomAttributes());
         var accessorMethods = ApiSurfaceExtractor.GetAccessorMethods(reader, typeDef);
         var canonicalAccessorMethods =
             ApiSurfaceExtractor.GetCanonicalAccessorMethods(reader, typeDef);
         var hiddenAggregateAccessorMethods =
             ApiSurfaceExtractor.GetNonPublicAggregateAccessorMethods(reader, typeDef);
+        var extensionPropertyImplementationMethods = isExtensionClass
+            ? ExtensionMethodScanner.GetDeclaredExtensionPropertyImplementationMethods(
+                reader,
+                typeDef)
+            : [];
         var explicitImplementationBodies =
             ApiSurfaceExtractor.GetExplicitImplementationBodies(reader, typeDef);
         var explicitInterfaceImplementationBodies =
@@ -258,7 +267,9 @@ public static class MetadataDeclarationQuery
                         && (!canonicalAccessorMethods.Contains(methodHandle)
                             || (!includeNonPublicMembers
                                 && hiddenAggregateAccessorMethods.Contains(methodHandle)))));
-            if (accessorMethods.Contains(methodHandle) && !isRetainedImplementationAccessor)
+            if ((accessorMethods.Contains(methodHandle)
+                    || extensionPropertyImplementationMethods.Contains(methodHandle))
+                && !isRetainedImplementationAccessor)
                 continue;
             if (methodName.StartsWith('<'))
                 continue;

@@ -80,6 +80,7 @@ public static class AttributeReader
 
             try
             {
+                beforeMaterialize?.Invoke(reader.GetBlobReader(attr.Value).Length);
                 var blob = reader.GetBlobReader(attr.Value);
                 if (blob.ReadUInt16() != 1)
                     break;

@@ -585,28 +585,14 @@ public static class ExtensionMethodScanner
                 if (!includeGetter && !includeSetter)
                     continue;
 
-                if (!TryGetExtensionMarkerName(
+                if (!TryGetDeclaredExtensionProperty(
                         reader,
+                        groupingType,
                         property,
                         accessors,
-                        out var markerName))
-                {
-                    continue;
-                }
-
-                var markerTypeHandle = groupingType.GetNestedTypes().FirstOrDefault(handle =>
-                    reader.StringComparer.Equals(
-                        reader.GetTypeDefinition(handle).Name,
-                        markerName!));
-                if (markerTypeHandle.IsNil)
-                    continue;
-
-                var markerType = reader.GetTypeDefinition(markerTypeHandle);
-                var markerMethodHandle = markerType.GetMethods().FirstOrDefault(handle =>
-                    reader.StringComparer.Equals(
-                        reader.GetMethodDefinition(handle).Name,
-                        "<Extension>$"));
-                if (markerMethodHandle.IsNil)
+                        beforeMaterialize: null,
+                        out var markerType,
+                        out var markerMethod))
                     continue;
 
                 if (!includeAll
@@ -625,7 +611,6 @@ public static class ExtensionMethodScanner
                         continue;
                 }
 
-                var markerMethod = reader.GetMethodDefinition(markerMethodHandle);
                 var anchorInfo =
                     ApiMemberIdentity.CreateExtensionPropertyDeclarationAnchorInfo(
                         reader,
@@ -678,6 +663,263 @@ public static class ExtensionMethodScanner
         }
     }
 
+    internal static HashSet<MethodDefinitionHandle>
+        GetDeclaredExtensionPropertyImplementationMethods(
+            MetadataReader reader,
+            TypeDefinition extensionClass,
+            Action<int>? beforeMaterialize = null)
+    {
+        HashSet<MethodDefinitionHandle> implementations = [];
+        if (!AttributeReader.HasExtensionAttribute(
+                reader,
+                extensionClass.GetCustomAttributes(),
+                beforeMaterialize))
+        {
+            return implementations;
+        }
+
+        Dictionary<string, List<MethodDefinitionHandle>>? candidatesByName = null;
+        GenericContext? extensionClassContext = null;
+        int extensionClassGenericCount = extensionClass.GetGenericParameters().Count;
+
+        foreach (var groupingTypeHandle in extensionClass.GetNestedTypes())
+        {
+            var groupingType = reader.GetTypeDefinition(groupingTypeHandle);
+            if (!AttributeReader.HasExtensionAttribute(
+                    reader,
+                    groupingType.GetCustomAttributes(),
+                    beforeMaterialize))
+            {
+                continue;
+            }
+
+            foreach (var propertyHandle in groupingType.GetProperties())
+            {
+                var property = reader.GetPropertyDefinition(propertyHandle);
+                var accessors = property.GetAccessors();
+                if (!TryGetDeclaredExtensionProperty(
+                        reader,
+                        groupingType,
+                        property,
+                        accessors,
+                        beforeMaterialize,
+                        out var markerType,
+                        out var markerMethod))
+                {
+                    continue;
+                }
+
+                var markerContext = GenericContext.ForType(
+                    reader,
+                    markerType,
+                    beforeMaterialize);
+                if (!TryReadMethodSignature(
+                        reader,
+                        markerMethod,
+                        markerContext,
+                        beforeMaterialize,
+                        out var markerSignature))
+                {
+                    continue;
+                }
+                if (markerSignature.ParameterTypes.Length != 1)
+                {
+                    throw new BadImageFormatException(
+                        "An extension marker must have exactly one receiver parameter.");
+                }
+
+                int expectedGenericCount =
+                    markerType.GetGenericParameters().Count - extensionClassGenericCount;
+                if (expectedGenericCount < 0)
+                    continue;
+
+                foreach (var accessorHandle in new[]
+                {
+                    accessors.Getter,
+                    accessors.Setter,
+                })
+                {
+                    if (accessorHandle.IsNil)
+                        continue;
+
+                    var accessor = reader.GetMethodDefinition(accessorHandle);
+                    if (!TryReadMethodSignature(
+                            reader,
+                            accessor,
+                            markerContext,
+                            beforeMaterialize,
+                            out var accessorSignature))
+                    {
+                        continue;
+                    }
+
+                    string accessorName = ReadStructuralMethodName(
+                        reader,
+                        accessor,
+                        beforeMaterialize);
+                    candidatesByName ??= BuildImplementationCandidateMap(
+                        reader,
+                        extensionClass,
+                        beforeMaterialize);
+                    if (!candidatesByName.TryGetValue(
+                            accessorName,
+                            out var candidates))
+                    {
+                        continue;
+                    }
+
+                    MethodDefinitionHandle matched = default;
+                    int matchCount = 0;
+                    foreach (var candidateHandle in candidates)
+                    {
+                        var candidate = reader.GetMethodDefinition(candidateHandle);
+                        extensionClassContext ??= GenericContext.ForType(
+                            reader,
+                            extensionClass,
+                            beforeMaterialize);
+                        var candidateContext = GenericContext.ForMethod(
+                            reader,
+                            extensionClassContext,
+                            candidate,
+                            beforeMaterialize);
+                        if (!TryReadMethodSignature(
+                                reader,
+                                candidate,
+                                candidateContext,
+                                beforeMaterialize,
+                                out var candidateSignature)
+                            || !MatchesExtensionPropertyImplementation(
+                                markerSignature,
+                                accessor,
+                                accessorSignature,
+                                candidate,
+                                candidateSignature,
+                                expectedGenericCount))
+                        {
+                            continue;
+                        }
+
+                        matched = candidateHandle;
+                        matchCount++;
+                        if (matchCount > 1)
+                            break;
+                    }
+
+                    if (matchCount == 1)
+                        implementations.Add(matched);
+                }
+            }
+        }
+
+        return implementations;
+    }
+
+    private static Dictionary<string, List<MethodDefinitionHandle>>
+        BuildImplementationCandidateMap(
+            MetadataReader reader,
+            TypeDefinition extensionClass,
+            Action<int>? beforeMaterialize)
+    {
+        var candidates = new Dictionary<string, List<MethodDefinitionHandle>>(
+            StringComparer.Ordinal);
+        foreach (var handle in extensionClass.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(handle);
+            if ((method.Attributes & MethodAttributes.Static) == 0)
+                continue;
+
+            string name = ReadStructuralMethodName(
+                reader,
+                method,
+                beforeMaterialize);
+            if (!candidates.TryGetValue(name, out var sameNamed))
+            {
+                sameNamed = [];
+                candidates.Add(name, sameNamed);
+            }
+            sameNamed.Add(handle);
+        }
+
+        return candidates;
+    }
+
+    private static bool MatchesExtensionPropertyImplementation(
+        MethodSignature<string> markerSignature,
+        MethodDefinition accessor,
+        MethodSignature<string> accessorSignature,
+        MethodDefinition candidate,
+        MethodSignature<string> candidateSignature,
+        int expectedGenericCount)
+    {
+        if ((candidate.Attributes & MethodAttributes.Static) == 0
+            || candidate.RelativeVirtualAddress == 0
+            || (candidate.Attributes & MethodAttributes.MemberAccessMask)
+                != (accessor.Attributes & MethodAttributes.MemberAccessMask)
+            || candidate.GetGenericParameters().Count != expectedGenericCount
+            || !string.Equals(
+                candidateSignature.ReturnType,
+                accessorSignature.ReturnType,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        bool staticAccessor = (accessor.Attributes & MethodAttributes.Static) != 0;
+        int receiverCount = staticAccessor ? 0 : 1;
+        if (candidateSignature.ParameterTypes.Length
+            != accessorSignature.ParameterTypes.Length + receiverCount)
+        {
+            return false;
+        }
+
+        int candidateIndex = 0;
+        if (!staticAccessor)
+        {
+            if (!string.Equals(
+                    candidateSignature.ParameterTypes[0],
+                    markerSignature.ParameterTypes[0],
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+            candidateIndex = 1;
+        }
+
+        for (int i = 0; i < accessorSignature.ParameterTypes.Length; i++)
+        {
+            if (!string.Equals(
+                    candidateSignature.ParameterTypes[candidateIndex + i],
+                    accessorSignature.ParameterTypes[i],
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryReadMethodSignature(
+        MetadataReader reader,
+        MethodDefinition method,
+        GenericContext context,
+        Action<int>? beforeMaterialize,
+        out MethodSignature<string> signature)
+    {
+        beforeMaterialize?.Invoke(reader.GetBlobReader(method.Signature).Length);
+        return GuardedSignatureText.MethodText(reader, method, context)
+            .TryGetValue(out signature);
+    }
+
+    private static string ReadStructuralMethodName(
+        MetadataReader reader,
+        MethodDefinition method,
+        Action<int>? beforeMaterialize)
+    {
+        beforeMaterialize?.Invoke(reader.GetBlobReader(method.Name).Length);
+        return MetadataSafetyPolicy.ReadStructuralString(reader, method.Name);
+    }
+
     private static bool IsIncludedAccessor(
         MetadataReader reader,
         MethodDefinitionHandle accessorHandle,
@@ -698,21 +940,65 @@ public static class ExtensionMethodScanner
         MetadataReader reader,
         PropertyDefinition property,
         PropertyAccessors accessors,
-        out string? markerName)
+        out string? markerName,
+        Action<int>? beforeMaterialize = null)
         => AttributeReader.TryGetExtensionMarkerName(
                 reader,
                 property.GetCustomAttributes(),
-                out markerName)
+                out markerName,
+                beforeMaterialize)
             || !accessors.Getter.IsNil
             && AttributeReader.TryGetExtensionMarkerName(
                 reader,
                 reader.GetMethodDefinition(accessors.Getter).GetCustomAttributes(),
-                out markerName)
+                out markerName,
+                beforeMaterialize)
             || !accessors.Setter.IsNil
             && AttributeReader.TryGetExtensionMarkerName(
                 reader,
                 reader.GetMethodDefinition(accessors.Setter).GetCustomAttributes(),
-                out markerName);
+                out markerName,
+                beforeMaterialize);
+
+    private static bool TryGetDeclaredExtensionProperty(
+        MetadataReader reader,
+        TypeDefinition groupingType,
+        PropertyDefinition property,
+        PropertyAccessors accessors,
+        Action<int>? beforeMaterialize,
+        out TypeDefinition markerType,
+        out MethodDefinition markerMethod)
+    {
+        markerType = default;
+        markerMethod = default;
+        if (!TryGetExtensionMarkerName(
+                reader,
+                property,
+                accessors,
+                out var markerName,
+                beforeMaterialize))
+        {
+            return false;
+        }
+
+        var markerTypeHandle = groupingType.GetNestedTypes().FirstOrDefault(handle =>
+            reader.StringComparer.Equals(
+                reader.GetTypeDefinition(handle).Name,
+                markerName!));
+        if (markerTypeHandle.IsNil)
+            return false;
+
+        markerType = reader.GetTypeDefinition(markerTypeHandle);
+        var markerMethodHandle = markerType.GetMethods().FirstOrDefault(handle =>
+            reader.StringComparer.Equals(
+                reader.GetMethodDefinition(handle).Name,
+                "<Extension>$"));
+        if (markerMethodHandle.IsNil)
+            return false;
+
+        markerMethod = reader.GetMethodDefinition(markerMethodHandle);
+        return true;
+    }
 
     private static string FormatMethodSignature(
         MetadataReader reader,
