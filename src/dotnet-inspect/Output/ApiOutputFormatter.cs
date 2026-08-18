@@ -1493,8 +1493,6 @@ public static class ApiOutputFormatter
             sections.Add(SectionNames.SourceDiff);
         if (requestedSections.Contains(SectionNames.AnnotatedSource))
             sections.Add(SectionNames.AnnotatedSource);
-        if (requestedSections.Contains(SectionNames.Facts))
-            sections.Add(SectionNames.Facts);
         if (!accessor.IsAbstract)
         {
             if (requestedSections.Contains(SectionNames.DecompiledSource))
