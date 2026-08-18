@@ -94,13 +94,20 @@ public partial class SymbolPackageDownloader
             if (IsCachedMiss(snupkgUrl, log, "symbol package"))
                 continue;
 
-            HttpRetryHelper.HttpRetryResult httpResult;
+            HttpRetryHelper.HttpBodyFetchResult httpResult;
             try
             {
-                httpResult = await HttpRetryHelper.GetWithRetryResultAsync(
-                    _client, snupkgUrl, log: log,
-                    cancellationToken: cancellationToken,
-                    trafficKind: NetworkTrafficKind.SymbolDownload).ConfigureAwait(false);
+                httpResult =
+                    await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                        _client,
+                        snupkgUrl,
+                        static _ => true,
+                        log: log,
+                        cancellationToken: cancellationToken,
+                        trafficKind: NetworkTrafficKind.SymbolDownload,
+                        maxDownloadSize:
+                            _limits?.MaxSymbolPackageBytes
+                            ?? DefaultMaximumSymbolBytes).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -114,10 +121,19 @@ public partial class SymbolPackageDownloader
                 continue;
             }
 
-            using var response = httpResult.Response;
-            if (response is not { IsSuccessStatusCode: true })
+            if (httpResult.Bytes is not { } symbolPackageBytes)
             {
-                CacheMissIfDefinitive(snupkgUrl, httpResult);
+                CacheMissIfDefinitive(
+                    snupkgUrl,
+                    new HttpRetryHelper.HttpRetryResult(
+                        null,
+                        httpResult.StatusCode));
+                if (httpResult.Status
+                    == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
+                {
+                    log?.Invoke(
+                        "Symbol package exceeds the configured download limit.");
+                }
                 continue;
             }
 
@@ -126,13 +142,20 @@ public partial class SymbolPackageDownloader
             {
                 log?.Invoke(
                     $"Found symbol package at: {UrlRedaction.ForDiagnostics(snupkgUrl)}");
-                extracted = await ExtractPdbFromSymbolPackage(
-                    response,
+                using var content =
+                    new MemoryStream(
+                        symbolPackageBytes,
+                        writable: false);
+                cancellationToken.ThrowIfCancellationRequested();
+                extracted = SnupkgPdbReader.ExtractPortablePdbCancelable(
+                    content,
                     assemblyName,
                     pdbGuid,
-                    portablePdbStamp,
                     log,
-                    cancellationToken).ConfigureAwait(false);
+                    portablePdbStamp,
+                    _limits,
+                    cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -199,30 +222,6 @@ public partial class SymbolPackageDownloader
 
         log?.Invoke("Symbol package not found on NuGet");
         return new PdbProbeResult(null, windowsPdbDetected);
-    }
-
-    private static async Task<SnupkgPdbResult> ExtractPdbFromSymbolPackage(
-        HttpResponseMessage response,
-        string assemblyName,
-        Guid pdbGuid,
-        uint? portablePdbStamp,
-        Action<string>? log,
-        CancellationToken cancellationToken)
-    {
-        SnupkgPdbResult extracted;
-        using (var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            extracted = SnupkgPdbReader.ExtractPortablePdb(
-                content,
-                assemblyName,
-                pdbGuid,
-                log,
-                portablePdbStamp);
-            cancellationToken.ThrowIfCancellationRequested();
-        }
-
-        return extracted;
     }
 
     private static string GetCachedPdbKey(

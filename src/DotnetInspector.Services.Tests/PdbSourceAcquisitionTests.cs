@@ -279,6 +279,27 @@ public class PdbSourceAcquisitionTests
     }
 
     [Fact]
+    public async Task FetchSourceBytes_PolicyRejectsDestinationBeforeDispatch()
+    {
+        var handler = new QueueHandler(Encoding.UTF8.GetBytes(Source));
+        using var client = new HttpClient(handler);
+        var policy = new RejectingSourceFetchPolicy();
+        var fetcher = new SourceFetcher(
+            client,
+            new InMemorySourceContentStore(),
+            policy);
+
+        byte[]? result = await fetcher.FetchVerifiedSourceBytesAsync(
+            "https://localhost/Sample.cs",
+            static _ => true,
+            TestContext.Current.CancellationToken);
+
+        Assert.Null(result);
+        Assert.Equal(0, handler.RequestCount);
+        Assert.Equal(0, policy.ConfiguredRequests);
+    }
+
+    [Fact]
     public async Task FetchSourceBytes_IgnoresPreOriginValidationCache()
     {
         string cachePath = Path.Combine(
@@ -515,5 +536,14 @@ public class PdbSourceAcquisitionTests
             length = content.Length;
             return true;
         }
+    }
+
+    sealed class RejectingSourceFetchPolicy : ISourceFetchPolicy
+    {
+        public int ConfiguredRequests { get; private set; }
+        public bool FinalResponseUriIsReliable => true;
+        public bool IsRequestAllowed(Uri requestUri) => false;
+        public void ConfigureRequest(HttpRequestMessage request) =>
+            ConfiguredRequests++;
     }
 }

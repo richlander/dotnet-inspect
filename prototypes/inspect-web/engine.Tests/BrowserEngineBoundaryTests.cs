@@ -22,6 +22,206 @@ public sealed class BrowserEngineBoundaryTests
     const int MiB = 1024 * 1024;
 
     [Fact]
+    public void SourceContexts_UseFreshMemoryOnlyPdbStores()
+    {
+        AssemblyContextSourceQueryContext first =
+            BrowserInspectionEngine.CreateSourceContext();
+        AssemblyContextSourceQueryContext second =
+            BrowserInspectionEngine.CreateSourceContext();
+
+        var firstStore =
+            Assert.IsType<InMemoryPdbStore>(first.PdbStore);
+        Assert.IsType<InMemoryPdbStore>(second.PdbStore);
+        Assert.NotSame(first.PdbStore, second.PdbStore);
+        Assert.Equal(24L * MiB, firstStore.MaxRetainedBytes);
+        Assert.False(first.AllowLocalSourceReads);
+        Assert.Null(first.RepositoryPaths);
+        Assert.NotNull(first.SymbolAcquisitionLimits);
+        Assert.InRange(
+            first.SymbolAcquisitionLimits.MaxSymbolPackageBytes,
+            1,
+            24L * MiB);
+        Assert.InRange(
+            first.SymbolAcquisitionLimits.MaxPortablePdbBytes,
+            1,
+            8L * MiB);
+        Assert.InRange(
+            first.SymbolAcquisitionLimits.MaxExpandedPdbBytes,
+            1,
+            24L * MiB);
+    }
+
+    [Fact]
+    public async Task SourceOperations_AreExclusiveAndSuperseding()
+    {
+        using BrowserSourceOperationLease first =
+            await BrowserSourceOperationCoordinator.BeginAsync();
+        Task<BrowserSourceOperationLease> secondTask =
+            BrowserSourceOperationCoordinator.BeginAsync().AsTask();
+
+        Assert.True(first.CancellationToken.IsCancellationRequested);
+        Assert.False(secondTask.IsCompletedSuccessfully);
+
+        first.Dispose();
+        using BrowserSourceOperationLease second = await secondTask;
+        Assert.False(second.CancellationToken.IsCancellationRequested);
+
+        BrowserSourceOperationCoordinator.CancelCurrent();
+        Assert.True(second.CancellationToken.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task CancelledWait_ReleasesSharedPackageAcquisition()
+    {
+        var completion =
+            new TaskCompletionSource<int>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+        Task<int> waiting = BrowserPackageWorkspace.WaitForSharedAcquisitionAsync(
+            completion.Task,
+            cancellation.Token);
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
+        Assert.False(completion.Task.IsCompleted);
+        completion.SetResult(42);
+        Assert.Equal(42, await completion.Task);
+    }
+
+    [Fact]
+    public async Task CancelledPackageAcquisition_StopsBeforeNetworkAccess()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => BrowserPackageWorkspace.AcquireAsync(
+                "Cancelled.Source",
+                "1.0.0",
+                cancellation.Token));
+    }
+
+    [Fact]
+    public void ActiveScopeLease_PreventsWorkspaceAndPackageEviction()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate activeCoordinate = Coordinate(
+            "Active.Source",
+            Package(image, "lib/net11.0/Active.Source.dll"));
+        BrowserInspectionScope active = BrowserPackageWorkspace.OpenScope(
+            [activeCoordinate]);
+        using BrowserInspectionScopeLease lease =
+            BrowserPackageWorkspace.LeaseScope(active);
+
+        foreach (string id in new[] { "Lease.B", "Lease.C", "Lease.D", "Lease.E" })
+        {
+            BrowserPackageWorkspace.OpenScope(
+                [Coordinate(id, Package(image, $"lib/net11.0/{id}.dll"))]);
+        }
+
+        BrowserInspectionScope reopened = BrowserPackageWorkspace.OpenScope(
+            [activeCoordinate]);
+        Assert.Same(active, reopened);
+        Assert.InRange(BrowserPackageWorkspace.Stats().Workspaces, 1, 4);
+    }
+
+    [Theory]
+    [InlineData("https://raw.githubusercontent.com/org/repo/commit/A.cs", true)]
+    [InlineData("https://dev.azure.com/org/project/_apis/git/A.cs", true)]
+    [InlineData("https://org.visualstudio.com/project/_apis/git/A.cs", true)]
+    [InlineData("https://api.bitbucket.org/2.0/repositories/org/repo/src/commit/A.cs", true)]
+    [InlineData("https://localhost/A.cs", false)]
+    [InlineData("https://127.0.0.1/A.cs", false)]
+    [InlineData("https://example.com/A.cs", false)]
+    [InlineData("http://raw.githubusercontent.com/org/repo/commit/A.cs", false)]
+    public void SourceFetchPolicy_AuthorizesBeforeDispatch(
+        string url,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            BrowserSourceFetchPolicy.Instance.IsRequestAllowed(
+                new Uri(url)));
+    }
+
+    [Fact]
+    public void SourceFetchPolicy_OmitsCredentialsAndRefusesRedirects()
+    {
+        using var request =
+            new HttpRequestMessage(
+                HttpMethod.Get,
+                "https://raw.githubusercontent.com/org/repo/commit/A.cs");
+
+        BrowserSourceFetchPolicy.Instance.ConfigureRequest(request);
+
+        Assert.True(request.Options.TryGetValue(
+            new HttpRequestOptionsKey<IDictionary<string, object>>(
+                "WebAssemblyFetchOptions"),
+            out IDictionary<string, object>? options));
+        Assert.Equal("omit", options["credentials"]);
+        Assert.Equal("error", options["redirect"]);
+    }
+
+    [Fact]
+    public void TypeSourceParticipant_RefusesReferenceOnlyAssembly()
+    {
+        byte[] image =
+            File.ReadAllBytes(
+                typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = Coordinate(
+            "Reference.Source",
+            Package(
+                image,
+                "ref/net11.0/InspectWeb.Engine.Tests.dll"));
+
+        InvalidOperationException error =
+            Assert.Throws<InvalidOperationException>(
+                () => coordinate.ImplementationAsset(
+                    coordinate.DefaultAsset.AssemblyName));
+
+        Assert.Contains("reference assembly only", error.Message);
+    }
+
+    [Fact]
+    public void SourceFailures_PreserveTypedDetailAndCause()
+    {
+        var cause = new IOException("symbol service failed");
+        var failure = new AssemblySourceFailure(
+            AssemblySourceFailureKind.InspectionFailed,
+            "Source inspection failed.",
+            cause);
+
+        InvalidOperationException adapted =
+            BrowserInspectionEngine.SourceUnavailable(failure);
+
+        Assert.Contains(
+            nameof(AssemblySourceFailureKind.InspectionFailed),
+            adapted.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            failure.Detail,
+            adapted.Message,
+            StringComparison.Ordinal);
+        Assert.Same(cause, adapted.InnerException);
+
+        InvalidOperationException withAuthoredFailure =
+            BrowserInspectionEngine.SourceUnavailable(
+                failure,
+                "The host does not authorize this SourceLink destination.");
+        Assert.Contains(
+            "Original source unavailable",
+            withAuthoredFailure.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "does not authorize",
+            withAuthoredFailure.Message,
+            StringComparison.Ordinal);
+        Assert.Same(cause, withAuthoredFailure.InnerException);
+    }
+
+    [Fact]
     public void WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures()
     {
         byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
@@ -117,12 +317,14 @@ public sealed class BrowserEngineBoundaryTests
         [
             new BrowserPackageRequest("Root.Order.A", "1.0.0", "net11.0"),
             new BrowserPackageRequest("Root.Order.B", "1.0.0", "net11.0"),
-        ]);
+        ],
+        TestContext.Current.CancellationToken);
         BrowserScopeResolution second = await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
         [
             new BrowserPackageRequest("Root.Order.B", "1.0.0", "net11.0"),
             new BrowserPackageRequest("Root.Order.A", "1.0.0", "net11.0"),
-        ]);
+        ],
+        TestContext.Current.CancellationToken);
 
         Assert.Same(first.Scope, second.Scope);
         BrowserPackageCoordinate requestedRoot = second.RequestedCoordinates[0];
@@ -1020,7 +1222,10 @@ public sealed class BrowserEngineBoundaryTests
 
         InvalidOperationException failure =
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => BrowserPackageWorkspace.AcquireAsync(packageId, version));
+                () => BrowserPackageWorkspace.AcquireAsync(
+                    packageId,
+                    version,
+                    TestContext.Current.CancellationToken));
 
         Assert.Contains("package coordinate", failure.Message, StringComparison.OrdinalIgnoreCase);
         BrowserPackageCacheStats after = BrowserPackageWorkspace.Stats();
@@ -1277,9 +1482,32 @@ public sealed class BrowserEngineBoundaryTests
                             new InvalidOperationException(
                                 "Synchronous work failed after the deadline."));
                     },
-                    TimeSpan.FromMilliseconds(10)));
+                    TimeSpan.FromMilliseconds(10),
+                    TestContext.Current.CancellationToken));
 
         Assert.IsType<InvalidOperationException>(failure.InnerException);
+    }
+
+    [Fact]
+    public async Task PackageOperation_LateCallerCancellationRemainsCancellation()
+    {
+        using var callerCancellation = new CancellationTokenSource();
+        Task<int> operation =
+            BrowserPackageWorkspace.RunPackageOperationAsync<int>(
+                async _ =>
+                {
+                    callerCancellation.Cancel();
+                    await Task.Delay(
+                        TimeSpan.FromMilliseconds(50),
+                        TestContext.Current.CancellationToken);
+                    throw new OperationCanceledException(
+                        callerCancellation.Token);
+                },
+                TimeSpan.FromMilliseconds(10),
+                callerCancellation.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => operation);
     }
 
     [Fact]
