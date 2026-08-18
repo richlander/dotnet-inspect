@@ -19,7 +19,7 @@ public sealed class MetadataSource : IDisposable
 {
     static readonly TypeRef s_enumerable = TypeRef.CoreLib("System.Collections", "IEnumerable");
 
-    readonly Stream _stream;
+    readonly Stream? _stream;
     MetadataReaderProvider? _pdbProvider;
     MetadataReader? _pdbReader;
     volatile bool _pdbProbed;
@@ -34,7 +34,7 @@ public sealed class MetadataSource : IDisposable
     CrossAssemblyTypeResolver? _crossAssembly;
     readonly object _crossLock = new();
 
-    MetadataSource(string path, string? filePath, Stream stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
+    MetadataSource(string path, string? filePath, Stream? stream, PEReader peReader, MetadataReader reader, string assemblyName, ResolvedAssemblyReference assembly, string? externalPdbPath, bool readSymbols, IAssemblyBindingPolicy bindingPolicy, MetadataContext? context)
     {
         Path = path;
         FilePath = filePath;
@@ -184,6 +184,81 @@ public sealed class MetadataSource : IDisposable
             readSymbols: false,
             bindingPolicy,
             context);
+
+    /// <summary>
+    /// Opens an immutable PE snapshot without reopening <paramref name="path"/>.
+    /// </summary>
+    /// <param name="path">
+    /// Original assembly path, used for identity, diagnostics, sidecar symbol lookup, and the
+    /// default sibling-assembly resolver. The PE bytes are read only from
+    /// <paramref name="image"/>.
+    /// </param>
+    /// <param name="image">Fully prefetched immutable PE image.</param>
+    /// <param name="externalPdbPath">Optional portable PDB used for local names.</param>
+    /// <param name="resolver">
+    /// Optional referenced-assembly resolver. When omitted, referenced assemblies are resolved
+    /// beside <paramref name="path"/>.
+    /// </param>
+    /// <param name="context">
+    /// Optional shared cross-assembly metadata context. The caller retains ownership.
+    /// </param>
+    /// <returns>A live metadata source over the supplied snapshot.</returns>
+    public static MetadataSource OpenFromPrefetchedImage(
+        string path,
+        ImmutableArray<byte> image,
+        string? externalPdbPath = null,
+        IAssemblyReferenceResolver? resolver = null,
+        MetadataContext? context = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (image.IsDefaultOrEmpty)
+            throw new ArgumentException("The prefetched PE image must not be empty.", nameof(image));
+
+        PEReader? peReader = null;
+        try
+        {
+            peReader = new PEReader(image);
+            if (!peReader.HasMetadata)
+                throw new BadImageFormatException($"No managed metadata: {path}");
+
+            var reader = peReader.GetMetadataReader();
+            string assemblyName = reader.IsAssembly
+                ? reader.GetString(reader.GetAssemblyDefinition().Name)
+                : System.IO.Path.GetFileNameWithoutExtension(path);
+            string fullPath = System.IO.Path.GetFullPath(path);
+            var identity = reader.IsAssembly
+                ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
+                : new AssemblyReferenceIdentity(
+                    assemblyName,
+                    Version: null,
+                    Culture: null,
+                    PublicKeyToken: null);
+            var assembly = ResolvedAssemblyReference.Create(
+                identity,
+                fullPath,
+                () => new MemoryStream(image.ToArray(), writable: false),
+                AssemblyResolutionProvenance.Local("MetadataSource snapshot"));
+            var bindingPolicy = new AssemblyReferenceBindingPolicy(
+                resolver ?? DefaultAssemblyReferenceResolver(path));
+            return new MetadataSource(
+                path,
+                fullPath,
+                stream: null,
+                peReader,
+                reader,
+                assemblyName,
+                assembly,
+                externalPdbPath,
+                readSymbols: true,
+                bindingPolicy,
+                context);
+        }
+        catch
+        {
+            peReader?.Dispose();
+            throw;
+        }
+    }
 
     /// <summary>
     /// Default referenced-assembly probing policy for callers that need to share
@@ -986,7 +1061,7 @@ public sealed class MetadataSource : IDisposable
                 _crossContext?.Dispose();
         }
         Pe.Dispose();
-        _stream.Dispose();
+        _stream?.Dispose();
     }
 
     /// <summary>

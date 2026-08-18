@@ -263,32 +263,29 @@ public sealed record PerformanceTriageOptions
     static bool TryParsePredicate(string expression, out RowPredicate predicate, out OptionError error)
     {
         predicate = default!;
-        expression = expression.Trim();
-        if (expression.Length == 0)
+        if (RowPredicateSyntaxParser.TryParse(
+                expression,
+                out var syntax,
+                out error))
         {
-            error = "Empty --where predicate.";
-            return false;
-        }
-
-        var match = FindPredicateOperator(expression);
-        if (match is { } found)
-        {
-            var (index, token, op) = found;
-
-            var field = NormalizeField(expression[..index].Trim(), FilterableFields);
+            var fieldText = syntax.Field;
+            var field = NormalizeField(fieldText, FilterableFields);
             if (field is null)
             {
-                error = UnknownFieldError(expression[..index].Trim(), "filterable", FilterableFields);
+                error = UnknownFieldError(fieldText, "filterable", FilterableFields);
                 return false;
             }
 
-            var value = expression[(index + token.Length)..].Trim();
-            if (value.Length == 0)
+            var op = syntax.Operator switch
             {
-                error = $"Missing value in --where predicate '{Contain(expression)}'.";
-                return false;
-            }
-
+                RowPredicateOperator.Equals => RowOperator.Equals,
+                RowPredicateOperator.NotEquals => RowOperator.NotEquals,
+                RowPredicateOperator.GreaterOrEqual => RowOperator.GreaterOrEqual,
+                RowPredicateOperator.LessOrEqual => RowOperator.LessOrEqual,
+                _ => throw new InvalidOperationException(
+                    $"Unknown row predicate operator '{syntax.Operator}'."),
+            };
+            var value = syntax.Value;
             if (op is RowOperator.GreaterOrEqual or RowOperator.LessOrEqual
                 && !IsNumericField(field)
                 && field is not ("Priority" or "Confidence" or "Weight"))
@@ -313,32 +310,7 @@ public sealed record PerformanceTriageOptions
             return true;
         }
 
-        error = $"Invalid --where predicate '{Contain(expression)}'. Use forms like 'Field=value', 'Field!=value', 'RootReach>=10', or 'Confidence>=medium'.";
         return false;
-    }
-
-    static (int Index, string Token, RowOperator Operator)? FindPredicateOperator(string expression)
-    {
-        (int Index, string Token, RowOperator Operator)? best = null;
-        foreach (var candidate in new[]
-        {
-            (Token: ">=", Operator: RowOperator.GreaterOrEqual),
-            (Token: "<=", Operator: RowOperator.LessOrEqual),
-            (Token: "!=", Operator: RowOperator.NotEquals),
-            (Token: "=", Operator: RowOperator.Equals),
-        })
-        {
-            int index = expression.IndexOf(candidate.Token, StringComparison.Ordinal);
-            if (index <= 0)
-                continue;
-            if (best is null
-                || index < best.Value.Index
-                || index == best.Value.Index && candidate.Token.Length > best.Value.Token.Length)
-            {
-                best = (index, candidate.Token, candidate.Operator);
-            }
-        }
-        return best;
     }
 
     static bool IsKnownConfidence(string value)
@@ -367,9 +339,7 @@ public sealed record PerformanceTriageOptions
     }
 
     static string NormalizeName(string value)
-        => value.Replace(" ", "", StringComparison.Ordinal)
-            .Replace("-", "", StringComparison.Ordinal)
-            .Replace("_", "", StringComparison.Ordinal);
+        => RowPredicateSyntaxParser.NormalizeFieldName(value);
 
     static OptionError UnknownFieldError(string field, string kind, IReadOnlyList<string> knownFields)
     {

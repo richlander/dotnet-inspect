@@ -169,8 +169,10 @@ declaring `MethodToken` and reports missing runtime coordinates explicitly.
 For a filtered export, the trace join stops at the first frame in the
 represented assembly; it does not walk past an unexported in-assembly callee
 and credit an outer caller. If `--library` and `--triage` name the same physical
-site, the shape-compatible triage row supplies the single attribution.
+candidate, the shape-compatible triage row carries the runtime evidence.
 The raw library row is marked `superseded-by-triage`, not workload-cold.
+Type-level ambiguity and its site cap count the shared coordinate once unless
+several library MVIDs make the triage row's module version ambiguous.
 
 ## Select direct caller-loop repetition
 
