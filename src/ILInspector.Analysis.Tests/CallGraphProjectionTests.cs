@@ -242,6 +242,46 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
+    public void FindNodeUsesRetainedCallSiteDefinitionEvidence()
+    {
+        MemberRef focus = Member("Target", "Run");
+        MemberRef callee = Member("Svc", "Do");
+        DirectCall call = Call(focus, callee, 4);
+        GraphNodeEvidence callSite = CallSiteEvidence(call);
+        GraphNodeEvidence definition = Evidence(3);
+        CallGraphProjection projection =
+            CallGraphProjection.FromCallees(
+                Node(
+                    focus,
+                    CallTreeStatus.Expanded,
+                    [
+                        Leaf(callee) with
+                        {
+                            GraphEvidence = new GraphNodeEvidence(
+                                callSite.Storage,
+                                GraphNodeIdentity.CreateDocumentLocal(),
+                                correspondence: null,
+                                definitionStorage:
+                                    definition.Storage),
+                        },
+                    ]));
+        var method = new MethodIdentity(
+            callee.DeclaringType.Assembly,
+            definition.Storage.ModuleVersionId,
+            callee.DeclaringType,
+            callee.Name,
+            callee.ParameterTypes,
+            callee.ReturnType,
+            definition.Storage.MethodToken,
+            IsStatic: true);
+
+        Assert.Equal(
+            CallGraphNodeMatch.Found,
+            projection.FindNode(method, out CallGraphNode node));
+        Assert.Equal("Do", node.Member.Name);
+    }
+
+    [Fact]
     public void FindNodeDoesNotCrossVersionedEvidence()
     {
         MemberRef repeated = Member("Svc", "Do");

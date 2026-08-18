@@ -81,13 +81,21 @@ MethodDef/IL coordinate, and proposed replacement.
 The cue joins the opportunity's source `MethodIdentity` through
 `CallGraphProjection.FindNode`, which prefers retained definition evidence and
 then uses the typed structural identity of an evidence-free projection. The
-candidate set applies the same generated-code suppression as Performance
-Triage. This matters for classic async methods: their physical evidence can
-live in generated `MoveNext`. The source node receives the cue without
-inventing a logical edge that is absent from the source method's IL.
+candidate set includes every indexed assembly participating in a cross-assembly
+graph and applies the same generated-code suppression as Performance Triage.
+This matters for classic async methods: their physical evidence can live in
+generated `MoveNext`. The source node receives the cue without inventing a
+logical edge that is absent from the source method's IL.
 `CallGraphSection_ProjectsAsyncAlternativeOpportunities` and
+`CallGraphSection_ProjectsAsyncAlternativesAcrossAssemblies`, and
 `CallGraphSection_OmitsSuppressedGeneratedAsyncAlternatives` gate that
 end-to-end behavior.
+
+Field aliases and wildcard patterns are resolved once through Markout's
+projection matcher before labels are built. Objective signals and opportunity
+cues therefore interpret a request such as `--fields "A*"` consistently;
+`CallGraphSection_ResolvesAllWildcardSignalFields` gates the shared
+resolution.
 
 With the exception fields projected, the caller half of `Call Graph` answers
 exception-reachability questions directly:

@@ -2,8 +2,10 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Commands;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
 using DotnetInspector.Sections;
 
 namespace DotnetInspector.Tests;
@@ -74,6 +76,37 @@ public class ApiMemberAnalysisInspectionTests
 
         Assert.NotNull(scopes);
         Assert.Single(scopes);
+    }
+
+    [Fact]
+    public void CallGraphBodyIndexes_IncludeOpportunityEnabledCalleeScopes()
+    {
+        var inspection = new ApiMemberAnalysisInspection(
+            SelfPath,
+            [],
+            new HashSet<string> { SectionNames.CallGraph },
+            [CliPath],
+            new MemberOptions
+            {
+                Fields = ["AsyncAlternatives"],
+            });
+        int root = TokenOf(
+            SelfPath,
+            nameof(MemberCallGraphFixture),
+            nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative));
+
+        ILInspector.CallGraph.CallGraphProjection projection =
+            inspection.BuildCallGraph(root);
+        ILInspector.Analysis.OptimizationOpportunity opportunity =
+            inspection.CallGraphBodyIndexes
+                .SelectMany(index => index.OptimizationOpportunities)
+                .Single(candidate =>
+                    candidate.Shape == "sync-call-in-async"
+                    && candidate.Method.DeclaringType.Name
+                        == nameof(DiffCommand));
+        Assert.Equal(
+            ILInspector.CallGraph.CallGraphNodeMatch.Found,
+            projection.FindNode(opportunity.Method, out _));
     }
 
     [Fact]

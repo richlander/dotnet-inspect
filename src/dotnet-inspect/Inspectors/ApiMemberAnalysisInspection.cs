@@ -19,6 +19,7 @@ internal sealed class ApiMemberAnalysisInspection
     readonly IReadOnlyList<string>? _callerScopeAssemblies;
     readonly bool _includeAllocations;
     readonly bool _includeOpportunities;
+    readonly IReadOnlyList<CallGraphField> _callGraphFields = [];
     readonly IReadOnlySet<int>? _bodyScope;
     readonly Dictionary<
         Analysis.TypeRef,
@@ -61,8 +62,12 @@ internal sealed class ApiMemberAnalysisInspection
                 options?.Fields is { Length: > 0 } requestedFields
                     ? requestedFields
                     : options?.Columns ?? [];
-            if (fields.Any(CallGraphFieldSelection.IsAsyncAlternatives))
+            _callGraphFields = CallGraphFieldSelection.Resolve(fields);
+            if (_callGraphFields.Contains(
+                    CallGraphField.AsyncAlternatives))
+            {
                 _includeOpportunities = true;
+            }
         }
 
         bool needsWholeAssemblyBody =
@@ -83,6 +88,38 @@ internal sealed class ApiMemberAnalysisInspection
     }
 
     internal Analysis.LibraryBodyIndex BodyIndex => Session.BodyIndex;
+
+    internal IReadOnlyList<CallGraphField> CallGraphFields =>
+        _callGraphFields;
+
+    internal IReadOnlyList<Analysis.LibraryBodyIndex>
+        CallGraphBodyIndexes
+    {
+        get
+        {
+            var indexes = new List<Analysis.LibraryBodyIndex>();
+            var seen = new HashSet<Analysis.LibraryBodyIndex>(
+                ReferenceEqualityComparer.Instance);
+            Add(Session);
+            foreach (MethodBodyInspectionSession scope in
+                _graphScopes ?? [])
+            {
+                Add(scope);
+            }
+            foreach (MethodBodyInspectionSession scope in
+                _calleeScopes ?? [])
+            {
+                Add(scope);
+            }
+            return indexes;
+
+            void Add(MethodBodyInspectionSession session)
+            {
+                if (seen.Add(session.BodyIndex))
+                    indexes.Add(session.BodyIndex);
+            }
+        }
+    }
 
     internal IReadOnlyList<MethodExceptionRegionInfo> ResolveExceptionRegions(
         int methodToken,
@@ -232,7 +269,11 @@ internal sealed class ApiMemberAnalysisInspection
         if (!TryTargetType(methodToken, out Analysis.TypeRef? target))
         {
             List<MethodBodyInspectionSession> unfiltered =
-                OpenScopes(ScopeCandidates, includeAllocations);
+                OpenScopes(
+                    ScopeCandidates,
+                    includeAllocations,
+                    includeOpportunities:
+                        includeAllocations && _includeOpportunities);
             if (unfiltered.Count == 0)
                 return null;
 
@@ -242,7 +283,11 @@ internal sealed class ApiMemberAnalysisInspection
 
         Analysis.CallerScopeReachabilityPlan plan = Plan(target);
         List<MethodBodyInspectionSession> opened =
-            OpenScopes(plan.GraphCandidates, includeAllocations);
+            OpenScopes(
+                plan.GraphCandidates,
+                includeAllocations,
+                includeOpportunities:
+                    includeAllocations && _includeOpportunities);
         if (opened.Count == 0
             && !plan.HasRuledOutCandidateNotDefinitelyUnopenable)
         {
@@ -263,7 +308,10 @@ internal sealed class ApiMemberAnalysisInspection
             return null;
 
         List<MethodBodyInspectionSession> opened =
-            OpenScopes(ForwardScopeCandidates(), _includeAllocations);
+            OpenScopes(
+                ForwardScopeCandidates(),
+                _includeAllocations,
+                _includeOpportunities);
         if (opened.Count == 0)
             return null;
 
@@ -434,7 +482,8 @@ internal sealed class ApiMemberAnalysisInspection
 
     List<MethodBodyInspectionSession> OpenScopes(
         IReadOnlyList<ResolvedAssemblyReference> candidates,
-        bool includeAllocations)
+        bool includeAllocations,
+        bool includeOpportunities = false)
     {
         var opened = new List<MethodBodyInspectionSession>();
         foreach (ResolvedAssemblyReference candidate in candidates)
@@ -450,7 +499,7 @@ internal sealed class ApiMemberAnalysisInspection
                         candidate.Path,
                         _options),
                     includeAllocations,
-                    includeOpportunities: false));
+                    includeOpportunities));
             }
             catch (Exception ex) when (
                 ex is IOException

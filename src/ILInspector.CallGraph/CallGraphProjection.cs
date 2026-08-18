@@ -331,12 +331,9 @@ public sealed partial class CallGraphProjection
         [
             .. Nodes.Where(candidate =>
                 candidate.GraphEvidence.Any(evidence =>
-                    evidence.Storage.Kind
-                        == GraphNodeStorageKind.Definition
-                    && evidence.Storage.ModuleVersionId
-                        == method.ModuleVersionId
-                    && evidence.Storage.MethodToken
-                        == method.MetadataToken)),
+                    MatchesDefinition(evidence.Storage, method)
+                    || evidence.DefinitionStorage is { } definition
+                        && MatchesDefinition(definition, method))),
         ];
         if (exact.Length == 1)
         {
@@ -366,6 +363,13 @@ public sealed partial class CallGraphProjection
         return structural.Length > 1
             ? CallGraphNodeMatch.Ambiguous
             : CallGraphNodeMatch.NotProjected;
+
+        static bool MatchesDefinition(
+            GraphNodeStorageKey storage,
+            MethodIdentity candidate) =>
+            storage.Kind == GraphNodeStorageKind.Definition
+            && storage.ModuleVersionId == candidate.ModuleVersionId
+            && storage.MethodToken == candidate.MetadataToken;
     }
 
     /// <summary>

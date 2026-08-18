@@ -466,6 +466,49 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_ResolvesAllWildcardSignalFields()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.WildcardSignals)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["A*"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("alloc 1", result.Output);
+        Assert.Contains("async alternatives 1", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_ProjectsAsyncAlternativesAcrossAssemblies()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter =
+                [nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative)],
+            CallerScopeAssemblies =
+                [typeof(DiffCommand).Assembly.Location],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["AsyncAlternatives"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("ExecuteAsync", result.Output);
+        Assert.Contains("async alternatives 1", result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_OmitsSuppressedGeneratedAsyncAlternatives()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -810,6 +853,15 @@ public static class MemberCallGraphFixture
         await Task.Yield();
         return ReadValue(value);
     }
+
+    public static Task<int> WildcardSignals(int[] data)
+    {
+        _ = AllocCall(data);
+        return CallsSyncSiblingFromAsync(data.Length);
+    }
+
+    public static Task<int> CrossAssemblyAsyncAlternative() =>
+        DiffCommand.ExecuteAsync(new DiffOptions());
 
     public static Func<int, Task<int>> CreateAsyncCallback() =>
         async value =>

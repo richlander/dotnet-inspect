@@ -1704,11 +1704,11 @@ public static class ApiOutputFormatter
                 memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
                     projection,
                     FormatCallee,
-                    GetRequestedCallGraphFields(options),
+                    analysisInspection.CallGraphFields,
                     renderedRows,
                     BuildCallGraphOpportunityAnnotations(
                         projection,
-                        analysisInspection.BodyIndex));
+                        analysisInspection.CallGraphBodyIndexes));
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph)
@@ -2203,51 +2203,48 @@ public static class ApiOutputFormatter
         return FormatMember(member.DeclaringType, member.Name, member.ParameterTypes, member.TypeArguments);
     }
 
-    static IReadOnlyList<string> GetRequestedCallGraphFields(ApiOptions? options)
-        => options?.Fields is { Length: > 0 } fields
-            ? fields
-            : options?.Columns is { Length: > 0 } columns
-                ? columns
-                : [];
-
     static IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>
         BuildCallGraphOpportunityAnnotations(
             ILInspector.CallGraph.CallGraphProjection projection,
-            Analysis.LibraryBodyIndex index)
+            IReadOnlyList<Analysis.LibraryBodyIndex> indexes)
     {
         var candidatesByNode =
             new Dictionary<int, HashSet<string>>();
-        IReadOnlySet<string> generatedFrameworkTypes =
-            index.GeneratedFrameworkTypeNames;
-        foreach (Analysis.OptimizationOpportunity opportunity in
-            index.OptimizationOpportunities.Where(opportunity =>
-                opportunity.Shape == "sync-call-in-async"
-                && LibraryMetadataService.IncludePerformanceOpportunity(
-                    opportunity,
-                    generatedFrameworkTypes)))
+        foreach (Analysis.LibraryBodyIndex index in indexes)
         {
-            if (projection.FindNode(
-                    opportunity.Method,
-                    out ILInspector.CallGraph.CallGraphNode node)
-                != ILInspector.CallGraph.CallGraphNodeMatch.Found)
+            IReadOnlySet<string> generatedFrameworkTypes =
+                index.GeneratedFrameworkTypeNames;
+            foreach (Analysis.OptimizationOpportunity opportunity in
+                index.OptimizationOpportunities.Where(opportunity =>
+                    opportunity.Shape == "sync-call-in-async"
+                    && LibraryMetadataService.IncludePerformanceOpportunity(
+                        opportunity,
+                        generatedFrameworkTypes)))
             {
-                continue;
-            }
+                if (projection.FindNode(
+                        opportunity.Method,
+                        out ILInspector.CallGraph.CallGraphNode node)
+                    != ILInspector.CallGraph.CallGraphNodeMatch.Found)
+                {
+                    continue;
+                }
 
-            string candidate = opportunity.CandidateId
-                ?? $"{opportunity.Method.ModuleVersionId:N}:"
-                    + $"{opportunity.Method.MetadataToken:X8}:"
-                    + $"{opportunity.EvidenceMethodToken:X8}:"
-                    + $"{opportunity.ILOffset:X4}:"
-                    + $"{opportunity.OperandToken:X8}";
-            if (!candidatesByNode.TryGetValue(
-                node.Id,
-                out HashSet<string>? candidates))
-            {
-                candidates = new HashSet<string>(StringComparer.Ordinal);
-                candidatesByNode.Add(node.Id, candidates);
+                string candidate = opportunity.CandidateId
+                    ?? $"{opportunity.Method.ModuleVersionId:N}:"
+                        + $"{opportunity.Method.MetadataToken:X8}:"
+                        + $"{opportunity.EvidenceMethodToken:X8}:"
+                        + $"{opportunity.ILOffset:X4}:"
+                        + $"{opportunity.OperandToken:X8}";
+                if (!candidatesByNode.TryGetValue(
+                    node.Id,
+                    out HashSet<string>? candidates))
+                {
+                    candidates = new HashSet<string>(
+                        StringComparer.Ordinal);
+                    candidatesByNode.Add(node.Id, candidates);
+                }
+                candidates.Add(candidate);
             }
-            candidates.Add(candidate);
         }
         return candidatesByNode.ToDictionary(
             pair => pair.Key,
