@@ -38,12 +38,25 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
         if (TryGetCached(reader, handle, out NamedTypeRead? cached))
+        {
+            ReplayMaterializationWork(cached.MaterializationWork);
             return ReadNamedType(cached, rawTypeKind);
+        }
 
+        int materializationWork = 0;
+        Action<int>? observe = _beforeMaterialize is null
+            ? null
+            : amount =>
+            {
+                materializationWork = (int)Math.Min(
+                    int.MaxValue,
+                    (long)materializationWork + amount);
+                _beforeMaterialize(amount);
+            };
         bool resolved = TypeResolver.TryGetTypeNameFromDefinition(
             reader,
             handle,
-            _beforeMaterialize,
+            observe,
             out string? name,
             out RelationshipTraversalRejection? rejection);
         MetadataTypeNameParts? metadataName = resolved
@@ -53,7 +66,8 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             resolved,
             name,
             rejection,
-            metadataName);
+            metadataName,
+            materializationWork);
         Cache(reader, handle, read);
         return ReadNamedType(read, rawTypeKind);
     }
@@ -61,12 +75,25 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
         if (TryGetCached(reader, handle, out NamedTypeRead? cached))
+        {
+            ReplayMaterializationWork(cached.MaterializationWork);
             return ReadNamedType(cached, rawTypeKind);
+        }
 
+        int materializationWork = 0;
+        Action<int>? observe = _beforeMaterialize is null
+            ? null
+            : amount =>
+            {
+                materializationWork = (int)Math.Min(
+                    int.MaxValue,
+                    (long)materializationWork + amount);
+                _beforeMaterialize(amount);
+            };
         bool resolved = TypeResolver.TryGetTypeNameFromReference(
             reader,
             handle,
-            _beforeMaterialize,
+            observe,
             out string? name,
             out RelationshipTraversalRejection? rejection);
         MetadataTypeNameParts? metadataName = resolved
@@ -76,7 +103,8 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
             resolved,
             name,
             rejection,
-            metadataName);
+            metadataName,
+            materializationWork);
         Cache(reader, handle, read);
         return ReadNamedType(read, rawTypeKind);
     }
@@ -135,7 +163,14 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         bool Resolved,
         string? Name,
         RelationshipTraversalRejection? Rejection,
-        MetadataTypeNameParts? MetadataName);
+        MetadataTypeNameParts? MetadataName,
+        int MaterializationWork);
+
+    void ReplayMaterializationWork(int amount)
+    {
+        if (amount > 0)
+            _beforeMaterialize?.Invoke(amount);
+    }
 
     sealed class ReaderNameCache
     {

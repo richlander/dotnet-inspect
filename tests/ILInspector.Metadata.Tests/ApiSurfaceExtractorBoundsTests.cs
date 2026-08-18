@@ -685,7 +685,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
         using var peReader = new PEReader(stream);
         long before = GC.GetAllocatedBytesForCurrentThread();
 
-        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+        ApiSurfaceExtractionResult result =
             ApiSurfaceExtractor.ExtractBounded(
                 peReader,
                 ApiSurfaceExtractionScope.Public,
@@ -695,7 +695,12 @@ public sealed class ApiSurfaceExtractorBoundsTests
                     maxInspectionFailures: 1_024,
                     maxTypeForwarders: 100_000,
                     maxMetadataRows: 250_000,
-                    maxRetainedTextCharacters: 32_000_000)));
+                    maxRetainedTextCharacters: 32_000_000));
+        Assert.True(
+            result is ApiSurfaceExtractionResult.Extracted,
+            $"Extraction rejected the reusable generic context: {result}");
+        var extracted =
+            (ApiSurfaceExtractionResult.Extracted)result;
 
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.Single(extracted.Surface.Types);

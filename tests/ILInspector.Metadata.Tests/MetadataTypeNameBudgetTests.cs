@@ -50,17 +50,19 @@ public class MetadataTypeNameBudgetTests
     [Fact]
     public void GlobalNamespaceNestedNameAtTheCharacterBudget_IsAccepted()
     {
+        // The policy reserves one root delimiter plus the visible nested
+        // separator, so the flattened spelling is one character below the cap.
         ImmutableArray<string> segments =
         [
             new string('a', 2048),
-            new string('b', 2047),
+            new string('b', 2046),
         ];
 
         var valid = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
             MetadataTypeDefinitionName.Create("", segments));
 
         Assert.Equal(
-            MetadataSafetyPolicy.MaxTypeNameCharacters,
+            MetadataSafetyPolicy.MaxTypeNameCharacters - 1,
             valid.Name.ToNestedMetadataName().Length);
     }
 

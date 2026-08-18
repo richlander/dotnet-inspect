@@ -284,10 +284,9 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
                         i));
             }
 
-            // One delimiter per actual boundary: '.' after a non-empty
-            // namespace and '+' between segments.
-            if (i > 0 || @namespace.Length > 0)
-                characters++;
+            // Reserve one delimiter for every segment, including the root
+            // separator when the namespace is empty, matching SRM projections.
+            characters++;
             characters += segments[i].Length;
             if (characters > MetadataSafetyPolicy.MaxTypeNameCharacters)
             {

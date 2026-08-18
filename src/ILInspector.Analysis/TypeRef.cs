@@ -500,11 +500,19 @@ public sealed class TypeRef : IEquatable<TypeRef>
     }
 
     static bool SameNameIdentity(TypeRef left, TypeRef right)
-        => left.Kind == TypeRefKind.Definition
-            ? left.MetadataNameSegments().SequenceEqual(
-                right.MetadataNameSegments(),
-                StringComparer.Ordinal)
-            : left.Name == right.Name;
+    {
+        if (left.Kind != TypeRefKind.Definition)
+            return left.Name == right.Name;
+        MetadataTypeDefinitionName? leftName =
+            left.Resolution?.Type;
+        MetadataTypeDefinitionName? rightName =
+            right.Resolution?.Type;
+        if (leftName is null || rightName is null)
+            return leftName is null
+                && rightName is null
+                && left.Name == right.Name;
+        return leftName == rightName;
+    }
 
     static void AddNameIdentity(ref HashCode hash, TypeRef type)
     {
@@ -514,10 +522,15 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return;
         }
 
-        IReadOnlyList<string> segments = type.MetadataNameSegments();
-        hash.Add(segments.Count);
-        foreach (string segment in segments)
-            hash.Add(segment);
+        if (type.Resolution?.Type is not { } exactName)
+        {
+            hash.Add(0);
+            hash.Add(type.Name);
+            return;
+        }
+
+        hash.Add(1);
+        hash.Add(exactName);
     }
 
     string DisplayName()

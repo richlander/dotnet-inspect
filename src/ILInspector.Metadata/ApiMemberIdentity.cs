@@ -834,8 +834,9 @@ public static class ApiMemberIdentity
         => new(type, member, GetMemberAnchor(type, member));
 
     /// <summary>
-    /// Persists <see cref="ApiMember.CanonicalSignature"/> when exact type or
-    /// member identity cannot be reconstructed from serialized display fields.
+    /// Persists <see cref="ApiMember.CanonicalSignature"/> when exact member
+    /// identity cannot be reconstructed from serialized fields. Exact declaring
+    /// type identity is already retained structurally on <see cref="ApiType"/>.
     /// Computed while the structural model is live so a round-tripped surface
     /// pairs with the same members read live.
     /// </summary>
@@ -845,17 +846,10 @@ public static class ApiMemberIdentity
     {
         foreach (var type in surface.Types)
         {
-            bool exactTypeIdentityDiverges =
-                type.DefinitionName is not null
-                && !string.Equals(
-                    FormatApiTypeAnchorName(type),
-                    MetadataTypeNameFormatter.FormatFullName(type),
-                    StringComparison.Ordinal);
             foreach (var member in type.Members)
             {
-                if (!exactTypeIdentityDiverges
-                    && (member.SignatureModel is not { } signature
-                        || !HasCanonicalDivergence(member, signature)))
+                if (member.SignatureModel is not { } signature
+                    || !HasCanonicalDivergence(member, signature))
                 {
                     continue;
                 }

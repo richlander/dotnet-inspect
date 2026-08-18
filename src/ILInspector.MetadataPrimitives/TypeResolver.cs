@@ -206,7 +206,8 @@ public static class TypeResolver
     internal static RelationshipTraversalResult<MetadataTypeNameParts>
         ResolveTypeNamePartsFromReference(
             MetadataReader reader,
-            TypeReferenceHandle handle)
+            TypeReferenceHandle handle,
+            bool enforceCharacterBudget = true)
         => FormatNameParts(
             reader,
             MetadataRelationshipTraversal.WalkTypeReferenceResolutionScope(reader, handle),
@@ -215,7 +216,8 @@ public static class TypeResolver
                 var typeRef = reader.GetTypeReference(current);
                 return (typeRef.Namespace, typeRef.Name);
             },
-            static current => current);
+            static current => current,
+            enforceCharacterBudget);
 
     /// <summary>
     /// Gets the type name from a TypeDefinition handle.
@@ -401,7 +403,8 @@ public static class TypeResolver
     internal static RelationshipTraversalResult<MetadataTypeNameParts>
         ResolveTypeNamePartsFromDefinition(
             MetadataReader reader,
-            TypeDefinitionHandle handle)
+            TypeDefinitionHandle handle,
+            bool enforceCharacterBudget = true)
         => FormatNameParts(
             reader,
             MetadataRelationshipTraversal.WalkTypeDefinitionDeclaringChain(reader, handle),
@@ -410,7 +413,8 @@ public static class TypeResolver
                 var typeDef = reader.GetTypeDefinition(current);
                 return (typeDef.Namespace, typeDef.Name);
             },
-            static current => current);
+            static current => current,
+            enforceCharacterBudget);
 
     internal static MetadataTypeNameParts GetTypeNameParts(
         MetadataReader reader,
@@ -1290,7 +1294,8 @@ public static class TypeResolver
         MetadataReader reader,
         RelationshipTraversalResult<RelationshipChain<THandle>> traversal,
         Func<THandle, (StringHandle Namespace, StringHandle Name)> getName,
-        Func<THandle, EntityHandle> getSubject)
+        Func<THandle, EntityHandle> getSubject,
+        bool enforceCharacterBudget)
         where THandle : struct
     {
         if (traversal is RelationshipTraversalResult<RelationshipChain<THandle>>.Rejected rejected)
@@ -1306,6 +1311,13 @@ public static class TypeResolver
             try
             {
                 var (namespaceHandle, nameHandle) = getName(handle);
+                if (!enforceCharacterBudget)
+                {
+                    if (i == 0)
+                        rootNamespace = reader.GetString(namespaceHandle);
+                    segments[i] = reader.GetString(nameHandle);
+                    continue;
+                }
                 if (i == 0)
                 {
                     if (!MetadataSafetyPolicy.TryReadTypeNameComponent(

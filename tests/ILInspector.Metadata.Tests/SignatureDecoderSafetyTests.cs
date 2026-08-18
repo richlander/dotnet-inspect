@@ -353,11 +353,19 @@ public class SignatureDecoderSafetyTests
             allocated < 1024 * 1024,
             $"Oversized exact-name rejection allocated {allocated:N0} bytes.");
         int firstDecoderWork = decoderWork;
+        long secondDecodeBefore =
+            GC.GetAllocatedBytesForCurrentThread();
         AssertRejected(
             SignatureDecoder.Decode(
                 () => decoder.GetTypeFromReference(reader, leaf, 0)),
             SignatureDecodeRejectionKind.NameBudget);
-        Assert.Equal(firstDecoderWork, decoderWork);
+        long secondDecodeAllocation =
+            GC.GetAllocatedBytesForCurrentThread()
+            - secondDecodeBefore;
+        Assert.True(decoderWork > firstDecoderWork);
+        Assert.True(
+            secondDecodeAllocation < 64 * 1024,
+            $"Cached rejection allocated {secondDecodeAllocation:N0} bytes.");
 
         int providerWork = 0;
         var provider = new TypeNodeProvider(
@@ -365,9 +373,17 @@ public class SignatureDecoderSafetyTests
         Assert.IsType<DegradedTypeNode>(
             provider.GetTypeFromReference(reader, leaf, 0));
         int firstProviderWork = providerWork;
+        long secondProviderBefore =
+            GC.GetAllocatedBytesForCurrentThread();
         Assert.IsType<DegradedTypeNode>(
             provider.GetTypeFromReference(reader, leaf, 0));
-        Assert.Equal(firstProviderWork, providerWork);
+        long secondProviderAllocation =
+            GC.GetAllocatedBytesForCurrentThread()
+            - secondProviderBefore;
+        Assert.True(providerWork > firstProviderWork);
+        Assert.True(
+            secondProviderAllocation < 64 * 1024,
+            $"Cached node rejection allocated {secondProviderAllocation:N0} bytes.");
     }
 
     [Fact]

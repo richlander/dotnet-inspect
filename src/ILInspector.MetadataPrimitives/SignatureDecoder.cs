@@ -72,13 +72,23 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
     {
         if (TryGetCached(reader, handle, out string? cached))
             return cached;
+        int materializationWork = 0;
+        Action<int>? observe = _beforeMaterialize is null
+            ? null
+            : amount =>
+            {
+                materializationWork = SaturatingAdd(
+                    materializationWork,
+                    amount);
+                _beforeMaterialize(amount);
+            };
         return Retain(
             reader,
             handle,
             TypeResolver.TryGetTypeNameFromDefinition(
                 reader,
                 handle,
-                _beforeMaterialize,
+                observe,
                 out string? name,
                 out RelationshipTraversalRejection? rejection,
                 _enforceCharacterBudget),
@@ -86,20 +96,32 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             rejection,
             () => TypeResolver.ResolveTypeNamePartsFromDefinition(
                 reader,
-                handle));
+                handle,
+                _enforceCharacterBudget),
+            materializationWork);
     }
 
     public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
         if (TryGetCached(reader, handle, out string? cached))
             return cached;
+        int materializationWork = 0;
+        Action<int>? observe = _beforeMaterialize is null
+            ? null
+            : amount =>
+            {
+                materializationWork = SaturatingAdd(
+                    materializationWork,
+                    amount);
+                _beforeMaterialize(amount);
+            };
         return Retain(
             reader,
             handle,
             TypeResolver.TryGetTypeNameFromReference(
                 reader,
                 handle,
-                _beforeMaterialize,
+                observe,
                 out string? name,
                 out RelationshipTraversalRejection? rejection,
                 _enforceCharacterBudget),
@@ -107,7 +129,9 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             rejection,
             () => TypeResolver.ResolveTypeNamePartsFromReference(
                 reader,
-                handle));
+                handle,
+                _enforceCharacterBudget),
+            materializationWork);
     }
 
     public string GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
@@ -256,7 +280,8 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         bool resolved,
         string? projectedName,
         RelationshipTraversalRejection? rejection,
-        Func<RelationshipTraversalResult<MetadataTypeNameParts>> create)
+        Func<RelationshipTraversalResult<MetadataTypeNameParts>> create,
+        int materializationWork)
     {
         if (!resolved)
         {
@@ -265,7 +290,9 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
                 reader,
                 static _ => new ReaderNameCache());
             lock (rejectedCache.Names)
-                rejectedCache.Rejections.TryAdd(handle, rejection);
+                rejectedCache.Rejections.TryAdd(
+                    handle,
+                    new(rejection, materializationWork));
             return ReadNameOrContinue(false, projectedName, rejection);
         }
 
@@ -274,8 +301,12 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             static _ => new ReaderNameCache());
         lock (cache.Names)
         {
-            if (cache.Names.TryGetValue(handle, out string? retained))
-                return retained;
+            if (cache.Names.TryGetValue(
+                    handle,
+                    out CachedName? retained))
+            {
+                return retained.Name;
+            }
 
             RelationshipTraversalResult<MetadataTypeNameParts> result = create();
             MetadataTypeNameParts structured = result.GetValueOrThrow();
@@ -290,7 +321,9 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
             }
             if (value.Length == 0)
             {
-                cache.Names.Add(handle, value);
+                cache.Names.Add(
+                    handle,
+                    new(value, materializationWork));
                 return value;
             }
 
@@ -300,10 +333,15 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
                 static (destination, source) =>
                     source.AsSpan().CopyTo(destination));
             structuredNames.Add(name, structured);
-            cache.Names.Add(handle, name);
+            cache.Names.Add(
+                handle,
+                new(name, materializationWork));
             return name;
         }
     }
+
+    static int SaturatingAdd(int left, int right)
+        => (int)Math.Min(int.MaxValue, (long)left + right);
 
     bool TryGetCached(
         MetadataReader reader,
@@ -318,16 +356,24 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
 
         lock (cache.Names)
         {
-            if (cache.Names.TryGetValue(handle, out value))
+            if (cache.Names.TryGetValue(
+                    handle,
+                    out CachedName? cached))
+            {
+                ReplayMaterializationWork(cached.MaterializationWork);
+                value = cached.Name;
                 return true;
+            }
             if (cache.Rejections.TryGetValue(
                     handle,
-                    out RelationshipTraversalRejection? rejection))
+                    out CachedRejection? cachedRejection))
             {
+                ReplayMaterializationWork(
+                    cachedRejection.MaterializationWork);
                 value = ReadNameOrContinue(
                     resolved: false,
                     name: null,
-                    rejection);
+                    cachedRejection.Rejection);
                 return true;
             }
         }
@@ -336,11 +382,25 @@ public class SignatureDecoder : ISignatureTypeProvider<string, GenericContext?>
         return false;
     }
 
+    void ReplayMaterializationWork(int amount)
+    {
+        if (amount > 0)
+            _beforeMaterialize?.Invoke(amount);
+    }
+
     sealed class ReaderNameCache
     {
-        internal Dictionary<EntityHandle, string> Names { get; } = [];
-        internal Dictionary<EntityHandle, RelationshipTraversalRejection> Rejections { get; } = [];
+        internal Dictionary<EntityHandle, CachedName> Names { get; } = [];
+        internal Dictionary<EntityHandle, CachedRejection> Rejections { get; } = [];
     }
+
+    sealed record CachedName(
+        string Name,
+        int MaterializationWork);
+
+    sealed record CachedRejection(
+        RelationshipTraversalRejection Rejection,
+        int MaterializationWork);
 
     public string GetGenericMethodParameter(GenericContext? context, int index)
     {
