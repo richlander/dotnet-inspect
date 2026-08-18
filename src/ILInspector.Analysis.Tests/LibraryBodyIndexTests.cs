@@ -1647,7 +1647,7 @@ public class LibraryBodyIndexTests
                                 .AsyncStateMachineAttribute)
                         .Constructor;
                 }
-                return LibraryBodyAnalysisBuilder
+                return LibraryBodyAsyncSourceResolver
                     .IsTrustedAsyncStateMachineAttribute(
                         reader,
                         constructor,
@@ -4688,6 +4688,10 @@ public class LibraryBodyIndexTests
         string paddedPath = Path.Combine(
             Path.GetTempPath(),
             $"MethodEvidencePadded-{Guid.NewGuid():N}.dll");
+        int sourceToken = typeof(CallSiteFixtures)
+            .GetMethod(nameof(CallSiteFixtures.CallsConsoleWriteLine))!
+            .MetadataToken;
+        var bodyScope = new HashSet<int> { sourceToken };
 
         try
         {
@@ -4705,6 +4709,12 @@ public class LibraryBodyIndexTests
             Assert.Equal(oneArg.Diagnostics.Length, withResolver.Diagnostics.Length);
             Assert.Equal(0, resolver.ResolveCalls);
 
+            _ = LibraryBodyIndex.Open(
+                targetPath,
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                resolver,
+                bodyScope);
+
             File.Copy(targetPath, paddedPath);
             const int OverlaySize = 32 * 1024 * 1024;
             using (var stream = new FileStream(
@@ -4721,8 +4731,10 @@ public class LibraryBodyIndexTests
             long overlayAllocation = padded - baseline;
 
             Assert.True(
-                overlayAllocation < OverlaySize / 2,
-                $"Method-evidence acquisition allocated {overlayAllocation:N0} additional bytes for the file overlay.");
+                overlayAllocation > -(OverlaySize / 2)
+                    && overlayAllocation < OverlaySize / 2,
+                $"Method-evidence allocation delta {overlayAllocation:N0} fell outside the stable "
+                    + $"range for the file overlay (baseline {baseline:N0}; padded {padded:N0}).");
             Assert.Equal(0, resolver.ResolveCalls);
         }
         finally
@@ -4737,7 +4749,8 @@ public class LibraryBodyIndexTests
             _ = LibraryBodyIndex.Open(
                 path,
                 LibraryBodyAnalysisFeatures.MethodEvidence,
-                resolver);
+                resolver,
+                bodyScope);
             return GC.GetAllocatedBytesForCurrentThread()
                 - before;
         }
