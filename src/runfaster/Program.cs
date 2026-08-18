@@ -610,6 +610,8 @@ static bool TryCreateCandidateFromJson(
         "method_token",
         "MethodToken",
         "methodToken");
+    int? evidenceMethodToken =
+        ReadOptionalEvidenceMethodToken(element);
     string? operandTokenText = GetJsonString(
         element,
         "MetadataToken",
@@ -670,9 +672,54 @@ static bool TryCreateCandidateFromJson(
         candidateId: GetJsonString(element, "Candidate", "candidate"),
         provenance: GetJsonString(element, "Provenance", "provenance"),
         operation: GetJsonString(element, "Operation", "operation"),
-        operandToken: operandToken);
+        operandToken: operandToken,
+        evidenceMethodToken: evidenceMethodToken);
     return true;
 }
+
+static int? ReadOptionalEvidenceMethodToken(
+    JsonElement element)
+{
+    int? result = null;
+    foreach (var property in element.EnumerateObject())
+    {
+        if (!IsEvidenceMethodProperty(property.Name))
+            continue;
+
+        string? tokenText = property.Value.ValueKind switch
+        {
+            JsonValueKind.String => property.Value.GetString(),
+            JsonValueKind.Number => property.Value.GetRawText(),
+            _ => null,
+        };
+        if (!TryParseFlexibleInt(tokenText, out int parsed)
+            || !ProgramSupport.IsMethodDefinitionToken(parsed))
+        {
+            throw new InvalidDataException(
+                $"Invalid evidence method token in "
+                + $"'{property.Name}'.");
+        }
+
+        if (result is int existing
+            && existing != parsed)
+        {
+            throw new InvalidDataException(
+                "Conflicting evidence method tokens "
+                + "were supplied.");
+        }
+
+        result = parsed;
+    }
+
+    return result;
+}
+
+static bool IsEvidenceMethodProperty(
+    string name)
+    => name is "Evidence Method"
+        or "evidence_method"
+        or "EvidenceMethod"
+        or "evidenceMethod";
 
 static Guid? ReadOptionalModuleVersionId(
     JsonElement element)
@@ -1874,6 +1921,10 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
         candidate.HasRuntimeCoordinate);
     writer.WriteString("tokenIl", candidate.TokenAndOffset);
     writer.WriteNumber("methodToken", candidate.MethodToken);
+    if (candidate.EvidenceMethodToken is int evidenceMethodToken)
+        writer.WriteNumber(
+            "evidenceMethodToken",
+            evidenceMethodToken);
     writer.WriteNumber("ilOffset", candidate.IlOffset);
     if (candidate.CandidateId is not null)
         writer.WriteString("candidate", candidate.CandidateId);
@@ -2180,7 +2231,8 @@ sealed class AllocationCandidate(
     string? candidateId = null,
     string? provenance = null,
     string? operation = null,
-    int? operandToken = null)
+    int? operandToken = null,
+    int? evidenceMethodToken = null)
 {
     public int Id { get; } = id;
     public string Source { get; } = source;
@@ -2193,6 +2245,10 @@ sealed class AllocationCandidate(
                 libraryPath)
             : "";
     public int MethodToken { get; } = methodToken;
+    public int? EvidenceMethodToken { get; } =
+        evidenceMethodToken;
+    public int RuntimeMethodToken =>
+        EvidenceMethodToken ?? MethodToken;
     public int IlOffset { get; } = ilOffset;
     public string? CandidateId { get; } = candidateId;
     public string? Provenance { get; } = provenance;
@@ -2306,10 +2362,10 @@ sealed class AllocationCandidate(
     public bool IsObserved => RuntimeHits > 0 || AllocationHits > 0;
     public bool HasRuntimeCoordinate =>
         AssemblyName.Length > 0
-        && (MethodToken & unchecked((int)0xFF000000)) == 0x06000000
-        && (MethodToken & 0x00FFFFFF) != 0
+        && ProgramSupport.IsMethodDefinitionToken(
+            RuntimeMethodToken)
         && IlOffset >= 0;
-    public string TokenAndOffset => $"{DisplayHelpers.FormatToken(MethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
+    public string TokenAndOffset => $"{DisplayHelpers.FormatToken(RuntimeMethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
     public string Status => SupersededByTriage
         ? "superseded-by-triage"
         : ShapeMatched
@@ -2468,9 +2524,12 @@ sealed class CandidateLookup
 
         foreach (var candidate in candidates)
         {
-            if (candidate.MethodToken != 0 && candidate.IlOffset >= 0)
+            if (candidate.RuntimeMethodToken != 0
+                && candidate.IlOffset >= 0)
             {
-                var key = (candidate.MethodToken, candidate.IlOffset);
+                var key = (
+                    candidate.RuntimeMethodToken,
+                    candidate.IlOffset);
                 if (!byTokenOffset.TryGetValue(key, out var list))
                 {
                     list = [];
@@ -2480,7 +2539,9 @@ sealed class CandidateLookup
 
                 foreach (var moduleKey in CandidateModuleKeys(candidate))
                 {
-                    var moduleTokenKey = (moduleKey, candidate.MethodToken);
+                    var moduleTokenKey = (
+                        moduleKey,
+                        candidate.RuntimeMethodToken);
                     if (!byModuleMethodToken.TryGetValue(moduleTokenKey, out var tokenList))
                     {
                         tokenList = [];
@@ -2702,6 +2763,12 @@ static partial class Patterns
 
 internal static class ProgramSupport
 {
+    internal static bool IsMethodDefinitionToken(
+        int token)
+        => (token & unchecked((int)0xFF000000))
+                == 0x06000000
+            && (token & 0x00FFFFFF) != 0;
+
     public static string NormalizeModuleKey(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -2911,7 +2978,7 @@ internal static class ProgramSupport
                          candidate.HasRuntimeCoordinate)
                      .GroupBy(static candidate => (
                          Assembly: NormalizeModuleKey(candidate.AssemblyName),
-                         candidate.MethodToken,
+                         candidate.RuntimeMethodToken,
                          candidate.IlOffset)))
         {
             var coordinateCandidates = coordinateGroup.ToArray();

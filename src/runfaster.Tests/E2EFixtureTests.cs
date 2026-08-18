@@ -60,6 +60,263 @@ public class E2EFixtureTests
         Assert.Contains("1 static candidate row(s) were not observed", output);
     }
 
+    [Theory]
+    [InlineData("Evidence Method")]
+    [InlineData("evidence_method")]
+    [InlineData("EvidenceMethod")]
+    [InlineData("evidenceMethod")]
+    public void Correlate_WithEvidenceMethod_JoinsPhysicalBodyCoordinate(
+        string evidenceMethodProperty)
+    {
+        string tracePath =
+            FixtureCatalog.RunFasterAllocation.AssetPath(
+                "fixture.nettrace");
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var sourceMethod =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "Main",
+                BindingFlags.Public | BindingFlags.Static);
+        var evidenceMethod =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "AllocateOne",
+                BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(sourceMethod);
+        Assert.NotNull(evidenceMethod);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    evidenceMethod.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"RunFaster.AllocationFixture","method_token":"0x{{{sourceMethod.MetadataToken:X8}}}","{{{evidenceMethodProperty}}}":"0x{{{evidenceMethod.MetadataToken:X8}}}","shape":"fixture-object","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                tracePath,
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                1,
+                output.RootElement.GetProperty(
+                    "observedCandidates").GetInt32());
+            var candidate = Assert.Single(
+                output.RootElement.GetProperty(
+                    "candidates").EnumerateArray());
+            Assert.Equal(
+                sourceMethod.MetadataToken,
+                candidate.GetProperty(
+                    "methodToken").GetInt32());
+            Assert.Equal(
+                evidenceMethod.MetadataToken,
+                candidate.GetProperty(
+                    "evidenceMethodToken").GetInt32());
+            Assert.StartsWith(
+                $"0x{evidenceMethod.MetadataToken:X8}+",
+                candidate.GetProperty(
+                    "tokenIl").GetString(),
+                StringComparison.Ordinal);
+            Assert.True(
+                candidate.GetProperty(
+                    "ilOffsetJoinObserved").GetBoolean());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_ConsumesCompiledAsyncEvidenceMethodCoordinate()
+    {
+        var sourceMethod =
+            typeof(EvidenceMethodAsyncFixture).GetMethod(
+                nameof(EvidenceMethodAsyncFixture
+                    .CallsSyncSiblingFromAsync),
+                BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(sourceMethod);
+        var index = LibraryBodyIndex.Open(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "runfaster.Tests.dll"));
+        var opportunity = Assert.Single(
+            index.OptimizationOpportunities,
+            opportunity =>
+                opportunity.Shape == "sync-call-in-async"
+                && opportunity.Method.MetadataToken
+                    == sourceMethod.MetadataToken);
+        int evidenceMethodToken = Assert.IsType<int>(
+            opportunity.EvidenceMethodToken);
+        int ilOffset = Assert.IsType<int>(
+            opportunity.ILOffset);
+        Assert.NotEqual(
+            sourceMethod.MetadataToken,
+            evidenceMethodToken);
+        Assert.Equal(
+            "MoveNext",
+            Assert.Single(
+                index.Methods,
+                method => method.MetadataToken
+                    == evidenceMethodToken).Name);
+
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            string member =
+                $"{opportunity.Method.DeclaringType.ToQualifiedDisplayString()}"
+                + $".{opportunity.Method.Name}";
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"async":[{"member":"{{{member}}}","assembly":"{{{opportunity.Method.AssemblyName}}}","method_token":"0x{{{sourceMethod.MetadataToken:X8}}}","evidence_method":"0x{{{evidenceMethodToken:X8}}}","shape":"sync-call-in-async","il":"IL_{{{ilOffset:X4}}}"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output = JsonDocument.Parse(result.Output);
+            var triageInput = Assert.Single(
+                output.RootElement.GetProperty(
+                    "triageInputs").EnumerateArray());
+            Assert.Equal(
+                1,
+                triageInput.GetProperty(
+                    "correlatableRows").GetInt32());
+            var candidate = Assert.Single(
+                output.RootElement.GetProperty(
+                    "candidates").EnumerateArray());
+            Assert.Equal(
+                sourceMethod.MetadataToken,
+                candidate.GetProperty(
+                    "methodToken").GetInt32());
+            Assert.Equal(
+                evidenceMethodToken,
+                candidate.GetProperty(
+                    "evidenceMethodToken").GetInt32());
+            Assert.StartsWith(
+                $"0x{evidenceMethodToken:X8}+",
+                candidate.GetProperty(
+                    "tokenIl").GetString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    public static class EvidenceMethodAsyncFixture
+    {
+        public static int ReadValue(int value) => value;
+
+        public static Task<int> ReadValueAsync(int value)
+            => Task.FromResult(value);
+
+        public static async Task<int>
+            CallsSyncSiblingFromAsync(int value)
+        {
+            await Task.Yield();
+            return ReadValue(value);
+        }
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("null")]
+    [InlineData("true")]
+    [InlineData("\"\"")]
+    [InlineData("\"not-a-token\"")]
+    [InlineData("\"0x06000000\"")]
+    [InlineData("\"0x0A000001\"")]
+    public void Correlate_RejectsInvalidEvidenceMethodToken(
+        string evidenceMethodJson)
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"RunFaster.AllocationFixture","method_token":"0x06000001","evidence_method":{{{evidenceMethodJson}}},"shape":"object-allocation","il":"IL_0000","allocation":"System.Object"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "Invalid evidence method token in "
+                    + "'evidence_method'",
+                result.Error);
+            Assert.Empty(result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_RejectsConflictingEvidenceMethodTokens()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"RunFaster.AllocationFixture","method_token":"0x06000001","evidence_method":"0x06000002","EvidenceMethod":"0x06000003","shape":"object-allocation","il":"IL_0000","allocation":"System.Object"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "Conflicting evidence method tokens "
+                    + "were supplied",
+                result.Error);
+            Assert.Empty(result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
     [Fact]
     public void Correlate_WithNestedTriageJson_JoinsByDeclaringMethodCoordinate()
     {
