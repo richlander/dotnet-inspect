@@ -173,9 +173,10 @@ old/new Finding censuses yet, so the cross-mechanism `ResearchChange` projection
 must not manufacture Finding atoms or misuse `PairKind`. `ResearchChange` is a Research-owned migration projection, not the seed of a
 parallel generic `EvidenceRow` spine. C# and IL now have native comparisons;
 their semantic rows remain because they carry richer producer-owned evidence,
-while retained comparisons expose the exact census transitions. `Source` never
-replaces or changes the meaning of `CSharp`: one describes checksum-verified
-authored text and the other describes product-decompiled text.
+while retained comparisons expose the exact census transitions. The `Source`
+mechanism never replaces or changes the meaning of `CSharp`: one describes
+checksum-verified PDB-mapped text and the other describes product-decompiled
+text.
 
 ### Deliberate dual-representation decision
 
@@ -333,10 +334,10 @@ assembly descriptors, reference resolvers, and body indexes. The query opens
 those descriptors for the offline C# and IL producers and returns
 `ImplementationDiffResult`; the CLI adapter's current path-backed descriptors
 are an acquisition boundary, not part of the query contract.
-With `--authored-source`, it acquires each changed implementation member's
+With `--pdb-source`, it acquires each changed implementation member's
 endpoint PDB and
 SourceLink body, verifies the document checksum, and adds a separately labeled
-`Source` lane. Missing mappings and acquisition failures remain visible rather
+`PDB Source` lane. Missing mappings and acquisition failures remain visible rather
 than falling back to decompiled C#.
 The authored A→IL lane reuses the final RTS shell/request but compiles with
 portable-PDB-recorded options when available; the decompiled B→IL lane uses the

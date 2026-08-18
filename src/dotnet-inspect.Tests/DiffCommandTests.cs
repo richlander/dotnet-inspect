@@ -1819,9 +1819,9 @@ public class DiffCommandTests
             "new");
 
         Assert.Contains(view.Rows!, row =>
-            row.Mechanism == "Source"
+            row.Mechanism == "PDB Source"
             && row.Evidence.Contains("return 2", StringComparison.Ordinal));
-        Assert.Contains("authored Source", view.Summary, StringComparison.Ordinal);
+        Assert.Contains("PDB Source", view.Summary, StringComparison.Ordinal);
         Assert.Contains("C# is decompiled", view.Status.Message, StringComparison.Ordinal);
     }
 
@@ -1850,7 +1850,7 @@ public class DiffCommandTests
             "new");
 
         var row = Assert.Single(view.Rows!);
-        Assert.Equal("Source", row.Mechanism);
+        Assert.Equal("PDB Source", row.Mechanism);
         Assert.Equal("unavailable", row.Change);
         Assert.Contains("old PDB unavailable", row.Evidence, StringComparison.Ordinal);
         Assert.Contains("new PDB unavailable", row.Evidence, StringComparison.Ordinal);
@@ -1885,7 +1885,7 @@ public class DiffCommandTests
             "new");
 
         var row = Assert.Single(view.Rows!);
-        Assert.Equal("Source", row.Mechanism);
+        Assert.Equal("PDB Source", row.Mechanism);
         Assert.Equal("failed", row.Change);
         Assert.Contains("checksum mismatch", row.Evidence, StringComparison.Ordinal);
     }
@@ -2020,13 +2020,13 @@ public class DiffCommandTests
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
             DiffCommand.ExecuteAsync(new DiffOptions
             {
-                IncludeAuthoredSource = true
+                IncludePdbSource = true
             }));
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
         Assert.Contains(
-            "--authored-source requires the Implementation Diff section",
+            "--pdb-source requires the Implementation Diff section",
             error,
             StringComparison.Ordinal);
     }

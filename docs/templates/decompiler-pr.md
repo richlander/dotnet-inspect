@@ -40,10 +40,11 @@ Acquire each code block from `dotnet-inspect` rather than paraphrasing or
 hand-transcribing, so every render in the PR is verbatim product output for the
 same `{Type} {MethodSelector} {scope}`:
 
-- Original source: `-S "Original Source"` (SourceLink-backed C#). Prefer C#;
-  when SourceLink cannot supply it (no PDB, no source server, or a non-C# source
-  language), fall back to the raw `IL` section (`-S "IL"`) — IL is a valid, if
-  lower-level, authoritative anchor.
+- PDB source reference: `-S "PDB Source"` (SourceLink-backed C#). Its checksum
+  proves agreement with the Portable PDB declaration, not independent build
+  provenance. When SourceLink cannot supply it (no PDB, no source server, or a
+  non-C# source language), fall back to the raw `IL` section (`-S "IL"`), which
+  remains authoritative for the compiled behavior.
 - Before: `-S "Decompiled Source"` at the base commit (the pre-change output).
 - After: `-S "Decompiled Source"` at this PR's head (the post-change output).
 - Applied Taste: `-S "Applied Taste"` at the same commit as each render, to
@@ -52,10 +53,10 @@ same `{Type} {MethodSelector} {scope}`:
 Only Fully raised is authored by hand — it is the intended endpoint, not a
 current render.
 
-dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "Original Source"
+dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "PDB Source"
 
-Keep Original source immediately before Before. Omit the Original source section
-only when neither C# source nor IL is obtainable, and say so explicitly.
+Keep PDB source reference immediately before Before. Omit that section only
+when neither C# source nor IL is obtainable, and say so explicitly.
 
 Adversarial review evidence belongs in a separate PR comment, not this
 description. Before marking the PR ready, post a comment that names each
@@ -170,27 +171,27 @@ dotnet-inspect command:
 dotnet-inspect member {Type} {MethodSelector} {scope} -S "Decompiled Source"
 ```
 
-### Original source
+### PDB source reference
 
 <!--
 Expected for every raise PR. Acquire with dotnet-inspect: prefer C# via
-`-S "Original Source"` (SourceLink); fall back to the raw IL section
+`-S "PDB Source"` (SourceLink); fall back to the raw IL section
 (`-S "IL"`) when SourceLink cannot supply C#. Omit only after checking and
 finding neither C# source nor IL is obtainable — say so explicitly rather than
 silently deleting this section.
 -->
 
 ```csharp
-// authoritative original source (C# preferred; raw IL is an acceptable fallback)
+// PDB-mapped source reference; checksum-matched, not independently proven build provenance
 ```
 
 ### Before
 
 <!--
 Acquire with `dotnet-inspect -S "Decompiled Source"` at the base commit, rather
-than hand-transcribing. Include the method signature line, matching Original
-source's shape, not just the body — a bare body is harder to line up against
-Original source.
+than hand-transcribing. Include the method signature line, matching the PDB
+source reference's shape, not just the body — a bare body is harder to line up
+against that reference.
 -->
 
 ```csharp

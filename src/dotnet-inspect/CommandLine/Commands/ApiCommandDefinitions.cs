@@ -204,7 +204,7 @@ public static class ApiCommandDefinitions
         };
         var repoOption = new Option<string[]>("--repo")
         {
-            Description = "Read authored source from local git clone(s) by SourceLink commit + PDB checksum, before the network (Original Source). Can repeat.",
+            Description = "Read PDB-mapped source from local git clone(s) by SourceLink commit + PDB checksum, before the network (PDB Source). Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
         var kindOption = new Option<string[]>("-k")

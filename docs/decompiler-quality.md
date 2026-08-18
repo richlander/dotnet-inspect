@@ -896,22 +896,23 @@ work.
   of example renders. The hits are the owner's ready-made test set and definition
   of done (the count goes to zero).
 - **Acquire every code block with `dotnet-inspect`, not by hand.** Both the
-  current render and the authoritative endpoint should be verbatim tool output
+  current render and the reference endpoint should be verbatim tool output
   for the same member, so the owner and reviewers judge the raise against real
   code instead of a paraphrase:
   - Current render: `-S "Decompiled Source"` (the lowered C# the product emits
     today).
-  - **Original source** (the endpoint the raise aims at): prefer C# via
-    `-S "Original Source"` (SourceLink-backed); when SourceLink cannot supply it
-    (no PDB, no source server, or a non-C# source language), fall back to the raw
-    `IL` section (`-S "IL"`) — IL is a valid, if lower-level, authoritative
-    anchor.
+  - **PDB source reference** (the readable endpoint the raise aims at): prefer
+    C# via `-S "PDB Source"`; the checksum proves agreement with the Portable
+    PDB declaration, not independent build provenance. When SourceLink cannot
+    supply it (no PDB, no source server, or a non-C# source language), fall back
+    to the raw `IL` section (`-S "IL"`), which remains authoritative for the
+    compiled behavior.
 
   ```bash
-  dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "Original Source"
+  dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "PDB Source"
   ```
 
-  A raise issue is a before→after comparison, so include the Original source
+  A raise issue is a before→after comparison, so include the PDB source reference
   section — the same anchor the
   [decompiler PR template](templates/decompiler-pr.md) requires — not just the
   current render and a hand-written "fully raised" goal. An issue with only those

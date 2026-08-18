@@ -93,8 +93,8 @@ public sealed record ImplementationMemberDiffResult(
 /// </summary>
 public static class ImplementationDiff
 {
-    public static readonly FindingDescriptor AuthoredSourceFailureDescriptor =
-        new("source.authored.failed", "Authored source acquisition failed");
+    public static readonly FindingDescriptor PdbSourceFailureDescriptor =
+        new("source.pdb.failed", "PDB source acquisition failed");
     internal static readonly FindingDescriptor CSharpFindingDivergenceDescriptor =
         new("csharp.finding.diverged", "C# Finding comparison diverged");
     internal static readonly FindingDescriptor IlFindingDivergenceDescriptor =
@@ -509,7 +509,7 @@ public static class ImplementationDiff
                 new ResearchChange(
                     subject,
                     ResearchChangeMechanism.Source,
-                    AuthoredSourceFailureDescriptor,
+                    PdbSourceFailureDescriptor,
                     ResearchChangeKind.Failed,
                     detail: failed.Failure,
                     category: ResearchChangeCategory.Source)

@@ -67,10 +67,10 @@ public class DiffCommand
                 options.IncludeSections))
             return 1;
 
-        if (options.IncludeAuthoredSource && !SelectsImplementationDiff(options))
+        if (options.IncludePdbSource && !SelectsImplementationDiff(options))
         {
             CommandError.Write(
-                "--authored-source requires the Implementation Diff section.");
+                "--pdb-source requires the Implementation Diff section.");
             return 1;
         }
 
@@ -1132,7 +1132,7 @@ public class DiffCommand
             VerboseLogger logger)
     {
         ArgumentNullException.ThrowIfNull(result);
-        if (!options.IncludeAuthoredSource || result.Members.Count == 0)
+        if (!options.IncludePdbSource || result.Members.Count == 0)
             return result;
 
         var subjects = result.Members
@@ -1197,7 +1197,7 @@ public class DiffCommand
                 or BadImageFormatException
                 or InvalidOperationException)
             {
-                logger.Log($"Could not index authored-source targets in '{path}': {ex.Message}");
+                logger.Log($"Could not index PDB-source targets in '{path}': {ex.Message}");
                 continue;
             }
 
@@ -1252,7 +1252,7 @@ public class DiffCommand
                         new InspectionError(
                             new FindingSubject(subject.Id, subject.Display),
                             ILInspector.Text.TextFindings.LineDescriptor,
-                            $"Authored-source acquisition failed ({ex.GetType().Name}): {ex.Message}"));
+                            $"PDB-source acquisition failed ({ex.GetType().Name}): {ex.Message}"));
                 }
             }
         }
@@ -2296,7 +2296,7 @@ public record DiffOptions
     public bool Additive { get; init; }
     public bool ChangedOnly { get; init; }
     public bool AllocRegressionsOnly { get; init; }
-    public bool IncludeAuthoredSource { get; init; }
+    public bool IncludePdbSource { get; init; }
     public string? Finding { get; init; }
     public bool Legend { get; init; }
     public string[]? Discover { get; init; }
@@ -2316,7 +2316,7 @@ public record DiffOptions
     public NuGetSourceOptions? SourceOptions { get; init; }
 
     /// <summary>
-    /// Local git clone paths consulted for authored source (Implementation Diff), by SourceLink
+    /// Local git clone paths consulted for PDB source (Implementation Diff), by SourceLink
     /// commit + PDB checksum, before the network. Empty = network only. Set via <c>--repo</c>.
     /// </summary>
     public string[] SourceRepositories { get; init; } = [];

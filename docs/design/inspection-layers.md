@@ -58,7 +58,7 @@ type-forwarder, union-type, switch, SourceLink audit, API-comparison, Analysis
 body-signal comparison, unsafe-evidence, top-leverage, Implementation
 comparison, assembly-context Integrations, implementation relationships,
 type/member search, extension reachability, progressive member call-graph
-slices, and group-scoped authored-or-decompiled type/member source. The
+slices, and group-scoped PDB-mapped-or-decompiled type/member source. The
 API-comparison seam
 retains Metadata-owned Finding correspondence and compatibility classification
 over two host-resolved surfaces. The body-signal seam consumes already-acquired
@@ -110,7 +110,7 @@ and acquire body indexes and retained assembly descriptors lazily inside
 selected query execution. The L1 queries receive content-derived inputs rather
 than paths, and the CLI continues to own ranking and rendering. Implementation
 comparison opens descriptor-backed metadata sources once for the offline C#
-and IL producers; authored-source acquisition remains a separate explicit
+and IL producers; PDB-source acquisition remains a separate explicit
 enrichment.
 `ImplementationComparisonQueryTests.Execute_UsesSuppliedAssemblyContentForCSharpAndIlEvidence`
 gates the stream-backed target-content path.
@@ -118,7 +118,7 @@ gates the stream-backed target-content path.
 `AssemblyContextSourceQuery` accepts one participant, an exact typed target,
 and explicit host capabilities for symbol and source acquisition. It opens the
 workspace snapshot as content, acquires a matching PDB through the supplied
-store, prefers checksum-verified authored source, and otherwise decompiles
+store, prefers checksum-verified PDB source, and otherwise decompiles
 through the participant's `IAssemblyBindingPolicy`. It never accepts an
 assembly or PDB path. A pathless decompiler descriptor may use embedded symbols
 but cannot derive and probe an ambient sidecar path; this is gated by

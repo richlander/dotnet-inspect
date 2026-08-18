@@ -170,7 +170,7 @@ internal static class MemberSourceLocationCollector
     }
 
     /// <summary>
-    /// The MethodDef token(s) whose PDB sequence points can locate a member's authored source,
+    /// The MethodDef token(s) whose PDB sequence points can locate a member's source,
     /// paired with a preference rank (lower wins). A method-like member is its own body. A
     /// property or event (including an indexer) has no MethodDef of its own, so it is located
     /// through its accessors — the getter/adder first, then the setter/remover, matching the

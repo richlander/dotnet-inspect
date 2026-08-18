@@ -13,7 +13,7 @@ using ILInspector.SourceLink;
 namespace DotnetInspector.Queries;
 
 /// <summary>
-/// Explicit host capabilities for authored-source and pathless portable-PDB
+/// Explicit host capabilities for PDB-mapped source and pathless portable-PDB
 /// acquisition.
 /// </summary>
 public sealed class AssemblyContextSourceQueryContext
@@ -61,7 +61,7 @@ public sealed class AssemblyContextSourceQueryContext
 }
 
 /// <summary>
-/// Exact type request for an authored-or-decompiled source query.
+/// Exact type request for a PDB-mapped-or-decompiled source query.
 /// </summary>
 public sealed record AssemblyTypeSourceRequest
 {
@@ -162,14 +162,14 @@ public sealed record AssemblyMemberSourceRequest
     }
 }
 
-public sealed record AssemblyAuthoredSourceProvenance(
+public sealed record AssemblyPdbSourceProvenance(
     string? RepositoryUrl,
     string? Revision);
 
 public enum AssemblySourceFailureKind
 {
     TargetNotFound,
-    AuthoredAndDecompiledUnavailable,
+    PdbAndDecompiledUnavailable,
     InspectionFailed,
 }
 
@@ -180,31 +180,31 @@ public sealed record AssemblySourceFailure(
 
 public abstract record AssemblyMemberSource(string Text)
 {
-    public sealed record Authored(
+    public sealed record Pdb(
         string Text,
-        AuthoredMemberSourceInspection Inspection,
-        AssemblyAuthoredSourceProvenance Provenance)
+        PdbMemberSourceInspection Inspection,
+        AssemblyPdbSourceProvenance Provenance)
         : AssemblyMemberSource(Text);
 
     public sealed record Decompiled(
         string Text,
         MemberRenderResult Decompilation,
-        AuthoredMemberSourceInspection AuthoredAttempt)
+        PdbMemberSourceInspection PdbAttempt)
         : AssemblyMemberSource(Text);
 }
 
 public abstract record AssemblyTypeSource(string Text)
 {
-    public sealed record Authored(
+    public sealed record Pdb(
         string Text,
-        AuthoredTypeSourceInspection Inspection,
-        AssemblyAuthoredSourceProvenance Provenance)
+        PdbTypeSourceInspection Inspection,
+        AssemblyPdbSourceProvenance Provenance)
         : AssemblyTypeSource(Text);
 
     public sealed record Decompiled(
         string Text,
         DecompilerResult Decompilation,
-        AuthoredTypeSourceInspection AuthoredAttempt)
+        PdbTypeSourceInspection PdbAttempt)
         : AssemblyTypeSource(Text);
 }
 
@@ -228,7 +228,7 @@ public abstract record AssemblyMemberSourceEntry(
         AssemblyContextSubject Subject,
         AssemblyMemberSourceRequest Request,
         AssemblySourceFailure Failure,
-        AuthoredMemberSourceInspection? AuthoredAttempt = null,
+        PdbMemberSourceInspection? PdbAttempt = null,
         MemberRenderResult? DecompiledAttempt = null)
         : AssemblyMemberSourceEntry(Subject, Request);
 }
@@ -253,13 +253,13 @@ public abstract record AssemblyTypeSourceEntry(
         AssemblyContextSubject Subject,
         AssemblyTypeSourceRequest Request,
         AssemblySourceFailure Failure,
-        AuthoredTypeSourceInspection? AuthoredAttempt = null,
+        PdbTypeSourceInspection? PdbAttempt = null,
         DecompilerResult? DecompiledAttempt = null)
         : AssemblyTypeSourceEntry(Subject, Request);
 }
 
 /// <summary>
-/// Returns checksum-verified authored source when available, otherwise
+/// Returns checksum-verified PDB-mapped source when available, otherwise
 /// product-owned decompiled C#, for one participant in a binding-consistent
 /// assembly context group.
 /// </summary>
@@ -465,10 +465,10 @@ public static class AssemblyContextSourceQuery
                     context,
                     cancellationToken)
                 .ConfigureAwait(false);
-        AuthoredMemberSourceInspection authored;
+        PdbMemberSourceInspection pdbSource;
         if (sourceResult.Source is { } source)
         {
-            AssemblyMemberSourceEntry.Available? authoredEntry = null;
+            AssemblyMemberSourceEntry.Available? pdbEntry = null;
             Exception? disposalFailure = null;
             try
             {
@@ -476,7 +476,7 @@ public static class AssemblyContextSourceQuery
                 EnsureBindingPolicyVersion(
                     participant,
                     bindingPolicyVersion);
-                authored =
+                pdbSource =
                     await AuthoredSourceAcquisition.AcquireMemberAsync(
                             source,
                             request.MetadataToken,
@@ -492,17 +492,17 @@ public static class AssemblyContextSourceQuery
                 EnsureBindingPolicyVersion(
                     participant,
                     bindingPolicyVersion);
-                if (authored.IsComplete
-                    && authored.Text is { } authoredText)
+                if (pdbSource.IsComplete
+                    && pdbSource.Text is { } pdbText)
                 {
-                    authoredEntry =
+                    pdbEntry =
                         new AssemblyMemberSourceEntry.Available(
                             subject,
                             request,
-                            new AssemblyMemberSource.Authored(
-                                authoredText,
-                                authored,
-                                Provenance(source)));
+                            new AssemblyMemberSource.Pdb(
+                                pdbText,
+                                pdbSource,
+                                PdbProvenance(source)));
                 }
             }
             finally
@@ -514,8 +514,8 @@ public static class AssemblyContextSourceQuery
                 bindingPolicyVersion,
                 cancellationToken,
                 disposalFailure);
-            if (authoredEntry is not null)
-                return authoredEntry;
+            if (pdbEntry is not null)
+                return pdbEntry;
         }
         else
         {
@@ -523,7 +523,7 @@ public static class AssemblyContextSourceQuery
             EnsureBindingPolicyVersion(
                 participant,
                 bindingPolicyVersion);
-            authored =
+            pdbSource =
                 AuthoredSourceAcquisition
                     .MemberPdbAcquisitionFailed(
                         findingSubject,
@@ -560,14 +560,14 @@ public static class AssemblyContextSourceQuery
                 new AssemblyMemberSource.Decompiled(
                     decompiledText,
                     decompiled,
-                    authored));
+                    pdbSource));
         }
 
         return new AssemblyMemberSourceEntry.Unavailable(
             subject,
             request,
             BothUnavailable(),
-            authored,
+            pdbSource,
             decompiled);
     }
 
@@ -590,10 +590,10 @@ public static class AssemblyContextSourceQuery
                     context,
                     cancellationToken)
                 .ConfigureAwait(false);
-        AuthoredTypeSourceInspection authored;
+        PdbTypeSourceInspection pdbSource;
         if (sourceResult.Source is { } source)
         {
-            AssemblyTypeSourceEntry.Available? authoredEntry = null;
+            AssemblyTypeSourceEntry.Available? pdbEntry = null;
             Exception? disposalFailure = null;
             try
             {
@@ -601,7 +601,7 @@ public static class AssemblyContextSourceQuery
                 EnsureBindingPolicyVersion(
                     participant,
                     bindingPolicyVersion);
-                authored =
+                pdbSource =
                     await AuthoredSourceAcquisition.AcquireTypeAsync(
                             source,
                             request.Type,
@@ -616,17 +616,17 @@ public static class AssemblyContextSourceQuery
                 EnsureBindingPolicyVersion(
                     participant,
                     bindingPolicyVersion);
-                if (authored.IsComplete
-                    && authored.Text is { } authoredText)
+                if (pdbSource.IsComplete
+                    && pdbSource.Text is { } pdbText)
                 {
-                    authoredEntry =
+                    pdbEntry =
                         new AssemblyTypeSourceEntry.Available(
                             subject,
                             request,
-                            new AssemblyTypeSource.Authored(
-                                authoredText,
-                                authored,
-                                Provenance(source)));
+                            new AssemblyTypeSource.Pdb(
+                                pdbText,
+                                pdbSource,
+                                PdbProvenance(source)));
                 }
             }
             finally
@@ -638,8 +638,8 @@ public static class AssemblyContextSourceQuery
                 bindingPolicyVersion,
                 cancellationToken,
                 disposalFailure);
-            if (authoredEntry is not null)
-                return authoredEntry;
+            if (pdbEntry is not null)
+                return pdbEntry;
         }
         else
         {
@@ -647,7 +647,7 @@ public static class AssemblyContextSourceQuery
             EnsureBindingPolicyVersion(
                 participant,
                 bindingPolicyVersion);
-            authored =
+            pdbSource =
                 AuthoredSourceAcquisition
                     .TypePdbAcquisitionFailed(
                         findingSubject,
@@ -683,14 +683,14 @@ public static class AssemblyContextSourceQuery
                 new AssemblyTypeSource.Decompiled(
                     decompiledText,
                     decompiled,
-                    authored));
+                    pdbSource));
         }
 
         return new AssemblyTypeSourceEntry.Unavailable(
             subject,
             request,
             BothUnavailable(),
-            authored,
+            pdbSource,
             decompiled);
     }
 
@@ -810,7 +810,7 @@ public static class AssemblyContextSourceQuery
         return match is null ? null : (type, match);
     }
 
-    static AssemblyAuthoredSourceProvenance Provenance(
+    static AssemblyPdbSourceProvenance PdbProvenance(
         SourceLinkService source)
         => new(source.RepositoryUrl, source.CommitHash);
 
@@ -822,8 +822,8 @@ public static class AssemblyContextSourceQuery
     static AssemblySourceFailure BothUnavailable()
         => new(
             AssemblySourceFailureKind
-                .AuthoredAndDecompiledUnavailable,
-            "Neither authored nor decompiled source is available for the selected target.");
+                .PdbAndDecompiledUnavailable,
+            "Neither PDB-mapped nor decompiled source is available for the selected target.");
 
     static AssemblySourceFailure InspectionFailure(Exception error)
         => new(

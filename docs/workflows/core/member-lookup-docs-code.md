@@ -151,7 +151,7 @@ Tips:
 
 ## 3. View member implementation code
 
-> Goal: When selecting a specific member, discover and select implementation sections: raised C# (`Decompiled Source`), mixed C#+IL (`Annotated Source`), SourceLink-backed source (`Original Source`), and raw IL (`IL`). `-S @Source` selects those four evidence views.
+> Goal: When selecting a specific member, discover and select implementation sections: raised C# (`Decompiled Source`), mixed C#+IL (`Annotated Source`), SourceLink-backed source (`PDB Source`), and raw IL (`IL`). `-S @Source` selects those four evidence views.
 
 ### 3a. Single member (no overloads)
 
@@ -210,11 +210,11 @@ dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFacto
 ### 4b. Select constructor overload
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory .ctor:1 -S "Original Source" -n 30 --tips q
+dotnet-inspect member --package Microsoft.Extensions.Options@10.0.2 OptionsFactory .ctor:1 -S "PDB Source" -n 30 --tips q
 ```
 
 ```expect
-## Original Source
+## PDB Source
 public OptionsFactory(IEnumerable<IConfigureOptions<TOptions>> setups
 ```
 

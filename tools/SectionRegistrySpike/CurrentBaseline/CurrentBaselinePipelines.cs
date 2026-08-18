@@ -76,11 +76,11 @@ public static class CurrentBaselinePipelines
     public static SectionPipeline<SpikeModel> CreatePipeline() => new SectionPipeline<SpikeModel>()
         .Add<MetadataSection>(m => m.IsManagedAssembly)
         .Add<DecompiledSourceSection>(m => m.IsManagedAssembly)
-        .Add<OriginalSourceSection>(m => m.HasSourceLink)
+        .Add<PdbSourceSection>(m => m.HasSourceLink)
         .Add<CallsSection>(m => m.HasMethodBodies)
         .Add<FactsSection>(m => m.HasMethodBodies)
         .AddCategory("@Projections", "Calls", "Facts")
-        .AddCategory("@Source", "Decompiled Source", "Original Source");
+        .AddCategory("@Source", "Decompiled Source", "PDB Source");
 
     public static CurrentScannerRegistry CreateScannerRegistry() => new CurrentScannerRegistry()
         .Add(ScannerMetadata, ctx =>
@@ -125,7 +125,7 @@ public static class CurrentBaselinePipelines
             return;
 
         await Task.Yield();
-        context.Model.OriginalSource = "// original source text (representative)";
+        context.Model.PdbSource = "// PDB source text (representative)";
         context.Record("FetchSource");
     }
 
@@ -148,16 +148,16 @@ public static class CurrentBaselinePipelines
         public static bool CanRender(SpikeModel model) => model.DecompiledSource != null;
     }
 
-    private readonly struct OriginalSourceSection : ISectionDescriptor<SpikeModel>
+    private readonly struct PdbSourceSection : ISectionDescriptor<SpikeModel>
     {
-        public static string Name => "Original Source";
+        public static string Name => "PDB Source";
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
-        public static bool CanRender(SpikeModel model) => model.OriginalSource != null;
+        public static bool CanRender(SpikeModel model) => model.PdbSource != null;
     }
 
     private readonly struct CallsSection : ISectionDescriptor<SpikeModel>

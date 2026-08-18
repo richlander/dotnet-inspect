@@ -53,7 +53,7 @@ filesystem or ambient NuGet policy. `AssemblyContextSourceQuery` consumes this
 content-shaped symbol capability for a selected group participant. Its query
 context requires the store and source authorization explicitly; an in-memory
 store lets browser/Wasm hosts acquire and validate the same PDB bytes without a
-path. `AssemblyContextSourceQueryTests.PathlessMember_AcquiresVerifiedAuthoredSource`
+path. `AssemblyContextSourceQueryTests.PathlessMember_AcquiresVerifiedPdbSource`
 gates the end-to-end query path.
 `PdbIdentityTests.LoadPdbFromStream_RejectsMatchingGuidWithDifferentStamp`,
 `PdbIdentityTests.PortablePdbIdentity_WindowsCodeViewCannotAuthorizePortablePdb`,
@@ -78,8 +78,8 @@ gate those ownership boundaries.
 The compatibility `PdbContext.Dispose` path retains its best-effort cleanup
 behavior. Strict query ownership uses `DisposeWithFailure`, which attempts
 every owned resource and reports the first cleanup failure; source queries
-therefore cannot publish authored success after PDB disposal failed.
-`AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsAuthoredSuccess`
+therefore cannot publish PDB-source success after PDB disposal failed.
+`AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsPdbSourceSuccess`
 gates cancellation and operational failure for member and type queries;
 `AssemblyContextSourceQueryTests.NonStandardPdbDisposalFailure_IsTyped`
 gates host-specific non-fatal exceptions outside the common I/O types. A

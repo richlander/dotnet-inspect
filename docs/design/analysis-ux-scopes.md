@@ -44,7 +44,7 @@ dotnet-inspect library My.dll --il-offset 0x06000042+0x2A -S "Context: Source Lo
 | Url | https://github.com/org/repo/blob/sha/src/Foo.cs#L87 |
 ```
 
-Member/type analogs already exist as `Source Locations`, `Original Source`, and
+Member/type analogs already exist as `Source Locations`, `PDB Source`, and
 `Source Files`.
 
 ### Member identity

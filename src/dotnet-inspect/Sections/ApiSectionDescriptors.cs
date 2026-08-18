@@ -139,7 +139,7 @@ public static class ApiMemberSectionDescriptors
             .Add<OptimizationOpportunities>()
             .Add<SourceFiles>()
             .Add<DecompiledSource>()
-            .Add<OriginalSource>()
+            .Add<PdbSource>()
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>()
             .Add<ILBody>()
             .Add<Facts>()
@@ -508,9 +508,9 @@ public static class ApiMemberSectionDescriptors
             => model.Members.Count == 1 && model.Members.Any(IsBodyBacked);
     }
 
-    public sealed class OriginalSource : ISectionDescriptor<ApiType>
+    public sealed class PdbSource : ISectionDescriptor<ApiType>
     {
-        public static string Name => SectionNames.OriginalSource;
+        public static string Name => SectionNames.PdbSource;
         public static bool IsExpensive => true;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
@@ -612,7 +612,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.PdbSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.ExceptionRegions>()
@@ -631,7 +631,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .AddCategory(SectionCategoryNames.Source,
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
-                SectionNames.OriginalSource,
+                SectionNames.PdbSource,
                 SectionNames.SourceDiff,
                 SectionNames.IL);
     }
@@ -668,7 +668,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<AnnotatedSourceDocument>()
             .Add<CostOverlay>()
             .Add<SemanticsOverlay>()
-            .Add<OriginalSource>()
+            .Add<PdbSource>()
             .Add<SourceDiff>()
             .Add<SourceLocations>()
             .Add<Calls>()
@@ -686,7 +686,7 @@ public static class ApiMemberDetailSectionDescriptors
             .AddCategory(SectionCategoryNames.Source,
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
-                SectionNames.OriginalSource,
+                SectionNames.PdbSource,
                 SectionNames.SourceDiff,
                 SectionNames.IL);
     }
@@ -802,15 +802,15 @@ public static class ApiMemberDetailSectionDescriptors
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
-    public sealed class OriginalSource : ISectionDescriptor<ApiType>
+    public sealed class PdbSource : ISectionDescriptor<ApiType>
     {
-        public static string Name => SectionNames.OriginalSource;
+        public static string Name => SectionNames.PdbSource;
         public static bool IsExpensive => true;
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
         // A property/event resolves through the accessor the selected ordinal addresses, whose
-        // PDB sequence points carry the authored source, so it renders like a method (#3278).
+        // PDB sequence points locate its source, so it renders like a method (#3278).
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }

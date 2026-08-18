@@ -649,7 +649,7 @@ public class SectionPipelineTests
         SectionNames.AnnotatedSource,
         SectionNames.CostOverlay,
         SectionNames.SemanticsOverlay,
-        SectionNames.OriginalSource,
+        SectionNames.PdbSource,
         SectionNames.Calls,
         SectionNames.ExceptionRegions,
         SectionNames.Callers,
@@ -6835,7 +6835,7 @@ public class SectionPipelineTests
         Assert.Contains("Source Files", names);
         Assert.Contains("IL", names);
         Assert.Contains("Decompiled Source", names);
-        Assert.Contains("Original Source", names);
+        Assert.Contains("PDB Source", names);
         Assert.Contains("Source Diff", names);
         Assert.Contains("Custom Attributes", names);
         Assert.Contains("Called Types", names);
@@ -7032,13 +7032,13 @@ public class SectionPipelineTests
 
         Assert.Contains("Signature", minimal);
         Assert.DoesNotContain("Decompiled Source", minimal);
-        Assert.DoesNotContain("Original Source", minimal);
+        Assert.DoesNotContain("PDB Source", minimal);
         Assert.Contains("Decompiled Source", normal);
         Assert.Contains("IL", normal);
         Assert.DoesNotContain("Annotated Source", normal);
-        Assert.DoesNotContain("Original Source", normal);
+        Assert.DoesNotContain("PDB Source", normal);
         Assert.Contains("Decompiled Source", detailed);
-        Assert.Contains("Original Source", detailed);
+        Assert.Contains("PDB Source", detailed);
         Assert.Contains("IL", detailed);
         Assert.DoesNotContain("Annotated Source", detailed);
         var annotations = pipeline.GetCostAnnotations();
@@ -7088,7 +7088,7 @@ public class SectionPipelineTests
             [
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
-                SectionNames.OriginalSource,
+                SectionNames.PdbSource,
                 SectionNames.SourceDiff,
                 SectionNames.IL
             ],
@@ -7104,7 +7104,7 @@ public class SectionPipelineTests
             [
                 SectionNames.DecompiledSource,
                 SectionNames.AnnotatedSource,
-                SectionNames.OriginalSource,
+                SectionNames.PdbSource,
                 SectionNames.SourceDiff,
                 SectionNames.IL
             ],

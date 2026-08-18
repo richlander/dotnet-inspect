@@ -118,7 +118,7 @@ When a lens has multiple possible rendering modes, the default should be the mos
 | ------- | -------------------- | -------------------------- |
 | `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--path`, `-S "Package README file" --print`, `--versions`, `-S Signals` |
 | `project` | — | `-S Skills`, `-S Skills --print --row N` |
-| `type`/`member` | Type/member identity and sectioned evidence | `-S "Source Files" --print --row N`, `-S "Source Locations" --print --row N`, `-S "Original Source" --print` |
+| `type`/`member` | Type/member identity and sectioned evidence | `-S "Source Files" --print --row N`, `-S "Source Locations" --print --row N`, `-S "PDB Source" --print` |
 | `api` | Type fields, Members table | `--docs`, `--samples`, `--table`, `--tsv` |
 | `library` | Library info, PE headers | `--sourcelink`, `--references` |
 | `platform` | Framework listing | (delegates to `library` when given a name) |

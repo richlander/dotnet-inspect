@@ -321,7 +321,7 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Successful `.snupkg` PDB extraction | Extracted PDB is cached permanently under `packages/symbols/{package}/{version}/`. |
 | Missing `.snupkg` URLs and `.snupkg` files without the requested PDB | Cached as misses for 1 day. The `.snupkg` archive itself is not retained. |
 | SourceLink audit source checks | Successful HEAD checks are cached permanently; 404s are cached as misses for 1 day. |
-| Selected-member `Original Source` downloads | Not cached by this command path. |
+| Selected-member `PDB Source` downloads | Not cached by this command path. |
 | `SourceLink: Availability` URL checks | Not cached by this command path. |
 | Service-index discovery for custom NuGet feeds | Not cached. nuget.org flat-container paths avoid this lookup. |
 | GitHub advisory enrichment | Not separately cached; it is covered when the package metadata cache is hit. |

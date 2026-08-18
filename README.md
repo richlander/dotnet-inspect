@@ -137,11 +137,11 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections and shared with browser/WASM. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
-| API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
+| API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified PDB Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
-| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
+| Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
-| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
+| Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `PDB Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Raw metadata | `library -S @Metadata` (table sections: `"Metadata: TypeDef"`, `"Metadata: MethodDef"`, …, plus `"Metadata: Image"`, the heap sections, and `--heap "#Strings:0x1a4"`) | The ECMA-335 metadata tables of an assembly, with handles resolved to the rows they point at and heap offsets to their values. Opt-in only: the tables are unbounded, so no verbosity renders them. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
@@ -153,11 +153,11 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | `project [path]` | Inspect restored direct package references for skill files and package docs. |
 | `library X` | Inspect assembly metadata, symbols, SourceLink, references (`-S References`, optionally `--tree --depth N`), resources, and async methods. |
 | `type X` | Discover types or render a single type shape. |
-| `member X` | Inspect members, docs, overloads, decompiled/lowered C#, SourceLink-backed original source, and IL. |
+| `member X` | Inspect members, docs, overloads, decompiled/lowered C#, PDB-mapped source, and IL. |
 | `find X` | Search for types across packages, frameworks, projects, and local assets. Add `--members` (or lead the query with `.`, e.g. `.Serialize`) to search member names instead. |
 | `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility`, `C# Style Choices`, or `C# Body Kinds` to enumerate their legal values. |
 | `body-shape X` | Search one library's full-fidelity bodies for an exact stable rendered-syntax kind, returning the containing member, MethodDef token, exact range, and selected text. |
-| `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
+| `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified PDB Source implementation evidence. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
@@ -414,10 +414,10 @@ Address them through the overload-index selector: `Name:1` is the getter/adder
 (the default) and `Name:2` the setter/remover, each rooted at its metadata
 accessor name (`get_Name`, `set_Name`, `add_Name`, `remove_Name`). Fields have
 no accessor and stay body-less. The SourceLink source-file sections
-(`Original Source`, `Source Diff`, `Source Locations`) follow the same
+(`PDB Source`, `Source Diff`, `Source Locations`) follow the same
 addressing and resolve through the accessor's PDB sequence points.
-`Source Locations` reports that accessor-specific range; `Original Source` and
-`Source Diff` use its first line to select the enclosing authored declaration,
+`Source Locations` reports that accessor-specific range; `PDB Source` and
+`Source Diff` use its first line to select the enclosing source declaration,
 so a getter and setter both render the whole property rather than invalid
 accessor fragments.
 
@@ -446,7 +446,7 @@ to high. Caller-loop evidence remains queryable but does not change priority.
 `member -S @Source` raises a method body to C# and shows the supporting
 evidence: `Decompiled Source` (raised C#), `Annotated Source` (C# with
 hidden-fact comments and interleaved IL), `Annotated Source Document` (the same
-rendering as a machine payload), `Original Source` (SourceLink-backed),
+rendering as a machine payload), `PDB Source` (SourceLink-backed),
 and `IL`. The decompiler is exception-safe by construction and degrades
 honestly: IL with no faithful C# spelling renders as a visible comment and
 lowers the result's fidelity level (`Full` → `Partial` → `StructuredOnly` →
@@ -694,7 +694,7 @@ dotnet-inspect library System.Text.Json --il-offset 0x06000004+0x15
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --breaking
 dotnet-inspect timeline --package System.Text.Json@8.0.0..9.0.0 --type System.Text.Json.JsonSerializer --members --at all
 dotnet-inspect timeline --package MyLib@1.0.0..2.0.0 --type MyType --member Parse --finding analysis.unsafety --at all
-dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" --authored-source -m MyType.HotPath
+dotnet-inspect diff --library old/Foo.dll..new/Foo.dll -S "Implementation Diff" --pdb-source -m MyType.HotPath
 dotnet-inspect depends Stream --markdown --mermaid
 dotnet-inspect implements IEquatable --project ./src/App -v:q
 dotnet-inspect extensions string --project ./src/App -v:n

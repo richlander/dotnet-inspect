@@ -19,7 +19,7 @@ public sealed class SpikeModel
     public bool MetadataLoaded { get; set; }
     public string? DecompiledSource { get; set; }
     public bool PdbAcquired { get; set; }
-    public string? OriginalSource { get; set; }
+    public string? PdbSource { get; set; }
     public int Calls { get; set; }
     public int Facts { get; set; }
     public bool DeepScanRan { get; set; }
@@ -29,7 +29,7 @@ public sealed class SpikeModel
         MetadataLoaded = false;
         DecompiledSource = null;
         PdbAcquired = false;
-        OriginalSource = null;
+        PdbSource = null;
         Calls = 0;
         Facts = 0;
         DeepScanRan = false;

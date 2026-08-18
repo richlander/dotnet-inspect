@@ -20,7 +20,7 @@ Verbosity levels:
 | Normal | `-v:n` | Multiple network-free base sections | No |
 | Detailed | `-v:d` | All applicable base sections | No |
 
-The `member` command follows the same scale for member lists. A selected overload defaults to `Signature`; normal verbosity adds bounded local implementation sections: `Decompiled Source` (raised C# without IL comments) and `IL` (raw IL). `Source Locations` is an explicit SourceLink file/line URL table that does not fetch source bodies. `Annotated Source` is the mixed C#+IL view with hidden-fact comments; `Original Source` is SourceLink-backed source when available. `-S @Source` selects Decompiled, Annotated, Original, and IL evidence. The `Facts` section — the structured member/offset/line-keyed table of the same Research overlay facts — is opt-in via `-S "Facts"` / `--tsv`.
+The `member` command follows the same scale for member lists. A selected overload defaults to `Signature`; normal verbosity adds bounded local implementation sections: `Decompiled Source` (raised C# without IL comments) and `IL` (raw IL). `Source Locations` is an explicit SourceLink file/line URL table that does not fetch source bodies. `Annotated Source` is the mixed C#+IL view with hidden-fact comments; `PDB Source` is SourceLink-backed source when available. `-S @Source` selects Decompiled, Annotated, PDB Source, and IL evidence. The `Facts` section — the structured member/offset/line-keyed table of the same Research overlay facts — is opt-in via `-S "Facts"` / `--tsv`.
 
 Discovery (`-D`) lists available sections and category doors. Section
 selection (`-S`, with lowercase `-s` as an alias) filters to specific sections;

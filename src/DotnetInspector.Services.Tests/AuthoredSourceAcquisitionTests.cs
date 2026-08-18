@@ -135,7 +135,7 @@ public class AuthoredSourceAcquisitionTests
                     LineNumber: null,
                     GitHubBrowseUrl: null);
 
-        AuthoredTypeSourceInspection result =
+        PdbTypeSourceInspection result =
             AuthoredSourceAcquisition.FromTypeContent(
                 mapping,
                 Document(content),

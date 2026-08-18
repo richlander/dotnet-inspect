@@ -1003,7 +1003,7 @@ and
 `HttpRetryHelperTests.HeaderFirstBodyRead_FailureLogsCarryNoUrlOrExceptionText`.
 
 Every product consumer that renders or derives output from fetched source now
-uses `AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync`. Original Source,
+uses `AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync`. PDB Source,
 printed Source Files and Source Locations, IL-offset source lines, and
 documentation/sample enrichment all require the portable-PDB checksum before
 using network content. `SourceAvailabilityService` and
@@ -1061,7 +1061,7 @@ CGNAT, multicast, unspecified, and reserved destinations. Callers must not
 replace it with the general shared client.
 
 Checksums from portable PDB documents authenticate source content when the
-workflow claims authored-source integrity. A reachable URL without a matching
+workflow claims PDB-source integrity. A reachable URL without a matching
 checksum is not equivalent to verified source.
 
 ### Authored-source lexing is complexity-bounded

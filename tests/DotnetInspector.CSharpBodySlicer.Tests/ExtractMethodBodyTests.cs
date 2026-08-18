@@ -1621,7 +1621,7 @@ public class ExtractMethodBodyTests
 
     /// <summary>
     /// A synthesized constructor has initializer sequence points but no authored constructor
-    /// declaration. An initializer is not a substitute: returning it as Original Source
+    /// declaration. An initializer is not a substitute: returning it as PDB Source
     /// misattributes one declaration to another and makes Source Diff compare unrelated members.
     /// </summary>
     [Theory]

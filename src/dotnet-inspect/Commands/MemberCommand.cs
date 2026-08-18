@@ -275,10 +275,10 @@ public static class MemberCommand
                 && NeedsMemberSourceResolution(apiType, effectiveOptions))
             {
                 bool fetchSource = ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
-                    .Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]);
+                    .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]);
                 var selectedMember = apiType.Members.Count == 1 ? apiType.Members[0] : null;
-                // A property/event (including an indexer) has no body of its own: its authored
-                // source lives in the accessor the selected ordinal addresses, so resolve by that
+                // A property/event (including an indexer) has no body of its own: its PDB source
+                // is located through the accessor the selected ordinal addresses, so resolve by that
                 // accessor's name and MethodDef token rather than the property's name and absent
                 // token, which would otherwise resolve nothing (issue #3278).
                 var sourceAccessor = ResolveSourceAccessor(apiType, selectedMember, effectiveOptions.OverloadIndex);
@@ -291,7 +291,7 @@ public static class MemberCommand
                     : (selectedMember?.DeclaringOverloadIndex ?? effectiveOptions.OverloadIndex.Value) - 1;
                 // A directly-requested single member (name + overload) is already explicitly named
                 // by the caller. When non-public members are in scope (--all), honor that request
-                // for Original Source / Source Diff regardless of accessibility; member inventories
+                // for PDB Source / Source Diff regardless of accessibility; member inventories
                 // keep the public-only default. Explicit interface implementations stay resolvable.
                 var directRequest = selectedMember != null && effectiveOptions.IncludeAll;
                 var publicOnly = !directRequest
@@ -319,7 +319,7 @@ public static class MemberCommand
                 {
                     MethodSource = resolved.Source,
                     MemberHasNoBody = resolved.MemberHasNoBody,
-                    MemberHasNoAuthoredDeclaration = resolved.MemberHasNoAuthoredDeclaration,
+                    MemberHasNoPdbDeclaration = resolved.MemberHasNoPdbDeclaration,
                     MemberSourceTooComplex = resolved.MemberSourceTooComplex,
                     MemberSourceCoordinatesInvalid = resolved.MemberSourceCoordinatesInvalid,
                     PdbPath = resolved.PdbPath
@@ -528,7 +528,7 @@ public static class MemberCommand
         SectionNames.AppliedTaste,
         SectionNames.AnnotatedSource,
         SectionNames.AnnotatedSourceDocument,
-        SectionNames.OriginalSource,
+        SectionNames.PdbSource,
         SectionNames.SourceDiff,
         SectionNames.Calls,
         SectionNames.ExceptionRegions,
@@ -577,7 +577,7 @@ public static class MemberCommand
     internal static bool NeedsMemberSourceResolution(ApiType apiType, MemberOptions options)
     {
         var sections = ApiCommand.GetRequestedMemberSections(apiType, options);
-        if (sections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+        if (sections.Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
             return true;
 
         bool pdbAuthorized = options.IncludeSections is { Count: > 0 }
@@ -593,7 +593,8 @@ public static class MemberCommand
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
 
     /// <summary>
-    /// The accessor method that carries a selected property's or event's authored source, or
+    /// The accessor method whose PDB sequence points locate a selected property's or event's
+    /// source, or
     /// <see langword="null"/> when the selected member is already method-like (or is a field,
     /// which has no accessor). The accessor ordinal follows the same addressing the body
     /// sections use: 1 is the getter/adder and 2 the setter/remover, counting only accessors

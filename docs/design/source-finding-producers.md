@@ -63,14 +63,14 @@ visible sequence-point document even when the method's root document is nil;
 gates that compiler-produced shape. The type inventory is atomic rather than
 best-effort: malformed target document names or sequence-point blobs fail the
 census instead of being omitted from an absent or apparently complete mapping.
-`AssemblyContextSourceQueryTests.MalformedTargetPdbDocument_ProducesFailedAuthoredEvidenceBeforeTypeFallback`
+`AssemblyContextSourceQueryTests.MalformedTargetPdbDocument_ProducesFailedPdbSourceEvidenceBeforeTypeFallback`
 and
-`AssemblyContextSourceQueryTests.MalformedTargetSequencePoints_ProduceFailedAuthoredEvidenceBeforeTypeFallback`
+`AssemblyContextSourceQueryTests.MalformedTargetSequencePoints_ProduceFailedPdbSourceEvidenceBeforeTypeFallback`
 gate those two decode boundaries with real portable PDBs. SRM-readable but
 invalid census values fail the same boundary rather than becoming absence:
-`AssemblyContextSourceQueryTests.EmptyTargetPdbDocument_ProducesFailedAuthoredEvidenceBeforeTypeFallback`
+`AssemblyContextSourceQueryTests.EmptyTargetPdbDocument_ProducesFailedPdbSourceEvidenceBeforeTypeFallback`
 gates an empty correlated document path, and
-`AssemblyContextSourceQueryTests.RejectedUnrelatedTypeName_ProducesFailedAuthoredEvidenceBeforeTypeFallback`
+`AssemblyContextSourceQueryTests.RejectedUnrelatedTypeName_ProducesFailedPdbSourceEvidenceBeforeTypeFallback`
 gates a rejected unrelated structured TypeDef name.
 
 Member-source comparison treats the exact point-line set as a changeable
@@ -147,33 +147,33 @@ literal metadata character. This is gated by
 
 Whole-document type output refuses more than 500,000 logical lines before
 materializing the Finding census; the verified text then remains a failed
-authored attempt so Decompiler fallback can run.
+PDB-source attempt so Decompiler fallback can run.
 `AuthoredSourceAcquisitionTests.FromTypeContent_NewlineDenseSourceProducesVisibleFailedEvidence`
 gates that bound. A host source-content store that reports a read or write
 failure produces typed evidence and does not publish the fetched bytes to the
 process-local memory cache, so an identical retry cannot silently change from
-failure to authored success. The compatibility `CoreCache` adapter retains its
+failure to PDB-source success. The compatibility `CoreCache` adapter retains its
 pre-existing best-effort persistence semantics.
 `AssemblyContextSourceQueryTests.SourceStoreFailure_FallsBackRepeatablyWithoutPublishingMemoryEntry`
 gates both repeatability and fallback. Store-specific non-cancellation,
 non-fatal exceptions are also typed as storage failures rather than suppressing
 Decompiler fallback; cancellation remains exceptional.
-`AssemblyContextSourceQueryTests.SourceStoreOperationalFailure_PreservesAuthoredFailureAndFallback`
+`AssemblyContextSourceQueryTests.SourceStoreOperationalFailure_PreservesPdbSourceFailureAndFallback`
 and `AssemblyContextSourceQueryTests.SourceStoreCancellation_Propagates` gate
 those boundaries.
 Portable-PDB acquisition and validation failures follow the same composition:
-the failed authored attempt remains visible while member or type decompilation
+the failed PDB-source attempt remains visible while member or type decompilation
 continues, and cancellation still propagates. Host PDB-store implementations
 may report operational failures with implementation-appropriate exception
 types; the query classifies every non-cancellation, non-fatal failure at the
 PDB-acquisition boundary.
-`AssemblyContextSourceQueryTests.PdbStoreFailure_PreservesAuthoredFailureAndFallsBackForMemberAndType`
+`AssemblyContextSourceQueryTests.PdbStoreFailure_PreservesPdbSourceFailureAndFallsBackForMemberAndType`
 gates external-store failure, and
-`AssemblyContextSourceQueryTests.CorruptEmbeddedPdb_PreservesAuthoredFailureAndFallsBackForMemberAndType`
+`AssemblyContextSourceQueryTests.CorruptEmbeddedPdb_PreservesPdbSourceFailureAndFallsBackForMemberAndType`
 gates malformed embedded symbols before external acquisition begins. A PDB
 that opens successfully but fails while resolving an exact type mapping follows
 the same typed fallback path;
-`AssemblyContextSourceQueryTests.MalformedPdbDocument_PreservesAuthoredFailureAndFallsBackForType`
+`AssemblyContextSourceQueryTests.MalformedPdbDocument_PreservesPdbSourceFailureAndFallsBackForType`
 gates that lazy-inspection boundary with a real PDB whose unrelated document
 name is malformed. Cancellation remains exceptional but disposes an already
 opened SourceLink service before it propagates;
@@ -190,7 +190,7 @@ revalidated immediately after workspace acquisition, before rejected or
 missing-target results can return;
 `AssemblyContextSourceQueryTests.SnapshotAcquisitionStateChange_PrecedesEarlyTargetNotFound`
 gates that member and type boundary. The snapshot is also revalidated after
-authored-source awaits and before publication, and around every binding-policy
+PDB-source awaits and before publication, and around every binding-policy
 selection during fallback;
 `AssemblyContextSourceQueryTests.SameDescriptorForeignParticipant_IsRejectedBeforeCancellation`
 and
@@ -212,14 +212,14 @@ filesystem path before invoking the Decompiler, so ambient sidecar PDBs cannot
 bypass explicit PDB-store capabilities or change content-shaped output;
 `AssemblyContextSourceQueryTests.DecompilerFallback_IgnoresAmbientSidecarPath`
 gates the member and type paths. Cancellation observed after a successful
-source-store read or write remains exceptional rather than returning authored
+source-store read or write remains exceptional rather than returning PDB-source
 success or publishing the bytes to the process-local cache;
-`AssemblyContextSourceQueryTests.SourceStoreSuccessfulCancellation_PropagatesBeforeAuthoredSuccess`
+`AssemblyContextSourceQueryTests.SourceStoreSuccessfulCancellation_PropagatesBeforePdbSourceSuccess`
 gates member and type acquisition at both store stages.
 Cancellation is also rechecked under SourceLink-service ownership immediately
 after PDB acquisition, before a concurrent binding-policy rotation can turn it
 into a typed policy failure. Cancellation and the binding-policy snapshot are
-rechecked again after that service is disposed and before authored success is
+rechecked again after that service is disposed and before PDB-source success is
 published;
 `AssemblyContextSourceQueryTests.PdbAcquisitionCancellation_PrecedesConcurrentBindingPolicyChange`
 and
@@ -230,8 +230,8 @@ and
 `AssemblyContextSourceQueryTests.StateChangeDuringPdbStreamRelease_IsObserved`
 gate ownership and the member/type acquisition paths. Disposal cancellation remains
 exceptional and another disposal failure becomes typed inspection failure
-instead of authored success;
-`AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsAuthoredSuccess`
+instead of PDB-source success;
+`AssemblyContextSourceQueryTests.PdbDisposalFailure_PreventsPdbSourceSuccess`
 gates both outcomes, and
 `AssemblyContextSourceQueryTests.NonStandardPdbDisposalFailure_IsTyped`
 gates host-specific non-fatal exception types.
@@ -266,14 +266,14 @@ The authored rebuild harness reports `Recorded`, `Incomplete`, `Drift`, or
 `Failed` beside—never folded into—the A-to-IL result.
 
 Product `ImplementationDiff` consumes acquired line envelopes for its `Source`
-mechanism; Research remains network-free. Decompiled `CSharp` and authored
+mechanism; Research remains network-free. Decompiled `CSharp` and PDB-mapped
 `Source` are peers, so Source absence never changes or suppresses decompiler
 evidence. `AssemblyContextSourceQuery` applies that rule to a selected
-workspace participant: verified authored text is the preferred result;
+workspace participant: verified PDB-mapped text is the preferred result;
 otherwise Decompiler receives the retained assembly content and the same
-binding policy as the group. A failed authored integrity attempt remains typed
+binding policy as the group. A failed PDB-source integrity attempt remains typed
 beside a successful decompiled result, and neither producer succeeding yields
-`AuthoredAndDecompiledUnavailable`, not empty output. The pathless authored,
+`PdbAndDecompiledUnavailable`, not empty output. The pathless PDB-source,
 fallback, integrity-failure, and neither-available cases are gated by
 `AssemblyContextSourceQueryTests`.
 

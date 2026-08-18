@@ -26,7 +26,7 @@ public partial record ApiOptions : IProjectionOptions
     public string? ProjectAssetsPath { get; init; }
 
     /// <summary>
-    /// Local git clone(s) to read authored source from (keyed on the SourceLink commit and
+    /// Local git clone(s) to read PDB-mapped source from (keyed on the SourceLink commit and
     /// authenticated by the portable-PDB checksum) before falling back to the remote SourceLink
     /// URL. Empty = network only. Set via <c>--repo</c>; can repeat.
     /// </summary>
@@ -300,14 +300,14 @@ public record MemberOptions : ApiOptions
 
     /// <summary>
     /// True when the selected member has an IL body but its source range does not identify one
-    /// vouched authored declaration to isolate. <see cref="MethodSource"/> is absent because a
+    /// declaration to isolate from the PDB source range. <see cref="MethodSource"/> is absent because a
     /// type header, initializer, ambiguous range, or structurally unknown span is not a valid
     /// substitute, not because source acquisition failed.
     /// </summary>
-    public bool MemberHasNoAuthoredDeclaration { get; init; }
+    public bool MemberHasNoPdbDeclaration { get; init; }
 
     /// <summary>
-    /// True when authored source was verified but exceeded the bounded lexical-complexity limit.
+    /// True when PDB source was verified but exceeded the bounded lexical-complexity limit.
     /// </summary>
     public bool MemberSourceTooComplex { get; init; }
 

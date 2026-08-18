@@ -8,11 +8,10 @@ description: Reconstruct a method or type as C# and IL — decompiled source, an
 
 Use this skill to understand how code actually works from the assembly you have.
 The decompiler runs locally against the acquired assembly, and the IL and
-annotated views can reveal more than the original source. Package and PDB
+annotated views can reveal facts absent from PDB-mapped source. Package and PDB
 acquisition can use the network; add `--offline` to prohibit network access.
-For authored original source, use the `sourcelink` skill and follow its
-checksum-verification boundaries before treating fetched content as
-authoritative.
+For PDB-mapped source, use the `sourcelink` skill and follow its checksum and
+provenance boundaries before interpreting fetched content.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -32,7 +31,7 @@ full zero-network evidence set:
 
 Use `Annotated Source` or `IL` when exact opcodes, offsets, branches, tokens, or
 calls matter. Use `--bare` for a whole-type listing.
-`-S @Source` is broader and may fetch network `Original Source` content when
+`-S @Source` is broader and may fetch network `PDB Source` content when
 SourceLink is available; the fetch verifies the final redirect origin and PDB
 checksum before returning the body.
 `--project` reads existing restored assets; restore/build first if dependencies
@@ -118,7 +117,7 @@ degradation. `Decompiled Source` is lowered C#; raw/annotated `IL` is highest
 fidelity.
 
 If decompiled output looks wrong, capture `Decompiled Source`, `Annotated
-Source`, `Original Source`, `Source Diff` (via the `sourcelink` skill), and `IL`
+Source`, `PDB Source`, `Source Diff` (via the `sourcelink` skill), and `IL`
 together; maintainers diagnose pipeline state with DecompilerHarness.
 
 Select `Fidelity Causes` for the typed `DEC####` cause census behind that

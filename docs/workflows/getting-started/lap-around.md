@@ -204,7 +204,7 @@ Selected overloads expose implementation sections through the same detailed/enab
 | ------- | ------------- |
 | **Decompiled Source** | Raised C# reconstructed from IL; enabled at normal verbosity |
 | **Annotated Source** | Mixed view with hidden-fact comments and IL interleaved beneath each statement; opt-in via `-S "Annotated Source"` |
-| **Original Source** | Original C# source via SourceLink PDB, when available; enabled at detailed verbosity |
+| **PDB Source** | Checksum-matched source selected by Portable PDB evidence, when available; enabled at detailed verbosity |
 | **IL** | Raw IL disassembly with resolved tokens; enabled at normal verbosity |
 | **Facts** | Structured Research overlay table (member, IL offset, C# line, anchor, category/id/detail) for one method; opt-in via `-S "Facts"` / `--tsv` |
 
@@ -226,7 +226,7 @@ JsonSerializer.Helpers.cs
 Fetch selected member source text when source content is the desired artifact:
 
 ```bash
-dotnet-inspect member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source" --bare -n 20
+dotnet-inspect member JsonSerializer --platform System.Text.Json Serialize:1 -S "PDB Source" --bare -n 20
 dotnet-inspect member JsonSerializer --platform System.Text.Json -m Serialize -S "Source Locations" --print --row 1
 ```
 

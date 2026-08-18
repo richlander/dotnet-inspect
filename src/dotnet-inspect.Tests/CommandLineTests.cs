@@ -981,7 +981,17 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void DiffCommand_WithAuthoredSource_ParsesCorrectly()
+    public void DiffCommand_WithPdbSource_ParsesCorrectly()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["diff", "--library", "old/Foo.dll..new/Foo.dll", "-S", "Implementation Diff", "--pdb-source"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("diff", result.CommandResult.Command.Name);
+    }
+
+    [Fact]
+    public void DiffCommand_WithAuthoredSourceLegacyAlias_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(
             ["diff", "--library", "old/Foo.dll..new/Foo.dll", "-S", "Implementation Diff", "--authored-source"]);

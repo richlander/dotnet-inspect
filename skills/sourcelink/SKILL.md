@@ -1,18 +1,22 @@
 ---
 name: dotnet-inspect-sourcelink
 version: 0.1.0
-description: Find SourceLink-mapped original source through PDB data — map files and member locations, fetch source, or resolve checksum-matched content locally.
+description: Inspect source mapped by Portable PDB and SourceLink data — map files and member locations, fetch source, or resolve checksum-matched content locally.
 ---
 
-# dotnet-inspect: SourceLink and original source
+# dotnet-inspect: SourceLink and PDB source
 
-Use this skill to get the original source mapped by the PDB. dotnet-inspect
+Use this skill to get source mapped by the Portable PDB. dotnet-inspect
 verifies local files and GitHub committed blobs read through `--repo` against
-the PDB checksum. A network `Original Source` fetch also verifies the checksum
+the PDB checksum. A network `PDB Source` fetch also verifies the checksum
 and requires the final redirect origin to match before returning the body. Use
 `library -S "SourceLink: Integrity"` for opt-in verification of every
 fetchable, non-embedded compiler-source document. Without a usable PDB,
 SourceLink map, or matching source, use the always-local `decompiler` skill.
+
+The checksum proves that returned bytes match the PDB's declaration. It does
+not independently prove that those bytes are the physical syntax tree that
+produced a MethodDef; `PDB Source` names that evidence boundary explicitly.
 
 ```bash
 dnx dotnet-inspect -y -- <command>
@@ -32,20 +36,21 @@ dnx dotnet-inspect -y -- member Type Method:1 -S "Source Locations" --paths
 dnx dotnet-inspect -y -- library System.Text.Json --il-offset 0x06000001+0x0
 ```
 
-## Fetch the original source
+## Fetch PDB source
 
-`-S "Original Source"` returns the original source body when SourceLink can
-resolve it (also part of the `-S @Source` bundle alongside the decompiled and IL
-views). Use `--print` to fetch the source body behind one printable SourceLink
-row. When the section renders multiple rows, add `--row N|first|last`; `N`
+`-S "PDB Source"` returns the source body selected by Portable PDB coordinates
+when SourceLink can resolve it (also part of the `-S @Source` bundle alongside
+the decompiled and IL views). Use `--print` to fetch the source body behind one
+printable SourceLink row. When the section renders multiple rows, add
+`--row N|first|last`; `N`
 addresses the displayed 1-based row number, while `first` and `last` mean the
 rendered endpoints. If that row has no printable document, the command reports
 it instead of silently choosing another row.
 
 ```bash
-dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source"
+dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "PDB Source"
 dnx dotnet-inspect -y -- member JsonSerializer --package System.Text.Json \
-  Serialize:1 -S "Original Source,Source Diff" --repo /path/to/runtime
+  Serialize:1 -S "PDB Source,Source Diff" --repo /path/to/runtime
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Source Locations" --print --row 1
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1 --json-array

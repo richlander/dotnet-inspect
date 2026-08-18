@@ -250,7 +250,7 @@ static class AuthoredSourceHarvest
             $"{candidate.Type}::{candidate.Method}#{candidate.Overload}",
             $"{candidate.Type}.{candidate.Method}");
 
-        AuthoredMemberSourceInspection authored;
+        PdbMemberSourceInspection authored;
         try
         {
             authored = await AuthoredSourceAcquisition.AcquireMemberAsync(

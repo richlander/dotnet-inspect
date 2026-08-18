@@ -56,7 +56,7 @@ public static class SpikeSections
 
             await Task.Yield();
             context.WorkCount++;
-            context.Model.OriginalSource = "// original source text (representative)";
+            context.Model.PdbSource = "// PDB source text (representative)";
         });
 
     private static readonly CapabilityPlanEntry<SpikeContext> s_bodyIndex = new(
@@ -129,12 +129,12 @@ public static class SpikeSections
             static model => model.DecompiledSource is not null,
             new CapabilityPlan<SpikeContext>(s_decompile)),
         new(
-            "Original Source",
+            "PDB Source",
             IsExpensive: true,
             ExplicitOnly: true,
             Info: false,
             static model => model.HasSourceLink,
-            static model => model.OriginalSource is not null,
+            static model => model.PdbSource is not null,
             new CapabilityPlan<SpikeContext>(s_acquirePdb, s_fetchSource)),
         new(
             "Calls",
@@ -157,7 +157,7 @@ public static class SpikeSections
     private static readonly CapabilityCategoryDefinition[] s_categories =
     [
         new("@Projections", ["Calls", "Facts"]),
-        new("@Source", ["Decompiled Source", "Original Source"]),
+        new("@Source", ["Decompiled Source", "PDB Source"]),
     ];
 
     public static CapabilitySectionRegistry<SpikeModel, SpikeContext> Registry { get; } =

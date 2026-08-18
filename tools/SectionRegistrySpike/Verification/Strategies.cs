@@ -59,7 +59,7 @@ public static class Strategies
         report.Check(!resolved.HasError && resolved.Sections is { Count: 2 },
             "existing SelectResolver expands categories before capability planning");
         report.Check(typed.PlanFor(resolved.Sections!).HasSameEntries(
-                typed.PlanFor(["Decompiled Source", "Original Source"])),
+                typed.PlanFor(["Decompiled Source", "PDB Source"])),
             "category and direct selection compile to the same ordered plan");
 
         var mergeRegistry = new CapabilitySectionRegistry<SpikeModel, SpikeContext>(
@@ -96,7 +96,7 @@ public static class Strategies
         var names = typed.Pipeline.GetDiscoverableSections(model);
         report.Check(names.SequenceEqual(current.GetDiscoverableSections(model)),
             "discovery matches current output on an unexecuted model");
-        report.Check(!model.MetadataLoaded && model.OriginalSource is null && model.Calls == 0,
+        report.Check(!model.MetadataLoaded && model.PdbSource is null && model.Calls == 0,
             "structural discovery executes no work");
         report.Line();
     }
@@ -145,7 +145,7 @@ public static class Strategies
         await CompareAsync(report, typed, currentPipeline, currentScanners,
             "Decompiled Source", ["Decompiled Source"], ["execute Decompile"]);
         await CompareAsync(report, typed, currentPipeline, currentScanners,
-            "Original Source", ["Original Source"], ["execute AcquirePdb", "execute FetchSource"]);
+            "PDB Source", ["PDB Source"], ["execute AcquirePdb", "execute FetchSource"]);
         await CompareAsync(report, typed, currentPipeline, currentScanners,
             "Calls", ["Calls"], ["execute BodyIndex", "execute Calls"]);
         await CompareAsync(report, typed, currentPipeline, currentScanners,
@@ -201,7 +201,7 @@ public static class Strategies
         {
             "Metadata" => "Metadata: loaded",
             "Decompiled Source" => $"Decompiled Source: {model.DecompiledSource}",
-            "Original Source" => $"Original Source: {model.OriginalSource}",
+            "PDB Source" => $"PDB Source: {model.PdbSource}",
             "Calls" => $"Calls: {model.Calls}",
             "Facts" => $"Facts: {model.Facts}",
             _ => throw new InvalidOperationException($"No renderer for '{name}'."),
@@ -250,7 +250,7 @@ public static class Strategies
         report.Check(probeRegistry.Pipeline.GetUnprobedSections().Contains("Misleading Probe"),
             "SectionPipeline probe metadata is derived from the capability plan");
 
-        var originalSource = typed.PlanFor(["Original Source"]);
+        var originalSource = typed.PlanFor(["PDB Source"]);
         var unauthorized = new SpikeContext { Model = new SpikeModel() };
         try
         {

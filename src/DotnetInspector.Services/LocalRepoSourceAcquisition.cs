@@ -8,7 +8,7 @@ using ILInspector.Metadata;
 namespace DotnetInspector.Services;
 
 /// <summary>
-/// Reads a single authored source file from a user-specified local git clone, keyed on the
+/// Reads a single PDB-mapped source file from a user-specified local git clone, keyed on the
 /// SourceLink commit + repo-relative path and authenticated against the portable-PDB checksum.
 ///
 /// This is the opt-in local-repository counterpart to <see cref="AuthoredSourceAcquisition"/>'s
@@ -29,11 +29,11 @@ public static partial class LocalRepoSourceAcquisition
 
     private const int GitTimeoutMs = 15_000;
 
-    // Upper bound on a blob we are willing to buffer; authored source files are small.
+    // Upper bound on a blob we are willing to buffer; PDB source files are small.
     private const long MaxBlobBytes = 64L * 1024 * 1024;
 
     /// <summary>
-    /// Attempts to read the authored source blob referenced by <paramref name="rawSourceUrl"/> from
+    /// Attempts to read the PDB-mapped source blob referenced by <paramref name="rawSourceUrl"/> from
     /// one of <paramref name="repositoryPaths"/>, returning the raw bytes only when they match the
     /// portable-PDB checksum. Returns <c>null</c> when the URL is not a parseable GitHub raw URL, no
     /// candidate repo has the commit/path, git is unavailable, or nothing matches the checksum.
