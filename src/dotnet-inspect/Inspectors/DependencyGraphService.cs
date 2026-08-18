@@ -1,9 +1,11 @@
 using ILInspector.CSharp;
+using DotnetInspector.Core;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using InertText;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 
@@ -126,24 +128,46 @@ internal static class DependencyGraphService
         string packageRef,
         string? requestedTfm,
         NuGetSourceOptions? sourceOptions,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        bool includePrerelease = false,
+        bool allowCompatibleFallbackForRequestedTfm = true)
     {
         PackageNuspecResolution resolution =
             await ResolvePackageNuspecAsync(
                 httpClient,
                 packageRef,
                 sourceOptions,
-                logger).ConfigureAwait(false);
+                logger,
+                includePrerelease).ConfigureAwait(false);
         if (resolution.ErrorMessage is { } error)
             return new PackageDependencyGraphResult.Error(error);
 
         NuspecData? nuspec = resolution.Nuspec;
         if (nuspec == null)
-            return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
+        {
+            return new PackageDependencyGraphResult.Empty(
+                resolution.PackageName,
+                resolution.Version,
+                resolution.ManifestPackageName,
+                resolution.ManifestVersion,
+                "No dependencies declared in package.",
+                PackageDependencyGraphResult.EmptyKind.NoDependencyGroups);
+        }
 
-        var selection = DependencyResolutionService.SelectDependencyGroup(nuspec.DependencyGroups, requestedTfm);
+        var selection = DependencyResolutionService.SelectDependencyGroup(
+            nuspec.DependencyGroups,
+            requestedTfm,
+            allowCompatibleFallbackForRequestedTfm);
         if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups)
-            return new PackageDependencyGraphResult.Empty("No dependencies declared in package.");
+        {
+            return new PackageDependencyGraphResult.Empty(
+                resolution.PackageName,
+                resolution.Version,
+                resolution.ManifestPackageName,
+                resolution.ManifestVersion,
+                "No dependencies declared in package.",
+                PackageDependencyGraphResult.EmptyKind.NoDependencyGroups);
+        }
         if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework)
         {
             return new PackageDependencyGraphResult.Error(
@@ -154,7 +178,15 @@ internal static class DependencyGraphService
         var group = selection.Group!;
         var tfm = selection.TargetFramework ?? group.TargetFramework;
         if (group.Dependencies.Count == 0)
-            return new PackageDependencyGraphResult.Empty($"No additional dependencies for {tfm}.");
+        {
+            return new PackageDependencyGraphResult.Empty(
+                resolution.PackageName,
+                resolution.Version,
+                resolution.ManifestPackageName,
+                resolution.ManifestVersion,
+                $"No additional dependencies for {tfm}.",
+                PackageDependencyGraphResult.EmptyKind.SelectedGroup);
+        }
 
         var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
@@ -166,7 +198,10 @@ internal static class DependencyGraphService
             sourceOptions);
 
         return new PackageDependencyGraphResult.Graph(
-            $"{resolution.PackageName} ({resolution.Version})",
+            resolution.PackageName,
+            resolution.Version,
+            resolution.ManifestPackageName,
+            resolution.ManifestVersion,
             depNodes);
     }
 
@@ -174,7 +209,8 @@ internal static class DependencyGraphService
         HttpClient httpClient,
         string packageRef,
         NuGetSourceOptions? sourceOptions,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        bool includePrerelease)
     {
         // Package dependency mode inspects nuspec dependency groups, not assembly sets.
         var (packageName, version) =
@@ -202,8 +238,12 @@ internal static class DependencyGraphService
                 logger).ConfigureAwait(false);
         }
 
+        using var feedFailureScope = FeedFailureTelemetry.Scope();
         IReadOnlyList<string> cachedVersions = floatingSelector
-            ? GetCachedPackageVersions(packageName, sourceOptions)
+            ? GetCachedPackageVersions(
+                packageName,
+                sourceOptions,
+                includePrerelease)
             : [];
         bool forceLatest = string.Equals(
             version,
@@ -230,6 +270,7 @@ internal static class DependencyGraphService
                         floatingSelector ? null : version),
                     sourceOptions,
                     logger.Log,
+                    includePrerelease,
                     useVersionCache: !forceLatest,
                     cancellationToken: latestTimeout?.Token ?? default)
                     .ConfigureAwait(false);
@@ -237,6 +278,14 @@ internal static class DependencyGraphService
         catch (OperationCanceledException)
             when (latestTimeout?.IsCancellationRequested == true)
         {
+            if (DescribeFeedFailure(packageName)
+                is { } feedFailure)
+            {
+                return PackageNuspecResolution.Error(
+                    packageName,
+                    feedFailure);
+            }
+
             return PackageNuspecResolution.Error(
                 packageName,
                 DescribeCachedVersionFallback(
@@ -266,10 +315,15 @@ internal static class DependencyGraphService
                     offlineMessage);
             }
 
+            string? feedFailure =
+                DescribeFeedFailure(packageName);
             string message = coordinateResolution switch
             {
                 PackageCoordinateResolution.Invalid invalid =>
                     invalid.Message,
+                PackageCoordinateResolution.Unavailable
+                    when feedFailure is not null =>
+                    feedFailure,
                 PackageCoordinateResolution.Unavailable unavailable =>
                     unavailable.Message,
                 _ => $"Package '{packageRef}' could not be resolved.",
@@ -292,8 +346,12 @@ internal static class DependencyGraphService
         {
             return PackageNuspecResolution.Error(
                 packageName,
-                $"Nuspec for package '{packageName}' version "
-                + $"'{coordinate.Version}' could not be resolved.");
+                await DescribeUnavailableNuspecAsync(
+                    httpClient,
+                    packageName,
+                    coordinate.Version,
+                    coordinate.WasFloating,
+                    reportingSources).ConfigureAwait(false));
         }
 
         NuspecData nuspec = NuspecParser.ParseContent(nuspecXml);
@@ -310,6 +368,8 @@ internal static class DependencyGraphService
         return new PackageNuspecResolution(
             packageName,
             coordinate.Version,
+            nuspec.PackageName ?? packageName,
+            nuspec.Version ?? coordinate.Version,
             nuspec,
             ErrorMessage: null);
     }
@@ -339,10 +399,22 @@ internal static class DependencyGraphService
         PackageExtractionResult extracted = outcome.Result!;
         try
         {
+            NuspecData? nuspec =
+                NuspecParser.FindAndParse(extracted.ExtractPath);
+            string resolvedPackageName =
+                extracted.PackageName
+                ?? packageName;
+            string resolvedVersion =
+                extracted.Version
+                ?? "";
             return new PackageNuspecResolution(
                 packageName,
-                extracted.Version ?? "",
-                NuspecParser.FindAndParse(extracted.ExtractPath),
+                resolvedVersion,
+                nuspec?.PackageName
+                    ?? resolvedPackageName,
+                nuspec?.Version
+                    ?? resolvedVersion,
+                nuspec,
                 ErrorMessage: null);
         }
         finally
@@ -353,7 +425,8 @@ internal static class DependencyGraphService
 
     private static IReadOnlyList<string> GetCachedPackageVersions(
         string packageName,
-        NuGetSourceOptions? sourceOptions)
+        NuGetSourceOptions? sourceOptions,
+        bool includePrerelease)
     {
         try
         {
@@ -362,12 +435,100 @@ internal static class DependencyGraphService
                 NuGetSourceResolver.ResolveSourceKeysForPackage(
                     sourceOptions,
                     packageName),
-                includePrerelease: false);
+                includePrerelease);
         }
         catch (PackageSourceMappingException)
         {
             return [];
         }
+    }
+
+    private static async Task<string> DescribeUnavailableNuspecAsync(
+        HttpClient httpClient,
+        string packageName,
+        string version,
+        bool versionExistenceKnown,
+        NuGetSourceOptions sourceOptions)
+    {
+        if (Core.HttpClientFactory.IsOffline)
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Package '{packageName}' version '{version}' is not available offline; no cached package was found.")
+                .ToString();
+        }
+
+        if (DescribeFeedFailure(packageName)
+            is { } acquisitionFailure)
+        {
+            return acquisitionFailure;
+        }
+
+        if (versionExistenceKnown)
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Nuspec for package '{packageName}' version '{version}' could not be resolved.")
+                .ToString();
+        }
+
+        List<PackageVersionInfo>? knownVersions =
+            await PackageExtractor.GetVersionListingsAsync(
+                httpClient,
+                packageName,
+                includePrerelease: true,
+                includeUnlisted: true,
+                limit: null,
+                log: null,
+                sourceOptions: sourceOptions,
+                useVersionCache: false).ConfigureAwait(false);
+
+        if (DescribeFeedFailure(packageName)
+            is { } listingFailure)
+        {
+            return listingFailure;
+        }
+
+        if (knownVersions is not { Count: > 0 })
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Package '{packageName}' not found.")
+                .ToString();
+        }
+
+        if (!knownVersions.Any(candidate =>
+                string.Equals(
+                    candidate.Version,
+                    version,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return InertString.Format(
+                TextPolicy.Field,
+                $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.")
+                .ToString();
+        }
+
+        return InertString.Format(
+            TextPolicy.Field,
+            $"Nuspec for package '{packageName}' version '{version}' could not be resolved.")
+            .ToString();
+    }
+
+    private static string? DescribeFeedFailure(
+        string packageName)
+    {
+        if (FeedFailureTelemetry.Current
+            is not { HasFailures: true } failures)
+        {
+            return null;
+        }
+
+        return (failures.DescribeFailure(packageName)
+            ?? InertString.Format(
+                TextPolicy.Field,
+                $"Package '{packageName}' could not be fully resolved from every authorized source."))
+            .ToString();
     }
 
     private static string DescribeCachedVersionFallback(
@@ -416,13 +577,21 @@ internal static class DependencyGraphService
     private sealed record PackageNuspecResolution(
         string PackageName,
         string Version,
+        string ManifestPackageName,
+        string ManifestVersion,
         NuspecData? Nuspec,
         string? ErrorMessage)
     {
         public static PackageNuspecResolution Error(
             string packageName,
             string message) =>
-            new(packageName, "", Nuspec: null, ErrorMessage: message);
+            new(
+                packageName,
+                "",
+                packageName,
+                "",
+                Nuspec: null,
+                ErrorMessage: message);
     }
 }
 
@@ -452,7 +621,29 @@ internal abstract record LibraryDependencyGraphResult
 
 internal abstract record PackageDependencyGraphResult
 {
-    public sealed record Graph(string Title, List<DependencyNode> Dependencies) : PackageDependencyGraphResult;
-    public sealed record Empty(string Message) : PackageDependencyGraphResult;
+    public enum EmptyKind
+    {
+        NoDependencyGroups,
+        SelectedGroup,
+    }
+
+    public sealed record Graph(
+        string PackageName,
+        string Version,
+        string ManifestPackageName,
+        string ManifestVersion,
+        List<DependencyNode> Dependencies) : PackageDependencyGraphResult
+    {
+        public string Title => $"{PackageName} ({Version})";
+    }
+
+    public sealed record Empty(
+        string PackageName,
+        string Version,
+        string ManifestPackageName,
+        string ManifestVersion,
+        string Message,
+        EmptyKind Kind) : PackageDependencyGraphResult;
+
     public sealed record Error(string Message, string? Detail = null) : PackageDependencyGraphResult;
 }
