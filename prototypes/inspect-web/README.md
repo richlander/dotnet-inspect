@@ -314,9 +314,13 @@ gates the Browser transport.
 [`docs/design/call-graph-projection.md`](../../docs/design/call-graph-projection.md)
 makes that split on purpose: the projection owns identity, direction, cycles,
 and boundaries, and each front end spells them for itself. The Mermaid renderer
-HTML-encodes delimiters and visibly encodes control and line-separator
-characters before artifact labels enter the grammar. The type-relationship
-renderer applies the same containment. Call-graph navigation receives typed
+HTML-encodes delimiters and visibly encodes control, line-separator, Unicode
+format, and unpaired-surrogate characters before artifact labels enter the
+grammar. The engine's `CallGraphMermaid_ContainsArtifactLabels` and JavaScript's
+`type graph rendering contains artifact labels` and
+`dependency graph rendering contains artifact labels` gate the final renderers'
+containment while preserving ordinary Unicode scalar text. Call-graph
+navigation receives typed
 targets for every projected node and uses the transport's normalized lowercase
 node kind rather than inferring identity from SVG text.
 Package participants never satisfy platform-scoped bindings. Incomplete node,
@@ -504,10 +508,16 @@ and pin their checkout, SDK setup, and artifact actions to exact commits. The
 workflow contract gate enforces those references. Azure's pinned action still
 pulls Microsoft's `staticappsclient:stable` image; that vendor-controlled
 deployment dependency is not immutable and remains inside the Azure trust
-boundary. Both workflows disable Azure's own app build. The staging publish
-step embeds the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC
-build timestamp. The home and workspace status bars show that version, link
-the short commit to GitHub, and disclose the binary build time.
+boundary. Both workflows disable Azure's own app build and require the
+published artifact to contain `staticwebapp.config.json`. That configuration
+serves `/` and `/index.html` with `Cache-Control: no-cache, no-store,
+must-revalidate`, so an Azure edge cannot retain an old browser boot graph
+after its fingerprinted Wasm assets rotate.
+`BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
+gates the header contract and publish wiring. The staging publish step embeds
+the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
+timestamp. The home and workspace status bars show that version, link the
+short commit to GitHub, and disclose the binary build time.
 `BuildIdentity_UsesVersionedRepositoryProvenance` and
 `ready status shows versioned linked build provenance` gate the engine and UI
 halves.
