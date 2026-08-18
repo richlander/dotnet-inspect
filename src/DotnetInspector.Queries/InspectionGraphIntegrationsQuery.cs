@@ -525,7 +525,30 @@ public static class InspectionGraphIntegrationsQuery
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
-        ValidateRelationships(request);
+        ValidateRelationships(request.Relationships);
+        InspectionQueryResults results = CreateRegistry().Run(
+            Plan(request),
+            context.Group,
+            recordExecution);
+        return Create(context, request, results);
+    }
+
+    public static InspectionGraphDocument Execute(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphInducedSetRequest request) =>
+        Execute(
+            context,
+            request,
+            recordExecution: null);
+
+    internal static InspectionGraphDocument Execute(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphInducedSetRequest request,
+        Action<InspectionQueryDefinition, TimeSpan>? recordExecution)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateRelationships(request.Relationships);
         InspectionQueryResults results = CreateRegistry().Run(
             Plan(request),
             context.Group,
@@ -537,25 +560,39 @@ public static class InspectionGraphIntegrationsQuery
         InspectionGraphNeighborhoodRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ValidateRelationships(request);
+        return Plan(request.Relationships);
+    }
+
+    internal static ImmutableArray<InspectionQueryDefinition> Plan(
+        InspectionGraphInducedSetRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Plan(request.Relationships);
+    }
+
+    static ImmutableArray<InspectionQueryDefinition> Plan(
+        ImmutableArray<InspectionGraphRelationshipDescriptor>
+            relationships)
+    {
+        ValidateRelationships(relationships);
         var queries =
             ImmutableArray.CreateBuilder<InspectionQueryDefinition>();
-        bool opportunitiesSelected = request.Relationships.Contains(
+        bool opportunitiesSelected = relationships.Contains(
             InspectionGraphIntegrationsCatalog.IntegrationOpportunity);
         if (opportunitiesSelected
-            || request.Relationships.Contains(
+            || relationships.Contains(
                 InspectionGraphIntegrationsCatalog.Extension))
         {
             queries.Add(
                 AssemblyContextExtensionMethodsQuery.Definition);
         }
-        if (request.Relationships.Contains(
+        if (relationships.Contains(
             InspectionGraphIntegrationsCatalog.MetadataReference))
         {
             queries.Add(AssemblyContextReferencesQuery.Definition);
         }
         if (opportunitiesSelected
-            || request.Relationships.Contains(
+            || relationships.Contains(
                 InspectionGraphIntegrationsCatalog.IntegrationObserved))
         {
             queries.Add(AssemblyContextIntegrationsQuery.Definition);
@@ -586,10 +623,10 @@ public static class InspectionGraphIntegrationsQuery
                 AssemblyContextIntegrationsQuery.Definition);
 
     static void ValidateRelationships(
-        InspectionGraphNeighborhoodRequest request)
+        IEnumerable<InspectionGraphRelationshipDescriptor> relationships)
     {
         foreach (InspectionGraphRelationshipDescriptor relationship
-            in request.Relationships)
+            in relationships)
         {
             if (!InspectionGraphIntegrationsCatalog.Relationships.Contains(
                 relationship))
@@ -649,18 +686,59 @@ public static class InspectionGraphIntegrationsQuery
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(results);
-        ValidateRelationships(request);
+        ValidateRelationships(request.Relationships);
 
+        InspectionGraphDocument source = CreateSelectedSource(
+            context,
+            request.ModeRequest,
+            request.Seeds,
+            request.Relationships,
+            results);
+        return InspectionGraphNeighborhoodProjection.Project(
+            source,
+            request);
+    }
+
+    internal static InspectionGraphDocument Create(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphInducedSetRequest request,
+        InspectionQueryResults results)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(results);
+        ValidateRelationships(request.Relationships);
+
+        InspectionGraphDocument source = CreateSelectedSource(
+            context,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.WorkspaceParticipants),
+            request.Subjects,
+            request.Relationships,
+            results);
+        return InspectionGraphInducedSetProjection.Project(
+            source,
+            request);
+    }
+
+    static InspectionGraphDocument CreateSelectedSource(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphModeRequest modeRequest,
+        ImmutableArray<InspectionGraphSubject> requestedSubjects,
+        ImmutableArray<InspectionGraphRelationshipDescriptor>
+            relationships,
+        InspectionQueryResults results)
+    {
         InspectionGraphPackageBoundary boundary =
             InspectionGraphPackageBoundary.Create(context);
         var builder = new Builder(context, boundary);
-        bool extensionsSelected = request.Relationships.Contains(
+        bool extensionsSelected = relationships.Contains(
             InspectionGraphIntegrationsCatalog.Extension);
-        bool integrationsSelected = request.Relationships.Contains(
+        bool integrationsSelected = relationships.Contains(
             InspectionGraphIntegrationsCatalog.IntegrationObserved);
-        bool referencesSelected = request.Relationships.Contains(
+        bool referencesSelected = relationships.Contains(
             InspectionGraphIntegrationsCatalog.MetadataReference);
-        bool opportunitiesSelected = request.Relationships.Contains(
+        bool opportunitiesSelected = relationships.Contains(
             InspectionGraphIntegrationsCatalog.IntegrationOpportunity);
         bool extensionsNeeded =
             extensionsSelected || opportunitiesSelected;
@@ -722,14 +800,10 @@ public static class InspectionGraphIntegrationsQuery
             builder.AddReferences(references);
         if (opportunities is not null)
             builder.AddOpportunities(opportunities);
-        foreach (InspectionGraphSubject seed in request.Seeds)
-            builder.EnsureSeed(seed);
+        foreach (InspectionGraphSubject subject in requestedSubjects)
+            builder.EnsureSubject(subject);
 
-        InspectionGraphDocument source =
-            builder.Build(request.ModeRequest);
-        return InspectionGraphNeighborhoodProjection.Project(
-            source,
-            request);
+        return builder.Build(modeRequest);
     }
 
     sealed class Builder
@@ -814,15 +888,15 @@ public static class InspectionGraphIntegrationsQuery
             }
         }
 
-        internal void EnsureSeed(InspectionGraphSubject seed)
+        internal void EnsureSubject(InspectionGraphSubject subject)
         {
-            if (seed is InspectionGraphSubject.PackageSubject)
+            if (subject is InspectionGraphSubject.PackageSubject)
                 return;
 
             AssemblyAcquisitionRegistration registration =
-                Registration(seed);
+                Registration(subject);
             if (_participants.ContainsKey(registration))
-                AddNode(seed, registration);
+                AddNode(subject, registration);
         }
 
         internal void AddTypeCurrency(

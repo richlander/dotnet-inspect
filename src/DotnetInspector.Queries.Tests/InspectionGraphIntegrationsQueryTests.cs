@@ -329,6 +329,339 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
+    public void Execute_ExplicitPackageSetInducesOnlyInternalEvidence()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument workspace =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.PackageSubject abstractions =
+            PackageSubject(
+                workspace,
+                "microsoft.extensions.ai.abstractions");
+        InspectionGraphSubject.PackageSubject openAi =
+            PackageSubject(
+                workspace,
+                "microsoft.extensions.ai.openai");
+        InspectionGraphSubject.PackageSubject bedrock =
+            PackageSubject(
+                workspace,
+                "awssdk.extensions.bedrock.meai");
+        var request = new InspectionGraphInducedSetRequest(
+            [abstractions, openAi, bedrock],
+            [
+                InspectionGraphIntegrationsCatalog
+                    .IntegrationObserved,
+            ],
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                request);
+        InspectionGraphDocument repeated =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                request);
+
+        Assert.Same(request, document.InducedSetRequest);
+        Assert.Same(request.ModeRequest, document.ModeRequest);
+        Assert.Empty(document.ModeRequest.Seeds);
+        Assert.Empty(document.Seeds);
+        Assert.Null(document.NeighborhoodRequest);
+        Assert.Equal([0, 1], document.Edges.Select(static edge => edge.Id));
+        Assert.Equal(
+            [0, 1],
+            document.Occurrences.Select(static occurrence =>
+                occurrence.Id));
+        Assert.Equal(2, document.Edges.Length);
+        Assert.Equal(2, document.Occurrences.Length);
+        Assert.All(
+            document.Edges,
+            edge =>
+            {
+                Assert.Same(
+                    InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved,
+                    edge.Relationship);
+                Assert.Equal(
+                    "microsoft.extensions.ai.abstractions",
+                    PackageId(
+                        document,
+                        document.Nodes[edge.ToNodeId]));
+            });
+        Assert.Equal(
+            [
+                "awssdk.extensions.bedrock.meai",
+                "microsoft.extensions.ai.openai",
+            ],
+            document.Edges
+                .Select(edge => PackageId(
+                    document,
+                    document.Nodes[edge.FromNodeId]))
+                .Order(StringComparer.Ordinal));
+        Assert.All(
+            document.Occurrences,
+            occurrence =>
+            {
+                Assert.Contains(
+                    PackageId(
+                        document,
+                        Node(document, occurrence.SourceSubject)),
+                    new[]
+                    {
+                        "awssdk.extensions.bedrock.meai",
+                        "microsoft.extensions.ai.openai",
+                    });
+                Assert.Equal(
+                    "microsoft.extensions.ai.abstractions",
+                    PackageId(
+                        document,
+                        Node(document, occurrence.TargetSubject)));
+                Assert.IsType<InspectionGraphIntegrationEvidence>(
+                    occurrence.Evidence);
+            });
+        Assert.Equal(
+            [
+                "awssdk.extensions.bedrock.meai",
+                "microsoft.extensions.ai.abstractions",
+                "microsoft.extensions.ai.openai",
+            ],
+            document.Groups
+                .Select(group =>
+                    Assert.IsType<
+                        InspectionGraphPackageIdentity.Realized>(
+                            Assert.IsType<
+                                InspectionGraphSubject.PackageSubject>(
+                                    group.Subject).Identity)
+                        .Package.PackageId)
+                .Order(StringComparer.Ordinal));
+        InspectionGraphLimit subjectBound = Assert.Single(
+            document.Limits,
+            limit =>
+                limit.Descriptor
+                    == InspectionGraphInducedSetCatalog.SubjectBound);
+        Assert.Null(subjectBound.Target);
+        Assert.Equal(
+            3,
+            Assert.IsType<InspectionGraphInducedSubjectBoundEvidence>(
+                subjectBound.Evidence).SubjectCount);
+        Assert.Equal(
+            document.Nodes.Select(static node => node.Subject),
+            repeated.Nodes.Select(static node => node.Subject));
+        Assert.Equal(
+            document.Groups.Select(static group => group.Subject),
+            repeated.Groups.Select(static group => group.Subject));
+        Assert.Equal(
+            document.Edges.Select(edge =>
+                (
+                    Source: document.Nodes[edge.FromNodeId].Subject,
+                    Target: document.Nodes[edge.ToNodeId].Subject,
+                    edge.Relationship)),
+            repeated.Edges.Select(edge =>
+                (
+                    Source: repeated.Nodes[edge.FromNodeId].Subject,
+                    Target: repeated.Nodes[edge.ToNodeId].Subject,
+                    edge.Relationship)));
+        Assert.Equal(
+            document.Occurrences.Select(occurrence =>
+                (
+                    occurrence.SourceSubject,
+                    occurrence.TargetSubject,
+                    occurrence.Relationship,
+                    occurrence.Evidence.Descriptor)),
+            repeated.Occurrences.Select(occurrence =>
+                (
+                    occurrence.SourceSubject,
+                    occurrence.TargetSubject,
+                    occurrence.Relationship,
+                    occurrence.Evidence.Descriptor)));
+    }
+
+    [Fact]
+    public void Execute_ExplicitInducedSetRequiresBothEndpointClosures()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument workspace =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.PackageSubject openAi =
+            PackageSubject(
+                workspace,
+                "microsoft.extensions.ai.openai");
+        InspectionGraphSubject.PackageSubject bedrock =
+            PackageSubject(
+                workspace,
+                "awssdk.extensions.bedrock.meai");
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                new InspectionGraphInducedSetRequest(
+                    [openAi, bedrock],
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved,
+                    ],
+                    InspectionGraphInducedSetAdmissionRule
+                        .BothEndpointsWithinSubjectClosure));
+
+        Assert.Empty(document.Edges);
+        Assert.Empty(document.Occurrences);
+        Assert.Empty(document.Nodes);
+        Assert.Equal(
+            [openAi, bedrock],
+            document.Groups.Select(static group => group.Subject));
+        Assert.Empty(document.Seeds);
+    }
+
+    [Fact]
+    public void Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument workspace =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.PackageSubject[] subjects =
+        [
+            PackageSubject(
+                workspace,
+                "microsoft.extensions.ai.abstractions"),
+            PackageSubject(
+                workspace,
+                "microsoft.extensions.ai.openai"),
+            PackageSubject(
+                workspace,
+                "awssdk.extensions.bedrock.meai"),
+        ];
+        var executions = new List<InspectionQueryDefinition>();
+
+        InspectionGraphIntegrationsQuery.Execute(
+            fixture.Context,
+            new InspectionGraphInducedSetRequest(
+                subjects,
+                [
+                    InspectionGraphIntegrationsCatalog
+                        .IntegrationObserved,
+                ],
+                InspectionGraphInducedSetAdmissionRule
+                    .BothEndpointsWithinSubjectClosure),
+            (query, _) => executions.Add(query));
+
+        Assert.Equal(
+            [AssemblyContextIntegrationsQuery.Definition],
+            executions);
+    }
+
+    [Fact]
+    public void Execute_ExplicitInducedSetRetainsOnlyInClosureFailures()
+    {
+        using var fixture = IntegrationFixture.Create(
+            includeRejectedParticipant: true);
+        InspectionGraphDocument workspace =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.PackageSubject rejected =
+            PackageSubject(workspace, "rejected.integration");
+        InspectionGraphSubject.PackageSubject openAi =
+            PackageSubject(
+                workspace,
+                "microsoft.extensions.ai.openai");
+
+        InspectionGraphDocument selected =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                new InspectionGraphInducedSetRequest(
+                    [rejected],
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved,
+                    ],
+                    InspectionGraphInducedSetAdmissionRule
+                        .BothEndpointsWithinSubjectClosure));
+        InspectionGraphDocument excluded =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                new InspectionGraphInducedSetRequest(
+                    [openAi],
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved,
+                    ],
+                    InspectionGraphInducedSetAdmissionRule
+                        .BothEndpointsWithinSubjectClosure));
+
+        InspectionGraphFailure failure = Assert.Single(
+            selected.Failures);
+        Assert.Equal(
+            "Rejected.Integration",
+            AssemblyName(
+                selected.Nodes[failure.Target!.Value.Id].Subject));
+        Assert.Equal(
+            ["integrations"],
+            Assert.IsType<InspectionGraphIntegrationFailureEvidence>(
+                    failure.Evidence)
+                .Details
+                .Select(static detail => detail.Producer));
+        Assert.Empty(excluded.Failures);
+    }
+
+    [Fact]
+    public void Execute_ExplicitInducedSetRejectsUnsupportedRelationshipFirst()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument workspace =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.PackageSubject package =
+            PackageSubject(
+                workspace,
+                "microsoft.extensions.ai.openai");
+        var executions = new List<InspectionQueryDefinition>();
+        var request = new InspectionGraphInducedSetRequest(
+            [package],
+            [CallGraphInspectionGraphCatalog.Call],
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
+
+        InspectionQueryException exception = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphIntegrationsQuery.Execute(
+                    fixture.Context,
+                    request,
+                    (query, _) => executions.Add(query)));
+
+        Assert.Contains("not supported", exception.Message);
+        Assert.Empty(executions);
+    }
+
+    [Fact]
+    public void Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphSubject missing =
+            InspectionGraphSubject.ForRealizedPackage(
+                new RealizedMemberCoordinate.Package(
+                    "missing.package",
+                    "1.0.0",
+                    "feed",
+                    "net11.0",
+                    null));
+
+        InspectionQueryException exception = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphIntegrationsQuery.Execute(
+                    fixture.Context,
+                    new InspectionGraphInducedSetRequest(
+                        [missing],
+                        [
+                            InspectionGraphIntegrationsCatalog
+                                .IntegrationObserved,
+                        ],
+                        InspectionGraphInducedSetAdmissionRule
+                            .BothEndpointsWithinSubjectClosure)));
+
+        Assert.Contains("not present", exception.Message);
+        Assert.Contains("workspace scope", exception.Message);
+    }
+
+    [Fact]
     public void Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed()
     {
         using var fixture = IntegrationFixture.Create();
