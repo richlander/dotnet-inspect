@@ -847,6 +847,8 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             PackageSourceKind.NuGetGallery,
             symbolPayload.TransportKind);
+        Assert.Equal("package bytes".Length, packagePayload.AdvertisedLength);
+        Assert.Equal("symbol bytes".Length, symbolPayload.AdvertisedLength);
         Assert.Equal(packagePayload.Coordinate, symbolPayload.Coordinate);
         Assert.Equal(runtime.Identity, packagePayload.Producer);
         Assert.Equal(runtime.Identity, symbolPayload.Producer);
@@ -998,6 +1000,42 @@ public sealed class PackageSourceClientTests
         Assert.Equal(
             PackageSourceFailureKind.ResponseRejected,
             failure.Kind);
+        Assert.Equal([GalleryVersions], handler.Requested);
+    }
+
+    [Fact]
+    public async Task GalleryLateMetadataRejectionIsNotRetriedAsTimeout()
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryVersions,
+            request => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new LateOversizeStream(
+                        """{"versions":["1.0.0"]}"""u8.ToArray())),
+                RequestMessage = request,
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxMetadataResponseBytes = 8,
+                    RequestTimeout = TimeSpan.FromSeconds(1),
+                    OperationTimeout = TimeSpan.FromSeconds(2),
+                    MetadataBodyTimeout = TimeSpan.FromMilliseconds(40),
+                });
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.ResponseRejected,
+            failure.Kind);
+        Assert.Equal([GalleryVersions], handler.Requested);
     }
 
     [Fact]
@@ -1407,6 +1445,91 @@ public sealed class PackageSourceClientTests
             failure.Capability);
     }
 
+    [Theory]
+    [InlineData("search")]
+    [InlineData("versions")]
+    [InlineData("package")]
+    public async Task GalleryRetriesTransientFailuresWithinOneOperation(
+        string operation)
+    {
+        var handler = new TransientGalleryHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        switch (operation)
+        {
+            case "search":
+                Assert.Single(
+                    Succeeded(
+                        await runtime.SearchAsync(
+                            "contoso",
+                            cancellationToken:
+                                TestContext.Current.CancellationToken))
+                    .Matches);
+                break;
+            case "versions":
+                Assert.Single(
+                    Succeeded(
+                        await runtime.GetVersionsAsync(
+                            "contoso",
+                            TestContext.Current.CancellationToken))
+                    .Candidates);
+                break;
+            case "package":
+                PackageSourcePayload payload = Succeeded(
+                    await runtime.GetPackageAsync(
+                        "contoso",
+                        "1.0.0",
+                        TestContext.Current.CancellationToken));
+                await payload.Content.DisposeAsync();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(operation));
+        }
+
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
+    public async Task GalleryRetriesBrowserStatuslessTransportFailure()
+    {
+        var handler = new TransientGalleryHandler(statuslessFailure: true);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+            .Candidates);
+
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
+    public async Task GalleryRetryBackoffUsesOperationNotRequestTimeout()
+    {
+        var handler = new TransientGalleryHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(50),
+                    OperationTimeout = TimeSpan.FromSeconds(1),
+                });
+
+        Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+            .Candidates);
+        Assert.Equal(2, handler.Requests);
+    }
+
     [Fact]
     public async Task GalleryCallerCancellationRemainsCancellation()
     {
@@ -1677,6 +1800,48 @@ public sealed class PackageSourceClientTests
         }
     }
 
+    private sealed class TransientGalleryHandler(
+        bool statuslessFailure = false) : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Requests++ == 0)
+            {
+                if (statuslessFailure)
+                {
+                    throw new HttpRequestException(
+                        "Browser fetch failed.",
+                        new InvalidOperationException(
+                            "JavaScript transport failure."));
+                }
+
+                return Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.BadGateway));
+            }
+
+            string url = request.RequestUri!.AbsoluteUri;
+            HttpContent content = url.StartsWith(
+                    GallerySearch,
+                    StringComparison.Ordinal)
+                ? new StringContent(
+                    """{"data":[{"id":"Contoso","version":"1.0.0"}]}""")
+                : url.Equals(GalleryVersions, StringComparison.Ordinal)
+                    ? new StringContent(
+                        """{"versions":["1.0.0"]}""")
+                    : new ByteArrayContent("package bytes"u8.ToArray());
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = content,
+                });
+        }
+    }
+
     private sealed class ImmediateIoFailureStream : Stream
     {
         public override bool CanRead => true;
@@ -1700,6 +1865,62 @@ public sealed class PackageSourceClientTests
             CancellationToken cancellationToken = default) =>
             ValueTask.FromException<int>(
                 new IOException("The response body ended."));
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class LateOversizeStream(byte[] content) : Stream
+    {
+        private int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_position == content.Length)
+                return 0;
+            if (_position == 0)
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                    await Task.Yield();
+            }
+
+            int count = Math.Min(
+                content.Length - _position,
+                buffer.Length);
+            content.AsSpan(_position, count).CopyTo(buffer.Span);
+            _position += count;
+            return count;
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
 
         public override void Flush() =>
             throw new NotSupportedException();
