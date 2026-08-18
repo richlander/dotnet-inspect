@@ -1376,17 +1376,26 @@ public sealed class StructuringPass : IIrPass
             .Select(index => ctx.Blocks[index].StartOffset)
             .ToHashSet();
         return root.DescendantsOutsideNestedFunctions
-            .OfType<Branch>()
-            .Any(branch =>
-                targetOffsets.Contains(branch.TargetOffset)
-                && (!survivingLabels.TryGetValue(branch.TargetOffset, out var owners)
-                    || !owners.Any(owner => LabelIsVisibleFrom(owner, branch, root))));
+            .Any(node =>
+            {
+                int? targetOffset = node switch
+                {
+                    Branch branch => branch.TargetOffset,
+                    ConditionalBranch conditional when ctx.AllowRetainedMergeWithinLoop
+                        => conditional.TargetOffset,
+                    _ => null,
+                };
+                return targetOffset is { } target
+                    && targetOffsets.Contains(target)
+                    && (!survivingLabels.TryGetValue(target, out var owners)
+                        || !owners.Any(owner => LabelIsVisibleFrom(owner, node, root)));
+            });
     }
 
-    static bool LabelIsVisibleFrom(IrNode labelOwner, IrNode branch, IrNode root)
+    static bool LabelIsVisibleFrom(IrNode labelOwner, IrNode transfer, IrNode root)
     {
         Block? targetScope = EnclosingBlock(labelOwner, root);
-        Block? sourceScope = EnclosingBlock(branch, root);
+        Block? sourceScope = EnclosingBlock(transfer, root);
         if (targetScope is null || sourceScope is null)
             return false;
 
@@ -2830,6 +2839,16 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (ctx.RetainedMergeIndices.Contains(target))
                     {
+                        if (ctx.AllowRetainedMergeWithinLoop)
+                        {
+                            var retainedConditional = new ConditionalBranch(
+                                condition,
+                                conditional.TargetOffset);
+                            retainedConditional.InheritSourceOffset(conditional);
+                            result.Add(retainedConditional);
+                            i++;
+                            break;
+                        }
                         var gotoArm = new Block(block.StartOffset);
                         var retainedBranch = new Branch(conditional.TargetOffset);
                         retainedBranch.InheritSourceOffset(conditional);

@@ -87,6 +87,21 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
+    public void RetainedLoopConditionalMergePreservesTransferKind()
+    {
+        var (function, diagnostics) = Structure(RetainedLoopBlocks());
+
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Contains(
+            loop.Body.Descendants.OfType<ConditionalBranch>(),
+            branch => branch.TargetOffset == 6);
+        Assert.Contains(
+            loop.Body.Descendants.OfType<ConditionalBranch>(),
+            branch => branch.TargetOffset == 11);
+    }
+
+    [Fact]
     public void RetainedBodyMergeWithoutRotatedEntryStaysFlat()
     {
         var blocks = RetainedLoopBlocks();

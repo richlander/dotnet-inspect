@@ -672,7 +672,11 @@ only when the post-dominator machinery is proven.
    transfers. Every forward merge carried by the loop must independently prove
    that ordinary validation fails and retained-merge validation succeeds; all
    such merges are then validated and built transactionally with the loop.
-   Retained gotos remain gotos inside the new loop, while the existing
+   Retained gotos remain gotos inside the new loop. A retained conditional
+   transfer remains its original `ConditionalBranch` rather than becoming an
+   `IfStatement` with a synthesized `Branch`, so partial structuring cannot
+   create a new output-only branch identity; this is enforced by
+   `RetainedLoopConditionalMergePreservesTransferKind`. The existing
    generated-transfer ownership check guards `break`/`continue` binding. A
    post-build proof also requires each retained target label to remain in the
    same lexical C# block as its goto or an enclosing block; a label nested below
