@@ -786,6 +786,9 @@ public sealed class MetadataSource : IDisposable
     {
         if (handle.IsNil)
             return false;
+        // Range check first as defence in depth: the structured-name match
+        // below already refuses a row this module does not have, so this guard
+        // is deliberately not independently gated.
         int row = MetadataTokens.GetRowNumber(handle);
         if (row < 1 || row > Reader.GetTableRowCount(TableIndex.TypeDef))
             return false;

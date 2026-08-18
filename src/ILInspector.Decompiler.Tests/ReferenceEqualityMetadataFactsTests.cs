@@ -1862,8 +1862,11 @@ public class ReferenceEqualityMetadataFactsTests
 
     /// <summary>
     /// The recorded row can also name a row the queried module does not have.
-    /// The range check must send that case to the bounded lookup rather than
-    /// reading past the TypeDef table.
+    /// This exercises that fallback end to end: the answer is still computed
+    /// from the type the caller named, and nothing reads past the TypeDef
+    /// table. The explicit range check in <c>IsLocalRowFor</c> is
+    /// defence in depth and is <em>not</em> independently gated — the
+    /// structured-name match already refuses this row today.
     /// </summary>
     [Fact]
     public void StoredRowOutsideTheTargetModule_FallsBackToBoundedLookup()
@@ -1918,7 +1921,7 @@ public class ReferenceEqualityMetadataFactsTests
     /// </summary>
     [Theory]
     [InlineData(4, MetadataFactState.No)]
-    [InlineData(OperatorHierarchyLimits.WorkItems, MetadataFactState.Unknown)]
+    [InlineData(OperatorHierarchyLimits.WorkItems - 2, MetadataFactState.Unknown)]
     public void LocalHierarchyBaseEdge_IsChargedAgainstTheWorkBudget(
         int methodCount,
         MetadataFactState expected)

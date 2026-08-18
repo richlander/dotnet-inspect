@@ -502,9 +502,16 @@ public sealed class DynamicTypeViewTests
         var signature = new BlobBuilder();
         signature.WriteByte(0x20);
         signature.WriteCompressedInteger(0);
-        for (int i = 0; i < 4_000; i++)
-            signature.WriteByte(0x1d);
-        signature.WriteByte(0x08);
+        // A return type that is cheap in depth but expensive in breadth, so the
+        // blob guard's nesting bound does not reject it first: a function
+        // pointer over 20,000 int parameters.
+        const int returnParameterCount = 20_000;
+        signature.WriteByte(0x1b);
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(returnParameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < returnParameterCount; i++)
+            signature.WriteByte(0x08);
 
         long allocated = 0;
         int observed = 0;
