@@ -754,7 +754,8 @@ transfer retains source provenance; a provenance-less transfer uses its owning
 IL block as its identity, so cross-block and cross-local-function movement
 remain visible. Adding a printable transfer is a loss. Site rows use one
 compact, validated string per method so the full baseline stays below
-repository file-size limits.
+repository file-size limits. Branch, conditional, and leave identities require
+exactly one target; switch identities retain their ordered target list.
 
 Only fixed `nuget:` rows carry the ledger. The configured `NUGET_PACKAGES` root
 is normalized to the same portable `nuget:` identity as the default cache, and

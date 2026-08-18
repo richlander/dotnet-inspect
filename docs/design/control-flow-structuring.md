@@ -1095,3 +1095,14 @@ add to the step-4 plan:
    baselines then compared to themselves with zero losses, zero gains, and no
    changed methods. These measurements classify reviewed product transitions;
    they do not weaken the non-offsettable comparison contract above.
+
+   Round-1 review then found that equal block offsets in two raised local
+   functions could collapse to one fallback identity. Adding the nested-owner
+   ordinal reclassified 30 residual identities in two Roslyn methods as 30
+   losses and 30 gains; every pair differed only by the new `@local_0` owner
+   component, so this was measurement migration rather than product movement.
+   The baseline was regenerated only after that partition. The same review also
+   closed a persisted-data false green by requiring branch, conditional, and
+   leave output identities to carry exactly one target; the gates are
+   `ControlFlowSiteLedger_DistinguishesNestedFunctionOwners` and
+   `ControlFlowSites_RejectMultipleTargetsForSingleTargetTransfer`.
