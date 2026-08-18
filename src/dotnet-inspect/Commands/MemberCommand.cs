@@ -263,6 +263,9 @@ public static class MemberCommand
             if (RejectBodylessAccessorFactsRequest(apiType, effectiveOptions))
                 return 1;
 
+            if (SelectedMemberDefinitelyHasNoBody(apiType, effectiveOptions))
+                effectiveOptions = effectiveOptions with { MemberHasNoBody = true };
+
             if (apiDllPath != null && NeedsMemberSourceLocationResolution(effectiveOptions))
             {
                 var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
@@ -589,14 +592,8 @@ public static class MemberCommand
             apiType,
             requestedSections,
             options.OverloadIndex);
-        if (!ApiOutputFormatter.ResolveBodyMethods(
-                apiType,
-                sections,
-                options.OverloadIndex)
-            .Any(method => method.HasMethodBody))
-        {
+        if (SelectedMemberDefinitelyHasNoBody(apiType, options))
             return false;
-        }
 
         if (sections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
             return true;
@@ -628,6 +625,21 @@ public static class MemberCommand
 
         CommandError.Write("The selected accessor has no IL body.");
         return true;
+    }
+
+    private static bool SelectedMemberDefinitelyHasNoBody(
+        ApiType apiType,
+        MemberOptions options)
+    {
+        if (options.OverloadIndex is not { } ordinal
+            || apiType.Members is not [{ } selected])
+        {
+            return false;
+        }
+
+        var bodyMember = ResolveSourceAccessor(apiType, selected, ordinal) ?? selected;
+        return !bodyMember.HasMethodBody
+            && (bodyMember.IsAbstract || bodyMember.MetadataToken is > 0);
     }
 
     private static bool NeedsMemberSourceLocationResolution(MemberOptions options)
