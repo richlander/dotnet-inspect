@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Sockets;
 
 namespace NuGetFetch;
 
@@ -64,31 +63,11 @@ internal static class NuGetHttpRetry
             and not NuGetMetadataResponseTooLargeException
             and not NuGetRedirectLimitExceededException
         || exception is HttpRequestException request
-            && (request.StatusCode is
+            && (request.StatusCode is null
+                || request.StatusCode is
                     HttpStatusCode.RequestTimeout
                     or HttpStatusCode.InternalServerError
                     or HttpStatusCode.BadGateway
                     or HttpStatusCode.ServiceUnavailable
-                    or HttpStatusCode.GatewayTimeout
-                || HasTransientSocketError(request));
-
-    private static bool HasTransientSocketError(Exception exception)
-    {
-        for (Exception? current = exception.InnerException;
-             current is not null;
-             current = current.InnerException)
-        {
-            if (current is SocketException socket)
-            {
-                return socket.SocketErrorCode is
-                    SocketError.ConnectionReset
-                    or SocketError.ConnectionAborted
-                    or SocketError.Shutdown
-                    or SocketError.TimedOut
-                    or SocketError.TryAgain;
-            }
-        }
-
-        return false;
-    }
+                    or HttpStatusCode.GatewayTimeout);
 }

@@ -1492,6 +1492,23 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task GalleryRetriesBrowserStatuslessTransportFailure()
+    {
+        var handler = new TransientGalleryHandler(statuslessFailure: true);
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        Assert.Single(
+            Succeeded(
+                await runtime.GetVersionsAsync(
+                    "contoso",
+                    TestContext.Current.CancellationToken))
+            .Candidates);
+
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
     public async Task GalleryRetryBackoffUsesOperationNotRequestTimeout()
     {
         var handler = new TransientGalleryHandler();
@@ -1783,7 +1800,8 @@ public sealed class PackageSourceClientTests
         }
     }
 
-    private sealed class TransientGalleryHandler : HttpMessageHandler
+    private sealed class TransientGalleryHandler(
+        bool statuslessFailure = false) : HttpMessageHandler
     {
         public int Requests { get; private set; }
 
@@ -1794,6 +1812,14 @@ public sealed class PackageSourceClientTests
             cancellationToken.ThrowIfCancellationRequested();
             if (Requests++ == 0)
             {
+                if (statuslessFailure)
+                {
+                    throw new HttpRequestException(
+                        "Browser fetch failed.",
+                        new InvalidOperationException(
+                            "JavaScript transport failure."));
+                }
+
                 return Task.FromResult(
                     new HttpResponseMessage(HttpStatusCode.BadGateway));
             }
