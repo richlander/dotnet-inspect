@@ -39,6 +39,10 @@ public enum CSharpShellAccessibility
 {
     Public,
     Protected,
+    Internal,
+    PrivateProtected,
+    ProtectedInternal,
+    Private,
 }
 
 public sealed record CSharpShellParameter(
@@ -273,6 +277,10 @@ public static class CSharpMemberShellProducer
             {
                 CSharpShellAccessibility.Public => "public",
                 CSharpShellAccessibility.Protected => "protected",
+                CSharpShellAccessibility.Internal => "internal",
+                CSharpShellAccessibility.PrivateProtected => "private protected",
+                CSharpShellAccessibility.ProtectedInternal => "protected internal",
+                CSharpShellAccessibility.Private => "private",
                 _ => throw new NotSupportedException(
                     $"Unsupported C# shell accessibility '{spec.Accessibility}'."),
             },

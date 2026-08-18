@@ -3283,6 +3283,10 @@ public static class CompileBackSourceComposer
             {
                 CompileBackAccessibility.Public => CSharpShellAccessibility.Public,
                 CompileBackAccessibility.Protected => CSharpShellAccessibility.Protected,
+                CompileBackAccessibility.Internal => CSharpShellAccessibility.Internal,
+                CompileBackAccessibility.PrivateProtected => CSharpShellAccessibility.PrivateProtected,
+                CompileBackAccessibility.ProtectedInternal => CSharpShellAccessibility.ProtectedInternal,
+                CompileBackAccessibility.Private => CSharpShellAccessibility.Private,
                 _ => throw new NotSupportedException(
                     $"Unsupported compile-back accessibility '{requirement.Accessibility}'."),
             },
