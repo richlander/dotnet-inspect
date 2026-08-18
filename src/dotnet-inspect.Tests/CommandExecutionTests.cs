@@ -3018,6 +3018,8 @@ public partial class CommandExecutionTests
     [InlineData("System.Collections.Generic.Dictionary<List<>,TValue>")]
     [InlineData("System.Collections.Generic.Dictionary<TKey,<TValue>>")]
     [InlineData("System.Collections.Generic.Dictionary<List<T>U,TValue>")]
+    [InlineData("System.Collections.Generic.Dictionary<List<T><U>,TValue>")]
+    [InlineData("System.Collections.Generic.Dictionary<List<T>[,TValue>")]
     [InlineData("System.Threading.Tasks.Task<T1,T2>")]
     public async Task Router_ExplicitMissingGenericArity_DoesNotBroaden(
         string target)
@@ -3028,6 +3030,29 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("System.Collections.Generic.Dictionary<List<T>?,string>")]
+    [InlineData("System.Collections.Generic.Dictionary<List<T>[,],string>")]
+    public async Task Router_ValidNestedGenericSuffixResolvesExactType(
+        string target)
+    {
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
     }
 
     [Theory]
@@ -3271,6 +3296,28 @@ public partial class CommandExecutionTests
             error);
     }
 
+    [Fact]
+    public async Task Router_DeferredExactTypePreservesSharedMemberFilter()
+    {
+        const string target =
+            "System.Collections.Immutable.ImmutableArray<T>.Builder";
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections.Immutable",
+            "-m",
+            "Add",
+            "--shape",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+    }
+
     [Theory]
     [InlineData("DotnetInspector.Tests.SampleGenericClass<T>")]
     [InlineData("SampleGenericClass<T>")]
@@ -3450,6 +3497,44 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Equal("1", output.Trim());
         Assert.Empty(error);
+    }
+
+    [Theory]
+    [InlineData(".cctor")]
+    [InlineData(".CCTOR")]
+    public async Task Router_DeferredStaticConstructorPreservesCaseInsensitiveParity(
+        string memberSelector)
+    {
+        const string typeName =
+            "System.Collections.Generic.EqualityComparer<T>";
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "--all",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+        [
+            "member",
+            typeName,
+            "-m",
+            memberSelector,
+            .. tail
+        ]);
+        var deferred = await RunAppAsync(
+        [
+            $"{typeName}.{memberSelector}",
+            .. tail
+        ]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Equal("1", deferred.Output.Trim());
     }
 
     [Fact]
@@ -19999,6 +20084,52 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.NotEmpty(error);
+    }
+
+    [Theory]
+    [InlineData("Clear`0")]
+    [InlineData("ConvertAll`01")]
+    public async Task Router_NoncanonicalMemberArityDoesNotBroaden(
+        string memberSelector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            $"System.Collections.Generic.List<T>.{memberSelector}",
+            "--platform",
+            "System.Collections",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.NotEmpty(error);
+    }
+
+    [Fact]
+    public async Task Router_DottedExplicitInterfaceSelectorUsesMetadataBoundary()
+    {
+        const string target =
+            "System.Collections.Generic.EqualityComparer<T>"
+            + ".explicit:System.Collections.IEqualityComparer.Equals:1";
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "--all",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Equal("1", deferred.Output.Trim());
     }
 
     [Fact]

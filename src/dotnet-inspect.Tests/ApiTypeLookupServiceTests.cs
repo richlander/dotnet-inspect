@@ -68,6 +68,9 @@ public class ApiTypeLookupServiceTests
     [InlineData(".cctor")]
     [InlineData(".cctor:1")]
     [InlineData(".cctor~abcdef")]
+    [InlineData(".CCTOR")]
+    [InlineData(".CCTOR:1")]
+    [InlineData(".CCTOR~abcdef")]
     public void LookupType_ConstructorMember_PreservesSpecialName(
         string memberName)
     {
@@ -80,6 +83,22 @@ public class ApiTypeLookupServiceTests
         Assert.True(result.Found);
         Assert.Equal("System.Text.Json.JsonSerializer", result.Match);
         Assert.Equal(memberName, result.ImpliedMember);
+    }
+
+    [Fact]
+    public void LookupType_KindQualifiedDottedMember_PeelsLongestTypePrefix()
+    {
+        var api = CreateSurface();
+        const string member =
+            "explicit:System.IDisposable.Dispose:1";
+
+        var result = ApiTypeLookupService.LookupType(
+            api,
+            $"System.Text.Json.JsonSerializer.{member}");
+
+        Assert.True(result.Found);
+        Assert.Equal("System.Text.Json.JsonSerializer", result.Match);
+        Assert.Equal(member, result.ImpliedMember);
     }
 
     [Fact]

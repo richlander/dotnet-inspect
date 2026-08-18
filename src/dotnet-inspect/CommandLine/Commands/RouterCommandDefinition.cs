@@ -197,7 +197,9 @@ public static class RouterCommandDefinition
                     return ["package", target, .. tail];
             }
 
-            if (ContainsOption(tokens, "--member") || ContainsOption(tokens, "-m"))
+            if ((ContainsOption(tokens, "--member")
+                    || ContainsOption(tokens, "-m"))
+                && !TypeMatcher.HasExplicitGenericNotation(target))
                 return ["member", target, .. tail];
 
             if (ContainsOption(tokens, "--library")

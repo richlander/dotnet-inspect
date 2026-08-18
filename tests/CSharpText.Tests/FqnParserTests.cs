@@ -48,6 +48,8 @@ public class FqnParserTests
     [InlineData("Action<Func<int,string>>", "Action`1")]
     [InlineData("Dictionary<List<T>?,string>", "Dictionary`2")]
     [InlineData("Dictionary<List<T>[],string>", "Dictionary`2")]
+    [InlineData("Dictionary<List<T>[,],string>", "Dictionary`2")]
+    [InlineData("Dictionary<List<T>[][],string>", "Dictionary`2")]
     [InlineData("Dictionary<List<T>.Enumerator,string>", "Dictionary`2")]
     public void NestedGenericType_NormalizesCorrectly(string input, string expectedType)
     {
@@ -66,6 +68,10 @@ public class FqnParserTests
     [InlineData("Dictionary<List<T>U,TValue>")]
     [InlineData("Dictionary<List<T> U,TValue>")]
     [InlineData("Dictionary<List<T>?U,TValue>")]
+    [InlineData("Dictionary<List<T><U>,TValue>")]
+    [InlineData("Dictionary<List<T> <U>,TValue>")]
+    [InlineData("Dictionary<List<T>[,TValue>")]
+    [InlineData("Dictionary<List<T>],TValue>")]
     public void MalformedGenericType_IsNotNormalizedToValidMetadataIdentity(
         string input) =>
         Assert.Equal(input, FqnParser.NormalizeTypeName(input));
@@ -241,6 +247,16 @@ public class FqnParserTests
         const string malformed = "ToString`999999999999999999999";
 
         Assert.Equal(malformed, FqnParser.NormalizeMemberName(malformed));
+    }
+
+    [Theory]
+    [InlineData("Clear`0")]
+    [InlineData("ConvertAll`01")]
+    public void NormalizeMemberName_NoncanonicalMetadataArityPreservesMalformedSuffix(
+        string malformed)
+    {
+        Assert.Equal(malformed, FqnParser.NormalizeMemberName(malformed));
+        Assert.Null(FqnParser.GetMemberGenericArity(malformed));
     }
 
     [Theory]

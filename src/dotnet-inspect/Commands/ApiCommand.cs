@@ -253,7 +253,9 @@ public class ApiCommand
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var memberPipeline = ApiMemberSectionPipelines.Create(options);
         bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
-        bool typeNameIsGlob = hasTypeName && (options.TypeName!.Contains('*') || options.TypeName!.Contains('?'));
+        bool typeNameIsGlob =
+            hasTypeName
+            && TypeMatcher.IsTypeGlobPattern(options.TypeName!);
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
         var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
         if (options is MemberOptions memberOptions

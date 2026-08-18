@@ -242,6 +242,21 @@ public static class TypeMatcher
         pattern.Contains('`') || pattern.Contains('<');
 
     /// <summary>
+    /// Returns true when wildcard syntax remains after valid generic arguments
+    /// are normalized away.
+    /// </summary>
+    public static bool IsTypeGlobPattern(string pattern)
+    {
+        var matchPattern = GetTypeMatchPattern(pattern);
+        return matchPattern.Contains('*') || matchPattern.Contains('?');
+    }
+
+    private static string GetTypeMatchPattern(string pattern) =>
+        HasExplicitGenericNotation(pattern)
+            ? FqnParser.NormalizeTypeName(pattern)
+            : pattern;
+
+    /// <summary>
     /// Tests whether <paramref name="text"/> matches a glob pattern (* and ? wildcards).
     /// Case-insensitive.
     /// </summary>
@@ -264,8 +279,10 @@ public static class TypeMatcher
     /// </summary>
     public static bool MatchesTypeFilter(string fullName, string pattern)
     {
-        if (pattern.Contains('*') || pattern.Contains('?'))
-            return MatchesGlob(fullName, pattern) || MatchesGlob(GetSimpleName(fullName), pattern);
+        var matchPattern = GetTypeMatchPattern(pattern);
+        if (IsTypeGlobPattern(pattern))
+            return MatchesGlob(fullName, matchPattern)
+                || MatchesGlob(GetSimpleName(fullName), matchPattern);
         return Matches(fullName, pattern);
     }
 
@@ -320,12 +337,14 @@ public static class TypeMatcher
     {
         var list = candidates as IList<string> ?? candidates.ToList();
 
-        bool isGlob = pattern.Contains('*') || pattern.Contains('?');
+        var matchPattern = GetTypeMatchPattern(pattern);
+        bool isGlob = IsTypeGlobPattern(pattern);
 
         if (isGlob)
         {
             var hits = list.Where(c =>
-                MatchesGlob(c, pattern) || MatchesGlob(GetSimpleName(c), pattern)).ToList();
+                MatchesGlob(c, matchPattern)
+                || MatchesGlob(GetSimpleName(c), matchPattern)).ToList();
 
             return hits.Count switch
             {

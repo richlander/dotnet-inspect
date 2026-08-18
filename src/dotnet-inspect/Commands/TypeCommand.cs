@@ -413,7 +413,7 @@ public static class TypeCommand
 
                     if (lookupResult.Suggestions.Count > 0)
                     {
-                        bool isGlob = typeName.Contains('*') || typeName.Contains('?');
+                        bool isGlob = TypeMatcher.IsTypeGlobPattern(typeName);
                         if (isGlob)
                         {
                             // Glob matched multiple types — show types view with filter
@@ -498,7 +498,7 @@ public static class TypeCommand
     {
         if (!options.AllowPlatformPrefixFallback || string.IsNullOrWhiteSpace(originalTypeQuery))
             return Task.FromResult<int?>(null);
-        if (originalTypeQuery.Contains('*') || originalTypeQuery.Contains('?'))
+        if (TypeMatcher.IsTypeGlobPattern(originalTypeQuery))
             return Task.FromResult<int?>(null);
 
         return TryExecutePlatformPrefixBrowseAsync(options with
@@ -857,7 +857,7 @@ public static class TypeCommand
     {
         if (string.IsNullOrWhiteSpace(originalTypeQuery))
             return null;
-        if (originalTypeQuery.Contains('*') || originalTypeQuery.Contains('?'))
+        if (TypeMatcher.IsTypeGlobPattern(originalTypeQuery))
             return null;
 
         var matches = FindPrefixMatches(api.Types, originalTypeQuery);

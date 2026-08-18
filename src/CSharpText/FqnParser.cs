@@ -213,6 +213,7 @@ public static class FqnParser
         var backtickIdx = memberName.LastIndexOf('`');
         if (backtickIdx > 0
             && backtickIdx < memberName.Length - 1
+            && memberName[backtickIdx + 1] != '0'
             && memberName.AsSpan((backtickIdx + 1)..).IndexOfAnyExceptInRange('0', '9') < 0
             && int.TryParse(
                 memberName.AsSpan((backtickIdx + 1)..),
@@ -301,12 +302,31 @@ public static class FqnParser
         count = 1;
         var segmentStart = 0;
         var completedNestedType = false;
+        var arrayRankDepth = 0;
         for (var i = 0; i < typeParams.Length; i++)
         {
+            if (arrayRankDepth > 0)
+            {
+                if (typeParams[i] == ']')
+                {
+                    arrayRankDepth--;
+                    completedNestedType = true;
+                }
+                else if (typeParams[i] != ','
+                    && !char.IsWhiteSpace(typeParams[i]))
+                {
+                    count = 0;
+                    return false;
+                }
+
+                continue;
+            }
+
             switch (typeParams[i])
             {
                 case '<':
-                    if (typeParams[segmentStart..i].IsWhiteSpace())
+                    if (completedNestedType
+                        || typeParams[segmentStart..i].IsWhiteSpace())
                     {
                         count = 0;
                         return false;
@@ -339,6 +359,18 @@ public static class FqnParser
                     segmentStart = i + 1;
                     completedNestedType = false;
                     break;
+                case '[':
+                    if (typeParams[segmentStart..i].IsWhiteSpace())
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    arrayRankDepth++;
+                    break;
+                case ']':
+                    count = 0;
+                    return false;
                 case '.':
                 case '+':
                     completedNestedType = false;
@@ -355,7 +387,8 @@ public static class FqnParser
             }
         }
 
-        if (typeParams[segmentStart..].IsWhiteSpace())
+        if (arrayRankDepth != 0
+            || typeParams[segmentStart..].IsWhiteSpace())
         {
             count = 0;
             return false;

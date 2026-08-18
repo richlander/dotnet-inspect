@@ -87,15 +87,27 @@ internal static class ApiTypeLookupService
         // "System" is a namespace — so it is resolved here against real metadata: peel the
         // trailing segment and retry the prefix as a type. If the prefix resolves, the peeled
         // suffix is surfaced as an implied member filter.
-        var dot = FqnParser.LastTopLevelDot(typeName);
-        if (dot > 0)
+        var searchEnd = typeName.Length;
+        while (searchEnd > 0)
         {
+            var dot = FqnParser.LastTopLevelDot(typeName[..searchEnd]);
+            if (dot <= 0)
+                break;
+
             var member = typeName[(dot + 1)..];
             var typeEnd = dot;
             var memberSelector = MemberTargetSelector.Parse(member);
             if (dot > 1
                 && typeName[dot - 1] == '.'
-                && memberSelector.Name is ".ctor" or "cctor" or ".cctor")
+                && (memberSelector.Name.Equals(
+                        ".ctor",
+                        StringComparison.OrdinalIgnoreCase)
+                    || memberSelector.Name.Equals(
+                        "cctor",
+                        StringComparison.OrdinalIgnoreCase)
+                    || memberSelector.Name.Equals(
+                        ".cctor",
+                        StringComparison.OrdinalIgnoreCase)))
             {
                 member = $".{member}";
                 typeEnd--;
@@ -109,6 +121,8 @@ internal static class ApiTypeLookupService
                     prefixLookup,
                     api.Types.First(t => t.FullName == prefixLookup.Match),
                     member);
+
+            searchEnd = dot;
         }
 
         return new ApiTypeLookupResult(typeName, lookup, null);

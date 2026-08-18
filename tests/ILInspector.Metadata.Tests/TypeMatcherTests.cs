@@ -74,6 +74,18 @@ public class TypeMatcherTests
     }
 
     [Fact]
+    public void Lookup_nullable_generic_argument_is_not_a_glob()
+    {
+        var result = TypeMatcher.Lookup(
+            ["System.Collections.Generic.Dictionary`2"],
+            "System.Collections.Generic.Dictionary<List<T>?,string>");
+
+        Assert.Equal(
+            "System.Collections.Generic.Dictionary`2",
+            result.Match);
+    }
+
+    [Fact]
     public void Lookup_prefers_non_generic_type_when_pattern_has_no_generic_notation()
     {
         var candidates = new[]
