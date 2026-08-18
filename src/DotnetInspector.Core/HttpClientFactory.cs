@@ -438,9 +438,10 @@ public static class HttpClientFactory
             if ((address[8] is 0x00 or 0x02)
                 && address[9] == 0x00
                 && address[10] == 0x5e
-                && address[11] == 0xfe)
+                && address[11] == 0xfe
+                && IsNonPublic(new IPAddress(address.AsSpan(12, 4))))
             {
-                return IsNonPublic(new IPAddress(address.AsSpan(12, 4)));
+                return true;
             }
 
             // Public IPv6 unicast is allocated from 2000::/3. Explicit public

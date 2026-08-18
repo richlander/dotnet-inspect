@@ -27,7 +27,8 @@ must resolve entirely to public addresses. These guarded clients connect directl
 through an ambient HTTP proxy, whose endpoint would hide the redirect destination from the
 address check. Cross-origin URLs discovered from service-index, catalog, or vulnerability data
 never receive feed credentials. IPv4-mapped, NAT64, 6to4, and ISATAP IPv6 addresses are classified
-by their embedded IPv4 destination, gated by
+by their embedded IPv4 destination without allowing a public embedded address to override a
+non-public outer IPv6 prefix, gated by
 `HttpClientFactoryTests.UntrustedFetchAddressClassification_MatchesNonPublicContract`.
 
 Equivalent endpoints at the selected capability version are tried in service-index order,
