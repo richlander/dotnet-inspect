@@ -17856,6 +17856,52 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Package_JsonReportsSelectedEmptyColumnDespiteUnrelatedProperty(
+        bool multiplePackages)
+    {
+        var (firstPackagePath, firstTempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonEmptyDependencies.One",
+            "README.md",
+            "# First package");
+        var (secondPackagePath, secondTempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonEmptyDependencies.Two",
+            "README.md",
+            "# Second package");
+        try
+        {
+            string[] packagePaths = multiplePackages
+                ? [firstPackagePath, secondPackagePath]
+                : [firstPackagePath];
+            var (exit, output, error) = await RunAppAsync(
+                [
+                    "package",
+                    .. packagePaths,
+                    "-S",
+                    "Dependencies",
+                    "--json",
+                    "--columns",
+                    "Version",
+                    "--tips",
+                    "q",
+                ]);
+
+            Assert.Equal(0, exit);
+            using var _ = JsonDocument.Parse(output);
+            Assert.Contains(
+                "1 column has no data: Version",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(firstTempDir, recursive: true);
+            Directory.Delete(secondTempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Package_JsonRejectsUnknownProjectionInExplicitSection()
     {

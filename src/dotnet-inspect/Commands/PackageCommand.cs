@@ -884,11 +884,11 @@ public class PackageCommand
                 var output = OutputFormatter.FormatResult(result, options, pipeline);
                 if (hasProjection && options.JsonOutput)
                 {
-                    ProjectionDiagnostics.DiagnoseJson(
-                        options.Fields,
-                        options.Columns,
+                    DiagnosePackageJsonProjection(
+                        options,
                         output,
-                        PackageInspectionJson.ProjectionAliases);
+                        [result],
+                        pipeline);
                 }
                 else if (hasProjection)
                 {
@@ -1048,11 +1048,11 @@ public class PackageCommand
             var json = JsonSerializer.Serialize(
                 results.Select(PackageInspectionJson.Create).ToArray(),
                 PackageInspectionJsonContext.Default.PackageInspectionJsonArray);
-            ProjectionDiagnostics.DiagnoseJson(
-                options.Fields,
-                options.Columns,
+            DiagnosePackageJsonProjection(
+                options,
                 json,
-                PackageInspectionJson.ProjectionAliases);
+                results,
+                pipeline);
             Console.WriteLine(json);
             return PackageIntegrityExitCode([.. results]);
         }
@@ -1068,6 +1068,80 @@ public class PackageCommand
             CommandError.Write(ex.Message);
             return 1;
         }
+    }
+
+    private static void DiagnosePackageJsonProjection(
+        InspectionOptions options,
+        string json,
+        IReadOnlyList<InspectionResult> results,
+        SectionPipeline<InspectionResult> pipeline)
+    {
+        DocumentSchema schema =
+            InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!
+                .ToDocumentSchema();
+        var renderedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (options.Columns is { Length: > 0 }
+            && options.IncludeSections is { Count: > 0 })
+        {
+            foreach (string section in options.IncludeSections)
+            {
+                if (!string.Equals(
+                        schema.GetSection(section)?.ItemKind,
+                        "column",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var unresolved = new HashSet<string>(
+                    schema.ValidateProjection(section, options.Columns).Unresolved,
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (string column in options.Columns)
+                {
+                    if (!unresolved.Contains(column))
+                        renderedColumns.Add(column);
+                }
+            }
+        }
+
+        string[]? typedColumns = options.Columns?
+            .Where(column => !renderedColumns.Contains(column))
+            .ToArray();
+        ProjectionDiagnostics.DiagnoseJson(
+            options.Fields,
+            typedColumns,
+            json,
+            PackageInspectionJson.ProjectionAliases);
+
+        if (renderedColumns.Count == 0)
+            return;
+
+        string[] renderedColumnArray = [.. renderedColumns];
+        var writerOptions = OutputFormatter.BuildWriterOptions(
+            results[0],
+            options,
+            pipeline);
+        writerOptions.Projection = OutputFormatter.BuildProjection(
+            renderedColumnArray,
+            fields: null);
+        writerOptions.RowWindow = null;
+        ProjectionDiagnostics.DiagnoseRendered(
+            fields: null,
+            columns: renderedColumnArray,
+            (writer, formatter, activeWriterOptions) =>
+            {
+                foreach (InspectionResult result in results)
+                {
+                    MarkoutSerializer.Serialize(
+                        new InspectionResultView(result, includeTitleVersion: false),
+                        writer,
+                        formatter,
+                        InspectionContext.Default,
+                        activeWriterOptions);
+                }
+            },
+            writerOptions,
+            schema);
     }
 
     internal static int PackageIntegrityExitCode(params InspectionResult[] results)
