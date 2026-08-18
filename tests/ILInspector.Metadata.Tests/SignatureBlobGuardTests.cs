@@ -346,6 +346,38 @@ public class SignatureBlobGuardTests
         => Assert.True(GuardTypeSpec([GenericInst, Class, 0x06, 0x01, I4]));
 
     [Fact]
+    public void StackedGenericInstPrefix_IsUnsafe()
+    {
+        // GENERICINST GENERICINST CLASS token is not a well-formed
+        // II.23.2.12 instantiation. The OneDeeplyNestedTypeSpec bounds
+        // fixture uses this prefix; rejecting it is what stops the
+        // retained-text amplification.
+        var blob = new List<byte>();
+        for (int i = 0; i < 8; i++)
+            blob.Add(GenericInst);
+        blob.Add(Class);
+        blob.Add(0x06);
+        for (int i = 0; i < 8; i++)
+        {
+            blob.Add(0x01);
+            blob.Add(Class);
+            blob.Add(0x06);
+        }
+
+        Assert.False(GuardTypeSpec(blob.ToArray()));
+
+        var field = new BlobBuilder();
+        field.WriteByte(0x06);
+        field.WriteBytes(blob.ToArray());
+        var (reader, handle) = BuildStandaloneSig(field);
+        Assert.False(
+            SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                reader.GetStandaloneSignature(handle).Signature,
+                SignatureBlobGuard.Kind.Field));
+    }
+
+    [Fact]
     public void MultiByteTypeCodePointerChain_IsUnsafe()
     {
         // SRM reads type codes as compressed integers, so 0x80 0x0F is PTR.
