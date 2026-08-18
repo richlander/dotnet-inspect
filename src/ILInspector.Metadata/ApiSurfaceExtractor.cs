@@ -732,35 +732,11 @@ public static class ApiSurfaceExtractor
             // Get/set and add/remove bodies are represented by their owning API
             // members. Raiser and Other semantic methods have no ApiMember token
             // slots, so retain them as methods to keep their bodies addressable.
-            var accessorMethods = new HashSet<MethodDefinitionHandle>();
-            var explicitInterfaceAccessorMethods =
-                new HashSet<MethodDefinitionHandle>();
-            foreach (var propertyHandle in typeDef.GetProperties())
-            {
-                var property = reader.GetPropertyDefinition(propertyHandle);
-                var accessors = property.GetAccessors();
-                AddAccessor(accessors.Getter);
-                AddAccessor(accessors.Setter);
-            }
-            foreach (var eventHandle in typeDef.GetEvents())
-            {
-                var @event = reader.GetEventDefinition(eventHandle);
-                var accessors = @event.GetAccessors();
-                AddAccessor(accessors.Adder);
-                AddAccessor(accessors.Remover);
-            }
-
-            void AddAccessor(MethodDefinitionHandle accessor)
-            {
-                if (!accessor.IsNil)
-                {
-                    accessorMethods.Add(accessor);
-                    if (explicitImplementationBodies.ContainsKey(accessor))
-                    {
-                        explicitInterfaceAccessorMethods.Add(accessor);
-                    }
-                }
-            }
+            var (accessorMethods, explicitInterfaceAccessorMethods) =
+                GetAccessorMethods(
+                    reader,
+                    typeDef,
+                    explicitImplementationBodies);
 
             // Methods
             foreach (var methodHandle in typeDef.GetMethods())
@@ -1403,6 +1379,11 @@ public static class ApiSurfaceExtractor
         bool isExtensionClass)
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+        var (accessorMethods, explicitInterfaceAccessorMethods) =
+            GetAccessorMethods(
+                reader,
+                typeDef,
+                explicitImplementationBodies);
 
         foreach (var methodHandle in typeDef.GetMethods())
         {
@@ -1414,14 +1395,11 @@ public static class ApiSurfaceExtractor
                 continue;
 
             string methodName = reader.GetString(method.Name);
-            if (methodName.StartsWith("get_", StringComparison.Ordinal)
-                || methodName.StartsWith("set_", StringComparison.Ordinal)
-                || methodName.StartsWith("add_", StringComparison.Ordinal)
-                || methodName.StartsWith("remove_", StringComparison.Ordinal)
-                || methodName.StartsWith('<'))
-            {
+            if (accessorMethods.Contains(methodHandle)
+                && !explicitInterfaceAccessorMethods.Contains(methodHandle))
                 continue;
-            }
+            if (methodName.StartsWith('<'))
+                continue;
 
             if (!isExplicitImplementation
                 && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
@@ -1888,6 +1866,18 @@ public static class ApiSurfaceExtractor
             declarationContexts = [];
         var referenceProjection =
             new AssemblyReferenceProjectionCache(reader);
+        HashSet<EntityHandle> implementedInterfaceTypes = [];
+        foreach (InterfaceImplementationHandle interfaceHandle
+            in typeDef.GetInterfaceImplementations())
+        {
+            beforeDecodeWork?.Invoke(1);
+            EntityHandle interfaceType = InterfaceTypeRoot(
+                reader,
+                reader.GetInterfaceImplementation(interfaceHandle).Interface);
+            if (!interfaceType.IsNil)
+                implementedInterfaceTypes.Add(interfaceType);
+        }
+
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
@@ -1895,6 +1885,20 @@ public static class ApiSurfaceExtractor
             {
                 MethodDefinitionHandle body =
                     (MethodDefinitionHandle)implementation.MethodBody;
+                EntityHandle declaringType =
+                    MethodDeclarationDeclaringType(
+                        reader,
+                        implementation.MethodDeclaration);
+                if (!TargetsInterface(
+                        reader,
+                        declaringType,
+                        implementedInterfaceTypes)
+                    && !HasExplicitInterfaceImplementationShape(
+                        reader.GetMethodDefinition(body)))
+                {
+                    continue;
+                }
+
                 if (!handles.TryGetValue(
                         body,
                         out HashSet<ApiExplicitInterfaceDeclarationContext>?
@@ -1928,6 +1932,111 @@ public static class ApiSurfaceExtractor
             pair => new ApiExplicitInterfaceProvenance(
                 pair.Value.ToImmutableArray()),
             EqualityComparer<MethodDefinitionHandle>.Default);
+    }
+
+    private static (
+        HashSet<MethodDefinitionHandle> Accessors,
+        HashSet<MethodDefinitionHandle> ExplicitInterfaceAccessors)
+        GetAccessorMethods(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        IReadOnlyDictionary<
+            MethodDefinitionHandle,
+            ApiExplicitInterfaceProvenance> explicitImplementationBodies)
+    {
+        HashSet<MethodDefinitionHandle> accessors = [];
+        HashSet<MethodDefinitionHandle> explicitInterfaceAccessors = [];
+
+        foreach (PropertyDefinitionHandle propertyHandle
+            in typeDef.GetProperties())
+        {
+            PropertyAccessors propertyAccessors =
+                reader.GetPropertyDefinition(propertyHandle).GetAccessors();
+            Add(propertyAccessors.Getter);
+            Add(propertyAccessors.Setter);
+        }
+        foreach (EventDefinitionHandle eventHandle
+            in typeDef.GetEvents())
+        {
+            EventAccessors eventAccessors =
+                reader.GetEventDefinition(eventHandle).GetAccessors();
+            Add(eventAccessors.Adder);
+            Add(eventAccessors.Remover);
+        }
+
+        return (accessors, explicitInterfaceAccessors);
+
+        void Add(MethodDefinitionHandle accessor)
+        {
+            if (accessor.IsNil)
+                return;
+            accessors.Add(accessor);
+            if (explicitImplementationBodies.ContainsKey(accessor))
+                explicitInterfaceAccessors.Add(accessor);
+        }
+    }
+
+    private static EntityHandle MethodDeclarationDeclaringType(
+        MetadataReader reader,
+        EntityHandle declaration)
+        => declaration.Kind switch
+        {
+            HandleKind.MemberReference =>
+                reader.GetMemberReference(
+                    (MemberReferenceHandle)declaration).Parent,
+            HandleKind.MethodDefinition =>
+                reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)declaration).GetDeclaringType(),
+            _ => default,
+        };
+
+    private static EntityHandle InterfaceTypeRoot(
+        MetadataReader reader,
+        EntityHandle type)
+    {
+        if (type.Kind != HandleKind.TypeSpecification)
+            return type;
+
+        return TypeSpecificationRoot.TryRead(
+                reader,
+                (TypeSpecificationHandle)type,
+                out TypeSpecificationRoot root)
+            && root.Kind == TypeSpecificationRootKind.NamedType
+                ? root.Type
+                : default;
+    }
+
+    private static bool TargetsInterface(
+        MetadataReader reader,
+        EntityHandle declaringType,
+        IReadOnlySet<EntityHandle> implementedInterfaceTypes)
+    {
+        EntityHandle root =
+            InterfaceTypeRoot(reader, declaringType);
+        if (root.IsNil)
+            return false;
+        if (implementedInterfaceTypes.Contains(root))
+            return true;
+        return root.Kind == HandleKind.TypeDefinition
+            && (reader.GetTypeDefinition(
+                    (TypeDefinitionHandle)root).Attributes
+                & TypeAttributes.Interface) != 0;
+    }
+
+    private static bool HasExplicitInterfaceImplementationShape(
+        MethodDefinition method)
+    {
+        const MethodAttributes shape =
+            MethodAttributes.Private
+            | MethodAttributes.Final
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        const MethodAttributes mask =
+            MethodAttributes.MemberAccessMask
+            | MethodAttributes.Final
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        return (method.Attributes & mask) == shape;
     }
 
     private static ApiExplicitInterfaceProvenance?
@@ -1965,16 +2074,8 @@ public static class ApiSurfaceExtractor
         AssemblyReferenceProjectionCache referenceProjection,
         Action<int>? beforeDecodeWork)
     {
-        EntityHandle declaringType = declaration.Kind switch
-        {
-            HandleKind.MemberReference =>
-                reader.GetMemberReference(
-                    (MemberReferenceHandle)declaration).Parent,
-            HandleKind.MethodDefinition =>
-                reader.GetMethodDefinition(
-                    (MethodDefinitionHandle)declaration).GetDeclaringType(),
-            _ => default,
-        };
+        EntityHandle declaringType =
+            MethodDeclarationDeclaringType(reader, declaration);
         return declaringType.IsNil
             ? new ApiExplicitInterfaceDeclarationContext(
                 ApiExplicitInterfaceDeclarationKind.Unavailable)
