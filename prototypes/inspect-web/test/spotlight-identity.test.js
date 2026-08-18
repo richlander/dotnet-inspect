@@ -214,6 +214,15 @@ test("bare home paints before wasm engine download", () => {
     /#error-package-query[\s\S]*loadPackage\(packageId, version/);
 });
 
+test("loading brand links back to the site root", () => {
+  assert.match(
+    appSource,
+    /<a class="loading-brand" href="\/" aria-label="dotnet inspect home"><span>◇<\/span> dotnet-inspect<\/a>/);
+  assert.match(
+    stylesSource,
+    /\.loading-brand\s*\{[^}]*text-decoration: none;/s);
+});
+
 test("settings keep a viewport-bounded scroll region", () => {
   const settingsPageRule =
     stylesSource.match(/\.settings-page\s*\{([^}]*)\}/s)?.[1] ?? "";

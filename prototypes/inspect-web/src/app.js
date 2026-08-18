@@ -5919,7 +5919,7 @@ function openPackageFromError(packageId, version) {
 function renderLoading() {
   app.innerHTML = `
     <div class="loading-screen">
-      <div class="loading-brand"><span>◇</span> dotnet-inspect</div>
+      <a class="loading-brand" href="/" aria-label="dotnet inspect home"><span>◇</span> dotnet-inspect</a>
       ${state.error
         ? `<div class="load-error">
              <strong>${escapeHtml(state.errorTitle || "Inspection query failed")}</strong>

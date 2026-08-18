@@ -348,13 +348,10 @@ refusal rather than fixture results or success-shaped empty output.
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
-| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | runtime-pack acquisition that produces participants from content |
+| every `QueryPlatform*`, `ExpandPlatformCallGraph`, `LoadRuntimePack`, `LoadRuntimePackAssembly` | `WorkspaceContextLoader` now produces runtime-pack participants from content; the Browser host still needs platform scope caching, typed-result adaptation, and the missing group-scoped metadata/performance queries named above |
 
-One further gap is about acquisition rather than inspection:
-
-- `ResolvedAssemblyReference.CreateFromPathIfManaged` has **no content-shaped
-  sibling**, so a filesystem-free acquisition owner must decode assembly identity
-  itself before it can mint a participant the group will accept.
+`ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
+decoding, so Browser acquisition does not reconstruct assembly identity.
 
 Each gap has a tracking issue; the pull request that introduced this rebuild
 lists them.
@@ -508,10 +505,16 @@ and pin their checkout, SDK setup, and artifact actions to exact commits. The
 workflow contract gate enforces those references. Azure's pinned action still
 pulls Microsoft's `staticappsclient:stable` image; that vendor-controlled
 deployment dependency is not immutable and remains inside the Azure trust
-boundary. Both workflows disable Azure's own app build. The staging publish
-step embeds the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC
-build timestamp. The home and workspace status bars show that version, link
-the short commit to GitHub, and disclose the binary build time.
+boundary. Both workflows disable Azure's own app build and require the
+published artifact to contain `staticwebapp.config.json`. That configuration
+serves `/` and `/index.html` with `Cache-Control: no-cache, no-store,
+must-revalidate`, so an Azure edge cannot retain an old browser boot graph
+after its fingerprinted Wasm assets rotate.
+`BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
+gates the header contract and publish wiring. The staging publish step embeds
+the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
+timestamp. The home and workspace status bars show that version, link the
+short commit to GitHub, and disclose the binary build time.
 `BuildIdentity_UsesVersionedRepositoryProvenance` and
 `ready status shows versioned linked build provenance` gate the engine and UI
 halves.
