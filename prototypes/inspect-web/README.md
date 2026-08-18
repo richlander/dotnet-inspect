@@ -454,27 +454,61 @@ not answer report the engine's failure rather than fixture results.
 
 ## Deploy
 
-`.github/workflows/deploy-inspect-web.yml` publishes the browser-Wasm project and
-uploads the prebuilt `wwwroot` to an Azure Static Web App with Azure's own app
-build disabled. It runs on every push to `main`; `workflow_dispatch` remains
-available, but the deploy job itself requires `refs/heads/main`, so a manual run
-cannot publish another ref. The `inspect-web-production` GitHub environment
-restricts deployments to `main` and requires approval before the job can access
-its environment-scoped
-`AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB` deployment credential. The Azure
-deployment action is pinned to an exact commit.
-The publish step embeds the CLI's authoritative `VersionPrefix`, the exact
-`GITHUB_SHA`, and a UTC build timestamp in the engine. The home and workspace
-status bars show that version, link the short commit to GitHub, and disclose the
-binary build time. `BuildIdentity_UsesVersionedRepositoryProvenance` and
+`.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
+archives the resulting `wwwroot` as the run-scoped `inspect-web-site` GitHub
+artifact, then uses a fresh environment-gated job to download that artifact by
+ID with digest mismatch configured as an error and deploy it to the public
+staging site at `https://dotnet-inspect.ca`. Candidate build code never runs in
+the staging deployment job. The separate `inspect-web-staging` GitHub
+environment accepts only `main` and holds a deployment token scoped to the
+staging Azure Static Web App.
+
+`.github/workflows/promote-inspect-web.yml` intentionally promotes one
+successful staging run to production at `https://dotnet-inspect.net`. The
+operator supplies the staging run ID and types `promote`; the workflow verifies
+that the run was a successful `main` push through the staging workflow, that
+its `Publish staging` job succeeded, and that it produced one unexpired,
+nonempty `inspect-web-site` artifact. After production approval it revalidates
+the run attempt, commit, artifact identity, and digest, downloads the exact
+artifact ID with digest mismatch configured as an error, and deploys the
+archived staging files. `validate-inspect-web-promotion.cs --self-test`, run
+by inspect-web CI, gates the evidence discriminator and close negative cases;
+the CI change-detection workflow contract gate keeps both deployment jobs free
+of candidate code, keeps production revalidation on the trusted dispatch
+revision, and orders each artifact download before only verification and
+deployment. Manual staging runs remain useful for recovery but are deliberately
+not promotable.
+
+Production promotion uses the distinct `inspect-web-production-promotion`
+environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`
+secret. Legacy deployment workflows reference neither name. During cutover,
+cancel outstanding legacy deployment runs, reset the production Static Web App
+deployment token, put the replacement token only in the promotion environment,
+and delete both the old `inspect-web-production` environment secret and the
+repository-scoped token. Token rotation invalidates credentials already copied
+into queued parent-era jobs; deleting both old secret locations makes later
+reruns fail closed.
+
+Both deployment workflows pin the Azure deployment action to an exact commit
+and pin their checkout, SDK setup, and artifact actions to exact commits. The
+workflow contract gate enforces those references. Azure's pinned action still
+pulls Microsoft's `staticappsclient:stable` image; that vendor-controlled
+deployment dependency is not immutable and remains inside the Azure trust
+boundary. Both workflows disable Azure's own app build. The staging publish
+step embeds the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC
+build timestamp. The home and workspace status bars show that version, link
+the short commit to GitHub, and disclose the binary build time.
+`BuildIdentity_UsesVersionedRepositoryProvenance` and
 `ready status shows versioned linked build provenance` gate the engine and UI
 halves.
 
-Three prerequisites live outside this repository and are **not** verified by
-anything in it: the environment must retain its `main` branch restriction and
-required reviewer, its secret must be present, and the Static Web App resource's
-production Branch setting must name the branch being deployed. Treat a green
-workflow run — not this file — as the evidence that a deployed site is current.
+The Azure resources, custom-domain assignments, GitHub environments, branch
+restrictions, required production reviewer, and environment-scoped deployment
+tokens live outside this repository and are **not** verified by anything in it.
+Treat successful staging and promotion runs, not this file, as evidence that
+the corresponding deployed site is current. The staging domain is intentionally
+not publicized, but it is public infrastructure and is not a confidentiality
+boundary.
 
 See [architecture-spike.md](architecture-spike.md) for the proposed .NET 11
 browser engine and the NativeAOT decision.

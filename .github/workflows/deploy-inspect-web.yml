@@ -1,4 +1,4 @@
-name: Deploy inspect-web
+name: Deploy inspect-web staging
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-inspect-web
+  group: deploy-inspect-web-staging
   cancel-in-progress: true
 
 env:
@@ -20,16 +20,15 @@ env:
   DOTNET_SDK_VERSION: '11.0.100-preview.6.26359.118'
 
 jobs:
-  deploy:
-    name: Publish and deploy
+  build:
+    name: Build staging artifact
     if: github.ref == 'refs/heads/main'
-    environment: inspect-web-production
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
@@ -49,11 +48,38 @@ jobs:
             -p:SourceRevisionId="$GITHUB_SHA" \
             -p:BuildTimestampUtc="$built_at"
 
-      - name: Deploy to Azure Static Web Apps
-        id: deploy
+      - name: Upload staged site artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: inspect-web-site
+          path: artifacts/inspect-web-publish/wwwroot
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy:
+    name: Publish staging
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: inspect-web-staging
+      url: https://dotnet-inspect.ca
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Download staged site artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-site
+          path: artifacts/inspect-web-publish/wwwroot
+          digest-mismatch: error
+
+      - name: Verify staged site artifact
+        shell: bash
+        run: test -f artifacts/inspect-web-publish/wwwroot/index.html
+
+      - name: Deploy to staging
         uses: Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1 # v1
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB }}
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_STAGING }}
           action: upload
           app_location: artifacts/inspect-web-publish/wwwroot
           output_location: ''
