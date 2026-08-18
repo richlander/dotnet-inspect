@@ -48,6 +48,32 @@ public sealed class NuGetDeadlineTests
     }
 
     [Fact]
+    public async Task RequestDeadline_DoesNotTranslateLateMetadataRejection()
+    {
+        using var operation = new NuGetOperationDeadline(
+            Options(
+                request: TimeSpan.FromMilliseconds(40),
+                operation: TimeSpan.FromSeconds(1)),
+            Timeout.InfiniteTimeSpan,
+            TestContext.Current.CancellationToken);
+
+        NuGetMetadataResponseTooLargeException error =
+            await Assert.ThrowsAsync<NuGetMetadataResponseTooLargeException>(
+                () => operation.RunRequestAsync<bool>(
+                    async cancellationToken =>
+                    {
+                        while (!cancellationToken.IsCancellationRequested)
+                        {
+                            await Task.Yield();
+                        }
+
+                        throw new NuGetMetadataResponseTooLargeException(8);
+                    }));
+
+        Assert.Equal(8, error.MaximumBytes);
+    }
+
+    [Fact]
     public void RequestTimeout_DoesNotCreateASecondResponseBodyTimer()
     {
         var options = new NuGetFetchOptions

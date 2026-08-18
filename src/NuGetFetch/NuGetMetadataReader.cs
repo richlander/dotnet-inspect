@@ -113,6 +113,8 @@ internal static class NuGetMetadataReader
 
     private static bool IsDeadlineAbort(Exception exception) =>
         exception is IOException
+            and not NuGetMetadataResponseTooLargeException
+            and not NuGetRedirectLimitExceededException
             or HttpRequestException
             or ObjectDisposedException;
 
