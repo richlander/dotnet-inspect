@@ -58,6 +58,12 @@ public static class OperatorMetadata
         if (decoded.IsDegraded)
             return false;
         var signature = decoded.Value;
+        if (signature.Header.CallingConvention != SignatureCallingConvention.Default
+            || signature.Header.HasExplicitThis
+            || signature.Header.IsGeneric)
+        {
+            return false;
+        }
 
         var declaringHandle = method.GetDeclaringType();
         if (declaringHandle.IsNil)
@@ -239,7 +245,6 @@ public static class OperatorMetadata
 
         var baseType = ReadType(reader, declaringType.BaseType);
         return IsTrustedSystemType(baseType, "Enum")
-            || IsTrustedSystemType(baseType, "Delegate")
             || IsTrustedSystemType(baseType, "MulticastDelegate");
     }
 
@@ -304,6 +309,13 @@ public static class OperatorMetadata
     {
         if (candidate.MatchesExactly(requiredBase))
             return TypeRelationship.Yes;
+        if (candidate.IsTypeParameter
+            || requiredBase.IsTypeParameter
+            || candidate.IsNonNamedType
+            || requiredBase.IsNonNamedType)
+        {
+            return TypeRelationship.No;
+        }
         if (InterfaceRelationship(reader, requiredBase) == TypeRelationship.Yes)
             return TypeRelationship.No;
         if (IsKnownValueType(reader, requiredBase))
@@ -357,6 +369,8 @@ public static class OperatorMetadata
         MetadataReader reader,
         OperatorSignatureType type)
     {
+        if (type.IsTypeParameter || type.IsNonNamedType)
+            return TypeRelationship.No;
         if (IsKnownValueType(reader, type)
             || IsTrustedSystemType(type, "Object")
             || IsTrustedSystemType(type, "String")
@@ -433,6 +447,11 @@ public static class OperatorMetadata
             Identity.IsNil
             && Namespace == "System"
             && Name == "Boolean";
+
+        public bool IsNonNamedType =>
+            Identity.IsNil
+            && Namespace is null
+            && Name is "#array" or "#pointer" or "#function-pointer";
 
         public static OperatorSignatureType ForDefinition(
             MetadataReader reader,
@@ -577,6 +596,9 @@ public static class OperatorMetadata
         public static readonly OperatorSignatureTypeProvider Instance = new();
 
         internal static OperatorSignatureType Opaque => new(false, false, false, -1, default, false, false, null, null, false, false, []);
+        static OperatorSignatureType NonNamed(string name)
+            => new(false, false, false, -1, default, false, false, null, name, false, false, []);
+
         public OperatorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode == PrimitiveTypeCode.Void
                 ? new OperatorSignatureType(true, false, false, -1, default, true, false, "System", "Void", false, false, [])
@@ -621,15 +643,17 @@ public static class OperatorMetadata
             byte rawTypeKind)
             => GuardedProviderDecode.TypeSpec(reader, handle, this, genericContext, Opaque);
 
-        public OperatorSignatureType GetSZArrayType(OperatorSignatureType elementType) => Opaque;
+        public OperatorSignatureType GetSZArrayType(OperatorSignatureType elementType)
+            => NonNamed("#array");
 
         public OperatorSignatureType GetArrayType(OperatorSignatureType elementType, ArrayShape shape)
-            => Opaque;
+            => NonNamed("#array");
 
         public OperatorSignatureType GetByReferenceType(OperatorSignatureType elementType)
             => new(false, true, false, -1, default, false, false, null, null, false, false, [elementType]);
 
-        public OperatorSignatureType GetPointerType(OperatorSignatureType elementType) => Opaque;
+        public OperatorSignatureType GetPointerType(OperatorSignatureType elementType)
+            => NonNamed("#pointer");
 
         public OperatorSignatureType GetGenericInstantiation(
             OperatorSignatureType genericType,
@@ -661,7 +685,7 @@ public static class OperatorMetadata
         public OperatorSignatureType GetPinnedType(OperatorSignatureType elementType) => elementType;
 
         public OperatorSignatureType GetFunctionPointerType(MethodSignature<OperatorSignatureType> signature)
-            => Opaque;
+            => NonNamed("#function-pointer");
 
         public OperatorSignatureType GetTypeFromSerializedName(string name) => Opaque;
 

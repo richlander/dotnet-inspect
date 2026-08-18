@@ -1361,6 +1361,10 @@ public sealed class CSharpDeclarationWriterTests
             Name = "op_Equality",
             Kind = "operator",
             Signature = "bool op_Equality(Samples.Tuples left, Samples.Tuples right)",
+            SignatureModel = OperatorMember(
+                "op_Equality",
+                null,
+                "Samples.Tuples").SignatureModel,
             IsStatic = true,
         };
         var inequality = new ApiMember
@@ -1368,6 +1372,10 @@ public sealed class CSharpDeclarationWriterTests
             Name = "op_Inequality",
             Kind = "operator",
             Signature = "bool op_Inequality(Samples.Tuples left, Samples.Tuples right)",
+            SignatureModel = OperatorMember(
+                "op_Inequality",
+                null,
+                "Samples.Tuples").SignatureModel,
             IsStatic = true,
         };
         var type = new ApiType
@@ -1566,6 +1574,39 @@ public sealed class CSharpDeclarationWriterTests
 
         Assert.Equal(
             "public static bool op_Equality(Samples.Tuples left, Samples.Tuples right)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, equality));
+    }
+
+    [Fact]
+    public void MemberDeclaration_DoesNotUseMissingPairStructureAsWildcard()
+    {
+        var equality = new ApiMember
+        {
+            Name = "op_Equality",
+            Kind = "operator",
+            Signature = "bool op_Equality(Samples.Pair left, Samples.Pair right)",
+            IsStatic = true,
+            CSharpOperatorDeclaration = true,
+        };
+        var inequality = new ApiMember
+        {
+            Name = "op_Inequality",
+            Kind = "operator",
+            Signature = "bool op_Inequality(Samples.Other left, Samples.Other right)",
+            IsStatic = true,
+            CSharpOperatorDeclaration = true,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Pair",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, inequality],
+        };
+
+        Assert.Equal(
+            "public static bool op_Equality(Samples.Pair left, Samples.Pair right)",
             CSharpDeclarationWriter.RenderMemberDeclaration(type, equality));
     }
 

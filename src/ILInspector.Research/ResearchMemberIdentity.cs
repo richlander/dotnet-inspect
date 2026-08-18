@@ -62,7 +62,15 @@ public static class ResearchMemberIdentity
         if (member.Kind is "property" or "field" or "event")
             return false;
 
-        identities.Add(BodyIdentityFromTarget(target).StableSelector);
+        string apiDeclaringType = MetadataTypeNameFormatter.FormatFullName(target.ApiType);
+        identities.Add(
+            target.Body is null
+                || string.Equals(
+                    target.Body.DeclaringType,
+                    apiDeclaringType,
+                    StringComparison.Ordinal)
+                ? target.Anchor.StableSelector
+                : BodyIdentityFromTarget(target).StableSelector);
         return true;
     }
 
@@ -136,7 +144,7 @@ public static class ResearchMemberIdentity
             : "";
         var parameters = signature is null
             ? "()"
-            : $"({string.Join(",", signature.Parameters.Select(parameter => BodyParameterTypeName(parameter.TypeWithModifier)))})";
+            : $"({string.Join(",", signature.Parameters.Select(parameter => BodyParameterTypeName(parameter.CanonicalTypeWithModifier)))})";
         var declaringType = target.Body?.DeclaringType
             ?? (member.IsExtension && !string.IsNullOrWhiteSpace(member.DeclaringType)
                 ? member.DeclaringType!
@@ -152,8 +160,9 @@ public static class ResearchMemberIdentity
             parameters,
             // Mirror the conversion-operator return-type disambiguation used by the API
             // anchor and the method-body path, so all identity producers agree.
-            ApiMemberIdentity.IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature?.ReturnType)
-                ? $"~{BodyParameterTypeName(signature!.ReturnType!)}"
+            ApiMemberIdentity.IsConversionOperator(member.Name)
+                && !string.IsNullOrWhiteSpace(signature?.EffectiveCanonicalReturnType)
+                ? $"~{BodyParameterTypeName(signature!.EffectiveCanonicalReturnType!)}"
                 : "");
     }
 

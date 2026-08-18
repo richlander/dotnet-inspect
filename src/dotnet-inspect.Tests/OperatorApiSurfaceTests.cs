@@ -640,10 +640,85 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void CSharpOperatorDeclaration_AcceptsConversionToDeclaringTypeParameter()
+    {
+        using var image = OperatorImage.Build(
+            builder =>
+            {
+                var parameter = Assert.Single(builder.DefineGenericParameters("T"));
+                var self = builder.MakeGenericType(parameter);
+                var method = builder.DefineMethod(
+                    "op_Implicit",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    parameter,
+                    [self]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+            },
+            "Wrapper`1");
+
+        Assert.True(image.IsCSharpOperatorDeclaration("op_Implicit"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_AcceptsArrayAndPointerConversions()
+    {
+        using var image = OperatorImage.Build(
+            builder =>
+            {
+                var parameter = Assert.Single(builder.DefineGenericParameters("T"));
+                var self = builder.MakeGenericType(parameter);
+                var arrayConversion = builder.DefineMethod(
+                    "op_Implicit",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    self,
+                    [parameter.MakeArrayType()]);
+                var arrayIl = arrayConversion.GetILGenerator();
+                arrayIl.Emit(OpCodes.Ldnull);
+                arrayIl.Emit(OpCodes.Ret);
+
+                var pointerConversion = builder.DefineMethod(
+                    "op_Explicit",
+                    MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                    self,
+                    [typeof(void).MakePointerType()]);
+                var pointerIl = pointerConversion.GetILGenerator();
+                pointerIl.Emit(OpCodes.Ldnull);
+                pointerIl.Emit(OpCodes.Ret);
+            },
+            "Buffer`1");
+
+        Assert.True(image.IsCSharpOperatorDeclaration("op_Implicit"));
+        Assert.True(image.IsCSharpOperatorDeclaration("op_Explicit"));
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsVarArgSignature()
+    {
+        using var image = OperatorImage.Build(builder =>
+        {
+            var method = builder.DefineMethod(
+                "op_Addition",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                CallingConventions.VarArgs,
+                builder,
+                [builder, builder]);
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ret);
+        });
+
+        Assert.False(image.IsCSharpOperatorDeclaration("op_Addition"));
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_AcceptsCompilerEmittedCrossAssemblyConversions()
     {
         Type[] declaringTypes =
         [
+            typeof(Span<>),
+            typeof(ReadOnlySpan<>),
             typeof(System.Numerics.BigInteger),
             typeof(System.Xml.Linq.XElement),
         ];
@@ -767,6 +842,29 @@ public sealed class OperatorApiSurfaceTests
         Assert.Equal("operator", member.Kind);
         Assert.False(image.IsCSharpOperatorDeclaration("op_Addition"));
         Assert.False(member.CSharpOperatorDeclaration);
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_AcceptsMulticastDelegateOperators()
+    {
+        using var stream = File.OpenRead(typeof(MulticastDelegate).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = Assert.Single(
+            reader.TypeDefinitions,
+            handle => FullName(reader, reader.GetTypeDefinition(handle))
+                == typeof(MulticastDelegate).FullName);
+        var operators = reader.GetTypeDefinition(typeHandle).GetMethods()
+            .Select(reader.GetMethodDefinition)
+            .Where(method => reader.GetString(method.Name) is "op_Equality" or "op_Inequality")
+            .ToList();
+
+        Assert.NotEmpty(operators);
+        Assert.All(
+            operators,
+            method => Assert.True(
+                OperatorMetadata.IsCSharpOperatorDeclaration(reader, method),
+                reader.GetString(method.Name)));
     }
 
     [Fact]

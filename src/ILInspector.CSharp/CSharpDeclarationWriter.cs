@@ -2274,7 +2274,7 @@ internal static class CSharpDeclarationWriter
     static bool SameOperatorSignature(ApiSignature? left, ApiSignature? right)
     {
         if (left is null || right is null)
-            return true;
+            return false;
 
         return OperatorNames.OperatorPairingTypesMatch(
                 left.EffectiveCanonicalReturnType,

@@ -327,6 +327,63 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void ResearchMemberIdentity_TargetAliasUsesCanonicalTupleTypes()
+    {
+        var member = new ApiMember
+        {
+            Name = "op_Implicit",
+            Kind = "operator",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "(int x, int y)",
+                CanonicalReturnType = "System.ValueTuple<System.Int32,System.Int32>",
+                MemberName = "op_Implicit",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "value",
+                        Type = "Widget",
+                        CanonicalType = "Samples.Widget",
+                    },
+                ],
+            },
+            IsStatic = true,
+            CSharpOperatorDeclaration = true,
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+            Members = [member],
+        };
+        var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+        var target = new ResolvedMemberTarget(
+            type,
+            new ApiMemberHandle(type, member, anchor),
+            anchor,
+            "operator:op_Implicit",
+            "operator:op_Implicit",
+            0,
+            0,
+            0,
+            null,
+            null,
+            MemberTargetKind.Operator,
+            new BodyTarget(
+                "Samples.Widget",
+                anchor.CanonicalSignature,
+                MetadataToken: 0x06000001));
+        var identities = new HashSet<string>(StringComparer.Ordinal);
+
+        Assert.True(ResearchMemberIdentity.TryAddTargetIdentity(target, identities));
+        Assert.True(
+            identities.Contains(anchor.StableSelector),
+            $"Expected '{anchor.CanonicalSignature}' ({anchor.StableSelector}); actual identities: {string.Join(", ", identities)}.");
+    }
+
+    [Fact]
     public void ResearchMemberIdentity_UnknownMemberReferenceUsesMetadataOperatorFallback()
     {
         var widget = TypeRef.Definition("Asm", "Sample", "Widget");

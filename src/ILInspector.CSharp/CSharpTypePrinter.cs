@@ -886,6 +886,7 @@ public sealed class CSharpTypePrinter
         return new ApiSignature
         {
             ReturnType = signature.ReturnType,
+            CanonicalReturnType = signature.CanonicalReturnType,
             ReturnAttributes = returnAttributes?.ToList()!,
             MemberName = signature.MemberName,
             IsRequired = signature.IsRequired,
@@ -919,6 +920,7 @@ public sealed class CSharpTypePrinter
             Attributes = attributes?.ToList()!,
             Name = parameter.Name,
             Type = parameter.Type,
+            CanonicalType = parameter.CanonicalType,
             Modifier = parameter.Modifier,
             HasDefault = parameter.HasDefault,
             DefaultValueText = parameter.DefaultValueText

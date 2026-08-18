@@ -4198,6 +4198,59 @@ public sealed class CSharpTypePrinterTests
     }
 
     [Fact]
+    public void RenderingSnapshotPreservesCanonicalOperatorPairTypes()
+    {
+        static ApiMember Operator(string name, string tuple) => new()
+        {
+            Name = name,
+            Kind = "operator",
+            Signature = $"bool {name}(Pair left, {tuple} right)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "bool",
+                CanonicalReturnType = "System.Boolean",
+                MemberName = name,
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Type = "Pair",
+                        CanonicalType = "Samples.Pair",
+                        Name = "left",
+                    },
+                    new ApiParameter
+                    {
+                        Type = tuple,
+                        CanonicalType = "System.ValueTuple<System.Int32,System.Int32>",
+                        Name = "right",
+                    },
+                ]
+            },
+            IsStatic = true,
+            Accessibility = "public",
+            CSharpOperatorDeclaration = true
+        };
+
+        var equality = Operator("op_Equality", "(int x, int y)");
+        var inequality = Operator("op_Inequality", "(int width, int height)");
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Pair",
+            Kind = "class",
+            Members = [equality],
+            DeclaringMembers = [equality, inequality]
+        };
+
+        string source = _printer.Print(new CSharpTypePrintRequest(type)).Source;
+
+        Assert.Contains(
+            "public static bool operator ==(Pair left, (int x, int y) right);",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RenderingSnapshotDoesNotRetainMutableMetadataAliases()
     {
         var typeParameter = new TypeParameter
