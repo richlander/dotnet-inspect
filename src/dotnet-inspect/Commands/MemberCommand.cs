@@ -260,6 +260,9 @@ public static class MemberCommand
                     SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
             }
 
+            if (RejectBodylessAccessorFactsRequest(apiType, effectiveOptions))
+                return 1;
+
             if (apiDllPath != null && NeedsMemberSourceLocationResolution(effectiveOptions))
             {
                 var locationDllPath = apiType.SourceAssemblyPath ?? pdbLookupPath;
@@ -586,6 +589,15 @@ public static class MemberCommand
             apiType,
             requestedSections,
             options.OverloadIndex);
+        if (!ApiOutputFormatter.ResolveBodyMethods(
+                apiType,
+                sections,
+                options.OverloadIndex)
+            .Any(method => method.HasMethodBody))
+        {
+            return false;
+        }
+
         if (sections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
             return true;
 
@@ -596,6 +608,26 @@ public static class MemberCommand
                    || sections.Contains(SectionNames.AnnotatedSource)
                    || sections.Contains(SectionNames.AnnotatedSourceDocument)
                    || sections.Contains(SectionNames.Facts));
+    }
+
+    private static bool RejectBodylessAccessorFactsRequest(
+        ApiType apiType,
+        MemberOptions options)
+    {
+        var requestedSections = ApiCommand.GetRequestedMemberSections(apiType, options);
+        var executionSections = ApiOutputFormatter.ResolveExecutionSections(
+            apiType,
+            requestedSections,
+            options.OverloadIndex);
+        if (!requestedSections.Contains(SectionNames.Facts)
+            || executionSections.Contains(SectionNames.Facts)
+            || executionSections.Count > 0)
+        {
+            return false;
+        }
+
+        CommandError.Write("The selected accessor has no IL body.");
+        return true;
     }
 
     private static bool NeedsMemberSourceLocationResolution(MemberOptions options)
