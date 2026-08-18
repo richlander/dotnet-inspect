@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Xml.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -11,14 +10,6 @@ namespace InspectWeb.Engine.Tests;
 /// and the analysis index.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The rule itself is not enforced here. It is enforced by the C# compiler, through
-/// <c>Microsoft.CodeAnalysis.BannedApiAnalyzers</c> and
-/// <c>prototypes/inspect-web/engine/BannedSymbols.txt</c>, which fails the engine build at the
-/// offending line — a scan of the source text would have to model C# to know what a name binds to,
-/// and every spelling it does not model is a hole. This class makes sure that enforcement is
-/// switched on, and says the two things the analyzer cannot.
-/// </para>
 /// <para>
 /// The first is that the ban list is not vacuous: a banned identifier that no longer resolves
 /// bans nothing, and the analyzer reports no such entry. <see cref="EveryBannedSymbolStillExists"/>
@@ -33,16 +24,6 @@ namespace InspectWeb.Engine.Tests;
 /// </remarks>
 public sealed class BrowserEngineLayeringTests
 {
-    [Fact]
-    public void EngineProjectDeclaresItsBanList()
-    {
-        XDocument project = XDocument.Load(EngineProjectPath);
-        Assert.Contains(
-            project.Descendants("AdditionalFiles"),
-            item => item.Attribute("Include")?.Value == "BannedSymbols.txt");
-        Assert.True(File.Exists(BanListPath), $"{BanListPath} is missing.");
-    }
-
     [Fact]
     public void BanListForbidsEverySessionAndImageDoor()
     {

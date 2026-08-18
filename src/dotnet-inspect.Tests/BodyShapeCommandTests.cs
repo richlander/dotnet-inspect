@@ -50,6 +50,25 @@ public sealed class BodyShapeCommandTests
     }
 
     [Fact]
+    public void MetadataSource_PrefetchedImageDoesNotRequireOriginalPath()
+    {
+        using var service =
+            ILInspector.SourceLink.SourceLinkService.OpenPrefetched(FixturePath);
+        string missingPath = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-body-shape-{Guid.NewGuid():N}.dll");
+
+        using var source = MetadataSource.OpenFromPrefetchedImage(
+            missingPath,
+            service.Context.GetPrefetchedImage());
+
+        Assert.Equal(
+            typeof(BodyShapeFixture).Assembly.GetName().Name,
+            source.AssemblyName);
+        Assert.False(File.Exists(missingPath));
+    }
+
+    [Fact]
     public void Search_ReturnsExactMultiLineTextAndExtent()
     {
         using var source = MetadataSource.Open(FixturePath);
