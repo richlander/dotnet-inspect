@@ -467,7 +467,7 @@ internal static class AssemblyContextQueryExecutor
         }
     }
 
-    private static bool IsArtifactFailure(Exception exception)
+    internal static bool IsArtifactFailure(Exception exception)
         => exception is IOException
             or UnauthorizedAccessException
             or BadImageFormatException

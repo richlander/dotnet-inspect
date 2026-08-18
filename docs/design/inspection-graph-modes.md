@@ -225,6 +225,9 @@ dense local ids while preserving retained relationship descriptors, occurrence
 evidence, identity, and semantic direction. A partially retained logical edge
 keeps only admitted physical receipts; aggregate characteristics that described
 the unfiltered edge are dropped rather than presented as complete.
+The mode-only Integration entry point rejects `ExplicitSubjects` before
+producer execution and directs callers to the typed request overload; a mode
+value alone cannot authorize relationship work or supply the subject bound.
 Before producer execution, the Integration query verifies every requested
 subject against the realized workspace. A package or assembly must match its
 exact boundary identity. An acquired type must be an exact definition in its
@@ -234,6 +237,9 @@ registration alone cannot manufacture a type or member node. The final
 document independently verifies every retained receipt against both endpoint
 closures and requires exactly one global subject bound whose count matches the
 retained request.
+If retained-image decoding prevents exact declaration validation, preflight
+fails visibly with the artifact failure before producers run; it does not
+misreport the subject as absent or let a raw scanner exception escape.
 
 An induced package set is not automatically a package-only lens. It may retain
 member/type evidence, package groups, package endpoints, or a mixed view as the

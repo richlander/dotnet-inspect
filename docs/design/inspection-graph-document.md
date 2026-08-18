@@ -814,9 +814,11 @@ completeness is inferred from another's topology.
 contracts.
 `Execute_ExplicitPackageSetInducesOnlyInternalEvidence`,
 `Execute_ExplicitInducedSetRequiresBothEndpointClosures`,
+`Execute_ModeOnlyExplicitSubjectsRejectsBeforeProducers`,
 `Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance`,
 `Execute_RejectsUndeclaredInScopeTypeBeforeProducerExecution`,
 `Execute_RejectsUndeclaredInScopeMemberBeforeProducerExecution`,
+`Execute_ReportsMemberPreflightDecodeFailureBeforeProducers`,
 `Execute_ExplicitInducedSetRetainsIsolatedInput`,
 `Execute_ExplicitInducedSetRetainsDeclaredMemberInput`,
 `Execute_ExplicitInducedSetRetainsOnlyInClosureFailures`, and

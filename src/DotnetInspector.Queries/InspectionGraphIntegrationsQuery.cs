@@ -486,10 +486,27 @@ public static class InspectionGraphIntegrationsQuery
 
     public static InspectionGraphDocument Execute(
         WorkspaceContextLoadOutcome.Loaded context,
-        InspectionGraphModeRequest modeRequest)
+        InspectionGraphModeRequest modeRequest) =>
+        Execute(
+            context,
+            modeRequest,
+            recordExecution: null);
+
+    internal static InspectionGraphDocument Execute(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphModeRequest modeRequest,
+        Action<InspectionQueryDefinition, TimeSpan>? recordExecution)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(modeRequest);
+        if (modeRequest.InducedSetRule
+            == InspectionGraphInducedSetRule.ExplicitSubjects)
+        {
+            throw new InspectionQueryException(
+                "Explicit-subject induced mode requires an "
+                + $"{nameof(InspectionGraphInducedSetRequest)}. Use the "
+                + "typed request overload.");
+        }
 
         InspectionQueryResults results = CreateRegistry().Run(
             [
@@ -497,7 +514,8 @@ public static class InspectionGraphIntegrationsQuery
                 AssemblyContextReferencesQuery.Definition,
                 AssemblyContextIntegrationOpportunitiesQuery.Definition,
             ],
-            context.Group);
+            context.Group,
+            recordExecution);
 
         return Create(
             context,
@@ -969,10 +987,24 @@ public static class InspectionGraphIntegrationsQuery
             InspectionGraphSubject subject,
             Func<AssemblyInspectionSession, bool> predicate)
         {
-            AssemblyImageAccessResult<bool> access =
-                _context.Group.UseAssemblySession(
+            AssemblyImageAccessResult<bool> access;
+            try
+            {
+                access = _context.Group.UseAssemblySession(
                     participant.Assembly,
                     predicate);
+            }
+            catch (Exception ex) when (
+                AssemblyContextQueryExecutor.IsArtifactFailure(ex))
+            {
+                throw new InspectionQueryException(
+                    $"Explicit induced-set subject '{subject}' could not "
+                    + "be validated because decoding its workspace "
+                    + "participant image failed "
+                    + $"({ex.GetType().Name}: {ex.Message}).",
+                    ex);
+            }
+
             if (access
                 is AssemblyImageAccessResult<bool>.Rejected rejected)
             {

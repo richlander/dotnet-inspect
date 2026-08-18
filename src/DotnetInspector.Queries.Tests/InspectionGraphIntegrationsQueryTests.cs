@@ -696,6 +696,28 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
+    public void Execute_ModeOnlyExplicitSubjectsRejectsBeforeProducers()
+    {
+        using var fixture = IntegrationFixture.Create();
+        var executions = new List<InspectionQueryDefinition>();
+
+        InspectionQueryException exception = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphIntegrationsQuery.Execute(
+                    fixture.Context,
+                    InspectionGraphModeRequest.InducedSet(
+                        InspectionGraphInducedSetRule
+                            .ExplicitSubjects),
+                    (query, _) => executions.Add(query)));
+
+        Assert.Contains(
+            nameof(InspectionGraphInducedSetRequest),
+            exception.Message);
+        Assert.Contains("typed request overload", exception.Message);
+        Assert.Empty(executions);
+    }
+
+    [Fact]
     public void Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance()
     {
         using var fixture = IntegrationFixture.Create();
@@ -807,6 +829,55 @@ public sealed class InspectionGraphIntegrationsQueryTests
 
         Assert.Contains("not present", exception.Message);
         Assert.Contains("workspace scope", exception.Message);
+        Assert.Empty(executions);
+    }
+
+    [Fact]
+    public void Execute_ReportsMemberPreflightDecodeFailureBeforeProducers()
+    {
+        using var fixture = IntegrationFixture.Create(
+            includeMalformedExtensionParticipant: true);
+        AssemblyAcquisitionRegistration registration =
+            fixture.Context.Group.Participants[^1]
+                .Assembly.Registration;
+        MetadataTypeDefinitionName declaringType =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Sample",
+                    ["E"]))
+                .Name;
+        InspectionGraphSubject subject =
+            InspectionGraphSubject.ForAcquiredApiMember(
+                registration,
+                declaringType,
+                new MemberAnchor(
+                    "M~0000000000",
+                    "M:Sample.E.Ok(System.String)",
+                    "0000000000",
+                    "Sample.E",
+                    "Ok"));
+        var executions = new List<InspectionQueryDefinition>();
+
+        InspectionQueryException exception = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphIntegrationsQuery.Execute(
+                    fixture.Context,
+                    new InspectionGraphInducedSetRequest(
+                        [subject],
+                        [
+                            InspectionGraphIntegrationsCatalog
+                                .IntegrationObserved,
+                        ],
+                        InspectionGraphInducedSetAdmissionRule
+                            .BothEndpointsWithinSubjectClosure),
+                    (query, _) => executions.Add(query)));
+
+        Assert.Contains("decoding", exception.Message);
+        Assert.Contains(
+            nameof(BadImageFormatException),
+            exception.Message);
+        Assert.IsType<BadImageFormatException>(
+            exception.InnerException);
         Assert.Empty(executions);
     }
 
@@ -2187,7 +2258,8 @@ public sealed class InspectionGraphIntegrationsQueryTests
             bool duplicateExtensionMethodRows = false,
             bool multipleUnavailableReferenceBindings = false,
             bool overloadedOpenAiAdapter = false,
-            bool overBudgetIntegrationTypeName = false)
+            bool overBudgetIntegrationTypeName = false,
+            bool includeMalformedExtensionParticipant = false)
         {
             (
                 PersistedAssemblyBuilder abstractions,
@@ -2340,6 +2412,11 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     Assembly(oversized, "oversized.logging"));
                 packageIds.Add("oversized.logging");
             }
+            if (includeMalformedExtensionParticipant)
+            {
+                assemblies.Add(MalformedExtensionsAssembly());
+                packageIds.Add("malformed.extensions");
+            }
             var policy = new FixtureBindingPolicy(
                 assemblies,
                 unavailableOpenAiBinding,
@@ -2363,6 +2440,94 @@ public sealed class InspectionGraphIntegrationsQueryTests
                 "net11.0",
                 null);
             return new IntegrationFixture(workspace, loaded);
+        }
+
+        static ResolvedAssemblyReference MalformedExtensionsAssembly()
+        {
+            var builder = new PersistedAssemblyBuilder(
+                new AssemblyName("Malformed.Extensions"),
+                typeof(object).Assembly);
+            ModuleBuilder module = builder.DefineDynamicModule(
+                "Malformed.Extensions");
+            TypeBuilder markerAttribute = module.DefineType(
+                "System.Runtime.CompilerServices."
+                    + "ExtensionMarkerAttribute",
+                TypeAttributes.Public | TypeAttributes.Class,
+                typeof(Attribute));
+            ConstructorBuilder markerConstructor =
+                markerAttribute.DefineConstructor(
+                    MethodAttributes.Public,
+                    CallingConventions.Standard,
+                    [typeof(string)]);
+            ILGenerator markerBody = markerConstructor.GetILGenerator();
+            markerBody.Emit(OpCodes.Ldarg_0);
+            markerBody.Emit(
+                OpCodes.Call,
+                typeof(Attribute).GetConstructor(
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    Type.EmptyTypes)!);
+            markerBody.Emit(OpCodes.Ret);
+            markerAttribute.CreateType();
+
+            var extensionAttribute = new CustomAttributeBuilder(
+                typeof(ExtensionAttribute).GetConstructor(
+                    Type.EmptyTypes)!,
+                []);
+            TypeBuilder extensions = module.DefineType(
+                "Sample.E",
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed);
+            extensions.SetCustomAttribute(extensionAttribute);
+            MethodBuilder valid = extensions.DefineMethod(
+                "Ok",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(string),
+                [typeof(string)]);
+            valid.SetCustomAttribute(extensionAttribute);
+            ILGenerator validBody = valid.GetILGenerator();
+            validBody.Emit(OpCodes.Ldnull);
+            validBody.Emit(OpCodes.Ret);
+
+            TypeBuilder grouping = extensions.DefineNestedType(
+                "<>E__0",
+                TypeAttributes.NestedPublic | TypeAttributes.Class);
+            grouping.SetCustomAttribute(extensionAttribute);
+            TypeBuilder marker = grouping.DefineNestedType(
+                "Marker",
+                TypeAttributes.NestedPublic | TypeAttributes.Class);
+            MethodBuilder markerMethod = marker.DefineMethod(
+                "<Extension>$",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(void),
+                [typeof(string), typeof(int)]);
+            markerMethod.GetILGenerator().Emit(OpCodes.Ret);
+            marker.CreateType();
+
+            MethodBuilder getter = grouping.DefineMethod(
+                "get_P",
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(int),
+                Type.EmptyTypes);
+            ILGenerator getterBody = getter.GetILGenerator();
+            getterBody.Emit(OpCodes.Ldc_I4_0);
+            getterBody.Emit(OpCodes.Ret);
+            PropertyBuilder property = grouping.DefineProperty(
+                "P",
+                PropertyAttributes.None,
+                typeof(int),
+                Type.EmptyTypes);
+            property.SetGetMethod(getter);
+            property.SetCustomAttribute(
+                new CustomAttributeBuilder(
+                    markerConstructor,
+                    ["Marker"]));
+            grouping.CreateType();
+            extensions.CreateType();
+            return Assembly(builder, "malformed.extensions");
         }
 
         static (
