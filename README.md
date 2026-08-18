@@ -253,7 +253,7 @@ prompt to review the mapping, not a maliciousness verdict. The scan is explicit
 because its work scales with package content; text reads are bounded. Package
 document payloads are visually encoded on stdout; `--out
 <path>` remains the exact-payload export. `PackageContentAuditTests` and
-`PackageAudit_RendersContentAndSourceLinkFindings` gates the scan and
+`PackageAudit_RendersContentAndSourceLinkFindings` gate the scan and
 its Markdown/JSONL shape with compiler-produced PDB evidence.
 
 Library and package Signals also report `Identifier confusion` for assembly
