@@ -11,7 +11,7 @@ using ILInspector.MetadataPrimitives;
 namespace DotnetInspector.Services.Tests;
 
 [Collection(CoreCacheCollection.Name)]
-public class AuthoredSourceAcquisitionTests
+public class PdbSourceAcquisitionTests
 {
     static readonly FindingSubject Subject = new("M~source", "Sample.M");
     const string Source = """
@@ -28,7 +28,7 @@ public class AuthoredSourceAcquisitionTests
     public void FromContent_VerifiedSourceProducesCompleteLineCensus()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);
-        var result = AuthoredSourceAcquisition.FromContent(
+        var result = PdbSourceAcquisition.FromContent(
             Mapping(),
             Document(content),
             content,
@@ -71,7 +71,7 @@ public class AuthoredSourceAcquisitionTests
             SequencePointStartLines = [6],
         };
 
-        var result = AuthoredSourceAcquisition.FromContent(
+        var result = PdbSourceAcquisition.FromContent(
             mapping,
             Document(content),
             content,
@@ -86,7 +86,7 @@ public class AuthoredSourceAcquisitionTests
     public void FromContent_MismatchedChecksumProducesFailedInspection()
     {
         byte[] content = Encoding.UTF8.GetBytes(Source);
-        var result = AuthoredSourceAcquisition.FromContent(
+        var result = PdbSourceAcquisition.FromContent(
             Mapping(),
             Document(Encoding.UTF8.GetBytes(Source + "changed")),
             content,
@@ -107,7 +107,7 @@ public class AuthoredSourceAcquisitionTests
             + " } }";
         byte[] content = Encoding.UTF8.GetBytes(source);
 
-        var result = AuthoredSourceAcquisition.FromContent(
+        var result = PdbSourceAcquisition.FromContent(
             Mapping(),
             Document(content),
             content,
@@ -125,8 +125,8 @@ public class AuthoredSourceAcquisitionTests
         byte[] content = Encoding.UTF8.GetBytes(
             new string(
                 '\n',
-                AuthoredSourceAcquisition
-                    .MaxAuthoredSourceLineCount));
+                PdbSourceAcquisition
+                    .MaxPdbSourceLineCount));
         var mapping =
             new ILInspector.SourceLink.SourceLinkResolver
                 .TypeSourceInfo(
@@ -136,7 +136,7 @@ public class AuthoredSourceAcquisitionTests
                     GitHubBrowseUrl: null);
 
         PdbTypeSourceInspection result =
-            AuthoredSourceAcquisition.FromTypeContent(
+            PdbSourceAcquisition.FromTypeContent(
                 mapping,
                 Document(content),
                 content,
@@ -161,7 +161,7 @@ public class AuthoredSourceAcquisitionTests
         byte[] expected = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\n"));
         byte[] actual = Encoding.UTF8.GetBytes(Source.ReplaceLineEndings("\r\n"));
 
-        var verification = AuthoredSourceAcquisition.VerifyChecksum(
+        var verification = PdbSourceAcquisition.VerifyChecksum(
             Document(expected),
             actual);
 
@@ -180,7 +180,7 @@ public class AuthoredSourceAcquisitionTests
             Checksum = null,
         };
 
-        var result = AuthoredSourceAcquisition.FromContent(
+        var result = PdbSourceAcquisition.FromContent(
             Mapping(),
             document,
             content,
@@ -329,7 +329,7 @@ public class AuthoredSourceAcquisitionTests
             }
             """;
         byte[] content = Encoding.UTF8.GetBytes(source);
-        var result = AuthoredSourceAcquisition.FromContent(
+        var result = PdbSourceAcquisition.FromContent(
             DestructorMapping(memberName: "Finalize", startLine: 6, endLine: 7, isFinalizer: true),
             Document(content),
             content,
@@ -364,7 +364,7 @@ public class AuthoredSourceAcquisitionTests
             }
             """;
         byte[] content = Encoding.UTF8.GetBytes(source);
-        var result = AuthoredSourceAcquisition.FromContent(
+        var result = PdbSourceAcquisition.FromContent(
             DestructorMapping(memberName: "Finalize", startLine: 7, endLine: 8, isFinalizer: false),
             Document(content),
             content,
@@ -390,7 +390,7 @@ public class AuthoredSourceAcquisitionTests
         var mapping = Mapping() with { DocumentRowId = 2 };
 
         SourceDocumentObservation? selected =
-            AuthoredSourceAcquisition.SelectMappedDocument(
+            PdbSourceAcquisition.SelectMappedDocument(
                 mapping,
                 [first, second]);
 
@@ -407,7 +407,7 @@ public class AuthoredSourceAcquisitionTests
             OriginalPath = "/_/Other.cs",
         };
 
-        Assert.Null(AuthoredSourceAcquisition.SelectMappedDocument(
+        Assert.Null(PdbSourceAcquisition.SelectMappedDocument(
             mapping,
             [document]));
     }

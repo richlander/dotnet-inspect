@@ -283,7 +283,7 @@ internal static class SourceEnricher
             new ParallelOptions { MaxDegreeOfParallelism = 16 },
             async (sourceFetch, ct) =>
             {
-                var result = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+                var result = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
                     fetcher,
                     sourceFetch.Url,
                     sourceFetch.Algorithm,
@@ -821,7 +821,7 @@ internal static class SourceEnricher
         foreach ((string url, string filePath, string? algorithm, byte[]? checksum) in sourceFilesToFetch)
         {
             logger.Log("Fetching SourceLink source.");
-            var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+            var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
                 fetcher,
                 url,
                 algorithm,

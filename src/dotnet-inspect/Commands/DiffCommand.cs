@@ -1138,14 +1138,14 @@ public class DiffCommand
         var subjects = result.Members
             .Select(member => member.Subject)
             .ToDictionary(subject => subject.Id, StringComparer.Ordinal);
-        var from = await AcquireAuthoredSourceInspectionsAsync(
+        var from = await AcquirePdbSourceInspectionsAsync(
             fromPaths,
             subjects,
             options,
             oldSide: true,
             httpClient,
             logger);
-        var to = await AcquireAuthoredSourceInspectionsAsync(
+        var to = await AcquirePdbSourceInspectionsAsync(
             toPaths,
             subjects,
             options,
@@ -1153,7 +1153,7 @@ public class DiffCommand
             httpClient,
             logger);
         var comparisons = subjects.Values.Select(subject =>
-            new AuthoredSourceComparisonInput(
+            new PdbSourceComparisonInput(
                 subject,
                 from.GetValueOrDefault(subject.Id)
                     ?? new FindingInspection<string>.Absent(
@@ -1161,7 +1161,7 @@ public class DiffCommand
                 to.GetValueOrDefault(subject.Id)
                     ?? new FindingInspection<string>.Absent(
                         "The member is unavailable in the new endpoint.")));
-        return ImplementationDiff.WithAuthoredSourceComparisons(
+        return ImplementationDiff.WithPdbSourceComparisons(
             result,
             comparisons,
             new ImplementationDiffOptions(
@@ -1169,7 +1169,7 @@ public class DiffCommand
                 MemberTargetIdentities: subjects.Keys.ToHashSet(StringComparer.Ordinal)));
     }
 
-    static async Task<Dictionary<string, FindingInspection<string>>> AcquireAuthoredSourceInspectionsAsync(
+    static async Task<Dictionary<string, FindingInspection<string>>> AcquirePdbSourceInspectionsAsync(
         IReadOnlyList<string> paths,
         IReadOnlyDictionary<string, ResearchSubjectKey> subjects,
         DiffOptions options,
@@ -1229,7 +1229,7 @@ public class DiffCommand
                 foreach (var target in targets)
                 {
                     var subject = subjects[target.Subject.Id];
-                    var inspection = await AuthoredSourceAcquisition.AcquireMemberAsync(
+                    var inspection = await PdbSourceAcquisition.AcquireMemberAsync(
                         source,
                         target.Method.MetadataToken,
                         target.Method.Name,

@@ -477,7 +477,7 @@ public static class AssemblyContextSourceQuery
                     participant,
                     bindingPolicyVersion);
                 pdbSource =
-                    await AuthoredSourceAcquisition.AcquireMemberAsync(
+                    await PdbSourceAcquisition.AcquireMemberAsync(
                             source,
                             request.MetadataToken,
                             request.Member.MemberName,
@@ -524,7 +524,7 @@ public static class AssemblyContextSourceQuery
                 participant,
                 bindingPolicyVersion);
             pdbSource =
-                AuthoredSourceAcquisition
+                PdbSourceAcquisition
                     .MemberPdbAcquisitionFailed(
                         findingSubject,
                         sourceResult.Failure!);
@@ -602,7 +602,7 @@ public static class AssemblyContextSourceQuery
                     participant,
                     bindingPolicyVersion);
                 pdbSource =
-                    await AuthoredSourceAcquisition.AcquireTypeAsync(
+                    await PdbSourceAcquisition.AcquireTypeAsync(
                             source,
                             request.Type,
                             findingSubject,
@@ -648,7 +648,7 @@ public static class AssemblyContextSourceQuery
                 participant,
                 bindingPolicyVersion);
             pdbSource =
-                AuthoredSourceAcquisition
+                PdbSourceAcquisition
                     .TypePdbAcquisitionFailed(
                         findingSubject,
                         sourceResult.Failure!);

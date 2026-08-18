@@ -49,9 +49,9 @@ public sealed record VerifiedSourceTextResult(string? Text, string? Failure)
 /// Acquires one PDB-mapped member from SourceLink and verifies the portable-PDB checksum before
 /// exposing its text as evidence.
 /// </summary>
-public static class AuthoredSourceAcquisition
+public static class PdbSourceAcquisition
 {
-    internal const int MaxAuthoredSourceLineCount = 500_000;
+    internal const int MaxPdbSourceLineCount = 500_000;
 
     public static PdbMemberSourceInspection MemberPdbAcquisitionFailed(
         FindingSubject subject,
@@ -567,7 +567,7 @@ public static class AuthoredSourceAcquisition
                     TextFindings.Inspect(
                             text,
                             subject,
-                            MaxAuthoredSourceLineCount)
+                            MaxPdbSourceLineCount)
                         .ToImmutableArray()),
                 text,
                 mapping,

@@ -146,7 +146,7 @@ static class AuthoredCorpusDrift
         PdbMemberSourceInspection authored;
         try
         {
-            authored = await AuthoredSourceAcquisition.AcquireMemberAsync(
+            authored = await PdbSourceAcquisition.AcquireMemberAsync(
                 source,
                 record.MetadataToken,
                 record.Method,

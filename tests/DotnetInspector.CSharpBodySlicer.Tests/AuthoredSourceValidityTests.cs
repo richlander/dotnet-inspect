@@ -367,7 +367,7 @@ public class AuthoredSourceValidityTests
 
     /// <summary>
     /// Drives the product path end to end: <see cref="PdbContext.EnumerateMemberDocuments"/>
-    /// supplies the same anchor and line range that <c>AuthoredSourceAcquisition</c> passes to
+    /// supplies the same anchor and line range that <c>PdbSourceAcquisition</c> passes to
     /// the slicer, so nothing here reconstructs a range the product would compute differently.
     /// </summary>
     private static List<Slice> SliceCorpus()

@@ -33,7 +33,7 @@ public class VerifiedLocalSourceReadTests
         string path = WriteTemp(".cs", content);
         try
         {
-            byte[]? result = AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+            byte[]? result = PdbSourceAcquisition.TryReadVerifiedLocalSource(
                 path, "SHA256", SHA256.HashData(content));
 
             Assert.NotNull(result);
@@ -54,7 +54,7 @@ public class VerifiedLocalSourceReadTests
         {
             // The on-disk bytes do not match the recorded hash: the read must be refused so the
             // caller falls back to the remote URL rather than surfacing unverified content.
-            byte[]? result = AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+            byte[]? result = PdbSourceAcquisition.TryReadVerifiedLocalSource(
                 path, "SHA256", SHA256.HashData(Encoding.UTF8.GetBytes(Source + "tampered")));
 
             Assert.Null(result);
@@ -74,7 +74,7 @@ public class VerifiedLocalSourceReadTests
         string path = WriteTemp(".txt", content);
         try
         {
-            byte[]? result = AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+            byte[]? result = PdbSourceAcquisition.TryReadVerifiedLocalSource(
                 path, "SHA256", SHA256.HashData(content));
 
             Assert.Null(result);
@@ -92,9 +92,9 @@ public class VerifiedLocalSourceReadTests
         string path = WriteTemp(".cs", content);
         try
         {
-            Assert.Null(AuthoredSourceAcquisition.TryReadVerifiedLocalSource(path, "SHA256", null));
-            Assert.Null(AuthoredSourceAcquisition.TryReadVerifiedLocalSource(path, null, SHA256.HashData(content)));
-            Assert.Null(AuthoredSourceAcquisition.TryReadVerifiedLocalSource(path, "SHA256", []));
+            Assert.Null(PdbSourceAcquisition.TryReadVerifiedLocalSource(path, "SHA256", null));
+            Assert.Null(PdbSourceAcquisition.TryReadVerifiedLocalSource(path, null, SHA256.HashData(content)));
+            Assert.Null(PdbSourceAcquisition.TryReadVerifiedLocalSource(path, "SHA256", []));
         }
         finally
         {
@@ -110,7 +110,7 @@ public class VerifiedLocalSourceReadTests
             Path.GetTempPath(),
             $"dotnet-inspect-missing-{Guid.NewGuid():N}.cs");
 
-        Assert.Null(AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+        Assert.Null(PdbSourceAcquisition.TryReadVerifiedLocalSource(
             path, "SHA256", SHA256.HashData(content)));
     }
 
@@ -124,7 +124,7 @@ public class VerifiedLocalSourceReadTests
         string path = WriteTemp(".cs", crlf);
         try
         {
-            byte[]? result = AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+            byte[]? result = PdbSourceAcquisition.TryReadVerifiedLocalSource(
                 path, "SHA256", SHA256.HashData(lf));
 
             Assert.NotNull(result);
@@ -152,7 +152,7 @@ public class VerifiedLocalSourceReadTests
                 ChecksumAlgorithm: "SHA256",
                 Checksum: Convert.ToHexString(SHA256.HashData(content)));
 
-            byte[]? result = AuthoredSourceAcquisition.TryReadVerifiedLocalSource(document);
+            byte[]? result = PdbSourceAcquisition.TryReadVerifiedLocalSource(document);
 
             Assert.NotNull(result);
             Assert.Equal(content, result);
@@ -170,13 +170,13 @@ public class VerifiedLocalSourceReadTests
 
         Assert.Equal(
             SourceChecksumVerification.Exact,
-            AuthoredSourceAcquisition.VerifyChecksum("SHA256", SHA256.HashData(content), content));
+            PdbSourceAcquisition.VerifyChecksum("SHA256", SHA256.HashData(content), content));
         Assert.Equal(
             SourceChecksumVerification.Mismatch,
-            AuthoredSourceAcquisition.VerifyChecksum("SHA256", SHA256.HashData(content), Encoding.UTF8.GetBytes("other")));
+            PdbSourceAcquisition.VerifyChecksum("SHA256", SHA256.HashData(content), Encoding.UTF8.GetBytes("other")));
         Assert.Equal(
             SourceChecksumVerification.Unavailable,
-            AuthoredSourceAcquisition.VerifyChecksum(null, SHA256.HashData(content), content));
+            PdbSourceAcquisition.VerifyChecksum(null, SHA256.HashData(content), content));
     }
 
     [Theory]
@@ -190,7 +190,7 @@ public class VerifiedLocalSourceReadTests
         // be rejected before any filesystem access so it cannot trigger outbound SMB/network I/O,
         // and a relative path is never honored — independent of the (here matching) checksum.
         byte[] content = Encoding.UTF8.GetBytes(Source);
-        Assert.Null(AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+        Assert.Null(PdbSourceAcquisition.TryReadVerifiedLocalSource(
             path, "SHA256", SHA256.HashData(content)));
     }
 
@@ -200,12 +200,12 @@ public class VerifiedLocalSourceReadTests
         // Non-ASCII content makes the encoding observable. A checksum-verified local file may be
         // UTF-8 (with or without BOM) or UTF-16; each must decode correctly, not as raw UTF-8.
         const string text = "héllo wörld";
-        Assert.Equal(text, AuthoredSourceAcquisition.DecodeSourceText(Encoding.UTF8.GetBytes(text)));
-        Assert.Equal(text, AuthoredSourceAcquisition.DecodeSourceText(
+        Assert.Equal(text, PdbSourceAcquisition.DecodeSourceText(Encoding.UTF8.GetBytes(text)));
+        Assert.Equal(text, PdbSourceAcquisition.DecodeSourceText(
             [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)]));
-        Assert.Equal(text, AuthoredSourceAcquisition.DecodeSourceText(
+        Assert.Equal(text, PdbSourceAcquisition.DecodeSourceText(
             [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(text)]));
-        Assert.Equal(text, AuthoredSourceAcquisition.DecodeSourceText(
+        Assert.Equal(text, PdbSourceAcquisition.DecodeSourceText(
             [.. Encoding.BigEndianUnicode.GetPreamble(), .. Encoding.BigEndianUnicode.GetBytes(text)]));
     }
 
@@ -218,14 +218,14 @@ public class VerifiedLocalSourceReadTests
         string path = WriteTemp(".cs", utf16);
         try
         {
-            byte[]? result = AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+            byte[]? result = PdbSourceAcquisition.TryReadVerifiedLocalSource(
                 path, "SHA256", SHA256.HashData(utf16));
 
             Assert.NotNull(result);
             Assert.Equal(utf16, result);
             Assert.Equal(
                 Source.ReplaceLineEndings("\n"),
-                AuthoredSourceAcquisition.DecodeSourceText(result).ReplaceLineEndings("\n"));
+                PdbSourceAcquisition.DecodeSourceText(result).ReplaceLineEndings("\n"));
         }
         finally
         {

@@ -284,9 +284,9 @@ member result keeps the typed C# diff, typed IL diff, joined implementation
 changes, and a single `ResearchSubjectKey`; exact members return an empty
 change list with `IsExact` set.
 
-Use `CompareMembersWithAuthoredSource` when the caller also has old/new
+Use `CompareMembersWithPdbSource` when the caller also has old/new
 `FindingInspection<string>` envelopes from Services. Use
-`WithAuthoredSourceComparisons` to enrich an assembly comparison. These APIs
+`WithPdbSourceComparisons` to enrich an assembly comparison. These APIs
 preserve `Complete`, `Absent`, and `Failed` independently and retain the native
 line comparison. Research does not fetch source.
 

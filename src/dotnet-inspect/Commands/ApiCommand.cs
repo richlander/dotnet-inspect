@@ -1449,13 +1449,13 @@ public class ApiCommand
             // so the remote SourceLink URL would 404 or differ. The checksum authenticates the on-disk
             // bytes against the portable PDB; remote SourceLink is the fallback for reproducible builds.
             string? content = null;
-            var localBytes = DotnetInspector.Services.AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+            var localBytes = DotnetInspector.Services.PdbSourceAcquisition.TryReadVerifiedLocalSource(
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
             byte[]? repoBytes;
             if (localBytes != null)
             {
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(localBytes));
+                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(localBytes));
             }
             // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
             // authenticated by the same PDB checksum, before touching the network. Useful for a
@@ -1466,12 +1466,12 @@ public class ApiCommand
                     options.SourceRepositories)) != null)
             {
                 content = NormalizePdbSourceLineEndings(
-                    DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(repoBytes));
+                    DotnetInspector.Services.PdbSourceAcquisition.DecodeSourceText(repoBytes));
             }
             else if (methodInfo.SourceUrl != null)
             {
                 var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-                var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+                var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
                     fetcher,
                     methodInfo.SourceUrl,
                     methodInfo.ChecksumAlgorithm,
@@ -2269,7 +2269,7 @@ public class ApiCommand
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var selectedSource = materialized.Single(row => row.Row == selectedRow.Row);
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        var fetch = await AuthoredSourceAcquisition.FetchVerifiedSourceTextAsync(
+        var fetch = await PdbSourceAcquisition.FetchVerifiedSourceTextAsync(
             fetcher,
             rawUrl,
             selectedSource.ChecksumAlgorithm,

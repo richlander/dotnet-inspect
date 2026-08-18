@@ -1796,7 +1796,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildImplementationDiffView_LabelsAuthoredSourceAsIndependentLane()
+    public void BuildImplementationDiffView_LabelsPdbSourceAsIndependentLane()
     {
         var subject = new ResearchSubjectKey(
             ResearchSubjectKind.Member,
@@ -1808,9 +1808,9 @@ public class DiffCommandTests
             [.. TextFindings.Inspect("return 1;", new FindingSubject("old", "old"))]);
         var newInspection = new FindingInspection<string>.Complete(
             [.. TextFindings.Inspect("return 2;", new FindingSubject("new", "new"))]);
-        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+        var result = ImplementationDiff.WithPdbSourceComparisons(
             new ImplementationDiffResult([], new ResearchComparison([])),
-            [new AuthoredSourceComparisonInput(subject, oldInspection, newInspection)]);
+            [new PdbSourceComparisonInput(subject, oldInspection, newInspection)]);
 
         var view = DiffOutputFormatter.BuildImplementationDiffView(
             "Sample",
@@ -1826,7 +1826,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildImplementationDiffView_RendersAuthoredSourceAbsence()
+    public void BuildImplementationDiffView_RendersPdbSourceAbsence()
     {
         var subject = new ResearchSubjectKey(
             ResearchSubjectKind.Member,
@@ -1834,10 +1834,10 @@ public class DiffCommandTests
             "Sample.M()",
             "Sample",
             "M");
-        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+        var result = ImplementationDiff.WithPdbSourceComparisons(
             new ImplementationDiffResult([], new ResearchComparison([])),
             [
-                new AuthoredSourceComparisonInput(
+                new PdbSourceComparisonInput(
                     subject,
                     new FindingInspection<string>.Absent("old PDB unavailable"),
                     new FindingInspection<string>.Absent("new PDB unavailable"))
@@ -1857,7 +1857,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public void BuildImplementationDiffView_RendersAuthoredSourceFailure()
+    public void BuildImplementationDiffView_RendersPdbSourceFailure()
     {
         var subject = new ResearchSubjectKey(
             ResearchSubjectKind.Member,
@@ -1869,10 +1869,10 @@ public class DiffCommandTests
             new FindingSubject(subject.Id, subject.Display),
             TextFindings.LineDescriptor,
             "checksum mismatch"));
-        var result = ImplementationDiff.WithAuthoredSourceComparisons(
+        var result = ImplementationDiff.WithPdbSourceComparisons(
             new ImplementationDiffResult([], new ResearchComparison([])),
             [
-                new AuthoredSourceComparisonInput(
+                new PdbSourceComparisonInput(
                     subject,
                     failure,
                     new FindingInspection<string>.Absent("new source unavailable"))
@@ -2015,7 +2015,7 @@ public class DiffCommandTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_AuthoredSourceWithoutImplementationDiff_ReturnsError()
+    public async Task ExecuteAsync_PdbSourceWithoutImplementationDiff_ReturnsError()
     {
         var (exitCode, output, error) = await ConsoleCapture.RunAsync(() =>
             DiffCommand.ExecuteAsync(new DiffOptions
