@@ -28,6 +28,7 @@ public class SlotResidualCensusTests
         Assert.Contains("STACK-SLOT UNIFIER CENSUS", output);
         Assert.Contains("Un-unified split slots", output);
         Assert.Contains("Multi-candidate slots unified by printer", output);
+        Assert.Contains("Direct slot-copy stores reaching printer", output);
         Assert.Contains("Stack-slot declarations emitted", output);
     }
 
@@ -57,9 +58,36 @@ public class SlotResidualCensusTests
 
         Assert.Equal(3, telemetry.StoreNodes);
         Assert.Equal(1, telemetry.LoadNodes);
+        Assert.Equal(0, telemetry.DirectCopyStores);
         Assert.Equal(1, telemetry.DistinctSlots);
         Assert.Equal(1, telemetry.UnunifiedSplitSlots);
         Assert.Equal(0, telemetry.MultiCandidateUnifiedSlots);
+    }
+
+    [Fact]
+    public void StackSlotUnifierTelemetry_RecordsDirectSlotCopies()
+    {
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+
+        var block = new Block();
+        block.Add(new StoreStackSlot(256, new Constant(1, i32)));
+        block.Add(new StoreStackSlot(0, new LoadStackSlot(256, i32)));
+        block.Add(new Return(new LoadStackSlot(0, i32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "T"),
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+
+        Assert.Equal(2, telemetry.StoreNodes);
+        Assert.Equal(2, telemetry.LoadNodes);
+        Assert.Equal(1, telemetry.DirectCopyStores);
     }
 
     [Fact]

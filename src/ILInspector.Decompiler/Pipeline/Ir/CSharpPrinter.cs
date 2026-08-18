@@ -561,6 +561,7 @@ public sealed partial class CSharpPrinter
     internal sealed record StackSlotUnifierTelemetry(
         int StoreNodes,
         int LoadNodes,
+        int DirectCopyStores,
         int DistinctSlots,
         int CandidateSlots,
         int SingleCandidateSlots,
@@ -903,7 +904,8 @@ public sealed partial class CSharpPrinter
         }
         _stackSlotTelemetry?.RecordNodes(
             storesBySlot.Values.Sum(stores => stores.Count),
-            loadsBySlot.Values.Sum(loads => loads.Count));
+            loadsBySlot.Values.Sum(loads => loads.Count),
+            storesBySlot.Values.Sum(stores => stores.Count(store => store is LoadStackSlot)));
 
         foreach (var storeElement in nodes.OfType<StoreElement>())
         {
@@ -1010,16 +1012,18 @@ public sealed partial class CSharpPrinter
 
         public int StoreNodes { get; private set; }
         public int LoadNodes { get; private set; }
+        public int DirectCopyStores { get; private set; }
         public int CandidateSlots { get; private set; }
         public int SingleCandidateSlots { get; private set; }
         public int MultiCandidateUnifiedSlots { get; private set; }
         public int UnunifiedSplitSlots { get; private set; }
         public int EmittedDeclarationNames { get; private set; }
 
-        public void RecordNodes(int stores, int loads)
+        public void RecordNodes(int stores, int loads, int directCopyStores)
         {
             StoreNodes += stores;
             LoadNodes += loads;
+            DirectCopyStores += directCopyStores;
         }
 
         public void RecordCandidate(int candidateCount)
@@ -1044,6 +1048,7 @@ public sealed partial class CSharpPrinter
             => new(
                 StoreNodes,
                 LoadNodes,
+                DirectCopyStores,
                 DistinctSlots: CandidateSlots,
                 CandidateSlots,
                 SingleCandidateSlots,
