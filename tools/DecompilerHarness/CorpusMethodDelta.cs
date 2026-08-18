@@ -68,15 +68,18 @@ internal static class CorpusControlFlowOutputIdentity
     const string OutputPrefix = "output@";
     const string SourceMarker = "@source_IL_";
     const string BlockMarker = "@block_IL_";
+    const string LocalFunctionMarker = "@local_";
 
     public static string FormatKey(
         string kind,
         bool source,
         int ilOffset,
-        string targets)
+        string targets,
+        int? localFunctionOrdinal = null)
     {
         if (!CorpusControlFlowSiteSnapshot.IsSupportedKind(kind)
             || ilOffset < 0
+            || localFunctionOrdinal < 0
             || !IsValidTargets(kind, targets))
         {
             throw new InvalidOperationException(
@@ -85,7 +88,10 @@ internal static class CorpusControlFlowOutputIdentity
         }
 
         string marker = source ? SourceMarker : BlockMarker;
-        return $"{kind}{marker}{ilOffset:X4}->{targets}";
+        string owner = localFunctionOrdinal is int ordinal
+            ? $"{LocalFunctionMarker}{ordinal}"
+            : "";
+        return $"{kind}{marker}{ilOffset:X4}{owner}->{targets}";
     }
 
     public static string Format(string key, int ordinal)
@@ -164,13 +170,25 @@ internal static class CorpusControlFlowOutputIdentity
 
         int offsetStart = markerStart + marker.Length;
         int arrow = key.IndexOf("->", offsetStart, StringComparison.Ordinal);
-        return arrow > offsetStart
+        int ownerStart = key.IndexOf(LocalFunctionMarker, offsetStart, StringComparison.Ordinal);
+        int offsetEnd = ownerStart >= 0 ? ownerStart : arrow;
+        bool ownerIsValid = ownerStart < 0
+            || ownerStart < arrow
+                && int.TryParse(
+                    key.AsSpan(ownerStart + LocalFunctionMarker.Length, arrow - ownerStart - LocalFunctionMarker.Length),
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out int localFunctionOrdinal)
+                && localFunctionOrdinal >= 0;
+        return offsetEnd > offsetStart
+            && arrow >= offsetEnd
             && int.TryParse(
-                key.AsSpan(offsetStart, arrow - offsetStart),
+                key.AsSpan(offsetStart, offsetEnd - offsetStart),
                 NumberStyles.HexNumber,
                 CultureInfo.InvariantCulture,
                 out ilOffset)
             && ilOffset >= 0
+            && ownerIsValid
             && IsValidTargets(kind, key.AsSpan(arrow + 2));
     }
 
@@ -181,8 +199,10 @@ internal static class CorpusControlFlowOutputIdentity
         if (targets.IsEmpty)
             return kind == "switch-branch";
 
+        int targetCount = 0;
         foreach (Range range in targets.Split(','))
         {
+            targetCount++;
             ReadOnlySpan<char> target = targets[range];
             if (!target.StartsWith("IL_", StringComparison.Ordinal)
                 || !int.TryParse(
@@ -195,7 +215,7 @@ internal static class CorpusControlFlowOutputIdentity
                 return false;
             }
         }
-        return true;
+        return kind == "switch-branch" || targetCount == 1;
     }
 }
 

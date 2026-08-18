@@ -745,14 +745,16 @@ method row. The importer records branch, conditional-branch, switch, and EH
 transfer nodes by control-flow kind, IL source offset, and same-offset ordinal;
 it also records each slot's printable identity from stable source provenance,
 transfer kind, and targets. A provenance-less synthesized transfer falls back
-to its owning IL block. After the pipeline, an imported slot is raised only
-when no equivalent residual transfer survives. A synthesized residual that
-does not correspond to an imported slot gets its own output-site identity.
-Rebuilding or reusing an equivalent goto is neutral. Reparenting is neutral
-when the transfer retains source provenance; a provenance-less transfer uses
-its owning IL block as its identity, so cross-block movement remains visible.
-Adding a printable transfer is a loss. Site rows use one compact, validated
-string per method so the full baseline stays below repository file-size limits.
+to its owning IL block and, inside a raised local function, that declaration's
+stable per-host ordinal. After the pipeline, an imported slot is raised only
+when no equivalent residual transfer survives. A synthesized residual that does
+not correspond to an imported slot gets its own output-site identity. Rebuilding
+or reusing an equivalent goto is neutral. Reparenting is neutral when the
+transfer retains source provenance; a provenance-less transfer uses its owning
+IL block as its identity, so cross-block and cross-local-function movement
+remain visible. Adding a printable transfer is a loss. Site rows use one
+compact, validated string per method so the full baseline stays below
+repository file-size limits.
 
 Only fixed `nuget:` rows carry the ledger. The configured `NUGET_PACKAGES` root
 is normalized to the same portable `nuget:` identity as the default cache, and
@@ -777,6 +779,7 @@ site-level contract. The enforcing tests are
 `ControlFlowSiteLedger_ObservesCompilerProducedSwitchRaise`,
 `ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual`,
 `ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual`,
+`ControlFlowSiteLedger_DistinguishesNestedFunctionOwners`,
 `Compare_ControlFlowLossCannotBeOffsetByUnrelatedGain`,
 `Compare_NewOutputResidualIsLossAndRemovedOutputResidualIsGain`, and the
 `Compare_ControlFlowGateFailsClosed*` / `ControlFlowSites_Reject*` families.

@@ -539,11 +539,12 @@ internal static class CorpusSensor
     static ImmutableArray<ControlFlowCandidate> CaptureControlFlowCandidates(IrFunction function)
     {
         var ordinals = new Dictionary<(string Kind, int IlOffset), int>();
+        var localFunctionOrdinals = LocalFunctionOrdinals(function);
         var candidates = ImmutableArray.CreateBuilder<ControlFlowCandidate>();
         foreach (var node in function.Descendants)
         {
             string? kind = ControlFlowKind(node);
-            string? outputKey = ControlFlowOutputKey(node, kind);
+            string? outputKey = ControlFlowOutputKey(node, kind, localFunctionOrdinals);
             if (kind is null || node.SourceOffset < 0 || outputKey is null)
                 continue;
 
@@ -563,8 +564,9 @@ internal static class CorpusSensor
         IrFunction function,
         ImmutableArray<ControlFlowCandidate> candidates)
     {
+        var localFunctionOrdinals = LocalFunctionOrdinals(function);
         var finalCounts = function.Descendants
-            .Select(node => ControlFlowOutputKey(node, ControlFlowKind(node)))
+            .Select(node => ControlFlowOutputKey(node, ControlFlowKind(node), localFunctionOrdinals))
             .Where(static key => key is not null)
             .GroupBy(static key => key!, StringComparer.Ordinal)
             .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
@@ -649,11 +651,15 @@ internal static class CorpusSensor
         _ => null,
     };
 
-    static string? ControlFlowOutputKey(IrNode node, string? kind)
+    static string? ControlFlowOutputKey(
+        IrNode node,
+        string? kind,
+        IReadOnlyDictionary<LocalFunctionStatement, int> localFunctionOrdinals)
     {
         if (kind is null)
             return null;
 
+        int? localFunctionOrdinal = ContainingLocalFunctionOrdinal(node, localFunctionOrdinals);
         string targets = node switch
         {
             Branch branch => $"IL_{branch.TargetOffset:X4}",
@@ -670,7 +676,8 @@ internal static class CorpusSensor
                 kind,
                 source: true,
                 node.SourceOffset,
-                targets);
+                targets,
+                localFunctionOrdinal);
 
         var block = ContainingBlock(node);
         if (block is null)
@@ -679,7 +686,26 @@ internal static class CorpusSensor
             kind,
             source: false,
             block.StartOffset,
-            targets);
+            targets,
+            localFunctionOrdinal);
+    }
+
+    static Dictionary<LocalFunctionStatement, int> LocalFunctionOrdinals(IrFunction function)
+        => function.Descendants
+            .OfType<LocalFunctionStatement>()
+            .Select(static (localFunction, ordinal) => (localFunction, ordinal))
+            .ToDictionary(static pair => pair.localFunction, static pair => pair.ordinal);
+
+    static int? ContainingLocalFunctionOrdinal(
+        IrNode node,
+        IReadOnlyDictionary<LocalFunctionStatement, int> localFunctionOrdinals)
+    {
+        for (IrNode? current = node.Parent; current is not null; current = current.Parent)
+        {
+            if (current is LocalFunctionStatement localFunction)
+                return localFunctionOrdinals[localFunction];
+        }
+        return null;
     }
 
     static Block? ContainingBlock(IrNode node)
