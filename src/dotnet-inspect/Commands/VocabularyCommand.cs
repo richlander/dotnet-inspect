@@ -118,7 +118,8 @@ public static class VocabularyCommand
                         WriteSections(
                             new MarkoutWriter(writer, formatter, writerOptions),
                             renderedSections,
-                            includeDocumentHeading: true),
+                            includeDocumentHeading: true,
+                            includeSummaries: false),
                     maxRows: options.Rows);
             }
             else
@@ -165,7 +166,11 @@ public static class VocabularyCommand
                 ? new PlainTextFormatter()
                 : new MarkdownFormatter(),
             markdownOptions);
-        WriteSections(markdown, renderedSections, includeDocumentHeading: true);
+        WriteSections(
+            markdown,
+            renderedSections,
+            includeDocumentHeading: true,
+            includeSummaries: true);
         markdown.Flush();
         return 0;
     }
@@ -173,14 +178,16 @@ public static class VocabularyCommand
     private static void WriteSections(
         MarkoutWriter writer,
         IEnumerable<VocabularySection> sections,
-        bool includeDocumentHeading)
+        bool includeDocumentHeading,
+        bool includeSummaries)
     {
         if (includeDocumentHeading)
             writer.WriteHeading(1, "Vocabulary");
         foreach (VocabularySection section in sections)
         {
             writer.WriteHeading(2, section.Name);
-            writer.WriteParagraph(section.Summary);
+            if (includeSummaries)
+                writer.WriteParagraph(section.Summary);
             WriteTable(writer, section);
         }
     }
