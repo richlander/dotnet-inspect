@@ -485,6 +485,38 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void Selector_ResolvedNestedTypeStillMatchesApiSignature()
+    {
+        TypeRef parameter = TypeRef.Definition(
+            "Samples",
+            "Samples",
+            "Outer+Inner",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.CurrentAssembly(),
+                Name("Samples", ["Outer", "Inner"])));
+        var member = Method("Samples.Outer.Inner");
+        var owner = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [member],
+        };
+        var reference = new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "M",
+            [parameter],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        };
+
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(owner, member).Key,
+            CallGraphMemberResolver.CreateSelector(reference).Key);
+    }
+
+    [Fact]
     public void SelectorKey_DistinguishesLiteralGrammarFromGenericShape()
     {
         TypeRef literal = TypeRef.Definition(
@@ -555,6 +587,74 @@ public sealed class CallGraphMemberResolverTests
 
         Assert.Equal(malformed.ParameterTypes, valid.ParameterTypes);
         Assert.NotEqual(malformed.Key, valid.Key);
+    }
+
+    [Fact]
+    public void SelectorKey_DistinguishesMissingFromCanonicalDeclaredArity()
+    {
+        TypeRef argument = TypeRef.Definition("Samples", "", "X");
+        TypeRef Generic(string name) => TypeRef.GenericInstance(
+            TypeRef.Definition(
+                "Samples",
+                "Samples",
+                name,
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    Name("Samples", [name]))),
+            [argument]);
+        CallGraphMemberSelector Selector(TypeRef parameter) =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+
+        CallGraphMemberSelector missing = Selector(Generic("G"));
+        CallGraphMemberSelector canonical = Selector(Generic("G`1"));
+
+        Assert.Equal(missing.ParameterTypes, canonical.ParameterTypes);
+        Assert.NotEqual(missing.Key, canonical.Key);
+    }
+
+    [Fact]
+    public void SelectorKey_DistinguishesNamespaceCommaFromArgumentSeparator()
+    {
+        TypeRef Generic(string name, params TypeRef[] arguments) =>
+            TypeRef.GenericInstance(
+                TypeRef.Definition(
+                    "Samples",
+                    "Samples",
+                    name,
+                    new ResolvableTypeReference(
+                        new TypeReferenceOrigin.CurrentAssembly(),
+                        Name("Samples", [name]))),
+                [.. arguments]);
+        TypeRef Exact(string @namespace, string name) =>
+            TypeRef.Definition(
+                "Samples",
+                @namespace,
+                name,
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    Name(@namespace, [name])));
+        CallGraphMemberSelector Selector(TypeRef parameter) =>
+            CallGraphMemberResolver.CreateSelector(new MemberRef(
+                TypeRef.Definition("Samples", "Samples", "Owner"),
+                "M",
+                [parameter],
+                TypeRef.CoreLib("System", "Void"),
+                MemberKind.Method));
+
+        CallGraphMemberSelector namespaceComma = Selector(
+            Generic("G`1", Exact("A,B", "C")));
+        CallGraphMemberSelector separateArguments = Selector(
+            Generic("G`2", Exact("", "A"), Exact("B", "C")));
+
+        Assert.Equal(
+            namespaceComma.ParameterTypes,
+            separateArguments.ParameterTypes);
+        Assert.NotEqual(namespaceComma.Key, separateArguments.Key);
     }
 
     [Fact]

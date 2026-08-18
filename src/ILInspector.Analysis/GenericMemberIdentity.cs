@@ -111,7 +111,13 @@ public static class GenericMemberIdentity
     /// parameter count.
     /// </summary>
     public static string ErasedParameterShape(ImmutableArray<TypeRef> openParameterTypes)
-        => string.Join(",", openParameterTypes.Select(KeyFragment));
+    {
+        var key = new StringBuilder();
+        key.Append(openParameterTypes.Length).Append('|');
+        foreach (TypeRef type in openParameterTypes)
+            AppendKeyPart(key, KeyFragment(type));
+        return key.ToString();
+    }
 
     /// <summary>
     /// An assembly-qualified, cross-assembly-stable key fragment for a type. Generic
@@ -122,23 +128,54 @@ public static class GenericMemberIdentity
     /// distinguishes them, but the display strings did not) (#1741), and the namespace
     /// keeps same-name types from different namespaces distinct (#1731).
     /// </summary>
-    public static string KeyFragment(TypeRef type) => type.Kind switch
+    public static string KeyFragment(TypeRef type)
     {
-        TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
-        TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
-        TypeRefKind.GenericInstance when type.ElementType is { } definition
-            => $"{KeyFragment(definition)}<{string.Join(",", type.TypeArguments.Select(KeyFragment))}>",
-        TypeRefKind.SzArray when type.ElementType is { } element
-            => $"{KeyFragment(element)}[]",
-        TypeRefKind.Array when type.ElementType is { } element
-            => $"{KeyFragment(element)}[{new string(',', type.Rank > 0 ? type.Rank - 1 : 0)}]",
-        TypeRefKind.ByRef when type.ElementType is { } element
-            => $"ref {KeyFragment(element)}",
-        TypeRefKind.Pointer when type.ElementType is { } element
-            => $"{KeyFragment(element)}*",
-        TypeRefKind.Definition => NamedDefinitionKey(type),
-        _ => type.ToQualifiedDisplayString(),
-    };
+        var key = new StringBuilder();
+        AppendTypeKey(key, type);
+        return key.ToString();
+    }
+
+    static void AppendTypeKey(StringBuilder key, TypeRef type)
+    {
+        key.Append((int)type.Kind).Append('|');
+        switch (type.Kind)
+        {
+            case TypeRefKind.GenericParameter:
+            case TypeRefKind.MethodGenericParameter:
+                key.Append(type.GenericParameterIndex).Append('|');
+                return;
+            case TypeRefKind.GenericInstance when type.ElementType is { } definition:
+                AppendKeyPart(key, KeyFragment(definition));
+                key.Append(type.TypeArguments.Length).Append('|');
+                foreach (TypeRef argument in type.TypeArguments)
+                    AppendKeyPart(key, KeyFragment(argument));
+                return;
+            case TypeRefKind.SzArray:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                AppendKeyPart(
+                    key,
+                    type.ElementType is { } element
+                        ? KeyFragment(element)
+                        : "");
+                return;
+            case TypeRefKind.Array:
+                key.Append(type.Rank).Append('|');
+                AppendKeyPart(
+                    key,
+                    type.ElementType is { } arrayElement
+                        ? KeyFragment(arrayElement)
+                        : "");
+                return;
+            case TypeRefKind.Definition:
+                AppendKeyPart(key, NamedDefinitionKey(type));
+                return;
+            default:
+                AppendKeyPart(key, type.ToQualifiedDisplayString());
+                return;
+        }
+    }
 
     static string NamedDefinitionKey(TypeRef type)
     {

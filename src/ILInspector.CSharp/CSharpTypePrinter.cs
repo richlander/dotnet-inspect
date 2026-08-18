@@ -954,7 +954,16 @@ public sealed class CSharpTypePrinter
         // that is not a generic spelling satisfy the arity contract.
         if (!MetadataNameArity.TryReadSuffix(type.Name, out int arity, out _))
         {
-            if (type.TypeParameters.Count > 0 && !allowMissingMetadataArity)
+            bool trustedMissingArity =
+                type.DefinitionName is { } definitionName
+                && type.IntroducedTypeParameterCounts is { } introduced
+                && introduced.Count
+                    == definitionName.Segments.Length
+                && introduced[^1]
+                    == type.TypeParameters.Count;
+            if (type.TypeParameters.Count > 0
+                && !allowMissingMetadataArity
+                && !trustedMissingArity)
             {
                 throw new ArgumentException(
                     $"Generic type '{type.FullName}' requires metadata arity in its name.");

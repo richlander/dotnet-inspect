@@ -693,7 +693,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 continue;
             }
             string name = StripArity(segment);
-            int arity = ArityOf(segment);
+            int arity = EffectiveSegmentArity(index, segment);
             if (arity > 0)
                 name = $"{name}<{new string(',', arity - 1)}>";
             parts.Add(name);
@@ -751,7 +751,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return qualified;
         }
         string innermost = segments[^1];
-        int ownArity = ArityOf(innermost);
+        int ownArity = ElementType.EffectiveSegmentArity(
+            segments.Count - 1,
+            innermost);
         string simpleName = foreignNestedReference
             ? string.Join(".", segments.Select(CSharpNaming.TypeNameSegment))
             : ElementType.DisplayName();
@@ -785,7 +787,11 @@ public sealed class TypeRef : IEquatable<TypeRef>
             return false;
         if (!EnclosingDefinitionInScope(scope))
             return false;
-        int innermostArity = ArityOf(ElementType!.MetadataNameSegments()[^1]);
+        IReadOnlyList<string> segments =
+            ElementType!.MetadataNameSegments();
+        int innermostArity = ElementType.EffectiveSegmentArity(
+            segments.Count - 1,
+            segments[^1]);
         int enclosingArguments = TypeArguments.Length - innermostArity;
         for (int i = 0; i < enclosingArguments; i++)
         {
@@ -859,8 +865,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
     long DeclaredGenericArity()
     {
         long total = 0;
-        foreach (string segment in MetadataNameSegments())
-            total += ArityOf(segment);
+        IReadOnlyList<string> segments = MetadataNameSegments();
+        for (int index = 0; index < segments.Count; index++)
+            total += EffectiveSegmentArity(index, segments[index]);
         return total;
     }
 
@@ -917,8 +924,23 @@ public sealed class TypeRef : IEquatable<TypeRef>
     }
 
     bool SegmentArityMismatch(int index, string segment)
-        => IntroducedTypeParameterCounts.Length == MetadataNameSegments().Count
-            && ArityOf(segment) != IntroducedTypeParameterCounts[index];
+    {
+        int declared = ArityOf(segment);
+        return IntroducedTypeParameterCounts.Length
+                == MetadataNameSegments().Count
+            && declared > 0
+            && declared != IntroducedTypeParameterCounts[index];
+    }
+
+    int EffectiveSegmentArity(int index, string segment)
+    {
+        int declared = ArityOf(segment);
+        return declared == 0
+            && IntroducedTypeParameterCounts.Length
+                == MetadataNameSegments().Count
+                ? IntroducedTypeParameterCounts[index]
+                : declared;
+    }
 
     static bool StartsWithSegments(
         IReadOnlyList<string> value,

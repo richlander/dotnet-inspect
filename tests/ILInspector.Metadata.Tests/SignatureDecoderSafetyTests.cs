@@ -294,6 +294,34 @@ public class SignatureDecoderSafetyTests
     }
 
     [Fact]
+    public void SelfTypeSignature_RejectsOversizedRootNameBeforeMaterialization()
+    {
+        TypeDefinitionHandle typeHandle = default;
+        MetadataReader reader = BuildAssembly(metadata =>
+        {
+            typeHandle = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                default,
+                metadata.GetOrAddString(new string('X', 100_000)),
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+        });
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        Assert.Throws<BadImageFormatException>(() =>
+            MetadataDeclarationQuery.SelfTypeSignature(
+                reader,
+                reader.GetTypeDefinition(typeHandle)));
+
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.True(
+            allocated < 64 * 1024,
+            $"Oversized root type name allocated {allocated:N0} bytes.");
+    }
+
+    [Fact]
     public void SignatureDecoder_ReusesEmptyNameWithoutRetentionCollision()
     {
         TypeReferenceHandle first = default;

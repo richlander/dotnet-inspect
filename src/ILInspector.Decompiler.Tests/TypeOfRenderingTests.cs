@@ -65,6 +65,37 @@ public class TypeOfRenderingTests
     }
 
     [Fact]
+    public void TypeOf_MissingArityUsesTrustedGenericOwnership()
+    {
+        MetadataTypeDefinitionName exact =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Tests",
+                    ["Widget"]))
+            .Name;
+        var definition = TypeRef.DefinitionWithResolution(
+            "Synthetic",
+            "Tests",
+            "Widget",
+            ValueTypeHint.Unknown,
+            MetadataFactState.Unknown,
+            enclosingType: null,
+            definitionName: exact,
+            resolutionAssembly: null,
+            introducedTypeParameterCounts: [1]);
+        var constructed = TypeRef.GenericInstance(
+            definition,
+            [TypeRef.CoreLib("System", "Int32")]);
+
+        var result = CSharpPrinter.PrintRaised(
+            Returning(new TypeOf(constructed)));
+
+        Assert.Equal("Widget<int>", constructed.ToDisplayString());
+        Assert.Contains("typeof(Widget<int>)", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+    }
+
+    [Fact]
     public void TypeOf_PerSegmentArityMismatch_PreservesRawEvidence()
     {
         MetadataTypeDefinitionName exact =

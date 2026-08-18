@@ -426,14 +426,21 @@ public static class TypeResolver
             declaringType = type.GetDeclaringType();
             if (declaringType.IsNil)
             {
+                string @namespace = ReadTypeNameComponent(
+                    reader,
+                    type.Namespace,
+                    MetadataSafetyPolicy.MaxTypeNameCharacters);
+                int remaining =
+                    MetadataSafetyPolicy.MaxTypeNameCharacters
+                    - @namespace.Length
+                    - 1;
                 return new MetadataTypeNameParts(
-                    MetadataSafetyPolicy.ReadStructuralString(
-                        reader,
-                        type.Namespace),
+                    @namespace,
                     [
-                        MetadataSafetyPolicy.ReadStructuralString(
+                        ReadTypeNameComponent(
                             reader,
-                            type.Name),
+                            type.Name,
+                            remaining),
                     ]);
             }
         }
@@ -456,22 +463,41 @@ public static class TypeResolver
                 + $"{MetadataSafetyPolicy.MaxRelationshipNodes} nodes.");
         }
 
-        string leaf = MetadataSafetyPolicy.ReadStructuralString(
-            reader,
-            type.Name);
-        long totalLength = declaring.Namespace.Length + leaf.Length;
+        int consumed = declaring.Namespace.Length;
         foreach (string segment in declaring.Segments)
-            totalLength += segment.Length;
-        if (totalLength
-            > MetadataSafetyPolicy.MaxStructuralSignatureChars)
-        {
-            throw new BadImageFormatException(
-                "The metadata type name exceeds the structural-name budget.");
-        }
+            consumed += segment.Length + 1;
+        string leaf = ReadTypeNameComponent(
+            reader,
+            type.Name,
+            MetadataSafetyPolicy.MaxTypeNameCharacters
+                - consumed
+                - 1);
 
         return new MetadataTypeNameParts(
             declaring.Namespace,
             [.. declaring.Segments, leaf]);
+    }
+
+    static string ReadTypeNameComponent(
+        MetadataReader reader,
+        StringHandle handle,
+        int remainingCharacters)
+    {
+        if (remainingCharacters < 0
+            || reader.GetBlobReader(handle).Length
+                > remainingCharacters * 3L)
+        {
+            throw new BadImageFormatException(
+                "The metadata type name exceeds the type-name budget.");
+        }
+
+        string value = reader.GetString(handle);
+        if (value.Length > remainingCharacters)
+        {
+            throw new BadImageFormatException(
+                "The metadata type name exceeds the type-name budget.");
+        }
+        return value;
     }
 
     /// <summary>

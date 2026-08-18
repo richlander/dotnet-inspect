@@ -4035,6 +4035,28 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains("must use a metadata name", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void GenericTypeWithoutMetadataArityUsesTrustedOwnership()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        type.DefinitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Samples",
+                    ["Widget"]))
+            .Name;
+        type.IntroducedTypeParameterCounts = [1];
+        type.TypeParameters = [new TypeParameter { Name = "T" }];
+
+        var result = _printer.Print(
+            new CSharpTypePrintRequest(type));
+
+        Assert.Contains(
+            "class Widget<T>",
+            result.Source,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     // A canonical `N that disagrees with the parameter count is inconsistent.
     [InlineData("Converter`2", 1, "inconsistent metadata arity")]

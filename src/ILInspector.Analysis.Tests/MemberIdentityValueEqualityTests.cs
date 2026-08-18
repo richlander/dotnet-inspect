@@ -166,6 +166,32 @@ public class MemberIdentityValueEqualityTests
     }
 
     [Fact]
+    public void GenericMemberKey_DistinguishesLiteralArraySyntaxFromArrayShape()
+    {
+        static TypeRef Exact(string name)
+        {
+            MetadataTypeDefinitionName exactName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "",
+                        [name]))
+                .Name;
+            return TypeRef.Definition(
+                "Sample",
+                "",
+                name,
+                new ResolvableTypeReference(
+                    new TypeReferenceOrigin.CurrentAssembly(),
+                    exactName));
+        }
+
+        Assert.NotEqual(
+            GenericMemberIdentity.KeyFragment(Exact("X[]")),
+            GenericMemberIdentity.KeyFragment(
+                TypeRef.SzArray(Exact("X"))));
+    }
+
+    [Fact]
     public void AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag()
     {
         MetadataTypeDefinitionName name =

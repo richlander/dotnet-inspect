@@ -399,7 +399,7 @@ public static class CallGraphMemberResolver
         if (type.Resolution?.Type is { } exactName)
         {
             string exactTypeName = string.Join(
-                preserveExactIdentity ? '+' : '.',
+                '.',
                 exactName.Segments.Select(
                     segment => preserveExactIdentity
                         ? EscapeIdentitySegment(
@@ -423,15 +423,24 @@ public static class CallGraphMemberResolver
     }
 
     static string EscapeIdentityNamespace(string value)
-        => value.Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace("+", "\\+", StringComparison.Ordinal);
+        => EscapeIdentityText(value, escapeDot: false);
 
     static string EscapeIdentitySegment(
         string value,
         bool escapeGenericParameterMarker = false)
     {
-        string escaped = EscapeIdentityNamespace(value)
-            .Replace(".", "\\.", StringComparison.Ordinal)
+        string escaped = EscapeIdentityText(value, escapeDot: true);
+        return escapeGenericParameterMarker
+            && IsGenericParameterIdentity(value)
+                ? $"\\{escaped}"
+                : escaped;
+    }
+
+    static string EscapeIdentityText(string value, bool escapeDot)
+    {
+        string escaped = value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("+", "\\+", StringComparison.Ordinal)
             .Replace("{", "\\{", StringComparison.Ordinal)
             .Replace("}", "\\}", StringComparison.Ordinal)
             .Replace("[", "\\[", StringComparison.Ordinal)
@@ -439,11 +448,11 @@ public static class CallGraphMemberResolver
             .Replace(",", "\\,", StringComparison.Ordinal)
             .Replace("*", "\\*", StringComparison.Ordinal)
             .Replace("@", "\\@", StringComparison.Ordinal)
-            .Replace("`", "\\`", StringComparison.Ordinal);
-        return escapeGenericParameterMarker
-            && IsGenericParameterIdentity(value)
-                ? $"\\{escaped}"
-                : escaped;
+            .Replace("`", "\\`", StringComparison.Ordinal)
+            .Replace("#", "\\#", StringComparison.Ordinal);
+        return escapeDot
+            ? escaped.Replace(".", "\\.", StringComparison.Ordinal)
+            : escaped;
     }
 
     static bool IsGenericParameterIdentity(string value)
@@ -471,7 +480,16 @@ public static class CallGraphMemberResolver
             ?? definition.Name.Split('+');
         int totalArity = segments.Sum(MetadataNameArity.OfSegment);
         if (totalArity != arguments.Length)
+        {
+            if (preserveExactIdentity
+                && definition.Resolution is not null)
+            {
+                return MalformedGenericIdentity(
+                    definition,
+                    arguments);
+            }
             return $"{NamedTypeIdentity(definition, preserveExactIdentity)}{{{string.Join(",", arguments.Select(type => TypeIdentity(type, preserveExactIdentity)))}}}";
+        }
 
         var result = new StringBuilder();
         string ns = definition.Resolution?.Type.Namespace ?? definition.Namespace;
@@ -488,11 +506,7 @@ public static class CallGraphMemberResolver
         for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++)
         {
             if (segmentIndex > 0)
-                result.Append(
-                    preserveExactIdentity
-                        && definition.Resolution is not null
-                            ? '+'
-                            : '.');
+                result.Append('.');
             string segment = segments[segmentIndex];
             result.Append(
                 !preserveExactIdentity
@@ -517,6 +531,24 @@ public static class CallGraphMemberResolver
             result.Append('}');
         }
         return result.ToString();
+    }
+
+    static string MalformedGenericIdentity(
+        TypeRef definition,
+        ImmutableArray<TypeRef> arguments)
+    {
+        var builder = new StringBuilder("#G");
+        Append(builder, NamedTypeIdentity(
+            definition,
+            preserveExactIdentity: true));
+        builder.Append(arguments.Length).Append(':');
+        foreach (TypeRef argument in arguments)
+        {
+            Append(builder, TypeIdentity(
+                argument,
+                preserveExactIdentity: true));
+        }
+        return builder.ToString();
     }
 
     // Only a canonical trailing `N is an arity suffix; a literal backtick stays in
