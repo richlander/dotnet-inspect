@@ -12,6 +12,7 @@ public class SearchService
     private const int MaxPrefixSearchPages = 32;
     private readonly HttpClient _client;
     private readonly NuGetFetchOptions _options;
+    private readonly bool _retryTransientRequests;
     private readonly string _searchUrl;
 
     /// <summary>
@@ -29,11 +30,25 @@ public class SearchService
         HttpClient client,
         string? searchUrl,
         NuGetFetchOptions options)
+        : this(
+            client,
+            searchUrl,
+            options,
+            retryTransientRequests: false)
+    {
+    }
+
+    internal SearchService(
+        HttpClient client,
+        string? searchUrl,
+        NuGetFetchOptions options,
+        bool retryTransientRequests)
     {
         ArgumentNullException.ThrowIfNull(client);
         _client = client;
         _searchUrl = searchUrl ?? NuGetClient.NuGetOrgSearchUrl;
         _options = NuGetFetchOptions.Validate(options);
+        _retryTransientRequests = retryTransientRequests;
     }
 
     /// <summary>
@@ -104,29 +119,36 @@ public class SearchService
                 "The search endpoint is not a usable absolute HTTP or HTTPS URL.");
         }
 
-        SearchResponse? parsed = await operation.RunRequestAsync(
-            async requestToken =>
+        async Task<SearchResponse?> SendAsync(
+            CancellationToken requestToken)
+        {
+            using HttpRequestMessage request =
+                NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
+            if (auth is not null)
             {
-                using HttpRequestMessage request =
-                    NuGetHttpRequest.CreateGetPreservingPathAndQuery(url);
-                if (auth is not null)
-                {
-                    request.Headers.Authorization = auth;
-                }
+                request.Headers.Authorization = auth;
+            }
 
-                using HttpResponseMessage response = await _client.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    requestToken).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
+            using HttpResponseMessage response = await _client.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                requestToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
 
-                return await NuGetMetadataReader.ReadResponseAsync(
-                    response,
-                    NuGetApi.DeserializeSearchResponseAsync,
-                    _options,
-                    _client.Timeout,
-                    requestToken).ConfigureAwait(false);
-            }).ConfigureAwait(false);
+            return await NuGetMetadataReader.ReadResponseAsync(
+                response,
+                NuGetApi.DeserializeSearchResponseAsync,
+                _options,
+                _client.Timeout,
+                requestToken).ConfigureAwait(false);
+        }
+
+        SearchResponse? parsed = _retryTransientRequests
+            ? await NuGetHttpRetry.RunRequestAsync(
+                operation,
+                SendAsync).ConfigureAwait(false)
+            : await operation.RunRequestAsync(
+                SendAsync).ConfigureAwait(false);
 
         // A null document is not an empty result set. Reporting it as one would
         // hide the failure behind a successful-looking zero-result search. The
