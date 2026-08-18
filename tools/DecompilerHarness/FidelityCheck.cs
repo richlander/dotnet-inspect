@@ -289,7 +289,7 @@ static class FidelityCheck
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         RegisterSourceContext(source, metadata);
         var render = Renderer(source, lowered: false);
-        var accessibility = RuntimeReferences(assemblyPath).Accessibility;
+        var references = RuntimeReferences(assemblyPath);
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -301,7 +301,7 @@ static class FidelityCheck
                 source,
                 typeHandle,
                 render,
-                accessibility,
+                references,
                 typeFilter))
                 names.Add(fullType);
         }
@@ -714,6 +714,9 @@ static class FidelityCheck
 
     sealed record ReferenceSet(ImmutableArray<MetadataReference> Metadata, SignatureSpellability Accessibility);
 
+    static readonly ConcurrentDictionary<string, Lazy<IReadOnlySet<string>?>>
+        VisibleReferenceTypes = new(StringComparer.OrdinalIgnoreCase);
+
     sealed record CompilerReference(ResolvedAssemblyReference Reference, bool PlatformTrusted);
 
     sealed class CompilerReferenceResolver(IEnumerable<CompilerReference> references) : IAssemblyReferenceResolver
@@ -976,7 +979,7 @@ static class FidelityCheck
                             source,
                             typeHandle,
                             render,
-                            references.Accessibility,
+                            references,
                             assemblyTargets.ContainsKey))
                         {
                             if (pending.Count == 0)
@@ -1194,7 +1197,7 @@ static class FidelityCheck
     /// </summary>
     static (string FullType, List<Entry> Entries)? CollectType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        Func<IrFunction, DecompilerResult> render, SignatureSpellability accessibility,
+        Func<IrFunction, DecompilerResult> render, ReferenceSet references,
         int maxEntries = int.MaxValue,
         Func<string, bool>? typeFilter = null,
         Func<EvaluationMethod, bool>? methodFilter = null)
@@ -1209,7 +1212,7 @@ static class FidelityCheck
             typeHandle,
             typeDef,
             render,
-            accessibility,
+            references,
             maxEntries,
             typeFilter,
             methodFilter);
@@ -1226,7 +1229,7 @@ static class FidelityCheck
     static (string FullType, List<Entry> Entries)? CollectTypeEntries(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         TypeDefinition typeDef, Func<IrFunction, DecompilerResult> render,
-        SignatureSpellability accessibility, int maxEntries = int.MaxValue,
+        ReferenceSet references, int maxEntries = int.MaxValue,
         Func<string, bool>? typeFilter = null,
         Func<EvaluationMethod, bool>? methodFilter = null)
     {
@@ -1286,7 +1289,7 @@ static class FidelityCheck
                 mh,
                 targeted: methodFilter is not null,
                 isPrimaryConstructor: primaryConstructor is not null,
-                accessibility);
+                references);
             entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, requiresAsync, primaryConstructor, requiredNamespaces, wholeMember?.Text, wholeMember?.Namespaces), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
@@ -1435,7 +1438,7 @@ static class FidelityCheck
     /// </summary>
     static IEnumerable<(string FullType, List<Entry> Entries, TypeDefinitionHandle Handle)> EnumerateTypeTree(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        Func<IrFunction, DecompilerResult> render, SignatureSpellability accessibility,
+        Func<IrFunction, DecompilerResult> render, ReferenceSet references,
         Func<string, bool>? typeFilter = null)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -1446,7 +1449,7 @@ static class FidelityCheck
             typeHandle,
             typeDef,
             render,
-            accessibility,
+            references,
             typeFilter: typeFilter) is { } collected)
             yield return (collected.FullType, collected.Entries, typeHandle);
         foreach (var nested in typeDef.GetNestedTypes())
@@ -1456,7 +1459,7 @@ static class FidelityCheck
                 source,
                 nested,
                 render,
-                accessibility,
+                references,
                 typeFilter))
                 yield return result;
     }
@@ -1477,7 +1480,7 @@ static class FidelityCheck
             source,
             typeHandle,
             render,
-            references.Accessibility,
+            references,
             maxEntries,
             typeFilter,
             methodFilter) is not var (fullType, entries)
@@ -2624,7 +2627,7 @@ static class FidelityCheck
                 source,
                 typeHandle,
                 render,
-                references.Accessibility,
+                references,
                 remaining,
                 typeFilter)
             : timings.MeasureCollectRender(() => CollectType(
@@ -2633,7 +2636,7 @@ static class FidelityCheck
                 source,
                 typeHandle,
                 render,
-                references.Accessibility,
+                references,
                 remaining,
                 typeFilter));
         if (collected is not var (fullType, entries) || entries.Count == 0)
@@ -2916,9 +2919,10 @@ static class FidelityCheck
         // (`List<T>`, `PEReader`, `AssemblyReferenceHandle`), assuming the standard
         // decompiler-output using set. The skeleton imports the same namespaces so
         // those short names bind instead of failing CS0246 and poisoning the
-        // whole-module compile. Kept conservative — only widely-assumed, low-
-        // collision namespaces — so a body's short name resolves without
-        // introducing CS0104 ambiguity.
+        // whole-module compile. Explicit-interface whole-member admission checks
+        // this complete set against the compilation references before accepting a
+        // bare interface identifier; the effective-using regressions in
+        // FidelityCheckGeneratedFilterTests gate that coupling.
         var usings = new SortedSet<string>(SkeletonUsings, StringComparer.Ordinal);
         if (isolatedTargetNamespaces is not null)
             foreach (var ns in isolatedTargetNamespaces)
@@ -3413,6 +3417,13 @@ static class FidelityCheck
                 return true;
             }
         }
+        if (HasVisibleChildNamespaceCollision(
+                reader,
+                visibleNamespaces,
+                identifier))
+        {
+            return true;
+        }
 
         foreach (var parameterHandle in typeDef.GetGenericParameters())
         {
@@ -3442,6 +3453,43 @@ static class FidelityCheck
 
         bool IsProtectedQualifier(string candidate)
             => candidate == root || candidate == identifier;
+    }
+
+    static bool HasVisibleChildNamespaceCollision(
+        MetadataReader reader,
+        IReadOnlySet<string> visibleNamespaces,
+        string identifier)
+    {
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            if (IsVisibleChildNamespace(reader.GetString(type.Namespace)))
+                return true;
+        }
+        foreach (var handle in reader.TypeReferences)
+        {
+            var type = reader.GetTypeReference(handle);
+            if (IsVisibleChildNamespace(reader.GetString(type.Namespace)))
+                return true;
+        }
+
+        return false;
+
+        bool IsVisibleChildNamespace(string candidate)
+        {
+            foreach (string visible in visibleNamespaces)
+            {
+                string child = visible.Length == 0
+                    ? identifier
+                    : $"{visible}.{identifier}";
+                if (candidate == child
+                    || candidate.StartsWith($"{child}.", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 
     internal static bool HasNestedOrBaseInterfaceIdentifierCollision(
@@ -3482,13 +3530,10 @@ static class FidelityCheck
     static bool HasImportedInterfaceQualifierCollision(
         MetadataReader reader,
         TypeDefinitionHandle interfaceHandle,
-        string interfaceName,
-        IReadOnlyCollection<string> namespaces)
+        string identifier,
+        IReadOnlySet<string> namespaces,
+        ImmutableArray<MetadataReference> references)
     {
-        int firstSeparator = interfaceName.IndexOf('.');
-        string root = firstSeparator < 0 ? interfaceName : interfaceName[..firstSeparator];
-        int lastSeparator = interfaceName.LastIndexOf('.');
-        string identifier = lastSeparator < 0 ? interfaceName : interfaceName[(lastSeparator + 1)..];
         foreach (var handle in reader.TypeDefinitions)
         {
             if (handle == interfaceHandle)
@@ -3496,7 +3541,7 @@ static class FidelityCheck
             var candidate = reader.GetTypeDefinition(handle);
             if (candidate.GetDeclaringType().IsNil
                 && namespaces.Contains(reader.GetString(candidate.Namespace))
-                && IsProtectedQualifier(StripArity(reader.GetString(candidate.Name))))
+                && StripArity(reader.GetString(candidate.Name)) == identifier)
             {
                 return true;
             }
@@ -3505,16 +3550,76 @@ static class FidelityCheck
         {
             var candidate = reader.GetTypeReference(handle);
             if (namespaces.Contains(reader.GetString(candidate.Namespace))
-                && IsProtectedQualifier(StripArity(reader.GetString(candidate.Name))))
+                && StripArity(reader.GetString(candidate.Name)) == identifier)
             {
                 return true;
             }
         }
 
-        return false;
+        foreach (var reference in references.OfType<PortableExecutableReference>())
+        {
+            if (reference.FilePath is not { } path)
+                continue;
+            var visibleTypes = VisibleReferenceTypes.GetOrAdd(
+                path,
+                static candidatePath => new Lazy<IReadOnlySet<string>?>(
+                    () => ReadVisibleReferenceTypes(candidatePath),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+            if (visibleTypes is null)
+                return true;
+            foreach (string @namespace in namespaces)
+            {
+                if (visibleTypes.Contains($"{@namespace}\0{identifier}"))
+                    return true;
+            }
+        }
 
-        bool IsProtectedQualifier(string candidate)
-            => candidate == root || candidate == identifier;
+        return false;
+    }
+
+    static IReadOnlySet<string>? ReadVisibleReferenceTypes(string path)
+    {
+        var types = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(path));
+            if (!pe.HasMetadata)
+                return types;
+            var reader = pe.GetMetadataReader();
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                var type = reader.GetTypeDefinition(handle);
+                if (type.GetDeclaringType().IsNil
+                    && type.Attributes.HasFlag(TypeAttributes.Public))
+                {
+                    types.Add(
+                        $"{reader.GetString(type.Namespace)}\0"
+                        + StripArity(reader.GetString(type.Name)));
+                }
+            }
+            foreach (var handle in reader.ExportedTypes)
+            {
+                var type = reader.GetExportedType(handle);
+                if (type.Implementation.Kind != HandleKind.ExportedType
+                    && type.Attributes.HasFlag(TypeAttributes.Public))
+                {
+                    types.Add(
+                        $"{reader.GetString(type.Namespace)}\0"
+                        + StripArity(reader.GetString(type.Name)));
+                }
+            }
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or BadImageFormatException
+                or UnauthorizedAccessException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            return null;
+        }
+
+        return types;
     }
 
     static string CombineInheritance(string baseClause, string interfaceClause)
@@ -4323,9 +4428,10 @@ static class FidelityCheck
     /// assumes (the same family <see cref="ValidityCheck"/> uses) plus the
     /// metadata namespaces that dominate the changed-method corpus
     /// (<c>System.Reflection.Metadata</c> handle/struct types, <c>PEReader</c>,
-    /// immutable collections). Conservative on purpose: every entry is a
-    /// widely-assumed, low-collision namespace, so adding it resolves short names
-    /// without risking CS0104 ambiguity.
+    /// immutable collections). Product whole members that emit a bare explicit-
+    /// interface identifier must prove that identifier remains unique under this
+    /// set; <c>TryRenderTargetMember_DeclinesEffectiveUsingAndChildNamespaceCollisions</c>
+    /// gates the coupling.
     /// </summary>
     static readonly string[] SkeletonUsings =
     [
@@ -4529,7 +4635,7 @@ static class FidelityCheck
             mh,
             targeted,
             isPrimaryConstructor,
-            RuntimeReferences(source.Path).Accessibility);
+            RuntimeReferences(source.Path));
 
     static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
         PEReader pe,
@@ -4537,7 +4643,7 @@ static class FidelityCheck
         MethodDefinitionHandle mh,
         bool targeted,
         bool isPrimaryConstructor,
-        SignatureSpellability accessibility)
+        ReferenceSet references)
     {
         int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(mh);
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
@@ -4553,7 +4659,7 @@ static class FidelityCheck
             var candidates = SingleMethodExplicitInterfaceTargets(
                 reader,
                 typeDef,
-                accessibility,
+                references.Accessibility,
                 body => body == mh);
             if (candidates.Count != 1)
             {
@@ -4582,33 +4688,67 @@ static class FidelityCheck
             : RenderTypeMemberBatch(pe, entry.Type, entry.Member, source);
         if (result is null || !result.IsComplete || result.Text is null)
             return null;
+        var parsedMember = SyntaxFactory.ParseMemberDeclaration(result.Text);
+        if (parsedMember is null
+            || explicitInterfaceTarget is not null
+                && parsedMember.ContainsDiagnostics)
+            return null;
         if (explicitInterfaceTarget is { } target)
         {
+            if (parsedMember is not MethodDeclarationSyntax
+                {
+                    ExplicitInterfaceSpecifier.Name: IdentifierNameSyntax interfaceIdentifier
+                })
+            {
+                return null;
+            }
+
+            int separator = target.InterfaceName.LastIndexOf('.');
+            string expectedIdentifier = separator < 0
+                ? target.InterfaceName
+                : target.InterfaceName[(separator + 1)..];
+            if (interfaceIdentifier.Identifier.ValueText != expectedIdentifier)
+                return null;
+
             var reader = pe.GetMetadataReader();
-            if (HasImportedInterfaceQualifierCollision(
-                reader,
-                target.Interface,
-                target.InterfaceName,
-                result.Namespaces))
+            var effectiveNamespaces = new HashSet<string>(
+                SkeletonUsings,
+                StringComparer.Ordinal);
+            effectiveNamespaces.UnionWith(result.Namespaces);
+            var interfaceDef = reader.GetTypeDefinition(target.Interface);
+            var bodyDef = reader.GetTypeDefinition(
+                reader.GetMethodDefinition(target.Body).GetDeclaringType());
+            string interfaceNamespace = reader.GetString(interfaceDef.Namespace);
+            string bodyNamespace = reader.GetString(bodyDef.Namespace);
+            bool interfaceNamespaceIsVisible =
+                interfaceNamespace.Length == 0
+                || bodyNamespace == interfaceNamespace
+                || bodyNamespace.StartsWith(
+                    $"{interfaceNamespace}.",
+                    StringComparison.Ordinal);
+            if (!interfaceNamespaceIsVisible
+                && HasImportedInterfaceQualifierCollision(
+                    reader,
+                    target.Interface,
+                    interfaceIdentifier.Identifier.ValueText,
+                    effectiveNamespaces,
+                    references.Metadata))
             {
                 return null;
             }
         }
         if (entry.Member.Kind == "constructor"
-            && SyntaxFactory.ParseMemberDeclaration(result.Text)
-                is not ConstructorDeclarationSyntax)
+            && parsedMember is not ConstructorDeclarationSyntax)
         {
             return null;
         }
         if (entry.Member.Kind == "finalizer"
-            && SyntaxFactory.ParseMemberDeclaration(result.Text)
-                is not DestructorDeclarationSyntax)
+            && parsedMember is not DestructorDeclarationSyntax)
         {
             return null;
         }
         if (entry.Member.Kind == "explicit-interface-implementation"
-            && SyntaxFactory.ParseMemberDeclaration(result.Text)
-                is not MethodDeclarationSyntax
+            && parsedMember is not MethodDeclarationSyntax
                 {
                     ExplicitInterfaceSpecifier.Name: IdentifierNameSyntax
                 })
@@ -4616,14 +4756,12 @@ static class FidelityCheck
             return null;
         }
         if (entry.Member.Kind == "property"
-            && SyntaxFactory.ParseMemberDeclaration(result.Text)
-                is not (PropertyDeclarationSyntax or IndexerDeclarationSyntax))
+            && parsedMember is not (PropertyDeclarationSyntax or IndexerDeclarationSyntax))
         {
             return null;
         }
         if (entry.Member.Kind == "event"
-            && SyntaxFactory.ParseMemberDeclaration(result.Text)
-                is not EventDeclarationSyntax)
+            && parsedMember is not EventDeclarationSyntax)
         {
             return null;
         }

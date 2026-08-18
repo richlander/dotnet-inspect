@@ -50,6 +50,131 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesEffectiveUsingAndChildNamespaceCollisions()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace Contracts
+            {
+                public interface ICloneable { object Clone(); }
+
+                public sealed class SameNamespace : ICloneable
+                {
+                    object ICloneable.Clone() => new SameNamespace();
+                }
+            }
+
+            namespace App
+            {
+                public sealed class SkeletonUsingCollision : Contracts.ICloneable
+                {
+                    object Contracts.ICloneable.Clone() => new SkeletonUsingCollision();
+                }
+            }
+
+            namespace N
+            {
+                public interface I { void M(); }
+            }
+
+            namespace T
+            {
+                public sealed class ChildNamespaceCollision : N.I
+                {
+                    void N.I.M() { }
+                }
+            }
+
+            namespace T.I
+            {
+                public sealed class X { }
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+            foreach (var (typeName, methodName, admitted) in new[]
+            {
+                ("SameNamespace", "Contracts.ICloneable.Clone", true),
+                ("SkeletonUsingCollision", "Contracts.ICloneable.Clone", false),
+                ("ChildNamespaceCollision", "N.I.M", false)
+            })
+            {
+                var type = reader.GetTypeDefinition(Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                        == typeName));
+                var method = Assert.Single(
+                    type.GetMethods(),
+                    handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                        == methodName);
+                foreach (bool targeted in new[] { true, false })
+                {
+                    var rendered = FidelityCheck.TryRenderTargetMember(
+                        pe,
+                        source,
+                        method,
+                        targeted,
+                        isPrimaryConstructor: false);
+                    if (admitted)
+                        Assert.True(
+                            rendered.HasValue,
+                            $"{typeName}: targeted={targeted}");
+                    else
+                        Assert.Null(rendered);
+                }
+            }
+
+            var targetedResults = FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName is "Contracts.SameNamespace"
+                    or "App.SkeletonUsingCollision"
+                    or "T.ChildNamespaceCollision",
+                candidate => candidate.Method.EndsWith(
+                    "Clone",
+                    StringComparison.Ordinal)
+                    || candidate.Method.EndsWith(".M", StringComparison.Ordinal));
+            var batchResults = FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName is "Contracts.SameNamespace"
+                    or "App.SkeletonUsingCollision"
+                    or "T.ChildNamespaceCollision");
+            foreach (var results in new[] { targetedResults, batchResults })
+            {
+                var control = Assert.Single(
+                    results,
+                    result => result.Type == "Contracts.SameNamespace"
+                        && result.Method == "Contracts.ICloneable.Clone");
+                Assert.True(control.UsedProductWholeMember);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, control.Status);
+                foreach (string typeName in new[]
+                {
+                    "App.SkeletonUsingCollision",
+                    "T.ChildNamespaceCollision"
+                })
+                {
+                    Assert.False(Assert.Single(
+                        results,
+                        result => result.Type == typeName
+                            && (result.Method.EndsWith(
+                                    "Clone",
+                                    StringComparison.Ordinal)
+                                || result.Method.EndsWith(
+                                    ".M",
+                                    StringComparison.Ordinal)))
+                        .UsedProductWholeMember);
+                }
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void Evaluate_SkipsGeneratedCodeTypesAndMethods()
     {
         var assemblyPath = CompileFixture("""
@@ -82,6 +207,103 @@ public class FidelityCheckGeneratedFilterTests
             Assert.Contains(results, result => result.Type == "Mixed" && result.Method == "Visible");
             Assert.DoesNotContain(results, result => result.Type == "GeneratedType");
             Assert.DoesNotContain(results, result => result.Type == "Mixed" && result.Method == "Hidden");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesSyntaxInvalidMetadataName()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "fixture.dll");
+        try
+        {
+            var assemblyName = new AssemblyName("InvalidExplicitMethodName");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+            var interfaceType = module.DefineType(
+                "I",
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract);
+            var declaration = interfaceType.DefineMethod(
+                "bad-name",
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                typeof(void),
+                Type.EmptyTypes);
+            var type = module.DefineType(
+                "C",
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                typeof(object),
+                [interfaceType]);
+            type.DefineDefaultConstructor(MethodAttributes.Public);
+            var body = type.DefineMethod(
+                "I.bad-name",
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                typeof(void),
+                Type.EmptyTypes);
+            body.GetILGenerator().Emit(OpCodes.Ret);
+            type.DefineMethodOverride(body, declaration);
+            interfaceType.CreateType();
+            type.CreateType();
+            assemblyBuilder.Save(assemblyPath);
+
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            var typeDef = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "C"));
+            var method = Assert.Single(
+                typeDef.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "I.bad-name");
+            using var source = MetadataSource.Open(assemblyPath);
+
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: true,
+                isPrimaryConstructor: false));
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: false,
+                isPrimaryConstructor: false));
+
+            foreach (var results in new[]
+            {
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "C",
+                    candidate => candidate.Method == "I.bad-name"),
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "C")
+            })
+            {
+                Assert.False(Assert.Single(
+                    results,
+                    result => result.Method == "I.bad-name")
+                    .UsedProductWholeMember);
+            }
         }
         finally
         {
@@ -993,7 +1215,9 @@ public class FidelityCheckGeneratedFilterTests
                     targeted: true,
                     isPrimaryConstructor: false);
                 if (admitted)
-                    Assert.NotNull(rendered);
+                    Assert.True(
+                        rendered.HasValue,
+                        $"{typeName}: targeted=true");
                 else
                     Assert.Null(rendered);
             }
