@@ -1,6 +1,5 @@
 using ILInspector.Decompiler.Pipeline;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
+using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -91,65 +90,86 @@ public class StructuringGotoScopeTests
     }
 
     [Fact]
+    public void ClonedSiblingTargetWithNestedSiblingTransferStaysOutOfDiamond()
+    {
+        var nestedTransfer = Block(41, new Branch(50));
+        var blocks = new[]
+        {
+            Block(0, new ConditionalBranch(Cond(), 30)),
+            Block(10, new ConditionalBranch(Cond(), 40)),
+            Block(20, new Branch(60)),
+            Block(30, new Throw(new Constant(null, TypeRef.CoreLib("System", "Object")))),
+            Block(
+                40,
+                new IfStatement(Cond(), nestedTransfer, null),
+                new Return(new Constant(4, Int32))),
+            Block(50, new Return(new Constant(5, Int32))),
+            Block(60, new Return(new Constant(6, Int32))),
+        };
+
+        var function = Structured(blocks);
+
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), statement => statement.HasElse);
+        Assert.Contains(
+            function.Descendants.OfType<Branch>(),
+            branch => branch.TargetOffset == 50);
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("goto IL_0032;", output);
+        Assert.Contains("IL_0032:", output);
+    }
+
+    [Fact]
+    public void ReverseNestedSiblingTransferStaysOutOfDiamond()
+    {
+        var nestedTransfer = Block(21, new Branch(10));
+        var blocks = new[]
+        {
+            Block(0, new ConditionalBranch(Cond(), 20)),
+            Block(
+                10,
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new Branch(30)),
+            Block(
+                20,
+                new IfStatement(Cond(), nestedTransfer, null),
+                new StoreLocal(0, Int32, new Constant(2, Int32))),
+            Block(30, new Return(new LoadLocal(0, Int32))),
+        };
+
+        var function = Structured(blocks);
+
+        Assert.DoesNotContain(function.Descendants.OfType<IfStatement>(), statement => statement.HasElse);
+        Assert.Contains(
+            function.Descendants.OfType<Branch>(),
+            branch => branch.TargetOffset == 10);
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("goto IL_000A;", output);
+        Assert.Contains("IL_000A:", output);
+    }
+
+    [Fact]
     public void CompilerTwoCaseSwitchReturnKeepsDissolvingCrossArmStructured()
     {
-        const string source = """
-            using System;
-
-            namespace CompilerFixtures;
-
-            public static class TwoCaseSwitchFixture
+        var (function, output) = GeneratedFixtureRunner.RunWithMaterializedFixtures(
+            [GeneratedFixtureCatalog.MinimalSwitchTwoCaseLowersIf],
+            options: null,
+            (_, assemblyPath) =>
             {
-                public static object M(int index, object first, object second)
-                {
-                    switch (index)
-                    {
-                        case 0:
-                            return first;
-                        case 1:
-                            return second;
-                        default:
-                            throw new IndexOutOfRangeException();
-                    }
-                }
-            }
-            """;
-        string path = Path.Combine(Path.GetTempPath(), $"two-case-switch-{Guid.NewGuid():N}.dll");
+                using var metadata = MetadataSource.OpenWithoutSymbols(assemblyPath);
+                var imported = IrImporter.Import(
+                    metadata,
+                    "GeneratedFixtures.MinimalSwitchTwoCaseLowersIf.Class1",
+                    "Method1");
+                Assert.NotNull(imported);
 
-        try
-        {
-            var cancellationToken = TestContext.Current.CancellationToken;
-            var compilation = CSharpCompilation.Create(
-                "TwoCaseSwitchFixture",
-                [CSharpSyntaxTree.ParseText(
-                    source,
-                    new CSharpParseOptions(LanguageVersion.Preview),
-                    cancellationToken: cancellationToken)],
-                RoslynTestReferences.TrustedPlatform,
-                new CSharpCompilationOptions(
-                    OutputKind.DynamicallyLinkedLibrary,
-                    optimizationLevel: OptimizationLevel.Release));
-            var emit = compilation.Emit(path, cancellationToken: cancellationToken);
-            Assert.True(
-                emit.Success,
-                "fixture compilation failed:\n"
-                    + string.Join("\n", emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
+                IrPasses.Run(imported!, IrPasses.Default, PassContext.None);
+                imported!.CheckInvariant();
+                return (imported, CSharpPrinter.Print(imported).Output!);
+            });
 
-            using var metadata = MetadataSource.OpenWithoutSymbols(path);
-            var function = IrImporter.Import(metadata, "CompilerFixtures.TwoCaseSwitchFixture", "M");
-            Assert.NotNull(function);
-
-            IrPasses.Run(function!, IrPasses.Default, PassContext.None);
-            function!.CheckInvariant();
-
-            Assert.Empty(function.Descendants.OfType<Branch>());
-            Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
-            Assert.Contains("throw new IndexOutOfRangeException();", CSharpPrinter.Print(function).Output);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+        Assert.Contains("return \"many\";", output);
     }
 
     [Fact]

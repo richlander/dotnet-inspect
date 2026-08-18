@@ -185,6 +185,12 @@ public sealed class StructuringPass : IIrPass
     const int MaxTerminatorChildren = 3;
     const int MaxInlineRegionBlocks = 4;
 
+    readonly record struct PastRegionInlineProof(
+        bool CanInline,
+        Block? Body,
+        int InlinedStop,
+        int[] TransferTargetOffsets);
+
     /// <summary>
     /// Per-container facts precomputed before any mutation: the block list and
     /// offset map, the offsets reached by explicit control transfers (so an
@@ -226,8 +232,11 @@ public sealed class StructuringPass : IIrPass
         public int? RegionExitLeaveTarget { get; init; }
         public required HashSet<int> RetainedMergeIndices { get; init; }
         // Validation and build query the same immutable source shape. Reuse the
-        // clone proof instead of rebuilding its short target region twice.
-        public Dictionary<(int Target, int OwningGuard), bool> PastRegionInlineCache { get; } = [];
+        // clone proof and its surviving transfers instead of rebuilding its
+        // short target region twice.
+        public Dictionary<(int Target, int OwningGuard), PastRegionInlineProof> PastRegionInlineCache { get; } = [];
+        public Dictionary<int, bool> LeaveRetryLoopHeadCache { get; } = [];
+        public Dictionary<int, Block?> PastRegionTerminatorCache { get; } = [];
         /// <summary>
         /// Permits retained gotos before the end of a range only after the
         /// canonical loop planner proves their targets stay inside that loop.
@@ -820,6 +829,18 @@ public sealed class StructuringPass : IIrPass
         {
             foreach (int target in TransferTargets(node))
                 yield return target;
+        }
+    }
+
+    static IEnumerable<int> TransferTargets(IEnumerable<IrNode> roots)
+    {
+        foreach (var root in roots)
+        {
+            foreach (var node in root.DescendantsOutsideNestedFunctions.Prepend(root))
+            {
+                foreach (int target in TransferTargets(node))
+                    yield return target;
+            }
         }
     }
 
@@ -1475,15 +1496,13 @@ public sealed class StructuringPass : IIrPass
     /// <summary>
     /// True when a block inside the arm range <c>[start, stop)</c> is the target
     /// of a control transfer located <em>outside</em> that range that survives to
-    /// print as a label-stranding <c>goto</c> — an unraised <see cref="SwitchBranch"/>
-    /// dispatch or a surviving <see cref="Leave"/> (printed <c>goto IL_xxxx; // leave</c>).
-    /// <see cref="Validate"/> treats a surviving SwitchBranch as fallthrough and a
-    /// surviving in-container leave as a kept goto, so either prints a jump that
-    /// nothing dissolves. Wrapping one of its targets inside an arm's braces would
-    /// strand that jump as one <em>into</em> the braced scope (CS0159), so the
-    /// region must stay flat. Conditional/unconditional guards are not checked:
-    /// they are either consumed by the if/diamond shape or inlined as shared
-    /// terminators, so they leave no surviving label.
+    /// print as a label-stranding <c>goto</c> — an unraised
+    /// <see cref="SwitchBranch"/>, a surviving <see cref="Leave"/> (printed
+    /// <c>goto IL_xxxx; // leave</c>), or a branch already nested inside a
+    /// structured shell. Wrapping one of its targets inside an arm's braces
+    /// would strand that jump as one <em>into</em> the braced scope (CS0159),
+    /// so the region must stay flat. Direct conditional/unconditional guards
+    /// are excluded because the candidate shape consumes them.
     /// </summary>
     static bool RegionExternallyEntered(Ctx ctx, int start, int stop)
     {
@@ -1505,16 +1524,31 @@ public sealed class StructuringPass : IIrPass
                 }
             }
 
-            // A surviving leave whose target stays inside this container keeps its
-            // label and prints `goto IL_xxxx; // leave`; if that target is inside the
-            // arm, nesting it would jump into scope. EhStructuringPass runs before
-            // this pass, so a leave may already be nested inside a TryCatch/TryFinally
-            // shell in this source block — scan current-function descendants, not just children.
+            // Earlier passes may already have nested a surviving transfer inside
+            // an EH or structured shell. Unlike the source block's direct guard,
+            // that transfer is not consumed by this candidate.
             foreach (var leave in blocks[source].DescendantsOutsideNestedFunctions.OfType<Leave>())
             {
                 if (ctx.FlowFacts.OffsetToIndex.TryGetValue(leave.TargetOffset, out int leaveTarget)
                     && leaveTarget >= start && leaveTarget < stop)
                     return true;
+            }
+            foreach (var transfer in blocks[source].DescendantsOutsideNestedFunctions)
+            {
+                if (transfer is not (Branch or ConditionalBranch)
+                    || ReferenceEquals(transfer.Parent, blocks[source]))
+                {
+                    continue;
+                }
+                foreach (int targetOffset in TransferTargets(transfer))
+                {
+                    if (ctx.FlowFacts.OffsetToIndex.TryGetValue(targetOffset, out int target)
+                        && target >= start
+                        && target < stop)
+                    {
+                        return true;
+                    }
+                }
             }
         }
         return false;
@@ -1724,17 +1758,27 @@ public sealed class StructuringPass : IIrPass
     }
 
     static bool CanInlinePastRegionTarget(Ctx ctx, int target, int owningGuard)
+        => GetPastRegionInlineProof(ctx, target, owningGuard).CanInline;
+
+    static PastRegionInlineProof GetPastRegionInlineProof(Ctx ctx, int target, int owningGuard)
     {
         var key = (target, owningGuard);
-        if (ctx.PastRegionInlineCache.TryGetValue(key, out bool cached))
+        if (ctx.PastRegionInlineCache.TryGetValue(key, out var cached))
             return cached;
 
+        Block? body = null;
+        int inlinedStop = -1;
         bool result = !ctx.FlowFacts.UnconditionalTargets.Contains(ctx.Blocks[target].StartOffset)
             && !ctx.FallenInto.Contains(ctx.Blocks[target].StartOffset)
-            && TryBuildPastRegionTarget(ctx, target, out var body, out int inlinedStop)
+            && TryBuildPastRegionTarget(ctx, target, out body, out inlinedStop)
             && CanDuplicatePastRegionBody(ctx, target, inlinedStop, owningGuard, body);
-        ctx.PastRegionInlineCache[key] = result;
-        return result;
+        var proof = new PastRegionInlineProof(
+            result,
+            result ? body : null,
+            result ? inlinedStop : -1,
+            result ? TransferTargets(body!).Distinct().ToArray() : []);
+        ctx.PastRegionInlineCache[key] = proof;
+        return proof;
     }
 
     static bool CanClonePastRegionTerminator(Ctx ctx, int target)
@@ -1746,23 +1790,56 @@ public sealed class StructuringPass : IIrPass
             && CanClonePastRegionTerminator(ctx, target);
 
     static bool IsLeaveRetryLoopHead(Ctx ctx, int head)
-        => FindLeaveRetryLoopShape(ctx, head, ctx.Blocks.Count) is not null;
+    {
+        if (ctx.LeaveRetryLoopHeadCache.TryGetValue(head, out bool cached))
+            return cached;
+
+        bool result = FindLeaveRetryLoopShape(ctx, head, ctx.Blocks.Count) is not null;
+        ctx.LeaveRetryLoopHeadCache[head] = result;
+        return result;
+    }
 
     static bool TryClonePastRegionTerminator(Ctx ctx, int target, out Block body)
     {
-        body = null!;
+        if (ctx.PastRegionTerminatorCache.TryGetValue(target, out var cached))
+        {
+            body = cached is null ? null! : CloneBlock(cached);
+            return cached is not null;
+        }
+
         if (target < 0 || target >= ctx.Blocks.Count)
+        {
+            ctx.PastRegionTerminatorCache[target] = null;
+            body = null!;
             return false;
+        }
         if (!IsTerminatorBlock(ctx.Blocks[target]) || ContainsConstructorChainCall(ctx.Blocks[target]))
+        {
+            ctx.PastRegionTerminatorCache[target] = null;
+            body = null!;
             return false;
+        }
 
         var inlineCtx = CreateInlineCtx([CloneBlock(ctx.Blocks[target])]);
         if (!Validate(inlineCtx, 0, 1, joinIndex: 1, breakTarget: null, continueTarget: null))
+        {
+            ctx.PastRegionTerminatorCache[target] = null;
+            body = null!;
             return false;
+        }
 
-        body = BuildRegion(inlineCtx, 0, 1, joinIndex: 1, breakTarget: null, continueTarget: null);
-        SuppressClonedSourceLabels(body);
-        return !inlineCtx.CandidateOwnershipUnsafe;
+        var snapshot = BuildRegion(inlineCtx, 0, 1, joinIndex: 1, breakTarget: null, continueTarget: null);
+        SuppressClonedSourceLabels(snapshot);
+        if (inlineCtx.CandidateOwnershipUnsafe)
+        {
+            ctx.PastRegionTerminatorCache[target] = null;
+            body = null!;
+            return false;
+        }
+
+        ctx.PastRegionTerminatorCache[target] = snapshot;
+        body = CloneBlock(snapshot);
+        return true;
     }
 
     static bool TryBuildPastRegionTarget(Ctx ctx, int target, out Block body, out int inlinedStop)
@@ -2042,13 +2119,13 @@ public sealed class StructuringPass : IIrPass
                     bool directConditionalDissolves = transfer is ConditionalBranch
                         && ReferenceEquals(transfer.Parent, block)
                         && ReferenceEquals(block.Children.LastOrDefault(), transfer)
-                        && (IsInlinableTerminator(ctx, target)
-                            || (target > trueStart
-                                && (CanClonePastRegionTerminatorInLeaveRetryLoop(
-                                        ctx,
-                                        continueTarget,
-                                        target)
-                                    || CanInlinePastRegionTarget(ctx, target, source))));
+                        && CanDissolveSiblingEntry(
+                            ctx,
+                            target,
+                            source,
+                            trueStart,
+                            join,
+                            continueTarget);
                     if (!directConditionalDissolves)
                         return true;
                 }
@@ -2056,6 +2133,53 @@ public sealed class StructuringPass : IIrPass
         }
         return false;
     }
+
+    static bool CanDissolveSiblingEntry(
+        Ctx ctx,
+        int target,
+        int owningGuard,
+        int siblingStart,
+        int siblingEnd,
+        int? continueTarget)
+    {
+        if (IsInlinableTerminator(ctx, target)
+            && !TransfersIntoRange(
+                ctx,
+                TransferTargets(ctx.TerminatorSnapshots[target]),
+                siblingStart,
+                siblingEnd))
+        {
+            return true;
+        }
+        if (target <= siblingStart)
+            return false;
+
+        if (continueTarget is { } head
+            && IsLeaveRetryLoopHead(ctx, head)
+            && TryClonePastRegionTerminator(ctx, target, out var retryBody)
+            && !TransfersIntoRange(
+                ctx,
+                TransferTargets(retryBody),
+                siblingStart,
+                siblingEnd))
+        {
+            return true;
+        }
+
+        var proof = GetPastRegionInlineProof(ctx, target, owningGuard);
+        return proof.CanInline
+            && !TransfersIntoRange(ctx, proof.TransferTargetOffsets, siblingStart, siblingEnd);
+    }
+
+    static bool TransfersIntoRange(
+        Ctx ctx,
+        IEnumerable<int> targetOffsets,
+        int rangeStart,
+        int rangeEnd)
+        => targetOffsets.Any(targetOffset =>
+            ctx.FlowFacts.OffsetToIndex.TryGetValue(targetOffset, out int target)
+            && target >= rangeStart
+            && target < rangeEnd);
 
     /// <summary>
     /// A block that is a short <c>throw</c>/<c>return</c>-only terminator: at
@@ -2720,10 +2844,13 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
-                    if (target > stop
-                        && TryBuildPastRegionTarget(ctx, target, out var pastRegionArm, out int inlinedStop)
-                        && CanDuplicatePastRegionBody(ctx, target, inlinedStop, i, pastRegionArm))
+                    var pastRegionProof = target > stop
+                        ? GetPastRegionInlineProof(ctx, target, i)
+                        : default;
+                    if (pastRegionProof.CanInline)
                     {
+                        var pastRegionArm = CloneBlock(pastRegionProof.Body!);
+                        int inlinedStop = pastRegionProof.InlinedStop;
                         result.Add(new IfStatement(condition, pastRegionArm, null));
                         var clonedOriginals = new List<int>(inlinedStop - target);
                         for (int drop = target; drop < inlinedStop; drop++)
@@ -2759,6 +2886,8 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
+                    if (target > stop)
+                        throw new InvalidOperationException("Validated past-region target was not buildable.");
                     if (FindRegionExitDiamond(ctx, falseStart, target, stop, joinIndex, continueTarget) is { } exitDiamond)
                     {
                         var thenArm = BuildRegion(ctx, falseStart, target, joinIndex: exitDiamond.ExitTarget, breakTarget, continueTarget, regionExitBreakTarget);

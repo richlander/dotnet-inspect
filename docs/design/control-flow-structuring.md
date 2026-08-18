@@ -685,17 +685,23 @@ only when the post-dominator machinery is proven.
    managed-reference fixed forms share that scope proof.
 
    Nested diamond recovery additionally proves that no surviving transfer from
-   the first arm enters the sibling arm before treating them as `if`/`else`.
+   either arm enters the sibling arm before treating them as `if`/`else`.
    Direct conditional transfers whose terminator or short past-region target is
    provably cloned into the first arm are exempt because they dissolve rather
-   than enter the sibling. The same proof gates ordinary and region-exit
-   diamonds. This preserves the non-low-surrogate fallback in
+   than enter the sibling, but only when the clone has no surviving nested
+   transfer back into that sibling range. The same proof gates ordinary and
+   region-exit diamonds. This preserves the non-low-surrogate fallback in
    `OrdinalCasing.ToUpperOrdinal` and `ToLowerOrdinal`, whose third predecessor
    is valid C# fallthrough rather than an `else` arm, without flattening
    compiler-lowered two-case return switches. Retained loops reject
    already-raised `Switch` nodes and nested `return`/`throw` exits as well as raw
    switch/EH transfers, because the block-level post-dominator model does not
    represent those descendant exits.
+
+   Leave-retry loops cache their proven head classification and past-region
+   terminator clone before building mutates the source blocks. This prevents a
+   detached guard from making a validated return edge disappear while the loop
+   body is materialized.
 
    `CanonicalWhileWithRetainedBodyMergeRaises` and
    `CoreLibUrlDecodeWithRetainedBodyMergeRaises` gate the accepted synthetic
@@ -714,8 +720,14 @@ only when the post-dominator machinery is proven.
    cross-arm predecessor proof;
    `RegionExitDiamondWithCrossArmTransferStaysFlat` gates its region-exit
    sibling, while
+   `ClonedSiblingTargetWithNestedSiblingTransferStaysOutOfDiamond` proves a
+   cloned target cannot carry a nested goto back into the sibling scope, and
+   `ReverseNestedSiblingTransferStaysOutOfDiamond` proves the reverse sibling
+   direction stays flat as well;
    `CompilerTwoCaseSwitchReturnKeepsDissolvingCrossArmStructured` proves a
    cloned transfer is not over-rejected;
+   `LeaveRetryPastRegionExitUsesValidatedCloneAfterHeadDetaches` proves a
+   validated leave-retry exit survives build-time detachment;
    `RetainedBodyMergeWithEmptyLandingPadStaysFlat` and
    `RetainedBodyMergeNestedBelowItsGotoStaysFlat` prove every surviving goto
    still has a printable, lexically visible target label;
