@@ -92,30 +92,28 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         try
         {
             var chain = handles[..consumedNodes];
-            var root = reader.GetTypeDefinition(chain[0]);
             var leaf = reader.GetTypeDefinition(handle);
             string assembly = reader.IsAssembly
                 ? CanonicalSelf(reader)
                 : "";
-            string ns = reader.GetString(root.Namespace);
-            if (CreateDefinitionName(
-                    reader,
-                    ns,
-                    chain,
-                    static (metadata, item) =>
-                        metadata.GetTypeDefinition(item).Name)
-                is not { } definitionName)
+            MetadataTypeDefinitionNameReadResult nameResult =
+                MetadataTypeDefinitionName.Read(reader, handle);
+            if (nameResult
+                is MetadataTypeDefinitionNameReadResult.Rejected rejected)
             {
                 return TypeRef.Unsupported(
-                    "type-definition metadata name is incomplete");
+                    "type-definition metadata name is incomplete",
+                    rejected.Failure);
             }
+            var definitionName =
+                ((MetadataTypeDefinitionNameReadResult.Read)nameResult).Name;
             return TypeRef.DefinitionWithResolution(
                 assembly,
-                ns,
+                definitionName.Namespace,
                 definitionName.ToNestedMetadataName(),
                 HintFrom(rawTypeKind),
                 InlineArrayFact(reader, leaf),
-                EnclosingTypeFrom(reader, chain, assembly, ns),
+                EnclosingTypeFrom(assembly, definitionName),
                 definitionName,
                 resolutionAssembly: null);
         }
@@ -146,9 +144,6 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
         try
         {
-            var chain = handles[..consumedNodes];
-            var root = reader.GetTypeReference(chain[0]);
-            string ns = reader.GetString(root.Namespace);
             AssemblyReferenceIdentity? resolutionAssembly =
                 terminal.Kind == HandleKind.AssemblyReference
                     ? AssemblyReferenceIdentity.From(
@@ -158,20 +153,20 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             string assembly = resolutionAssembly is not null
                 ? CanonicalReferenced(resolutionAssembly)
                 : "";
-            if (CreateDefinitionName(
-                    reader,
-                    ns,
-                    chain,
-                    static (metadata, item) =>
-                        metadata.GetTypeReference(item).Name)
-                is not { } definitionName)
+            MetadataTypeDefinitionNameReadResult nameResult =
+                MetadataTypeDefinitionName.Read(reader, handle);
+            if (nameResult
+                is MetadataTypeDefinitionNameReadResult.Rejected rejected)
             {
                 return TypeRef.Unsupported(
-                    "type-reference metadata name is incomplete");
+                    "type-reference metadata name is incomplete",
+                    rejected.Failure);
             }
+            var definitionName =
+                ((MetadataTypeDefinitionNameReadResult.Read)nameResult).Name;
             return TypeRef.DefinitionWithResolution(
                 assembly,
-                ns,
+                definitionName.Namespace,
                 definitionName.ToNestedMetadataName(),
                 HintFrom(rawTypeKind),
                 MetadataFactState.Unknown,
@@ -187,31 +182,12 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         }
     }
 
-    static MetadataTypeDefinitionName? CreateDefinitionName<THandle>(
-        MetadataReader reader,
-        string @namespace,
-        ReadOnlySpan<THandle> chain,
-        Func<MetadataReader, THandle, StringHandle> getName)
-        where THandle : struct
-    {
-        var segments = ImmutableArray.CreateBuilder<string>(chain.Length);
-        foreach (THandle handle in chain)
-            segments.Add(reader.GetString(getName(reader, handle)));
-        return MetadataTypeDefinitionName.Create(
-            @namespace,
-            segments.MoveToImmutable())
-            is MetadataTypeDefinitionNameResult.Valid valid
-                ? valid.Name
-                : null;
-    }
-
     /// <summary>
     /// The immediately-enclosing type for a nested type-definition chain
-    /// (<paramref name="chain"/>, root-to-leaf per
-    /// <see cref="MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain"/>),
-    /// built from the metadata nesting relationship the chain already proved —
-    /// never by parsing the leaf's <c>+</c>-joined <see cref="TypeRef.Name"/>.
-    /// Null when the leaf is not nested (a chain of length 1).
+    /// built from the exact structured name the metadata relationship already
+    /// proved — never by parsing the leaf's <c>+</c>-joined
+    /// <see cref="TypeRef.Name"/>.
+    /// Null when the leaf is not nested (a structured name with one segment).
     /// </summary>
     /// <remarks>
     /// Only this single level is materialized. It is the sole level any consumer
@@ -222,31 +198,27 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     /// untrusted metadata.
     /// </remarks>
     static TypeRef? EnclosingTypeFrom(
-        MetadataReader reader,
-        ReadOnlySpan<TypeDefinitionHandle> chain,
         string assembly,
-        string ns)
+        MetadataTypeDefinitionName definitionName)
     {
-        if (chain.Length <= 1)
+        if (definitionName.Segments.Length <= 1)
             return null;
 
-        MetadataTypeDefinitionName? definitionName =
-            CreateDefinitionName(
-                reader,
-                ns,
-                chain[..^1],
-                static (metadata, item) =>
-                    metadata.GetTypeDefinition(item).Name);
-        return definitionName is null
+        MetadataTypeDefinitionNameResult parent =
+            MetadataTypeDefinitionName.Create(
+                definitionName.Namespace,
+                definitionName.Segments.RemoveAt(
+                    definitionName.Segments.Length - 1));
+        return parent is not MetadataTypeDefinitionNameResult.Valid valid
             ? null
             : TypeRef.DefinitionWithResolution(
                 assembly,
-                ns,
-                definitionName.ToNestedMetadataName(),
+                valid.Name.Namespace,
+                valid.Name.ToNestedMetadataName(),
                 ValueTypeHint.Unknown,
                 MetadataFactState.Unknown,
                 enclosingType: null,
-                definitionName,
+                valid.Name,
                 resolutionAssembly: null);
     }
 
