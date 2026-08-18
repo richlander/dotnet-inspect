@@ -490,10 +490,82 @@ public class ApiCommand
     internal static int ExecuteStructuralTypeDiscovery(
         ApiOptions options,
         SectionPipeline<ApiType> memberPipeline)
+        => ExecuteStructuralTypeDiscovery(
+            options,
+            GetTypeDocumentSchema(options),
+            memberPipeline.SelectableSectionNames,
+            memberPipeline.GetCostAnnotations(),
+            memberPipeline.GetCategoryMap());
+
+    private static int ExecuteAmbiguousMemberStructuralDiscovery(
+        ApiOptions options)
+    {
+        SectionPipeline<ApiType>[] pipelines =
+        [
+            ApiMemberSectionDescriptors.CreatePipeline(),
+            ApiMemberOverloadSectionDescriptors.CreatePipeline(),
+            ApiMemberDetailSectionDescriptors.CreatePipeline()
+        ];
+        var schema = GetTypeDocumentSchema(
+            usesDetailPipeline: true,
+            usesOverloadInventoryPipeline: true);
+        var sectionNames = pipelines
+            .SelectMany(pipeline => pipeline.SelectableSectionNames)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        Dictionary<string, string> annotations =
+            new(StringComparer.Ordinal);
+        Dictionary<string, List<string>> categoryLists =
+            new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, HashSet<string>> categorySets =
+            new(StringComparer.OrdinalIgnoreCase);
+        foreach (var pipeline in pipelines)
+        {
+            foreach (var (section, annotation) in pipeline.GetCostAnnotations())
+                annotations.TryAdd(section, annotation);
+
+            foreach (var (category, sections) in pipeline.GetCategoryMap())
+            {
+                if (!categoryLists.TryGetValue(category, out var list))
+                {
+                    list = [];
+                    categoryLists.Add(category, list);
+                    categorySets.Add(
+                        category,
+                        new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                }
+
+                var set = categorySets[category];
+                foreach (var section in sections)
+                {
+                    if (set.Add(section))
+                        list.Add(section);
+                }
+            }
+        }
+
+        var categories = categoryLists.ToDictionary(
+            pair => pair.Key,
+            pair => pair.Value.ToArray(),
+            StringComparer.OrdinalIgnoreCase);
+        return ExecuteStructuralTypeDiscovery(
+            options,
+            schema,
+            sectionNames,
+            annotations,
+            categories);
+    }
+
+    private static int ExecuteStructuralTypeDiscovery(
+        ApiOptions options,
+        DocumentSchema fullSchema,
+        IReadOnlyCollection<string> sectionNames,
+        IReadOnlyDictionary<string, string> sectionCostAnnotations,
+        IReadOnlyDictionary<string, string[]> sectionCategories)
     {
         var schema = RestrictSchemaToSections(
-            GetTypeDocumentSchema(options),
-            memberPipeline.SelectableSectionNames);
+            fullSchema,
+            sectionNames);
         schema = ToQueryableSchema(schema, options);
         return DiscoverOutput.Execute(
             options.Discover,
@@ -503,8 +575,8 @@ public class ApiCommand
             tsv: options.Tsv,
             jsonl: options.Jsonl,
             markdown: !options.Tabular && !options.JsonOutput,
-            sectionCostAnnotations: memberPipeline.GetCostAnnotations(),
-            sectionCategories: memberPipeline.GetCategoryMap(),
+            sectionCostAnnotations: sectionCostAnnotations,
+            sectionCategories: sectionCategories,
             projection: options);
     }
 
@@ -642,9 +714,13 @@ public class ApiCommand
             var structuralOptions =
                 (ApiOptions?)structuralDetailOptions ?? options;
             if (singleTypeMode)
-                return (null!, ExecuteStructuralTypeDiscovery(
-                    structuralOptions,
-                    memberPipeline));
+            {
+                return (null!, memberPipelineRequiresLookup
+                    ? ExecuteAmbiguousMemberStructuralDiscovery(options)
+                    : ExecuteStructuralTypeDiscovery(
+                        structuralOptions,
+                        memberPipeline));
+            }
 
             var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
@@ -1468,6 +1544,13 @@ public class ApiCommand
     }
 
     internal static DocumentSchema GetTypeDocumentSchema(ApiOptions options)
+        => GetTypeDocumentSchema(
+            ApiMemberSectionPipelines.UsesDetailPipeline(options),
+            ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options));
+
+    private static DocumentSchema GetTypeDocumentSchema(
+        bool usesDetailPipeline,
+        bool usesOverloadInventoryPipeline)
     {
         var schema = MergeSchemas(
             ApiViewContext.Default.GetSchemaInfo<TypeView>()!.ToDocumentSchema(),
@@ -1482,8 +1565,6 @@ public class ApiCommand
         // those schema entries because the type pipeline exposes whole-type code sections.
         var detailSchema = MergeSchemas(schema,
             ApiViewContext.Default.GetSchemaInfo<MemberCodeView>()!.ToDocumentSchema());
-        var usesDetailPipeline = ApiMemberSectionPipelines.UsesDetailPipeline(options);
-        var usesOverloadInventoryPipeline = ApiMemberSectionPipelines.UsesOverloadInventoryPipeline(options);
         if (!usesDetailPipeline && !usesOverloadInventoryPipeline)
             return detailSchema;
         if (usesDetailPipeline)

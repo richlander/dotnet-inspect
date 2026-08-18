@@ -27,7 +27,7 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
-    public async Task PreResolvedDottedStructuralDiscovery_UsesTheLookupSelectedPipeline()
+    public async Task PreResolvedDottedStructuralDiscovery_UsesTheOfflineUnion()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
         {
@@ -40,9 +40,9 @@ public class MemberCallGraphSectionTests
             TipLevel = TipLevel.Quiet,
         }));
 
-        Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Output);
-        Assert.Contains($"Section '{SectionNames.MethodGroups}' not found.", result.Error);
+        Assert.Equal(0, result.ExitCode);
+        Assert.NotEqual(string.Empty, result.Output.Trim());
+        Assert.Empty(result.Error);
     }
 
     [Fact]

@@ -8786,7 +8786,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_DottedOverloadInventory_SchemaUsesActualPipeline()
+    public async Task Member_DottedStructuralSchema_UsesOfflinePipelineUnion()
     {
         var broadOnly = await RunAppAsync(
             "member", "System.Text.Json.JsonSerializer.Serialize",
@@ -8797,27 +8797,24 @@ public partial class CommandExecutionTests
             "--platform", "System.Text.Json",
             "-D", SectionNames.SourceLocations, "--schema", "--count", "--tips", "q");
 
-        Assert.Equal(1, broadOnly.Exit);
-        Assert.Equal(string.Empty, broadOnly.Output.Trim());
-        Assert.Contains($"Section '{SectionNames.MethodGroups}' not found.", broadOnly.Error, StringComparison.Ordinal);
+        Assert.Equal(0, broadOnly.Exit);
+        Assert.NotEqual(string.Empty, broadOnly.Output.Trim());
+        Assert.Empty(broadOnly.Error);
         Assert.Equal(0, sourceLocations.Exit);
         Assert.NotEqual(string.Empty, sourceLocations.Output.Trim());
+        Assert.Empty(sourceLocations.Error);
     }
 
     [Fact]
-    public async Task Member_DottedStructuralSchema_IgnoresSelectLikeExplicitMemberForm()
+    public async Task Member_DottedStructuralSchema_IgnoresSelectAndReportsUnion()
     {
         var dotted = await RunAppAsync(
             "member", "System.String.Clone", "--platform", "System.Runtime",
             "-D", "--schema", "-S", "Bogus", "--tips", "q");
-        var explicitMember = await RunAppAsync(
-            "member", "System.String", "--platform", "System.Runtime",
-            "-m", "Clone", "-D", "--schema", "-S", "Bogus", "--tips", "q");
-
         Assert.Equal(0, dotted.Exit);
-        Assert.Equal(explicitMember.Exit, dotted.Exit);
-        Assert.Equal(explicitMember.Output, dotted.Output);
-        Assert.Equal(explicitMember.Error, dotted.Error);
+        Assert.Contains(SectionNames.MethodGroups, dotted.Output);
+        Assert.Contains(SectionNames.AnnotatedSource, dotted.Output);
+        Assert.Empty(dotted.Error);
         Assert.DoesNotContain("Bogus", dotted.Error, StringComparison.Ordinal);
     }
 
