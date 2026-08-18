@@ -15,8 +15,9 @@ internal static class PromotionWorkflowContract
         "actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1";
     private const string UploadArtifactAction =
         "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
-    private const string IndexCheck =
-        "test -f artifacts/inspect-web-publish/wwwroot/index.html";
+    private const string DeploymentFilesCheck =
+        "test -f artifacts/inspect-web-publish/wwwroot/index.html && " +
+        "test -f artifacts/inspect-web-publish/wwwroot/staticwebapp.config.json";
 
     internal static void AssertMutations(string repository)
     {
@@ -97,8 +98,8 @@ internal static class PromotionWorkflowContract
             "Promotion workflow contract accepted download before revalidation.");
         AssertMutationRejected(
             stagingWorkflow,
-            $"        run: {IndexCheck}\n",
-            $"        run: {IndexCheck} || true\n",
+            $"        run: {DeploymentFilesCheck}\n",
+            $"        run: {DeploymentFilesCheck} || true\n",
             ValidateStaging,
             "Staging workflow contract accepted disabled artifact verification.");
         AssertMutationRejected(
@@ -373,7 +374,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(
             verify,
             "run",
-            IndexCheck,
+            DeploymentFilesCheck,
             "artifact verification step");
 
         YamlMappingNode deployStep =
@@ -624,7 +625,7 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(
             verify,
             "run",
-            IndexCheck,
+            DeploymentFilesCheck,
             "staging artifact verification step");
 
         YamlMappingNode deployStep =
