@@ -4728,6 +4728,7 @@ public class LibraryBodyIndexTests
                 Math.Abs(overlayAllocation) < OverlaySize / 2,
                 $"Method-evidence acquisition allocated {overlayAllocation:N0} overlay-dependent bytes " +
                 $"for an unused resolver (baseline: {baseline:N0}; padded: {padded:N0}).");
+            Assert.Equal(0, resolver.ResolveCalls);
 
             long AllocatedFor(string path)
             {
