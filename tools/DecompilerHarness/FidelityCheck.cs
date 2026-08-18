@@ -6434,17 +6434,36 @@ static class FidelityCheck
             return true;
         return expected.Assembly is { } expectedAssembly
             && actual.Assembly is { } actualAssembly
-            && IsPlatformAssembly(expectedAssembly.Name)
-            && IsPlatformAssembly(actualAssembly.Name);
+            && IsPlatformAssembly(expectedAssembly)
+            && IsPlatformAssembly(actualAssembly);
     }
 
-    static bool IsPlatformAssembly(string name)
-        => name is "mscorlib" or "netstandard" or "System"
-            || name.StartsWith("System.", StringComparison.Ordinal)
-            || name == "Microsoft.CSharp"
-            || name.StartsWith(
+    internal static bool ExplicitInterfaceDeclarationEqualsForTest(
+        ApiExplicitInterfaceDeclarationContext expected,
+        ApiExplicitInterfaceDeclarationContext actual) =>
+        ExplicitInterfaceDeclarationEquals(expected, actual);
+
+    static bool IsPlatformAssembly(
+        AssemblyReferenceIdentity assembly)
+        => PlatformKeys.IsPlatform(assembly.PublicKeyToken)
+            && (assembly.Name.Equals(
+                    "mscorlib",
+                    StringComparison.OrdinalIgnoreCase)
+            || assembly.Name.Equals(
+                    "netstandard",
+                    StringComparison.OrdinalIgnoreCase)
+            || assembly.Name.Equals(
+                    "System",
+                    StringComparison.OrdinalIgnoreCase)
+            || assembly.Name.StartsWith(
+                "System.",
+                StringComparison.OrdinalIgnoreCase)
+            || assembly.Name.Equals(
+                "Microsoft.CSharp",
+                StringComparison.OrdinalIgnoreCase)
+            || assembly.Name.StartsWith(
                 "Microsoft.VisualBasic",
-                StringComparison.Ordinal);
+                StringComparison.OrdinalIgnoreCase));
 
     static string CorrespondenceMethodName(
         string metadataName,

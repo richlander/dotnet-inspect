@@ -440,6 +440,42 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void MethodImplWithoutImplementedInterface_IsNotExplicit()
+    {
+        byte[] image = BuildUndottedExplicitAccessorImage(
+            addInterfaceImplementation: false);
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(peReader);
+
+        Assert.Empty(Assert.Single(surface.Types).Members);
+    }
+
+    [Fact]
+    public void AbstractInstanceMethodImplWithoutFinal_IsNotExplicit()
+    {
+        byte[] image = BuildUndottedExplicitAccessorImage(
+            accessorAttributes:
+                MethodAttributes.Private
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.SpecialName);
+        using var stream = new MemoryStream(
+            image,
+            writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(peReader);
+
+        Assert.Empty(Assert.Single(surface.Types).Members);
+    }
+
+    [Fact]
     public void ExplicitMethodImplProvenance_StopsDecodeAmplification()
     {
         byte[] image = BuildUndottedExplicitAccessorImage(
@@ -1382,7 +1418,14 @@ public sealed class ApiSurfaceExtractorBoundsTests
 
     static byte[] BuildUndottedExplicitAccessorImage(
         int declarationCount = 1,
-        int interfaceNameLength = 6)
+        int interfaceNameLength = 6,
+        bool addInterfaceImplementation = true,
+        MethodAttributes accessorAttributes =
+            MethodAttributes.Private
+            | MethodAttributes.Final
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot
+            | MethodAttributes.SpecialName)
     {
         var metadata = Metadata("ExplicitAccessor");
         AssemblyReferenceHandle contracts =
@@ -1408,11 +1451,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddBlob(accessorSignature);
         MethodDefinitionHandle accessor =
             metadata.AddMethodDefinition(
-                MethodAttributes.Private
-                    | MethodAttributes.Final
-                    | MethodAttributes.Virtual
-                    | MethodAttributes.NewSlot
-                    | MethodAttributes.SpecialName,
+                accessorAttributes,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString("get_Value"),
                 signature,
@@ -1447,6 +1486,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
                     contracts,
                     metadata.GetOrAddString("Contracts"),
                     metadata.GetOrAddString(interfaceName));
+            if (addInterfaceImplementation)
+                metadata.AddInterfaceImplementation(type, contract);
             MemberReferenceHandle declaration =
                 metadata.AddMemberReference(
                     contract,

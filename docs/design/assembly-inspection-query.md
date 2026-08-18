@@ -417,7 +417,14 @@ unless property or event MethodSemantics identify them as accessors. Explicit-in
 remain explicit-interface-implementation members because their private property or event rows do
 not independently represent the public interface contract. When selected for compile-back,
 explicit-interface methods, properties, and events retain their interface clause and valid C#
-declaration shape. Event raiser and other semantic
+declaration shape. An unresolved external MethodImpl declaration is accepted as interface
+evidence only when its structured definition identity also appears in the containing type's
+InterfaceImpl rows; a private body shape alone cannot turn an external class slot into an
+interface member. Valid abstract MethodImpl bodies are retained for interfaces that re-abstract
+inherited default members, and constructed interface qualifiers are decoded with the containing
+type's generic-parameter names. Compile-back provenance keeps non-platform assembly identity
+exact; facade/core-library correspondence is normalized only when both assembly references carry
+trusted platform key tokens. Event raiser and other semantic
 methods remain method members because `ApiMember` has no event-token slots through which their
 bodies could otherwise remain addressable.
 `DirectDefinition_CarriesAccessibilityAndConstructorFacts` gates the copied declaration facts,
@@ -440,7 +447,12 @@ methods and accessors,
 `SkeletonOmitsUnconstructibleExternalBaseForPlainMethod` gates fail-closed compile-back
 consumption. `Extract_PreservesOrdinaryAccessorPrefixedMethods` is the direct Metadata gate for
 MethodSemantics-based accessor exclusion, and `Extract_PreservesEventRaiserAndOtherMethods` gates
-the event semantic-method boundary.
+the event semantic-method boundary. `MethodImplWithoutImplementedInterface_IsNotExplicit`,
+`AbstractInstanceMethodImplWithoutFinal_IsNotExplicit`,
+`Extract_UsesContainingGenericParameterInExplicitQualifier`,
+`Extract_RetainsReabstractedInterfaceMethodImpls`, and
+`FidelityLookup_NormalizesOnlyTrustedPlatformProvenance` gate the MethodImpl and provenance
+authentication rules above.
 
 A per-generation type-request budget bounds both discovery
 (`ResolutionPlan_BoundsCollectedTypeRequests`) and authentication dependencies

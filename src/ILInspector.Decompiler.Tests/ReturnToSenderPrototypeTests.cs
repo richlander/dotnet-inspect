@@ -6133,6 +6133,65 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void FidelityLookup_NormalizesOnlyTrustedPlatformProvenance()
+    {
+        MetadataTypeDefinitionName definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "System",
+                    ["IContract"])).Name;
+        var trustedFacade =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "System.Runtime",
+                    new Version(10, 0, 0, 0),
+                    null,
+                    "b03f5f7f11d50a3a"),
+                "System.IContract");
+        var trustedCoreLibrary =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "System.Private.CoreLib",
+                    new Version(10, 0, 0, 0),
+                    null,
+                    "7cec85d7bea7798e"),
+                "System.IContract");
+        var spoofedFacade =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "System.ContractsA",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null),
+                "System.IContract");
+        var spoofedCoreLibrary =
+            new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.External,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "System.ContractsB",
+                    new Version(2, 0, 0, 0),
+                    "fr",
+                    null),
+                "System.IContract");
+
+        Assert.True(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                trustedFacade,
+                trustedCoreLibrary));
+        Assert.False(
+            FidelityCheck.ExplicitInterfaceDeclarationEqualsForTest(
+                spoofedFacade,
+                spoofedCoreLibrary));
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_MatchesSourceBySignatureWhenDeclarationOrderDiffers()
     {
         // The compiled assembly declares Pick(int) before Pick(string); the source slice

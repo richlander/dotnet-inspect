@@ -523,6 +523,70 @@ public class ApiMemberIdentityTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Extract_UsesContainingGenericParameterInExplicitQualifier()
+    {
+        using var stream = File.OpenRead(
+            typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+
+        var type = surface.Types.Single(
+            type => type.Kind == "class"
+                && type.Name.Contains(
+                nameof(OpenGenericExplicitPropertyFixture<int>),
+                StringComparison.Ordinal));
+        var property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property"
+                && member.Name.EndsWith(".Item", StringComparison.Ordinal));
+        var declaration = Assert.Single(
+            Assert.IsType<ApiExplicitInterfaceProvenance>(
+                property.ExplicitInterfaceProvenance)
+            .Declarations);
+
+        Assert.Contains(
+            $"{nameof(IOpenGenericExplicitPropertyFixture<int>)}<TValue>",
+            declaration.InterfaceTypeName,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "<T0>",
+            declaration.InterfaceTypeName,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Extract_RetainsReabstractedInterfaceMethodImpls()
+    {
+        using var stream = File.OpenRead(
+            typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader);
+
+        var instance = surface.Types.Single(
+            type => type.Name.EndsWith(
+                $".{nameof(IReabstractInstanceFixture)}",
+                StringComparison.Ordinal));
+        var instanceMember = Assert.Single(instance.Members);
+        Assert.Equal(
+            "explicit-interface-implementation",
+            instanceMember.Kind);
+        Assert.NotNull(instanceMember.ExplicitInterfaceProvenance);
+
+        var @static = surface.Types.Single(
+            type => type.Name.EndsWith(
+                $".{nameof(IReabstractStaticFixture)}",
+                StringComparison.Ordinal));
+        var staticMember = Assert.Single(@static.Members);
+        Assert.Equal(
+            "explicit-interface-implementation",
+            staticMember.Kind);
+        Assert.True(staticMember.IsStatic);
+        Assert.NotNull(staticMember.ExplicitInterfaceProvenance);
+    }
+
     [Theory]
     // main uses a single combined depth counter over '<'/'>'/'('/')' , so an F#
     // quoted name like ``x<)`` (emitted verbatim as "System.Int32 x<)") relies on
@@ -684,5 +748,41 @@ public class ApiMemberIdentityTests
         IGenericExplicitPropertyFixture<int>
     {
         int IGenericExplicitPropertyFixture<int>.Item => 42;
+    }
+
+    interface IOpenGenericExplicitPropertyFixture<T>
+    {
+        T Item { get; }
+    }
+
+    sealed class OpenGenericExplicitPropertyFixture<TValue> :
+        IOpenGenericExplicitPropertyFixture<TValue>
+    {
+        TValue IOpenGenericExplicitPropertyFixture<TValue>.Item =>
+            default!;
+    }
+
+    public interface IReabstractInstanceBaseFixture
+    {
+        void M()
+        {
+        }
+    }
+
+    public interface IReabstractInstanceFixture :
+        IReabstractInstanceBaseFixture
+    {
+        abstract void IReabstractInstanceBaseFixture.M();
+    }
+
+    public interface IReabstractStaticBaseFixture
+    {
+        static virtual int Value => 1;
+    }
+
+    public interface IReabstractStaticFixture :
+        IReabstractStaticBaseFixture
+    {
+        static abstract int IReabstractStaticBaseFixture.Value { get; }
     }
 }
