@@ -4,8 +4,8 @@
 > point for choosing a type, member, or API identity shape. This document owns
 > the details below.
 
-`ImplementationDiff` is the product-side decompiled C# + IL/body + authored
-Source diff projection in
+`ImplementationDiff` is the product-side decompiled C# + IL/body + PDB Source
+diff projection in
 `ILInspector.Research`. It is the reusable implementation-diff component for
 the CLI, ReturnToSender, harnesses, and other consumers that need one
 member-centric change model instead of separate C# and IL renderers.
@@ -22,7 +22,7 @@ family.
 - `ILInspector.ILDiff` owns IL/body diff production and display rows
   through `IlBodyDiff`, `IlAssemblyDiff`, and `IlDiffPrinter`.
 - `ILInspector.Research` owns the join. `ImplementationDiff` compares assemblies
-  with decompiled C# and IL/body mechanisms, accepts checksum-gated authored
+  with decompiled C# and IL/body mechanisms, accepts checksum-gated PDB-source
   line inspections from Services, groups changes by `ResearchSubjectKey`, and
   exposes typed display rows and unified lines without reformatting producer
   wording.

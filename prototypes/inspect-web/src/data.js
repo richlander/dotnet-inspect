@@ -368,15 +368,15 @@ export function graphTargetNavigationDisposition(candidate, target) {
     : "none";
 }
 
-export function authoredSourceLimitationHtml(source) {
-  if (!source?.authoredLimitation) return "";
-  const escaped = String(source.authoredLimitation)
+export function pdbSourceLimitationHtml(source) {
+  if (!source?.pdbSourceLimitation) return "";
+  const escaped = String(source.pdbSourceLimitation)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
-  return `<span class="graph-source-status">Original source unavailable: ${escaped}</span>`;
+  return `<span class="graph-source-status">PDB source unavailable: ${escaped}</span>`;
 }
 
 export function callGraphDiagnosticsMessage(diagnostics) {

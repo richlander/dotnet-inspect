@@ -5,7 +5,7 @@ import test from "node:test";
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
-  authoredSourceLimitationHtml,
+  pdbSourceLimitationHtml,
   beginSourceRequestState,
   cancelSourceRequestState,
   callGraphAssemblyIdentityMatches,
@@ -664,22 +664,22 @@ test("call graph source identity prefers the structured type definition", () => 
   assert.equal(callGraphTargetMatchesType(target, literal), true);
 });
 
-test("decompiled source discloses the authored-source limitation", () => {
-  const html = authoredSourceLimitationHtml({
-    authoredLimitation: "<img src=x onerror=alert(1)>"
+test("decompiled source discloses the PDB-source limitation", () => {
+  const html = pdbSourceLimitationHtml({
+    pdbSourceLimitation: "<img src=x onerror=alert(1)>"
   });
-  assert.match(html, /Original source unavailable:/);
+  assert.match(html, /PDB source unavailable:/);
   assert.doesNotMatch(html, /<img/);
   assert.match(html, /&lt;img/);
   assert.match(
     appSource,
-    /authoredSourceLimitationHtml\(state\.memberSource\)/);
+    /pdbSourceLimitationHtml\(state\.memberSource\)/);
   assert.match(
     appSource,
-    /authoredSourceLimitationHtml\(state\.typeSource\)/);
+    /pdbSourceLimitationHtml\(state\.typeSource\)/);
   assert.match(
     appSource,
-    /authoredSourceLimitationHtml\(state\.graphSource\)/);
+    /pdbSourceLimitationHtml\(state\.graphSource\)/);
 });
 
 test("history never applies a selection to another coordinate", () => {

@@ -137,7 +137,7 @@ at the command boundary.
 | `HiddenFacts` | offset-keyed annotations used by Facts/overlays | Research |
 | `DecompiledSource` | raised/lowered source and diagnostics | Decompiler / Research |
 | `AnnotatedSource` | raised source plus hidden facts and IL | Research |
-| `OriginalSource` | fetched source slice | Metadata / SourceLink |
+| `PdbSource` | checksum-verified PDB-mapped source slice | Services / SourceLink |
 
 The important rule: a facet has one canonical owner. CLI sections such as
 `Allocation Facts`, `Context: Allocation`, `Facts`, or `Annotated Source` may
@@ -492,6 +492,6 @@ This adopts the step 2 boundary without claiming command-wide reuse: separate
   `library --il-offset` currently returns command errors for required contexts.
 - How should caller-scope assembly resolution move behind assembly inspection
   while source attribution and cross-index composition remain session concerns?
-- Should `OriginalSource` be a method-body facet or remain a SourceLink service
+- Should `PdbSource` be a method-body facet or remain a SourceLink service
   call that CLI composition joins? It is a facet from the user's perspective,
   even if SourceLink owns the fetch.

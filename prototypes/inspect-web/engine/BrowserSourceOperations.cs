@@ -270,8 +270,8 @@ public static partial class BrowserInspectionEngine
             AssemblyMemberSourceEntry.Unavailable unavailable =>
                 throw SourceUnavailable(
                     unavailable.Failure,
-                    unavailable.AuthoredAttempt is { } authored
-                        ? AuthoredLimitation(authored.Lines)
+                    unavailable.PdbAttempt is { } pdb
+                        ? PdbSourceLimitation(pdb.Lines)
                         : null),
             _ => throw new InvalidOperationException(
                 "Unknown assembly member source result."),
@@ -290,8 +290,8 @@ public static partial class BrowserInspectionEngine
             AssemblyTypeSourceEntry.Unavailable unavailable =>
                 throw SourceUnavailable(
                     unavailable.Failure,
-                    unavailable.AuthoredAttempt is { } authored
-                        ? AuthoredLimitation(authored.Lines)
+                    unavailable.PdbAttempt is { } pdb
+                        ? PdbSourceLimitation(pdb.Lines)
                         : null),
             _ => throw new InvalidOperationException(
                 "Unknown assembly type source result."),
@@ -302,17 +302,17 @@ public static partial class BrowserInspectionEngine
         BrowserWorkspaceParticipant participant) =>
         source switch
         {
-            AssemblyMemberSource.Authored authored => new BrowserSource(
-                "original",
-                AuthoredProvenance(authored.Provenance),
-                authored.Inspection.Document?.ResolvedUrl,
+            AssemblyMemberSource.Pdb pdb => new BrowserSource(
+                "pdb",
+                PdbSourceProvenance(pdb.Provenance),
+                pdb.Inspection.Document?.ResolvedUrl,
                 null,
-                authored.Text),
+                pdb.Text),
             AssemblyMemberSource.Decompiled decompiled => new BrowserSource(
                 "decompiled",
                 DecompiledProvenance(participant),
                 null,
-                AuthoredLimitation(decompiled.AuthoredAttempt.Lines),
+                PdbSourceLimitation(decompiled.PdbAttempt.Lines),
                 decompiled.Text),
             _ => throw new InvalidOperationException(
                 "Unknown available member source result."),
@@ -323,35 +323,35 @@ public static partial class BrowserInspectionEngine
         BrowserWorkspaceParticipant participant) =>
         source switch
         {
-            AssemblyTypeSource.Authored authored => new BrowserSource(
-                "original",
-                AuthoredProvenance(authored.Provenance),
-                authored.Inspection.Document?.ResolvedUrl,
+            AssemblyTypeSource.Pdb pdb => new BrowserSource(
+                "pdb",
+                PdbSourceProvenance(pdb.Provenance),
+                pdb.Inspection.Document?.ResolvedUrl,
                 null,
-                authored.Text),
+                pdb.Text),
             AssemblyTypeSource.Decompiled decompiled => new BrowserSource(
                 "decompiled",
                 DecompiledProvenance(participant),
                 null,
-                AuthoredLimitation(decompiled.AuthoredAttempt.Lines),
+                PdbSourceLimitation(decompiled.PdbAttempt.Lines),
                 decompiled.Text),
             _ => throw new InvalidOperationException(
                 "Unknown available type source result."),
         };
 
-    static string AuthoredProvenance(
-        AssemblyAuthoredSourceProvenance provenance)
+    static string PdbSourceProvenance(
+        AssemblyPdbSourceProvenance provenance)
     {
         if (provenance.RepositoryUrl is { Length: > 0 } repository
             && provenance.Revision is { Length: > 0 } revision)
         {
-            return $"Checksum-verified SourceLink source from {repository} at {revision}";
+            return $"PDB-checksum-verified source fetched through SourceLink from {repository} at {revision}";
         }
         if (provenance.RepositoryUrl is { Length: > 0 } repositoryOnly)
-            return $"Checksum-verified SourceLink source from {repositoryOnly}";
+            return $"PDB-checksum-verified source fetched through SourceLink from {repositoryOnly}";
         if (provenance.Revision is { Length: > 0 } revisionOnly)
-            return $"Checksum-verified SourceLink source at {revisionOnly}";
-        return "Checksum-verified SourceLink source";
+            return $"PDB-checksum-verified source fetched through SourceLink at {revisionOnly}";
+        return "PDB-checksum-verified source fetched through SourceLink";
     }
 
     static string DecompiledProvenance(
@@ -359,7 +359,7 @@ public static partial class BrowserInspectionEngine
         $"dotnet-inspect from {participant.Coordinate.PackageId} "
         + $"{participant.Coordinate.Version} {participant.Asset.Path}";
 
-    static string? AuthoredLimitation(
+    static string? PdbSourceLimitation(
         ILInspector.Findings.FindingInspection<string> inspection) =>
         inspection.Value switch
         {
@@ -372,11 +372,11 @@ public static partial class BrowserInspectionEngine
 
     internal static InvalidOperationException SourceUnavailable(
         AssemblySourceFailure failure,
-        string? authoredLimitation = null) =>
+        string? pdbSourceLimitation = null) =>
         new(
             $"{failure.Kind}: {failure.Detail}"
-            + (authoredLimitation is { Length: > 0 }
-                ? $" Original source unavailable: {authoredLimitation}"
+            + (pdbSourceLimitation is { Length: > 0 }
+                ? $" PDB source unavailable: {pdbSourceLimitation}"
                 : ""),
             failure.Error);
 }

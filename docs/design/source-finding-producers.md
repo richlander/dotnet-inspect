@@ -130,10 +130,10 @@ document census, fetches exact bytes through the SSRF-hardened Services path,
 verifies the portable-PDB checksum, extracts the member body, and returns a
 `FindingInspection<string>`. Its type operation resolves only the exact
 `MetadataTypeDefinitionName`, verifies the primary document through the same
-path, and returns the complete authored document with its typed mapping,
-document, and checksum verdict. The PDB correlation retains that structured
-name rather than indexing its non-injective dotted projection, and duplicate
-exact identities are rejected instead of selecting the first row. It does not
+path, and returns the complete checksum-verified PDB document with its typed
+mapping, document, and checksum verdict. The PDB correlation retains that
+structured name rather than indexing its non-injective dotted projection, and
+duplicate exact identities are rejected instead of selecting the first row. It does not
 use SourceLink's simple-name compatibility fallback or case-insensitive
 document inference.
 `MetadataSourceFindingsTests.ExactTypeSourceResolution_IsOrdinalAndDoesNotInferDocuments`
@@ -241,11 +241,11 @@ Metadata reports point lines, CSharpText reports lexical branch ranges, and the
 body slicer selects a branch only when exactly one range contains point
 evidence. It validates both the PDB range endpoints and every point line
 against the verified physical source. Because output remains a slice of the
-original authored text rather than projected text, a selected group wholly
-inside that slice is omitted from a second, boundary-only projection. The
-resulting declaration must remain sliceable with identical boundaries;
-otherwise the slicer refuses the result rather than include a sibling from an
-inactive branch.
+checksum-verified physical source text rather than projected text, a selected
+group wholly inside that slice is omitted from a second, boundary-only
+projection. The resulting declaration must remain sliceable with identical
+boundaries; otherwise the slicer refuses the result rather than include a
+sibling from an inactive branch.
 
 `SourceFetcher` delegates reusable verified bytes to an
 `ISourceContentStore`. Its compatibility constructor retains the desktop

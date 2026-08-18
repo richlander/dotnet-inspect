@@ -206,19 +206,19 @@ public sealed class BrowserEngineBoundaryTests
             StringComparison.Ordinal);
         Assert.Same(cause, adapted.InnerException);
 
-        InvalidOperationException withAuthoredFailure =
+        InvalidOperationException withPdbSourceFailure =
             BrowserInspectionEngine.SourceUnavailable(
                 failure,
                 "The host does not authorize this SourceLink destination.");
         Assert.Contains(
-            "Original source unavailable",
-            withAuthoredFailure.Message,
+            "PDB source unavailable",
+            withPdbSourceFailure.Message,
             StringComparison.Ordinal);
         Assert.Contains(
             "does not authorize",
-            withAuthoredFailure.Message,
+            withPdbSourceFailure.Message,
             StringComparison.Ordinal);
-        Assert.Same(cause, withAuthoredFailure.InnerException);
+        Assert.Same(cause, withPdbSourceFailure.InnerException);
     }
 
     [Fact]
