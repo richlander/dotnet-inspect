@@ -356,7 +356,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
                                 "Dependency",
                                 new Version(1, 0, 0, 0),
                                 "fr",
-                                "0011223344556677"))
+                                "0011223344556677"),
+                            "Contracts.IValue<int>")
                     ]),
         };
 
@@ -365,7 +366,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 + "IValue".Length
                 + "Dependency".Length
                 + "fr".Length
-                + "0011223344556677".Length,
+                + "0011223344556677".Length
+                + "Contracts.IValue<int>".Length,
             ApiSurfaceExtractor.CountRetainedText(withProvenance)
                 - ApiSurfaceExtractor.CountRetainedText(
                     withoutProvenance));

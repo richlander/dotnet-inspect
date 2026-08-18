@@ -1942,25 +1942,39 @@ internal static class CSharpDeclarationWriter
         if (member.ExplicitInterfaceProvenance is { } provenance)
         {
             MetadataTypeDefinitionName? definitionName = null;
+            string? interfaceTypeName = null;
+            bool hasDeclaration = false;
             foreach (ApiExplicitInterfaceDeclarationContext declaration
                 in provenance.Declarations)
             {
                 if (declaration.DefinitionName is not { } candidate
                     || definitionName is not null
-                        && definitionName != candidate)
+                        && definitionName != candidate
+                    || hasDeclaration
+                        && declaration.InterfaceTypeName != interfaceTypeName)
                 {
                     return null;
                 }
                 definitionName = candidate;
+                interfaceTypeName = declaration.InterfaceTypeName;
+                hasDeclaration = true;
             }
 
-            if (definitionName is not null)
+            string? qualifier = interfaceTypeName;
+            if (qualifier is null && definitionName is not null)
             {
-                return TryFormatDefinitionName(
+                qualifier = TryFormatDefinitionName(
                     definitionName,
-                    out string? qualifier)
-                    ? qualifier
+                    out string? formatted)
+                    ? formatted
                     : null;
+            }
+            if (qualifier is not null)
+            {
+                string? alias = ExplicitInterfaceAlias(member.Name);
+                return alias is null
+                    ? qualifier
+                    : $"{alias}::{RemoveAlias(qualifier)}";
             }
         }
 
@@ -1968,6 +1982,22 @@ internal static class CSharpDeclarationWriter
         return memberSeparator > 0
             ? member.Name[..memberSeparator]
             : null;
+    }
+
+    static string? ExplicitInterfaceAlias(string memberName)
+    {
+        int separator = memberName.IndexOf("::", StringComparison.Ordinal);
+        return separator > 0
+            ? memberName[..separator]
+            : null;
+    }
+
+    static string RemoveAlias(string typeName)
+    {
+        int separator = typeName.IndexOf("::", StringComparison.Ordinal);
+        return separator >= 0
+            ? typeName[(separator + 2)..]
+            : typeName;
     }
 
     static string ExplicitInterfaceMemberLeaf(

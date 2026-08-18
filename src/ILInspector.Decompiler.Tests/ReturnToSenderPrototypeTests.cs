@@ -1900,6 +1900,77 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackTargets_UndottedExplicitStructPropertyUsesTypedProvenance()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping undotted MethodImpl regression.");
+            return;
+        }
+
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        var assemblyPath = AssembleIlFixture(
+            ilasm,
+            UndottedExplicitStructPropertyIl,
+            directory,
+            "undottedexplicitstruct");
+        try
+        {
+            using (var stream = File.OpenRead(assemblyPath))
+            using (var peReader = new PEReader(stream))
+            {
+                var reader = peReader.GetMetadataReader();
+                MethodDefinitionHandle accessor = reader.TypeDefinitions
+                    .Select(reader.GetTypeDefinition)
+                    .Single(type => reader.GetString(type.Name) == "Counter")
+                    .GetMethods()
+                    .Single(handle => reader.GetString(
+                        reader.GetMethodDefinition(handle).Name) == "get_Value");
+                Assert.IsType<ApiExplicitInterfaceProvenance>(
+                    FidelityCheck.ExplicitInterfaceProvenance(
+                        peReader,
+                        accessor));
+            }
+
+            var result = Assert.Single(
+                ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget(
+                        "Counter",
+                        "get_Value",
+                        0)],
+                    RoundTripScope.Cluster,
+                    RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}"
+                + $"{Environment.NewLine}{result.Source}");
+            Assert.Contains(
+                "struct Counter : ICounter",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "int ICounter.Value",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     // Regression for #3112 review (escaped-identifier shadow): a hand-authored external
     // interface can live in a namespace whose segment is a C# keyword (`class`), so its raw
     // metadata full name is `class.IProbe` but its C# display name is `@class.IProbe`. A
@@ -6023,6 +6094,45 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void FidelityLookup_RejectsMismatchedExplicitInterfaceProvenance()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Class1
+            {
+                public int Pick(int value) => value + 1;
+            }
+            """);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var surface = ApiSurfaceExtractor.Extract(pe);
+            var type = Assert.Single(surface.Types, type => type.FullName == "Class1");
+            var member = Assert.Single(type.Members, member => member.Name == "Pick");
+            var wrongProvenance = new ApiExplicitInterfaceProvenance(
+                [
+                    new ApiExplicitInterfaceDeclarationContext(
+                        ApiExplicitInterfaceDeclarationKind.SameImage,
+                        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                            MetadataTypeDefinitionName.Create(
+                                "",
+                                ["IWrong"])).Name)
+                ]);
+
+            Assert.Null(FidelityCheck.FindMethodDefinition(
+                pe,
+                "Class1",
+                "Pick",
+                0,
+                ApiMemberIdentity.GetCanonicalSignature(type, member),
+                wrongProvenance));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_MatchesSourceBySignatureWhenDeclarationOrderDiffers()
     {
         // The compiled assembly declares Pick(int) before Pick(string); the source slice
@@ -9560,6 +9670,39 @@ public class ReturnToSenderPrototypeTests
               call instance void [System.Runtime]System.Object::.ctor()
               ret
             }
+          }
+        }
+        """;
+
+    const string UndottedExplicitStructPropertyIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly undottedexplicitstruct { }
+        .module undottedexplicitstruct.dll
+
+        .class interface public abstract auto ansi ICounter
+        {
+          .method public hidebysig newslot abstract virtual specialname
+              instance int32 get_Value() cil managed {}
+          .property instance int32 Value()
+          {
+            .get instance int32 ICounter::get_Value()
+          }
+        }
+
+        .class public sequential ansi sealed beforefieldinit Counter
+            extends [System.Runtime]System.ValueType
+            implements ICounter
+        {
+          .method private final hidebysig newslot virtual specialname
+              instance int32 get_Value() cil managed
+          {
+            .override ICounter::get_Value
+            ldc.i4.s 42
+            ret
+          }
+          .property instance int32 Value()
+          {
+            .get instance int32 Counter::get_Value()
           }
         }
         """;

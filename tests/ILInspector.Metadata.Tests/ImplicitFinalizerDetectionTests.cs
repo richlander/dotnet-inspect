@@ -6,14 +6,12 @@ using System.Reflection.PortableExecutable;
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Metadata-layer coverage for the VB.NET-shape implicit <c>object.Finalize</c>
-/// override: a virtual, reuse-slot, parameterless <c>void Finalize()</c> that
-/// carries NO <c>.override</c> MethodImpl (unlike the C#/Roslyn destructor). The
-/// synthetic images below emit that exact shape and its close negatives so the
-/// classifier proves the slot roots at a strong-name-anchored <c>System.Object</c>
-/// over metadata alone, with no inspected-assembly loading. The compiler-produced
-/// VB shape is verified end-to-end separately; these seam-isolation fixtures let
-/// every close negative run without a VB compiler or ilasm on the box.
+/// Metadata-layer coverage for explicit C#/Roslyn and implicit VB.NET
+/// <c>object.Finalize</c> overrides. The synthetic images below emit each exact
+/// shape and close negatives so the classifier proves the slot and signature
+/// over metadata alone, with no inspected-assembly loading. Compiler-produced
+/// C# and VB shapes are verified end-to-end separately; these seam-isolation
+/// fixtures let malformed negatives run without a VB compiler or ilasm.
 /// </summary>
 public class ImplicitFinalizerDetectionTests
 {
@@ -142,6 +140,51 @@ public class ImplicitFinalizerDetectionTests
         Assert.True(ExtractMember(image, "Derived", "Finalize").IsFinalizer);
     }
 
+    [Fact]
+    public void ExplicitObjectFinalizeOverride_IsClassifiedAsFinalizer()
+    {
+        var member = ExtractMember(
+            BuildImage(new TypeSpec(
+                "Handle",
+                BaseKind.Exception,
+                new MethodSpec("Finalize", ReuseSlot, VoidNullary),
+                ExplicitOverrideSignature: VoidNullary)),
+            "Handle",
+            "Finalize");
+
+        Assert.True(member.IsFinalizer);
+        Assert.Equal("finalizer", member.Kind);
+    }
+
+    [Theory]
+    [InlineData("Destroy", false, false)]
+    [InlineData("Finalize", true, false)]
+    [InlineData("Finalize", false, true)]
+    public void MalformedExplicitObjectFinalizeOverride_IsNotClassifiedAsFinalizer(
+        string bodyName,
+        bool malformedBodySignature,
+        bool malformedDeclarationSignature)
+    {
+        var member = ExtractMember(
+            BuildImage(new TypeSpec(
+                "Handle",
+                BaseKind.Exception,
+                new MethodSpec(
+                    bodyName,
+                    ReuseSlot,
+                    malformedBodySignature
+                        ? VoidOneParam
+                        : VoidNullary),
+                ExplicitOverrideSignature: malformedDeclarationSignature
+                    ? VoidOneParam
+                    : VoidNullary)),
+            "Handle",
+            bodyName);
+
+        Assert.False(member.IsFinalizer);
+        Assert.NotEqual("finalizer", member.Kind);
+    }
+
     static ApiMember ExtractMember(byte[] image, string typeName, string memberName)
     {
         using var stream = new MemoryStream(image);
@@ -163,7 +206,12 @@ public class ImplicitFinalizerDetectionTests
 
     sealed record MethodSpec(string Name, MethodAttributes Attributes, byte[] Signature);
 
-    sealed record TypeSpec(string Name, BaseKind Base, MethodSpec Method, string? Namespace = null);
+    sealed record TypeSpec(
+        string Name,
+        BaseKind Base,
+        MethodSpec Method,
+        string? Namespace = null,
+        byte[]? ExplicitOverrideSignature = null);
 
     static byte[] BuildImage(params TypeSpec[] types)
     {
@@ -245,16 +293,31 @@ public class ImplicitFinalizerDetectionTests
             methodRow++;
         }
 
+        var methodHandles = new List<MethodDefinitionHandle>(types.Length);
         foreach (var type in types)
         {
             var spec = type.Method;
-            metadata.AddMethodDefinition(
+            methodHandles.Add(metadata.AddMethodDefinition(
                 spec.Attributes,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString(spec.Name),
                 metadata.GetOrAddBlob(spec.Signature),
                 bodyOffset,
-                parameterList: MetadataTokens.ParameterHandle(1));
+                parameterList: MetadataTokens.ParameterHandle(1)));
+        }
+
+        for (int i = 0; i < types.Length; i++)
+        {
+            if (types[i].ExplicitOverrideSignature is not { } declarationSignature)
+                continue;
+            var declaration = metadata.AddMemberReference(
+                objectRef,
+                metadata.GetOrAddString("Finalize"),
+                metadata.GetOrAddBlob(declarationSignature));
+            metadata.AddMethodImplementation(
+                defHandles[types[i].Name],
+                methodHandles[i],
+                declaration);
         }
 
         var pe = new ManagedPEBuilder(

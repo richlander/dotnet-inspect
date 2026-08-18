@@ -794,7 +794,8 @@ public sealed record ApiExplicitInterfaceDeclarationContext
     public ApiExplicitInterfaceDeclarationContext(
         ApiExplicitInterfaceDeclarationKind kind,
         MetadataTypeDefinitionName? definitionName = null,
-        AssemblyReferenceIdentity? assembly = null)
+        AssemblyReferenceIdentity? assembly = null,
+        string? interfaceTypeName = null)
     {
         if (kind == ApiExplicitInterfaceDeclarationKind.External
             && assembly is null)
@@ -814,6 +815,7 @@ public sealed record ApiExplicitInterfaceDeclarationContext
         Kind = kind;
         DefinitionName = definitionName;
         Assembly = assembly;
+        InterfaceTypeName = interfaceTypeName;
     }
 
     public ApiExplicitInterfaceDeclarationKind Kind { get; }
@@ -821,6 +823,13 @@ public sealed record ApiExplicitInterfaceDeclarationContext
     public MetadataTypeDefinitionName? DefinitionName { get; }
 
     public AssemblyReferenceIdentity? Assembly { get; }
+
+    /// <summary>
+    /// Constructed interface type display spelling when the MethodImpl
+    /// declaration parent is a TypeSpec. Presentation only; definition and
+    /// assembly provenance remain authoritative for identity.
+    /// </summary>
+    public string? InterfaceTypeName { get; }
 }
 
 /// <summary>

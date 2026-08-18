@@ -1898,11 +1898,13 @@ public static class ApiSurfaceExtractor
                     MethodDeclarationDeclaringType(
                         reader,
                         implementation.MethodDeclaration);
-                if (!TargetsInterface(
+                MethodImplTargetKind targetKind =
+                    ClassifyMethodImplTarget(
                         reader,
                         declaringType,
-                        implementedInterfaceTypes)
-                    && !HasExplicitInterfaceImplementationShape(
+                        implementedInterfaceTypes);
+                if (targetKind == MethodImplTargetKind.NonInterface
+                    || !HasExplicitInterfaceImplementationShape(
                         reader.GetMethodDefinition(body)))
                 {
                     continue;
@@ -2015,7 +2017,14 @@ public static class ApiSurfaceExtractor
                 : default;
     }
 
-    private static bool TargetsInterface(
+    private enum MethodImplTargetKind
+    {
+        Unknown,
+        Interface,
+        NonInterface,
+    }
+
+    private static MethodImplTargetKind ClassifyMethodImplTarget(
         MetadataReader reader,
         EntityHandle declaringType,
         IReadOnlySet<EntityHandle> implementedInterfaceTypes)
@@ -2023,13 +2032,16 @@ public static class ApiSurfaceExtractor
         EntityHandle root =
             InterfaceTypeRoot(reader, declaringType);
         if (root.IsNil)
-            return false;
+            return MethodImplTargetKind.Unknown;
         if (implementedInterfaceTypes.Contains(root))
-            return true;
-        return root.Kind == HandleKind.TypeDefinition
-            && (reader.GetTypeDefinition(
+            return MethodImplTargetKind.Interface;
+        if (root.Kind != HandleKind.TypeDefinition)
+            return MethodImplTargetKind.Unknown;
+        return (reader.GetTypeDefinition(
                     (TypeDefinitionHandle)root).Attributes
-                & TypeAttributes.Interface) != 0;
+                & TypeAttributes.Interface) != 0
+            ? MethodImplTargetKind.Interface
+            : MethodImplTargetKind.NonInterface;
     }
 
     private static bool HasExplicitInterfaceImplementationShape(
@@ -2193,7 +2205,7 @@ public static class ApiSurfaceExtractor
                 ApiExplicitInterfaceDeclarationKind.Unavailable);
         }
 
-        return root.Type.Kind switch
+        ApiExplicitInterfaceDeclarationContext context = root.Type.Kind switch
         {
             HandleKind.TypeDefinition =>
                 new ApiExplicitInterfaceDeclarationContext(
@@ -2211,6 +2223,21 @@ public static class ApiSurfaceExtractor
             _ => new ApiExplicitInterfaceDeclarationContext(
                 ApiExplicitInterfaceDeclarationKind.Unavailable),
         };
+        var specification = reader.GetTypeSpecification(handle);
+        beforeDecodeWork?.Invoke(
+            reader.GetBlobReader(specification.Signature).Length);
+        string? interfaceTypeName = GuardedSignatureText.TypeSpecText(
+                reader,
+                handle,
+                context: null)
+            .TryGetValue(out string? decoded)
+                ? decoded
+                : null;
+        return new ApiExplicitInterfaceDeclarationContext(
+            context.Kind,
+            context.DefinitionName,
+            context.Assembly,
+            interfaceTypeName);
     }
 
     private static MetadataTypeDefinitionName? ReadDefinitionName(
@@ -2308,11 +2335,9 @@ public static class ApiSurfaceExtractor
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
-            if (implementation.MethodBody.Kind != HandleKind.MethodDefinition)
-                continue;
-            if (ReferencesObjectFinalize(
+            if (IsExplicitObjectFinalizeOverride(
                     reader,
-                    implementation.MethodDeclaration,
+                    implementation,
                     beforeDecodeWork))
                 handles.Add((MethodDefinitionHandle)implementation.MethodBody);
         }
@@ -2344,9 +2369,8 @@ public static class ApiSurfaceExtractor
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
-            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
-                && (MethodDefinitionHandle)implementation.MethodBody == methodHandle
-                && ReferencesObjectFinalize(reader, implementation.MethodDeclaration))
+            if (IsExplicitObjectFinalizeOverride(reader, implementation)
+                && (MethodDefinitionHandle)implementation.MethodBody == methodHandle)
             {
                 return true;
             }
@@ -2495,11 +2519,24 @@ public static class ApiSurfaceExtractor
     /// collision cannot masquerade as a finalizer. A malformed or truncated signature blob is treated
     /// as a non-match (returns false) rather than throwing.
     /// </summary>
-    private static bool HasVoidNullaryInstanceSignature(MetadataReader reader, MethodDefinition method)
+    private static bool HasVoidNullaryInstanceSignature(
+        MetadataReader reader,
+        MethodDefinition method,
+        Action<int>? beforeDecodeWork = null)
+        => HasVoidNullaryInstanceSignature(
+            reader,
+            method.Signature,
+            beforeDecodeWork);
+
+    private static bool HasVoidNullaryInstanceSignature(
+        MetadataReader reader,
+        BlobHandle signature,
+        Action<int>? beforeDecodeWork = null)
     {
         try
         {
-            var blob = reader.GetBlobReader(method.Signature);
+            var blob = reader.GetBlobReader(signature);
+            beforeDecodeWork?.Invoke(blob.Length);
             var header = blob.ReadSignatureHeader();
             // object.Finalize is `instance void ()` with the default managed calling convention.
             // Reject anything else: field/property sigs, vararg/unmanaged conventions, generic
@@ -2521,6 +2558,36 @@ public static class ApiSurfaceExtractor
             // A truncated or otherwise malformed signature blob is not the object.Finalize slot.
             return false;
         }
+    }
+
+    private static bool IsExplicitObjectFinalizeOverride(
+        MetadataReader reader,
+        MethodImplementation implementation,
+        Action<int>? beforeDecodeWork = null)
+    {
+        if (implementation.MethodBody.Kind != HandleKind.MethodDefinition)
+            return false;
+
+        var body = reader.GetMethodDefinition(
+            (MethodDefinitionHandle)implementation.MethodBody);
+        MethodAttributes attributes = body.Attributes;
+        return string.Equals(
+                DecodeString(reader, body.Name, beforeDecodeWork),
+                "Finalize",
+                StringComparison.Ordinal)
+            && body.GetGenericParameters().Count == 0
+            && (attributes & MethodAttributes.Virtual) != 0
+            && (attributes & MethodAttributes.NewSlot) == 0
+            && (attributes & MethodAttributes.Static) == 0
+            && (attributes & MethodAttributes.Abstract) == 0
+            && HasVoidNullaryInstanceSignature(
+                reader,
+                body,
+                beforeDecodeWork)
+            && ReferencesObjectFinalize(
+                reader,
+                implementation.MethodDeclaration,
+                beforeDecodeWork);
     }
 
     /// <summary>
@@ -2545,6 +2612,10 @@ public static class ApiSurfaceExtractor
                     && IsSystemObjectType(
                         reader,
                         memberRef.Parent,
+                        beforeDecodeWork)
+                    && HasVoidNullaryInstanceSignature(
+                        reader,
+                        memberRef.Signature,
                         beforeDecodeWork);
             case HandleKind.MethodDefinition:
                 var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)methodDeclaration);
@@ -2555,6 +2626,11 @@ public static class ApiSurfaceExtractor
                     && IsSystemObjectType(
                         reader,
                         methodDef.GetDeclaringType(),
+                        beforeDecodeWork)
+                    && methodDef.GetGenericParameters().Count == 0
+                    && HasVoidNullaryInstanceSignature(
+                        reader,
+                        methodDef,
                         beforeDecodeWork);
             default:
                 return false;
@@ -4640,6 +4716,7 @@ public static class ApiSurfaceExtractor
             AddText(ref count, declaration.Assembly?.Name);
             AddText(ref count, declaration.Assembly?.Culture);
             AddText(ref count, declaration.Assembly?.PublicKeyToken);
+            AddText(ref count, declaration.InterfaceTypeName);
         }
     }
 

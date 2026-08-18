@@ -1102,7 +1102,12 @@ public static class CompileBackSourceComposer
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string metadataPropertyName = reader.GetString(property.Name);
         string propertyName = Identifier(metadataPropertyName);
-        string? explicitInterfaceMemberName = ExplicitInterfaceMemberName(reader, metadataPropertyName);
+        string? explicitInterfaceMemberName =
+            ExplicitInterfaceMemberName(reader, metadataPropertyName)
+            ?? ExplicitInterfacePropertyMemberName(
+                reader,
+                targetTypeDef,
+                targetGetter);
         var returnType = CompileBackTypeSignature.Display(signature.ReturnType);
         bool targetIsAutoProperty = IsAutoProperty(reader, targetTypeDef, property, targetGetter, returnType.DisplayName);
 
@@ -2547,7 +2552,12 @@ public static class CompileBackSourceComposer
         var targetIdentity = CompileBackTypeIdentity.FromDefinition(reader, targetTypeDef);
         string metadataPropertyName = reader.GetString(property.Name);
         string propertyName = Identifier(metadataPropertyName);
-        string? explicitInterfaceMemberName = ExplicitInterfaceMemberName(reader, metadataPropertyName);
+        string? explicitInterfaceMemberName =
+            ExplicitInterfaceMemberName(reader, metadataPropertyName)
+            ?? ExplicitInterfacePropertyMemberName(
+                reader,
+                targetTypeDef,
+                targetSetter);
         var returnType = CompileBackTypeSignature.Display(propertySignature.ReturnType);
         bool targetIsAutoProperty = IsAutoPropertySetter(reader, targetTypeDef, property, targetSetter, returnType.DisplayName);
 
@@ -4130,6 +4140,56 @@ public static class CompileBackSourceComposer
         return $"{interfaceName}.{memberName}";
     }
 
+    static string? ExplicitInterfacePropertyMemberName(
+        MetadataReader reader,
+        TypeDefinition targetType,
+        MethodDefinitionHandle targetAccessor)
+    {
+        foreach (MethodImplementationHandle implementationHandle
+            in targetType.GetMethodImplementations())
+        {
+            MethodImplementation implementation =
+                reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody != targetAccessor
+                || implementation.MethodDeclaration.Kind
+                    != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+
+            MethodDefinitionHandle declarationHandle =
+                (MethodDefinitionHandle)implementation.MethodDeclaration;
+            MethodDefinition declaration =
+                reader.GetMethodDefinition(declarationHandle);
+            TypeDefinition interfaceType =
+                reader.GetTypeDefinition(declaration.GetDeclaringType());
+            if (!interfaceType.Attributes.HasFlag(TypeAttributes.Interface))
+                continue;
+
+            foreach (PropertyDefinitionHandle propertyHandle
+                in interfaceType.GetProperties())
+            {
+                PropertyDefinition property =
+                    reader.GetPropertyDefinition(propertyHandle);
+                PropertyAccessors accessors = property.GetAccessors();
+                if (accessors.Getter != declarationHandle
+                    && accessors.Setter != declarationHandle)
+                {
+                    continue;
+                }
+
+                string interfaceName = Clean(
+                    CompileBackTypeIdentity.FromDefinition(
+                        reader,
+                        interfaceType).FullName);
+                return $"{interfaceName}.{Identifier(
+                    reader.GetString(property.Name))}";
+            }
+        }
+
+        return null;
+    }
+
     static bool TrySplitExplicitInterfaceMetadataName(
         string metadataMemberName,
         out string interfaceMetadataName,
@@ -4395,7 +4455,16 @@ public static class CompileBackSourceComposer
             string propertyName = reader.GetString(property.Name);
             if (propertyName.Contains('<', StringComparison.Ordinal))
                 return null;
-            string? explicitInterfaceMemberName = ExplicitInterfaceMemberName(reader, propertyName);
+            MethodDefinitionHandle accessor =
+                accessorName.StartsWith("get_", StringComparison.Ordinal)
+                    ? accessors.Getter
+                    : accessors.Setter;
+            string? explicitInterfaceMemberName =
+                ExplicitInterfaceMemberName(reader, propertyName)
+                ?? ExplicitInterfacePropertyMemberName(
+                    reader,
+                    typeDef,
+                    accessor);
 
             MetadataPropertyDeclaration propertyDeclaration;
             try
@@ -4411,7 +4480,6 @@ public static class CompileBackSourceComposer
                 || IsUnsupportedSurfaceSignature(propertyReturnType))
                 return null;
 
-            var accessor = accessorName.StartsWith("get_", StringComparison.Ordinal) ? accessors.Getter : accessors.Setter;
             var accessorMethod = accessor.IsNil ? default : reader.GetMethodDefinition(accessor);
             bool isStatic = !accessor.IsNil && accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
             var returnType = CompileBackTypeSignature.Display(propertyReturnType);

@@ -1193,6 +1193,54 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ExplicitInterfaceProperty_PreservesExternalAliasAndConstructedType()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Counter",
+            Kind = "class"
+        };
+        var definitionName =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Contracts",
+                    ["ICounter`1"]))
+            .Name;
+        var member = new ApiMember
+        {
+            Name = "dependency::Contracts.ICounter<int>.Count",
+            Kind = "property",
+            ExplicitInterfaceProvenance =
+                new ApiExplicitInterfaceProvenance(
+                    [
+                        new ApiExplicitInterfaceDeclarationContext(
+                            ApiExplicitInterfaceDeclarationKind.External,
+                            definitionName,
+                            new AssemblyReferenceIdentity(
+                                "Dependency",
+                                new Version(1, 0, 0, 0),
+                                null,
+                                null),
+                            "Contracts.ICounter<int>")
+                    ]),
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Count",
+                Accessors = [new ApiAccessor { Kind = "get" }]
+            }
+        };
+
+        var declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member);
+
+        Assert.Equal(
+            "int dependency::Contracts.ICounter<int>.Count { get; }",
+            declaration);
+    }
+
+    [Fact]
     public void OrdinaryOperator_WithMethodImplProvenance_RetainsPublicModifier()
     {
         var type = new ApiType

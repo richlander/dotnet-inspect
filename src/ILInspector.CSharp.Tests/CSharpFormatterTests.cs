@@ -48,15 +48,18 @@ public sealed class CSharpFormatterTests
             Name = "ValueHolder",
             Kind = "class"
         };
+        bool isExplicitInterface = memberName.Contains('.', StringComparison.Ordinal);
         var member = new ApiMember
         {
             Name = memberName,
             Kind = "property",
-            ExplicitInterfaceProvenance = new ApiExplicitInterfaceProvenance(
-                [
-                    new ApiExplicitInterfaceDeclarationContext(
-                        ApiExplicitInterfaceDeclarationKind.SameImage)
-                ]),
+            ExplicitInterfaceProvenance = isExplicitInterface
+                ? new ApiExplicitInterfaceProvenance(
+                    [
+                        new ApiExplicitInterfaceDeclarationContext(
+                            ApiExplicitInterfaceDeclarationKind.SameImage)
+                    ])
+                : null,
             SignatureModel = new ApiSignature
             {
                 Accessors =

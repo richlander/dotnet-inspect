@@ -475,6 +475,37 @@ public class ApiMemberIdentityTests
         Assert.DoesNotContain(
             covariant.Members,
             member => member.Name == "get_Value");
+
+        var staticAbstract = surface.Types.Single(
+            type => type.Name.EndsWith(
+                $".{nameof(StaticAbstractAccessorFixture)}",
+                StringComparison.Ordinal));
+        var staticAbstractProperty = Assert.Single(
+            staticAbstract.Members,
+            member => member.Name == "Value");
+        Assert.Equal("property", staticAbstractProperty.Kind);
+        Assert.True(staticAbstractProperty.IsStatic);
+        Assert.Null(staticAbstractProperty.Accessibility);
+        Assert.Null(staticAbstractProperty.ExplicitInterfaceProvenance);
+        Assert.DoesNotContain(
+            staticAbstract.Members,
+            member => member.Name == "get_Value");
+
+        var genericExplicit = surface.Types.Single(
+            type => type.Name.EndsWith(
+                $".{nameof(GenericExplicitPropertyFixture)}",
+                StringComparison.Ordinal));
+        var genericExplicitProperty = Assert.Single(
+            genericExplicit.Members,
+            member => member.Kind == "property"
+                && member.Name.EndsWith(".Item", StringComparison.Ordinal));
+        var provenance = Assert.IsType<ApiExplicitInterfaceProvenance>(
+            genericExplicitProperty.ExplicitInterfaceProvenance);
+        var declaration = Assert.Single(provenance.Declarations);
+        Assert.Contains(
+            $"{nameof(IGenericExplicitPropertyFixture<int>)}<int>",
+            declaration.InterfaceTypeName,
+            StringComparison.Ordinal);
     }
 
     [Theory]
@@ -605,5 +636,27 @@ public class ApiMemberIdentityTests
         CovariantAccessorBaseFixture
     {
         public override string Value => "";
+    }
+
+    interface IStaticAbstractAccessorFixture
+    {
+        static abstract int Value { get; }
+    }
+
+    sealed class StaticAbstractAccessorFixture :
+        IStaticAbstractAccessorFixture
+    {
+        public static int Value => 42;
+    }
+
+    interface IGenericExplicitPropertyFixture<T>
+    {
+        T Item { get; }
+    }
+
+    sealed class GenericExplicitPropertyFixture :
+        IGenericExplicitPropertyFixture<int>
+    {
+        int IGenericExplicitPropertyFixture<int>.Item => 42;
     }
 }

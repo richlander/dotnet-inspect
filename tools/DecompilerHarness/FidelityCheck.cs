@@ -3392,7 +3392,7 @@ static class FidelityCheck
         ApiType? targetApiType,
         CompilerReferenceResolver resolver)
     {
-        if (kind != TypeKind.Class)
+        if (kind is not TypeKind.Class and not TypeKind.Struct)
             return "";
 
         var interfaces = new List<string>();
@@ -3993,6 +3993,9 @@ static class FidelityCheck
                 hasTarget ? target.Chain : null,
                 hasTarget && target.RequiresAsync,
                 hasTarget
+                    ? target.ExplicitInterfaceProvenance
+                    : null,
+                hasTarget
                     ? ResolveExplicitInterfaceAlias(
                         target.ExplicitInterfaceProvenance,
                         resolver)
@@ -4283,7 +4286,13 @@ static class FidelityCheck
                 var accessorMethod =
                     reader.GetMethodDefinition(accessibilityAccessor);
                 bool isStatic = accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
-                bool isExplicit = pname.Contains('.');
+                ApiExplicitInterfaceProvenance? explicitProvenance =
+                    TargetExplicitInterfaceProvenance(
+                        targets,
+                        pa.Getter,
+                        pa.Setter);
+                bool isExplicit = pname.Contains('.')
+                    || explicitProvenance is not null;
                 // Preserve the accessor's call kind at a `?.X` site (receiver known
                 // non-null): a non-virtual *or final* virtual getter compiles to
                 // `call`, a non-final virtual getter to `callvirt`. Preserve an
@@ -4539,7 +4548,13 @@ static class FidelityCheck
                 : emitVirtual ? "virtual " : "";
         string unsafeMod = RequiresUnsafeSignature(ret) ? "unsafe " : "";
         string propertyName = reader.GetString(prop.Name);
-        bool isExplicit = propertyName.Contains('.');
+        ApiExplicitInterfaceProvenance? explicitProvenance =
+            TargetExplicitInterfaceProvenance(
+                targets,
+                pa.Getter,
+                pa.Setter);
+        bool isExplicit = propertyName.Contains('.')
+            || explicitProvenance is not null;
         string getterAccessibility =
             PropertyAccessorAccessibility(
                 reader,
@@ -4570,19 +4585,14 @@ static class FidelityCheck
         string emittedModifier = isExplicit
             ? isStatic ? "static " : ""
             : modifier;
-        ApiExplicitInterfaceProvenance? explicitProvenance =
-            !pa.Getter.IsNil
-                && targets.TryGetValue(pa.Getter, out TargetBody getter)
-                    ? getter.ExplicitInterfaceProvenance
-                    : !pa.Setter.IsNil
-                        && targets.TryGetValue(pa.Setter, out TargetBody setter)
-                            ? setter.ExplicitInterfaceProvenance
-                            : null;
         string? explicitAlias = ResolveExplicitInterfaceAlias(
             explicitProvenance,
             resolver);
         string emittedName = isExplicit
-            ? ExplicitMemberName(propertyName, explicitAlias)
+            ? ExplicitMemberName(
+                propertyName,
+                explicitProvenance,
+                explicitAlias)
             : Identifier(propertyName);
         sb.AppendLine($"{pad}{accessibilityPrefix}{emittedModifier}{unsafeMod}{ret} {emittedName} {{{getterBody}{setterBody} }}");
     }
@@ -4598,13 +4608,18 @@ static class FidelityCheck
         {
             EventDefinition eventDefinition =
                 reader.GetEventDefinition(handle);
-            string name = reader.GetString(eventDefinition.Name);
-            if (!name.Contains('.'))
-                continue;
-
             EventAccessors accessors = eventDefinition.GetAccessors();
             if (accessors.Adder.IsNil || accessors.Remover.IsNil)
                 continue;
+            string name = reader.GetString(eventDefinition.Name);
+            if (!name.Contains('.')
+                && TargetExplicitInterfaceProvenance(
+                    targets,
+                    accessors.Adder,
+                    accessors.Remover) is null)
+            {
+                continue;
+            }
             bool accessorIsTarget =
                 targets.ContainsKey(accessors.Adder)
                 || targets.ContainsKey(accessors.Remover);
@@ -4649,13 +4664,10 @@ static class FidelityCheck
                 ? $" remove {{\n{removeTarget.Body}\n{pad}}}"
                 : " remove { throw null; }";
         ApiExplicitInterfaceProvenance? explicitProvenance =
-            targets.TryGetValue(accessors.Adder, out TargetBody adder)
-                ? adder.ExplicitInterfaceProvenance
-                : targets.TryGetValue(
-                    accessors.Remover,
-                    out TargetBody remover)
-                    ? remover.ExplicitInterfaceProvenance
-                    : null;
+            TargetExplicitInterfaceProvenance(
+                targets,
+                accessors.Adder,
+                accessors.Remover);
         string? explicitAlias = ResolveExplicitInterfaceAlias(
             explicitProvenance,
             resolver);
@@ -4665,7 +4677,8 @@ static class FidelityCheck
         MethodDefinition adderMethod =
             reader.GetMethodDefinition(accessors.Adder);
         string metadataName = reader.GetString(eventDefinition.Name);
-        bool isExplicit = metadataName.Contains('.');
+        bool isExplicit = metadataName.Contains('.')
+            || explicitProvenance is not null;
         bool emitOverride =
             preserveExternalOverrides
             && !isStatic
@@ -4685,7 +4698,10 @@ static class FidelityCheck
                     : "";
         sb.AppendLine(
             $"{pad}{accessibilityPrefix}{modifier}event {eventType} "
-                + $"{ExplicitMemberName(metadataName, explicitAlias)} "
+                + $"{ExplicitMemberName(
+                    metadataName,
+                    explicitProvenance,
+                    explicitAlias)} "
                 + $"{{{addBody}{removeBody} }}");
     }
 
@@ -5290,6 +5306,7 @@ static class FidelityCheck
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle mh, string? realBody, string? realChain, bool realRequiresAsync,
+        ApiExplicitInterfaceProvenance? explicitInterfaceProvenance,
         string? explicitInterfaceAlias,
         bool preserveOverride,
         SignatureSpellability accessibility, StringBuilder sb, string pad)
@@ -5300,11 +5317,8 @@ static class FidelityCheck
         if (MemberFilters.IsCompilerGenerated(name)
             && name is not ".ctor" and not ".cctor")
             return; // compiler-generated
-        // An explicit interface implementation carries a dotted IL name.
-        // Unselected siblings are never invoked by name, so drop them instead of
-        // emitting invalid `public Iface.Member(...)` syntax. Selected methods
-        // normally arrive as product-rendered whole members; selected accessors
-        // are emitted by the property/event paths above.
+        // Dotted metadata names retain the legacy sibling filter. Selected
+        // undotted MethodImpls are authenticated by typed provenance below.
         if (realBody is null && name.Contains('.') && name is not ".ctor" and not ".cctor")
             return;
         var context = GenericContext.ForMethod(reader, typeDef, method);
@@ -5386,33 +5400,100 @@ static class FidelityCheck
             sb.AppendLine($"{pad}public {unsafeModifier}static {operatorDeclaration} {{{body}}}");
             return;
         }
-        bool isExplicit = name.Contains('.');
+        bool isExplicit = name.Contains('.')
+            || explicitInterfaceProvenance is not null;
         string accessibilityModifier = isExplicit
             ? ""
             : emitOverride
             ? MethodAccessibility(method.Attributes)
             : "public ";
         string emittedName = isExplicit
-            ? ExplicitMemberName(name, explicitInterfaceAlias)
+            ? ExplicitMemberName(
+                name,
+                explicitInterfaceProvenance,
+                explicitInterfaceAlias)
             : Identifier(name);
         sb.AppendLine($"{pad}{accessibilityModifier}{unsafeModifier}{(isStatic ? "static " : instanceModifier)}{asyncModifier}{returnType} {emittedName}{genParams}({parameters}){whereClauses} {{{body}}}");
     }
 
     static string ExplicitMemberName(
         string metadataName,
+        ApiExplicitInterfaceProvenance? provenance,
         string? alias)
     {
         int separator = metadataName.LastIndexOf('.');
-        if (separator < 0)
-            return Identifier(metadataName);
-
-        string interfaceName =
-            EscapeMetadataTypeName(
-                ExplicitInterfaceName(metadataName));
-        string memberName = Identifier(metadataName[(separator + 1)..]);
+        string? interfaceName = separator >= 0
+            ? ExplicitInterfaceName(metadataName)
+            : ExplicitInterfaceTypeName(provenance);
+        if (interfaceName is null)
+        {
+            throw new CompileBackPlanningException(
+                "explicit-interface-name-unavailable");
+        }
+        interfaceName = EscapeMetadataTypeName(
+            RemoveSourceAlias(interfaceName));
+        string memberName = Identifier(
+            separator >= 0
+                ? metadataName[(separator + 1)..]
+                : metadataName);
         return alias is null
             ? $"{interfaceName}.{memberName}"
             : $"{alias}::{interfaceName}.{memberName}";
+    }
+
+    static ApiExplicitInterfaceProvenance?
+        TargetExplicitInterfaceProvenance(
+            IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+            MethodDefinitionHandle first,
+            MethodDefinitionHandle second)
+    {
+        ApiExplicitInterfaceProvenance? firstProvenance =
+            !first.IsNil
+                && targets.TryGetValue(first, out TargetBody firstTarget)
+                    ? firstTarget.ExplicitInterfaceProvenance
+                    : null;
+        ApiExplicitInterfaceProvenance? secondProvenance =
+            !second.IsNil
+                && targets.TryGetValue(second, out TargetBody secondTarget)
+                    ? secondTarget.ExplicitInterfaceProvenance
+                    : null;
+        if (firstProvenance is not null
+            && secondProvenance is not null
+            && !ExplicitInterfaceProvenanceEquals(
+                firstProvenance,
+                secondProvenance))
+        {
+            throw new CompileBackPlanningException(
+                "explicit-interface-accessor-provenance-ambiguous");
+        }
+        return firstProvenance ?? secondProvenance;
+    }
+
+    static string? ExplicitInterfaceTypeName(
+        ApiExplicitInterfaceProvenance? provenance)
+    {
+        if (provenance is null
+            || provenance.Kind
+                is ApiExplicitInterfaceProvenanceKind.Unavailable
+                    or ApiExplicitInterfaceProvenanceKind.Ambiguous)
+        {
+            return null;
+        }
+
+        ApiExplicitInterfaceDeclarationContext declaration =
+            provenance.Declarations[0];
+        return declaration.InterfaceTypeName
+            ?? (declaration.DefinitionName is { } definition
+                ? SourceSpellableDefinitionName(definition)
+                : null);
+    }
+
+    static string RemoveSourceAlias(string typeName)
+    {
+        int separator = typeName.IndexOf("::", StringComparison.Ordinal);
+        return separator >= 0
+            ? typeName[(separator + 2)..]
+            : typeName;
     }
 
     static string ExplicitInterfaceName(string metadataMemberName)
@@ -6187,7 +6268,7 @@ static class FidelityCheck
         return MetadataInstructionProducer.Disassemble(pe, found.Reader, found.Method);
     }
 
-    static (MetadataReader Reader, MethodDefinitionHandle Handle, MethodDefinition Method)? FindMethodDefinition(
+    internal static (MetadataReader Reader, MethodDefinitionHandle Handle, MethodDefinition Method)? FindMethodDefinition(
         PEReader pe,
         string fullType,
         string name,
@@ -6207,6 +6288,8 @@ static class FidelityCheck
             // The IL names .ctor/.cctor become the type name / static-ctor in C#;
             // map back so the target re-resolves by its metadata name.
             string match = name is ".ctor" or ".cctor" ? name : name;
+            bool matchExplicitInterface =
+                explicitInterfaceProvenance is not null;
             var canonicalMatches =
                 canonicalSignature is null
                     ? null
@@ -6218,8 +6301,12 @@ static class FidelityCheck
             {
                 var m = reader.GetMethodDefinition(mh);
                 string mn = reader.GetString(m.Name);
-                if (CorrespondenceMethodName(mn)
-                    != CorrespondenceMethodName(match))
+                if (CorrespondenceMethodName(
+                        mn,
+                        matchExplicitInterface)
+                    != CorrespondenceMethodName(
+                        match,
+                        matchExplicitInterface))
                     continue;
                 if (canonicalSignature is not null)
                 {
@@ -6230,11 +6317,15 @@ static class FidelityCheck
                             m).CanonicalSignature;
                     string normalizedCandidate = candidate.Replace(
                         mn,
-                        CorrespondenceMethodName(mn),
+                        CorrespondenceMethodName(
+                            mn,
+                            matchExplicitInterface),
                         StringComparison.Ordinal);
                     string normalizedExpected = canonicalSignature.Replace(
                         name,
-                        CorrespondenceMethodName(name),
+                        CorrespondenceMethodName(
+                            name,
+                            matchExplicitInterface),
                         StringComparison.Ordinal);
                     if (normalizedCandidate == normalizedExpected)
                         canonicalMatches!.Add((mh, m));
@@ -6246,6 +6337,24 @@ static class FidelityCheck
 
             if (canonicalMatches is null)
                 continue;
+            if (explicitInterfaceProvenance is not null)
+            {
+                var provenanceMatches = canonicalMatches
+                    .Where(candidate =>
+                        ExplicitInterfaceProvenanceEquals(
+                            explicitInterfaceProvenance,
+                            ExplicitInterfaceProvenance(
+                                pe,
+                                candidate.Handle)))
+                    .ToList();
+                if (provenanceMatches.Count != 1)
+                    return null;
+                var provenanceMatch = provenanceMatches[0];
+                return (
+                    reader,
+                    provenanceMatch.Handle,
+                    provenanceMatch.Method);
+            }
             if (canonicalMatches.Count == 1)
             {
                 var matchCandidate = canonicalMatches[0];
@@ -6253,28 +6362,6 @@ static class FidelityCheck
                     reader,
                     matchCandidate.Handle,
                     matchCandidate.Method);
-            }
-            if (explicitInterfaceProvenance is not null)
-            {
-                var provenanceMatches = canonicalMatches
-                    .Where(candidate =>
-                        ExplicitInterfaceProvenanceEquals(
-                            explicitInterfaceProvenance,
-                            CandidateExplicitInterfaceProvenance(
-                                pe,
-                                candidate.Handle)))
-                    .ToList();
-                if (provenanceMatches.Count == 1)
-                {
-                    var matchCandidate = provenanceMatches[0];
-                    return (
-                        reader,
-                        matchCandidate.Handle,
-                        matchCandidate.Method);
-                }
-                canonicalMatches = provenanceMatches.Count != 0
-                    ? provenanceMatches
-                    : canonicalMatches;
             }
             if ((uint)overload < (uint)canonicalMatches.Count)
             {
@@ -6288,8 +6375,8 @@ static class FidelityCheck
         return null;
     }
 
-    static ApiExplicitInterfaceProvenance?
-        CandidateExplicitInterfaceProvenance(
+    internal static ApiExplicitInterfaceProvenance?
+        ExplicitInterfaceProvenance(
         PEReader pe,
         MethodDefinitionHandle handle)
         => TargetApiIndex(pe).TryGetValue(
@@ -6318,14 +6405,23 @@ static class FidelityCheck
             actualDeclarations);
     }
 
-    static string CorrespondenceMethodName(string metadataName)
+    static string CorrespondenceMethodName(
+        string metadataName,
+        bool explicitInterface)
     {
         int alias = metadataName.IndexOf(
             "::",
             StringComparison.Ordinal);
-        return alias < 0
+        string name = alias < 0
             ? metadataName
             : metadataName[(alias + 2)..];
+        if (!explicitInterface)
+            return name;
+
+        int qualifier = name.LastIndexOf('.');
+        return qualifier < 0
+            ? name
+            : name[(qualifier + 1)..];
     }
 
     static IlBodyDiffResult CompareCompileBackFidelity(
