@@ -631,8 +631,18 @@ no listing concept. Gallery search reports `listed`, because unlisted
 coordinates do not appear in that search surface. `PackageVersionResult`
 exposes whether all listing states are authoritative, so raw Gallery and v3
 results cannot be admitted into a listing-aware cache. Registration joining
-remains follow-up work. No existing package-resolution consumer has moved to
-this client yet.
+remains follow-up work.
+
+The Browser workspace now uses this client as its built-in NuGet.org
+transport. Exact coordinates bypass discovery and request the Gallery package
+CDN directly. Omitted root versions use an exact-ID Gallery search and select
+its listed stable result. Raw flat-container enumeration remains available to
+the Browser version picker, while wildcard and range dependency selection
+fails closed when listing authority is absent. The typed payload's advertised
+length flows through the shared `PackagePayloadAcquisition` admission and
+store pipeline, so Browser cache reservation, archive limits, producer
+authorization, and publication are not reimplemented in the host. Desktop
+package-resolution consumers remain on the compatibility path.
 
 The v3 compatibility adapter initially exposes version and package-payload
 operations only, and validates package coordinates before any service-index or

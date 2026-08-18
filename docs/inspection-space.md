@@ -504,12 +504,13 @@ original occurrence endpoint, or through strict typed ownership.
 their endpoint constraints.
 
 `InspectionGraphNeighborhoodRequest` now makes those declarations load-bearing
-for single-seed Integration graphs. The request keeps mode, selected
-relationships, semantic direction, and finite edge depth separate. Catalog and
-seed admission validation occur before the registry runs. The selected
-relationships request only extension, reference, Integration, or opportunity
-queries they require; the registry still expands typed prerequisites and runs
-them once in registration order. Opportunity activates both extension and
+for single- and peer-seed Integration graphs. The request keeps mode, selected
+relationships, semantic direction, and finite edge depth separate. Every seed
+must have compatible directional admission before the registry runs. The
+selected relationships request only extension, reference, Integration, or
+opportunity queries they require; seed count does not multiply producer work.
+The registry still expands typed prerequisites and runs them once in
+registration order. Opportunity activates both extension and
 Integration evidence because fulfillment suppression composes those results
 before projecting opportunity edges; it does not activate unrelated reference
 scans.
@@ -518,7 +519,10 @@ The completed evidence is projected sequentially into a dense bounded document.
 Incoming traversal does not reverse stored semantic direction, original
 occurrence receipts and identity survive id remapping, and failures from the
 requested relationship producers and their required composition prerequisites
-remain visible beside reached topology.
+remain visible beside reached topology. Peer projection is a deterministic
+multi-source union: every peer begins at depth zero, shared evidence is retained
+once, and an admissible disconnected peer remains explicit rather than
+disappearing.
 `Execute_SelectedRelationshipsControlProducerDemand`,
 `Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression`,
 `Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures`,
@@ -527,6 +531,12 @@ remain visible beside reached topology.
 `Execute_OpportunitySourceTypeUsesOccurrenceAdmission`, and
 `Execute_NeighborhoodRetainsSelectedProducerFailures` gate the planner,
 ownership, receipt, and failure contracts.
+`Execute_PeerNeighborhoodConnectsEqualSeeds`,
+`Execute_ZeroDepthPeerNeighborhoodRetainsEverySeed`, and
+`Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed` gate deterministic
+multi-source projection without a primary focus.
+`Execute_PeerCountDoesNotMultiplyProducerDemand` gates once-per-plan producer
+execution independently of peer count.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
 composition and the shared nonzero completion status used after Markdown,
 count, tabular, or JSON output.

@@ -24,7 +24,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         _search = new SearchService(
             client,
             SearchEndpoint,
-            _options);
+            _options,
+            retryTransientRequests: true);
     }
 
     public PackageSourceIdentity Identity => PackageSourceIdentity.NuGetOrg;
@@ -90,7 +91,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     $"{FlatContainer}{EscapeSegment(normalizedId)}/index.json";
                 using var operation = CreateOperation(cancellationToken);
                 (bool found, VersionIndex? index) =
-                    await operation.RunRequestAsync(
+                    await NuGetHttpRetry.RunRequestAsync(
+                        operation,
                         async requestToken =>
                         {
                             using HttpRequestMessage request =
@@ -153,14 +155,20 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             Identity,
             Kind,
             PackageSourceCapabilities.PackagePayload,
-            async () => new PackageSourcePayload(
-                coordinate,
-                Identity,
-                Kind,
-                PackageSourcePayloadKind.Package,
-                await GetPayloadAsync(
-                    $"{PackageEndpoint}{fileName}",
-                    cancellationToken).ConfigureAwait(false)),
+            async () =>
+            {
+                (Stream content, long? advertisedLength) =
+                    await GetPayloadAsync(
+                        $"{PackageEndpoint}{fileName}",
+                        cancellationToken).ConfigureAwait(false);
+                return new PackageSourcePayload(
+                    coordinate,
+                    Identity,
+                    Kind,
+                    PackageSourcePayloadKind.Package,
+                    content,
+                    advertisedLength);
+            },
             cancellationToken,
             coordinate).ConfigureAwait(false);
     }
@@ -179,26 +187,33 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
             Identity,
             Kind,
             PackageSourceCapabilities.SymbolPayload,
-            async () => new PackageSourcePayload(
-                coordinate,
-                Identity,
-                Kind,
-                PackageSourcePayloadKind.Symbols,
-                await GetPayloadAsync(
-                    $"{SymbolEndpoint}{fileName}",
-                    cancellationToken).ConfigureAwait(false)),
+            async () =>
+            {
+                (Stream content, long? advertisedLength) =
+                    await GetPayloadAsync(
+                        $"{SymbolEndpoint}{fileName}",
+                        cancellationToken).ConfigureAwait(false);
+                return new PackageSourcePayload(
+                    coordinate,
+                    Identity,
+                    Kind,
+                    PackageSourcePayloadKind.Symbols,
+                    content,
+                    advertisedLength);
+            },
             cancellationToken,
             coordinate).ConfigureAwait(false);
     }
 
-    private async Task<Stream> GetPayloadAsync(
+    private async Task<(Stream Content, long? AdvertisedLength)> GetPayloadAsync(
         string url,
         CancellationToken cancellationToken)
     {
         var operation = CreateOperation(cancellationToken);
         try
         {
-            return await operation.RunStreamingRequestAsync(
+            return await NuGetHttpRetry.RunStreamingRequestAsync(
+                operation,
                 async requestToken =>
                 {
                     using HttpRequestMessage request =
@@ -213,7 +228,10 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                         Stream stream = await response.Content
                             .ReadAsStreamAsync(requestToken)
                             .ConfigureAwait(false);
-                        return (stream, response);
+                        return (
+                            stream,
+                            response,
+                            response.Content.Headers.ContentLength);
                     }
                     catch
                     {
