@@ -101,7 +101,14 @@ the workspace does not retain the entire search set; this is gated by
 `RunPerAssembly_RetainsOnlyCurrentParticipant`. The explicit
 `extensions --reachable` traversal uses one binding-consistent group and lazily
 decodes edges only for reached types. The retained-image budget remains active,
-and both census and reachability participant rejections are visible. CLI
+and both census and reachability participant rejections are visible.
+`WorkspaceContextLoader` also realizes product-owned `runtime` and
+`aspnetcore` platform coordinates from authorized implementation-pack content.
+It resolves a framework-matched pack version, decodes each assembly identity
+through `ResolvedAssemblyReference.CreateFromStreamIfManaged`, and yields one
+binding-consistent pathless group with platform provenance. Browser/Wasm hosts
+supply the same HTTP, source-authorization, and package-store capabilities as
+for package members; no path or ambient source configuration enters L1. CLI
 adapters retain output naming, source/version projection, Findings projection,
 fuzzy matching, and format selection.
 The diff CLI binds Changes, Analysis Diff, and Implementation Diff to their

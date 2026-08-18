@@ -45,11 +45,8 @@ public static class PackageResourceUrl
     {
         ArgumentNullException.ThrowIfNull(segments);
 
-        if (string.IsNullOrWhiteSpace(baseAddress)
-            || !Uri.TryCreate(baseAddress, UriKind.Absolute, out Uri? baseUri)
-            || !IsHttpScheme(baseUri)
-            || !string.IsNullOrEmpty(baseUri.UserInfo)
-            || segments.Length == 0)
+        Uri? baseUri = ParseUsableBaseAddress(baseAddress);
+        if (baseUri is null || segments.Length == 0)
         {
             return null;
         }
@@ -86,6 +83,25 @@ public static class PackageResourceUrl
                 StringComparison.Ordinal)
             ? result.AbsoluteUri
             : null;
+    }
+
+    internal static bool IsUsableBaseAddress(string? baseAddress) =>
+        ParseUsableBaseAddress(baseAddress) is not null;
+
+    static Uri? ParseUsableBaseAddress(string? baseAddress)
+    {
+        if (string.IsNullOrWhiteSpace(baseAddress)
+            || !Uri.TryCreate(
+                baseAddress,
+                UriKind.Absolute,
+                out Uri? baseUri)
+            || !IsHttpScheme(baseUri)
+            || !string.IsNullOrEmpty(baseUri.UserInfo))
+        {
+            return null;
+        }
+
+        return baseUri;
     }
 
     static bool IsHttpScheme(Uri uri) =>
