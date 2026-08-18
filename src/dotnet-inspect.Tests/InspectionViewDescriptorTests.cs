@@ -1,3 +1,4 @@
+using DotnetInspector.Commands;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -439,7 +440,7 @@ public class InspectionViewDescriptorTests
     }
 
     [Fact]
-    public void DirectBodylessMethodFiltersFactsButUnknownBodyStateRemainsEligible()
+    public void DirectBodylessMethodKeepsExecutionSectionsAndScopesTheFactsDecision()
     {
         HashSet<string> requested =
         [
@@ -447,23 +448,12 @@ public class InspectionViewDescriptorTests
             SectionNames.Signature,
             SectionNames.SourceLocations,
             SectionNames.Calls,
+            SectionNames.FidelityCauses,
+            SectionNames.OriginalSource,
+            SectionNames.SourceDiff,
         ];
-        var bodyless = new ApiType
-        {
-            Name = "Sample",
-            Kind = "class",
-            Members =
-            [
-                new ApiMember
-                {
-                    Name = "Run",
-                    Kind = "method",
-                    MetadataToken = 0x06000001,
-                    HasMethodBody = false,
-                    IsAbstract = true,
-                }
-            ],
-        };
+        var abstractMethod = BodylessMethodType(isAbstract: true);
+        var externMethod = BodylessMethodType(isAbstract: false);
         var unknown = new ApiType
         {
             Name = "Sample",
@@ -479,29 +469,61 @@ public class InspectionViewDescriptorTests
             ],
         };
 
-        IReadOnlySet<string> bodylessSections =
-            ApiOutputFormatter.ResolveExecutionSections(
-                bodyless,
-                requested,
-                selectedOrdinal: 1);
-        IReadOnlySet<string> unknownSections =
-            ApiOutputFormatter.ResolveExecutionSections(
-                unknown,
-                requested,
-                selectedOrdinal: 1);
-        IReadOnlySet<string> bodylessRenderableSections =
-            ApiOutputFormatter.ResolveBodylessRenderableSections(
-                requested,
-                bodylessSections);
+        // The execution-section projection never filters a directly selected method: the sections
+        // that report an absent body (Fidelity Causes here) must keep rendering for both shapes.
+        foreach (var type in new[] { abstractMethod, externMethod, unknown })
+        {
+            Assert.Equal(
+                requested.OrderBy(section => section, StringComparer.Ordinal),
+                ApiOutputFormatter
+                    .ResolveExecutionSections(type, requested, selectedOrdinal: 1)
+                    .OrderBy(section => section, StringComparer.Ordinal));
+        }
 
-        Assert.Empty(bodylessSections);
+        // The Facts policy is the only thing scoped to the absent body. An abstract declaration is
+        // dropped from the body projection, so only the sections that need no body target remain —
+        // the declaration-only views plus the two source views that report the absence itself; a
+        // concrete extern method is still projected and renders every requested body section.
         Assert.Equal(
-            [SectionNames.Signature, SectionNames.SourceLocations],
-            bodylessRenderableSections.OrderBy(section => section, StringComparer.Ordinal));
+            [
+                SectionNames.OriginalSource,
+                SectionNames.Signature,
+                SectionNames.SourceDiff,
+                SectionNames.SourceLocations,
+            ],
+            MemberCommand
+                .ResolveBodylessRenderableSections(abstractMethod, requested, ordinal: 1)
+                .OrderBy(section => section, StringComparer.Ordinal));
         Assert.Equal(
             requested.OrderBy(section => section, StringComparer.Ordinal),
-            unknownSections.OrderBy(section => section, StringComparer.Ordinal));
+            MemberCommand
+                .ResolveBodylessRenderableSections(externMethod, requested, ordinal: 1)
+                .OrderBy(section => section, StringComparer.Ordinal));
+
+        // An unknown body fact is not evidence of absence: it stays a body target.
+        Assert.Equal(
+            requested.OrderBy(section => section, StringComparer.Ordinal),
+            MemberCommand
+                .ResolveBodylessRenderableSections(unknown, requested, ordinal: 1)
+                .OrderBy(section => section, StringComparer.Ordinal));
     }
+
+    private static ApiType BodylessMethodType(bool isAbstract) => new()
+    {
+        Name = "Sample",
+        Kind = "class",
+        Members =
+        [
+            new ApiMember
+            {
+                Name = "Run",
+                Kind = "method",
+                MetadataToken = 0x06000001,
+                HasMethodBody = false,
+                IsAbstract = isAbstract,
+            }
+        ],
+    };
 
     [Fact]
     public void MemberViewSelection_RoundTripsThroughOwningPipeline()

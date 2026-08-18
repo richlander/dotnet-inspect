@@ -1452,40 +1452,49 @@ public static class ApiOutputFormatter
         return methods;
     }
 
+    /// <summary>
+    /// The requested sections the body-execution stage runs for the selected target. A selected
+    /// property/event accessor is addressed through its owner, so a bodyless accessor narrows the
+    /// owner's body sections to the ones it can still render (issue #3265). A directly selected
+    /// method addresses itself and keeps every requested section: the body projection
+    /// (<see cref="ResolveBodyMethods"/>) already decides whether it carries a body target, and a
+    /// concrete extern/internal-call method legitimately renders absence evidence — Fidelity
+    /// Causes reports an absent body rather than vanishing.
+    /// </summary>
     internal static IReadOnlySet<string> ResolveExecutionSections(
         ApiType type,
         IReadOnlySet<string> requestedSections,
         int? selectedOrdinal)
     {
         if (selectedOrdinal is not { } ordinal
-            || type.Members is not [{ } single])
+            || type.Members is not [{ } single]
+            || !ApiMemberSectionDescriptors.HasAccessorTokens(single))
         {
             return requestedSections;
         }
 
-        if (ApiMemberSectionDescriptors.HasAccessorTokens(single))
-        {
-            var accessors = AccessorMethods(single, type).ToList();
-            return ordinal > 0 && ordinal <= accessors.Count
-                ? GetBodylessExecutionSections(accessors[ordinal - 1], requestedSections)
-                : requestedSections;
-        }
-
-        return ApiMemberSectionDescriptors.DefinitelyHasNoBody(single)
-            ? GetBodylessExecutionSections(single, requestedSections)
+        var accessors = AccessorMethods(single, type).ToList();
+        return ordinal > 0 && ordinal <= accessors.Count
+            ? GetSelectedAccessorSections(accessors[ordinal - 1], requestedSections)
             : requestedSections;
     }
 
     private static bool CanAnalyzeSelectedAccessor(
         ApiMember accessor,
         IReadOnlySet<string> requestedSections)
-        => GetBodylessExecutionSections(accessor, requestedSections).Count > 0;
+        => GetSelectedAccessorSections(accessor, requestedSections).Count > 0;
 
-    private static HashSet<string> GetBodylessExecutionSections(
-        ApiMember member,
+    /// <summary>
+    /// The body sections a selected property/event accessor still renders. An accessor metadata
+    /// positively reports as bodyless keeps the sections that describe a declaration or report the
+    /// absent body (Annotated Source renders a decompilation diagnostic), and drops the ones that
+    /// would otherwise report the owner's other accessor.
+    /// </summary>
+    private static HashSet<string> GetSelectedAccessorSections(
+        ApiMember accessor,
         IReadOnlySet<string> requestedSections)
     {
-        if (!ApiMemberSectionDescriptors.DefinitelyHasNoBody(member))
+        if (!ApiMemberSectionDescriptors.DefinitelyHasNoBody(accessor))
             return new HashSet<string>(requestedSections, StringComparer.OrdinalIgnoreCase);
 
         var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1499,7 +1508,7 @@ public static class ApiOutputFormatter
             sections.Add(SectionNames.SourceDiff);
         if (requestedSections.Contains(SectionNames.AnnotatedSource))
             sections.Add(SectionNames.AnnotatedSource);
-        if (!member.IsAbstract)
+        if (!accessor.IsAbstract)
         {
             if (requestedSections.Contains(SectionNames.DecompiledSource))
                 sections.Add(SectionNames.DecompiledSource);
@@ -1509,18 +1518,6 @@ public static class ApiOutputFormatter
                 sections.Add(SectionNames.CallGraph);
         }
 
-        return sections;
-    }
-
-    internal static IReadOnlySet<string> ResolveBodylessRenderableSections(
-        IReadOnlySet<string> requestedSections,
-        IReadOnlySet<string> executionSections)
-    {
-        HashSet<string> sections = new(executionSections, StringComparer.OrdinalIgnoreCase);
-        if (requestedSections.Contains(SectionNames.Signature))
-            sections.Add(SectionNames.Signature);
-        if (requestedSections.Contains(SectionNames.SourceLocations))
-            sections.Add(SectionNames.SourceLocations);
         return sections;
     }
 
@@ -1713,7 +1710,7 @@ public static class ApiOutputFormatter
             && ApiMemberSectionDescriptors.HasAccessorTokens(owner)
             && bodyMethods is [{ HasMethodBody: false }];
         if (selectedBodylessAccessor)
-            requestedSections = GetBodylessExecutionSections(bodyMethods[0], requestedSections);
+            requestedSections = GetSelectedAccessorSections(bodyMethods[0], requestedSections);
 
         var request = new MemberCodeProvider.Request(
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)

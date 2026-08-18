@@ -260,7 +260,7 @@ public static class MemberCommand
                     SourceEnricher.EnrichFromLocalXmlDocs(apiType, dllPath, effectiveOptions, logger);
             }
 
-            if (RejectBodylessFactsRequest(apiType, effectiveOptions))
+            if (RejectBodylessFactsRequest(apiType, ref effectiveOptions))
                 return 1;
 
             bool selectedMemberDefinitelyHasNoBody =
@@ -611,36 +611,41 @@ public static class MemberCommand
                    || sections.Contains(SectionNames.Facts));
     }
 
+    /// <summary>
+    /// Facts describes a decoded IL body, so a body target metadata positively reports as bodyless
+    /// can never render it. Fail visibly when nothing else in the request renders, and otherwise
+    /// drop only Facts, note the absent body, and keep every other requested section, so neither
+    /// shape produces success-shaped empty output. An unknown body fact is not evidence of absence
+    /// and stays eligible.
+    /// </summary>
     private static bool RejectBodylessFactsRequest(
         ApiType apiType,
-        MemberOptions options)
+        ref MemberOptions options)
     {
         var requestedSections = ApiCommand.GetRequestedMemberSections(apiType, options);
-        var executionSections = ApiOutputFormatter.ResolveExecutionSections(
-            apiType,
-            requestedSections,
-            options.OverloadIndex);
         if (!requestedSections.Contains(SectionNames.Facts)
-            || executionSections.Contains(SectionNames.Facts))
+            || options.OverloadIndex is not { } ordinal
+            || apiType.Members is not [{ } selected])
         {
             return false;
         }
 
+        var accessor = ResolveSourceAccessor(apiType, selected, ordinal);
+        if (!ApiMemberSectionDescriptors.DefinitelyHasNoBody(accessor ?? selected))
+            return false;
+
         IReadOnlySet<string> renderableSections =
-            ApiOutputFormatter.ResolveBodylessRenderableSections(
-                requestedSections,
-                executionSections);
+            ResolveBodylessRenderableSections(apiType, requestedSections, ordinal);
         bool hasOtherRenderableSection = ApiMemberSectionPipelines.Create(options)
             .GetInspectionViews(apiType, includeInapplicable: true)
             .Any(view => renderableSections.Contains(view.Id)
                 && !view.Id.Equals(SectionNames.Facts, StringComparison.OrdinalIgnoreCase)
                 && view.CanRender);
-        string target = SelectedTargetIsAccessor(apiType, options)
-            ? "accessor"
-            : "method";
+        string target = accessor is null ? "method" : "accessor";
         if (hasOtherRenderableSection)
         {
             CommandError.WriteNote($"The selected {target} has no IL body.");
+            options = WithoutFactsSection(options);
             return false;
         }
 
@@ -648,10 +653,79 @@ public static class MemberCommand
         return true;
     }
 
-    private static bool SelectedTargetIsAccessor(ApiType apiType, MemberOptions options)
-        => options.OverloadIndex is { } ordinal
-           && apiType.Members is [{ } selected]
-           && ResolveSourceAccessor(apiType, selected, ordinal) is not null;
+    /// <summary>
+    /// The requested sections that can still render for a selected body target metadata positively
+    /// reports as bodyless. A selected property/event accessor is addressed through its owner, so
+    /// the execution-section projection names the sections it still renders. A directly selected
+    /// method addresses itself: while the body projection still carries it — a concrete
+    /// extern/internal-call method — every requested body section keeps its normal behavior and
+    /// reports the absent body, and once the projection drops it — an abstract declaration — no
+    /// body section addresses it at all. The views that need no body target render either way.
+    /// </summary>
+    /// <remarks>
+    /// This decision is scoped to the Facts policy above. It never filters the sections the
+    /// renderer runs, so every section a direct method already rendered keeps rendering.
+    /// </remarks>
+    internal static IReadOnlySet<string> ResolveBodylessRenderableSections(
+        ApiType apiType,
+        IReadOnlySet<string> requestedSections,
+        int ordinal)
+    {
+        var selected = apiType.Members is [{ } member] ? member : null;
+        IReadOnlySet<string> bodyTargetSections =
+            ResolveSourceAccessor(apiType, selected, ordinal) is not null
+                ? ApiOutputFormatter.ResolveExecutionSections(apiType, requestedSections, ordinal)
+                : ApiOutputFormatter.ResolveBodyMethods(apiType, requestedSections, ordinal).Count > 0
+                    ? requestedSections
+                    : EmptySections;
+
+        HashSet<string> sections = new(bodyTargetSections, StringComparer.OrdinalIgnoreCase);
+        sections.UnionWith(requestedSections.Where(SectionsThatNeedNoBodyTarget.Contains));
+        return sections;
+    }
+
+    /// <summary>
+    /// The sections that render for a member metadata positively reports as bodyless without
+    /// needing a body-projection target. Signature and Source Locations read the declaration only.
+    /// Original Source and Source Diff report the absence itself: the caller sets
+    /// <see cref="MemberOptions.MemberHasNoBody"/> for this same member immediately after this
+    /// decision, which is what <see cref="ApiCommand.OriginalSourceUnavailableNote"/> and the diff
+    /// it feeds render instead of source text (issue #3299).
+    /// </summary>
+    private static readonly IReadOnlySet<string> SectionsThatNeedNoBodyTarget =
+        new HashSet<string>(
+            [
+                SectionNames.Signature,
+                SectionNames.SourceLocations,
+                SectionNames.OriginalSource,
+                SectionNames.SourceDiff,
+            ],
+            StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Drops only the Facts section from an explicit selection. The body stage asks Research for
+    /// facts about a body that does not exist and fails the whole render, so the note path removes
+    /// the one section it just reported as unrenderable and leaves every other selected section —
+    /// including the ones that report the absent body — in place.
+    /// </summary>
+    private static MemberOptions WithoutFactsSection(MemberOptions options)
+    {
+        if (options.IncludeSections is not { Count: > 0 } sections)
+            return options;
+
+        HashSet<string> remaining = new(
+            sections.Where(section =>
+                !section.Equals(SectionNames.Facts, StringComparison.OrdinalIgnoreCase)),
+            StringComparer.OrdinalIgnoreCase);
+        // An empty include set reads as "no explicit selection" and would restore the verbosity
+        // defaults, so a selection of nothing but Facts keeps its original shape.
+        return remaining.Count is 0 || remaining.Count == sections.Count
+            ? options
+            : options with { IncludeSections = remaining };
+    }
+
+    private static readonly IReadOnlySet<string> EmptySections =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     private static bool SelectedMemberDefinitelyHasNoBody(
         ApiType apiType,

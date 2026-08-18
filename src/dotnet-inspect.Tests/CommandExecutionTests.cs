@@ -7081,6 +7081,171 @@ public partial class CommandExecutionTests
         Assert.Contains("Error: The selected method has no IL body.", error);
     }
 
+    [Theory]
+    [InlineData("Facts,Annotated Source", false)]
+    [InlineData("Annotated Source,Facts", false)]
+    [InlineData("Facts,Annotated Source", true)]
+    public async Task Member_FactsWithAnnotatedSource_BodylessAbstractMethod_FailsVisibly(
+        string sections,
+        bool json)
+    {
+        // An abstract declaration is dropped from the body projection, so Annotated Source has
+        // nothing to address and renders no section: the request must fail visibly rather than
+        // exit 0 with a header and no output (issue #3864 round 21).
+        var args = new List<string>
+        {
+            "member",
+            "JsonConverter<T>",
+            "--platform",
+            "System.Text.Json",
+            "Read",
+            "-S",
+            sections,
+            "--tips",
+            "q"
+        };
+        if (json)
+            args.Add("--json");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Error: The selected method has no IL body.", error);
+    }
+
+    [Theory]
+    [InlineData("Facts,Original Source", "## Original Source", "has no IL body, so it has no authored source")]
+    [InlineData("Facts,Source Diff", "## Source Diff", "Original Source unavailable")]
+    public async Task Member_FactsWithAbsenceReportingSource_BodylessAbstractMethod_KeepsExplanation(
+        string sections,
+        string heading,
+        string explanation)
+    {
+        // Original Source and Source Diff report the absent body themselves, so they render for an
+        // abstract declaration even though the body projection drops it. Facts is the only section
+        // the request loses: dropping these two as well would delete the answer the member command
+        // already gives when they are selected alone (issue #3864 round 21).
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConverter<T>", "--platform", "System.Text.Json",
+            "Read", "-S", sections, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Note: The selected method has no IL body.", error);
+        Assert.Contains(heading, output);
+        Assert.Contains(explanation, output);
+        Assert.DoesNotContain("## Facts", output);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Member_Facts_BodylessExternMethod_FailsVisibly(bool json)
+    {
+        var args = new List<string>
+        {
+            "member",
+            typeof(SamplePInvokeClass).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(SamplePInvokeClass.GetCurrentProcessId),
+            "--all",
+            "-S",
+            "Facts",
+            "--tips",
+            "q"
+        };
+        if (json)
+            args.Add("--json");
+
+        var (exit, output, error) = await RunAppAsync([.. args]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Error: The selected method has no IL body.", error);
+    }
+
+    [Theory]
+    [InlineData("Facts,Fidelity Causes")]
+    [InlineData("Fidelity Causes,Facts")]
+    public async Task Member_FactsWithAbsentBodySection_BodylessExternMethod_PreservesAbsenceEvidence(
+        string sections)
+    {
+        // A concrete extern method is still a body target, so the sections that report the absent
+        // body keep rendering alongside the note; only Facts itself drops out.
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(SamplePInvokeClass).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(SamplePInvokeClass.GetCurrentProcessId),
+            "--all",
+            "-S",
+            sections,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Note: The selected method has no IL body.", error);
+        Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+        Assert.Contains("## Fidelity Causes", output, StringComparison.Ordinal);
+        Assert.Contains("Absent", output, StringComparison.Ordinal);
+        Assert.Contains("no decompiler IR body", output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Facts,Annotated Source")]
+    [InlineData("Annotated Source,Facts")]
+    public async Task Member_FactsWithAnnotatedSource_BodylessExternMethod_PreservesDiagnostic(
+        string sections)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(SamplePInvokeClass).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(SamplePInvokeClass.GetCurrentProcessId),
+            "--all",
+            "-S",
+            sections,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Note: The selected method has no IL body.", error);
+        Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+        Assert.Contains("## Annotated Source", output, StringComparison.Ordinal);
+        Assert.Contains(ILInspector.Decompiler.DiagnosticIds.InternalError, output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Calls", "No calls to other methods found")]
+    [InlineData("Fidelity Causes", "no decompiler IR body")]
+    [InlineData("Applied Taste", "No recorded style choices")]
+    public async Task Member_BodylessExternMethod_KeepsSelectedSectionsWithoutFacts(
+        string section,
+        string expected)
+    {
+        // The Facts policy must never filter the sections a direct method already renders: a
+        // request without Facts keeps every selected section, absence evidence included.
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(SamplePInvokeClass).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(SamplePInvokeClass.GetCurrentProcessId),
+            "--all",
+            "-S",
+            section,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains($"## {section}", output, StringComparison.Ordinal);
+        Assert.Contains(expected, output, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Member_OriginalSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
     {
