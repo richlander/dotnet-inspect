@@ -488,6 +488,51 @@ public sealed class DynamicTypeViewTests
         Assert.InRange(allocated, 0, 500_000);
     }
 
+    /// <summary>
+    /// A constructor returns void. Accepting the header and parameter count but
+    /// letting the return type decode first meant a hostile return type was
+    /// rebuilt in full and only then discarded — and because a nested TypeSpec
+    /// decode gets its own blob budget, that work multiplies far past any
+    /// single-blob bound. Fails if the void-return preflight is removed: the
+    /// return tree is then materialized before rejection.
+    /// </summary>
+    [Fact]
+    public void NonVoidConstructorReturn_IsRejectedBeforeReturnMaterialization()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(0);
+        for (int i = 0; i < 4_000; i++)
+            signature.WriteByte(0x1d);
+        signature.WriteByte(0x08);
+
+        long allocated = 0;
+        int observed = 0;
+        byte[]? flags = ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            constructorSignatureBytes: signature.ToArray(),
+            read: (reader, attributes) =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                long before =
+                    GC.GetAllocatedBytesForCurrentThread();
+                byte[]? result = DynamicReader.GetDynamicFlags(
+                    reader,
+                    attributes,
+                    amount => observed += amount);
+                allocated =
+                    GC.GetAllocatedBytesForCurrentThread() - before;
+                return result;
+            });
+
+        Assert.Null(flags);
+        Assert.InRange(observed, 0, 100);
+        Assert.InRange(allocated, 0, 100_000);
+    }
+
     [Fact]
     public void TruncatedConstructorSignature_IsRejectedBeforeReturnMaterialization()
     {

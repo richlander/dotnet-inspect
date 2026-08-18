@@ -399,6 +399,12 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         if (!suppressGcTransition)
             return callingConvention;
+        // Idempotent: the modifier that implies the suffix is retained on the
+        // return type, so substitution re-derives a convention that already
+        // spells it. Appending again would spell it twice and break identity
+        // against the same function pointer decoded straight from metadata.
+        if (HasSuppressGcTransition(callingConvention))
+            return callingConvention;
         if (callingConvention.Length == 0 || callingConvention == "unmanaged")
             return "unmanaged[SuppressGCTransition]";
         const string prefix = "unmanaged[";
@@ -407,10 +413,22 @@ public sealed class TypeRef : IEquatable<TypeRef>
             : callingConvention;
     }
 
+    static bool HasSuppressGcTransition(string callingConvention)
+    {
+        const string token = "SuppressGCTransition";
+        int index = callingConvention.IndexOf(token, StringComparison.Ordinal);
+        if (index < 0)
+            return false;
+        // Match the whole convention token, not a substring of a longer name.
+        bool startsToken = index == 0 || callingConvention[index - 1] is '[' or ' ' or ',';
+        int end = index + token.Length;
+        bool endsToken = end == callingConvention.Length
+            || callingConvention[end] is ']' or ',' or ' ';
+        return startsToken && endsToken;
+    }
+
     internal TypeRef WithCustomModifier(TypeRef modifier, bool isRequired)
-        => !modifier.ContainsUnsupported
-            ? Copy(customModifiers: CustomModifiers.Add(new TypeRefCustomModifier(isRequired, modifier)))
-            : this;
+        => Copy(customModifiers: CustomModifiers.Add(new TypeRefCustomModifier(isRequired, modifier)));
 
     static bool HasCustomModifier(TypeRef type, bool isRequired, string ns, string name)
         => type.CustomModifiers.Any(modifier =>
@@ -585,7 +603,9 @@ public sealed class TypeRef : IEquatable<TypeRef>
         Kind == TypeRefKind.Unsupported
         || IsPrivateImplementationDetails
         || ElementType?.ContainsUnsupported == true
-        || TypeArguments.Any(a => a.ContainsUnsupported);
+        || TypeArguments.Any(a => a.ContainsUnsupported)
+        || !CustomModifiers.IsDefaultOrEmpty
+            && CustomModifiers.Any(m => m.Modifier.ContainsUnsupported);
 
     /// <summary>
     /// The reasons of every unsupported shape or unspellable implementation-detail
@@ -606,6 +626,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
         foreach (var argument in TypeArguments)
             foreach (var reason in argument.UnsupportedReasons())
                 yield return reason;
+        if (!CustomModifiers.IsDefaultOrEmpty)
+            foreach (var modifier in CustomModifiers)
+                foreach (var reason in modifier.Modifier.UnsupportedReasons())
+                    yield return reason;
     }
 
     internal IEnumerable<string> UnsupportedDiscriminators()
@@ -620,6 +644,10 @@ public sealed class TypeRef : IEquatable<TypeRef>
         foreach (var argument in TypeArguments)
             foreach (var discriminator in argument.UnsupportedDiscriminators())
                 yield return discriminator;
+        if (!CustomModifiers.IsDefaultOrEmpty)
+            foreach (var modifier in CustomModifiers)
+                foreach (var discriminator in modifier.Modifier.UnsupportedDiscriminators())
+                    yield return discriminator;
     }
 
     public bool Equals(TypeRef? other)

@@ -441,6 +441,78 @@ public class ReferenceEqualityMetadataFactsTests
         }
     }
 
+    /// <summary>
+    /// Two versions of one library present the same interface name, and
+    /// <see cref="TypeRef.Equals"/> is deliberately blind to which one a name
+    /// resolves to. An <c>Implements</c> answer must not be: a type that
+    /// implements v1's <c>N.I</c> does not implement v2's. Fails if
+    /// <c>SameInterfaceIdentity</c> stops resolving both sides, and the shared
+    /// cache would then hand the first answer to the second query.
+    /// </summary>
+    [Fact]
+    public void VersionedInterfaces_DoNotShareImplementsFacts()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-interface-identity-").FullName;
+        try
+        {
+            const string twinSource = """
+                using System.Reflection;
+
+                [assembly: AssemblyVersion("{VERSION}")]
+
+                namespace N;
+
+                public interface I;
+
+                public class C : I;
+                """;
+            string v1 = Emit(
+                directory,
+                "v1",
+                "Twin",
+                twinSource.Replace("{VERSION}", "1.0.0.0"));
+            string v2 = Emit(
+                directory,
+                "v2",
+                "Twin",
+                twinSource.Replace("{VERSION}", "2.0.0.0"));
+
+            var resolver = new VersionResolver(v1, v2);
+            using var context = new MetadataContext(resolver);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                typeof(ReferenceEqualityMetadataFactsTests).Assembly.Location,
+                resolver,
+                context);
+
+            var v1Identity = new AssemblyReferenceIdentity(
+                "Twin",
+                new Version(1, 0, 0, 0),
+                null,
+                null);
+            var v2Identity = new AssemblyReferenceIdentity(
+                "Twin",
+                new Version(2, 0, 0, 0),
+                null,
+                null);
+            TypeRef concrete = Definition("Twin", "N", "C", ["C"], v1Identity);
+            TypeRef ifaceV1 = Definition("Twin", "N", "I", ["I"], v1Identity);
+            TypeRef ifaceV2 = Definition("Twin", "N", "I", ["I"], v2Identity);
+
+            Assert.Equal(ifaceV1, ifaceV2);
+            Assert.Equal(
+                MetadataFactState.Yes,
+                source.CrossAssembly.Implements(concrete, ifaceV1));
+            Assert.NotEqual(
+                MetadataFactState.Yes,
+                source.CrossAssembly.Implements(concrete, ifaceV2));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void MalformedDynamicAttribute_RemainsUnknown()
     {
@@ -1736,9 +1808,218 @@ public class ReferenceEqualityMetadataFactsTests
         return Serialize(metadata, new BlobBuilder());
     }
 
+    /// <summary>
+    /// A module version id is metadata, not an attestation: two images can
+    /// carry the same non-empty MVID, by accident or by choice. The recorded
+    /// TypeDef row must therefore be re-validated against the structured name
+    /// in the module actually being queried, or a shifted decoy answers for the
+    /// type the caller named. Fails if <c>IsLocalRowFor</c> stops checking the
+    /// name.
+    /// </summary>
+    [Fact]
+    public void SharedModuleVersionId_StillValidatesTheStoredRow()
+    {
+        Guid shared = Guid.NewGuid();
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-shared-mvid-").FullName;
+        string firstPath = Path.Combine(directory, "first.dll");
+        string secondPath = Path.Combine(directory, "second.dll");
+        try
+        {
+            File.WriteAllBytes(
+                firstPath,
+                BuildHandleProvenanceImage(
+                    shiftRoot: false,
+                    emptyMvid: false,
+                    shared));
+            File.WriteAllBytes(
+                secondPath,
+                BuildHandleProvenanceImage(
+                    shiftRoot: true,
+                    emptyMvid: false,
+                    shared));
+            using var first = MetadataSource.OpenWithoutSymbols(firstPath);
+            using var second = MetadataSource.OpenWithoutSymbols(secondPath);
+            Assert.Equal(first.ModuleVersionId, second.ModuleVersionId);
+            Assert.NotEqual(Guid.Empty, second.ModuleVersionId);
+
+            TypeRef root = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                first.Reader,
+                MetadataTokens.TypeDefinitionHandle(2),
+                rawTypeKind: 0);
+
+            Assert.Equal(
+                MetadataFactState.No,
+                second.HasOperatorInBindingHierarchy(
+                    root,
+                    "op_Equality"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The recorded row can also name a row the queried module does not have.
+    /// The range check must send that case to the bounded lookup rather than
+    /// reading past the TypeDef table.
+    /// </summary>
+    [Fact]
+    public void StoredRowOutsideTheTargetModule_FallsBackToBoundedLookup()
+    {
+        Guid shared = Guid.NewGuid();
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-row-range-").FullName;
+        string widePath = Path.Combine(directory, "wide.dll");
+        string narrowPath = Path.Combine(directory, "narrow.dll");
+        try
+        {
+            File.WriteAllBytes(
+                widePath,
+                BuildHandleProvenanceImage(
+                    shiftRoot: true,
+                    emptyMvid: false,
+                    shared));
+            File.WriteAllBytes(
+                narrowPath,
+                BuildHandleProvenanceImage(
+                    shiftRoot: false,
+                    emptyMvid: false,
+                    shared));
+            using var wide = MetadataSource.OpenWithoutSymbols(widePath);
+            using var narrow = MetadataSource.OpenWithoutSymbols(narrowPath);
+
+            // Row 3 exists only in the wider image.
+            TypeRef root = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                wide.Reader,
+                MetadataTokens.TypeDefinitionHandle(3),
+                rawTypeKind: 0);
+
+            Assert.Equal(
+                MetadataFactState.No,
+                narrow.HasOperatorInBindingHierarchy(
+                    root,
+                    "op_Equality"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A same-assembly base edge is hierarchy work like an interface edge, and
+    /// costs the same walk. Leaving it uncharged let a type spend the entire
+    /// budget on its own methods and still traverse one more level, so the
+    /// local path answered a confident No where the cross-assembly path
+    /// answered Unknown for the same shape. Fails if the base-edge charge is
+    /// removed: the budgeted case then reports No.
+    /// </summary>
+    [Theory]
+    [InlineData(4, MetadataFactState.No)]
+    [InlineData(OperatorHierarchyLimits.WorkItems, MetadataFactState.Unknown)]
+    public void LocalHierarchyBaseEdge_IsChargedAgainstTheWorkBudget(
+        int methodCount,
+        MetadataFactState expected)
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "reference-equality-base-edge-budget-").FullName;
+        string path = Path.Combine(directory, "BaseEdgeBudget.dll");
+        try
+        {
+            File.WriteAllBytes(
+                path,
+                BuildLocalBaseEdgeBudgetImage(methodCount));
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            TypeRef root = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                source.Reader,
+                MetadataTokens.TypeDefinitionHandle(3),
+                rawTypeKind: 0);
+
+            Assert.Equal(
+                expected,
+                source.HasOperatorInBindingHierarchy(root, "op_Equality"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static byte[] BuildLocalBaseEdgeBudgetImage(int methodCount)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("BaseEdgeBudget.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("BaseEdgeBudget"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var systemRuntime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0xb0, 0x3f, 0x5f, 0x7f,
+                    0x11, 0xd5, 0x0a, 0x3a,
+                }),
+            default,
+            default);
+        var objectType = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Base"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Root"),
+            MetadataTokens.TypeDefinitionHandle(2),
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        StringHandle methodName = metadata.GetOrAddString("M");
+        BlobHandle signature = metadata.GetOrAddBlob(
+            new byte[] { 0x00, 0x00, 0x01 });
+        for (int i = 0; i < methodCount; i++)
+        {
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                methodName,
+                signature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+        }
+        return Serialize(metadata, new BlobBuilder());
+    }
+
     static byte[] BuildHandleProvenanceImage(
         bool shiftRoot,
-        bool emptyMvid)
+        bool emptyMvid,
+        Guid? mvid = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1746,7 +2027,7 @@ public class ReferenceEqualityMetadataFactsTests
             metadata.GetOrAddString("HandleProvenance.dll"),
             emptyMvid
                 ? default
-                : metadata.GetOrAddGuid(Guid.NewGuid()),
+                : metadata.GetOrAddGuid(mvid ?? Guid.NewGuid()),
             default,
             default);
         metadata.AddAssembly(

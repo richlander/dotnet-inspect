@@ -40,7 +40,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly ConcurrentDictionary<TypeResolutionCoordinates, MetadataFactState> _byRefLikeCache = new();
     readonly ConcurrentDictionary<(FieldRef Field, TypeResolutionCoordinates Type), ResolvedFieldFacts?> _fieldFactCache = new();
     readonly ConcurrentDictionary<(MethodRef Method, TypeResolutionCoordinates Type), ResolvedMethodFacts?> _methodFactCache = new();
-    readonly ConcurrentDictionary<(TypeRef Instance, TypeResolutionCoordinates Type, TypeRef Interface), MetadataFactState> _interfaceCache = new();
+    readonly ConcurrentDictionary<(TypeRef Instance, TypeResolutionCoordinates Type, TypeRef Interface, AssemblyReferenceIdentity? InterfaceAssembly), MetadataFactState> _interfaceCache = new();
     readonly ConcurrentDictionary<(TypeResolutionCoordinates Type, string MethodName), MetadataFactState> _operatorHierarchyCache = new();
 
     public CrossAssemblyTypeResolver(
@@ -246,7 +246,7 @@ internal sealed class CrossAssemblyTypeResolver
     {
         if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates))
             return MetadataFactState.Unknown;
-        var key = (type, coordinates, iface);
+        var key = (type, coordinates, iface, iface.ResolutionAssembly);
         if (_interfaceCache.TryGetValue(key, out var cached))
             return cached;
 
@@ -498,7 +498,10 @@ internal sealed class CrossAssemblyTypeResolver
             var typeArguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
             foreach (var implemented in DecodeInterfaces(reader, typeDef, typeArguments))
             {
-                if (implemented.Equals(iface))
+                if (SameInterfaceIdentity(
+                    implemented,
+                    resolved.Assembly.Assembly,
+                    iface))
                 {
                     implements = true;
                     return true;
@@ -513,8 +516,32 @@ internal sealed class CrossAssemblyTypeResolver
         return !unresolved;
     }
 
-    static IEnumerable<TypeRef> DecodeInterfaces(MetadataReader reader, TypeDefinition typeDef, ImmutableArray<TypeRef> typeArguments)
+    /// <summary>
+    /// Interface identity for a hierarchy answer. <see cref="TypeRef.Equals"/>
+    /// is deliberately blind to which assembly a name resolves to, so the same
+    /// interface presented by two versions of one library compares equal. An
+    /// <c>Implements</c> answer must not inherit that blindness, so both names
+    /// are resolved and required to land in the same physical assembly. A side
+    /// that cannot be resolved stays permissive: an unrelated resolution gap
+    /// must not silently turn Yes into No.
+    /// </summary>
+    bool SameInterfaceIdentity(
+        TypeRef candidate,
+        ResolvedAssemblyReference? candidateLocalAssembly,
+        TypeRef iface)
     {
+        if (!candidate.Equals(iface))
+            return false;
+        if (Locate(candidate, candidateLocalAssembly) is not { } candidateResolved
+            || Locate(iface) is not { } ifaceResolved)
+        {
+            return true;
+        }
+        return candidateResolved.Assembly.Assembly.Identity.IsEquivalentTo(
+            ifaceResolved.Assembly.Assembly.Identity);
+    }
+
+    static IEnumerable<TypeRef> DecodeInterfaces(MetadataReader reader, TypeDefinition typeDef, ImmutableArray<TypeRef> typeArguments)    {
         var scope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, typeDef.GetGenericParameters()), []);
         foreach (var implHandle in typeDef.GetInterfaceImplementations())
         {

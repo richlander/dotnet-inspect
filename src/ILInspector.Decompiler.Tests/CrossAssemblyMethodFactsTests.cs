@@ -182,6 +182,90 @@ public class CrossAssemblyMethodFactsTests
             instantiated.FunctionPointerParameterRefKinds);
     }
 
+    /// <summary>
+    /// The <c>SuppressGCTransition</c> suffix is derived from a custom modifier
+    /// the return type keeps, so re-deriving the convention during substitution
+    /// must not spell it twice. <see cref="TypeRef.Equals"/> includes the
+    /// calling convention, so a doubled suffix makes the substituted pointer
+    /// unequal to the same closed pointer decoded straight from a signature —
+    /// exactly the identity this PR exists to protect. Fails if
+    /// <c>AddSuppressGcTransition</c> stops being idempotent.
+    /// </summary>
+    [Fact]
+    public void FunctionPointerInstantiation_DoesNotDoubleSuppressGcTransition()
+    {
+        TypeRef modifier = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef intType = TypeRef.CoreLib("System", "Int32");
+        TypeRef openReturn = TypeRef.GenericParameter(0, "T")
+            .WithCustomModifier(modifier, isRequired: false);
+        TypeRef open = TypeRef.FunctionPointer(openReturn, [intType], "");
+
+        TypeRef instantiated = open.Instantiate([intType], []);
+        TypeRef closed = TypeRef.FunctionPointer(
+            intType.WithCustomModifier(modifier, isRequired: false),
+            [intType],
+            "");
+
+        Assert.Equal("unmanaged[SuppressGCTransition]", closed.CallingConvention);
+        Assert.Equal(closed.CallingConvention, instantiated.CallingConvention);
+        Assert.Equal(closed, instantiated);
+        Assert.Equal(closed.GetHashCode(), instantiated.GetHashCode());
+    }
+
+    /// <summary>
+    /// Substitution can turn a representable modifier into an unsupported one.
+    /// Dropping it left a type that looked fully supported, so the fidelity
+    /// computation lost the reason it could not be spelled. Fails if custom
+    /// modifiers stop being retained or stop being traversed by
+    /// <see cref="TypeRef.ContainsUnsupported"/>.
+    /// </summary>
+    [Fact]
+    public void SubstitutedUnsupportedModifier_KeepsItsEvidence()
+    {
+        const string reason = "modifier type is unsupported";
+        TypeRef modified = TypeRef.CoreLib("System", "Int32")
+            .WithCustomModifier(
+                TypeRef.GenericParameter(0, "T"),
+                isRequired: true);
+
+        TypeRef instantiated = modified.Instantiate(
+            [TypeRef.Unsupported(reason)],
+            []);
+
+        Assert.Single(instantiated.CustomModifiers);
+        Assert.True(instantiated.ContainsUnsupported);
+        Assert.Contains(reason, instantiated.UnsupportedReasons());
+    }
+
+    /// <summary>
+    /// The same evidence loss, on the path where the modified type is itself
+    /// the generic parameter being substituted: the modifiers ride across onto
+    /// the substituted type. Dropping an unsupported one here returned the bare
+    /// argument, indistinguishable from a type that never carried a modifier.
+    /// Fails if <c>WithCustomModifier</c> goes back to discarding it.
+    /// </summary>
+    [Fact]
+    public void SubstitutedModifierOnAGenericParameter_IsNotDiscarded()
+    {
+        const string reason = "modifier type is unsupported";
+        TypeRef intType = TypeRef.CoreLib("System", "Int32");
+        TypeRef parameter = TypeRef.GenericParameter(0, "T")
+            .WithCustomModifier(
+                TypeRef.GenericParameter(1, "U"),
+                isRequired: true);
+
+        TypeRef instantiated = parameter.Instantiate(
+            [intType, TypeRef.Unsupported(reason)],
+            []);
+
+        Assert.NotSame(intType, instantiated);
+        Assert.Single(instantiated.CustomModifiers);
+        Assert.True(instantiated.ContainsUnsupported);
+        Assert.Contains(reason, instantiated.UnsupportedReasons());
+    }
+
     [Fact]
     public void AmbiguousMethodCandidates_KeepFactsUnknown()
     {

@@ -174,7 +174,18 @@ public static class DynamicReader
         }
 
         int parameterCount = blob.ReadCompressedInteger();
-        return parameterCount is 0 or 1;
+        if (parameterCount is not (0 or 1))
+            return false;
+
+        // A constructor returns void, with no custom modifiers. Rejecting any
+        // other return encoding here — before a provider ever materializes it —
+        // is what keeps a hostile return type from being decoded in full only
+        // to be discarded: nested TypeSpec decodes each get their own blob
+        // budget, so a return type carrying thousands of modifier arguments
+        // that all point at one shallow TypeSpec multiplies out far past any
+        // single-blob bound.
+        const byte ElementTypeVoid = 0x01;
+        return blob.RemainingBytes > 0 && blob.ReadByte() == ElementTypeVoid;
     }
 
     /// <summary>

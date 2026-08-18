@@ -652,6 +652,9 @@ public sealed class MetadataSource : IDisposable
                     && sourceMvid != Guid.Empty
                     && ModuleVersionId != Guid.Empty
                     && sourceMvid == ModuleVersionId
+                    && IsLocalRowFor(
+                        currentDefinition.DefinitionHandle,
+                        currentIdentity.DefinitionName)
                     ? currentDefinition.DefinitionHandle
                     : default;
             if (handle.IsNil)
@@ -750,6 +753,11 @@ public sealed class MetadataSource : IDisposable
                 scope);
             if (baseType is not null && !IsObject(baseType))
             {
+                if (remainingWork-- <= 0)
+                {
+                    unresolved = true;
+                    break;
+                }
                 pending.Push(isGenericInstance
                     ? baseType.Instantiate(current.TypeArguments, [])
                     : baseType);
@@ -761,6 +769,31 @@ public sealed class MetadataSource : IDisposable
             : MetadataFactState.Unknown;
         _operatorHierarchyFacts.TryAdd(cacheKey, result);
         return result;
+    }
+
+    /// <summary>
+    /// Whether a stored TypeDef row handle really names <paramref name="name"/>
+    /// in <em>this</em> module. A module version id is metadata like any other:
+    /// a hostile or accidentally duplicated image can carry the MVID this
+    /// module carries, so a matching MVID makes the recorded row a hint rather
+    /// than a fact. Confirm the row is in range and still spells the expected
+    /// structured name before reusing it; callers fall back to the bounded
+    /// <see cref="FindLocalTypeDefinition"/> scan when this returns false.
+    /// </summary>
+    bool IsLocalRowFor(
+        TypeDefinitionHandle handle,
+        MetadataTypeDefinitionName name)
+    {
+        if (handle.IsNil)
+            return false;
+        int row = MetadataTokens.GetRowNumber(handle);
+        if (row < 1 || row > Reader.GetTableRowCount(TableIndex.TypeDef))
+            return false;
+        return MetadataTypeDefinitionName.Matches(
+            Reader,
+            handle,
+            name,
+            out _) == MetadataTypeDefinitionNameMatchResult.Match;
     }
 
     LocalTypeDefinitionLookup FindLocalTypeDefinition(
