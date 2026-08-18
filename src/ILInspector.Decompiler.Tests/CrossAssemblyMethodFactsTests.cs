@@ -216,10 +216,14 @@ public class CrossAssemblyMethodFactsTests
 
     /// <summary>
     /// Substitution can turn a representable modifier into an unsupported one.
-    /// Dropping it left a type that looked fully supported, so the fidelity
-    /// computation lost the reason it could not be spelled. Fails if custom
-    /// modifiers stop being retained or stop being traversed by
-    /// <see cref="TypeRef.ContainsUnsupported"/>.
+    /// Losing that evidence left a type that looked fully supported, so the
+    /// fidelity computation lost the reason it could not be spelled. This is
+    /// the <c>InstantiateCustomModifiers</c> path, which rebuilds the modifier
+    /// list directly and so never reaches <c>WithCustomModifier</c>: it gates
+    /// only the traversal, and fails if <see cref="TypeRef.ContainsUnsupported"/>
+    /// or <c>UnsupportedReasons</c> stop looking at <c>CustomModifiers</c>.
+    /// Retention through <c>WithCustomModifier</c> is gated separately by
+    /// <see cref="SubstitutedModifierOnAGenericParameter_IsNotDiscarded"/>.
     /// </summary>
     [Fact]
     public void SubstitutedUnsupportedModifier_KeepsItsEvidence()

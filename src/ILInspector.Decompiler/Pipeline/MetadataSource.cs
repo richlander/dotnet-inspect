@@ -823,19 +823,33 @@ public sealed class MetadataSource : IDisposable
                 continue;
             }
 
-            TypeRef? baseType = DecodeBaseType(
-                typeDefinition.BaseType,
-                scope);
-            if (baseType is not null && !IsObject(baseType))
+            if (!typeDefinition.BaseType.IsNil)
             {
+                // Charged before the decode and for every non-nil edge,
+                // including the one that reaches System.Object: the decode is
+                // itself the work being bounded, and the cross-assembly walk
+                // charges the same way. Skipping either case lets the local
+                // path run past the budget and still answer with confidence
+                // where the cross-assembly path answers Unknown.
                 if (remainingWork-- <= 0)
                 {
                     unresolved = true;
                     break;
                 }
-                pending.Push(isGenericInstance
-                    ? baseType.Instantiate(current.TypeArguments, [])
-                    : baseType);
+                TypeRef? baseType = DecodeBaseType(
+                    typeDefinition.BaseType,
+                    scope);
+                if (baseType is null)
+                {
+                    unresolved = true;
+                    continue;
+                }
+                if (!IsObject(baseType))
+                {
+                    pending.Push(isGenericInstance
+                        ? baseType.Instantiate(current.TypeArguments, [])
+                        : baseType);
+                }
             }
         }
 

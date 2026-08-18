@@ -177,15 +177,28 @@ public static class DynamicReader
         if (parameterCount is not (0 or 1))
             return false;
 
-        // A constructor returns void, with no custom modifiers. Rejecting any
-        // other return encoding here — before a provider ever materializes it —
-        // is what keeps a hostile return type from being decoded in full only
-        // to be discarded: nested TypeSpec decodes each get their own blob
-        // budget, so a return type carrying thousands of modifier arguments
-        // that all point at one shallow TypeSpec multiplies out far past any
-        // single-blob bound.
+        // Only two signatures are supported, and both are fully spelled out
+        // here: `void .ctor()` and `void .ctor(bool[])`. Matching the whole
+        // encoding — before a provider ever materializes any part of it — is
+        // what keeps a hostile signature from being decoded in full only to be
+        // discarded. Nested TypeSpec decodes each get their own blob budget, so
+        // a type carrying thousands of modifier arguments that all point at one
+        // shallow TypeSpec multiplies out far past any single-blob bound.
+        // Checking the return type alone is not enough: the parameter position
+        // of the one-argument form reaches the same materialization.
         const byte ElementTypeVoid = 0x01;
-        return blob.RemainingBytes > 0 && blob.ReadByte() == ElementTypeVoid;
+        const byte ElementTypeBoolean = 0x02;
+        const byte ElementTypeSzArray = 0x1d;
+        if (blob.RemainingBytes == 0 || blob.ReadByte() != ElementTypeVoid)
+            return false;
+        if (parameterCount == 1
+            && !(blob.RemainingBytes >= 2
+                && blob.ReadByte() == ElementTypeSzArray
+                && blob.ReadByte() == ElementTypeBoolean))
+        {
+            return false;
+        }
+        return blob.RemainingBytes == 0;
     }
 
     /// <summary>

@@ -466,6 +466,10 @@ public class ReferenceEqualityMetadataFactsTests
                 public interface I;
 
                 public class C : I;
+
+                public interface IG<T>;
+
+                public class G : IG<int>;
                 """;
             string v1 = Emit(
                 directory,
@@ -506,6 +510,35 @@ public class ReferenceEqualityMetadataFactsTests
             Assert.NotEqual(
                 MetadataFactState.Yes,
                 source.CrossAssembly.Implements(concrete, ifaceV2));
+
+            // The same distinction where the interface arrives with no
+            // resolution provenance at all, as a locally decoded TypeRef does.
+            // Neither Twin can be ruled in or out, so the only honest answer is
+            // Unknown; matching on the bare name instead would authorize the
+            // wrong definition, and returning No would invent a fact.
+            TypeRef ifaceUnresolved = Definition("Twin", "N", "I", ["I"], null);
+            Assert.Equal(
+                MetadataFactState.Unknown,
+                source.CrossAssembly.Implements(concrete, ifaceUnresolved));
+
+            // A generic instance keeps its provenance on the element type, so
+            // resolving the instance itself fails and the same fail-open
+            // applied. Fails if the identity check stops unwrapping instances.
+            TypeRef genericConcrete = Definition("Twin", "N", "G", ["G"], v1Identity);
+            TypeRef genericV1 = TypeRef.GenericInstance(
+                Definition("Twin", "N", "IG`1", ["IG`1"], v1Identity),
+                [TypeRef.CoreLib("System", "Int32")]);
+            TypeRef genericV2 = TypeRef.GenericInstance(
+                Definition("Twin", "N", "IG`1", ["IG`1"], v2Identity),
+                [TypeRef.CoreLib("System", "Int32")]);
+
+            Assert.Equal(genericV1, genericV2);
+            Assert.Equal(
+                MetadataFactState.Yes,
+                source.CrossAssembly.Implements(genericConcrete, genericV1));
+            Assert.NotEqual(
+                MetadataFactState.Yes,
+                source.CrossAssembly.Implements(genericConcrete, genericV2));
         }
         finally
         {
@@ -724,7 +757,7 @@ public class ReferenceEqualityMetadataFactsTests
         string ns,
         string flattenedName,
         ImmutableArray<string> segments,
-        AssemblyReferenceIdentity resolutionAssembly)
+        AssemblyReferenceIdentity? resolutionAssembly)
     {
         var name = MetadataTypeDefinitionName.Create(ns, segments) switch
         {
@@ -1916,11 +1949,15 @@ public class ReferenceEqualityMetadataFactsTests
     /// costs the same walk. Leaving it uncharged let a type spend the entire
     /// budget on its own methods and still traverse one more level, so the
     /// local path answered a confident No where the cross-assembly path
-    /// answered Unknown for the same shape. Fails if the base-edge charge is
-    /// removed: the budgeted case then reports No.
+    /// answered Unknown for the same shape. Every non-nil edge is charged
+    /// before it is decoded, including the terminal edge to
+    /// <c>System.Object</c>: charging after the decode, or exempting Object,
+    /// left the same one-level overrun one step further out. Fails if either
+    /// charge is removed: the budgeted cases then report No.
     /// </summary>
     [Theory]
     [InlineData(4, MetadataFactState.No)]
+    [InlineData(OperatorHierarchyLimits.WorkItems - 3, MetadataFactState.Unknown)]
     [InlineData(OperatorHierarchyLimits.WorkItems - 2, MetadataFactState.Unknown)]
     public void LocalHierarchyBaseEdge_IsChargedAgainstTheWorkBudget(
         int methodCount,

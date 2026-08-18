@@ -246,7 +246,15 @@ internal sealed class CrossAssemblyTypeResolver
     {
         if (!TryCoordinates(type, out TypeResolutionCoordinates coordinates))
             return MetadataFactState.Unknown;
-        var key = (type, coordinates, iface, iface.ResolutionAssembly);
+        // Keyed on the definition's resolution assembly, not the presented
+        // type's: a generic instance carries its provenance on the element
+        // type, so keying on the instance records null for every version and
+        // hands the first query's answer to the second.
+        var key = (
+            type,
+            coordinates,
+            iface,
+            NamedDefinition(iface)?.ResolutionAssembly);
         if (_interfaceCache.TryGetValue(key, out var cached))
             return cached;
 
@@ -498,14 +506,17 @@ internal sealed class CrossAssemblyTypeResolver
             var typeArguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
             foreach (var implemented in DecodeInterfaces(reader, typeDef, typeArguments))
             {
-                if (SameInterfaceIdentity(
+                var identity = SameInterfaceIdentity(
                     implemented,
                     resolved.Assembly.Assembly,
-                    iface))
+                    iface);
+                if (identity == MetadataFactState.Yes)
                 {
                     implements = true;
                     return true;
                 }
+                if (identity == MetadataFactState.Unknown)
+                    unresolved = true;
                 pending.Push((implemented, resolved.Assembly.Assembly));
             }
 
@@ -518,27 +529,56 @@ internal sealed class CrossAssemblyTypeResolver
 
     /// <summary>
     /// Interface identity for a hierarchy answer. <see cref="TypeRef.Equals"/>
-    /// is deliberately blind to which assembly a name resolves to, so the same
-    /// interface presented by two versions of one library compares equal. An
-    /// <c>Implements</c> answer must not inherit that blindness, so both names
-    /// are resolved and required to land in the same physical assembly. A side
-    /// that cannot be resolved stays permissive: an unrelated resolution gap
-    /// must not silently turn Yes into No.
+    /// is deliberately blind to which assembly a name resolves to and to the
+    /// structured shape behind a flattened name, so the same interface
+    /// presented by two versions of one library — or a nested and a top-level
+    /// definition that flatten alike — compare equal. An <c>Implements</c>
+    /// answer must not inherit that blindness, so both names are resolved and
+    /// required to land on the same definition in the same physical assembly.
+    /// A side that cannot be resolved yields <see cref="MetadataFactState.Unknown"/>:
+    /// a resolution gap is not evidence of a match, and reporting the gap keeps
+    /// the walk honest instead of turning an unknown into a confident Yes.
+    /// Generic arguments are compared only by <see cref="TypeRef.Equals"/>, so
+    /// two instances whose arguments differ solely by resolution provenance
+    /// still compare equal; that residual is unverified.
     /// </summary>
-    bool SameInterfaceIdentity(
+    MetadataFactState SameInterfaceIdentity(
         TypeRef candidate,
         ResolvedAssemblyReference? candidateLocalAssembly,
         TypeRef iface)
     {
         if (!candidate.Equals(iface))
-            return false;
-        if (Locate(candidate, candidateLocalAssembly) is not { } candidateResolved
-            || Locate(iface) is not { } ifaceResolved)
+            return MetadataFactState.No;
+        if (NamedDefinition(candidate) is not { } candidateDefinition
+            || NamedDefinition(iface) is not { } ifaceDefinition)
         {
-            return true;
+            return MetadataFactState.Unknown;
         }
-        return candidateResolved.Assembly.Assembly.Identity.IsEquivalentTo(
-            ifaceResolved.Assembly.Assembly.Identity);
+        // The core library is the one assembly whose spellings are deliberately
+        // aliased — facades, retargeting and the sentinel all name the same
+        // definition — so a core-library name that matches is an identity
+        // match, and demanding resolution there would turn the ordinary
+        // IEnumerable question into Unknown for every cross-assembly type.
+        if (candidateDefinition.Assembly == TypeRef.CoreLibrary
+            && ifaceDefinition.Assembly == TypeRef.CoreLibrary)
+        {
+            return MetadataFactState.Yes;
+        }
+        if (Locate(candidateDefinition, candidateLocalAssembly) is not { } candidateResolved
+            || Locate(ifaceDefinition) is not { } ifaceResolved)
+        {
+            return MetadataFactState.Unknown;
+        }
+        // Two dimensions, compared the way each is meant to be: the resolved
+        // structured name exactly, so a nested and a top-level definition that
+        // flatten alike stay distinct, and the assembly with IsEquivalentTo,
+        // so an equivalent facade spelling of one core-library type is not
+        // mistaken for a different definition.
+        return candidateResolved.Type.Equals(ifaceResolved.Type)
+                && candidateResolved.Assembly.Assembly.Identity.IsEquivalentTo(
+                    ifaceResolved.Assembly.Assembly.Identity)
+            ? MetadataFactState.Yes
+            : MetadataFactState.No;
     }
 
     static IEnumerable<TypeRef> DecodeInterfaces(MetadataReader reader, TypeDefinition typeDef, ImmutableArray<TypeRef> typeArguments)    {

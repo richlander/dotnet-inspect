@@ -540,6 +540,58 @@ public sealed class DynamicTypeViewTests
         Assert.InRange(allocated, 0, 100_000);
     }
 
+    /// <summary>
+    /// The same amplification through the parameter position. The one-argument
+    /// form takes <c>bool[]</c>, so validating only the return type left the
+    /// parameter free to carry the hostile tree: it was materialized in full
+    /// and only then rejected for not being <c>bool[]</c>. Fails if the
+    /// parameter preflight is removed.
+    /// </summary>
+    [Fact]
+    public void HostileConstructorParameter_IsRejectedBeforeParameterMaterialization()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        // Cheap in depth, expensive in breadth, exactly as the return-type case:
+        // a function pointer over 20,000 int parameters, in the position where
+        // the supported signature spells bool[].
+        const int hostileParameterCount = 20_000;
+        signature.WriteByte(0x1b);
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(hostileParameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < hostileParameterCount; i++)
+            signature.WriteByte(0x08);
+
+        long allocated = 0;
+        int observed = 0;
+        byte[]? flags = ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            constructorSignatureBytes: signature.ToArray(),
+            read: (reader, attributes) =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                long before =
+                    GC.GetAllocatedBytesForCurrentThread();
+                byte[]? result = DynamicReader.GetDynamicFlags(
+                    reader,
+                    attributes,
+                    amount => observed += amount);
+                allocated =
+                    GC.GetAllocatedBytesForCurrentThread() - before;
+                return result;
+            });
+
+        Assert.Null(flags);
+        Assert.InRange(observed, 0, 100);
+        Assert.InRange(allocated, 0, 100_000);
+    }
+
     [Fact]
     public void TruncatedConstructorSignature_IsRejectedBeforeReturnMaterialization()
     {
