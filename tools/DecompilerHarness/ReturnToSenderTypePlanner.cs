@@ -402,6 +402,7 @@ public sealed record CompileBackTypeRequirement(
     public CompileBackTypeKind Kind => RequiredKind;
     public IReadOnlyList<CompileBackMemberRequirement> Members => RequiredMembers;
     public bool IncludeMemberSurface { get; init; }
+    public bool IncludeOperatorSurface { get; init; }
     public IReadOnlyList<string> ExternalInterfaces { get; init; } = [];
 }
 
@@ -463,7 +464,11 @@ internal sealed record ExplicitInterfaceEventInfo(
 internal sealed record ExternalExplicitInterfaceMethodInfo(
     string InterfaceDisplayName,
     string ExplicitInterfaceMemberName,
-    IReadOnlyList<CompileBackMemberRequirement> AdditionalInterfaceStubs);
+    IReadOnlyList<ExternalInterfaceMemberRequirement> AdditionalInterfaceMembers);
+
+internal sealed record ExternalInterfaceMemberRequirement(
+    TypeDefinitionHandle DeclaringType,
+    CompileBackMemberRequirement Member);
 
 internal sealed record ExternalInterfaceReferenceInfo(
     string MetadataFullName,
@@ -1679,13 +1684,13 @@ public static class CompileBackSourceComposer
 
             // Naming the interface in the base list forces the reconstructed type to satisfy
             // its ENTIRE required surface (CS0535). The target method reconstructs the matched
-            // member with its real body; every OTHER required member is synthesized here as a
-            // `throw null` explicit-interface stub. If any such member cannot be spelled as
-            // valid, bindable C# (a member name that does not round-trip, or a signature type
-            // SignatureDecoder renders unbindably), decline the WHOLE engagement and keep the
-            // sanitized ContextFail floor rather than emit a partial surface (CS0535) or an
-            // unbindable stub (CS0246 = RecompileFail).
-            var additionalInterfaceStubs = new List<CompileBackMemberRequirement>(requiredMethods.Count - 1);
+            // member with its real body. Preserve a matching local or inherited public
+            // implementation when one exists; otherwise synthesize a `throw null`
+            // explicit-interface stub. If any member cannot be spelled as valid, bindable C#,
+            // decline the whole engagement rather than emit a partial surface.
+            var additionalInterfaceMembers = new List<ExternalInterfaceMemberRequirement>(
+                requiredMethods.Count - 1);
+            var targetTypeHandle = targetMethodDefinition.GetDeclaringType();
             for (int index = 0; index < requiredMethods.Count; index++)
             {
                 if (index == matchIndex)
@@ -1695,9 +1700,9 @@ public static class CompileBackSourceComposer
                     return null;
                 var implicitImplementation = FindImplicitInterfaceMethod(
                     reader,
-                    targetMethodDefinition.GetDeclaringType(),
+                    targetTypeHandle,
                     requiredMethod);
-                var stub = implicitImplementation.IsNil
+                var member = implicitImplementation.IsNil
                     ? SynthesizeExternalInterfaceStub(
                         interfaceReference.DisplayFullName,
                         requiredMethod)
@@ -1705,9 +1710,13 @@ public static class CompileBackSourceComposer
                         reader,
                         targetMethodDefinition.GetDeclaringType(),
                         implicitImplementation);
-                if (stub is null)
+                if (member is null)
                     return null;
-                additionalInterfaceStubs.Add(stub);
+                additionalInterfaceMembers.Add(new ExternalInterfaceMemberRequirement(
+                    implicitImplementation.IsNil
+                        ? targetTypeHandle
+                        : reader.GetMethodDefinition(implicitImplementation).GetDeclaringType(),
+                    member));
             }
 
             string explicitInterfaceMemberName =
@@ -1715,7 +1724,7 @@ public static class CompileBackSourceComposer
             return new ExternalExplicitInterfaceMethodInfo(
                 interfaceReference.DisplayFullName,
                 explicitInterfaceMemberName,
-                additionalInterfaceStubs);
+                additionalInterfaceMembers);
         }
 
         return null;
@@ -1726,47 +1735,59 @@ public static class CompileBackSourceComposer
         TypeDefinitionHandle targetType,
         ExternalInterfaceRequiredMethod requiredMethod)
     {
-        MethodDefinitionHandle match = default;
-        foreach (var methodHandle in reader.GetTypeDefinition(targetType).GetMethods())
+        TypeDefinitionHandle currentType = targetType;
+        while (!currentType.IsNil)
         {
-            var method = reader.GetMethodDefinition(methodHandle);
-            if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
-                || method.Attributes.HasFlag(MethodAttributes.Static)
-                || reader.GetString(method.Name) != requiredMethod.Name
-                || method.GetGenericParameters().Count != requiredMethod.GenericArity
-                || SignatureHasUnrepresentableDetail(reader, method))
+            MethodDefinitionHandle match = default;
+            foreach (var methodHandle in reader.GetTypeDefinition(currentType).GetMethods())
             {
-                continue;
+                var method = reader.GetMethodDefinition(methodHandle);
+                if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
+                    || method.Attributes.HasFlag(MethodAttributes.Static)
+                    || reader.GetString(method.Name) != requiredMethod.Name
+                    || method.GetGenericParameters().Count != requiredMethod.GenericArity
+                    || SignatureHasUnrepresentableDetail(reader, method))
+                {
+                    continue;
+                }
+
+                MethodSignature<string> signature;
+                try
+                {
+                    signature = method.DecodeSignature(
+                        SignatureDecoder.Instance,
+                        GenericContext.ForMethod(
+                            reader,
+                            reader.GetTypeDefinition(currentType),
+                            method));
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+                {
+                    continue;
+                }
+
+                if (signature.ReturnType != requiredMethod.ReturnType
+                    || !signature.ParameterTypes.SequenceEqual(
+                        requiredMethod.ParameterTypes,
+                        StringComparer.Ordinal))
+                {
+                    continue;
+                }
+                if (!match.IsNil)
+                    return default;
+                match = methodHandle;
             }
 
-            MethodSignature<string> signature;
-            try
-            {
-                signature = method.DecodeSignature(
-                    SignatureDecoder.Instance,
-                    GenericContext.ForMethod(
-                        reader,
-                        reader.GetTypeDefinition(targetType),
-                        method));
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
-            {
-                continue;
-            }
-
-            if (signature.ReturnType != requiredMethod.ReturnType
-                || !signature.ParameterTypes.SequenceEqual(
-                    requiredMethod.ParameterTypes,
-                    StringComparer.Ordinal))
-            {
-                continue;
-            }
             if (!match.IsNil)
-                return default;
-            match = methodHandle;
+                return match;
+
+            var baseType = reader.GetTypeDefinition(currentType).BaseType;
+            currentType = baseType.Kind == HandleKind.TypeDefinition
+                ? (TypeDefinitionHandle)baseType
+                : default;
         }
 
-        return match;
+        return default;
     }
 
     static CompileBackMemberRequirement? ImplicitInterfaceMethodRequirement(
@@ -3120,16 +3141,16 @@ public static class CompileBackSourceComposer
                 MetadataToken: MetadataTokens.GetToken(targetMethod),
                 SuppressDestructorSyntax: suppressDestructorSyntax)
         ];
-        if (externalExplicitInterfaceMethod is { AdditionalInterfaceStubs.Count: > 0 })
+        if (externalExplicitInterfaceMethod is { AdditionalInterfaceMembers.Count: > 0 })
         {
             // Naming a multi-member external interface in the base list requires the
-            // reconstructed type to implement its full required surface (CS0535). Supply every
-            // non-target member as a `throw null` explicit-interface stub. The gate excluded the
-            // matched target member from these stubs, so none duplicates the target's own
-            // explicit implementation (CS0111), and external interface members are never closure
-            // members (they live outside the target assembly), so none collides with the record
-            // or closure surface added below.
-            targetMembers.AddRange(externalExplicitInterfaceMethod.AdditionalInterfaceStubs);
+            // reconstructed type to implement its full required surface (CS0535). Add direct
+            // implementations here; inherited implementations are attached to their declaring
+            // base requirement after the closure types have been collected.
+            targetMembers.AddRange(
+                externalExplicitInterfaceMethod.AdditionalInterfaceMembers
+                    .Where(requirement => requirement.DeclaringType == targetType)
+                    .Select(requirement => requirement.Member));
         }
         bool includeRecordSurface = false;
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
@@ -3220,8 +3241,8 @@ public static class CompileBackSourceComposer
                 targetFacts)
             {
                 IncludeMemberSurface = includeRecordSurface
-                    || targetOperatorIsRepresentable
                     || targetFacts.Any(fact => fact.Id == "closure-member"),
+                IncludeOperatorSurface = targetOperatorIsRepresentable,
                 ExternalInterfaces = externalExplicitInterfaceMethod is null
                     ? []
                     : [externalExplicitInterfaceMethod.InterfaceDisplayName],
@@ -3236,6 +3257,12 @@ public static class CompileBackSourceComposer
 
             AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
         }
+        AddInheritedInterfaceMemberRequirements(
+            requirements,
+            reader,
+            targetType,
+            externalExplicitInterfaceMethod,
+            closureFacts);
 
         if (explicitInterfaceMemberName is not null)
         {
@@ -3290,6 +3317,55 @@ public static class CompileBackSourceComposer
             declarations,
             diagnostics);
         return ComposeCompilationUnit(plan);
+    }
+
+    static void AddInheritedInterfaceMemberRequirements(
+        List<CompileBackTypeRequirement> requirements,
+        MetadataReader reader,
+        TypeDefinitionHandle targetType,
+        ExternalExplicitInterfaceMethodInfo? externalInterface,
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts)
+    {
+        if (externalInterface is null)
+            return;
+
+        foreach (var inherited in externalInterface.AdditionalInterfaceMembers.Where(
+            requirement => requirement.DeclaringType != targetType))
+        {
+            var typeDef = reader.GetTypeDefinition(inherited.DeclaringType);
+            var identity = CompileBackTypeIdentity.FromDefinition(reader, typeDef);
+            int requirementIndex = requirements.FindIndex(
+                requirement => requirement.Type == identity);
+            if (requirementIndex < 0)
+            {
+                var facts = closureFacts.TryGetValue(inherited.DeclaringType, out var foundFacts)
+                    ? foundFacts
+                    : [new CompileBackFact(
+                        "metadata",
+                        "inherited-interface-implementation",
+                        identity.FullName)];
+                requirements.Add(new CompileBackTypeRequirement(
+                    identity,
+                    ShellKind(reader, typeDef, facts),
+                    [inherited.Member],
+                    PrimaryConstructor: null,
+                    facts));
+                continue;
+            }
+
+            var requirement = requirements[requirementIndex];
+            if (requirement.RequiredMembers.Any(member =>
+                SameMemberDeclaration(member, inherited.Member)))
+            {
+                continue;
+            }
+            requirements[requirementIndex] = requirement with
+            {
+                RequiredMembers = requirement.RequiredMembers
+                    .Append(inherited.Member)
+                    .ToArray(),
+            };
+        }
     }
 
     static CompileBackSourceResult ComposeCompilationUnit(CompileBackReconstructionPlan plan)
@@ -4957,8 +5033,12 @@ public static class CompileBackSourceComposer
                 isConstructor ? null : methodDeclaration?.Signature.ReturnAttributes,
                 IsAbstract: !isConstructor && IsAbstractMethod(method),
                 IsVirtual: !isConstructor && IsVirtualMethod(method),
-                IsOverride: false,
-                IsSealed: false,
+                IsOverride: !isConstructor
+                    && !typeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                    && methodDeclaration?.IsOverride == true,
+                IsSealed: !isConstructor
+                    && !typeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                    && methodDeclaration?.IsSealed == true,
                 IsExtension: IsExtensionMethod(reader, typeDef, method),
                 IsOperator: operatorIsRepresentable,
                 MetadataToken: MetadataTokens.GetToken(methodHandle));
@@ -5012,7 +5092,9 @@ public static class CompileBackSourceComposer
                     fact.Detail));
             }
             bool includeMemberSurface = requirement.IncludeMemberSurface;
-            if (includeMemberSurface && kind != CompileBackTypeKind.Delegate)
+            bool includeOperatorSurface = requirement.IncludeOperatorSurface;
+            if ((includeMemberSurface || includeOperatorSurface)
+                && kind != CompileBackTypeKind.Delegate)
             {
                 if (surfaceByDefinitionName.TryGetValue(
                         DefinitionName(reader, handle),
@@ -5025,7 +5107,8 @@ public static class CompileBackSourceComposer
                         surface,
                         members,
                         diagnostics,
-                        relationshipResolver);
+                        relationshipResolver,
+                        operatorOnly: !includeMemberSurface);
                 }
                 else
                 {
@@ -5044,6 +5127,15 @@ public static class CompileBackSourceComposer
                     members,
                     relationshipResolver);
             }
+            bool isReconstructedBase = kind == CompileBackTypeKind.Class
+                && IsReconstructedBaseOfAnotherType(
+                    reader,
+                    requirement,
+                    requirementsByIdentity,
+                    typeDefinitions);
+            if (isReconstructedBase)
+                RepairAbstractBaseMembers(members, requirement.Type, diagnostics);
+
             // When this class is reconstructed as the base of another shell type, a
             // derived stub constructor emits an implicit `: base()`. If the class has
             // only parameterized constructors (no accessible parameterless one), that
@@ -5053,11 +5145,7 @@ public static class CompileBackSourceComposer
             if (kind == CompileBackTypeKind.Class
                 && members.Any(member => member.Kind == CompileBackMemberKind.Constructor)
                 && !members.Any(member => member.Kind == CompileBackMemberKind.Constructor && member.Parameters.Count == 0)
-                && IsReconstructedBaseOfAnotherType(
-                    reader,
-                    requirement,
-                    requirementsByIdentity,
-                    typeDefinitions))
+                && isReconstructedBase)
             {
                 members.Add(SyntheticParameterlessConstructor(requirement.Type));
             }
@@ -5524,6 +5612,40 @@ public static class CompileBackSourceComposer
                 TargetBody: null,
                 [new CompileBackFact("synthetic", "base-parameterless-constructor", typeIdentity.MetadataFullName)]);
 
+        static void RepairAbstractBaseMembers(
+            List<CompileBackMemberRequirement> members,
+            CompileBackTypeIdentity typeIdentity,
+            List<CompileBackPlanningDiagnostic> diagnostics)
+        {
+            for (int index = 0; index < members.Count; index++)
+            {
+                var member = members[index];
+                if (member.Kind != CompileBackMemberKind.Method
+                    || !member.IsAbstract
+                    || member.StubBody != CompileBackStubBodyKind.None)
+                {
+                    continue;
+                }
+
+                members[index] = member with
+                {
+                    StubBody = CompileBackStubBodyKind.Throw,
+                    IsAbstract = false,
+                    IsVirtual = !member.IsOverride,
+                    SourceFacts = member.SourceFacts
+                        .Append(new CompileBackFact(
+                            "synthetic",
+                            "abstract-base-member-body",
+                            member.Identity.Signature))
+                        .ToArray(),
+                };
+                diagnostics.Add(new CompileBackPlanningDiagnostic(
+                    "member surface",
+                    "abstract-base-member-stubbed",
+                    $"{typeIdentity.MetadataFullName}::{member.Identity.Signature}"));
+            }
+        }
+
         static IReadOnlyList<CompileBackTypeSignature> InterfaceSignatures(
             MetadataReader reader,
             TypeDefinition typeDef,
@@ -5572,7 +5694,8 @@ public static class CompileBackSourceComposer
             List<CompileBackMemberRequirement> members,
             List<CompileBackPlanningDiagnostic> diagnostics,
             IOperatorTypeRelationshipResolver? relationshipResolver,
-            bool allowUnsafeSurface = false)
+            bool allowUnsafeSurface = false,
+            bool operatorOnly = false)
         {
             if (requirement.RequiredKind == CompileBackTypeKind.Enum)
             {
@@ -5611,7 +5734,8 @@ public static class CompileBackSourceComposer
 
             allowUnsafeSurface = allowUnsafeSurface
                 || requirement.RequiredMembers.Count != 0
-                || requirement.IncludeMemberSurface;
+                || requirement.IncludeMemberSurface
+                || requirement.IncludeOperatorSurface;
             var surfaceAccessorTokens = surface.Members
                 .SelectMany(member => new[]
                 {
@@ -5627,7 +5751,8 @@ public static class CompileBackSourceComposer
             // Product surface extraction owns member discovery, accessor ownership,
             // and backing-field exclusion. RTS retains only reconstruction policy:
             // representability, unsafe gating, deduplication, and stub/full bodies.
-            foreach (var surfaceField in surface.Members.Where(member => member.Kind == "field"))
+            foreach (var surfaceField in surface.Members.Where(member =>
+                !operatorOnly && member.Kind == "field"))
             {
                 if (FindField(reader, typeDef, surfaceField.Name) is not { } fieldHandle)
                 {
@@ -5676,7 +5801,8 @@ public static class CompileBackSourceComposer
                     DeclarationSignature: fixedBufferSignature));
             }
 
-            foreach (var surfaceProperty in surface.Members.Where(member => member.Kind == "property"))
+            foreach (var surfaceProperty in surface.Members.Where(member =>
+                !operatorOnly && member.Kind == "property"))
             {
                 var propertyHandle = PropertyForAccessor(
                     reader,
@@ -5814,7 +5940,8 @@ public static class CompileBackSourceComposer
                     MetadataName: propertyName));
             }
 
-            foreach (var surfaceEvent in surface.Members.Where(member => member.Kind == "event"))
+            foreach (var surfaceEvent in surface.Members.Where(member =>
+                !operatorOnly && member.Kind == "event"))
             {
                 var eventHandle = EventForAccessor(
                     reader,
@@ -5878,7 +6005,8 @@ public static class CompileBackSourceComposer
             foreach (var surfaceMethod in surface.Members.Where(member =>
                 member.MetadataToken is not null
                 && !surfaceAccessorTokens.Contains(member.MetadataToken.Value)
-                && member.Kind != "extension-method"))
+                && member.Kind != "extension-method"
+                && (!operatorOnly || member.CSharpOperatorDeclaration == true)))
             {
                 var methodHandle = SurfaceMethodHandle(surfaceMethod.MetadataToken);
                 if (methodHandle.IsNil)
@@ -6041,8 +6169,12 @@ public static class CompileBackSourceComposer
                     isConstructor ? null : methodDeclaration?.Signature.ReturnAttributes,
                     IsAbstract: !isConstructor && IsAbstractMethod(method),
                     IsVirtual: !isConstructor && IsVirtualMethod(method),
-                    IsOverride: false,
-                    IsSealed: false,
+                    IsOverride: !isConstructor
+                        && !typeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                        && methodDeclaration?.IsOverride == true,
+                    IsSealed: !isConstructor
+                        && !typeDef.Attributes.HasFlag(TypeAttributes.Interface)
+                        && methodDeclaration?.IsSealed == true,
                     IsExtension: surfaceMethod.IsExtension,
                     IsOperator: methodIsOperator,
                     IsFinalizer: surfaceMethod.IsFinalizer,

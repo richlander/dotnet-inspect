@@ -298,6 +298,189 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullUsesInheritedInterfaceImplementation()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseHolder
+            {
+                public virtual int GetHashCode(object value) => 42;
+            }
+
+            public sealed class Holder :
+                BaseHolder,
+                System.Collections.IEqualityComparer
+            {
+                bool System.Collections.IEqualityComparer.Equals(
+                    object left,
+                    object right) =>
+                    ((System.Collections.IEqualityComparer)this).GetHashCode(left) == 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.DoesNotContain(
+                "int System.Collections.IEqualityComparer.GetHashCode(",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Equal(
+                42,
+                InvokeDonorComparer(
+                    Assert.IsType<byte[]>(result.DonorPe),
+                    comparer => comparer.GetHashCode(new object())));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullPreservesImplicitInterfaceOverrideSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public class BaseHolder
+            {
+                public virtual int GetHashCode(object value) => 1;
+            }
+
+            public static class Helper
+            {
+                public static bool Check(BaseHolder holder, object value) =>
+                    holder.GetHashCode(value) == 2;
+            }
+
+            public sealed class Holder :
+                BaseHolder,
+                System.Collections.IEqualityComparer
+            {
+                bool System.Collections.IEqualityComparer.Equals(
+                    object left,
+                    object right) =>
+                    Helper.Check(this, left);
+
+                public override int GetHashCode(object value) => 2;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains(
+                "public override int GetHashCode(object value)",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.True(InvokeDonorComparer(
+                Assert.IsType<byte[]>(result.DonorPe),
+                comparer => comparer.Equals(new object(), new object())));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullKeepsDerivedShellOfAbstractBaseBuildable()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class BaseNode
+            {
+                public int Target() => 42;
+                public abstract int Render();
+            }
+
+            public sealed class DerivedNode : BaseNode
+            {
+                public override int Render() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("BaseNode", "Target", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "public virtual int Render() { throw null; }",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "abstract-base-member-stubbed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_OperatorSurfaceDoesNotExpandAbstractHierarchy()
+    {
+        var assemblyPath = CompileFixture("""
+            public abstract class BaseNode
+            {
+                public abstract int Render();
+
+                public static explicit operator int(BaseNode value) => 42;
+            }
+
+            public sealed class DerivedNode : BaseNode
+            {
+                public override int Render() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("BaseNode", "op_Explicit", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.DoesNotContain("Render", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullKeepsExplicitOverloadedIndexersDistinct()
     {
         var assemblyPath = CompileFixture("""
@@ -5605,15 +5788,8 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackFirstPropertyGetter_FallsBackToCompileBackFloorForAttributeShellStall()
+    public void CompileBackFirstPropertyGetter_RepairsAbstractBaseMemberShell()
     {
-        // Issue #2527: base-class reconstruction restores same-assembly base classes,
-        // so the old dropped-base attribute stall no longer occurs. A concrete shell
-        // that inherits an abstract member it does not itself consume still cannot
-        // satisfy that obligation (CS0534) — the growth loop does not synthesize
-        // abstract/interface member implementations. The shell stalls with a complete
-        // payload; the compile-back floor (which compiles the decompiled member
-        // against the full original assembly) rescues it.
         var assemblyPath = CompileFixture("""
             public abstract class Shape
             {
@@ -5631,18 +5807,12 @@ public class ReturnToSenderPrototypeTests
         {
             var result = ReturnToSender.CompileBackFirstPropertyGetter(assemblyPath);
 
-            Assert.True(result.UsedCompileBackFloor, result.Detail);
-            Assert.NotNull(result.CompileBackFloor);
-            Assert.True(
-                result.Status is FidelityCheck.CompileBackStatus.Exact
-                    or FidelityCheck.CompileBackStatus.OpcodeDiff
-                    or FidelityCheck.CompileBackStatus.OperandDiff,
-                result.Detail);
-            Assert.Equal(result.CompileBackFloor.Status, result.Status);
-            Assert.Contains("compile-back-floor", result.Detail);
-            Assert.Contains("CS0534", result.Detail);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "abstract-base-member-stubbed");
             Assert.Contains("Corners", result.TargetBody);
-            Assert.Contains("Corners", result.Source);
             Assert.NotNull(result.MemberAnchor);
         }
         finally
@@ -5655,34 +5825,27 @@ public class ReturnToSenderPrototypeTests
     public void CorpusParity_DoesNotApplyCompileBackFloorToRtsFailure()
     {
         var assemblyPath = CompileFixture("""
-            public abstract class Shape
+            public sealed class Holder
             {
-                protected abstract int Corners();
-            }
-
-            public sealed class Triangle : Shape
-            {
-                protected override int Corners() => 3;
-
-                public int First => Corners();
+                public int Compute() => 1;
             }
             """);
         try
         {
-            var target = new ReturnToSender.RequestedTarget("Triangle", "get_First", 0);
-            var floored = Assert.Single(ReturnToSender.CompileBackTargets(assemblyPath, [target]));
-            Assert.True(floored.UsedCompileBackFloor, floored.Detail);
-            var reference = Assert.IsType<FidelityCheck.CompileBackResult>(floored.CompileBackFloor);
-
-            var native = Assert.Single(ReturnToSender.CompileBackTargets(
+            var target = new ReturnToSender.RequestedTarget("Holder", "Compute", 0);
+            var reference = Assert.Single(
+                FidelityCheck.Evaluate(assemblyPath),
+                row => row.Type == "Holder" && row.Method == "Compute");
+            var exact = Assert.Single(ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [target],
                 applyCompileBackFloor: false));
-            Assert.False(native.UsedCompileBackFloor);
-            Assert.True(
-                native.Status is FidelityCheck.CompileBackStatus.RecompileFail
-                    or FidelityCheck.CompileBackStatus.ContextFail,
-                $"{native.Status}: {native.Detail}");
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, exact.Status);
+            var native = exact with
+            {
+                Status = FidelityCheck.CompileBackStatus.RecompileFail,
+                Detail = "synthetic native RTS failure",
+            };
 
             var aligned = CorpusSensor.AlignReturnToSenderResultsForTesting([reference], [native]);
             var parity = CorpusSensor.SummarizeReturnToSenderParityForTesting([reference], aligned);
@@ -12255,6 +12418,27 @@ public class ReturnToSenderPrototypeTests
             File.Exists(dllPath),
             $"ilasm did not produce an assembly:{Environment.NewLine}{stdout}{Environment.NewLine}{stderr}");
         return dllPath;
+    }
+
+    static TResult InvokeDonorComparer<TResult>(
+        byte[] assemblyBytes,
+        Func<System.Collections.IEqualityComparer, TResult> action)
+    {
+        var context = new System.Runtime.Loader.AssemblyLoadContext(
+            $"rts-donor-{Guid.NewGuid():N}",
+            isCollectible: true);
+        try
+        {
+            using var stream = new MemoryStream(assemblyBytes, writable: false);
+            var assembly = context.LoadFromStream(stream);
+            var holder = (System.Collections.IEqualityComparer)Activator.CreateInstance(
+                assembly.GetType("Holder", throwOnError: true)!)!;
+            return action(holder);
+        }
+        finally
+        {
+            context.Unload();
+        }
     }
 
     static string CompileFixture(
