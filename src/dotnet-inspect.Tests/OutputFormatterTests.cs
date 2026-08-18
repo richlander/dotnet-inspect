@@ -1,4 +1,5 @@
 using DotnetInspector.Models;
+using System.Reflection;
 using System.Text.Json;
 using DotnetInspector.Views;
 using DotnetInspector;
@@ -1080,14 +1081,59 @@ public class OutputFormatterTests
     [Fact]
     public void IncludePerformanceOpportunity_DoesNotTreatDisplayCollisionAsGeneratedFramework()
     {
-        var compilerGenerated = TypeRef.Definition(
-            "Asm",
-            "Ns",
-            "GeneratedOuter+Leaf+<>c__DisplayClass0_0");
-        var collidingGenerated = TypeRef.Definition(
-            "Asm",
-            "Ns.GeneratedOuter",
-            "Leaf");
+        static TypeRef Exact(
+            TypeReferenceOrigin.CurrentAssembly origin,
+            string @namespace,
+            params string[] segments)
+        {
+            MetadataTypeDefinitionName name =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        @namespace,
+                        [.. segments]))
+                .Name;
+            TypeRef type = TypeRef.Definition(
+                "Asm",
+                @namespace,
+                string.Join('+', segments));
+            typeof(TypeRef).GetProperty(
+                    nameof(TypeRef.Resolution),
+                    BindingFlags.Instance | BindingFlags.Public)!
+                .SetValue(
+                    type,
+                    new ResolvableTypeReference(
+                        origin,
+                        name));
+            return type;
+        }
+
+        var origin = Assert.IsType<TypeReferenceOrigin.CurrentAssembly>(
+            typeof(TypeReferenceOrigin.CurrentAssembly)
+                .GetConstructors(
+                    BindingFlags.Instance | BindingFlags.NonPublic)
+                .Single(constructor =>
+                    constructor.GetParameters() is
+                    [
+                        {
+                            ParameterType:
+                            var parameterType
+                        },
+                    ]
+                    && parameterType
+                        == typeof(AssemblyReferenceIdentity))
+                .Invoke([null]));
+        TypeRef compilerGenerated =
+            Exact(
+                origin,
+                "Ns",
+                "GeneratedOuter",
+                "Leaf",
+                "<>c__DisplayClass0_0");
+        TypeRef collidingGenerated =
+            Exact(
+                origin,
+                "Ns.GeneratedOuter",
+                "Leaf");
         Assert.Equal(
             collidingGenerated.ToQualifiedDisplayString()
                 + ".<>c__DisplayClass0_0",
