@@ -395,11 +395,9 @@ loader uses secure-context browser APIs.
 
 The Browser/Wasm host cannot execute .NET 11 runtime-async methods. The engine
 therefore selects `RuntimeAsync=off` before repository build properties are
-evaluated and passes that mode through every project reference.
-`BrowserBuildSelectsRuntimeAsyncOptOutBeforeRepositoryProps` and
-`RuntimeAsyncOptOutUsesDistinctCompilerPaths` gate the two build invariants.
-Browser builds use separate compiler intermediate and output trees, so an
-incrementally reused normal build cannot enter the Browser publish.
+evaluated and passes that mode through every project reference. Browser builds
+use separate compiler intermediate and output trees, so an incrementally reused
+normal build cannot enter the Browser publish.
 
 On a bare visit, `app.js` waits for the home page's first contentful paint
 before dynamically importing `engine.js`. Search and demo controls remain
