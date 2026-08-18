@@ -324,6 +324,18 @@ sharing and scope-aware identity.
 `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and the
 top-level local-function tests gate the lifted-owner caches and execution
 mapping.
+`LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime/classic async
+source resolution, classic source-to-`MoveNext` mapping, state-machine
+attribute authentication, and scoped evidence expansion. It consumes primary
+metadata identity and generated-code judgments plus the builder-owned local
+type-definition index; full builds prewarm its snapshots before parallel
+method analysis.
+`OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
+`AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
+`ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and
+`OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis`
+gate projection, authentication, close-negative scope behavior, and
+read-only parallel cache consumption.
 `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
 `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and
 `Allocations_ClassifiesCrossAndInAssemblyValueTypeNewobj_ByShape` gate
