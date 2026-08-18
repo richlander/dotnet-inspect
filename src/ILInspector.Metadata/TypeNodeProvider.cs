@@ -194,7 +194,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetPinnedType(TypeNode elementType)
     {
         _beforeMaterialize?.Invoke(16);
-        var node = new PassthroughTypeNode(elementType);
+        var node = new PinnedTypeNode(elementType);
         ObserveMaterialization(node.EstimatedRenderedLength);
         return node;
     }

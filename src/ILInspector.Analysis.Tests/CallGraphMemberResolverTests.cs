@@ -258,7 +258,7 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
-    public void Selector_ErasesCustomModifiersLikeApiSurface()
+    public void Selector_KeepsDisplaySpellingWhenModifiersArePresent()
     {
         var modified = TypeRef.UnsupportedModified(
             TypeRef.CoreLib("System.Runtime.CompilerServices", "IsExternalInit"),
@@ -276,7 +276,11 @@ public sealed class CallGraphMemberResolverTests
         var type = new ApiType { Namespace = "Samples", Name = "Owner" };
         var member = Method("int");
 
+        Assert.Equal("System.Int32", graph.ParameterTypes[0]);
         Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, member).ParameterTypes[0],
+            graph.ParameterTypes[0]);
+        Assert.NotEqual(
             CallGraphMemberResolver.CreateSelector(type, member).Key,
             graph.Key);
     }
@@ -303,8 +307,20 @@ public sealed class CallGraphMemberResolverTests
             HasThis = true,
         });
         var type = new ApiType { Namespace = "Samples", Name = "Owner" };
-        var member = Method("delegate* unmanaged[Cdecl]<int, void>");
+        var member = Method(
+            "delegate* unmanaged[Cdecl]<int, void>",
+            StructuralTypeIdentity.FunctionPointer(
+                SignatureCallingConvention.CDecl,
+                hasThis: false,
+                explicitThis: false,
+                genericParameterCount: 0,
+                requiredParameterCount: 1,
+                ["System.Int32"],
+                "System.Void"));
 
+        Assert.Equal(
+            "delegate* unmanaged[Cdecl]{System.Int32,System.Void}",
+            graph.ParameterTypes[0]);
         Assert.Equal(
             CallGraphMemberResolver.CreateSelector(type, member).Key,
             graph.Key);
@@ -495,7 +511,190 @@ public sealed class CallGraphMemberResolverTests
                 MetadataTypeDefinitionName.Create(@namespace, [.. segments]))
             .Name;
 
-    static ApiMember Method(string parameterType) => new()
+    [Fact]
+    public void Selector_DistinguishesCustomModifiersPinnedAndFunctionPointerHeaders()
+    {
+        var declaringType = TypeRef.Definition("Samples", "Samples", "Owner");
+        TypeRef required = TypeRef.UnsupportedModified(
+            TypeRef.CoreLib("System.Runtime.CompilerServices", "IsExternalInit"),
+            TypeRef.CoreLib("System", "Int32"),
+            isRequired: true);
+        TypeRef optional = TypeRef.UnsupportedModified(
+            TypeRef.CoreLib("System.Runtime.CompilerServices", "IsExternalInit"),
+            TypeRef.CoreLib("System", "Int32"),
+            isRequired: false);
+        TypeRef pinned = TypeRef.Pinned(TypeRef.CoreLib("System", "Int32"));
+        TypeRef plain = TypeRef.CoreLib("System", "Int32");
+
+        CallGraphMemberSelector requiredSelector = Graph(declaringType, required);
+        CallGraphMemberSelector optionalSelector = Graph(declaringType, optional);
+        CallGraphMemberSelector pinnedSelector = Graph(declaringType, pinned);
+        CallGraphMemberSelector plainSelector = Graph(declaringType, plain);
+
+        Assert.Equal("System.Int32", requiredSelector.ParameterTypes[0]);
+        Assert.Equal("System.Int32", pinnedSelector.ParameterTypes[0]);
+        Assert.NotEqual(requiredSelector.Key, optionalSelector.Key);
+        Assert.NotEqual(requiredSelector.Key, plainSelector.Key);
+        Assert.NotEqual(pinnedSelector.Key, plainSelector.Key);
+
+        var type = new ApiType { Namespace = "Samples", Name = "Owner" };
+        ApiMember requiredMember = Method(
+            "int",
+            StructuralTypeIdentity.Modified(
+                required: true,
+                "System.Runtime.CompilerServices.IsExternalInit",
+                "System.Int32"));
+        requiredMember.MetadataToken = 0x06000001;
+        ApiMember pinnedMember = Method(
+            "int",
+            StructuralTypeIdentity.Pinned("System.Int32"));
+        pinnedMember.MetadataToken = 0x06000002;
+        type.Members = [requiredMember, pinnedMember];
+
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, requiredMember).Key,
+            requiredSelector.Key);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, pinnedMember).Key,
+            pinnedSelector.Key);
+        Assert.Same(
+            requiredMember,
+            CallGraphMemberResolver.Resolve(
+                type,
+                requiredSelector.Name,
+                requiredSelector.Key)!
+                .Member);
+        Assert.Same(
+            pinnedMember,
+            CallGraphMemberResolver.Resolve(
+                type,
+                pinnedSelector.Name,
+                pinnedSelector.Key)!
+                .Member);
+
+        CallGraphMemberSelector cdecl = Graph(
+            declaringType,
+            FunctionPointer(
+                SignatureCallingConvention.CDecl,
+                SignatureAttributes.None,
+                requiredParameterCount: 1,
+                genericParameterCount: 0));
+        CallGraphMemberSelector instance = Graph(
+            declaringType,
+            FunctionPointer(
+                SignatureCallingConvention.CDecl,
+                SignatureAttributes.Instance,
+                requiredParameterCount: 1,
+                genericParameterCount: 0));
+        CallGraphMemberSelector explicitThis = Graph(
+            declaringType,
+            FunctionPointer(
+                SignatureCallingConvention.CDecl,
+                SignatureAttributes.Instance | SignatureAttributes.ExplicitThis,
+                requiredParameterCount: 1,
+                genericParameterCount: 0));
+        CallGraphMemberSelector generic = Graph(
+            declaringType,
+            FunctionPointer(
+                SignatureCallingConvention.CDecl,
+                SignatureAttributes.Generic,
+                requiredParameterCount: 1,
+                genericParameterCount: 1));
+        CallGraphMemberSelector varargs = Graph(
+            declaringType,
+            FunctionPointer(
+                SignatureCallingConvention.CDecl,
+                SignatureAttributes.None,
+                requiredParameterCount: 0,
+                genericParameterCount: 0));
+
+        Assert.NotEqual(cdecl.Key, instance.Key);
+        Assert.NotEqual(instance.Key, explicitThis.Key);
+        Assert.NotEqual(cdecl.Key, generic.Key);
+        Assert.NotEqual(cdecl.Key, varargs.Key);
+
+        ApiMember cdeclMember = Method(
+            "delegate* unmanaged[Cdecl]<int, void>",
+            StructuralTypeIdentity.FunctionPointer(
+                SignatureCallingConvention.CDecl,
+                hasThis: false,
+                explicitThis: false,
+                genericParameterCount: 0,
+                requiredParameterCount: 1,
+                ["System.Int32"],
+                "System.Void"));
+        cdeclMember.MetadataToken = 0x06000003;
+        type.Members.Add(cdeclMember);
+
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, cdeclMember).Key,
+            cdecl.Key);
+        Assert.Same(
+            cdeclMember,
+            CallGraphMemberResolver.Resolve(type, cdecl.Name, cdecl.Key)!.Member);
+    }
+
+    [Fact]
+    public void Selector_DoesNotInventStructureFromDisplayOrUnsupportedPayload()
+    {
+        var declaringType = TypeRef.Definition("Samples", "Samples", "Owner");
+        CallGraphMemberSelector bareUnsupported = Graph(
+            declaringType,
+            TypeRef.Unsupported("function pointer"));
+        CallGraphMemberSelector specified = Graph(
+            declaringType,
+            FunctionPointer(
+                SignatureCallingConvention.CDecl,
+                SignatureAttributes.None,
+                requiredParameterCount: 1,
+                genericParameterCount: 0));
+
+        Assert.NotEqual(bareUnsupported.Key, specified.Key);
+
+        var type = new ApiType { Namespace = "Samples", Name = "Owner" };
+        var displayOnly = Method("delegate* unmanaged[Cdecl]<int, void>");
+        displayOnly.MetadataToken = 0x06000001;
+        type.Members = [displayOnly];
+
+        Assert.NotEqual(
+            specified.Key,
+            CallGraphMemberResolver.CreateSelector(type, displayOnly).Key);
+        Assert.Null(
+            CallGraphMemberResolver.Resolve(type, specified.Name, specified.Key));
+        Assert.Same(
+            displayOnly,
+            CallGraphMemberResolver.Resolve(
+                type,
+                displayOnly.Name,
+                CallGraphMemberResolver.CreateSelector(type, displayOnly).Key)!
+                .Member);
+    }
+
+    static CallGraphMemberSelector Graph(TypeRef declaringType, TypeRef parameter) =>
+        CallGraphMemberResolver.CreateSelector(new MemberRef(
+            declaringType,
+            "M",
+            [parameter],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
+
+    static TypeRef FunctionPointer(
+        SignatureCallingConvention convention,
+        SignatureAttributes attributes,
+        int requiredParameterCount,
+        int genericParameterCount) =>
+        TypeRef.UnsupportedFunctionPointer(
+            new MethodSignature<TypeRef>(
+                new SignatureHeader(SignatureKind.Method, convention, attributes),
+                TypeRef.CoreLib("System", "Void"),
+                requiredParameterCount,
+                genericParameterCount,
+                [TypeRef.CoreLib("System", "Int32")]));
+
+    static ApiMember Method(string parameterType, string? structuralType = null) => new()
     {
         Name = "M",
         Kind = "method",
@@ -503,7 +702,15 @@ public sealed class CallGraphMemberResolverTests
         SignatureModel = new ApiSignature
         {
             ReturnType = "void",
-            Parameters = [new ApiParameter { Name = "value", Type = parameterType }],
+            Parameters =
+            [
+                new ApiParameter
+                {
+                    Name = "value",
+                    Type = parameterType,
+                    StructuralType = structuralType,
+                },
+            ],
         },
     };
 

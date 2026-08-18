@@ -2797,6 +2797,7 @@ public static class ApiSurfaceExtractor
                 Name = paramName,
                 Type = type,
                 CanonicalType = canonicalType,
+                StructuralType = paramTypes[i].StructuralIdentity(),
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = defaultValueText
@@ -2846,6 +2847,7 @@ public static class ApiSurfaceExtractor
             ExtensionReceiverType = extensionReceiverType,
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
+            StructuralReturnType = treeSignature.ReturnType.StructuralIdentity(),
             ReturnAttributes = returnAttributes,
             MemberName = methodName,
             TypeParameters = methodTypeParameters,
@@ -3904,6 +3906,7 @@ public static class ApiSurfaceExtractor
                 Name = paramName,
                 Type = paramType,
                 CanonicalType = canonicalParamType,
+                StructuralType = paramTypes[i].StructuralIdentity(),
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = defaultValueText
@@ -3927,6 +3930,7 @@ public static class ApiSurfaceExtractor
         {
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
+            StructuralReturnType = treeSignature.ReturnType.StructuralIdentity(),
             MemberName = indexerParameters.Count > 0 ? "this[]" : name,
             IsRequired = isRequired,
             Parameters = parameterModels,
@@ -4054,6 +4058,7 @@ public static class ApiSurfaceExtractor
         ObserveText(parameter.Name, observe);
         ObserveText(parameter.Type, observe);
         ObserveText(parameter.CanonicalType, observe);
+        ObserveText(parameter.StructuralType, observe);
         ObserveText(parameter.Modifier, observe);
         ObserveText(parameter.DefaultValueText, observe);
     }
@@ -4079,6 +4084,7 @@ public static class ApiSurfaceExtractor
             return;
         AddText(ref count, signature.ReturnType);
         AddText(ref count, signature.CanonicalReturnType);
+        AddText(ref count, signature.StructuralReturnType);
         AddText(ref count, signature.ReturnAttributes);
         AddText(ref count, signature.MemberName);
         AddText(ref count, signature.ExtensionReceiverType);
@@ -4090,6 +4096,7 @@ public static class ApiSurfaceExtractor
             AddText(ref count, parameter.Name);
             AddText(ref count, parameter.Type);
             AddText(ref count, parameter.CanonicalType);
+            AddText(ref count, parameter.StructuralType);
             AddText(ref count, parameter.Modifier);
             AddText(ref count, parameter.DefaultValueText);
         }
