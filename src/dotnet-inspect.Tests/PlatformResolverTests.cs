@@ -525,7 +525,56 @@ public class PlatformResolverTests
     }
 
     [Fact]
-    public void LookupTypeAcrossFrameworks_PartialCatalogFailureReturnsRejected()
+    public void LookupTypeAcrossFrameworks_IncompleteNewerVersionDoesNotShadowValidCatalog()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"platform-test-{Guid.NewGuid():N}");
+        try
+        {
+            var runtimePack = Path.Combine(
+                tempDir,
+                "Microsoft.NETCore.App.Ref");
+            var validPath = Path.Combine(
+                runtimePack,
+                "1.0.0",
+                "ref",
+                "net1.0");
+            Directory.CreateDirectory(validPath);
+            File.Copy(
+                typeof(string).Assembly.Location,
+                Path.Combine(validPath, "System.Private.CoreLib.dll"));
+            Directory.CreateDirectory(
+                Path.Combine(runtimePack, "99.0.0"));
+
+            var framework =
+                PlatformResolver.ResolveFramework("runtime", tempDir);
+            Assert.NotNull(framework.RefPath);
+            Assert.Equal("1.0.0", framework.Version);
+            Assert.Null(framework.Error);
+
+            var resolved = Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+                PlatformResolver.LookupTypeAcrossFrameworks(
+                    "System.String",
+                    tempDir));
+
+            Assert.Equal(
+                "System.String",
+                resolved.Candidate.Type.ToMetadataFullName());
+            var platform =
+                Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
+                    resolved.Candidate.Assembly.Provenance);
+            Assert.Equal("1.0.0", platform.FrameworkVersion);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LookupTypeAcrossFrameworks_PartialCatalogFailurePreservesResolvedCandidate()
     {
         var tempDir = Path.Combine(
             Path.GetTempPath(),
@@ -559,11 +608,18 @@ public class PlatformResolverTests
                 Path.Combine(aspNetCorePath, "Invalid.dll"),
                 "not an assembly");
 
-            var rejected = Assert.IsType<PlatformTypeLookupOutcome.Rejected>(
+            var resolved = Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
                 PlatformResolver.LookupTypeAcrossFrameworks(
                     "System.String",
                     tempDir));
+            Assert.Equal(
+                "System.String",
+                resolved.Candidate.Type.ToMetadataFullName());
 
+            var rejected = Assert.IsType<PlatformTypeLookupOutcome.Rejected>(
+                PlatformResolver.LookupTypeAcrossFrameworks(
+                    "Missing.Type",
+                    tempDir));
             Assert.Equal(
                 PlatformTypeLookupFailureKind.CatalogUnavailable,
                 rejected.Failure.Kind);

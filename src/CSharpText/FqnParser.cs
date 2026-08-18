@@ -6,6 +6,8 @@ namespace CSharpText;
 /// </summary>
 public static class FqnParser
 {
+    private const int MaxNestedGenericDepth = 64;
+
     /// <summary>
     /// Result of parsing an FQN string.
     /// </summary>
@@ -326,15 +328,38 @@ public static class FqnParser
 
     private static bool TryCountTypeParameters(
         ReadOnlySpan<char> typeParams,
-        out int count)
+        out int count,
+        int nestedGenericDepth = 0)
     {
         count = 0;
         if (typeParams.IsEmpty || typeParams.IsWhiteSpace())
             return false;
 
+        var unboundArity = 1;
+        var isUnboundGeneric = false;
+        foreach (var c in typeParams)
+        {
+            if (c == ',')
+            {
+                unboundArity++;
+                isUnboundGeneric = true;
+            }
+            else if (!char.IsWhiteSpace(c))
+            {
+                isUnboundGeneric = false;
+                break;
+            }
+        }
+        if (isUnboundGeneric)
+        {
+            count = unboundArity;
+            return true;
+        }
+
         count = 1;
         var segmentStart = 0;
         var currentPartHasCore = false;
+        var coreSeparatedByWhitespace = false;
         var coreCompleted = false;
         var hasPostfix = false;
         var nullableApplied = false;
@@ -368,6 +393,7 @@ public static class FqnParser
                 case '<':
                     if (!currentPartHasCore
                         || coreCompleted
+                        || nestedGenericDepth >= MaxNestedGenericDepth
                         || typeParams[segmentStart..i].IsWhiteSpace())
                     {
                         count = 0;
@@ -378,7 +404,8 @@ public static class FqnParser
                     if (close < 0
                         || !TryCountTypeParameters(
                             typeParams[(i + 1)..close],
-                            out _))
+                            out _,
+                            nestedGenericDepth + 1))
                     {
                         count = 0;
                         return false;
@@ -402,6 +429,7 @@ public static class FqnParser
                     count++;
                     segmentStart = i + 1;
                     currentPartHasCore = false;
+                    coreSeparatedByWhitespace = false;
                     coreCompleted = false;
                     hasPostfix = false;
                     nullableApplied = false;
@@ -471,19 +499,24 @@ public static class FqnParser
                     }
 
                     currentPartHasCore = false;
+                    coreSeparatedByWhitespace = false;
                     coreCompleted = false;
                     nullableApplied = false;
                     pointerApplied = false;
                     break;
                 default:
-                    if (coreCompleted
-                        && !char.IsWhiteSpace(typeParams[i]))
+                    if (char.IsWhiteSpace(typeParams[i]))
+                    {
+                        if (currentPartHasCore && !coreCompleted)
+                            coreSeparatedByWhitespace = true;
+                        break;
+                    }
+                    if (coreCompleted || coreSeparatedByWhitespace)
                     {
                         count = 0;
                         return false;
                     }
-                    if (!char.IsWhiteSpace(typeParams[i]))
-                        currentPartHasCore = true;
+                    currentPartHasCore = true;
                     break;
             }
         }

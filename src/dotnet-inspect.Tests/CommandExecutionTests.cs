@@ -3200,6 +3200,7 @@ public partial class CommandExecutionTests
     [InlineData("System.Collections.Generic.List<?>")]
     [InlineData("System.Collections.Generic.List<.T>")]
     [InlineData("System.Collections.Generic.List<T?*>")]
+    [InlineData("System.Collections.Generic.List<T U?>")]
     [InlineData("System.Threading.Tasks.Task<T1,T2>")]
     public async Task Router_ExplicitMissingGenericArity_DoesNotBroaden(
         string target)
@@ -3233,6 +3234,51 @@ public partial class CommandExecutionTests
 
         Assert.Equal(direct, deferred);
         Assert.Equal(0, deferred.Exit);
+    }
+
+    [Fact]
+    public async Task Router_UnboundGenericTypePreservesMemberArity()
+    {
+        const string target =
+            "System.Collections.Generic.Dictionary<,>";
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections",
+            "-m",
+            "TryGetValue",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["member", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Type_MalformedWhitespaceGenericFilterDoesNotBroaden()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Private.CoreLib",
+            "-t",
+            "System.Collections.Generic.List<T U?>",
+            "-S",
+            "Classes",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("0", output.Trim());
+        Assert.Empty(error);
     }
 
     [Theory]

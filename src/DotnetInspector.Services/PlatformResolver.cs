@@ -343,7 +343,10 @@ public static class PlatformResolver
                 if (!Directory.Exists(refPackPath))
                     continue;
 
-                var versions = GetInstalledVersions(refPackPath);
+                var versions = GetInstalledVersions(refPackPath)
+                    .Where(version =>
+                        HasReferenceAssemblies(refPackPath, version))
+                    .ToList();
                 if (versions.Count == 0)
                     continue;
 
@@ -425,6 +428,12 @@ public static class PlatformResolver
         return Path.Combine(versionPath, tfmDirs[0]!);
     }
 
+    private static bool HasReferenceAssemblies(
+        string refPackPath,
+        string version) =>
+        GetRefAssemblyPath(refPackPath, version) is { } referencePath
+        && CountAssemblies(referencePath) > 0;
+
     /// <summary>
     /// Lists all assemblies in a ref assembly directory.
     /// </summary>
@@ -493,6 +502,8 @@ public static class PlatformResolver
 
             foreach (var v in GetInstalledVersions(refPackPath))
             {
+                if (!HasReferenceAssemblies(refPackPath, v))
+                    continue;
                 if (!allVersions.Any(x => x.Version == v))
                 {
                     allVersions.Add((v, refPackPath));
@@ -1045,11 +1056,12 @@ public static class PlatformResolver
             }
         }
 
-        if (catalogFailure is not null)
-            return new PlatformTypeLookupOutcome.Rejected(catalogFailure);
-
         if (candidates.Count == 0)
-            return new PlatformTypeLookupOutcome.Missing();
+        {
+            return catalogFailure is not null
+                ? new PlatformTypeLookupOutcome.Rejected(catalogFailure)
+                : new PlatformTypeLookupOutcome.Missing();
+        }
 
         IEnumerable<PlatformTypeLookupCandidate> selected = candidates;
         var definitions = candidates
