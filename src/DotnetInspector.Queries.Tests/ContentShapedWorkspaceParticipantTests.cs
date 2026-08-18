@@ -1,6 +1,4 @@
 using System.Collections.Immutable;
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 
 using ILInspector.Metadata;
@@ -19,10 +17,19 @@ public sealed class ContentShapedWorkspaceParticipantTests
     {
         ImmutableArray<byte> image = Image();
         using var workspace = new InspectionWorkspace();
-        AssemblyContextParticipant participant = Participant(image, ContentIdentity(image));
+        AssemblyContextParticipant participant = new(
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => Open(image),
+                AssemblyResolutionProvenance.Package(
+                    "probe",
+                    "1.0.0",
+                    "net11.0",
+                    rid: null))!,
+            ContentBindingPolicy.Instance);
         using AssemblyContextGroup group =
             workspace.CreateAssemblyContextGroup([participant]);
 
+        Assert.Null(participant.Assembly.Path);
         Assert.Equal(
             image.Length,
             Available(group.UseAssemblyImage(participant.Assembly, view => view.Content.Length)));
@@ -57,7 +64,14 @@ public sealed class ContentShapedWorkspaceParticipantTests
     public void EquivalentDescriptorIdentity_RetainsAcquiredSnapshot()
     {
         ImmutableArray<byte> image = Image();
-        AssemblyReferenceIdentity identity = ContentIdentity(image);
+        AssemblyReferenceIdentity identity =
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => Open(image),
+                AssemblyResolutionProvenance.Package(
+                    "probe",
+                    "1.0.0",
+                    "net11.0",
+                    rid: null))!.Identity;
         using var workspace = new InspectionWorkspace();
         AssemblyContextParticipant participant = Participant(
             image,
@@ -79,13 +93,6 @@ public sealed class ContentShapedWorkspaceParticipantTests
         File.ReadAllBytes(
             typeof(ContentShapedWorkspaceParticipantTests).Assembly.Location));
 
-    static AssemblyReferenceIdentity ContentIdentity(ImmutableArray<byte> image)
-    {
-        using var peReader = new PEReader(image);
-        MetadataReader reader = peReader.GetMetadataReader();
-        return AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-    }
-
     static AssemblyContextParticipant Participant(
         ImmutableArray<byte> image,
         AssemblyReferenceIdentity identity) =>
@@ -93,9 +100,14 @@ public sealed class ContentShapedWorkspaceParticipantTests
             ResolvedAssemblyReference.Create(
                 identity,
                 path: null,
-                () => new MemoryStream(ImmutableCollectionsMarshal.AsArray(image)!, writable: false),
+                () => Open(image),
                 AssemblyResolutionProvenance.Package("probe", "1.0.0", "net11.0", rid: null)),
             ContentBindingPolicy.Instance);
+
+    static MemoryStream Open(ImmutableArray<byte> image) =>
+        new(
+            ImmutableCollectionsMarshal.AsArray(image)!,
+            writable: false);
 
     static TValue Available<TValue>(AssemblyImageAccessResult<TValue> access) =>
         Assert.IsType<AssemblyImageAccessResult<TValue>.Available>(access).Value;
