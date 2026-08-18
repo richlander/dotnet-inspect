@@ -861,6 +861,7 @@ Research overlay bridge, and the application layer:
   declared on sealed classes remain eligible.
   Constructed generic type relationships preserve DAG sharing and bound
   structural identity, comparison, and finding-display work;
+  `TypeRefSharedDag_EqualityHashAndAsyncIdentityAreLinear`,
   `AsyncSiblingExactIdentity_DistinguishesOriginsWithinSharedDag`,
   `AsyncSiblingIdentityAndMatching_DistinguishArrayShape`, and
   `AsyncSiblingTypeMatching_DistinguishesStructuredNames` gate exact identity,
