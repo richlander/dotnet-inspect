@@ -481,18 +481,21 @@ public class TypeConfirmationTests
     [Fact]
     public void ApplyTypeConfirmation_CollapsesRepeatedUnknownLibraryInput()
     {
+        string absolutePath = Path.Combine(
+            Environment.CurrentDirectory,
+            "Fixture.dll");
         var firstLibraryRow = CandidateWithType(
             1,
             "Fixture.A.M()",
             "System.String",
             source: "library",
-            libraryPath: "/tmp/shared/Fixture.dll");
+            libraryPath: absolutePath);
         var secondLibraryRow = CandidateWithType(
             2,
             "Fixture.A.M()",
             "System.String",
             source: "library",
-            libraryPath: "/tmp/shared/Fixture.dll");
+            libraryPath: "Fixture.dll");
         var triage = CandidateWithType(
             3,
             "Fixture.A.M()",
@@ -582,6 +585,36 @@ public class TypeConfirmationTests
         Assert.True(library.TypeConfirmed);
         Assert.True(triage.TypeConfirmed);
         Assert.Equal(2, triage.TypeConfirmedSiteCount);
+    }
+
+    [Fact]
+    public void FindTraceLibrariesSupersededByTriage_NoTriage_DoesNotAllocate()
+    {
+        var library = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library");
+        AllocationCandidate[] candidates =
+            [library];
+        _ = ProgramSupport.FindTraceLibrariesSupersededByTriage(
+            candidates,
+            candidates,
+            "System.String");
+
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 10_000; i++)
+        {
+            _ = ProgramSupport.FindTraceLibrariesSupersededByTriage(
+                candidates,
+                candidates,
+                "System.String");
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
     }
 
     [Fact]

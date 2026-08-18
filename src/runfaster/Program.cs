@@ -879,7 +879,7 @@ static bool TryCorrelateNetTrace(
 
             var matchedThisEvent = new HashSet<int>();
             TraceCodeAddress? matchedAddress = null;
-            IReadOnlyList<AllocationCandidate> matchedCandidates = [];
+            AllocationCandidate[] matchedCandidates = [];
             while (stack != null)
             {
                 TraceCodeAddress address = stack.CodeAddress;
@@ -895,21 +895,10 @@ static bool TryCorrelateNetTrace(
                             data.TypeName))
                     .ToArray();
                 var supersededLibraries =
-                    ProgramSupport.FindLibrariesSupersededByTriage(
-                        matchedCandidates
-                            .Where(static candidate => string.Equals(
-                                candidate.Source,
-                                "triage",
-                                StringComparison.Ordinal))
-                            .Concat(coordinateCandidates.Where(candidate =>
-                                string.Equals(
-                                    candidate.Source,
-                                    "library",
-                                    StringComparison.Ordinal)
-                                && candidate.MatchesAllocatedType(
-                                    data.TypeName)))
-                            .DistinctBy(static candidate => candidate.Id)
-                            .ToArray());
+                    ProgramSupport.FindTraceLibrariesSupersededByTriage(
+                        matchedCandidates,
+                        coordinateCandidates,
+                        data.TypeName);
                 if (supersededLibraries.Count > 0)
                 {
                     var supersededIds = supersededLibraries
@@ -923,7 +912,7 @@ static bool TryCorrelateNetTrace(
                         .ToArray();
                 }
 
-                if (matchedCandidates.Count > 0)
+                if (matchedCandidates.Length > 0)
                 {
                     matchedAddress = address;
                     break;
@@ -935,15 +924,15 @@ static bool TryCorrelateNetTrace(
                 stack = stack.Caller;
             }
 
-            if (matchedAddress is null || matchedCandidates.Count == 0)
+            if (matchedAddress is null || matchedCandidates.Length == 0)
                 return;
 
-            bool ambiguousIlJoin = matchedCandidates.Count > 1;
+            bool ambiguousIlJoin = matchedCandidates.Length > 1;
             var methodsRecorded = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < matchedCandidates.Count; i++)
+            for (int i = 0; i < matchedCandidates.Length; i++)
             {
                 var candidate = matchedCandidates[i];
-                long candidateBytes = ProgramSupport.AttributedBytesForTest(data.AllocationAmount64, matchedCandidates.Count, i);
+                long candidateBytes = ProgramSupport.AttributedBytesForTest(data.AllocationAmount64, matchedCandidates.Length, i);
 
                 if (methodsRecorded.Add(candidate.Method))
                     result.RecordMethodAllocation(candidate.Method, data.TypeName, data.AllocationAmount64);
@@ -2198,6 +2187,11 @@ sealed class AllocationCandidate(
     public string LibraryPath { get; } = libraryPath;
     public string AssemblyName { get; } = assemblyName;
     public Guid? ModuleVersionId { get; } = moduleVersionId;
+    public string UnknownLibraryInputIdentity { get; } =
+        source == "library" && moduleVersionId is null
+            ? ProgramSupport.NormalizeLibraryInputIdentity(
+                libraryPath)
+            : "";
     public int MethodToken { get; } = methodToken;
     public int IlOffset { get; } = ilOffset;
     public string? CandidateId { get; } = candidateId;
@@ -2985,6 +2979,21 @@ internal static class ProgramSupport
         FindLibrariesSupersededByTriage(
             IReadOnlyList<AllocationCandidate> candidates)
     {
+        bool hasTriageCandidate = false;
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            if (string.Equals(
+                    candidates[i].Source,
+                    "triage",
+                    StringComparison.Ordinal))
+            {
+                hasTriageCandidate = true;
+                break;
+            }
+        }
+        if (!hasTriageCandidate)
+            return Array.Empty<AllocationCandidate>();
+
         var triageGroups = candidates
             .Where(static candidate => string.Equals(
                 candidate.Source,
@@ -3033,16 +3042,74 @@ internal static class ProgramSupport
         return superseded;
     }
 
+    public static IReadOnlyList<AllocationCandidate>
+        FindTraceLibrariesSupersededByTriage(
+            AllocationCandidate[] matchedCandidates,
+            IReadOnlyList<AllocationCandidate> coordinateCandidates,
+            string allocatedType)
+    {
+        bool hasTriageCandidate = false;
+        for (int i = 0; i < matchedCandidates.Length; i++)
+        {
+            if (string.Equals(
+                    matchedCandidates[i].Source,
+                    "triage",
+                    StringComparison.Ordinal))
+            {
+                hasTriageCandidate = true;
+                break;
+            }
+        }
+        if (!hasTriageCandidate)
+            return Array.Empty<AllocationCandidate>();
+
+        return FindTraceLibrariesSupersededByTriageWithTriage(
+            matchedCandidates,
+            coordinateCandidates,
+            allocatedType);
+    }
+
+    static IReadOnlyList<AllocationCandidate>
+        FindTraceLibrariesSupersededByTriageWithTriage(
+            AllocationCandidate[] matchedCandidates,
+            IReadOnlyList<AllocationCandidate> coordinateCandidates,
+            string allocatedType)
+    {
+        return FindLibrariesSupersededByTriage(
+            matchedCandidates
+                .Where(static candidate => string.Equals(
+                    candidate.Source,
+                    "triage",
+                    StringComparison.Ordinal))
+                .Concat(coordinateCandidates.Where(candidate =>
+                    string.Equals(
+                        candidate.Source,
+                        "library",
+                        StringComparison.Ordinal)
+                    && candidate.MatchesAllocatedType(
+                        allocatedType)))
+                .DistinctBy(static candidate => candidate.Id)
+                .ToArray());
+    }
+
     static LibraryBuildKey GetLibraryBuildKey(
         AllocationCandidate candidate)
     {
         if (candidate.ModuleVersionId is Guid moduleVersionId)
             return new(moduleVersionId, "");
 
-        string path = Path.GetFullPath(candidate.LibraryPath);
+        return new(
+            null,
+            candidate.UnknownLibraryInputIdentity);
+    }
+
+    public static string NormalizeLibraryInputIdentity(
+        string libraryPath)
+    {
+        string path = Path.GetFullPath(libraryPath);
         if (OperatingSystem.IsWindows())
             path = path.ToUpperInvariant();
-        return new(null, path);
+        return path;
     }
 
     readonly record struct LibraryBuildKey(
