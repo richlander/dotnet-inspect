@@ -152,6 +152,53 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void CoreLibraryPublicExtraction_CompletesWithinFiniteBounds()
+    {
+        const int MaxTypes = 25_000;
+        const int MaxMembers = 500_000;
+        const int MaxInspectionFailures = 16_384;
+        const int MaxTypeForwarders = 25_000;
+        const int MaxMetadataRows = 5_000_000;
+        const int MaxRetainedTextCharacters = 128_000_000;
+        string path = typeof(object).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        int metadataRows = Enum.GetValues<TableIndex>()
+            .Sum(reader.GetTableRowCount);
+        var bounds = new ApiSurfaceExtractionBounds(
+            MaxTypes,
+            MaxMembers,
+            MaxInspectionFailures,
+            MaxTypeForwarders,
+            MaxMetadataRows,
+            MaxRetainedTextCharacters);
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            bounds);
+
+        if (result is not ApiSurfaceExtractionResult.Extracted extracted)
+        {
+            Assert.Fail(
+                $"Bounded Public CoreLib extraction did not complete: {result}; "
+                + $"runtime={Environment.Version}; path={path}; bytes={stream.Length}; "
+                + $"metadataRows={metadataRows}; bounds={bounds}");
+            return;
+        }
+
+        Assert.True(extracted.MetadataRows > 0);
+        Assert.True(extracted.RetainedTextCharacters > 0);
+        Assert.Contains(
+            extracted.Surface.Types,
+            type => type.FullName == "System.Object");
+        Assert.True(
+            extracted.Surface.Types.Sum(type => type.Members.Count) > 0,
+            "CoreLib extraction completed without any public members.");
+    }
+
+    [Fact]
     public void NoncanonicalAssociatedMethods_AreRetainedAcrossInventoriesAndBudgets()
     {
         byte[] image = BuildNoncanonicalAccessorInventoryImage();
@@ -814,10 +861,10 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     /// <summary>
-    /// The explicit-interface MethodImpl projection runs once per type, before any member is
-    /// admitted, and it decodes an interface identity and two method signatures for every row
-    /// it walks. It therefore has to spend the same budget the rest of the walk spends, or a
-    /// MethodImpl flood buys unbounded decoding and retention that no bound can stop.
+    /// The explicit-interface MethodImpl projection decodes an interface identity and two
+    /// method signatures for every admitted row it walks. It therefore has to spend the same
+    /// budget the rest of the walk spends, or a retained MethodImpl flood buys unbounded
+    /// decoding that no bound can stop.
     /// </summary>
     /// <remarks>
     /// The A/B is the gate: the two images differ only by their MethodImpl rows, so the second
@@ -875,6 +922,35 @@ public sealed class ApiSurfaceExtractorBoundsTests
                     maxTypeForwarders: 100_000,
                     maxMetadataRows: 250_000,
                     maxRetainedTextCharacters: 8_000_000)));
+    }
+
+    [Fact]
+    public void DiscardedMethodImplBodies_DoNotSpendProjectionBudget()
+    {
+        using var stream = new MemoryStream(
+            BuildMethodImplFloodImage(
+                methodImplCount: 4_000,
+                nameLength: 4_000,
+                includeMethodImpls: true,
+                hideBodies: true),
+            writable: false);
+        using var peReader = new PEReader(stream);
+
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(
+            ApiSurfaceExtractor.ExtractBounded(
+                peReader,
+                ApiSurfaceExtractionScope.Public,
+                new ApiSurfaceExtractionBounds(
+                    maxTypes: 100_000,
+                    maxMembers: 1_000_000,
+                    maxInspectionFailures: 1_024,
+                    maxTypeForwarders: 100_000,
+                    maxMetadataRows: 250_000,
+                    maxRetainedTextCharacters: 8_000_000)));
+
+        ApiType type = Assert.Single(extracted.Surface.Types);
+        Assert.Equal("Samples.Implementer", type.FullName);
+        Assert.Empty(type.Members);
     }
 
     [Theory]
@@ -1819,7 +1895,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
     static byte[] BuildMethodImplFloodImage(
         int methodImplCount,
         int nameLength,
-        bool includeMethodImpls)
+        bool includeMethodImpls,
+        bool hideBodies = false)
     {
         var metadata = Metadata("MethodImplFlood");
         AssemblyReferenceHandle assembly = metadata.AddAssemblyReference(
@@ -1855,7 +1932,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
                     | MethodAttributes.NewSlot
                     | MethodAttributes.HideBySig,
                 MethodImplAttributes.IL,
-                metadata.GetOrAddString($"M{index}"),
+                metadata.GetOrAddString(
+                    hideBodies ? $"<M{index}>" : $"M{index}"),
                 signature,
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1)));

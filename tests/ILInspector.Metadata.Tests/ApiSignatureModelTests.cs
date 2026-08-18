@@ -123,7 +123,7 @@ public sealed class ApiSignatureModelTests
         Assert.NotNull(member.SignatureModel);
         ApiAccessor setter = Assert.Single(
             member.SignatureModel.Accessors,
-            accessor => accessor.Kind == "set");
+            accessor => accessor.Kind == "init");
         Assert.Equal(
             StructuralTypeIdentity.Modified(
                 required: true,

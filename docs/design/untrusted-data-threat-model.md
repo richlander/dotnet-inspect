@@ -663,7 +663,12 @@ reallocating the index for each attribute. The same cache is used on the
 unbounded path, which is the public `AssemblyReader.ExtractApiSurface` route. Enum-default classification also
 charges base-type names before resolving them. Decode failures may skip malformed
 attributes, but a budget-observer failure must escape the decoder and produce
-typed truncation. The Browser separately applies the same bound while deriving
+typed truncation. MethodImpl rows are indexed without structural decoding;
+explicit-interface targets and signatures are projected only for members
+admitted by the extraction scope. Their projected text earns cumulative
+decode-work credit only after the owning type commits, so discarded inventory
+does not consume that work allowance and one candidate cannot finance its own
+amplification. The Browser separately applies the same bound while deriving
 type/member transport records, including canonical signatures, documentation
 IDs, and graph selectors that repeat declaring-type identity. It preflights
 each source model against the budget remaining after committed and pending
@@ -732,6 +737,9 @@ pre-decoding rejection.
 `EnclosingTypeNameChain_StopsBeforeLargeAllocationAmplification`,
 `EnclosingTypeReferenceChain_StopsBeforeLargeAllocationAmplification`,
 `RejectedTypes_SpendDecodeWorkAcrossTheExtraction`,
+`ExplicitInterfaceProjection_SpendsDecodeWorkBudget`,
+`DiscardedMethodImplBodies_DoNotSpendProjectionBudget`,
+`CoreLibraryPublicExtraction_CompletesWithinFiniteBounds`,
 `LargeTransformArray_StopsBeforeLargeAllocationAmplification`,
 `RepeatedMethodGenericContext_ReusesTypeParameterNames`,
 `OneHugeArrayRank_StopsBeforeLargeAllocationAmplification`,

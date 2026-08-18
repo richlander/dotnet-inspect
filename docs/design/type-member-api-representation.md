@@ -115,7 +115,12 @@ match. Assembly scopes use metadata-equivalent normalized identity, repeated
 scope decoding is cached, and oversized identity blobs fail visibly before
 materialization. C# display spelling does not participate in structural
 identity; narrowly owned aggregate aliases cover native-integer metadata names
-and compiler-synthesized `this[]` indexers.
+and compiler-synthesized `this[]` indexers. Whole-surface extraction indexes
+MethodImpl rows without decoding their targets, then performs charged structural
+projection only after the owning member passes the selected extraction scope.
+Projection credit commits only with the retained type, so discarded inventory
+cannot exhaust a public walk and one hostile candidate cannot finance its own
+expansion.
 `MetadataDeclarationQueryTests.TypeSurface_ClassifiesGenericExplicitInterfaceAggregates`,
 `MetadataDeclarationQueryTests.ExplicitAggregateIdentity_RejectsSignatureIncompatibleMethodImplTargets`,
 `MetadataDeclarationQueryTests.ExplicitInterfaceTypeIdentity_DistinguishesArrayShapesAndAssemblyEquivalence`,

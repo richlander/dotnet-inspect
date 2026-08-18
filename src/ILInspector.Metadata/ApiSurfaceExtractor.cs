@@ -474,6 +474,8 @@ public static class ApiSurfaceExtractor
         budget?.AdmitMetadataRows(reader);
         Action<string>? observeText =
             budget is null ? null : budget.ObservePendingText;
+        Action<string>? observeMethodImplementationText =
+            budget is null ? null : budget.ObservePendingProjectionText;
         var materializationContext = new AttributeDecoder.MaterializationContext(
             budget is null
                 ? static _ => { }
@@ -725,19 +727,15 @@ public static class ApiSurfaceExtractor
             {
             apiType.Members = [];
 
-            var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
             var explicitInterfaceIdentityProvider =
                 new ExplicitInterfaceTypeIdentityProvider(observeDecodeWork);
-            var explicitInterfaceImplementationTargets =
-                GetExplicitInterfaceImplementationTargets(
-                    reader,
-                    typeDef,
-                    explicitInterfaceIdentityProvider,
-                    observeDecodeWork,
-                    observeText,
-                    typeContext);
-            var explicitInterfaceImplementationBodies =
-                explicitInterfaceImplementationTargets.Keys.ToHashSet();
+            var methodImplementations = new MethodImplementationProjection(
+                reader,
+                typeDef,
+                explicitInterfaceIdentityProvider,
+                observeDecodeWork,
+                observeMethodImplementationText,
+                typeContext);
             bool isInterfaceTypeDefinition =
                 (typeDef.Attributes & TypeAttributes.Interface) != 0;
             var accessorMethods = GetAccessorMethods(reader, typeDef);
@@ -751,14 +749,6 @@ public static class ApiSurfaceExtractor
                     typeDef,
                     observeDecodeWork)
                 : [];
-
-            // Methods whose explicit `.override` MethodImpl targets
-            // `System.Object::Finalize` — i.e. genuine class finalizers, the
-            // slot the C# `~Type()` destructor compiles to.
-            var objectFinalizeOverrides = GetObjectFinalizeOverrides(
-                reader,
-                typeDef,
-                observeDecodeWork);
 
             // Methods
             foreach (var methodHandle in typeDef.GetMethods())
@@ -781,24 +771,34 @@ public static class ApiSurfaceExtractor
                             $"The method has an unknown accessibility value 0x{(int)methodAccess:X}."));
                     continue;
                 }
-                var isExplicitInterfaceImplementation = explicitImplementationBodies.Contains(methodHandle);
-                var isRetainedImplementationAccessor = isExplicitInterfaceImplementation
-                    && (methodName.Contains('.', StringComparison.Ordinal)
-                        || (explicitInterfaceImplementationBodies.Contains(methodHandle)
-                            && (!canonicalAccessorMethods.Contains(methodHandle)
-                                || (!includeAll
-                                    && hiddenAggregateAccessorMethods.Contains(methodHandle)))));
-                if (((accessorMethods.Contains(methodHandle)
-                            && canonicalAccessorMethods.Contains(methodHandle))
-                        || extensionPropertyImplementationMethods.Contains(methodHandle))
-                    && !isRetainedImplementationAccessor)
-                    continue;
+                var isExplicitInterfaceImplementation =
+                    methodImplementations.ContainsBody(methodHandle);
                 if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
                     continue;
 
                 // Skip compiler-generated methods (lambdas, state machines, etc.)
                 if (methodName.StartsWith("<"))
                     continue;
+
+                bool isNormallySkippedAccessor =
+                    (accessorMethods.Contains(methodHandle)
+                        && canonicalAccessorMethods.Contains(methodHandle))
+                    || extensionPropertyImplementationMethods.Contains(methodHandle);
+                if (isNormallySkippedAccessor)
+                {
+                    bool canRetainStructuralImplementation =
+                        !canonicalAccessorMethods.Contains(methodHandle)
+                        || (!includeAll
+                            && hiddenAggregateAccessorMethods.Contains(methodHandle));
+                    bool isRetainedImplementationAccessor =
+                        isExplicitInterfaceImplementation
+                        && (methodName.Contains('.', StringComparison.Ordinal)
+                            || (canRetainStructuralImplementation
+                                && methodImplementations
+                                    .HasExplicitInterfaceTargets(methodHandle)));
+                    if (!isRetainedImplementationAccessor)
+                        continue;
+                }
 
                 // Skip EditorBrowsable(Never) methods unless --all; obsolete are surfaced with marker.
                 if (!includeAll
@@ -847,8 +847,7 @@ public static class ApiSurfaceExtractor
                 // `IFoo.Finalize()` implementation. There are two slot-anchored
                 // shapes:
                 //   * Roslyn (C#) emits an explicit `.override` MethodImpl
-                //     targeting `System.Object::Finalize`; `objectFinalizeOverrides`
-                //     carries those.
+                //     targeting `System.Object::Finalize`.
                 //   * The VB.NET compiler emits `Protected Overrides Sub Finalize()`
                 //     with NO MethodImpl — it reuses the inherited object.Finalize
                 //     slot implicitly; `IsImplicitObjectFinalizeOverride` proves
@@ -858,7 +857,7 @@ public static class ApiSurfaceExtractor
                 // rejected — rendering it `~Type()` would erase `<T>`.
                 var isFinalizer = apiType.Kind == "class"
                     && method.GetGenericParameters().Count == 0
-                    && (objectFinalizeOverrides.Contains(methodHandle)
+                    && (methodImplementations.OverridesObjectFinalize(methodHandle)
                         || IsImplicitObjectFinalizeOverride(
                             reader,
                             typeDefHandle,
@@ -874,7 +873,7 @@ public static class ApiSurfaceExtractor
                         _ when isOperator => "operator",
                         // A finalizer compiles to a `Finalize` method carrying an
                         // explicit `.override System.Object::Finalize` MethodImpl,
-                        // so it also lands in `explicitImplementationBodies`. Classify
+                        // so it is also an explicit MethodImpl body. Classify
                         // it as its own kind before the explicit-interface arm so it
                         // is not filed under Explicit Interface Implementations; the
                         // renderer suppresses its raw metadata accessibility.
@@ -930,6 +929,18 @@ public static class ApiSurfaceExtractor
                 }
 
                 budget?.RetainMember(member);
+                if (isExplicitInterfaceImplementation)
+                {
+                    if (accessorMethods.Contains(methodHandle)
+                        || extensionPropertyImplementationMethods.Contains(methodHandle))
+                    {
+                        methodImplementations.GetExplicitInterfaceTargets(methodHandle);
+                    }
+                    else
+                    {
+                        methodImplementations.ValidateExplicitInterfaceTargets(methodHandle);
+                    }
+                }
                 apiType.Members.Add(member);
                 surface.PublicMethodCount++;
             }
@@ -1101,7 +1112,7 @@ public static class ApiSurfaceExtractor
                     observeDecodeWork);
                 bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
                     propertyName,
-                    explicitInterfaceImplementationTargets,
+                    methodImplementations,
                     (accessors.Getter, "get_"),
                     (accessors.Setter, "set_"));
                 if (isExplicitInterfaceImplementation
@@ -1581,7 +1592,7 @@ public static class ApiSurfaceExtractor
                     (accessors.Remover, "remove"));
                 bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
                     eventName,
-                    explicitInterfaceImplementationTargets,
+                    methodImplementations,
                     (accessors.Adder, "add_"),
                     (accessors.Remover, "remove_"));
                 if (isExplicitInterfaceImplementation
@@ -1748,9 +1759,12 @@ public static class ApiSurfaceExtractor
         bool isExtensionClass,
         Dictionary<ApiMember, MetadataTypeDefinitionName> extensionReceiverDefinitions)
     {
-        var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
-        var explicitInterfaceImplementationBodies =
-            GetExplicitInterfaceImplementationTargets(reader, typeDef).Keys.ToHashSet();
+        var explicitInterfaceIdentityProvider =
+            new ExplicitInterfaceTypeIdentityProvider();
+        var methodImplementations = new MethodImplementationProjection(
+            reader,
+            typeDef,
+            explicitInterfaceIdentityProvider);
         var accessorMethods = GetAccessorMethods(reader, typeDef);
         var canonicalAccessorMethods = GetCanonicalAccessorMethods(reader, typeDef);
         var hiddenAggregateAccessorMethods =
@@ -1765,22 +1779,32 @@ public static class ApiSurfaceExtractor
         {
             var method = reader.GetMethodDefinition(methodHandle);
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-            bool isExplicitImplementation = explicitImplementationBodies.Contains(methodHandle);
+            bool isExplicitImplementation =
+                methodImplementations.ContainsBody(methodHandle);
             if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
                 continue;
             string methodName = reader.GetString(method.Name);
-            var isRetainedImplementationAccessor = isExplicitImplementation
-                && (methodName.Contains('.', StringComparison.Ordinal)
-                    || (explicitInterfaceImplementationBodies.Contains(methodHandle)
-                        && (!canonicalAccessorMethods.Contains(methodHandle)
-                            || hiddenAggregateAccessorMethods.Contains(methodHandle))));
-            if (((accessorMethods.Contains(methodHandle)
-                        && canonicalAccessorMethods.Contains(methodHandle))
-                    || extensionPropertyImplementationMethods.Contains(methodHandle))
-                && !isRetainedImplementationAccessor)
-                continue;
             if (methodName.StartsWith('<'))
                 continue;
+
+            bool isNormallySkippedAccessor =
+                (accessorMethods.Contains(methodHandle)
+                    && canonicalAccessorMethods.Contains(methodHandle))
+                || extensionPropertyImplementationMethods.Contains(methodHandle);
+            if (isNormallySkippedAccessor)
+            {
+                bool canRetainStructuralImplementation =
+                    !canonicalAccessorMethods.Contains(methodHandle)
+                    || hiddenAggregateAccessorMethods.Contains(methodHandle);
+                bool isRetainedImplementationAccessor =
+                    isExplicitImplementation
+                    && (methodName.Contains('.', StringComparison.Ordinal)
+                        || (canRetainStructuralImplementation
+                            && methodImplementations
+                                .HasExplicitInterfaceTargets(methodHandle)));
+                if (!isRetainedImplementationAccessor)
+                    continue;
+            }
 
             if (!isExplicitImplementation
                 && AttributeReader.HasEditorBrowsableNeverAttribute(reader, method.GetCustomAttributes()))
@@ -1813,6 +1837,19 @@ public static class ApiSurfaceExtractor
                 member.Signature = token.ToString("X8", CultureInfo.InvariantCulture);
             }
 
+            if (isExplicitImplementation)
+            {
+                if (accessorMethods.Contains(methodHandle)
+                    || extensionPropertyImplementationMethods.Contains(methodHandle))
+                {
+                    methodImplementations.GetExplicitInterfaceTargets(methodHandle);
+                }
+                else
+                {
+                    methodImplementations.ValidateExplicitInterfaceTargets(methodHandle);
+                }
+            }
+
             apiType.Members.Add(member);
             surface.PublicMethodCount++;
         }
@@ -1841,9 +1878,15 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
+            string propertyName = reader.GetString(property.Name);
+            IsExplicitInterfaceAggregate(
+                propertyName,
+                methodImplementations,
+                (accessors.Getter, "get_"),
+                (accessors.Setter, "set_"));
             apiType.Members.Add(new ApiMember
             {
-                Name = reader.GetString(property.Name),
+                Name = propertyName,
                 Kind = "property"
             });
             surface.PublicPropertyCount++;
@@ -1880,9 +1923,15 @@ public static class ApiSurfaceExtractor
                 continue;
             }
 
+            string eventName = reader.GetString(evt.Name);
+            IsExplicitInterfaceAggregate(
+                eventName,
+                methodImplementations,
+                (accessors.Adder, "add_"),
+                (accessors.Remover, "remove_"));
             apiType.Members.Add(new ApiMember
             {
-                Name = reader.GetString(evt.Name),
+                Name = eventName,
                 Kind = "event"
             });
             surface.PublicEventCount++;
@@ -2250,15 +2299,196 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
+    /// Indexes MethodImpl rows without decoding their structural targets, then projects one
+    /// admitted body on demand. Aggregate/accessor targets are cached for later classification;
+    /// ordinary admitted methods are validated without retaining their target graph.
+    /// </summary>
+    private sealed class MethodImplementationProjection
+    {
+        readonly MetadataReader reader;
+        readonly TypeDefinition typeDefinition;
+        readonly ExplicitInterfaceTypeIdentityProvider identityProvider;
+        readonly Action<int>? observeDecodeWork;
+        readonly Action<string>? observeProjectionText;
+        readonly GenericContext typeContext;
+        readonly Dictionary<MethodDefinitionHandle, List<EntityHandle>> declarationsByBody = [];
+        readonly Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
+            explicitInterfaceTargets = [];
+        readonly Dictionary<MethodDefinitionHandle, bool> objectFinalizeOverrides = [];
+        readonly HashSet<MethodDefinitionHandle> validatedBodies = [];
+        HashSet<string>? implementedInterfaces;
+
+        public MethodImplementationProjection(
+            MetadataReader reader,
+            TypeDefinition typeDefinition,
+            ExplicitInterfaceTypeIdentityProvider identityProvider,
+            Action<int>? observeDecodeWork = null,
+            Action<string>? observeProjectionText = null,
+            GenericContext? typeContext = null)
+        {
+            this.reader = reader;
+            this.typeDefinition = typeDefinition;
+            this.identityProvider = identityProvider;
+            this.observeDecodeWork = observeDecodeWork;
+            this.observeProjectionText = observeProjectionText;
+            this.typeContext =
+                typeContext
+                ?? GenericContext.ForType(
+                    reader,
+                    typeDefinition,
+                    observeDecodeWork);
+
+            foreach (var implementationHandle in typeDefinition.GetMethodImplementations())
+            {
+                var implementation =
+                    reader.GetMethodImplementation(implementationHandle);
+                if (implementation.MethodBody.Kind != HandleKind.MethodDefinition)
+                    continue;
+
+                var body = (MethodDefinitionHandle)implementation.MethodBody;
+                if (!declarationsByBody.TryGetValue(body, out var declarations))
+                {
+                    declarations = [];
+                    declarationsByBody.Add(body, declarations);
+                }
+                declarations.Add(implementation.MethodDeclaration);
+            }
+        }
+
+        public IEnumerable<MethodDefinitionHandle> Bodies =>
+            declarationsByBody.Keys;
+
+        public bool ContainsBody(MethodDefinitionHandle body) =>
+            declarationsByBody.ContainsKey(body);
+
+        public bool HasExplicitInterfaceTargets(MethodDefinitionHandle body) =>
+            GetExplicitInterfaceTargets(body).Count > 0;
+
+        public List<ExplicitInterfaceMethodTarget> GetExplicitInterfaceTargets(
+            MethodDefinitionHandle body)
+        {
+            if (explicitInterfaceTargets.TryGetValue(body, out var cached))
+                return cached;
+
+            List<ExplicitInterfaceMethodTarget> targets = [];
+            explicitInterfaceTargets.Add(body, targets);
+            if (!declarationsByBody.TryGetValue(body, out var declarations))
+                return targets;
+
+            IReadOnlySet<string> interfaces = GetImplementedInterfaces();
+            foreach (EntityHandle declaration in declarations)
+            {
+                if (!TryGetInterfaceMethodDeclaration(
+                        reader,
+                        body,
+                        declaration,
+                        interfaces,
+                        typeContext,
+                        identityProvider,
+                        observeDecodeWork,
+                        out var target))
+                {
+                    continue;
+                }
+
+                ObserveTarget(target);
+                targets.Add(target);
+            }
+
+            return targets;
+        }
+
+        public void ValidateExplicitInterfaceTargets(MethodDefinitionHandle body)
+        {
+            if (explicitInterfaceTargets.ContainsKey(body)
+                || !validatedBodies.Add(body)
+                || !declarationsByBody.TryGetValue(body, out var declarations))
+            {
+                return;
+            }
+
+            IReadOnlySet<string> interfaces = GetImplementedInterfaces();
+            foreach (EntityHandle declaration in declarations)
+            {
+                if (TryGetInterfaceMethodDeclaration(
+                        reader,
+                        body,
+                        declaration,
+                        interfaces,
+                        typeContext,
+                        identityProvider,
+                        observeDecodeWork,
+                        out var target))
+                {
+                    ObserveTarget(target);
+                }
+            }
+        }
+
+        public bool OverridesObjectFinalize(MethodDefinitionHandle body)
+        {
+            if (objectFinalizeOverrides.TryGetValue(body, out bool cached))
+                return cached;
+
+            bool result =
+                declarationsByBody.TryGetValue(body, out var declarations)
+                && declarations.Any(declaration =>
+                    ReferencesObjectFinalize(
+                        reader,
+                        declaration,
+                        observeDecodeWork));
+            objectFinalizeOverrides.Add(body, result);
+            return result;
+        }
+
+        HashSet<string> GetImplementedInterfaces()
+        {
+            if (implementedInterfaces is not null)
+                return implementedInterfaces;
+
+            implementedInterfaces = [];
+            foreach (var interfaceHandle
+                in typeDefinition.GetInterfaceImplementations())
+            {
+                var interfaceType =
+                    reader.GetInterfaceImplementation(interfaceHandle).Interface;
+                var interfaceIdentity = identityProvider.FromHandle(
+                    reader,
+                    interfaceType,
+                    typeContext);
+                if (interfaceIdentity.IsDegraded)
+                {
+                    throw new BadImageFormatException(
+                        "The implemented interface identity could not be decoded.");
+                }
+                observeProjectionText?.Invoke(interfaceIdentity.Key);
+                implementedInterfaces.Add(interfaceIdentity.Key);
+            }
+
+            return implementedInterfaces;
+        }
+
+        void ObserveTarget(ExplicitInterfaceMethodTarget target)
+        {
+            observeProjectionText?.Invoke(target.MethodName);
+            observeProjectionText?.Invoke(target.InterfaceType.Key);
+            observeProjectionText?.Invoke(target.InterfaceType.MetadataName);
+            if (target.InterfaceType.AggregateAliasName is { } alias)
+                observeProjectionText?.Invoke(alias);
+        }
+    }
+
+    /// <summary>
     /// Projects this type's explicit-interface MethodImpl rows, keyed by the implementing
     /// method body.
     /// </summary>
     /// <remarks>
-    /// Every row this walks decodes an interface identity and two method signatures, so the
+    /// Every projected row decodes an interface identity and two method signatures, so the
     /// projection charges the same decode-work observer the rest of the extraction uses and
-    /// charges the strings it retains against the retained-text observer. A bounded extraction
-    /// therefore cannot be made to do unbounded MethodImpl work before its first member is
-    /// admitted; a <see langword="null"/> observer leaves the unbounded query paths unchanged.
+    /// charges the strings it retains against the retained-text observer. API extraction uses
+    /// the same projection lazily after a member passes its scope filters; this eager helper is
+    /// retained for focused type queries and tests. A <see langword="null"/> observer leaves the
+    /// unbounded query paths unchanged.
     /// Gated by <c>ApiSurfaceExtractorBoundsTests.ExplicitInterfaceProjection_SpendsDecodeWorkBudget</c>.
     /// </remarks>
     internal static Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
@@ -2270,50 +2500,21 @@ public static class ApiSurfaceExtractor
             Action<string>? observeText = null,
             GenericContext? typeContext = null)
     {
-        var context = typeContext ?? GenericContext.ForType(reader, typeDef, observeDecodeWork);
         identityProvider ??= new ExplicitInterfaceTypeIdentityProvider(observeDecodeWork);
-        HashSet<string> implementedInterfaces = [];
-        foreach (var interfaceHandle in typeDef.GetInterfaceImplementations())
-        {
-            var interfaceType = reader.GetInterfaceImplementation(interfaceHandle).Interface;
-            var interfaceIdentity = identityProvider.FromHandle(
-                reader,
-                interfaceType,
-                context);
-            if (interfaceIdentity.IsDegraded)
-                throw new BadImageFormatException("The implemented interface identity could not be decoded.");
-            observeText?.Invoke(interfaceIdentity.Key);
-            implementedInterfaces.Add(interfaceIdentity.Key);
-        }
-
+        var projection = new MethodImplementationProjection(
+            reader,
+            typeDef,
+            identityProvider,
+            observeDecodeWork,
+            observeText,
+            typeContext);
         Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>> targets = [];
-        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        foreach (MethodDefinitionHandle body in projection.Bodies)
         {
-            var implementation = reader.GetMethodImplementation(implementationHandle);
-            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
-                && TryGetInterfaceMethodDeclaration(
-                    reader,
-                    (MethodDefinitionHandle)implementation.MethodBody,
-                    implementation.MethodDeclaration,
-                    implementedInterfaces,
-                    context,
-                    identityProvider,
-                    observeDecodeWork,
-                    out var target))
-            {
-                var body = (MethodDefinitionHandle)implementation.MethodBody;
-                if (!targets.TryGetValue(body, out var bodyTargets))
-                {
-                    bodyTargets = [];
-                    targets.Add(body, bodyTargets);
-                }
-                observeText?.Invoke(target.MethodName);
-                observeText?.Invoke(target.InterfaceType.Key);
-                observeText?.Invoke(target.InterfaceType.MetadataName);
-                if (target.InterfaceType.AggregateAliasName is { } alias)
-                    observeText?.Invoke(alias);
-                bodyTargets.Add(target);
-            }
+            List<ExplicitInterfaceMethodTarget> bodyTargets =
+                projection.GetExplicitInterfaceTargets(body);
+            if (bodyTargets.Count > 0)
+                targets.Add(body, bodyTargets);
         }
 
         return targets;
@@ -2323,6 +2524,29 @@ public static class ApiSurfaceExtractor
         string name,
         IReadOnlyDictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
             explicitInterfaceImplementationTargets,
+        params (MethodDefinitionHandle Handle, string DeclarationPrefix)[] accessors)
+        => IsExplicitInterfaceAggregate(
+            name,
+            handle => explicitInterfaceImplementationTargets.TryGetValue(
+                handle,
+                out var targets)
+                    ? targets
+                    : null,
+            accessors);
+
+    private static bool IsExplicitInterfaceAggregate(
+        string name,
+        MethodImplementationProjection methodImplementations,
+        params (MethodDefinitionHandle Handle, string DeclarationPrefix)[] accessors)
+        => IsExplicitInterfaceAggregate(
+            name,
+            handle => methodImplementations.GetExplicitInterfaceTargets(handle),
+            accessors);
+
+    private static bool IsExplicitInterfaceAggregate(
+        string name,
+        Func<MethodDefinitionHandle, IReadOnlyList<ExplicitInterfaceMethodTarget>?>
+            getTargets,
         params (MethodDefinitionHandle Handle, string DeclarationPrefix)[] accessors)
     {
         int separator = name.LastIndexOf('.');
@@ -2342,12 +2566,10 @@ public static class ApiSurfaceExtractor
             if (accessor.Handle.IsNil)
                 continue;
             hasAccessor = true;
-            if (!explicitInterfaceImplementationTargets.TryGetValue(
-                    accessor.Handle,
-                    out var targets))
-            {
+            IReadOnlyList<ExplicitInterfaceMethodTarget>? targets =
+                getTargets(accessor.Handle);
+            if (targets is null || targets.Count == 0)
                 return false;
-            }
 
             var matchingKeys = targets
                 .Where(target =>
@@ -2727,36 +2949,6 @@ public static class ApiSurfaceExtractor
             && left.ParameterTypes
                 .Select(parameter => parameter.Key)
                 .SequenceEqual(right.ParameterTypes.Select(parameter => parameter.Key));
-
-    /// <summary>
-    /// The set of methods on <paramref name="typeDef"/> whose explicit
-    /// <c>.override</c> MethodImpl targets <c>System.Object::Finalize</c> — the
-    /// slot a C# <c>~Type()</c> destructor compiles to. Keying on the overridden
-    /// declaration (not the method's own name/slot/signature) is what lets the
-    /// C# writer spell <c>~Type()</c> for real finalizers while excluding a
-    /// same-named override of an unrelated <c>Finalize</c> slot or an explicit
-    /// interface implementation.
-    /// </summary>
-    private static HashSet<MethodDefinitionHandle> GetObjectFinalizeOverrides(
-        MetadataReader reader,
-        TypeDefinition typeDef,
-        Action<int>? beforeDecodeWork = null)
-    {
-        HashSet<MethodDefinitionHandle> handles = [];
-        foreach (var implementationHandle in typeDef.GetMethodImplementations())
-        {
-            var implementation = reader.GetMethodImplementation(implementationHandle);
-            if (implementation.MethodBody.Kind != HandleKind.MethodDefinition)
-                continue;
-            if (ReferencesObjectFinalize(
-                    reader,
-                    implementation.MethodDeclaration,
-                    beforeDecodeWork))
-                handles.Add((MethodDefinitionHandle)implementation.MethodBody);
-        }
-
-        return handles;
-    }
 
     /// <summary>
     /// True when <paramref name="methodHandle"/> is a C# destructor / VB finalizer: a non-generic
@@ -4807,7 +4999,7 @@ public static class ApiSurfaceExtractor
             kind => kind switch
             {
                 "get" => accessors.Getter,
-                "set" => accessors.Setter,
+                "set" or "init" => accessors.Setter,
                 _ => default,
             },
             typeNodeProvider,
@@ -5644,7 +5836,10 @@ public static class ApiSurfaceExtractor
     /// </summary>
     /// <remarks>
     /// Members and retained text are counted as they are built but committed only when their type
-    /// is, so a rejected type spends no retention budget. The exact retained total is gated by
+    /// is, so a rejected type spends no retention budget. Structural MethodImpl text projected
+    /// for admitted members likewise earns cumulative decode-work credit only when its owning type
+    /// commits; it does not inflate the reported retained-output total, and pending projection
+    /// cannot finance its own decode. The exact retained total is gated by
     /// <c>ApiSurfaceExtractorBoundsTests.RetainedTextBudget_IsExact</c>. A separate monotonic
     /// extraction-wide decode-work estimate may reject allocation-amplifying input before its
     /// expanded model exists; the hostile-shape allocation tests in that class gate that safety
@@ -5666,6 +5861,8 @@ public static class ApiSurfaceExtractor
         int _retainedTextCharacters;
         int _pendingTextCharacters;
         int _pendingObservedTextCharacters;
+        int _pendingProjectionTextCharacters;
+        long _committedProjectionTextCharacters;
         long _decodeWork;
 
         public int MetadataRows { get; private set; }
@@ -5692,6 +5889,7 @@ public static class ApiSurfaceExtractor
             _pendingMembers = 0;
             _pendingTextCharacters = 0;
             _pendingObservedTextCharacters = 0;
+            _pendingProjectionTextCharacters = 0;
         }
 
         /// <summary>Admits a retained type before its model or members are built.</summary>
@@ -5719,9 +5917,11 @@ public static class ApiSurfaceExtractor
             _types++;
             _members += _pendingMembers;
             _retainedTextCharacters += _pendingTextCharacters;
+            _committedProjectionTextCharacters += _pendingProjectionTextCharacters;
             _pendingMembers = 0;
             _pendingTextCharacters = 0;
             _pendingObservedTextCharacters = 0;
+            _pendingProjectionTextCharacters = 0;
         }
 
         /// <summary>Counts one member attached to a type that is already committed.</summary>
@@ -5782,7 +5982,9 @@ public static class ApiSurfaceExtractor
             long next =
                 (long)encodedCharacters * DecodeWorkWeight + _decodeWork;
             long creditedCharacters =
-                (long)_retainedTextCharacters + _pendingTextCharacters;
+                (long)_retainedTextCharacters
+                + _pendingTextCharacters
+                + _committedProjectionTextCharacters;
             long limit =
                 MinimumDecodeWorkLimit
                 + creditedCharacters * RetainedTextDecodeWorkCreditWeight;
@@ -5792,6 +5994,27 @@ public static class ApiSurfaceExtractor
                     ApiSurfaceExtractionBound.RetainedTextCharacters);
             }
             _decodeWork = next;
+        }
+
+        /// <summary>
+        /// Accounts structural text projected for an admitted MethodImpl body. It can earn
+        /// decode-work credit only after the owning type commits, so one hostile candidate cannot
+        /// finance its own expansion.
+        /// </summary>
+        public void ObservePendingProjectionText(string text)
+        {
+            ArgumentNullException.ThrowIfNull(text);
+            long next = (long)text.Length + _pendingProjectionTextCharacters;
+            long pendingTotal = next + _pendingTextCharacters;
+            if (pendingTotal
+                    > bounds.MaxRetainedTextCharacters - _retainedTextCharacters
+                || next < 0
+                || pendingTotal < 0)
+            {
+                throw new ExtractionBoundExceededException(
+                    ApiSurfaceExtractionBound.RetainedTextCharacters);
+            }
+            _pendingProjectionTextCharacters = (int)next;
         }
 
         void RetainPendingText(long characters)
