@@ -192,12 +192,16 @@ public static class StructuralCloneCrossAssemblyCorpus
                 leftMethods,
                 query.Seed,
                 corpus.Left.Type);
+            MetadataMethodAddress seedAddress =
+                new(leftModuleVersionId, seed);
             var labels =
                 query.Labels.ToDictionary(
-                    label => RequiredMethod(
-                        rightMethods,
-                        label.Candidate,
-                        corpus.Right.Type),
+                    label => new MetadataMethodAddress(
+                        rightModuleVersionId,
+                        RequiredMethod(
+                            rightMethods,
+                            label.Candidate,
+                            corpus.Right.Type)),
                     static label => label);
             StructuralCloneRetrievalResult retrieval =
                 StructuralCloneAnalysis.RetrieveSimilar(
@@ -211,8 +215,22 @@ public static class StructuralCloneCrossAssemblyCorpus
                         new StructuralCloneComparisonLimits(
                             MaximumBlocks:
                                 corpus.Limits.MaximumBlocks)));
+            RequireAddress(
+                retrieval.Seed.Method,
+                seedAddress,
+                $"query '{query.Id}' seed");
+            foreach (StructuralCloneRetrievalCandidate candidate
+                in retrieval.Candidates)
+            {
+                RequireAddress(
+                    candidate.Method,
+                    new MetadataMethodAddress(
+                        rightModuleVersionId,
+                        candidate.Method.Handle),
+                    $"query '{query.Id}' candidate");
+            }
             var ranked = retrieval.Candidates.ToDictionary(
-                static candidate => candidate.Method.Handle);
+                static candidate => candidate.Method);
 
             var labelResults =
                 ImmutableArray.CreateBuilder<
@@ -225,8 +243,10 @@ public static class StructuralCloneCrossAssemblyCorpus
                     rightMethods,
                     label.Candidate,
                     corpus.Right.Type);
+                MetadataMethodAddress candidateAddress =
+                    new(rightModuleVersionId, candidateHandle);
                 ranked.TryGetValue(
-                    candidateHandle,
+                    candidateAddress,
                     out StructuralCloneRetrievalCandidate? candidate);
                 var contrasts =
                     ImmutableArray.CreateBuilder<
@@ -240,16 +260,18 @@ public static class StructuralCloneCrossAssemblyCorpus
                             rightMethods,
                             contrastName,
                             corpus.Right.Type);
+                    MetadataMethodAddress contrastAddress =
+                        new(rightModuleVersionId, contrastHandle);
                     ranked.TryGetValue(
-                        contrastHandle,
+                        contrastAddress,
                         out StructuralCloneRetrievalCandidate? contrast);
                     contrasts.Add(
                         new StructuralCloneCrossAssemblyContrastResult(
                             Project(
                                 rightReader,
-                                rightModuleVersionId,
                                 corpus.Right.Type,
-                                contrastHandle),
+                                contrast?.Method
+                                    ?? contrastAddress),
                             contrast?.Rank,
                             contrast?.Similarity));
                     contrastsPassed =
@@ -264,9 +286,9 @@ public static class StructuralCloneCrossAssemblyCorpus
                         label,
                         Project(
                             rightReader,
-                            rightModuleVersionId,
                             corpus.Right.Type,
-                            candidateHandle),
+                            candidate?.Method
+                                ?? candidateAddress),
                         candidate?.Rank,
                         candidate?.Similarity,
                         contrasts.ToImmutable(),
@@ -283,7 +305,7 @@ public static class StructuralCloneCrossAssemblyCorpus
             bool returnedRowsFullyReviewed =
                 actualTopCandidates.Length > 0
                 && actualTopCandidates.All(candidate =>
-                    labels.ContainsKey(candidate.Method.Handle));
+                    labels.ContainsKey(candidate.Method));
             bool topKFullyReviewed =
                 actualTopCandidates.Length == query.ReviewedTopK
                 && returnedRowsFullyReviewed;
@@ -295,12 +317,11 @@ public static class StructuralCloneCrossAssemblyCorpus
                         candidate.Rank,
                         Project(
                             rightReader,
-                            rightModuleVersionId,
                             corpus.Right.Type,
-                            candidate.Method.Handle),
+                            candidate.Method),
                         candidate.Similarity,
                         labels.TryGetValue(
-                            candidate.Method.Handle,
+                            candidate.Method,
                             out StructuralCloneCrossAssemblyLabel? label)
                                 ? label.Relevance
                                 : null)),
@@ -327,10 +348,12 @@ public static class StructuralCloneCrossAssemblyCorpus
                             label.Relevance
                                 == StructuralCloneReviewRelevance.Relevant
                             && ranked.TryGetValue(
-                                RequiredMethod(
-                                    rightMethods,
-                                    label.Candidate,
-                                    corpus.Right.Type),
+                                new MetadataMethodAddress(
+                                    rightModuleVersionId,
+                                    RequiredMethod(
+                                        rightMethods,
+                                        label.Candidate,
+                                        corpus.Right.Type)),
                                 out StructuralCloneRetrievalCandidate?
                                     candidate)
                             && candidate.Rank <= query.ReviewedTopK),
@@ -351,9 +374,8 @@ public static class StructuralCloneCrossAssemblyCorpus
                     query.Id,
                     Project(
                         leftReader,
-                        leftModuleVersionId,
                         corpus.Left.Type,
-                        seed),
+                        retrieval.Seed.Method),
                     query.ReviewedTopK,
                     query.MinimumPrecisionBasisPoints,
                     query.MinimumRecallBasisPoints,
@@ -727,13 +749,26 @@ public static class StructuralCloneCrossAssemblyCorpus
 
     static StructuralCloneCrossAssemblyMethodResult Project(
         MetadataReader reader,
-        Guid moduleVersionId,
         string type,
-        MethodDefinitionHandle handle)
+        MetadataMethodAddress address)
         => new(
-            new MetadataMethodAddress(moduleVersionId, handle),
+            address,
             type,
-            reader.GetString(reader.GetMethodDefinition(handle).Name));
+            reader.GetString(
+                reader.GetMethodDefinition(address.Handle).Name));
+
+    static void RequireAddress(
+        MetadataMethodAddress actual,
+        MetadataMethodAddress expected,
+        string subject)
+    {
+        if (actual != expected)
+        {
+            throw new InvalidDataException(
+                $"The product returned {actual} for {subject}; "
+                    + $"expected {expected}.");
+        }
+    }
 
     static Guid ModuleVersionId(MetadataReader reader)
         => reader.GetGuid(reader.GetModuleDefinition().Mvid);

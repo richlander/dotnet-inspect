@@ -54,6 +54,19 @@ public class StructuralCloneCrossAssemblyCorpusTests
         Assert.Contains(
             "allocation-regression-miss",
             text);
+
+        StructuralCloneCrossAssemblyQueryResult stringHazard =
+            report.Queries.Single(static query =>
+                query.Id == "user-string-hazard");
+        Assert.Equal(
+            stringHazard.TopCandidates[0].Similarity.Score,
+            stringHazard.TopCandidates[1].Similarity.Score);
+        Assert.Equal(
+            2,
+            stringHazard.Labels.Single(static label =>
+                label.Label.Relevance
+                    == StructuralCloneReviewRelevance.Relevant)
+                .Label.MaximumRank);
     }
 
     [Fact]

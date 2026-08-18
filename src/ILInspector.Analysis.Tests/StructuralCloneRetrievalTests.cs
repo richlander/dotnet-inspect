@@ -332,6 +332,26 @@ public class StructuralCloneRetrievalTests
     }
 
     [Fact]
+    public void RetrieveSimilar_InvalidCrossAssemblyPopulationPrecedesUnsupportedSeed()
+    {
+        using PEReader seedImage = OpenFixture();
+        using PEReader candidateImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.New);
+        MetadataReader candidateReader =
+            candidateImage.GetMetadataReader();
+        MethodDefinitionHandle invalidCandidate =
+            MetadataTokens.MethodDefinitionHandle(
+                candidateReader.GetTableRowCount(TableIndex.MethodDef) + 1);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                Method(nameof(StructuralCloneFixture.ExceptionHandlingA)),
+                candidateImage,
+                [invalidCandidate]));
+    }
+
+    [Fact]
     public void RetrieveSimilar_SameModuleAcrossReadersExcludesSeed()
     {
         using PEReader seedImage = OpenDiffFixture(

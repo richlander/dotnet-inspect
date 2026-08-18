@@ -251,6 +251,31 @@ public static partial class StructuralCloneAnalysis
                 metadataFailure);
         }
 
+        Guid candidateModuleVersionId = default;
+        bool candidateMetadataAvailable =
+            TryGetMetadataReader(
+                candidateImage,
+                out MetadataReader candidateReader,
+                out StructuralCloneMetadataFailure candidateMetadataFailure)
+            && TryGetModuleVersionId(
+                candidateReader,
+                out candidateModuleVersionId,
+                out candidateMetadataFailure);
+        if (candidateMetadataAvailable)
+        {
+            foreach (MethodDefinitionHandle method in orderedMethods)
+                ValidateHandle(candidateReader, method, nameof(methods));
+        }
+        bool sameModule =
+            candidateMetadataAvailable
+            && seedModuleVersionId == candidateModuleVersionId;
+        if (!sameImage
+            && sameModule
+            && methods.Contains(seed))
+        {
+            potentialCandidates--;
+        }
+
         MetadataMethodAddress seedAddress =
             new(seedModuleVersionId, seed);
         BodyProduction seedProduction = Produce(
@@ -308,30 +333,13 @@ public static partial class StructuralCloneAnalysis
                     BodyProductions: 1));
         }
 
-        if (!TryGetMetadataReader(
-                candidateImage,
-                out MetadataReader candidateReader,
-                out metadataFailure)
-            || !TryGetModuleVersionId(
-                candidateReader,
-                out Guid candidateModuleVersionId,
-                out metadataFailure))
+        if (!candidateMetadataAvailable)
         {
             return FailedCandidateRetrieval(
                 seedOutcome,
                 methods.Length,
                 potentialCandidates,
-                metadataFailure);
-        }
-        foreach (MethodDefinitionHandle method in orderedMethods)
-            ValidateHandle(candidateReader, method, nameof(methods));
-        bool sameModule =
-            seedModuleVersionId == candidateModuleVersionId;
-        if (!sameImage
-            && sameModule
-            && methods.Contains(seed))
-        {
-            potentialCandidates--;
+                candidateMetadataFailure);
         }
 
         StructuralCloneRetrievalProfile seedProfile =

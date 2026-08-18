@@ -76,7 +76,7 @@
         {
           "candidate": "StringToken",
           "relevance": "relevant",
-          "maximumRank": 1,
+          "maximumRank": 2,
           "scoresAbove": [],
           "rationale": "The corresponding member changes only its user-string value."
         },
