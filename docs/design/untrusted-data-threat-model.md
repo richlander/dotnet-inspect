@@ -1014,8 +1014,8 @@ without final-origin evidence cannot satisfy the new path.
 
 Checksum evidence follows the portable-PDB document row rather than a display
 or canonical path. Direct member, type, and IL-offset projections join on row
-identity and verify the authored path; path-only heuristic projections attach a
-checksum only when that path names one document row. This is gated by
+identity and verify the PDB document path; path-only heuristic projections
+attach a checksum only when that path names one document row. This is gated by
 `AuthoredSourceAcquisitionTests.SelectMappedDocument_UsesDocumentRowWhenPathsAreDuplicated`,
 `...SelectMappedDocument_RejectsAMismatchedRowPathPair`, and
 `MetadataSourceFindingsTests.DocumentChecksumIndexes_PreserveRowsAndRejectAmbiguousPathFallback`.
@@ -1064,7 +1064,7 @@ Checksums from portable PDB documents authenticate source content when the
 workflow claims PDB-source integrity. A reachable URL without a matching
 checksum is not equivalent to verified source.
 
-### Authored-source lexing is complexity-bounded
+### PDB-source lexing is complexity-bounded
 
 The source byte limit is not by itself a memory bound. A punctuation-dense file
 can produce nearly one retained lexical token per byte, and each token costs
@@ -1087,7 +1087,7 @@ cross product, and refuses PDB correlation when a recognized `#line` directive
 can remap the coordinates. CSharpText applies only caller-selected branch
 objects produced by the same index; it blanks unselected half-open ranges with
 one difference array and rebuilds over the line-preserving projection. Before
-slicing the checksum-verified original text, the slicer refuses a selected
+slicing the checksum-verified PDB-mapped text, the slicer refuses a selected
 group that crosses exactly one boundary of the projected declaration. A group
 wholly inside the declaration is removed from a second, boundary-only
 projection; CSharpText must still vouch for the same declaration and slice

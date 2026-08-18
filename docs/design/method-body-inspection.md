@@ -449,7 +449,7 @@ Move in reviewable slices.
    lands.
 
 The command-owned path-backed acquisitions for `diff` body-signal comparison,
-implementation comparison, and authored-source target indexing, plus `timeline`
+implementation comparison, and PDB-source target indexing, plus `timeline`
 analysis inspection, use `MethodBodyInspectionSession` for their selected
 capabilities and scope, then pass its neutral `BodyIndex` to the owning query.
 This adopts the step 2 boundary without claiming command-wide reuse: separate
