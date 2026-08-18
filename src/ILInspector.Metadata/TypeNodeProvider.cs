@@ -10,37 +10,88 @@ namespace ILInspector.Metadata;
 internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, GenericContext?>
 {
     public static TypeNodeProvider Instance { get; } = new();
+    readonly Action<string>? _beforeRetain;
+    readonly Action<int>? _beforeMaterialize;
+
+    public TypeNodeProvider(
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeMaterialize = null)
+    {
+        _beforeRetain = beforeRetain;
+        _beforeMaterialize = beforeMaterialize;
+    }
 
     // Delegate to existing SignatureDecoder for name resolution to avoid duplication.
     private static readonly SignatureDecoder NameDecoder = SignatureDecoder.Instance;
 
     public TypeNode GetPrimitiveType(PrimitiveTypeCode typeCode)
     {
+        _beforeMaterialize?.Invoke(16);
         string name = NameDecoder.GetPrimitiveType(typeCode);
+        _beforeRetain?.Invoke(name);
         bool isRef = typeCode is PrimitiveTypeCode.String or PrimitiveTypeCode.Object;
         return new PrimitiveTypeNode(name, isRef);
     }
 
     public TypeNode GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
     {
-        MetadataTypeNameParts metadataName =
-            TypeResolver.GetTypeNamePartsFromDefinition(reader, handle);
-        bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
-        return new NamedTypeNode(
-            metadataName.ToDottedName(),
-            isRef,
+        bool resolved = TypeResolver.TryGetTypeNameFromDefinition(
+            reader,
+            handle,
+            _beforeMaterialize,
+            out string? name,
+            out RelationshipTraversalRejection? rejection);
+        MetadataTypeNameParts? metadataName = resolved
+            ? TypeResolver.GetTypeNamePartsFromDefinition(reader, handle)
+            : null;
+        return ReadNamedType(
+            resolved,
+            name,
+            rejection,
+            rawTypeKind,
             metadataName);
     }
 
     public TypeNode GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
     {
-        MetadataTypeNameParts metadataName =
-            TypeResolver.GetTypeNamePartsFromReference(reader, handle);
-        bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
-        return new NamedTypeNode(
-            metadataName.ToDottedName(),
-            isRef,
+        bool resolved = TypeResolver.TryGetTypeNameFromReference(
+            reader,
+            handle,
+            _beforeMaterialize,
+            out string? name,
+            out RelationshipTraversalRejection? rejection);
+        MetadataTypeNameParts? metadataName = resolved
+            ? TypeResolver.GetTypeNamePartsFromReference(reader, handle)
+            : null;
+        return ReadNamedType(
+            resolved,
+            name,
+            rejection,
+            rawTypeKind,
             metadataName);
+    }
+
+    TypeNode ReadNamedType(
+        bool resolved,
+        string? name,
+        RelationshipTraversalRejection? rejection,
+        byte rawTypeKind,
+        MetadataTypeNameParts? metadataName)
+    {
+        if (resolved)
+        {
+            _beforeRetain?.Invoke(name!);
+            bool isRef = rawTypeKind != 0x11; // 0x11 = ELEMENT_TYPE_VALUETYPE
+            return new NamedTypeNode(name!, isRef, metadataName);
+        }
+
+        ArgumentNullException.ThrowIfNull(rejection);
+        if (rejection.Kind == RelationshipTraversalRejectionKind.NameBudget)
+            return new DegradedTypeNode();
+
+        throw new BadImageFormatException(
+            $"Metadata relationship traversal rejected ({rejection.Kind}): "
+            + rejection.Detail);
     }
 
     public TypeNode GetTypeFromSpecification(MetadataReader reader, GenericContext? context, TypeSpecificationHandle handle, byte rawTypeKind)
@@ -53,17 +104,44 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         }
     }
 
-    public TypeNode GetSZArrayType(TypeNode elementType) => new SZArrayTypeNode(elementType);
+    public TypeNode GetSZArrayType(TypeNode elementType)
+    {
+        _beforeMaterialize?.Invoke(16);
+        var node = new SZArrayTypeNode(elementType);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
-    public TypeNode GetArrayType(TypeNode elementType, ArrayShape shape) => new MDArrayTypeNode(elementType, shape.Rank);
+    public TypeNode GetArrayType(TypeNode elementType, ArrayShape shape)
+    {
+        ObserveMaterialization(16L + Math.Max(shape.Rank, 0));
+        var node = new MDArrayTypeNode(elementType, shape.Rank);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
-    public TypeNode GetByReferenceType(TypeNode elementType) => new ByRefTypeNode(elementType);
+    public TypeNode GetByReferenceType(TypeNode elementType)
+    {
+        _beforeMaterialize?.Invoke(16);
+        var node = new ByRefTypeNode(elementType);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
-    public TypeNode GetPointerType(TypeNode elementType) => new PointerTypeNode(elementType);
+    public TypeNode GetPointerType(TypeNode elementType)
+    {
+        _beforeMaterialize?.Invoke(16);
+        var node = new PointerTypeNode(elementType);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
     public TypeNode GetGenericInstantiation(TypeNode genericType, ImmutableArray<TypeNode> typeArguments)
     {
+        _beforeMaterialize?.Invoke(checked(16 + typeArguments.Length * 4));
+        ObserveMaterialization(genericType.EstimatedRenderedLength);
         string rawName = genericType is NamedTypeNode n ? n.Name : genericType.Render();
+        GenericTypeNode node;
         if (genericType is NamedTypeNode { MetadataName: { } metadataName })
         {
             string exactBaseName = string.Join(
@@ -71,47 +149,62 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                 metadataName.Segments.Select(MetadataNameArity.StripFromSegment));
             if (metadataName.Namespace.Length > 0)
                 exactBaseName = $"{metadataName.Namespace}.{exactBaseName}";
-            return new GenericTypeNode(
+            node = new GenericTypeNode(
                 exactBaseName,
                 genericType.IsReferenceType,
                 typeArguments,
                 degradedGenericType: genericType.IsDegraded,
                 metadataName: metadataName);
         }
-
-        // Split at the first canonical `N marker, keeping any trailing nested-type
-        // segment (Dictionary`2.Enumerator -> base "Dictionary", suffix
-        // ".Enumerator") so the instantiation renders Dictionary<…>.Enumerator
-        // rather than collapsing to Dictionary<…>. MetadataNameArity owns what
-        // counts as a marker, so a literal backtick (Widget`Literal) is name text
-        // and keeps the name whole.
-        MetadataNameComponent marker = default;
-        bool found = false;
-        foreach (MetadataNameComponent component in MetadataNameArity.EnumerateComponents(rawName))
+        else
         {
-            if (component.Arity <= 0)
-                continue;
-            marker = component;
-            found = true;
-            break;
+            // Split at the first canonical `N marker, keeping any trailing
+            // nested-type segment (Dictionary`2.Enumerator -> base "Dictionary",
+            // suffix ".Enumerator") so the instantiation renders Dictionary<…>.Enumerator
+            // rather than collapsing to Dictionary<…>. MetadataNameArity owns
+            // what counts as a marker, so a literal backtick is retained.
+            MetadataNameComponent marker = default;
+            bool found = false;
+            foreach (MetadataNameComponent component in
+                MetadataNameArity.EnumerateComponents(rawName))
+            {
+                if (component.Arity <= 0)
+                    continue;
+                marker = component;
+                found = true;
+                break;
+            }
+
+            if (!found)
+            {
+                node = new GenericTypeNode(
+                    rawName,
+                    genericType.IsReferenceType,
+                    typeArguments);
+            }
+            else
+            {
+                string baseName = rawName[..marker.SimpleNameEnd];
+                string nestedSuffix =
+                    TypeResolver.FormatDisplayName(rawName[marker.End..]);
+                node = new GenericTypeNode(
+                    baseName,
+                    genericType.IsReferenceType,
+                    typeArguments,
+                    nestedSuffix,
+                    genericType.IsDegraded);
+            }
         }
 
-        if (!found)
-            return new GenericTypeNode(rawName, genericType.IsReferenceType, typeArguments);
-
-        var baseName = rawName[..marker.SimpleNameEnd];
-        var nestedSuffix = TypeResolver.FormatDisplayName(rawName[marker.End..]);
-        return new GenericTypeNode(
-            baseName,
-            genericType.IsReferenceType,
-            typeArguments,
-            nestedSuffix,
-            genericType.IsDegraded);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
     }
 
     public TypeNode GetGenericMethodParameter(GenericContext? context, int index)
     {
+        _beforeMaterialize?.Invoke(16);
         string name = NameDecoder.GetGenericMethodParameter(context, index);
+        _beforeRetain?.Invoke(name);
         return new GenericParameterNode(
             name,
             hasValueTypeConstraint: context?.HasMethodParameterValueTypeConstraint(index) == true);
@@ -119,16 +212,38 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
 
     public TypeNode GetGenericTypeParameter(GenericContext? context, int index)
     {
+        _beforeMaterialize?.Invoke(16);
         string name = NameDecoder.GetGenericTypeParameter(context, index);
+        _beforeRetain?.Invoke(name);
         return new GenericParameterNode(
             name,
             hasValueTypeConstraint: context?.HasTypeParameterValueTypeConstraint(index) == true);
     }
 
-    public TypeNode GetFunctionPointerType(MethodSignature<TypeNode> signature) => new FunctionPointerTypeNode(signature);
+    public TypeNode GetFunctionPointerType(MethodSignature<TypeNode> signature)
+    {
+        _beforeMaterialize?.Invoke(checked(16 + signature.ParameterTypes.Length * 4));
+        var node = new FunctionPointerTypeNode(signature);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
-    public TypeNode GetModifiedType(TypeNode modifier, TypeNode unmodifiedType, bool isRequired) => new ModifiedTypeNode(modifier, unmodifiedType, isRequired);
+    public TypeNode GetModifiedType(TypeNode modifier, TypeNode unmodifiedType, bool isRequired)
+    {
+        _beforeMaterialize?.Invoke(16);
+        var node = new ModifiedTypeNode(modifier, unmodifiedType, isRequired);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
-    public TypeNode GetPinnedType(TypeNode elementType) => new PassthroughTypeNode(elementType);
+    public TypeNode GetPinnedType(TypeNode elementType)
+    {
+        _beforeMaterialize?.Invoke(16);
+        var node = new PassthroughTypeNode(elementType);
+        ObserveMaterialization(node.EstimatedRenderedLength);
+        return node;
+    }
 
+    void ObserveMaterialization(long units)
+        => _beforeMaterialize?.Invoke((int)Math.Min(units, int.MaxValue));
 }

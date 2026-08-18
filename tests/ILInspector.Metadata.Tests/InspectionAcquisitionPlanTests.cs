@@ -835,14 +835,81 @@ public class InspectionAcquisitionPlanTests
         Assert.IsType<TypeDeclarationResult.Forwarded>(
             first.Session.ProbeDeclaration(
                 Name("ILInspector.Metadata", "MetadataTableProjector")));
+        ResolvedAssemblyReference retained =
+            Assert.IsType<ResolvedAssemblyReference>(
+                plan.RetainAssemblyReference(
+                    registration.Candidate));
+        Assert.Same(
+            descriptor.Registration,
+            retained.Registration);
+        using (Stream retainedStream = retained.OpenRead())
+        {
+            var retainedBytes = new byte[image.Length];
+            retainedStream.ReadExactly(retainedBytes);
+            Assert.Equal(image, retainedBytes);
+        }
+        Assert.Equal(2, opens);
+        Assert.Equal(
+            image.LongLength,
+            plan.RetainedImageBytes);
 
         MethodBodySource methodBodies = first.Session.MethodBodies;
         plan.Dispose();
 
+        Assert.Equal(0, plan.CandidateCount);
+        Assert.Equal(0, plan.RetainedImageBytes);
         Assert.Throws<ObjectDisposedException>(
             () => methodBodies.EnumerateMethods());
         Assert.Throws<ObjectDisposedException>(
             () => plan.OpenSession(registration.Candidate));
+        using Stream retainedAfterDispose =
+            retained.OpenRead();
+        var retainedAfterDisposeBytes =
+            new byte[image.Length];
+        retainedAfterDispose.ReadExactly(
+            retainedAfterDisposeBytes);
+        Assert.Equal(
+            image,
+            retainedAfterDisposeBytes);
+    }
+
+    [Fact]
+    public void RetainedSnapshot_IsRegisteredWithoutReopeningOrCopyingSource()
+    {
+        byte[] image = SelfBytes();
+        ImmutableArray<byte> content = [.. image];
+        AssemblyReferenceIdentity identity = ReadIdentity(image);
+        int opens = 0;
+        var descriptor = ResolvedAssemblyReference.Create(
+            identity,
+            path: null,
+            openRead: () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            },
+            provenance: AssemblyResolutionProvenance.Local("test"));
+        AssemblyImageSnapshot snapshot =
+            Assert.IsType<AssemblyImageSnapshotResult.Ready>(
+                AssemblyImageSnapshot.FromRetainedContent(
+                    descriptor,
+                    content))
+            .Snapshot;
+        using var plan = new InspectionAcquisitionPlan();
+
+        plan.RegisterRetainedSnapshot(descriptor, snapshot);
+        var registration =
+            Assert.IsType<CandidateRegistrationResult.Ready>(
+                plan.Register(descriptor));
+        var session = Assert.IsType<CandidateSessionResult.Ready>(
+            plan.OpenSession(registration.Candidate));
+
+        Assert.Equal(0, opens);
+        Assert.Equal(content.Length, plan.RetainedImageBytes);
+        Assert.Same(snapshot, session.Snapshot);
+        Assert.Equal(
+            "ILInspector.Metadata.Tests",
+            session.Session.AssemblyInfo().AssemblyName);
     }
 
     [Fact]

@@ -13,8 +13,8 @@ boundaries. Typed query-planning slices are implemented for library
 metadata-image, direct-reference, assembly-context reference,
 package dependency-group, loaded dependency-coordinate match,
 extension-method, custom-attribute, manifest-resource, type-forwarder,
-union-type, classified-method, audit-metadata, unsafe-evidence, switch,
-SourceLink, Integrations, implementation relationships, type/member search,
+union-type, classified-method, audit-metadata, unsafe-evidence, top-leverage,
+switch, SourceLink, Integrations, implementation relationships, type/member search,
 extension reachability, API-comparison, Analysis body-signal comparison, and
 Implementation comparison inspection, plus group-scoped
 authored-or-decompiled type/member source. The `diff` Changes, Analysis Diff,
@@ -33,7 +33,8 @@ substrates, and inspection producers that will extend that space.
   and content-shaped metadata, reference, package dependency-group,
   loaded dependency-coordinate match,
   extension-method, custom-attribute, manifest-resource, type-forwarder,
-  union-type, classified-method, audit-metadata, unsafe-evidence, SourceLink,
+  union-type, classified-method, audit-metadata, unsafe-evidence, top-leverage,
+  SourceLink,
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. The
   source query owns a Decompiler fallback over retained assembly content. The
@@ -109,6 +110,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   discovery budgets, `-D`/`-S`, capabilities, and limiter behavior.
 - [Command transitions](design/command-transition-model.md): when source, focus, operation arity, lens, traversal, or rendering changes should switch commands versus stay within one command.
 - [Row query and ordering](design/row-query-order.md): proposed field-scoped row predicates, ordering, `--top`, and schema-discoverable defaults.
+- [Product vocabulary](design/vocabulary.md): sectioned, host-neutral legal query values shared by CLI and browser/WASM.
 - [Analysis UX scopes](design/analysis-ux-scopes.md): shared analysis vocabulary across offset, member, type, and library scopes.
 - [IL coordinate workflows](design/il-coordinate-workflows.md): prototype workflows for explaining sparse runtime coordinates from debugger, profiler, or analyzer artifacts.
 - [IL Diff canonicalization](design/il-diff-canonicalization.md): current `CanonicalIlOperation` guarantees, boundaries, and extension points.

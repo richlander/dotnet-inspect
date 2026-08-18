@@ -272,6 +272,52 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void PopulateOptimizationOpportunities_MapsAsyncStateMachineCallToSourceMember()
+    {
+        var type = new ApiType
+        {
+            Namespace =
+                typeof(OutputFormatterAsyncSiblingFixture).Namespace,
+            Name = nameof(OutputFormatterAsyncSiblingFixture),
+            Kind = "class"
+        };
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateOptimizationOpportunities(
+            view,
+            type,
+            ApiAnalysisInspection.OpenTypeAnalysisIndex(
+                typeof(OutputFormatterTests).Assembly.Location),
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.PerformanceTriage
+            },
+            new PerformanceTriageOptions
+            {
+                Shapes = ["sync-call-in-async"]
+            });
+
+        var row = Assert.Single(
+            Assert.IsType<List<OptimizationOpportunityRow>>(
+                view.OptimizationOpportunityRows),
+            row => row.Member.Contains(
+                nameof(
+                    OutputFormatterAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync),
+                StringComparison.Ordinal));
+        Assert.Contains(
+            nameof(
+                OutputFormatterAsyncSiblingFixture
+                    .ReadValueAsync),
+            row.Evidence,
+            StringComparison.Ordinal);
+        Assert.Equal("analysis.call-site", row.Finding);
+        Assert.Equal("exact", row.Provenance);
+        Assert.Contains("0x", row.EvidenceMethod, StringComparison.Ordinal);
+        Assert.DoesNotContain("MoveNext", row.Member, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PopulateOptimizationOpportunities_AllocationFanoutCountsRepeatedCallSites()
     {
         var type = new ApiType
@@ -431,6 +477,13 @@ public class OutputFormatterTests
     ];
 
     private static object CreateFanoutLeaf() => new();
+
+    private static async Task<int> CallsFileReadLinesFromAsync(
+        string path)
+    {
+        await Task.Yield();
+        return File.ReadLines(path).Count();
+    }
 
     // The local function compiles to a compiler-generated method (<...>g__Make|...)
     // declared on this type, carrying the small-array opportunity from `new int[3]`.
@@ -3341,5 +3394,25 @@ public class OutputFormatterTests
         Assert.Contains(expectedSpelling, rendered, StringComparison.Ordinal);
         Assert.DoesNotContain("&#124;", rendered, StringComparison.Ordinal);
         Assert.DoesNotContain("\\`", rendered, StringComparison.Ordinal);
+    }
+}
+
+internal static class OutputFormatterAsyncSiblingFixture
+{
+    public static int ReadValue(int value) => value;
+
+    public static Task<int> ReadValueAsync(
+        int value,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(value);
+    }
+
+    public static async Task<int> CallsSyncSiblingFromAsync(
+        int value)
+    {
+        await Task.Yield();
+        return ReadValue(value);
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
 using CSharpText;
 using ILInspector.Metadata;
 
@@ -263,36 +264,59 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         if (other is null)
             return false;
-        if (ReferenceEquals(this, other))
-            return true;
-        if (Kind != other.Kind
-            || Assembly != other.Assembly
-            || Namespace != other.Namespace
-            || Rank != other.Rank
-            || GenericParameterIndex != other.GenericParameterIndex
-            || UnsupportedReason != other.UnsupportedReason
-            || !Equals(ElementType, other.ElementType)
-            || TypeArguments.Length != other.TypeArguments.Length)
+        int fastPathBudget = 64;
+        TypeRefComparison fastPath = TryEqualsShallow(
+            this,
+            other,
+            depth: 0,
+            ref fastPathBudget);
+        if (fastPath != TypeRefComparison.Fallback)
+            return fastPath == TypeRefComparison.Equal;
+
+        var pending = new Stack<(TypeRef Left, TypeRef Right)>();
+        var visited = new HashSet<(TypeRef Left, TypeRef Right)>(
+            TypeRefPairReferenceComparer.Instance);
+        pending.Push((this, other));
+        while (pending.Count > 0)
         {
-            return false;
-        }
-        if (Kind == TypeRefKind.Definition)
-        {
-            if (!MetadataNameSegments().SequenceEqual(
-                    other.MetadataNameSegments(),
-                    StringComparer.Ordinal))
+            (TypeRef left, TypeRef right) = pending.Pop();
+            if (ReferenceEquals(left, right)
+                || !visited.Add((left, right)))
+            {
+                continue;
+            }
+            if (left.Kind != right.Kind
+                || !StringComparer.OrdinalIgnoreCase.Equals(
+                    left.Assembly,
+                    right.Assembly)
+                || left.Namespace != right.Namespace
+                || !SameNameIdentity(left, right)
+                || left.Rank != right.Rank
+                || left.GenericParameterIndex
+                    != right.GenericParameterIndex
+                || left.UnsupportedReason
+                    != right.UnsupportedReason
+                || (left.ElementType is null)
+                    != (right.ElementType is null)
+                || left.TypeArguments.Length
+                    != right.TypeArguments.Length)
             {
                 return false;
             }
-        }
-        else if (Name != other.Name)
-        {
-            return false;
-        }
-        for (int i = 0; i < TypeArguments.Length; i++)
-        {
-            if (!TypeArguments[i].Equals(other.TypeArguments[i]))
-                return false;
+            if (left.ElementType is not null)
+            {
+                pending.Push((
+                    left.ElementType,
+                    right.ElementType!));
+            }
+            for (int i = 0;
+                i < left.TypeArguments.Length;
+                i++)
+            {
+                pending.Push((
+                    left.TypeArguments[i],
+                    right.TypeArguments[i]));
+            }
         }
         return true;
     }
@@ -301,28 +325,199 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     public override int GetHashCode()
     {
-        var hash = new HashCode();
-        hash.Add(Kind);
-        hash.Add(Assembly);
-        hash.Add(Namespace);
-        if (Kind == TypeRefKind.Definition)
+        int fastPathBudget = 64;
+        if (TryStructuralHashShallow(
+                this,
+                depth: 0,
+                ref fastPathBudget,
+                out int hash))
         {
-            IReadOnlyList<string> segments = MetadataNameSegments();
-            hash.Add(segments.Count);
-            foreach (string segment in segments)
-                hash.Add(segment);
+            return hash;
+        }
+        return StructuralHash(
+            this,
+            new Dictionary<TypeRef, int>(
+                ReferenceEqualityComparer.Instance));
+    }
+
+    static TypeRefComparison TryEqualsShallow(
+        TypeRef left,
+        TypeRef right,
+        int depth,
+        ref int budget)
+    {
+        if (ReferenceEquals(left, right))
+            return TypeRefComparison.Equal;
+        if (left.Kind != right.Kind
+            || !StringComparer.OrdinalIgnoreCase.Equals(
+                left.Assembly,
+                right.Assembly)
+            || left.Namespace != right.Namespace
+            || !SameNameIdentity(left, right)
+            || left.Rank != right.Rank
+            || left.GenericParameterIndex
+                != right.GenericParameterIndex
+            || left.UnsupportedReason
+                != right.UnsupportedReason
+            || (left.ElementType is null)
+                != (right.ElementType is null)
+            || left.TypeArguments.Length
+                != right.TypeArguments.Length)
+        {
+            return TypeRefComparison.NotEqual;
+        }
+        if (budget-- == 0 || depth == 8)
+            return TypeRefComparison.Fallback;
+        if (left.ElementType is not null)
+        {
+            TypeRefComparison element = TryEqualsShallow(
+                left.ElementType,
+                right.ElementType!,
+                depth + 1,
+                ref budget);
+            if (element != TypeRefComparison.Equal)
+                return element;
+        }
+        for (int i = 0; i < left.TypeArguments.Length; i++)
+        {
+            TypeRefComparison argument = TryEqualsShallow(
+                left.TypeArguments[i],
+                right.TypeArguments[i],
+                depth + 1,
+                ref budget);
+            if (argument != TypeRefComparison.Equal)
+                return argument;
+        }
+        return TypeRefComparison.Equal;
+    }
+
+    static bool TryStructuralHashShallow(
+        TypeRef type,
+        int depth,
+        ref int budget,
+        out int result)
+    {
+        result = 0;
+        if (budget-- == 0 || depth == 8)
+            return false;
+        var hash = new HashCode();
+        hash.Add(type.Kind);
+        hash.Add(
+            type.Assembly,
+            StringComparer.OrdinalIgnoreCase);
+        hash.Add(type.Namespace);
+        AddNameIdentity(ref hash, type);
+        hash.Add(type.Rank);
+        hash.Add(type.GenericParameterIndex);
+        hash.Add(type.UnsupportedReason);
+        if (type.ElementType is null)
+        {
+            hash.Add(0);
         }
         else
         {
-            hash.Add(Name);
+            if (!TryStructuralHashShallow(
+                    type.ElementType,
+                    depth + 1,
+                    ref budget,
+                    out int elementHash))
+            {
+                return false;
+            }
+            hash.Add(elementHash);
         }
-        hash.Add(Rank);
-        hash.Add(GenericParameterIndex);
-        hash.Add(UnsupportedReason);
-        hash.Add(ElementType);
-        foreach (var argument in TypeArguments)
-            hash.Add(argument);
-        return hash.ToHashCode();
+        foreach (TypeRef argument in type.TypeArguments)
+        {
+            if (!TryStructuralHashShallow(
+                    argument,
+                    depth + 1,
+                    ref budget,
+                    out int argumentHash))
+            {
+                return false;
+            }
+            hash.Add(argumentHash);
+        }
+        result = hash.ToHashCode();
+        return true;
+    }
+
+    static int StructuralHash(
+        TypeRef type,
+        Dictionary<TypeRef, int> memo)
+    {
+        if (memo.TryGetValue(type, out int cached))
+            return cached;
+        var hash = new HashCode();
+        hash.Add(type.Kind);
+        hash.Add(
+            type.Assembly,
+            StringComparer.OrdinalIgnoreCase);
+        hash.Add(type.Namespace);
+        AddNameIdentity(ref hash, type);
+        hash.Add(type.Rank);
+        hash.Add(type.GenericParameterIndex);
+        hash.Add(type.UnsupportedReason);
+        hash.Add(
+            type.ElementType is null
+                ? 0
+                : StructuralHash(
+                    type.ElementType,
+                    memo));
+        foreach (TypeRef argument in type.TypeArguments)
+        {
+            hash.Add(StructuralHash(argument, memo));
+        }
+        int result = hash.ToHashCode();
+        memo.Add(type, result);
+        return result;
+    }
+
+    sealed class TypeRefPairReferenceComparer
+        : IEqualityComparer<(TypeRef Left, TypeRef Right)>
+    {
+        internal static TypeRefPairReferenceComparer Instance
+            { get; } = new();
+
+        public bool Equals(
+            (TypeRef Left, TypeRef Right) x,
+            (TypeRef Left, TypeRef Right) y)
+            => ReferenceEquals(x.Left, y.Left)
+                && ReferenceEquals(x.Right, y.Right);
+
+        public int GetHashCode(
+            (TypeRef Left, TypeRef Right) pair)
+            => HashCode.Combine(
+                RuntimeHelpers.GetHashCode(pair.Left),
+                RuntimeHelpers.GetHashCode(pair.Right));
+    }
+
+    enum TypeRefComparison
+    {
+        Equal,
+        NotEqual,
+        Fallback,
+    }
+
+    static bool SameNameIdentity(TypeRef left, TypeRef right)
+        => left.Kind == TypeRefKind.Definition
+            ? left.MetadataNameSegments().SequenceEqual(
+                right.MetadataNameSegments(),
+                StringComparer.Ordinal)
+            : left.Name == right.Name;
+
+    static void AddNameIdentity(ref HashCode hash, TypeRef type)
+    {
+        if (type.Kind != TypeRefKind.Definition)
+        {
+            hash.Add(type.Name);
+            return;
+        }
+
+        IReadOnlyList<string> segments = type.MetadataNameSegments();
+        hash.Add(segments.Count);
+        foreach (string segment in segments)
+            hash.Add(segment);
     }
 
     string DisplayName()
@@ -528,7 +723,23 @@ public sealed class TypeRef : IEquatable<TypeRef>
         => MetadataNameArity.OfSegment(name);
 
     internal static string CanonicalAssembly(string assemblyName)
-        => assemblyName is "System.Private.CoreLib" or "System.Runtime" or "mscorlib" or "netstandard" or "System.Runtime.Extensions"
-            ? CoreLibrary
-            : assemblyName;
+    {
+        return assemblyName.Equals(
+                "System.Private.CoreLib",
+                StringComparison.OrdinalIgnoreCase)
+            || assemblyName.Equals(
+                "System.Runtime",
+                StringComparison.OrdinalIgnoreCase)
+            || assemblyName.Equals(
+                "mscorlib",
+                StringComparison.OrdinalIgnoreCase)
+            || assemblyName.Equals(
+                "netstandard",
+                StringComparison.OrdinalIgnoreCase)
+            || assemblyName.Equals(
+                "System.Runtime.Extensions",
+                StringComparison.OrdinalIgnoreCase)
+                ? CoreLibrary
+                : assemblyName;
+    }
 }

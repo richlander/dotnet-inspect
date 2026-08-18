@@ -428,7 +428,8 @@ internal static class MetadataTypeDefinitionNameReader
 {
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,
-        TypeDefinitionHandle handle)
+        TypeDefinitionHandle handle,
+        Action<int>? beforeMaterialize = null)
     {
         Span<TypeDefinitionHandle> rootToLeaf =
             stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -445,7 +446,8 @@ internal static class MetadataTypeDefinitionNameReader
 
         return ReadChain<TypeDefinitionHandle, TypeDefinitionNameRow>(
             reader,
-            rootToLeaf[..consumedNodes]);
+            rootToLeaf[..consumedNodes],
+            beforeMaterialize);
     }
 
     internal static MetadataTypeDefinitionNameMatch Matches(
@@ -607,7 +609,8 @@ internal static class MetadataTypeDefinitionNameReader
 
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,
-        TypeReferenceHandle handle)
+        TypeReferenceHandle handle,
+        Action<int>? beforeMaterialize = null)
     {
         Span<TypeReferenceHandle> rootToLeaf =
             stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -624,12 +627,14 @@ internal static class MetadataTypeDefinitionNameReader
 
         return ReadChain<TypeReferenceHandle, TypeReferenceNameRow>(
             reader,
-            rootToLeaf[..consumedNodes]);
+            rootToLeaf[..consumedNodes],
+            beforeMaterialize);
     }
 
     internal static MetadataTypeDefinitionNameReadResult Read(
         MetadataReader reader,
-        ExportedTypeHandle handle)
+        ExportedTypeHandle handle,
+        Action<int>? beforeMaterialize = null)
     {
         Span<ExportedTypeHandle> rootToLeaf =
             stackalloc ExportedTypeHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -646,17 +651,20 @@ internal static class MetadataTypeDefinitionNameReader
 
         return ReadChain<ExportedTypeHandle, ExportedTypeNameRow>(
             reader,
-            rootToLeaf[..consumedNodes]);
+            rootToLeaf[..consumedNodes],
+            beforeMaterialize);
     }
 
     static MetadataTypeDefinitionNameReadResult ReadChain<THandle, TRow>(
         MetadataReader reader,
-        ReadOnlySpan<THandle> rootToLeaf)
+        ReadOnlySpan<THandle> rootToLeaf,
+        Action<int>? beforeMaterialize = null)
         where THandle : struct
         where TRow : struct, IMetadataTypeNameRow<THandle>
     {
         var segments = ImmutableArray.CreateBuilder<string>(rootToLeaf.Length);
         string? @namespace = null;
+        var budget = new MetadataTypeNameBudget();
 
         for (int i = 0; i < rootToLeaf.Length; i++)
         {
@@ -665,8 +673,29 @@ internal static class MetadataTypeDefinitionNameReader
             {
                 var (namespaceHandle, nameHandle) = TRow.GetName(reader, handle);
                 if (i == 0)
-                    @namespace = reader.GetString(namespaceHandle);
-                segments.Add(reader.GetString(nameHandle));
+                {
+                    if (!budget.TryRead(
+                            reader,
+                            namespaceHandle,
+                            delimiterChars: 0,
+                            beforeMaterialize,
+                            out @namespace))
+                    {
+                        return NameTooLong(TRow.ToEntity(handle), i + 1);
+                    }
+                }
+
+                if (!budget.TryRead(
+                        reader,
+                        nameHandle,
+                        delimiterChars: 1,
+                        beforeMaterialize,
+                        out string segment))
+                {
+                    return NameTooLong(TRow.ToEntity(handle), i + 1);
+                }
+
+                segments.Add(segment);
             }
             catch (BadImageFormatException ex)
             {
@@ -692,6 +721,18 @@ internal static class MetadataTypeDefinitionNameReader
                 subject,
                 $"Invalid structured metadata type name: {invalid.Kind}."));
     }
+
+    static MetadataTypeDefinitionNameReadResult NameTooLong(
+        EntityHandle subject,
+        int consumedNodes) =>
+        new MetadataTypeDefinitionNameReadResult.Rejected(
+            MetadataTypeNameFailure.From(
+                new RelationshipTraversalRejection(
+                    RelationshipTraversalRejectionKind.NameBudget,
+                    $"The structured type name exceeds "
+                    + $"{MetadataSafetyPolicy.MaxTypeNameCharacters} characters.",
+                    subject,
+                    consumedNodes)));
 
     static MetadataTypeDefinitionNameReadResult RejectedTraversal(
         RelationshipTraversalRejection rejection) =>

@@ -129,9 +129,7 @@ internal static partial class OptimizationOpportunityAnalysis
                         // array provably stays local AND its element type is stackalloc-
                         // eligible (an unmanaged primitive); otherwise keep the
                         // non-committal shape.
-                        bool local = ArrayEscapeAnalysis.ArrayProvablyStaysLocal(
-                                context,
-                                GetReachingDefinitions(),
+                        bool local = ArrayProvablyStaysLocal(
                                 instruction.NextOffset)
                             && IsStackallocEligibleElement(resolver.ResolveType(elementToken));
                         opportunities.Add(local
@@ -246,7 +244,17 @@ internal static partial class OptimizationOpportunityAnalysis
                 {
                     ClearPendingConstant();
                     int token = MethodInstructionFacts.OperandInt32(instruction);
-                    var callee = resolver.ResolveMember(token);
+                    MemberRef callee;
+                    try
+                    {
+                        callee = resolver.ResolveMember(token);
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
+                    {
+                        break;
+                    }
                     if (opcode == ILOpCode.Callvirt
                         && pendingGenericObjectBoxOffset is { } genericBoxOffset
                         && pendingGenericObjectBoxConstrained
@@ -420,7 +428,18 @@ internal static partial class OptimizationOpportunityAnalysis
                     // instance (the preceding load is not `ldnull`). Non-capturing lambdas
                     // (`<>c` cache) and static method groups (`ldnull` receiver) are
                     // compiler-cached and not reported.
-                    var ftnTarget = resolver.ResolveMember(token);
+                    MemberRef ftnTarget;
+                    try
+                    {
+                        ftnTarget = resolver.ResolveMember(token);
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
+                    {
+                        pendingDelegateOffset = null;
+                        break;
+                    }
                     pendingDelegateOffset = offset;
                     pendingDelegateCapturing = IsClosureTarget(ftnTarget);
                     pendingDelegateInstanceGroup = !pendingDelegateCapturing
@@ -561,6 +580,25 @@ internal static partial class OptimizationOpportunityAnalysis
         }
 
         return [.. opportunities.Select(AnnotateOpportunityMetadata)];
+
+        bool ArrayProvablyStaysLocal(
+            int afterAllocationOffset)
+        {
+            try
+            {
+                return ArrayEscapeAnalysis
+                    .ArrayProvablyStaysLocal(
+                        context,
+                        GetReachingDefinitions(),
+                        afterAllocationOffset);
+            }
+            catch (Exception ex)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+            {
+                return false;
+            }
+        }
 
         void SetPendingConstant(int value, int instructionOffset)
         {

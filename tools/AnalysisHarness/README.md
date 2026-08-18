@@ -29,7 +29,7 @@ the conflicting flags and exits 2 instead of silently running the first
 dispatch branch.
 
 The structural clone corpus is a separate product/harness boundary for
-pairwise exact/near grading and exact-discovery:
+pairwise exact/near grading, exact discovery, and seeded fuzzy retrieval:
 
 ```bash
 dotnet "$DLL" --clone-corpus ILInspector.Analysis.Fixtures.dll
@@ -49,6 +49,8 @@ PASS closed-world exact discovery: expected 4 clusters, actual 4 clusters, dispo
   ...::MetadataOperandsA = ...::MetadataOperandsB
   ...::SignatureHazardByte = ...::SignatureHazardUInt
   ...::SignatureHazardObject = ...::SignatureHazardString
+PASS fuzzy retrieval near-constant-peer: seed ...::NearConstantA
+  PASS ...::NearConstantB rank=1 score=9125
 ```
 
 The committed
@@ -63,13 +65,16 @@ alternative, runs `StructuralCloneAnalysis.Discover`, and requires the complete
 discovered clusters to equal those components. A missed family or an
 undeclared cross-component merge fails the discovery card.
 
-The harness owns no candidate fingerprint, clone normalization,
+The harness owns no candidate fingerprint, fuzzy score, clone normalization,
 correspondence, near alignment, clustering, or verification logic. Near
-expectations describe only edit categories and counts; the harness never
-reconstructs product block mappings or edits. Negative cluster membership is
-graded only after discovery reports `Completed` with no suppressed buckets.
-Unsupported direct-comparison cases remain visible direct gates and do not
-downgrade an otherwise complete discovery pass.
+expectations describe only edit categories and counts; retrieval expectations
+name recall-at-K peers and contrastive hard negatives that they must strictly
+outscore. A deterministic rank tiebreak does not satisfy the contrast. The
+harness consumes product ranks and scores and never reconstructs product block
+mappings, edits, or similarity features. Negative cluster membership is graded only after
+discovery reports `Completed` with no suppressed buckets. Unsupported
+direct-comparison cases remain visible direct gates and do not downgrade an
+otherwise complete discovery or retrieval pass.
 
 The ledger is strict: missing or unknown fields, integer enum values, schema
 versions, duplicate IDs, unknown axis values, incomplete identities, and
@@ -83,8 +88,33 @@ or discovery-population drift.
 
 Near alignment remains pairwise and bounded. Exact discovery deliberately uses
 the exact-only comparator path, so near cases in the population remain outside
-exact clusters. The harness performs no fuzzy retrieval, ranking, or
-precision/recall measurement.
+exact clusters. Seeded fuzzy retrieval is independently graded and does not
+establish a relation.
+
+The worksheet projects one product-owned ranking for source review:
+
+```bash
+dotnet "$DLL" --clone-worksheet ILInspector.Analysis.Fixtures.dll \
+  --seed ILInspector.Analysis.StructuralCloneFixtures.StructuralCloneFixture::NearConstantA \
+  --top 8
+
+dotnet "$DLL" --clone-worksheet System.Private.CoreLib.dll \
+  --seed System.Reflection.EventInfo::op_Equality --top 8
+```
+
+Text output shows the bounded top rows with component scores. JSON retains all
+product-returned rows. The harness does not compare candidates or supply a
+precision label; source review remains independent evidence.
+
+The 2026-08-17 CoreLib worksheet canary used the same pinned
+`System.Private.CoreLib.dll` documented by the exact census below and seeded
+`System.Reflection.EventInfo::op_Equality`. Retrieval processed all 44,801
+methods in 3.6 seconds, ranked 7,668 signature-compatible candidates, and
+returned the eight other reflection equality operators first, each at 10,000.
+Those peers are independently verified by the exact census family. Seven
+unrelated oversized methods retained the overall `LimitReached` disposition,
+so their exclusion remains visible and the worksheet makes no complete-recall
+claim.
 
 The whole-assembly census is the scale and seed-to-family demo:
 

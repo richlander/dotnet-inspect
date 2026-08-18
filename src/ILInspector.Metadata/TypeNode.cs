@@ -14,6 +14,9 @@ internal abstract class TypeNode
     /// <summary>Whether this node is a reference type (can be annotated with ?).</summary>
     public abstract bool IsReferenceType { get; }
 
+    /// <summary>Conservative rendered length available without materializing text.</summary>
+    public virtual long EstimatedRenderedLength => 16;
+
     /// <summary>Whether guarded decoding substituted any part of this type tree.</summary>
     public virtual bool IsDegraded => false;
 
@@ -217,6 +220,7 @@ internal sealed class DegradedTypeNode : TypeNode
 {
     public override bool IsReferenceType => true;
     public override bool IsDegraded => true;
+    public override long EstimatedRenderedLength => 8;
 
     public override string Render(bool canonicalTuples) => IsDynamic
         ? (IsNullableAnnotated ? "dynamic?" : "dynamic")
@@ -236,6 +240,7 @@ internal sealed class DegradedTypeNode : TypeNode
 internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : TypeNode
 {
     public override bool IsReferenceType => isReferenceType;
+    public override long EstimatedRenderedLength => name.Length + 1L;
 
     public override string Render(bool canonicalTuples)
     {
@@ -262,6 +267,7 @@ internal sealed class NamedTypeNode(
     public string Name => name;
     public MetadataTypeNameParts? MetadataName => metadataName;
     public override bool IsReferenceType => isReferenceType;
+    public override long EstimatedRenderedLength => name.Length + 1L;
 
     public override string Render(bool canonicalTuples)
     {
@@ -288,10 +294,29 @@ internal sealed class GenericTypeNode(
     bool degradedGenericType = false,
     MetadataTypeNameParts? metadataName = null) : TypeNode
 {
+    readonly long estimatedRenderedLength =
+        EstimateRenderedLength(baseName, arguments, nestedSuffix);
+
     public string BaseName => baseName;
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
+    public override long EstimatedRenderedLength => estimatedRenderedLength;
+
+    static long EstimateRenderedLength(
+        string baseName,
+        ImmutableArray<TypeNode> arguments,
+        string nestedSuffix)
+    {
+        long length = baseName.Length + nestedSuffix.Length + 2L;
+        foreach (TypeNode argument in arguments)
+        {
+            length = Math.Min(
+                int.MaxValue,
+                length + argument.EstimatedRenderedLength + 2);
+        }
+        return length;
+    }
 
     public override string Render(bool canonicalTuples)
     {
@@ -351,6 +376,8 @@ internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
     public TypeNode ElementType => elementType;
     public override bool IsReferenceType => true;
     public override bool IsDegraded => elementType.IsDegraded;
+    public override long EstimatedRenderedLength =>
+        Math.Min(int.MaxValue, elementType.EstimatedRenderedLength + 3);
 
     public override string Render(bool canonicalTuples)
     {
@@ -378,6 +405,10 @@ internal sealed class MDArrayTypeNode(TypeNode elementType, int rank) : TypeNode
     public TypeNode ElementType => elementType;
     public override bool IsReferenceType => true;
     public override bool IsDegraded => elementType.IsDegraded;
+    public override long EstimatedRenderedLength =>
+        Math.Min(
+            int.MaxValue,
+            elementType.EstimatedRenderedLength + Math.Max(rank, 0L) + 2);
 
     public override string Render(bool canonicalTuples)
     {
@@ -405,6 +436,8 @@ internal sealed class PointerTypeNode(TypeNode elementType) : TypeNode
     public TypeNode ElementType => elementType;
     public override bool IsReferenceType => false;
     public override bool IsDegraded => elementType.IsDegraded;
+    public override long EstimatedRenderedLength =>
+        Math.Min(int.MaxValue, elementType.EstimatedRenderedLength + 1);
 
     public override string Render(bool canonicalTuples) => $"{elementType.Render(canonicalTuples)}*";
 
@@ -427,6 +460,8 @@ internal sealed class ByRefTypeNode(TypeNode elementType) : TypeNode
     public TypeNode ElementType => elementType;
     public override bool IsReferenceType => false;
     public override bool IsDegraded => elementType.IsDegraded;
+    public override long EstimatedRenderedLength =>
+        Math.Min(int.MaxValue, elementType.EstimatedRenderedLength + 4);
 
     public override string Render(bool canonicalTuples) => $"ref {elementType.Render(canonicalTuples)}";
 
@@ -452,6 +487,7 @@ internal sealed class ByRefTypeNode(TypeNode elementType) : TypeNode
 internal sealed class GenericParameterNode(string name, bool hasValueTypeConstraint) : TypeNode
 {
     public override bool IsReferenceType => false;
+    public override long EstimatedRenderedLength => name.Length + 1L;
 
     public override string Render(bool canonicalTuples) => IsNullableAnnotated ? $"{name}?" : name;
 
@@ -472,6 +508,20 @@ internal sealed class FunctionPointerTypeNode(MethodSignature<TypeNode> signatur
     public override bool IsReferenceType => false;
     public override bool IsDegraded => signature.ReturnType.IsDegraded
         || signature.ParameterTypes.Any(parameter => parameter.IsDegraded);
+    public override long EstimatedRenderedLength
+    {
+        get
+        {
+            long length = 16 + ConventionText(signature.Header.CallingConvention).Length;
+            foreach (TypeNode child in ChildTypes)
+            {
+                length = Math.Min(
+                    int.MaxValue,
+                    length + child.EstimatedRenderedLength + 2);
+            }
+            return length;
+        }
+    }
 
     public override string Render(bool canonicalTuples)
     {
@@ -516,6 +566,7 @@ internal class PassthroughTypeNode(TypeNode inner) : TypeNode
     public TypeNode Inner => inner;
     public override bool IsReferenceType => inner.IsReferenceType;
     public override bool IsDegraded => inner.IsDegraded;
+    public override long EstimatedRenderedLength => inner.EstimatedRenderedLength;
 
     public override string Render(bool canonicalTuples) => inner.Render(canonicalTuples);
 

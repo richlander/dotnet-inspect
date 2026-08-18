@@ -839,7 +839,9 @@ public static class ApiMemberIdentity
     /// Computed while the structural model is live so a round-tripped surface
     /// pairs with the same members read live.
     /// </summary>
-    public static void PopulateCanonicalIdentities(ApiSurface surface)
+    public static void PopulateCanonicalIdentities(
+        ApiSurface surface,
+        Action<string>? beforeRetain = null)
     {
         foreach (var type in surface.Types)
         {
@@ -858,7 +860,9 @@ public static class ApiMemberIdentity
                     continue;
                 }
 
-                member.CanonicalSignature = GetCanonicalSignature(type, member);
+                string canonical = GetCanonicalSignature(type, member);
+                beforeRetain?.Invoke(canonical);
+                member.CanonicalSignature = canonical;
             }
         }
     }
