@@ -508,6 +508,10 @@ public static partial class BrowserInspectionEngine
     static long _packageCacheClock;
     static readonly HashSet<string> DownloadedPackages = new(StringComparer.Ordinal);
     static BrowserPackageSourceConfiguration _packageSource = DefaultPackageSource();
+    // Bumped on every SetPackageSource so in-flight downloads that outlive a
+    // source switch cannot repopulate the cleared caches or return old-source
+    // bytes labeled with the new source.
+    static int _packageSourceGeneration;
 
     sealed record PackageCacheEntry(byte[] Bytes, long LastAccess);
     sealed record SelectedPackageAssembly(
@@ -613,14 +617,16 @@ public static partial class BrowserInspectionEngine
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
+        var source = CapturePackageSource();
         var normalizedId = packageId.ToLowerInvariant();
         var resolvedVersion = await ResolvePackageVersionAsync(normalizedId, version);
         var normalizedVersion = resolvedVersion.ToLowerInvariant();
         var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        EnsurePackageSource(source.Generation);
         var content = new InMemoryPackageContent(
             packageBytes,
-            WasDownloaded(normalizedId, normalizedVersion),
-            _packageSource.ServiceIndexUrl);
+            WasDownloaded(source.Configuration, normalizedId, normalizedVersion),
+            source.Configuration.ServiceIndexUrl);
         PackageCompileAssetSelection selection =
             PackageCompileAssetSelector.Select(content, packageId, targetFramework);
         if (selection.Status == PackageCompileAssetSelectionStatus.NoCompileAssets)
@@ -907,8 +913,10 @@ public static partial class BrowserInspectionEngine
             return requestedVersion;
         }
 
-        var indexUrl = BuildPackageIndexUrl(normalizedId);
+        var source = CapturePackageSource();
+        var indexUrl = BuildPackageIndexUrl(source, normalizedId);
         var indexBytes = await GetPackageSourceBytesAsync(indexUrl);
+        EnsurePackageSource(source.Generation);
         using var document = JsonDocument.Parse(indexBytes);
         var versions = document.RootElement.GetProperty("versions")
             .EnumerateArray()
@@ -1275,13 +1283,15 @@ public static partial class BrowserInspectionEngine
         string targetFramework,
         string assemblyId)
     {
+        var source = CapturePackageSource();
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
         var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        EnsurePackageSource(source.Generation);
         var content = new InMemoryPackageContent(
             packageBytes,
-            WasDownloaded(normalizedId, normalizedVersion),
-            _packageSource.ServiceIndexUrl);
+            WasDownloaded(source.Configuration, normalizedId, normalizedVersion),
+            source.Configuration.ServiceIndexUrl);
         PackageCompileAssetSelection selection =
             PackageCompileAssetSelector.Select(content, packageId, targetFramework);
         PackageCompileAsset? selectedAssembly = selection.Status
@@ -3077,10 +3087,13 @@ public static partial class BrowserInspectionEngine
         string packageId,
         string targetFramework)
     {
+        // Caller already held package bytes for the active source; label with the
+        // current capture so a mid-flight source switch cannot rebrand them.
+        var source = CapturePackageSource();
         var content = new InMemoryPackageContent(
             packageBytes,
             fromCache: false,
-            producerKey: _packageSource.ServiceIndexUrl);
+            producerKey: source.Configuration.ServiceIndexUrl);
         PackageCompileAssetSelection selection =
             PackageCompileAssetSelector.Select(
                 content,
@@ -3142,10 +3155,11 @@ public static partial class BrowserInspectionEngine
         string targetFramework,
         string assemblyName)
     {
+        var source = CapturePackageSource();
         var content = new InMemoryPackageContent(
             packageBytes,
             fromCache: false,
-            producerKey: _packageSource.ServiceIndexUrl);
+            producerKey: source.Configuration.ServiceIndexUrl);
         PackageCompileAssetSelection selection =
             PackageCompileAssetSelector.Select(
                 content,
@@ -3537,11 +3551,12 @@ public static partial class BrowserInspectionEngine
     // the session. packId selects the CoreCLR or ASP.NET Core pack.
     static async Task<byte[]?> AcquireRuntimeFileAsync(string packId, string version, string fileName)
     {
-        var cacheKey = $"{_packageSource.ServiceIndexUrl}\n{packId}/{version}/{fileName}";
+        var source = CapturePackageSource();
+        var cacheKey = $"{source.Configuration.ServiceIndexUrl}\n{packId}/{version}/{fileName}";
         if (RuntimeFileCache.TryGetValue(cacheKey, out var cached))
             return cached;
 
-        var nupkgUrl = BuildPackageContentUrl(packId, version, "nupkg");
+        var nupkgUrl = BuildPackageContentUrl(source.Configuration, packId, version, "nupkg");
         bool IsWanted(string entryName) =>
             entryName.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase)
             && Path.GetFileName(entryName).Equals(fileName, StringComparison.OrdinalIgnoreCase);
@@ -3555,7 +3570,10 @@ public static partial class BrowserInspectionEngine
             bytes = ExtractEntryFromArchive(fullPack, IsWanted);
         }
         if (bytes is not null)
+        {
+            EnsurePackageSource(source.Generation);
             RuntimeFileCache[cacheKey] = bytes;
+        }
         return bytes;
     }
 
@@ -3648,8 +3666,10 @@ public static partial class BrowserInspectionEngine
 
     static async Task<string> ResolveRuntimePackVersionAsync(string packId, int major)
     {
-        var indexUrl = BuildPackageIndexUrl(packId);
+        var source = CapturePackageSource();
+        var indexUrl = BuildPackageIndexUrl(source, packId);
         var indexBytes = await GetPackageSourceBytesAsync(indexUrl);
+        EnsurePackageSource(source.Generation);
         using var document = JsonDocument.Parse(indexBytes);
         var versions = document.RootElement.GetProperty("versions")
             .EnumerateArray()
@@ -3881,7 +3901,8 @@ public static partial class BrowserInspectionEngine
 
     static async Task<byte[]> GetPackageBytesAsync(string normalizedId, string normalizedVersion)
     {
-        var key = PackageCacheKey(normalizedId, normalizedVersion);
+        var source = CapturePackageSource();
+        var key = PackageCacheKey(source.Configuration, normalizedId, normalizedVersion);
         lock (PackageCacheLock)
         {
             if (PackageCache.TryGetValue(key, out var cached))
@@ -3892,19 +3913,25 @@ public static partial class BrowserInspectionEngine
         }
 
         var packageUrl = BuildPackageContentUrl(
+            source.Configuration,
             normalizedId,
             normalizedVersion,
             "nupkg");
         var bytes = await GetPackageSourceBytesAsync(packageUrl);
+        EnsurePackageSource(source.Generation);
         lock (PackageCacheLock)
         {
+            // Re-check generation under the lock so a switch that lands between
+            // EnsurePackageSource and the cache write cannot repopulate a cleared cache.
+            if (source.Generation != _packageSourceGeneration)
+            {
+                throw new InvalidOperationException(
+                    $"{PackageSourceUnavailableMarker} The NuGet source changed during the request.");
+            }
             DownloadedPackages.Add(key);
-        }
-        if (bytes.LongLength > MaxCachedPackageBytes)
-            return bytes;
+            if (bytes.LongLength > MaxCachedPackageBytes)
+                return bytes;
 
-        lock (PackageCacheLock)
-        {
             while (PackageCache.Count >= MaxCachedPackages
                 || PackageCache.Values.Sum(entry => entry.Bytes.LongLength) + bytes.LongLength
                     > MaxCachedPackageBytes)
@@ -3929,9 +3956,26 @@ public static partial class BrowserInspectionEngine
             DefaultSearchQueryService,
             IsDefault: true);
 
+    sealed record CapturedPackageSource(
+        BrowserPackageSourceConfiguration Configuration,
+        int Generation);
+
+    static CapturedPackageSource CapturePackageSource() =>
+        new(_packageSource, _packageSourceGeneration);
+
+    static void EnsurePackageSource(int generation)
+    {
+        if (generation != _packageSourceGeneration)
+        {
+            throw new InvalidOperationException(
+                $"{PackageSourceUnavailableMarker} The NuGet source changed during the request.");
+        }
+    }
+
     static void SetPackageSource(BrowserPackageSourceConfiguration configuration)
     {
         _packageSource = configuration;
+        _packageSourceGeneration++;
         lock (PackageCacheLock)
         {
             PackageCache.Clear();
@@ -4005,9 +4049,13 @@ public static partial class BrowserInspectionEngine
         string resourceId,
         string resourceKind)
     {
+        // Match ValidateServiceIndexUrl: no credentials, query, or fragment.
+        // A query on PackageBaseAddress is dropped or mangled by EnsureTrailingSlash
+        // + relative Uri resolution, so reject it at validation time.
         if (!Uri.TryCreate(serviceIndex, resourceId, out Uri? resource)
             || resource.Scheme != Uri.UriSchemeHttps
             || !string.IsNullOrEmpty(resource.UserInfo)
+            || !string.IsNullOrEmpty(resource.Query)
             || !string.IsNullOrEmpty(resource.Fragment))
         {
             throw new InvalidDataException(
@@ -4019,30 +4067,44 @@ public static partial class BrowserInspectionEngine
     static string EnsureTrailingSlash(string value) =>
         value.EndsWith("/", StringComparison.Ordinal) ? value : value + "/";
 
-    static string PackageCacheKey(string normalizedId, string normalizedVersion) =>
-        $"{_packageSource.ServiceIndexUrl}\n{normalizedId}@{normalizedVersion}";
+    static string PackageCacheKey(
+        BrowserPackageSourceConfiguration source,
+        string normalizedId,
+        string normalizedVersion) =>
+        $"{source.ServiceIndexUrl}\n{normalizedId}@{normalizedVersion}";
 
-    static bool WasDownloaded(string normalizedId, string normalizedVersion)
+    static bool WasDownloaded(
+        BrowserPackageSourceConfiguration source,
+        string normalizedId,
+        string normalizedVersion)
     {
         lock (PackageCacheLock)
         {
             return DownloadedPackages.Contains(
-                PackageCacheKey(normalizedId, normalizedVersion));
+                PackageCacheKey(source, normalizedId, normalizedVersion));
         }
     }
 
-    static string BuildPackageIndexUrl(string normalizedId) =>
+    static string BuildPackageIndexUrl(
+        CapturedPackageSource source,
+        string normalizedId) =>
+        BuildPackageIndexUrl(source.Configuration, normalizedId);
+
+    static string BuildPackageIndexUrl(
+        BrowserPackageSourceConfiguration source,
+        string normalizedId) =>
         new Uri(
-            new Uri(_packageSource.PackageBaseAddress),
+            new Uri(source.PackageBaseAddress),
             $"{Uri.EscapeDataString(normalizedId)}/index.json")
         .AbsoluteUri;
 
     static string BuildPackageContentUrl(
+        BrowserPackageSourceConfiguration source,
         string normalizedId,
         string normalizedVersion,
         string extension) =>
         new Uri(
-            new Uri(_packageSource.PackageBaseAddress),
+            new Uri(source.PackageBaseAddress),
             $"{Uri.EscapeDataString(normalizedId)}/"
             + $"{Uri.EscapeDataString(normalizedVersion)}/"
             + $"{Uri.EscapeDataString(normalizedId)}."

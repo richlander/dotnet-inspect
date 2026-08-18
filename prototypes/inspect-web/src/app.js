@@ -20,6 +20,9 @@ const DEFAULT_PACKAGE_SOURCE = Object.freeze({
   searchQueryService: "https://azuresearch-usnc.nuget.org/query",
   isDefault: true,
 });
+// Bumped whenever the active package source changes so late package/search
+// completions from a previous source cannot repopulate a cleared workspace.
+let packageSourceGeneration = 0;
 
 function loadStoredNuGetMirror() {
   try {
@@ -27,6 +30,11 @@ function loadStoredNuGetMirror() {
   } catch {
     return "";
   }
+}
+
+function bumpPackageSourceGeneration() {
+  packageSourceGeneration += 1;
+  return packageSourceGeneration;
 }
 
 // Recently-opened NuGet packages, most-recent first, persisted across sessions so the
@@ -4477,11 +4485,13 @@ async function fetchSpotlightPackages(query) {
   url.searchParams.set("take", "8");
   url.searchParams.set("prerelease", "true");
   url.searchParams.set("semVerLevel", "2.0.0");
+  const sourceGeneration = packageSourceGeneration;
   try {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
-    if (state.spotlightQuery.trim() !== query) return; // stale
+    if (state.spotlightQuery.trim() !== query
+        || sourceGeneration !== packageSourceGeneration) return; // stale
     state.spotlightPkgHits = (payload.data || []).map(item => ({
       id: item.id,
       version: item.version,
@@ -4489,11 +4499,13 @@ async function fetchSpotlightPackages(query) {
     }));
     state.spotlightPkgQuery = query;
   } catch (error) {
-    if (state.spotlightQuery.trim() !== query) return;
+    if (state.spotlightQuery.trim() !== query
+        || sourceGeneration !== packageSourceGeneration) return;
     state.spotlightPkgHits = [];
     state.spotlightPkgQuery = query;
   } finally {
-    if (state.spotlightQuery.trim() === query) {
+    if (state.spotlightQuery.trim() === query
+        && sourceGeneration === packageSourceGeneration) {
       state.spotlightPkgLoading = false;
       updateSpotlightResults();
     }
@@ -4629,6 +4641,7 @@ async function ensurePackageVersions(pkg) {
   const idLower = pkg.id.toLowerCase();
   if (state.packageVersions[idLower] || state.packageVersionsLoading[idLower]) return;
   state.packageVersionsLoading[idLower] = true;
+  const sourceGeneration = packageSourceGeneration;
   try {
     const url = new URL(
       `${encodeURIComponent(idLower)}/index.json`,
@@ -4636,6 +4649,7 @@ async function ensurePackageVersions(pkg) {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
+    if (sourceGeneration !== packageSourceGeneration) return;
     const versions = (payload.versions || []).slice().sort(compareVersionsDesc);
     state.packageVersions[idLower] = versions;
     updateVersionSelect(idLower);
@@ -4643,7 +4657,9 @@ async function ensurePackageVersions(pkg) {
     // Leave the selector on the single current-version option; a transient index failure
     // must not break the workbench.
   } finally {
-    state.packageVersionsLoading[idLower] = false;
+    if (sourceGeneration === packageSourceGeneration) {
+      state.packageVersionsLoading[idLower] = false;
+    }
   }
 }
 
@@ -5226,10 +5242,47 @@ function resetSourceScopedWorkspace() {
   state.spotlightPkgLoading = false;
 }
 
+function persistNuGetMirror(serviceIndexUrl) {
+  try {
+    localStorage.setItem(NUGET_MIRROR_STORAGE_KEY, serviceIndexUrl);
+  } catch (error) {
+    // Roll the engine back so JS and C# cannot disagree about the active source
+    // when storage is disabled or full.
+    inspectUseDefaultPackageSource();
+    state.packageSource = DEFAULT_PACKAGE_SOURCE;
+    bumpPackageSourceGeneration();
+    resetSourceScopedWorkspace();
+    throw error;
+  }
+}
+
+function clearPersistedNuGetMirror() {
+  try {
+    localStorage.removeItem(NUGET_MIRROR_STORAGE_KEY);
+  } catch {
+    // Best-effort: engine is already on the default source.
+  }
+}
+
 async function configureNuGetMirror(serviceIndexUrl) {
   const configuration = await inspectConfigurePackageSource(serviceIndexUrl);
-  localStorage.setItem(NUGET_MIRROR_STORAGE_KEY, configuration.serviceIndexUrl);
+  try {
+    persistNuGetMirror(configuration.serviceIndexUrl);
+  } catch (error) {
+    throw new Error(
+      `Mirror validated but could not be stored in this browser: ${String(error?.message || error)}`);
+  }
   state.packageSource = configuration;
+  bumpPackageSourceGeneration();
+  resetSourceScopedWorkspace();
+  return configuration;
+}
+
+function useDefaultNuGetSource() {
+  const configuration = inspectUseDefaultPackageSource();
+  clearPersistedNuGetMirror();
+  state.packageSource = configuration;
+  bumpPackageSourceGeneration();
   resetSourceScopedWorkspace();
   return configuration;
 }
@@ -7031,8 +7084,7 @@ function bindSettingsEvents() {
     if (!value) return;
     submit.disabled = true;
     try {
-      const configuration = await inspectConfigurePackageSource(value);
-      localStorage.setItem(NUGET_MIRROR_STORAGE_KEY, configuration.serviceIndexUrl);
+      await configureNuGetMirror(value);
       location.reload();
     } catch (error) {
       submit.disabled = false;
@@ -7040,8 +7092,7 @@ function bindSettingsEvents() {
     }
   });
   document.querySelector("#settings-nuget-source-reset")?.addEventListener("click", () => {
-    inspectUseDefaultPackageSource();
-    localStorage.removeItem(NUGET_MIRROR_STORAGE_KEY);
+    useDefaultNuGetSource();
     location.reload();
   });
 }
@@ -7126,6 +7177,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
   // reset, no loading toggle, no render. The caller (workspace restore) keeps the loading
   // overlay up and focuses the real target once, so non-target tabs never flash into view.
   const background = options.background === true;
+  const sourceGeneration = packageSourceGeneration;
   const prevPackage = state.package;
   const prevRequested = {
     package: state.requestedPackage,
@@ -7147,6 +7199,10 @@ async function loadPackage(packageId, version, framework, options = {}) {
 
   try {
     const result = await inspectPackage(packageId, version, framework);
+    if (sourceGeneration !== packageSourceGeneration) {
+      // Source switched while this request was in flight; drop the stale result.
+      return null;
+    }
     refreshPackageStats();
     const types = (result.types ?? []).map(type => ({
       ...type,
@@ -7203,6 +7259,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
     // A failed background restore of a non-target tab must not disrupt the workbench or the
     // real target; drop it silently (the tab simply won't appear).
     if (background) return null;
+    if (sourceGeneration !== packageSourceGeneration) return null;
     if (!options.sourceFallbackAttempted
         && state.packageSource.isDefault
         && isPackageSourceUnavailable(error)
@@ -7338,8 +7395,13 @@ async function loadRuntimePack(framework, sourceFallbackAttempted = false) {
   if (existing) return existing;
   state.runtimePackLoading = true;
   state.runtimePackError = "";
+  const sourceGeneration = packageSourceGeneration;
   try {
     const result = await inspectLoadRuntimePack(framework || "");
+    if (sourceGeneration !== packageSourceGeneration) {
+      state.runtimePackLoading = false;
+      return null;
+    }
     refreshPackageStats();
     const types = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
     const defaultAssembly = (result.assemblies ?? [])
@@ -7371,6 +7433,7 @@ async function loadRuntimePack(framework, sourceFallbackAttempted = false) {
     return packageModel;
   } catch (error) {
     state.runtimePackLoading = false;
+    if (sourceGeneration !== packageSourceGeneration) return null;
     if (!sourceFallbackAttempted
         && state.packageSource.isDefault
         && isPackageSourceUnavailable(error)
@@ -7398,8 +7461,13 @@ async function loadRuntimePackAssembly(
   if (state.runtimePackLoading) return runtimePackPackage();
   state.runtimePackLoading = true;
   state.runtimePackError = "";
+  const sourceGeneration = packageSourceGeneration;
   try {
     const result = await inspectLoadRuntimePackAssembly(framework || "", assemblyFileName, pack || "");
+    if (sourceGeneration !== packageSourceGeneration) {
+      state.runtimePackLoading = false;
+      return null;
+    }
     refreshPackageStats();
     const newTypes = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
     const existing = runtimePackPackage();
@@ -7433,6 +7501,7 @@ async function loadRuntimePackAssembly(
     return packageModel;
   } catch (error) {
     state.runtimePackLoading = false;
+    if (sourceGeneration !== packageSourceGeneration) return null;
     if (!sourceFallbackAttempted
         && state.packageSource.isDefault
         && isPackageSourceUnavailable(error)
@@ -7571,8 +7640,12 @@ async function bootstrap() {
       render();
       try {
         state.packageSource = await inspectConfigurePackageSource(storedMirror);
+        bumpPackageSourceGeneration();
       } catch {
+        // Leave the stored URL so a transient failure can recover on reload;
+        // the engine is on the default source for this session.
         state.packageSource = inspectUseDefaultPackageSource();
+        bumpPackageSourceGeneration();
       }
     }
     try {
