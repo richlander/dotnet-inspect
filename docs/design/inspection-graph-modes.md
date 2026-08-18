@@ -18,15 +18,16 @@ participants.
 
 The current executable mode slices bind request intent to graph subjects and
 make seed admission a descriptor-owned relationship contract. An
-`InspectionGraphNeighborhoodRequest` now composes one seed with an explicit
-relationship set, semantic traversal direction, and finite edge-depth bound.
+`InspectionGraphNeighborhoodRequest` now composes one or more seeds with an
+explicit relationship set, semantic traversal direction, and finite edge-depth
+bound.
 The Integration query validates that relationship set before execution,
 requests only its required producers and prerequisites, and projects the
 bounded neighborhood without reversing stored edges or changing occurrence
 identity. The call session exposes the same request envelope for an outgoing,
 call-only member neighborhood while retaining its Analysis-owned node budget.
-Peer connecting neighborhoods, induced explicit-subject sets, and
-command/presentation surfaces remain design targets.
+Induced explicit-subject sets and command/presentation surfaces remain design
+targets.
 
 `CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap`,
 `PackageSeed_BindsToNodeOrGroupSelectedByLens`,
@@ -41,8 +42,12 @@ command/presentation surfaces remain design targets.
 `Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
 `Execute_PackageSeedExpandsThroughOwnedSourceSubjects`,
 `Execute_OpportunitySourceTypeUsesOccurrenceAdmission`, and
-`Execute_SelectedRelationshipsControlProducerDemand` gate the first
-load-bearing neighborhood.
+`Execute_SelectedRelationshipsControlProducerDemand` gate single-seed
+neighborhoods. `Execute_PeerNeighborhoodConnectsEqualSeeds`,
+`Execute_ZeroDepthPeerNeighborhoodRetainsEverySeed`, and
+`Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed` gate multi-source
+peer neighborhoods. `Execute_PeerCountDoesNotMultiplyProducerDemand` gates
+that peer count does not multiply producer work.
 
 | Mode | Focus | Input | Primary question |
 | --- | --- | --- | --- |
@@ -178,6 +183,15 @@ Peer seeds may share a subject kind or be mixed. For example, the locked demo
 can name `IChatClient` plus OpenAI, Bedrock, and Azure package subjects. Each
 producer still contributes only relationships it owns.
 
+The Integration implementation projects the deterministic union of the finite
+neighborhood rooted at every peer. Every peer must be admitted by at least one
+selected relationship in the requested semantic direction. All peers begin at
+depth zero; reached edges and physical occurrences are deduplicated by their
+existing document identities. The result does not prune disconnected peers or
+discard evidence merely because it does not lie on a shortest path between two
+anchors. Depth zero retains every peer without traversing an edge, and the
+common requested depth is disclosed at each peer target.
+
 ## Induced-set mode
 
 **Required:** a bounded input set of workspace participants or typed subjects.
@@ -262,8 +276,9 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
 4. **Implemented:** expose the existing Analysis-owned cross-library callee
    traversal as a finite outgoing member-seeded `call` neighborhood with
    explicit depth and node bounds.
-5. **Partially implemented:** bind peer-seed requests without choosing a hero
-   node. Connecting-neighborhood construction remains.
+5. **Implemented:** project bounded Integration neighborhoods from every equal
+   peer seed without choosing a hero, while retaining disconnected admissible
+   peers and deduplicating shared reached evidence.
 6. **Partially implemented:** declare workspace-participant and
    document-subject induced-set rules. Explicit-subject admission and bounds
    remain.
