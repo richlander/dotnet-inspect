@@ -1138,8 +1138,27 @@ public static partial class BrowserInspectionEngine
     internal static string MermaidLabel(string value)
     {
         var builder = new StringBuilder(value.Length);
-        foreach (char character in value)
+        for (int index = 0; index < value.Length; index++)
         {
+            char character = value[index];
+            if (char.IsHighSurrogate(character)
+                && index + 1 < value.Length
+                && char.IsLowSurrogate(value[index + 1]))
+            {
+                char lowSurrogate = value[++index];
+                var scalar = new Rune(character, lowSurrogate);
+                if (Rune.GetUnicodeCategory(scalar) == UnicodeCategory.Format)
+                {
+                    AppendUnicodeEscape(builder, character);
+                    AppendUnicodeEscape(builder, lowSurrogate);
+                }
+                else
+                {
+                    builder.Append(character).Append(lowSurrogate);
+                }
+                continue;
+            }
+
             switch (character)
             {
                 case '&':
@@ -1159,16 +1178,14 @@ public static partial class BrowserInspectionEngine
                     break;
                 case '\u2028':
                 case '\u2029':
-                    builder.Append("&#92;u")
-                        .Append(((int)character).ToString("X4", CultureInfo.InvariantCulture));
+                    AppendUnicodeEscape(builder, character);
                     break;
                 default:
-                    if (char.IsControl(character))
+                    if (char.IsControl(character)
+                        || char.IsSurrogate(character)
+                        || char.GetUnicodeCategory(character) == UnicodeCategory.Format)
                     {
-                        builder.Append("&#92;u")
-                            .Append(((int)character).ToString(
-                                "X4",
-                                CultureInfo.InvariantCulture));
+                        AppendUnicodeEscape(builder, character);
                     }
                     else
                     {
@@ -1180,6 +1197,10 @@ public static partial class BrowserInspectionEngine
 
         return builder.ToString();
     }
+
+    static void AppendUnicodeEscape(StringBuilder builder, char character) =>
+        builder.Append("&#92;u")
+            .Append(((int)character).ToString("X4", CultureInfo.InvariantCulture));
 
     static BrowserCallGraphTarget Target(
         CallGraphNode node,
