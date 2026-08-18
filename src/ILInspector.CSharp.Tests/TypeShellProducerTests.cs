@@ -379,7 +379,8 @@ public sealed class TypeShellProducerTests
             ReturnType: "bool",
             TypeParameters: [],
             BodyKind: CSharpShellBodyKind.TargetBody,
-            Body: "return true;"));
+            Body: "return true;",
+            CSharpOperatorDeclaration: true));
         var inequality = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
             Name: "op_Inequality",
             Kind: CSharpShellMemberKind.Operator,
@@ -392,9 +393,12 @@ public sealed class TypeShellProducerTests
             ReturnType: "bool",
             TypeParameters: [],
             BodyKind: CSharpShellBodyKind.Throw,
-            Body: null));
+            Body: null,
+            CSharpOperatorDeclaration: true));
 
         Assert.Equal("operator", equality.Member.Kind);
+        Assert.True(equality.Member.CSharpOperatorDeclaration);
+        Assert.True(inequality.Member.CSharpOperatorDeclaration);
         var type = new ApiType
         {
             Name = "Row",
@@ -413,6 +417,36 @@ public sealed class TypeShellProducerTests
             "public static bool operator !=(Row left, Row right)",
             Assert.Single(result.Units).Source,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MemberShellProducer_PreservesNegativeTypedOperatorProof()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "op_Increment",
+            Kind: CSharpShellMemberKind.Operator,
+            IsStatic: true,
+            Parameters: [new CSharpShellParameter("value", "Counter")],
+            ReturnType: "string",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.Throw,
+            Body: null,
+            CSharpOperatorDeclaration: false));
+
+        Assert.False(policy.Member.CSharpOperatorDeclaration);
+        var type = new ApiType
+        {
+            Name = "Counter",
+            Kind = "class",
+            Members = [policy.Member],
+        };
+        var result = new CSharpTypePrinter().Print(new CSharpTypePrintRequest(
+            type,
+            memberPolicyOverrides: [policy]));
+        string source = Assert.Single(result.Units).Source;
+
+        Assert.Contains("string op_Increment(Counter value)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("operator ++", source, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -2980,9 +2980,7 @@ public static class CompileBackSourceComposer
                 targetTypeDef,
                 method,
                 methodName,
-                signature,
-                targetParameters,
-                targetReturnType?.DisplayName);
+                signature);
         if (targetHasOperatorIdentity && !targetOperatorIsRepresentable)
         {
             diagnostics.Add(new CompileBackPlanningDiagnostic(
@@ -3354,7 +3352,10 @@ public static class CompileBackSourceComposer
             SetterToken: requirement.SetterToken,
             AdderToken: requirement.AdderToken,
             RemoverToken: requirement.RemoverToken,
-            SuppressDestructorSyntax: requirement.SuppressDestructorSyntax);
+            SuppressDestructorSyntax: requirement.SuppressDestructorSyntax,
+            CSharpOperatorDeclaration: requirement.Kind == CompileBackMemberKind.Operator
+                ? requirement.IsOperator
+                : null);
 
     static CSharpShellParameter ToShellParameter(CompileBackParameter parameter)
         => new(
@@ -3449,9 +3450,7 @@ public static class CompileBackSourceComposer
                     typeDef,
                     method,
                     siblingName,
-                    signature,
-                    parameters,
-                    returnType.DisplayName))
+                    signature))
             {
                 continue;
             }
@@ -3498,42 +3497,15 @@ public static class CompileBackSourceComposer
         TypeDefinition declaringType,
         MethodDefinition method,
         string name,
-        MethodSignature<string> signature,
-        IReadOnlyList<CompileBackParameter> parameters,
-        string? returnType)
+        MethodSignature<string> signature)
     {
-        if (returnType is null
-            || !ILInspector.Metadata.OperatorMetadata.IsCSharpOperatorDeclaration(reader, method))
-        {
-            return false;
-        }
-
-        var declaringIdentity = CompileBackTypeIdentity.FromDefinition(reader, declaringType);
-        if (name is "op_Increment" or "op_Decrement"
-            && !IsDeclaringTypeSpelling(returnType, declaringIdentity))
+        if (!ILInspector.Metadata.OperatorMetadata.IsCSharpOperatorDeclaration(reader, method))
         {
             return false;
         }
 
         return RequiredOperatorPair(name) is not { } pairName
             || HasOperatorPair(reader, declaringType, pairName, signature);
-    }
-
-    static bool IsConversionOperator(string name)
-        => name is "op_Implicit" or "op_Explicit" or "op_CheckedExplicit";
-
-    static bool IsDeclaringTypeSpelling(
-        string type,
-        CompileBackTypeIdentity declaringType)
-    {
-        string normalized = type.EndsWith('?')
-            ? type[..^1]
-            : type;
-        return normalized == declaringType.DisplayName
-            || normalized == declaringType.FullName
-            || normalized == declaringType.MetadataFullName
-            || normalized.StartsWith($"{declaringType.DisplayName}<", StringComparison.Ordinal)
-            || normalized.StartsWith($"{declaringType.FullName}<", StringComparison.Ordinal);
     }
 
     static string? RequiredOperatorPair(string name)
@@ -5007,9 +4979,7 @@ public static class CompileBackSourceComposer
                     typeDef,
                     method,
                     name,
-                    signature,
-                    parameters,
-                    CompileBackTypeSignature.Display(methodReturnType).DisplayName);
+                    signature);
             if (hasOperatorIdentity && !operatorIsRepresentable)
                 return null;
 
@@ -5920,9 +5890,7 @@ public static class CompileBackSourceComposer
                         typeDef,
                         method,
                         name,
-                        signature,
-                        parameters,
-                        CompileBackTypeSignature.Display(methodReturnType).DisplayName);
+                        signature);
                 if (methodHasOperatorIdentity && !methodIsOperator)
                 {
                     diagnostics.Add(new CompileBackPlanningDiagnostic(

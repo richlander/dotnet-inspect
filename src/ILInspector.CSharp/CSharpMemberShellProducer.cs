@@ -85,7 +85,8 @@ public sealed record CSharpMemberShellSpec(
     int? SetterToken = null,
     int? AdderToken = null,
     int? RemoverToken = null,
-    bool SuppressDestructorSyntax = false);
+    bool SuppressDestructorSyntax = false,
+    bool? CSharpOperatorDeclaration = null);
 
 /// <summary>
 /// Composes product-owned C# member models and body policies from a neutral shell
@@ -289,6 +290,7 @@ public static class CSharpMemberShellProducer
             IsUnsafe = spec.RequiresUnsafeModifier || RequiresUnsafe(spec),
             IsAsync = spec.IsAsync,
             IsExtension = spec.IsExtension,
+            CSharpOperatorDeclaration = spec.CSharpOperatorDeclaration,
             IsConst = spec.Kind == CSharpShellMemberKind.Field
                 && spec.BodyKind == CSharpShellBodyKind.TargetBody,
             MetadataToken = spec.MetadataToken,

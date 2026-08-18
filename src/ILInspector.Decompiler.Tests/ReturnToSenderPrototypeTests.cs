@@ -10103,6 +10103,249 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ClusterPreservesNestedGenericIncrementDecrementOperators()
+    {
+        var assemblyPath = CompileNestedGenericIncrementDecrementFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            var counter = Assert.Single(
+                result.Plan.Types,
+                type => type.Type.MetadataFullName == "Outer`1.Counter");
+            Assert.Single(counter.Members, member =>
+                member.Name == "op_Increment"
+                && member.IsOperator
+                && member.SourceFacts.Any(
+                    fact => fact.Id == "typed-closure-method"
+                        && fact.Detail == "op_Increment"));
+            Assert.Single(counter.Members, member =>
+                member.Name == "op_Decrement"
+                && member.IsOperator
+                && member.SourceFacts.Any(
+                    fact => fact.Id == "typed-closure-method"
+                        && fact.Detail == "op_Decrement"));
+            Assert.Contains("operator ++", result.Source, StringComparison.Ordinal);
+            Assert.Contains("operator --", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-not-representable");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullRepresentsNestedGenericIncrementDecrementOperators()
+    {
+        var assemblyPath = CompileNestedGenericIncrementDecrementFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(
+                result.BodyComplete,
+                string.Join(
+                    Environment.NewLine,
+                    result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.Single(
+                result.FullBodies,
+                body => body.Member.EndsWith(".op_Increment", StringComparison.Ordinal)
+                    && body.Status == MemberBodyProductionStatus.Complete);
+            Assert.Single(
+                result.FullBodies,
+                body => body.Member.EndsWith(".op_Decrement", StringComparison.Ordinal)
+                    && body.Status == MemberBodyProductionStatus.Complete);
+            Assert.Contains("operator ++", result.Source, StringComparison.Ordinal);
+            Assert.Contains("operator --", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason is "operator-not-representable"
+                    or "declaration-not-represented");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ClusterPreservesDerivedReturnIncrementDecrementTargets()
+    {
+        var assemblyPath = CompileDerivedReturnIncrementDecrementFixture();
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Counter", "op_Increment", 0),
+                    new ReturnToSender.RequestedTarget("Counter", "op_Decrement", 0),
+                ],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected);
+
+            Assert.Collection(
+                results,
+                increment => AssertDerivedReturnOperator(
+                    increment,
+                    "op_Increment",
+                    "IncrementedCounter operator ++"),
+                decrement => AssertDerivedReturnOperator(
+                    decrement,
+                    "op_Decrement",
+                    "DecrementedCounter operator --"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+
+        static void AssertDerivedReturnOperator(
+            ReturnToSender.Result result,
+            string methodName,
+            string declaration)
+        {
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            var counter = Assert.Single(result.Plan.Types, type => type.Name == "Counter");
+            Assert.Contains(
+                counter.Members,
+                member => member.Name == methodName && member.IsOperator);
+            var member = Assert.Single(
+                result.Plan.PrintRequests.SelectMany(request => request.Members),
+                member => member.Name == methodName);
+            Assert.True(member.CSharpOperatorDeclaration);
+            Assert.Contains(declaration, result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-not-representable");
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullRepresentsDerivedReturnIncrementDecrementOperators()
+    {
+        var assemblyPath = CompileDerivedReturnIncrementDecrementFixture();
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(
+                result.BodyComplete,
+                string.Join(
+                    Environment.NewLine,
+                    result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.Single(
+                result.FullBodies,
+                body => body.Member == "Counter.op_Increment"
+                    && body.Status == MemberBodyProductionStatus.Complete);
+            Assert.Single(
+                result.FullBodies,
+                body => body.Member == "Counter.op_Decrement"
+                    && body.Status == MemberBodyProductionStatus.Complete);
+            Assert.Contains(
+                "IncrementedCounter operator ++",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "DecrementedCounter operator --",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason is "operator-not-representable"
+                    or "declaration-not-represented");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UnrepresentableIncrementDecrementTargetsStayRawMethods()
+    {
+        var assemblyPath = EmitUnrepresentableIncrementDecrementFixture();
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Poison", "op_Increment", 0),
+                    new ReturnToSender.RequestedTarget("Poison", "op_Decrement", 0),
+                ],
+                RoundTripScope.Cluster,
+                RoundTripBodyPolicy.Selected);
+
+            Assert.Collection(
+                results,
+                increment => AssertUnrepresentableOperator(
+                    increment,
+                    "op_Increment",
+                    "operator ++"),
+                decrement => AssertUnrepresentableOperator(
+                    decrement,
+                    "op_Decrement",
+                    "operator --"));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+
+        static void AssertUnrepresentableOperator(
+            ReturnToSender.Result result,
+            string methodName,
+            string operatorDeclaration)
+        {
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            var poison = Assert.Single(result.Plan.Types, type => type.Name == "Poison");
+            var requirement = Assert.Single(
+                poison.Members,
+                member => member.Name == methodName);
+            Assert.False(requirement.IsOperator);
+            var member = Assert.Single(
+                result.Plan.PrintRequests.SelectMany(request => request.Members),
+                member => member.Name == methodName);
+            Assert.False(member.CSharpOperatorDeclaration);
+            Assert.Contains($"string {methodName}(Poison value)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain(operatorDeclaration, result.Source, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "operator-not-representable"
+                    && diagnostic.Detail.Contains(methodName, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_PreservesCheckedBinaryOperatorSibling()
     {
         var assemblyPath = CompileFixture("""
@@ -11692,6 +11935,91 @@ public class ReturnToSenderPrototypeTests
 
         var emit = compilation.Emit(path);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+        return path;
+    }
+
+    static string CompileNestedGenericIncrementDecrementFixture()
+        => CompileFixture("""
+            public class Outer<T>
+            {
+                public sealed class Counter
+                {
+                    public int Value;
+
+                    public Counter(int value)
+                    {
+                        Value = value;
+                    }
+
+                    public static Outer<T>.Counter operator ++(Counter value)
+                        => new Outer<T>.Counter(value.Value + 1);
+
+                    public static Outer<T>.Counter operator --(Counter value)
+                        => new Outer<T>.Counter(value.Value - 1);
+                }
+            }
+
+            public static class Target
+            {
+                public static Outer<int>.Counter Run(Outer<int>.Counter value)
+                {
+                    value++;
+                    value--;
+                    return value;
+                }
+            }
+            """);
+
+    static string CompileDerivedReturnIncrementDecrementFixture()
+        => CompileFixture("""
+            public class Counter
+            {
+                public static IncrementedCounter operator ++(Counter value)
+                    => new IncrementedCounter();
+
+                public static DecrementedCounter operator --(Counter value)
+                    => new DecrementedCounter();
+            }
+
+            public sealed class IncrementedCounter : Counter;
+
+            public sealed class DecrementedCounter : Counter;
+
+            public static class Target
+            {
+                public static int Run() => 42;
+            }
+            """);
+
+    static string EmitUnrepresentableIncrementDecrementFixture()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-unrepresentable-increment-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "fixture.dll");
+        var assembly = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new AssemblyName("fixture"),
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule("fixture");
+
+        var poison = module.DefineType("Poison", TypeAttributes.Public | TypeAttributes.Class);
+        foreach (string methodName in new[] { "op_Increment", "op_Decrement" })
+        {
+            var method = poison.DefineMethod(
+                methodName,
+                MethodAttributes.Public | MethodAttributes.Static
+                    | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(string),
+                [poison]);
+            method.DefineParameter(1, ParameterAttributes.None, "value");
+            var il = method.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldnull);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        }
+        poison.CreateType();
+
+        assembly.Save(path);
         return path;
     }
 
