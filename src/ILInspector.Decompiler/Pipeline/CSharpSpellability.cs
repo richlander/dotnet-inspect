@@ -842,6 +842,139 @@ internal static class CSharpSpellability
         return false;
     }
 
+    internal static bool AnyPrintedNameIdentityCollision(
+        IReadOnlyList<TypeRef> parameterTypes,
+        IReadOnlyList<bool> isDynamic,
+        IrFunction host)
+    {
+        var seen = new List<(string Name, int Arity, TypeRef Identity)>();
+        for (int i = 0; i < parameterTypes.Count; i++)
+        {
+            if (WalkPrintedNameIdentities(
+                    parameterTypes[i],
+                    i < isDynamic.Count && isDynamic[i],
+                    host,
+                    seen))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool WalkPrintedNameIdentities(
+        TypeRef type,
+        bool isDynamic,
+        IrFunction host,
+        List<(string Name, int Arity, TypeRef Identity)> seen)
+    {
+        if (TryGetPrintedContextualAlias(type, isDynamic, out string? alias)
+            && alias is not null
+            && RecordPrintedName(seen, alias, arity: 0, PrintedAliasIdentity(type)))
+        {
+            return true;
+        }
+
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is { Kind: TypeRefKind.Definition }
+            && !IsCoreLibPrimitive(definition)
+            && RecordDefinitionPrintedName(definition, type, host, seen))
+        {
+            return true;
+        }
+
+        switch (type.Kind)
+        {
+            case TypeRefKind.GenericInstance:
+                return WalkPrintedNameIdentityList(type.TypeArguments, host, seen);
+
+            case TypeRefKind.SzArray:
+            case TypeRefKind.Array:
+            case TypeRefKind.ByRef:
+            case TypeRefKind.Pointer:
+            case TypeRefKind.Pinned:
+                return type.ElementType is { } element
+                    && WalkPrintedNameIdentities(element, isDynamic: false, host, seen);
+
+            case TypeRefKind.FunctionPointer:
+                if (type.ElementType is { } returnType
+                    && WalkPrintedNameIdentities(returnType, isDynamic: false, host, seen))
+                {
+                    return true;
+                }
+
+                return WalkPrintedNameIdentityList(type.TypeArguments, host, seen);
+
+            default:
+                return false;
+        }
+    }
+
+    static bool WalkPrintedNameIdentityList(
+        IReadOnlyList<TypeRef> types,
+        IrFunction host,
+        List<(string Name, int Arity, TypeRef Identity)> seen)
+    {
+        for (int i = 0; i < types.Count; i++)
+        {
+            if (WalkPrintedNameIdentities(types[i], isDynamic: false, host, seen))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool RecordDefinitionPrintedName(
+        TypeRef definition,
+        TypeRef type,
+        IrFunction host,
+        List<(string Name, int Arity, TypeRef Identity)> seen)
+    {
+        if (definition.Name.Contains('+')
+            && type.PrintsAsQualifiedNestedName(host.DeclaringType))
+        {
+            string first = definition.Name.Split('+')[0];
+            return RecordPrintedName(
+                seen,
+                StripArity(first),
+                ArityOf(first),
+                TypeRef.Definition(definition.Assembly, definition.Namespace, first));
+        }
+
+        string last = definition.Name.Contains('+')
+            ? definition.Name[(definition.Name.LastIndexOf('+') + 1)..]
+            : definition.Name;
+        return RecordPrintedName(seen, StripArity(last), ArityOf(last), definition);
+    }
+
+    static TypeRef PrintedAliasIdentity(TypeRef type)
+    {
+        var underlying = type.Kind == TypeRefKind.ByRef && type.ElementType is { } byRefElement
+            ? byRefElement
+            : type;
+        return underlying.Kind == TypeRefKind.GenericInstance && underlying.ElementType is { } definition
+            ? definition
+            : underlying;
+    }
+
+    static bool RecordPrintedName(
+        List<(string Name, int Arity, TypeRef Identity)> seen,
+        string name,
+        int arity,
+        TypeRef identity)
+    {
+        for (int i = 0; i < seen.Count; i++)
+        {
+            if (seen[i].Name != name || seen[i].Arity != arity)
+                continue;
+            return !IsExactType(seen[i].Identity, identity);
+        }
+
+        seen.Add((name, arity, identity));
+        return false;
+    }
+
     static bool AnyBareNameInTypeShadowed(
         TypeRef type,
         IrFunction host,
@@ -988,13 +1121,18 @@ internal static class CSharpSpellability
             return false;
         }
 
-        string printed = SimpleMetadataName(definition.Name);
+        string last = definition.Name.Contains('+')
+            ? definition.Name[(definition.Name.LastIndexOf('+') + 1)..]
+            : definition.Name;
+        string printed = StripArity(last);
+        int printedArity = ArityOf(last);
         if (printed.Length == 0)
             return false;
 
         for (int i = hostSegments.Length - 1; i >= 0; i--)
         {
-            if (StripArity(hostSegments[i]) != printed)
+            if (StripArity(hostSegments[i]) != printed
+                || ArityOf(hostSegments[i]) != printedArity)
                 continue;
 
             string hostPrefix = string.Join("+", hostSegments, 0, i + 1);

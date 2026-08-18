@@ -707,6 +707,24 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void GenericInstanceMatchingHostSimpleNameDifferentArity_StillRaises()
+    {
+        var list = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System.Collections.Generic", "List`1"),
+            [s_int]);
+        var host = RunSyntheticSiblingLambdaRaise(
+            list,
+            declaringType: TypeRef.CoreLib("System.Collections.Generic", "List`2"),
+            declaringTypeGenericParameterNames: ["T", "U"]);
+
+        Assert.True(CSharpSpellability.CanSpellExplicitParameterType(
+            list,
+            host,
+            ArgumentRefKind.Value));
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
     public void InScopeNestedTypeCollidingWithMethodGenericParameter_StaysLowered()
     {
         var nested = TypeRef.Definition("Synthetic", "Samples", "Outer+Inner");
@@ -1385,6 +1403,66 @@ public class LambdaRaisingPassTests
             ]);
 
         Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void ForeignNestedTypesSharingPrintedLeadingName_StaysLowered()
+    {
+        var first = TypeRef.Definition("A", "A", "Foo+Bar");
+        var second = TypeRef.Definition("B", "B", "Foo+Baz");
+        var host = RunSyntheticSiblingLambdaRaise(first, additionalSiblings: [second]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void ForeignBareTypesSharingPrintedName_StaysLowered()
+    {
+        var first = TypeRef.Definition("A", "A", "Widget");
+        var second = TypeRef.Definition("B", "B", "Widget");
+        var host = RunSyntheticSiblingLambdaRaise(first, additionalSiblings: [second]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void SameLeadingIdentityQualifiedNestedSiblings_StillRaises()
+    {
+        var first = TypeRef.Definition("A", "A", "Foo+Bar");
+        var second = TypeRef.Definition("A", "A", "Foo+Baz");
+        var host = RunSyntheticSiblingLambdaRaise(first, additionalSiblings: [second]);
+
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void SameIdentityForeignBareSiblings_StillRaises()
+    {
+        var widget = TypeRef.Definition("A", "A", "Widget");
+        var host = RunSyntheticSiblingLambdaRaise(widget, additionalSiblings: [widget]);
+
+        Assert.Single(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void ForeignNestedLeadingNameAndBareType_StaysLowered()
+    {
+        var first = TypeRef.Definition("A", "A", "Foo+Bar");
+        var second = TypeRef.Definition("B", "B", "Foo");
+        var host = RunSyntheticSiblingLambdaRaise(first, additionalSiblings: [second]);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
+    }
+
+    [Fact]
+    public void DynamicAliasBesideForeignTypeNamedDynamic_StaysLowered()
+    {
+        var host = RunSyntheticSiblingLambdaRaise(
+            TypeRef.CoreLib("System", "Object"),
+            additionalSiblings: [TypeRef.Definition("Zed", "Zed", "dynamic")],
+            siblingIsDynamic: true);
+
+        Assert.Empty(host.Descendants.OfType<Lambda>());
     }
 
     [Fact]
