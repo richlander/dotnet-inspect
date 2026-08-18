@@ -2705,14 +2705,20 @@ public static class PackageExtractor
     public static async Task<List<PackageVersionInfo>?> GetVersionListingsAsync(
         HttpClient client, string packageName, bool includePrerelease, bool includeUnlisted,
         int? limit, Action<string>? log,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        bool useVersionCache = true)
     {
         string normalizedName = packageName.ToLowerInvariant();
         var sources = NuGetSourceResolver.ResolveSourcesForPackage(
             sourceOptions,
             packageName);
 
-        var allListings = await GetAllVersionListingsWithCacheAsync(client, normalizedName, sources, log).ConfigureAwait(false);
+        var allListings = await GetAllVersionListingsWithCacheAsync(
+            client,
+            normalizedName,
+            sources,
+            log,
+            useVersionCache).ConfigureAwait(false);
         if (allListings == null)
             return null;
 
@@ -3010,9 +3016,15 @@ public static class PackageExtractor
         HttpClient client,
         string normalizedName,
         List<NuGetSource> sources,
-        Action<string>? log)
+        Action<string>? log,
+        bool useVersionCache)
     {
-        var perSource = await FetchListingsPerSourceAsync(client, normalizedName, sources, log).ConfigureAwait(false);
+        var perSource = await FetchListingsPerSourceAsync(
+            client,
+            normalizedName,
+            sources,
+            log,
+            useVersionCache).ConfigureAwait(false);
         if (perSource == null)
             return null;
 
