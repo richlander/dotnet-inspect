@@ -5,6 +5,7 @@ using System.Runtime.ExceptionServices;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -50,6 +51,7 @@ public sealed class AssemblyContextSourceQueryContext
     public IReadOnlyList<string>? RepositoryPaths { get; init; }
     public NuGetSourceOptions? NuGetSourceOptions { get; init; }
     public bool CacheOnly { get; init; }
+    public SymbolAcquisitionLimits? SymbolAcquisitionLimits { get; init; }
 
     /// <summary>
     /// Allows checksum-authenticated reads from absolute paths recorded in the
@@ -61,24 +63,31 @@ public sealed class AssemblyContextSourceQueryContext
 }
 
 /// <summary>
-/// Exact type request for an authored-or-decompiled source query.
+/// Exact type request for an authored-or-decompiled source query. Printer
+/// options affect only decompiled fallback; authored source remains unchanged.
 /// </summary>
 public sealed record AssemblyTypeSourceRequest
 {
     public AssemblyTypeSourceRequest(
-        MetadataTypeDefinitionName type)
+        MetadataTypeDefinitionName type,
+        PrinterOptions? printerOptions = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         Type = type;
+        PrinterOptions = printerOptions;
     }
 
     public MetadataTypeDefinitionName Type { get; }
+    public PrinterOptions? PrinterOptions { get; }
 
-    public static AssemblyTypeSourceRequest From(ApiType type)
+    public static AssemblyTypeSourceRequest From(
+        ApiType type,
+        PrinterOptions? printerOptions = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         return new AssemblyTypeSourceRequest(
-            GetDefinitionName(type));
+            GetDefinitionName(type),
+            printerOptions);
     }
 
     internal static MetadataTypeDefinitionName GetDefinitionName(
@@ -114,14 +123,16 @@ public sealed record AssemblyTypeSourceRequest
 
 /// <summary>
 /// Exact method request: physical MethodDef token plus the API member anchor
-/// that the token is expected to denote.
+/// that the token is expected to denote. Printer options affect only
+/// decompiled fallback; authored source remains unchanged.
 /// </summary>
 public sealed record AssemblyMemberSourceRequest
 {
     public AssemblyMemberSourceRequest(
         MetadataTypeDefinitionName type,
         MemberAnchor member,
-        int metadataToken)
+        int metadataToken,
+        PrinterOptions? printerOptions = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(member);
@@ -136,15 +147,18 @@ public sealed record AssemblyMemberSourceRequest
         Type = type;
         Member = member;
         MetadataToken = metadataToken;
+        PrinterOptions = printerOptions;
     }
 
     public MetadataTypeDefinitionName Type { get; }
     public MemberAnchor Member { get; }
     public int MetadataToken { get; }
+    public PrinterOptions? PrinterOptions { get; }
 
     public static AssemblyMemberSourceRequest From(
         ApiType type,
-        ApiMember member)
+        ApiMember member,
+        PrinterOptions? printerOptions = null)
     {
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(member);
@@ -158,7 +172,8 @@ public sealed record AssemblyMemberSourceRequest
         return new AssemblyMemberSourceRequest(
             AssemblyTypeSourceRequest.GetDefinitionName(type),
             ApiMemberIdentity.GetMemberAnchor(type, member),
-            metadataToken);
+            metadataToken,
+            printerOptions);
     }
 }
 
@@ -545,7 +560,8 @@ public static class AssemblyContextSourceQuery
                 target.Type,
                 target.Member,
                 decompilerAssembly,
-                bindingPolicy);
+                bindingPolicy,
+                printerOptions: request.PrinterOptions);
         bindingPolicy.ThrowIfObserved();
         cancellationToken.ThrowIfCancellationRequested();
         EnsureBindingPolicyVersion(
@@ -668,7 +684,8 @@ public static class AssemblyContextSourceQuery
             MemberBodyProducer.Project(
                 target,
                 decompilerAssembly,
-                bindingPolicy);
+                bindingPolicy,
+                printerOptions: request.PrinterOptions);
         bindingPolicy.ThrowIfObserved();
         cancellationToken.ThrowIfCancellationRequested();
         EnsureBindingPolicyVersion(
@@ -708,7 +725,8 @@ public static class AssemblyContextSourceQuery
             context.Log,
             context.CacheOnly,
             context.NuGetSourceOptions,
-            cancellationToken);
+            cancellationToken,
+            context.SymbolAcquisitionLimits);
 
     internal static async Task<SourceLinkOpenResult> OpenSourceLinkAsync(
         ResolvedAssemblyReference retained,

@@ -394,6 +394,313 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void Compare_ControlFlowGateFailsClosedOnPinnedMethodSampleChange()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Before", raised: true)],
+            schemaVersion: 6);
+        var current = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("After", raised: true)],
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow site pinned method sample differs (missing 1, added 1)",
+            regressions);
+    }
+
+    [Fact]
+    public void Compare_PreV6BaselineFailsClosedControlFlowGate()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 5);
+        var current = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: false)],
+            schemaVersion: 6);
+
+        var transitions = CorpusSensor.PinnedControlFlowTransitions(baseline, current);
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+        string card = CorpusSensor.QualityDiffCardForTesting(
+            baseline,
+            current,
+            regressions);
+
+        Assert.True(transitions.Available);
+        Assert.Contains(
+            "control-flow site baseline schema is v5; expected v6 or later",
+            regressions);
+        Assert.Contains(
+            "Pinned control-flow raise gate: 1 comparison input mismatch(es); review required.",
+            card);
+    }
+
+    [Fact]
+    public void Compare_ProfileMismatchExplainsUnavailableControlFlowGate()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            pinnedMethods: null,
+            profile: CorpusProfile.OptInNet11);
+        var current = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 6);
+
+        var transitions = CorpusSensor.PinnedControlFlowTransitions(baseline, current);
+        string card = CorpusSensor.QualityDiffCardForTesting(
+            baseline,
+            current,
+            regressions: []);
+
+        Assert.False(transitions.Available);
+        Assert.Contains(
+            "Pinned control-flow raise gate: unavailable "
+                + "(requires matching real-world corpus profiles).",
+            card);
+    }
+
+    [Fact]
+    public void Compare_SchemaV6BaselineWithoutMethodLedgerFailsClosed()
+    {
+        var baseline = Snapshot(1, 0, 0, pinnedMethods: null, schemaVersion: 6);
+        var current = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow site baseline is schema v6 or later but has no method ledger",
+            regressions);
+    }
+
+    [Fact]
+    public void Compare_CurrentSnapshotBeforeSchemaV6FailsClosed()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 6);
+        var current = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 5);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow site current snapshot schema is v5; expected v6 or later",
+            regressions);
+    }
+
+    [Fact]
+    public void Compare_SchemaV6CurrentWithoutMethodLedgerFailsClosed()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Stable", raised: true)],
+            schemaVersion: 6);
+        var current = Snapshot(1, 0, 0, pinnedMethods: null, schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow site current snapshot is schema v6 or later but has no method ledger",
+            regressions);
+    }
+
+    [Fact]
+    public void MethodDeltas_ReportControlFlowSiteChanges()
+    {
+        var baseline = ControlFlowMethod("Changed", raised: true);
+        var current = ControlFlowMethod("Changed", raised: false);
+
+        Assert.Contains(
+            "controlFlowSites",
+            CorpusSensor.MethodDeltasForTesting(baseline, current));
+    }
+
+    [Fact]
+    public void MethodDeltas_PreV6ComparisonIgnoresControlFlowSites()
+    {
+        var baseline = ControlFlowMethod("Changed", raised: true) with
+        {
+            ControlFlowSites = null,
+        };
+        var current = ControlFlowMethod("Changed", raised: false);
+
+        Assert.DoesNotContain(
+            "controlFlowSites",
+            CorpusSensor.MethodDeltasForTesting(
+                baseline,
+                current,
+                compareControlFlowSites: false));
+    }
+
+    [Fact]
+    public void ControlFlowSites_SerializeCompactlyAndRoundTrip()
+    {
+        var method = SnapshotMethod("RoundTrip") with
+        {
+            ControlFlowSites =
+            [
+                new("switch-branch", 0x10, 0, Raised: true),
+                new("leave", 0x20, 1, Raised: false),
+                new(
+                    "conditional-branch",
+                    0x30,
+                    0,
+                    Raised: false,
+                    OutputIdentity: "output@conditional-branch@block_IL_0030->IL_0040#0"),
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(method);
+        var restored = JsonSerializer.Deserialize<CorpusMethodSnapshot>(json);
+
+        Assert.Contains(
+            "\"ControlFlowSites\":\"switch-branch|16|0|1;leave|32|1|0;"
+                + "conditional-branch|48|0|0|output@conditional-branch@block_IL_0030-"
+                + "\\u003EIL_0040#0\"",
+            json);
+        Assert.NotNull(restored);
+        Assert.Equal(method.ControlFlowSites, restored.ControlFlowSites);
+    }
+
+    [Fact]
+    public void ControlFlowSites_EmptySwitchOutputIdentityRoundTrips()
+    {
+        var method = SnapshotMethod("EmptySwitch") with
+        {
+            ControlFlowSites =
+            [
+                new(
+                    "switch-branch",
+                    0x10,
+                    0,
+                    Raised: false,
+                    OutputIdentity: "output@switch-branch@block_IL_0010->#0"),
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(method);
+        var restored = JsonSerializer.Deserialize<CorpusMethodSnapshot>(json);
+
+        Assert.NotNull(restored);
+        Assert.Equal(method.ControlFlowSites, restored.ControlFlowSites);
+    }
+
+    [Fact]
+    public void ControlFlowSites_RejectMalformedCompactEncoding()
+    {
+        var method = SnapshotMethod("Malformed") with
+        {
+            ControlFlowSites = [new("branch", 0x10, 0, Raised: true)],
+        };
+        string json = JsonSerializer.Serialize(method)
+            .Replace(
+                "branch|16|0|1",
+                "branch|-1|0|raised",
+                StringComparison.Ordinal);
+
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<CorpusMethodSnapshot>(json));
+    }
+
+    [Fact]
+    public void ControlFlowSites_RejectDuplicateStableKeys()
+    {
+        var method = SnapshotMethod("Duplicate") with
+        {
+            ControlFlowSites = [new("branch", 0x10, 0, Raised: true)],
+        };
+        string json = JsonSerializer.Serialize(method)
+            .Replace(
+                "branch|16|0|1",
+                "branch|16|0|1;branch|16|0|1",
+                StringComparison.Ordinal);
+
+        var error = Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<CorpusMethodSnapshot>(json));
+        Assert.Contains("Duplicate control-flow site key", error.Message);
+    }
+
+    [Fact]
+    public void ControlFlowSites_RejectMalformedOutputIdentity()
+    {
+        var method = OutputControlFlowMethod("MalformedOutput", hasResidual: true);
+        string json = JsonSerializer.Serialize(method)
+            .Replace(
+                "block_IL_0010",
+                "block_IL_NOTHEX",
+                StringComparison.Ordinal);
+
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<CorpusMethodSnapshot>(json));
+    }
+
+    [Fact]
+    public void ControlFlowSites_RejectMultipleTargetsForSingleTargetTransfer()
+    {
+        var method = OutputControlFlowMethod("MalformedOutput", hasResidual: true);
+        string json = JsonSerializer.Serialize(method)
+            .Replace(
+                "IL_0020#0",
+                "IL_0020,IL_0030#0",
+                StringComparison.Ordinal);
+
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<CorpusMethodSnapshot>(json));
+    }
+
+    [Fact]
     public void FeatureCoverageFailures_RejectsMissingOptInEvidence()
     {
         var snapshot = Snapshot(
@@ -560,12 +867,14 @@ public class CorpusSensorComparisonTests
             totalMethods: 100,
             fullyRaisedMethods: 90,
             fullyRaisedBasisPoints: 9000,
-            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0));
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0),
+            schemaVersion: 6);
         var current = Snapshot(
             totalMethods: 110,
             fullyRaisedMethods: 88,
             fullyRaisedBasisPoints: 8000,
-            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0));
+            pinnedMethods: PinnedMethods(fullyRaised: 9, conditional: 0),
+            schemaVersion: 6);
 
         var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
 
@@ -608,6 +917,630 @@ public class CorpusSensorComparisonTests
         var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
 
         Assert.Contains(regressions, regression => regression.StartsWith("detected lowering residue rate (pinned) increased", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_ObservesCompilerProducedSwitchRaise()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var raisedFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        var residualFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        var repeatedFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        Assert.NotNull(raisedFunction);
+        Assert.NotNull(residualFunction);
+        Assert.NotNull(repeatedFunction);
+
+        var raisedSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            raisedFunction,
+            IrPasses.Default,
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var repeatedSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            repeatedFunction,
+            IrPasses.Default,
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var withoutSwitchRaising = IrPasses.Default
+            .Where(static pass => pass is not SwitchRaisingPass)
+            .ToImmutableArray();
+        var residualSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            residualFunction,
+            withoutSwitchRaising,
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+
+        Assert.Equal(raisedSites, repeatedSites);
+        var raisedSwitch = Assert.Single(
+            raisedSites,
+            static site => site.Kind == "switch-branch");
+        var residualSwitch = Assert.Single(
+            residualSites,
+            static site => site.Kind == "switch-branch");
+        Assert.Equal(raisedSwitch.StableKey, residualSwitch.StableKey);
+        Assert.True(raisedSwitch.Raised);
+        Assert.False(residualSwitch.Raised);
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_TreatsRebuiltEquivalentTransferAsResidual()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var originalFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        var rebuiltFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        Assert.NotNull(originalFunction);
+        Assert.NotNull(rebuiltFunction);
+
+        var originalSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            originalFunction,
+            [],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var rebuiltSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            rebuiltFunction,
+            [new RebuildSwitchBranchPass()],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+
+        Assert.Equal(originalSites, rebuiltSites);
+        Assert.False(Assert.Single(
+            rebuiltSites,
+            static site => site.Kind == "switch-branch").Raised);
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_TreatsReparentedEquivalentTransferAsResidual()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var originalFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        var reparentedFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.SwitchCaseContinueInLoop));
+        Assert.NotNull(originalFunction);
+        Assert.NotNull(reparentedFunction);
+
+        var originalSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            originalFunction,
+            [],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var reparentedSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            reparentedFunction,
+            [new ReparentSwitchBranchPass()],
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+
+        Assert.Equal(originalSites, reparentedSites);
+        Assert.False(Assert.Single(
+            reparentedSites,
+            static site => site.Kind == "switch-branch").Raised);
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_DistinguishesNestedFunctionOwners()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var firstFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoLocalFunctionQuadrants));
+        var secondFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoLocalFunctionQuadrants));
+        Assert.NotNull(firstFunction);
+        Assert.NotNull(secondFunction);
+
+        var firstSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            firstFunction,
+            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantA")),
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var secondSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            secondFunction,
+            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var firstOutput = Assert.Single(
+            firstSites,
+            static site => site.OutputIdentity is not null && site.Kind == "branch");
+        var secondOutput = Assert.Single(
+            secondSites,
+            static site => site.OutputIdentity is not null && site.Kind == "branch");
+
+        Assert.NotEqual(firstOutput.StableKey, secondOutput.StableKey);
+        Assert.Contains(
+            $"@local_n{System.Convert.ToHexString("QuadrantA"u8)}",
+            firstOutput.StableKey,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"@local_n{System.Convert.ToHexString("QuadrantB"u8)}",
+            secondOutput.StableKey,
+            StringComparison.Ordinal);
+        var method = SnapshotMethod("NestedOwner") with
+        {
+            ControlFlowSites = [firstOutput, secondOutput],
+        };
+        string json = JsonSerializer.Serialize(method);
+        var restored = JsonSerializer.Deserialize<CorpusMethodSnapshot>(json);
+        Assert.NotNull(restored);
+        Assert.Equal(method.ControlFlowSites, restored.ControlFlowSites);
+    }
+
+    [Fact]
+    public void ControlFlowSiteLedger_NestedOwnerIdentitySurvivesSiblingCoverageChange()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var baselineFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoLocalFunctionQuadrants));
+        var currentFunction = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.TwoLocalFunctionQuadrants));
+        Assert.NotNull(baselineFunction);
+        Assert.NotNull(currentFunction);
+
+        var baselineSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            baselineFunction,
+            IrPasses.Default
+                .Add(new RemoveLocalFunctionPass("QuadrantA"))
+                .Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var currentSites = CorpusSensor.CaptureControlFlowSitesForTesting(
+            currentFunction,
+            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            PassContext.ForImport(method => IrImporter.Import(source, method)));
+        var baselineOutput = Assert.Single(
+            baselineSites,
+            static site => site.OutputIdentity is not null && site.Kind == "branch");
+        var currentOutput = Assert.Single(
+            currentSites,
+            static site => site.OutputIdentity is not null && site.Kind == "branch");
+
+        Assert.Equal(baselineOutput.StableKey, currentOutput.StableKey);
+    }
+
+    [Fact]
+    public void Compare_ControlFlowLossCannotBeOffsetByUnrelatedGain()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 5_000,
+            pinnedMethods:
+            [
+                ControlFlowMethod("Lost", raised: true),
+                ControlFlowMethod("Gained", raised: false),
+            ],
+            schemaVersion: 6);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 1,
+            fullyRaisedBasisPoints: 5_000,
+            pinnedMethods:
+            [
+                ControlFlowMethod("Lost", raised: false),
+                ControlFlowMethod("Gained", raised: true),
+            ],
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow raise lost: nuget:pinned/lib.dll!T::Lost()/switch-branch@IL_0010#0",
+            regressions);
+        var transitions = CorpusSensor.PinnedControlFlowTransitions(baseline, current);
+        Assert.Empty(transitions.SampleMismatches);
+        Assert.Single(transitions.Losses);
+        Assert.Single(transitions.Gains);
+    }
+
+    [Fact]
+    public void Compare_PinnedFullyRaisedLossCannotBeOffsetByGain()
+    {
+        var lost = SnapshotMethod("Lost");
+        var gained = SnapshotMethod("Gained") with
+        {
+            Fidelity = "Partial",
+            FullyRaised = false,
+            Residual = "fidelity: DEC0009",
+        };
+        var baseline = Snapshot(2, 1, 5_000, [lost, gained]);
+        var current = Snapshot(
+            2,
+            1,
+            5_000,
+            [
+                lost with
+                {
+                    Fidelity = "Partial",
+                    FullyRaised = false,
+                    Residual = "fidelity: DEC0009",
+                },
+                gained with
+                {
+                    Fidelity = "Full",
+                    FullyRaised = true,
+                    Residual = null,
+                },
+            ]);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression.Contains(
+                "fully raised method lost (pinned): nuget:pinned/lib.dll!T::Lost()",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_PinnedFullFidelityLossCannotBeOffsetByGainOrValidityCoverageChange()
+    {
+        var lost = SnapshotMethod("Lost", validity: "valid") with
+        {
+            FullyRaised = false,
+            Residual = "structuring: conditional-branch",
+        };
+        var gained = SnapshotMethod("Gained") with
+        {
+            Fidelity = "Partial",
+            FullyRaised = false,
+            Residual = "fidelity: DEC0009",
+        };
+        var baseline = Snapshot(
+            2,
+            0,
+            0,
+            [lost, gained],
+            semanticCheckedMethods: 1);
+        var current = Snapshot(
+            2,
+            0,
+            0,
+            [
+                lost with
+                {
+                    Fidelity = "Partial",
+                    Residual = "fidelity: DEC0009",
+                    Validity = "syntax-valid",
+                },
+                gained with
+                {
+                    Fidelity = "Full",
+                    Residual = "structuring: conditional-branch",
+                },
+            ]);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "Full fidelity method lost (pinned): "
+                + "nuget:pinned/lib.dll!T::Lost() -> fidelity: DEC0009",
+            regressions);
+        Assert.DoesNotContain(
+            regressions,
+            regression => regression.Contains(
+                "nuget:pinned/lib.dll!T::Gained()",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_PinnedValidityLossCannotBeOffsetByGain()
+    {
+        var baseline = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                SnapshotMethod("Lost", validity: "valid"),
+                SnapshotMethod("Gained", validity: "semantic-defect:CS0159"),
+            ],
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+        var current = Snapshot(
+            totalMethods: 2,
+            fullyRaisedMethods: 2,
+            fullyRaisedBasisPoints: 10_000,
+            pinnedMethods:
+            [
+                SnapshotMethod("Lost", validity: "semantic-defect:CS0159"),
+                SnapshotMethod("Gained", validity: "valid"),
+            ],
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "valid method regressed (pinned): "
+                + "nuget:pinned/lib.dll!T::Lost() -> semantic-defect:CS0159",
+            regressions);
+    }
+
+    [Theory]
+    [InlineData("not-sampled")]
+    [InlineData("syntax-valid")]
+    public void Compare_PinnedValidityCoverageChangeIsNotARegression(string currentValidity)
+    {
+        var baseline = Snapshot(
+            1,
+            1,
+            10_000,
+            [SnapshotMethod("Stable", validity: "valid")],
+            semanticCheckedMethods: 1);
+        var current = Snapshot(
+            1,
+            1,
+            10_000,
+            [SnapshotMethod("Stable", validity: currentValidity)],
+            semanticCheckedMethods: currentValidity == "syntax-valid" ? 0 : 1);
+
+        var regressions = CorpusSensor.PinnedMethodRegressions(baseline, current);
+
+        Assert.DoesNotContain(
+            regressions,
+            regression => regression.StartsWith(
+                "valid method regressed (pinned)",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_PinnedMethodGateFailsClosedWithoutBaselineLedger()
+    {
+        var baseline = Snapshot(1, 1, 10_000, pinnedMethods: null);
+        var current = Snapshot(1, 1, 10_000, [SnapshotMethod("Stable")]);
+
+        Assert.Contains(
+            "pinned method baseline has no method ledger",
+            CorpusSensor.PinnedMethodRegressions(baseline, current));
+    }
+
+    [Fact]
+    public void Compare_PinnedMethodGateFailsClosedWithoutCurrentLedger()
+    {
+        var baseline = Snapshot(1, 1, 10_000, [SnapshotMethod("Stable")]);
+        var current = Snapshot(1, 1, 10_000, pinnedMethods: null);
+
+        Assert.Contains(
+            "pinned method current snapshot has no method ledger",
+            CorpusSensor.PinnedMethodRegressions(baseline, current));
+    }
+
+    [Fact]
+    public void Compare_ControlFlowLossWithinSameMethodCannotBeOffset()
+    {
+        var baselineMethod = SnapshotMethod("TwoDispatches") with
+        {
+            ControlFlowSites =
+            [
+                new("switch-branch", 0x10, 0, Raised: true),
+                new("switch-branch", 0x20, 0, Raised: false),
+            ],
+        };
+        var currentMethod = baselineMethod with
+        {
+            ControlFlowSites =
+            [
+                new("switch-branch", 0x10, 0, Raised: false),
+                new("switch-branch", 0x20, 0, Raised: true),
+            ],
+        };
+        var baseline = Snapshot(1, 0, 0, [baselineMethod], schemaVersion: 6);
+        var current = Snapshot(1, 0, 0, [currentMethod], schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            regression => regression.EndsWith(
+                "TwoDispatches()/switch-branch@IL_0010#0",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_ControlFlowGateIgnoresRepoAssemblyChurn()
+    {
+        var baseline = Snapshot(
+            2,
+            0,
+            0,
+            [
+                ControlFlowMethod("Pinned", raised: true),
+                ControlFlowMethod("RepoMethod", raised: true, assemblyPath: "artifacts/bin/Product.dll"),
+            ],
+            schemaVersion: 6);
+        var current = Snapshot(
+            2,
+            0,
+            0,
+            [
+                ControlFlowMethod("Pinned", raised: true),
+                ControlFlowMethod("RepoMethod", raised: false, assemblyPath: "artifacts/bin/Product.dll"),
+            ],
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.DoesNotContain(
+            regressions,
+            regression => regression.StartsWith("control-flow", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_ControlFlowGateFailsClosedOnPinnedSiteSampleChange()
+    {
+        var baseline = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Changed", raised: true)],
+            schemaVersion: 6);
+        var currentMethod = ControlFlowMethod("Changed", raised: true) with
+        {
+            ControlFlowSites = [new("switch-branch", 0x20, 0, Raised: true)],
+        };
+        var current = Snapshot(1, 0, 0, [currentMethod], schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow imported site sample differs for nuget:pinned/lib.dll!T::Changed() (missing 1, added 1)",
+            regressions);
+    }
+
+    [Fact]
+    public void Compare_NewOutputResidualIsLossAndRemovedOutputResidualIsGain()
+    {
+        var baseline = Snapshot(
+            2,
+            0,
+            0,
+            [
+                OutputControlFlowMethod("Lost", hasResidual: false),
+                OutputControlFlowMethod("Gained", hasResidual: true),
+            ],
+            schemaVersion: 6);
+        var current = Snapshot(
+            2,
+            0,
+            0,
+            [
+                OutputControlFlowMethod("Lost", hasResidual: true),
+                OutputControlFlowMethod("Gained", hasResidual: false),
+            ],
+            schemaVersion: 6);
+
+        var transitions = CorpusSensor.PinnedControlFlowTransitions(baseline, current);
+        var regressions = CorpusSensor.Compare(
+            baseline,
+            current,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Single(transitions.Losses);
+        Assert.Single(transitions.Gains);
+        Assert.Contains(
+            regressions,
+            regression => regression.Contains(
+                "T::Lost()/conditional-branch:output@conditional-branch@block_IL_0010->IL_0020#0",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_EmptyPinnedControlFlowDomainFailsClosed()
+    {
+        var snapshot = Snapshot(
+            1,
+            0,
+            0,
+            [ControlFlowMethod("Repo", raised: true, assemblyPath: "artifacts/bin/Product.dll")],
+            schemaVersion: 6);
+
+        var regressions = CorpusSensor.Compare(
+            snapshot,
+            snapshot,
+            [],
+            gateAggregateRates: false);
+
+        Assert.Contains(
+            "control-flow pinned method domain is empty (baseline 0, current 0)",
+            regressions);
+    }
+
+    [Fact]
+    public void PortablePath_UsesConfiguredNuGetPackageRoot()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "custom-nuget-root");
+        string assembly = Path.Combine(
+            root,
+            "newtonsoft.json",
+            "13.0.4",
+            "lib",
+            "net6.0",
+            "Newtonsoft.Json.dll");
+
+        Assert.Equal(
+            "nuget:newtonsoft.json/13.0.4/lib/net6.0/Newtonsoft.Json.dll",
+            CorpusSensor.PortablePath(assembly, root));
+    }
+
+    [Fact]
+    public void PortablePath_DoesNotTreatConfiguredRootAncestorAsNuGetPackage()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "workspace-root");
+        string assembly = Path.Combine(
+            root,
+            "src",
+            "Product",
+            "release",
+            "Product.dll");
+
+        Assert.False(
+            CorpusSensor.PortablePath(assembly, root)
+                .StartsWith("nuget:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PortablePath_DefaultNuGetCacheIgnoresUnrelatedConfiguredRoot()
+    {
+        string assembly = Path.Combine(
+            Path.DirectorySeparatorChar.ToString(),
+            "home",
+            "runner",
+            ".nuget",
+            "packages",
+            "newtonsoft.json",
+            "13.0.4",
+            "lib",
+            "net6.0",
+            "Newtonsoft.Json.dll");
+
+        Assert.Equal(
+            "nuget:newtonsoft.json/13.0.4/lib/net6.0/Newtonsoft.Json.dll",
+            CorpusSensor.PortablePath(
+                assembly,
+                Path.Combine(Path.GetTempPath(), "custom-nuget-root")));
     }
 
     [Fact]
@@ -885,7 +1818,7 @@ public class CorpusSensorComparisonTests
         Assert.NotNull(restored);
         Assert.Equal(4, restored.SchemaVersion);
         Assert.Equal(0, restored.Metrics.Fidelity.ContractVersion);
-        Assert.Equal(5, CorpusSensor.CurrentSchemaVersion);
+        Assert.Equal(6, CorpusSensor.CurrentSchemaVersion);
         Assert.Equal(
             FidelityCheck.CurrentContractVersion,
             CorpusSensor.CurrentFidelityContractVersion);
@@ -1404,10 +2337,11 @@ public class CorpusSensorComparisonTests
         ReturnToSenderParityMetrics? returnToSenderParity = null,
         CorpusProfile profile = CorpusProfile.RealWorld,
         IReadOnlyDictionary<string, int>? featureCoverage = null,
-        IReadOnlyDictionary<string, ClassicStateMachineFeatureMetrics>? classicStateMachineCoverage = null)
+        IReadOnlyDictionary<string, ClassicStateMachineFeatureMetrics>? classicStateMachineCoverage = null,
+        int schemaVersion = 1)
     {
         return new CorpusSensorSnapshot(
-            SchemaVersion: 1,
+            SchemaVersion: schemaVersion,
             Description: "test",
             GeneratedUtc: DateTimeOffset.UnixEpoch,
             ValidityCompileCap: validityCompileCap,
@@ -1533,7 +2467,8 @@ public class CorpusSensorComparisonTests
                 Residual: isConditional ? "structuring: conditional-branch" : isFullyRaised ? null : "fidelity: unsupported-node",
                 PassBug: null,
                 Validity: "not-sampled",
-                FidelityCheck: "not-sampled"));
+                FidelityCheck: "not-sampled",
+                ControlFlowSites: [new("branch", 0x10 + i, 0, Raised: true)]));
         }
         return methods.ToImmutable();
     }
@@ -1573,6 +2508,88 @@ public class CorpusSensorComparisonTests
             Validity: validity,
             FidelityCheck: fidelityCheck,
             FidelityReference: fidelityReference);
+
+    static CorpusMethodSnapshot ControlFlowMethod(
+        string method,
+        bool raised,
+        string assemblyPath = "nuget:pinned/lib.dll")
+        => SnapshotMethod(method, assemblyPath) with
+        {
+            ControlFlowSites = [new("switch-branch", 0x10, 0, raised)],
+        };
+
+    static CorpusMethodSnapshot OutputControlFlowMethod(
+        string method,
+        bool hasResidual)
+        => SnapshotMethod(method, "nuget:pinned/lib.dll") with
+        {
+            ControlFlowSites = hasResidual
+                ?
+                [
+                    new("switch-branch", 0x08, 0, Raised: true),
+                    new(
+                        "conditional-branch",
+                        0x10,
+                        0,
+                        Raised: false,
+                        OutputIdentity: "output@conditional-branch@block_IL_0010->IL_0020#0"),
+                ]
+                : [new("switch-branch", 0x08, 0, Raised: true)],
+        };
+
+    sealed class RebuildSwitchBranchPass : IIrPass
+    {
+        public string Name => "rebuild-switch-branch";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            var branch = Assert.Single(function.Descendants.OfType<SwitchBranch>());
+            branch.ReplaceWith(branch.Clone());
+        }
+    }
+
+    sealed class ReparentSwitchBranchPass : IIrPass
+    {
+        public string Name => "reparent-switch-branch";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            var branch = Assert.Single(function.Descendants.OfType<SwitchBranch>());
+            var block = Assert.IsType<Block>(branch.Parent);
+            var replacement = new Block(block.StartOffset + 1);
+            foreach (var child in block.DetachChildren())
+                replacement.Add(child);
+            block.ReplaceWith(replacement);
+        }
+    }
+
+    sealed class ReplaceLocalFunctionBodyWithBranchPass(string name) : IIrPass
+    {
+        public string Name => "replace-local-function-body-with-branch";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            var localFunction = Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                local => local.Name == name);
+            var block = localFunction.Body.Blocks[0];
+            block.DetachChildren();
+            block.Add(new Branch(block.StartOffset));
+        }
+    }
+
+    sealed class RemoveLocalFunctionPass(string name) : IIrPass
+    {
+        public string Name => "remove-local-function";
+
+        public void Run(IrFunction function, PassContext context)
+        {
+            var localFunction = Assert.Single(
+                function.Descendants.OfType<LocalFunctionStatement>(),
+                local => local.Name == name);
+            localFunction.Detach();
+        }
+    }
 
     static CorpusMethodSnapshot ClassicKickoff(
         string method,
@@ -1694,6 +2711,7 @@ public class CorpusSensorComparisonTests
             + "- Sample: hash-stable 100 methods per assembly\n\n"
             + "**Analysis**\n\n"
             + "- Correctness coverage: validity compiled 2 methods (compile-cap 2; per-sample, not corpus-wide); fidelity not run\n"
+            + "- Pinned control-flow raise gate: 1 comparison input mismatch(es); review required.\n"
             + "- Current measured debt: 900 methods with detected lowering residue; 42 malformed Full methods; 1 semantic defect among 2 checked.\n"
             + "- Regression verdict: FAIL — corpus sensor reported regressions; review before merging.\n",
             card);
