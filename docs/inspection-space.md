@@ -296,6 +296,15 @@ descriptor.
 `InspectionWorkspaceTests` gates policy-version consistency, immutable snapshot
 isolation, callback and span lifetimes, concurrent disposal, bounded retention,
 per-participant single-flight acquisition, and typed acquisition failures.
+When stream inspection is already propagating cancellation or a fatal failure,
+owned-stream cleanup cannot replace that primary failure.
+`AssemblyContextSourceQueryTests.SnapshotPrimaryFailure_IsNotMaskedByCleanupFailure`
+gates the end-to-end member and type paths, while
+`PdbContextDescriptorTests.DescriptorOpenPrimaryFailure_IsNotMaskedByCleanupFailure`
+gates descriptor-backed metadata contexts, assembly images, and prefetched
+sessions, and
+`PdbContextDescriptorTests.PdbContextConstructionPrimaryFailure_ReleasesOwnedStream`
+gates the post-reader context-construction boundary.
 `InspectionWorkspaceTests.OwnedResources_AreDisposedBeforeSnapshots` gates the
 derived-resource-before-snapshot disposal order.
 `InspectionWorkspaceTests.AsyncParticipantRelease_PreservesOwnedResourceDisposalOrder`
@@ -447,6 +456,60 @@ gates the compiled multi-assembly path, while
 `Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities` gates the rule that
 matching metadata identity or display text cannot replace acquisition
 registration.
+The query's `InspectionGraphModeRequest` now distinguishes seed intent from
+that workspace scope. Its request-free overload explicitly produces a
+workspace-participant induced set; type and assembly seeds bind exact nodes,
+package seeds bind exact package groups in the detailed Integration lens, and
+mixed peers remain equal. Mode binding happens after the same deterministic
+full producer plan, so the existing mode-only overloads do not change
+occurrence identity or semantic edge direction. Integration relationship
+descriptors declare whether a seed may enter as a logical edge endpoint, an
+original occurrence endpoint, or through strict typed ownership.
+`Execute_DefaultsToWorkspaceInducedSetWithoutSeeds`,
+`Execute_BindsTypeSeedToExactNode`,
+`Execute_BindsAssemblySeedToExactNode`,
+`Execute_BindsPackageSeedToDetailedLensGroup`,
+`Execute_BindsPeerSeedsWithoutChoosingPrimary`, and
+`PackageAndTypeModesShareSemanticIntegrationOccurrences` gate those claims.
+`RelationshipCatalogsDeclareCurrentSeedAdmissions`,
+`RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`, and
+`AdmissionsMatchDeclaredEndpointDomains` gate the catalog declarations and
+their endpoint constraints.
+
+`InspectionGraphNeighborhoodRequest` now makes those declarations load-bearing
+for single- and peer-seed Integration graphs. The request keeps mode, selected
+relationships, semantic direction, and finite edge depth separate. Every seed
+must have compatible directional admission before the registry runs. The
+selected relationships request only extension, reference, Integration, or
+opportunity queries they require; seed count does not multiply producer work.
+The registry still expands typed prerequisites and runs them once in
+registration order. Opportunity activates both extension and
+Integration evidence because fulfillment suppression composes those results
+before projecting opportunity edges; it does not activate unrelated reference
+scans.
+
+The completed evidence is projected sequentially into a dense bounded document.
+Incoming traversal does not reverse stored semantic direction, original
+occurrence receipts and identity survive id remapping, and failures from the
+requested relationship producers and their required composition prerequisites
+remain visible beside reached topology. Peer projection is a deterministic
+multi-source union: every peer begins at depth zero, shared evidence is retained
+once, and an admissible disconnected peer remains explicit rather than
+disappearing.
+`Execute_SelectedRelationshipsControlProducerDemand`,
+`Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression`,
+`Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures`,
+`Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
+`Execute_PackageSeedExpandsThroughOwnedSourceSubjects`,
+`Execute_OpportunitySourceTypeUsesOccurrenceAdmission`, and
+`Execute_NeighborhoodRetainsSelectedProducerFailures` gate the planner,
+ownership, receipt, and failure contracts.
+`Execute_PeerNeighborhoodConnectsEqualSeeds`,
+`Execute_ZeroDepthPeerNeighborhoodRetainsEverySeed`, and
+`Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed` gate deterministic
+multi-source projection without a primary focus.
+`Execute_PeerCountDoesNotMultiplyProducerDemand` gates once-per-plan producer
+execution independently of peer count.
 `GroupedIntegrationsFailure_IsVisibleAndDeduplicated` gates diagnostic
 composition and the shared nonzero completion status used after Markdown,
 count, tabular, or JSON output.

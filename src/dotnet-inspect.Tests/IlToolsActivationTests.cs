@@ -743,7 +743,7 @@ public class IlToolsActivationTests
             "\n    steps:\n",
             StringComparison.Ordinal);
         Assert.True(stepsStart >= 0);
-        Assert.Contains("timeout-minutes: 40", job[..stepsStart]);
+        Assert.Contains("timeout-minutes: 55", job[..stepsStart]);
 
         int install = job.IndexOf(
             "- name: Install ilasm/ildasm",

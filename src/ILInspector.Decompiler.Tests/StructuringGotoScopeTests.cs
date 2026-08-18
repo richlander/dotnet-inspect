@@ -189,6 +189,147 @@ public class StructuringGotoScopeTests
         Assert.DoesNotContain("IL_0018:", output);
     }
 
+    [Theory]
+    [InlineData(0x0077, 0x0062, false)]
+    [InlineData(0x005E, 0x0062, false)]
+    [InlineData(0x005E, 0x0015, false)]
+    [InlineData(0x005E, 0x0015, true)]
+    [InlineData(0x005E, 0x0013, false)]
+    public void RegionExitLeaveWithDescendantBodyEntry_DoesNotBecomeBreak(
+        int targetOffset,
+        int sourceOffset,
+        bool useLeave)
+    {
+        var function = CollectValidDoublesBeforeStructuring();
+
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        var sourceBlock = Assert.Single(
+            tryFinally.TryBody.Blocks,
+            block => block.StartOffset == sourceOffset);
+        var alternateExitArm = new Block();
+        alternateExitArm.Add(useLeave
+            ? new Leave(targetOffset)
+            : new Branch(targetOffset));
+        var alternateExit = new IfStatement(
+            new Comparison(
+                ComparisonKind.Equal,
+                isUnsigned: false,
+                new LoadLocal(2, Int32),
+                new Constant(0, Int32)),
+            alternateExitArm,
+            elseArm: null);
+        if (sourceBlock.Children[^1] is ConditionalBranch terminator)
+        {
+            terminator.Detach();
+            sourceBlock.Add(alternateExit);
+            sourceBlock.Add(terminator);
+        }
+        else
+        {
+            sourceBlock.Add(alternateExit);
+        }
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        string output = CSharpPrinter.Print(function).Output ?? "";
+        Assert.True(function.Descendants.OfType<Leave>().Any(leave => leave.TargetOffset == 0x0087), output);
+        Assert.Empty(function.Descendants.OfType<Break>());
+    }
+
+    [Fact]
+    public void RegionExitLeaveWithSideEffectingTail_DoesNotBecomeBreak()
+    {
+        var function = CollectValidDoublesBeforeStructuring();
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        var tail = Assert.Single(
+            tryFinally.TryBody.Blocks,
+            block => block.StartOffset == 0x0077);
+        Assert.Empty(tail.Children);
+        tail.Add(new StoreLocal(2, Int32, new Constant(0, Int32)));
+        tail.Add(new Leave(0x0087));
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        string output = CSharpPrinter.Print(function).Output ?? "";
+        Assert.True(function.Descendants.OfType<Leave>().Any(leave => leave.TargetOffset == 0x0087), output);
+        Assert.Empty(function.Descendants.OfType<Break>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RegionExitLeaveWithPreheaderEntryToDirectTarget_DoesNotBecomeBreak(
+        bool useSwitch)
+    {
+        var function = CollectValidDoublesBeforeStructuring();
+        var tryFinally = Assert.Single(function.Descendants.OfType<TryFinally>());
+        var lastGuard = Assert.Single(
+            tryFinally.TryBody.Blocks,
+            block => block.StartOffset == 0x003C);
+        var conditional = Assert.IsType<ConditionalBranch>(lastGuard.Children[^1]);
+        var replacement = new ConditionalBranch(
+            (IrExpression)conditional.Condition.Clone(),
+            0x006E);
+        replacement.InheritSourceOffset(conditional);
+        conditional.ReplaceWith(replacement);
+
+        if (useSwitch)
+        {
+            var blocks = tryFinally.TryBody.Blocks.ToList();
+            foreach (var block in blocks)
+                block.Detach();
+            var dispatch = new Block(0x0010);
+            dispatch.Add(new SwitchBranch(new LoadLocal(2, Int32), [0x005E]));
+            tryFinally.TryBody.Add(dispatch);
+            foreach (var block in blocks)
+                tryFinally.TryBody.Add(block);
+        }
+        else
+        {
+            var preheader = Assert.Single(
+                tryFinally.TryBody.Blocks,
+                block => block.StartOffset == 0x0013);
+            var enterLoop = Assert.IsType<Branch>(preheader.Children[^1]);
+            enterLoop.Detach();
+            var alternateEntryArm = new Block();
+            alternateEntryArm.Add(new Branch(0x005E));
+            preheader.Add(new IfStatement(
+                new Comparison(
+                    ComparisonKind.Equal,
+                    isUnsigned: false,
+                    new LoadLocal(2, Int32),
+                    new Constant(0, Int32)),
+                alternateEntryArm,
+                elseArm: null));
+            preheader.Add(enterLoop);
+        }
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        string output = CSharpPrinter.Print(function).Output ?? "";
+        Assert.True(function.Descendants.OfType<Leave>().Any(leave => leave.TargetOffset == 0x0087), output);
+        Assert.Empty(function.Descendants.OfType<Break>());
+    }
+
+    static IrFunction CollectValidDoublesBeforeStructuring()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.CollectValidDoubles))!;
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass is StructuringPass)
+                break;
+            pass.Run(function, PassContext.None);
+        }
+        return function;
+    }
+
     [Fact]
     public void ClonedSharedTail_DoesNotStealCanonicalGotoLabel()
     {

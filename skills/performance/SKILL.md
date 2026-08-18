@@ -76,8 +76,10 @@ medium priority unless loop evidence proves repetition), `small-array`,
 `scan-method-in-recursive-traversal` (a scan repeated once per recursive
 traversal node), `materialize-in-loop` (a loop-invariant `ToArray`/`ToList`
 that can be hoisted), `string-build-in-loop`, `enumerator-allocation`,
-`async-state-machine`, and `allocation-hotspot`. Query the algorithmic shapes
-explicitly: scan helpers stay low-confidence because static analysis cannot
+`async-state-machine`, `sync-call-in-async` (an async method calling a
+synchronous API with a signature-compatible `Async` sibling), and
+`allocation-hotspot`. Query the algorithmic shapes explicitly:
+scan helpers stay low-confidence because static analysis cannot
 prove that the scanned sequence grows with the loop or traversal, so a
 `--min-confidence high` pass intentionally excludes them.
 
@@ -113,9 +115,15 @@ Exact rows retain machine-readable provenance from the native Analysis
 producer in structured JSON:
 `Candidate`, `Finding` (`analysis.allocation` or `analysis.call-site`),
 `Provenance=exact`,
-`Operation`, `Token`, and `IL`. Use these fields for runtime/static joins or to
-carry one triage row into the matching `diff`/`timeline` confirmation workflow
-without parsing `Evidence` text:
+`Assembly`, `MethodToken`, `Operation`, `Token`, `EvidenceMethod`, and `IL`.
+`MethodToken` identifies the source-facing member, while `EvidenceMethod`
+is present when the instruction is mapped to a separate MethodDef; for an async
+source member, it can name the generated `MoveNext` body whose offset appears in
+`IL`. The exact body coordinate is `Assembly` + (`EvidenceMethod` when present,
+otherwise `MethodToken`) + `IL`, and `Token` is the operand of `Operation`. Use
+these fields for runtime/static joins or to carry one triage row into the
+matching `diff`/`timeline` confirmation workflow without parsing `Evidence`
+text:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
@@ -128,6 +136,28 @@ Aggregate rows such as `allocation-hotspot` use `Provenance=aggregate` and have
 a `pt~` candidate id but no exact source Finding, operation, or token.
 `Provenance=unmatched` flags an instruction-level row that did not join to the
 expected producer census.
+
+## Correlate triage with an allocation trace
+
+Export nested JSON, whose deep rows carry the declaring method coordinate, then
+pass it to `runfaster` with a trace captured from the same assembly build:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
+  --where "Priority>=high" --json > triage.json
+runfaster correlate --triage triage.json --trace workload.nettrace
+```
+
+Compact `Performance:* --jsonl` rows omit deep provenance and cannot support an
+exact trace join. `runfaster` keeps their operation `Token` separate from the
+declaring `MethodToken` and reports missing runtime coordinates explicitly.
+For a filtered export, the trace join stops at the first frame in the
+represented assembly; it does not walk past an unexported in-assembly callee
+and credit an outer caller. If `--library` and `--triage` name the same physical
+candidate, the shape-compatible triage row carries the runtime evidence.
+The raw library row is marked `superseded-by-triage`, not workload-cold.
+Type-level ambiguity and its site cap count the shared coordinate once unless
+several library MVIDs make the triage row's module version ambiguous.
 
 ## Select direct caller-loop repetition
 

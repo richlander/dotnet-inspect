@@ -22,6 +22,7 @@ dnx dotnet-inspect -y -- <command>
 | Inspect a type | `type Type --package Foo`; add `--all` for non-public/hidden members. |
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
+| Discover legal query values | `vocabulary -D`; select values with `vocabulary -S Accessibility`, `-S "C# Style Choices" --json`, or `-S "C# Body Kinds"`. |
 | Find rendered body syntax | `body-shape ObjectCreationExpression --library path/to.dll`; load `skill decompiler` for stable kinds and coordinates. |
 | Compare APIs | `diff --package Foo@old..new --breaking` (`--additive` new APIs); `--alloc-regressions` for perf regressions (allocations up, hot first). |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
@@ -31,8 +32,7 @@ dnx dotnet-inspect -y -- <command>
 
 ## Member lookup
 
-Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list overloads.
-Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
+Run `find Name` when scope is unknown, inspect the type, then `-S "Member Index"` to list overloads. Select with `Name:N` (1-based) or `Name~digest` (stable). A selected overload
 defaults to `Signature`. A fully-qualified `Namespace.Type.Member` needs no scope.
 
 ```bash

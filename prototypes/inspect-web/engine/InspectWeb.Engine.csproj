@@ -28,6 +28,7 @@
     <ProjectReference Include="..\..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Vocabulary\DotnetInspector.Vocabulary.csproj" />
     <ProjectReference Include="..\..\..\src\CSharpText\CSharpText.csproj" />
     <ProjectReference Include="..\..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.CSharpBodySlicer\DotnetInspector.CSharpBodySlicer.csproj" />
@@ -38,6 +39,7 @@
     <ProjectReference Include="..\..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <Content Include="..\index.html" Link="wwwroot\index.html" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\src\app.js" Link="wwwroot\src\app.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\src\graph-mermaid.js" Link="wwwroot\src\graph-mermaid.js" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\src\annotated-source-view.js" Link="wwwroot\src\annotated-source-view.js" CopyToOutputDirectory="PreserveNewest" />
     <!--
       The AnnotatedSourceDocument model is owned by the annotated-source-viewer prototype and

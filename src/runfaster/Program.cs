@@ -45,7 +45,7 @@ static Command CreateCorrelateCommand()
 
     var triageOption = new Option<string[]>("--triage")
     {
-        Description = "dotnet-inspect Performance Triage JSONL rows to include as static candidates",
+        Description = "dotnet-inspect Performance Triage JSON or JSONL to include as static candidates",
         Arity = ArgumentArity.ZeroOrMore,
         AllowMultipleArgumentsPerToken = true
     };
@@ -385,42 +385,240 @@ static bool TryLoadTriageFile(string triageFile, CorrelationResult result, out i
         return false;
     }
 
-    int rows = 0;
     try
     {
-        foreach (var line in File.ReadLines(path))
+        int rows = 0;
+        int candidatesBefore = result.Candidates.Count;
+        try
         {
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
+            using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+            string? assembly = FindDocumentAssembly(document.RootElement);
+            AddTriageDocumentCandidates(
+                document.RootElement,
+                path,
+                assembly,
+                result.Candidates,
+                ref rows);
+        }
+        catch (JsonException)
+        {
+            foreach (var line in File.ReadLines(path))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
 
-            rows++;
-            using var document = JsonDocument.Parse(line);
-            if (TryCreateCandidateFromJson(result.Candidates.Count, path, document.RootElement, out var candidate))
-                result.Candidates.Add(candidate);
+                using var document = JsonDocument.Parse(line);
+                AddTriageCandidates(
+                    document.RootElement,
+                    path,
+                    defaultAssembly: null,
+                    result.Candidates,
+                    ref rows);
+            }
         }
 
-        result.TriageInputs.Add(new TriageInput(path, rows));
+        int loaded = result.Candidates.Count - candidatesBefore;
+        if (rows == 0)
+        {
+            Console.Error.WriteLine(
+                $"Error: triage input contains no Performance Triage rows: "
+                + $"{triageFile}");
+            exitCode = 1;
+            return false;
+        }
+
+        int correlatable = result.Candidates
+            .Skip(candidatesBefore)
+            .Count(static candidate => candidate.HasRuntimeCoordinate);
+        result.TriageInputs.Add(
+            new TriageInput(path, rows, loaded, correlatable));
         return true;
     }
     catch (Exception ex) when (ex is JsonException or IOException)
     {
-        Console.Error.WriteLine($"Error: cannot read triage JSONL '{triageFile}': {ex.Message}");
+        Console.Error.WriteLine($"Error: cannot read triage JSON/JSONL '{triageFile}': {ex.Message}");
         exitCode = 1;
         return false;
     }
 }
 
-static bool TryCreateCandidateFromJson(int id, string path, JsonElement element, out AllocationCandidate candidate)
+static void AddTriageDocumentCandidates(
+    JsonElement root,
+    string path,
+    string? defaultAssembly,
+    List<AllocationCandidate> candidates,
+    ref int rows)
+{
+    if (root.ValueKind == JsonValueKind.Object)
+    {
+        if (LooksLikeTriageRow(root))
+        {
+            AddTriageCandidates(
+                root,
+                path,
+                defaultAssembly,
+                candidates,
+                ref rows);
+        }
+        else if (root.TryGetProperty(
+                     "performance",
+                     out var performance)
+                 || root.TryGetProperty(
+                     "Performance",
+                     out performance))
+        {
+            AddTriageCandidates(
+                performance,
+                path,
+                defaultAssembly,
+                candidates,
+                ref rows);
+        }
+        return;
+    }
+
+    if (root.ValueKind == JsonValueKind.Array)
+    {
+        AddTriageCandidates(
+            root,
+            path,
+            defaultAssembly,
+            candidates,
+            ref rows);
+    }
+}
+
+static void AddTriageCandidates(
+    JsonElement element,
+    string path,
+    string? defaultAssembly,
+    List<AllocationCandidate> candidates,
+    ref int rows)
+{
+    if (element.ValueKind == JsonValueKind.Object)
+    {
+        if (LooksLikeTriageRow(element))
+        {
+            rows++;
+            if (TryCreateCandidateFromJson(
+                    candidates.Count,
+                    path,
+                    defaultAssembly,
+                    element,
+                    out var candidate))
+            {
+                candidates.Add(candidate);
+            }
+            return;
+        }
+
+        foreach (var property in element.EnumerateObject())
+            AddTriageCandidates(
+                property.Value,
+                path,
+                defaultAssembly,
+                candidates,
+                ref rows);
+        return;
+    }
+
+    if (element.ValueKind != JsonValueKind.Array)
+        return;
+
+    foreach (var item in element.EnumerateArray())
+        AddTriageCandidates(
+            item,
+            path,
+            defaultAssembly,
+            candidates,
+            ref rows);
+}
+
+static bool LooksLikeTriageRow(JsonElement element)
+{
+    if (element.ValueKind != JsonValueKind.Object)
+        return false;
+
+    bool hasMember = GetJsonString(
+            element,
+            "Method",
+            "method",
+            "Member",
+            "member") is not null;
+    bool hasKind = GetJsonString(
+            element,
+            "Shape",
+            "shape") is not null;
+    bool hasCompactPerformanceSchema =
+        GetJsonString(element, "Evidence", "evidence") is not null
+        && GetJsonString(element, "Priority", "priority") is not null
+        && GetJsonString(element, "Confidence", "confidence") is not null
+        && GetJsonString(element, "Reach", "reach") is not null;
+    return hasMember && (hasKind || hasCompactPerformanceSchema);
+}
+
+static string? FindDocumentAssembly(JsonElement root)
+{
+    if (root.ValueKind != JsonValueKind.Object)
+        return null;
+
+    if (GetJsonString(root, "Assembly", "assembly") is { Length: > 0 } assembly)
+        return assembly;
+
+    if ((root.TryGetProperty("assembly_info", out var info)
+            || root.TryGetProperty("assemblyInfo", out info))
+        && info.ValueKind == JsonValueKind.Object
+        && GetJsonString(
+            info,
+            "assembly_name",
+            "assemblyName",
+            "AssemblyName") is { Length: > 0 } assemblyName)
+    {
+        return assemblyName;
+    }
+
+    return null;
+}
+
+static bool TryCreateCandidateFromJson(
+    int id,
+    string path,
+    string? defaultAssembly,
+    JsonElement element,
+    out AllocationCandidate candidate)
 {
     candidate = default!;
     string? method = GetJsonString(element, "Method", "method", "Member", "member", "Selector", "selector", "Stable", "stable");
-    string? tokenText = GetJsonString(element, "MetadataToken", "metadataToken", "Token", "token", "MethodToken", "methodToken");
+    string? methodTokenText = GetJsonString(
+        element,
+        "Method Token",
+        "method_token",
+        "MethodToken",
+        "methodToken");
+    string? operandTokenText = GetJsonString(
+        element,
+        "MetadataToken",
+        "metadataToken",
+        "Token",
+        "token",
+        "OperandToken",
+        "operandToken",
+        "operand_token");
     string? offsetText = GetJsonString(element, "ILOffset", "ilOffset", "IL Offset", "il", "IL", "Offset", "offset");
 
-    int token = TryParseFlexibleInt(tokenText, out var parsedToken) ? parsedToken : 0;
+    int methodToken = TryParseFlexibleInt(
+        methodTokenText,
+        out var parsedMethodToken)
+        ? parsedMethodToken
+        : 0;
+    int? operandToken = TryParseFlexibleInt(
+        operandTokenText,
+        out var parsedOperandToken)
+        ? parsedOperandToken
+        : null;
     int offset = TryParseFlexibleInt(offsetText, out var parsedOffset) ? parsedOffset : -1;
 
-    if (method is null && token == 0)
+    if (method is null && methodToken == 0)
         return false;
 
     string kind = GetJsonString(element, "Shape", "shape", "Kind", "kind", "AllocationKind", "allocationKind") ?? "triage";
@@ -431,11 +629,13 @@ static bool TryCreateCandidateFromJson(int id, string path, JsonElement element,
         id,
         "triage",
         path,
-        GetJsonString(element, "Assembly", "assembly") ?? "",
+        GetJsonString(element, "Assembly", "assembly")
+            ?? defaultAssembly
+            ?? "",
         null,
-        token,
+        methodToken,
         offset,
-        method ?? DisplayHelpers.FormatToken(token),
+        method ?? DisplayHelpers.FormatToken(methodToken),
         DisplayHelpers.MethodKeyFromText(method),
         DisplayHelpers.MethodStackKeyFromText(method),
         kind,
@@ -449,12 +649,19 @@ static bool TryCreateCandidateFromJson(int id, string path, JsonElement element,
         GetJsonString(element, "Root Reach", "root_reach", "rootReach"),
         GetJsonString(element, "Path", "path"),
         GetJsonString(element, "Path Confidence", "path_confidence", "pathConfidence"),
-        GetJsonString(element, "Post Dominance", "post_dominance", "postDominance"));
+        GetJsonString(element, "Post Dominance", "post_dominance", "postDominance"),
+        candidateId: GetJsonString(element, "Candidate", "candidate"),
+        provenance: GetJsonString(element, "Provenance", "provenance"),
+        operation: GetJsonString(element, "Operation", "operation"),
+        operandToken: operandToken);
     return true;
 }
 
 static string? GetJsonString(JsonElement element, params string[] names)
 {
+    if (element.ValueKind != JsonValueKind.Object)
+        return null;
+
     foreach (var name in names)
     {
         if (!element.TryGetProperty(name, out var value))
@@ -611,12 +818,50 @@ static bool TryCorrelateNetTrace(
             IReadOnlyList<AllocationCandidate> matchedCandidates = [];
             while (stack != null)
             {
-                matchedCandidates = lookup.FindNearestByCodeAddress(stack.CodeAddress);
+                TraceCodeAddress address = stack.CodeAddress;
+                var coordinateCandidates = lookup
+                    .FindNearestByCodeAddress(address);
+                matchedCandidates = coordinateCandidates
+                    .Where(candidate =>
+                        !string.Equals(
+                            candidate.Source,
+                            "triage",
+                            StringComparison.Ordinal)
+                        || candidate.MatchesAllocatedType(
+                            data.TypeName))
+                    .ToArray();
+                if (matchedCandidates.Any(candidate =>
+                        string.Equals(
+                            candidate.Source,
+                            "triage",
+                            StringComparison.Ordinal)))
+                {
+                    foreach (var candidate in coordinateCandidates.Where(candidate =>
+                                 string.Equals(
+                                     candidate.Source,
+                                     "library",
+                                     StringComparison.Ordinal)
+                                 && candidate.MatchesAllocatedType(
+                                     data.TypeName)))
+                    {
+                        candidate.SupersededByTriage = true;
+                    }
+                    matchedCandidates = matchedCandidates
+                        .Where(candidate => string.Equals(
+                            candidate.Source,
+                            "triage",
+                            StringComparison.Ordinal))
+                        .ToArray();
+                }
+
                 if (matchedCandidates.Count > 0)
                 {
-                    matchedAddress = stack.CodeAddress;
+                    matchedAddress = address;
                     break;
                 }
+
+                if (lookup.IsCandidateModule(address))
+                    break;
 
                 stack = stack.Caller;
             }
@@ -1139,7 +1384,15 @@ static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<Allocatio
 static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates, CorrelateOptions options)
 {
     var observed = candidates.Where(c => c.IsObserved).ToArray();
-    var cold = result.Candidates.Where(c => !c.IsObserved).ToArray();
+    var cold = result.Candidates
+        .Where(c => !c.IsObserved
+            && !c.TypeConfirmed
+            && !c.SupersededByTriage
+            && c.HasRuntimeCoordinate)
+        .ToArray();
+    var unjoinable = result.Candidates
+        .Where(c => !c.IsObserved && !c.HasRuntimeCoordinate)
+        .ToArray();
     var counterObservations = result.DiagnosticInputs
         .Where(static i => string.Equals(i.Kind, "counters", StringComparison.OrdinalIgnoreCase))
         .SelectMany(static i => i.Observations)
@@ -1183,13 +1436,44 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine();
     Console.WriteLine($"Static candidates: {result.Candidates.Count.ToString(CultureInfo.InvariantCulture)}");
     Console.WriteLine($"Runtime-observed candidates: {result.Candidates.Count(c => c.IsObserved).ToString(CultureInfo.InvariantCulture)}");
+    if (result.TriageInputs.Count > 0)
+    {
+        Console.WriteLine(
+            $"Runtime-correlatable triage rows: "
+            + $"{result.TriageInputs.Sum(static input => input.CorrelatableRows).ToString(CultureInfo.InvariantCulture)}"
+            + $"/{result.TriageInputs.Sum(static input => input.LoadedRows).ToString(CultureInfo.InvariantCulture)}");
+    }
     Console.WriteLine();
 
     Console.WriteLine("## Conclusion");
     Console.WriteLine();
     if (observedGroups.Length == 0)
     {
-        Console.WriteLine("No static performance candidate was observed in the supplied runtime diagnostics. Treat the selected workload as a negative confirmation, not as proof the code is never hot.");
+        int typeConfirmedCount = result.Candidates.Count(
+            static candidate => candidate.TypeConfirmed);
+        if (typeConfirmedCount > 0)
+        {
+            Console.WriteLine(
+                $"No exact allocation site joined, but runtime type volume confirmed "
+                + $"{typeConfirmedCount.ToString(CultureInfo.InvariantCulture)} static "
+                + "candidate type(s). Treat that as type-level prioritization, not exact "
+                + "site attribution.");
+        }
+        else if (result.Candidates.Count > 0
+            && result.Candidates.All(static candidate =>
+                !candidate.HasRuntimeCoordinate
+                && !candidate.TypeConfirmed))
+        {
+            Console.WriteLine(
+                "No exact runtime join was possible because the supplied triage rows lack "
+                + "declaring assembly, method token, and IL offset coordinates. Export the "
+                + "nested Performance Triage document with `--json`; compact `--jsonl` rows "
+                + "do not carry deep provenance.");
+        }
+        else
+        {
+            Console.WriteLine("No static performance candidate was observed in the supplied runtime diagnostics. Treat the selected workload as a negative confirmation, not as proof the code is never hot.");
+        }
     }
     else
     {
@@ -1363,13 +1647,24 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
             Console.WriteLine($"| {Escape(shape.Key)} | {shape.Count().ToString(CultureInfo.InvariantCulture)} |");
         }
     }
+    if (unjoinable.Length > 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("## Not runtime-correlatable");
+        Console.WriteLine();
+        Console.WriteLine(
+            $"{unjoinable.Length.ToString(CultureInfo.InvariantCulture)} static candidate "
+            + "row(s) lack a complete declaring assembly + method token + IL offset "
+            + "coordinate. They are not negative runtime evidence.");
+    }
     Console.WriteLine();
     Console.WriteLine("## Reading this report");
     Console.WriteLine();
     Console.WriteLine("- Static rows are IL-visible candidates from dotnet-inspect Performance Triage.");
-    Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. `.nettrace` allocation ticks use the innermost stack frame whose method token and IL offset can join to a static allocation site by nearest-preceding IL offset.");
+    Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. `.nettrace` allocation ticks stop at the first frame in a represented assembly and join only that method token and nearest-preceding IL offset; an unexported in-assembly callee is not attributed to its caller.");
     Console.WriteLine("- The kind-first table ranks realized allocation volume by static `AllocationKind`; `EscapeKind` is the static promotion prior for that hot site.");
     Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `il-offset-hot` means a `.nettrace` allocation tick joined to a single nearest-preceding static IL allocation site. `allocation-hot` means raw allocation events occurred with the method on-stack. `shape-hot` means the allocated type matched the static allocation shape. `shape-hot-ambiguous` means multiple same-shape static rows share that evidence. `confirmed-hot` means an exact token+IL coordinate was observed.");
+    Console.WriteLine("- `superseded-by-triage` means runtime evidence for the same physical candidate is carried by a richer shape-compatible triage row; it is not workload-cold.");
 }
 
 static void RenderPlainText(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates)
@@ -1459,6 +1754,18 @@ static void RenderJson(CorrelationResult result, IReadOnlyList<AllocationCandida
     writer.WriteStartObject();
     writer.WriteNumber("staticCandidates", result.Candidates.Count);
     writer.WriteNumber("observedCandidates", result.Candidates.Count(c => c.IsObserved));
+    writer.WritePropertyName("triageInputs");
+    writer.WriteStartArray();
+    foreach (var input in result.TriageInputs)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("path", input.Path);
+        writer.WriteNumber("rows", input.Rows);
+        writer.WriteNumber("loadedRows", input.LoadedRows);
+        writer.WriteNumber("correlatableRows", input.CorrelatableRows);
+        writer.WriteEndObject();
+    }
+    writer.WriteEndArray();
     writer.WritePropertyName("inputs");
     writer.WriteStartArray();
     foreach (var input in result.DiagnosticInputs)
@@ -1502,9 +1809,20 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     writer.WriteString("library", candidate.LibraryPath);
     writer.WriteString("assembly", candidate.AssemblyName);
     writer.WriteString("method", candidate.Method);
+    writer.WriteBoolean(
+        "runtimeCorrelatable",
+        candidate.HasRuntimeCoordinate);
     writer.WriteString("tokenIl", candidate.TokenAndOffset);
     writer.WriteNumber("methodToken", candidate.MethodToken);
     writer.WriteNumber("ilOffset", candidate.IlOffset);
+    if (candidate.CandidateId is not null)
+        writer.WriteString("candidate", candidate.CandidateId);
+    if (candidate.Provenance is not null)
+        writer.WriteString("provenance", candidate.Provenance);
+    if (candidate.Operation is not null)
+        writer.WriteString("operation", candidate.Operation);
+    if (candidate.OperandToken is int operandToken)
+        writer.WriteNumber("operandToken", operandToken);
     writer.WriteString("kind", candidate.AllocationKind);
     if (candidate.EscapeKind is not null)
         writer.WriteString("escapeKind", candidate.EscapeKind);
@@ -1672,7 +1990,11 @@ sealed record DiagnosticInput(string Kind, string Path);
 
 sealed record LibraryInput(string Path, int StaticCandidates, string? Error);
 
-sealed record TriageInput(string Path, int Rows);
+sealed record TriageInput(
+    string Path,
+    int Rows,
+    int LoadedRows,
+    int CorrelatableRows);
 
 sealed class DiagnosticInputSummary(
     string kind,
@@ -1794,7 +2116,11 @@ sealed class AllocationCandidate(
     string? escapeKind = null,
     string? churnedType = null,
     string? runtimeAllocationType = null,
-    string? multiplicity = null)
+    string? multiplicity = null,
+    string? candidateId = null,
+    string? provenance = null,
+    string? operation = null,
+    int? operandToken = null)
 {
     public int Id { get; } = id;
     public string Source { get; } = source;
@@ -1803,6 +2129,10 @@ sealed class AllocationCandidate(
     public Guid? ModuleVersionId { get; } = moduleVersionId;
     public int MethodToken { get; } = methodToken;
     public int IlOffset { get; } = ilOffset;
+    public string? CandidateId { get; } = candidateId;
+    public string? Provenance { get; } = provenance;
+    public string? Operation { get; } = operation;
+    public int? OperandToken { get; } = operandToken;
     public string Method { get; } = method;
     public string MethodKey { get; } = methodKey;
     public string MethodStackKey { get; } = methodStackKey;
@@ -1852,6 +2182,7 @@ sealed class AllocationCandidate(
     public int TypeConfirmedSiteCount { get; set; }
     public bool TypeConfirmed => TypeConfirmedBytes > 0 && !IsObserved;
     public bool TypeConfirmedAmbiguous => TypeConfirmedSiteCount > 1;
+    public bool SupersededByTriage { get; set; }
     public bool RowAmbiguous => AmbiguousIlOffsetJoin || (ShapeMatched && SameMethodShapeRows > 1 && !ExactOffsetObserved);
     public bool UnambiguousIlOffsetJoinObserved => IlOffsetJoinObserved && !AmbiguousIlOffsetJoin;
     public HashSet<string> ObservedSources { get; } = new(StringComparer.Ordinal);
@@ -1875,7 +2206,7 @@ sealed class AllocationCandidate(
     // the Loop/Once split is a static prior the trace does not verify. "Seen" here means the site was
     // observed directly OR its type was realized-hot via type-confirmation (#2264); a type-confirmed
     // loop site is therefore hot, not cold (it would otherwise be mislabeled "not exercised").
-    bool SeenHot => IsObserved || TypeConfirmed;
+    bool SeenHot => IsObserved || TypeConfirmed || SupersededByTriage;
     public string? MultiplicityCheck
     {
         get
@@ -1908,14 +2239,27 @@ sealed class AllocationCandidate(
     }
     public double CostWeight => EffectiveObservedBytes * PromotionFactor;
     public bool IsObserved => RuntimeHits > 0 || AllocationHits > 0;
+    public bool HasRuntimeCoordinate =>
+        AssemblyName.Length > 0
+        && (MethodToken & unchecked((int)0xFF000000)) == 0x06000000
+        && (MethodToken & 0x00FFFFFF) != 0
+        && IlOffset >= 0;
     public string TokenAndOffset => $"{DisplayHelpers.FormatToken(MethodToken)}+{DisplayHelpers.FormatOffset(IlOffset)}";
-    public string Status => ShapeMatched
+    public string Status => SupersededByTriage
+        ? "superseded-by-triage"
+        : ShapeMatched
         ? RowAmbiguous ? "shape-hot-ambiguous" : "shape-hot"
         : UnambiguousIlOffsetJoinObserved ? "il-offset-hot"
         : AllocationHits > 0
             ? "allocation-hot"
             : RuntimeHits == 0
-        ? TypeConfirmedBytes > 0 ? (TypeConfirmedAmbiguous ? "type-hot-ambiguous" : "type-hot") : "cold-for-this-workload"
+        ? TypeConfirmedBytes > 0
+            ? TypeConfirmedAmbiguous
+                ? "type-hot-ambiguous"
+                : "type-hot"
+            : !HasRuntimeCoordinate
+                ? "not-runtime-correlatable"
+                : "cold-for-this-workload"
         : ExactOffsetObserved ? "confirmed-hot" : "method-hot";
 
     public bool MatchesAllocatedType(string allocatedType)
@@ -1950,35 +2294,17 @@ sealed class AllocationCandidate(
                 || string.Equals(allocatedType, "System.Text.StringBuilder", StringComparison.Ordinal)
                 || string.Equals(allocatedType, "System.Char[]", StringComparison.Ordinal);
 
-        if (AllocationKind.Contains("delegate", StringComparison.OrdinalIgnoreCase))
-            return allocatedType.Contains("Func`", StringComparison.Ordinal)
-                || allocatedType.Contains("Action`", StringComparison.Ordinal)
-                || allocatedType.EndsWith("Delegate", StringComparison.Ordinal);
-
         return false;
     }
 
     static bool TypeNamesEquivalent(string left, string right)
     {
-        left = NormalizeTypeName(left);
-        right = NormalizeTypeName(right);
-        return string.Equals(left, right, StringComparison.Ordinal)
-            || string.Equals(LeafTypeName(left), LeafTypeName(right), StringComparison.Ordinal);
-    }
-
-    static string NormalizeTypeName(string value)
-        => value.Replace("class ", "", StringComparison.Ordinal)
-            .Replace("value class ", "", StringComparison.Ordinal)
-            .Replace("valuetype ", "", StringComparison.Ordinal)
-            .Trim();
-
-    static string LeafTypeName(string value)
-    {
-        int generic = value.IndexOf('<');
-        if (generic >= 0)
-            value = value[..generic];
-        int dot = value.LastIndexOf('.');
-        return dot >= 0 ? value[(dot + 1)..] : value;
+        left = ProgramSupport.NormalizeProducerTypeName(left);
+        right = ProgramSupport.NormalizeProducerTypeName(right);
+        return string.Equals(
+            ProgramSupport.CanonicalTypeSignature(left),
+            ProgramSupport.CanonicalTypeSignature(right, reflection: true),
+            StringComparison.Ordinal);
     }
 
     public static AllocationCandidate FromOccurrence(int id, string path, AllocationOccurrence occurrence) => new(
@@ -2046,15 +2372,18 @@ sealed class CandidateLookup
 {
     readonly Dictionary<(int Token, int Offset), List<AllocationCandidate>> _byTokenOffset;
     readonly Dictionary<(string Module, int Token), List<AllocationCandidate>> _byModuleMethodToken;
+    readonly HashSet<string> _candidateModules;
     readonly List<(string Fragment, AllocationCandidate Candidate)> _methodFragments;
 
     CandidateLookup(
         Dictionary<(int Token, int Offset), List<AllocationCandidate>> byTokenOffset,
         Dictionary<(string Module, int Token), List<AllocationCandidate>> byModuleMethodToken,
+        HashSet<string> candidateModules,
         List<(string Fragment, AllocationCandidate Candidate)> methodFragments)
     {
         _byTokenOffset = byTokenOffset;
         _byModuleMethodToken = byModuleMethodToken;
+        _candidateModules = candidateModules;
         _methodFragments = methodFragments;
     }
 
@@ -2104,7 +2433,11 @@ sealed class CandidateLookup
         foreach (var tokenList in byModuleMethodToken.Values)
             tokenList.Sort(static (left, right) => left.IlOffset.CompareTo(right.IlOffset));
 
-        return new CandidateLookup(byTokenOffset, byModuleMethodToken, fragments);
+        return new CandidateLookup(
+            byTokenOffset,
+            byModuleMethodToken,
+            [.. byModuleMethodToken.Keys.Select(static key => key.Module)],
+            fragments);
 
         void AddFragment(string value, AllocationCandidate candidate)
         {
@@ -2147,6 +2480,12 @@ sealed class CandidateLookup
             address.FullMethodName);
     }
 
+    public bool IsCandidateModule(TraceCodeAddress address)
+        => ModuleLookupKeys(
+                address.ModuleFilePath,
+                address.ModuleName)
+            .Any(_candidateModules.Contains);
+
     public IReadOnlyList<AllocationCandidate> FindNearestByTokenOffset(
         int token,
         int ilOffset,
@@ -2160,7 +2499,10 @@ sealed class CandidateLookup
         if (token == 0)
             return [];
 
-        var moduleCandidates = ModuleLookupKeys(modulePath, moduleName)
+        var moduleKeys = ModuleLookupKeys(modulePath, moduleName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var moduleCandidates = moduleKeys
             .SelectMany(moduleKey => _byModuleMethodToken.TryGetValue((moduleKey, token), out var candidates) ? candidates : [])
             .DistinctBy(static candidate => candidate.Id)
             .ToArray();
@@ -2168,7 +2510,9 @@ sealed class CandidateLookup
         var search = moduleCandidates
             .Where(candidate => candidate.IlOffset <= ilOffset)
             .ToArray();
-        if (search.Length == 0 && !string.IsNullOrWhiteSpace(methodName))
+        if (search.Length == 0
+            && moduleKeys.Length == 0
+            && !string.IsNullOrWhiteSpace(methodName))
         {
             search = _byModuleMethodToken
                 .Where(pair => pair.Key.Token == token)
@@ -2198,42 +2542,28 @@ sealed class CandidateLookup
 
     static IEnumerable<string> CandidateModuleKeys(AllocationCandidate candidate)
     {
-        if (NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
+        if (ProgramSupport.NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
             yield return assembly;
-        if (NormalizeModuleKey(candidate.LibraryPath) is { Length: > 0 } path)
-            yield return path;
-        if (NormalizeModuleKey(Path.GetFileName(candidate.LibraryPath)) is { Length: > 0 } file)
-            yield return file;
+        if (string.Equals(
+                candidate.Source,
+                "library",
+                StringComparison.Ordinal))
+        {
+            if (ProgramSupport.NormalizeModuleKey(candidate.LibraryPath) is { Length: > 0 } path)
+                yield return path;
+            if (ProgramSupport.NormalizeModuleKey(Path.GetFileName(candidate.LibraryPath)) is { Length: > 0 } file)
+                yield return file;
+        }
     }
 
     static IEnumerable<string> ModuleLookupKeys(string? modulePath, string? moduleName)
     {
-        if (NormalizeModuleKey(modulePath) is { Length: > 0 } path)
+        if (ProgramSupport.NormalizeModuleKey(modulePath) is { Length: > 0 } path)
             yield return path;
-        if (NormalizeModuleKey(Path.GetFileName(modulePath)) is { Length: > 0 } file)
+        if (ProgramSupport.NormalizeModuleKey(Path.GetFileName(modulePath)) is { Length: > 0 } file)
             yield return file;
-        if (NormalizeModuleKey(moduleName) is { Length: > 0 } name)
+        if (ProgramSupport.NormalizeModuleKey(moduleName) is { Length: > 0 } name)
             yield return name;
-    }
-
-    static string NormalizeModuleKey(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return "";
-
-        value = Path.GetFileName(value.Trim());
-        if (value.EndsWith(".ni.dll", StringComparison.OrdinalIgnoreCase))
-            value = value[..^7];
-        else if (value.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase))
-            value = value[..^7];
-        else if (value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            || value.EndsWith(".ni", StringComparison.OrdinalIgnoreCase))
-        {
-            value = Path.GetFileNameWithoutExtension(value);
-        }
-
-        return value.ToLowerInvariant();
     }
 
     static bool MethodMatches(AllocationCandidate candidate, string? method)
@@ -2305,6 +2635,77 @@ static partial class Patterns
 
 internal static class ProgramSupport
 {
+    public static string NormalizeModuleKey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        value = Path.GetFileName(value.Trim());
+        if (value.EndsWith(".ni.dll", StringComparison.OrdinalIgnoreCase))
+            value = value[..^7];
+        else if (value.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase))
+            value = value[..^7];
+        else if (value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith(".ni", StringComparison.OrdinalIgnoreCase))
+        {
+            value = Path.GetFileNameWithoutExtension(value);
+        }
+
+        return value.ToLowerInvariant();
+    }
+
+    public static string NormalizeProducerTypeName(string value)
+    {
+        value = value.Trim();
+        bool stripped;
+        do
+        {
+            stripped = false;
+            foreach (string prefix in new[]
+                     {
+                         "boxed ",
+                         "value class ",
+                         "valuetype ",
+                         "class "
+                     })
+            {
+                if (!value.StartsWith(
+                        prefix,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                value = value[prefix.Length..].Trim();
+                stripped = true;
+                break;
+            }
+
+            foreach (string wrapper in new[]
+                     {
+                         "display class (",
+                         "state machine ("
+                     })
+            {
+                if (!value.StartsWith(
+                        wrapper,
+                        StringComparison.OrdinalIgnoreCase)
+                    || !value.EndsWith(')'))
+                {
+                    continue;
+                }
+
+                value = value[wrapper.Length..^1].Trim();
+                stripped = true;
+                break;
+            }
+        }
+        while (stripped);
+
+        return value;
+    }
+
     public static void MarkAllocationHitForTest(
         AllocationCandidate candidate,
         HashSet<int> matchedIds,
@@ -2380,7 +2781,8 @@ internal static class ProgramSupport
         {
             if (!candidate.IsObserved || candidate.PredictedType is not { Length: > 0 } type)
                 continue;
-            var canon = CanonicalTypeSignature(type);
+            var canon = CanonicalTypeSignature(
+                NormalizeProducerTypeName(type));
             if (canon.Length != 0)
                 observedCanons.Add(canon);
         }
@@ -2388,9 +2790,12 @@ internal static class ProgramSupport
         var byCanon = new Dictionary<string, List<AllocationCandidate>>(StringComparer.Ordinal);
         foreach (var candidate in result.Candidates)
         {
-            if (candidate.IsObserved || candidate.PredictedType is not { Length: > 0 } type)
+            if (candidate.IsObserved
+                || candidate.SupersededByTriage
+                || candidate.PredictedType is not { Length: > 0 } type)
                 continue;
-            var canon = CanonicalTypeSignature(type);
+            var canon = CanonicalTypeSignature(
+                NormalizeProducerTypeName(type));
             if (canon.Length == 0 || observedCanons.Contains(canon))
                 continue;
             if (!byCanon.TryGetValue(canon, out var list))
@@ -2405,15 +2810,108 @@ internal static class ProgramSupport
         {
             if (!runtimeByCanon.TryGetValue(canon, out var volume) || volume < TypeConfirmMinBytes)
                 continue;
-            if (candidates.Count > TypeConfirmMaxSites)
+
+            var plan = PlanTypeConfirmationSites(candidates);
+            if (plan.SiteCount > TypeConfirmMaxSites)
                 continue;
-            foreach (var candidate in candidates)
+
+            foreach (var candidate in plan.SupersededLibraries)
+                candidate.SupersededByTriage = true;
+            foreach (var candidate in plan.Candidates)
             {
                 candidate.TypeConfirmedBytes = volume;
-                candidate.TypeConfirmedSiteCount = candidates.Count;
+                candidate.TypeConfirmedSiteCount = plan.SiteCount;
             }
         }
     }
+
+    static TypeConfirmationSitePlan PlanTypeConfirmationSites(
+        IReadOnlyList<AllocationCandidate> candidates)
+    {
+        var selected = new List<AllocationCandidate>();
+        var supersededLibraries = new List<AllocationCandidate>();
+        int siteCount = 0;
+
+        foreach (var candidate in candidates.Where(static candidate =>
+                     !candidate.HasRuntimeCoordinate))
+        {
+            selected.Add(candidate);
+            siteCount++;
+        }
+
+        foreach (var coordinateGroup in candidates
+                     .Where(static candidate =>
+                         candidate.HasRuntimeCoordinate)
+                     .GroupBy(static candidate => (
+                         Assembly: NormalizeModuleKey(candidate.AssemblyName),
+                         candidate.MethodToken,
+                         candidate.IlOffset)))
+        {
+            var triageCandidates = coordinateGroup
+                .Where(static candidate => string.Equals(
+                    candidate.Source,
+                    "triage",
+                    StringComparison.Ordinal))
+                .ToArray();
+            var libraryGroups = coordinateGroup
+                .Where(static candidate => string.Equals(
+                    candidate.Source,
+                    "library",
+                    StringComparison.Ordinal))
+                .GroupBy(static candidate =>
+                    candidate.ModuleVersionId)
+                .ToArray();
+            var otherCandidates = coordinateGroup
+                .Where(static candidate =>
+                    !string.Equals(
+                        candidate.Source,
+                        "triage",
+                        StringComparison.Ordinal)
+                    && !string.Equals(
+                        candidate.Source,
+                        "library",
+                        StringComparison.Ordinal))
+                .ToArray();
+
+            bool oneResolvableSite = triageCandidates.Length > 0
+                && libraryGroups.Length == 1
+                && otherCandidates.Length == 0;
+            if (oneResolvableSite)
+            {
+                siteCount++;
+                selected.AddRange(triageCandidates);
+                supersededLibraries.AddRange(
+                    libraryGroups[0]);
+                continue;
+            }
+
+            if (triageCandidates.Length > 0)
+            {
+                siteCount++;
+                selected.AddRange(triageCandidates);
+            }
+            foreach (var libraryGroup in libraryGroups)
+            {
+                siteCount++;
+                selected.AddRange(libraryGroup);
+            }
+            foreach (var candidate in otherCandidates)
+            {
+                siteCount++;
+                selected.Add(candidate);
+            }
+        }
+
+        return new TypeConfirmationSitePlan(
+            selected,
+            supersededLibraries,
+            siteCount);
+    }
+
+    readonly record struct TypeConfirmationSitePlan(
+        IReadOnlyList<AllocationCandidate> Candidates,
+        IReadOnlyList<AllocationCandidate> SupersededLibraries,
+        int SiteCount);
 
     // Canonical type signature: the ordered leaf identifier tokens of a type name, with generic-arity
     // digits and namespaces dropped and C# keyword aliases mapped to CLR simple names. This reconciles

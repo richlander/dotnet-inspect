@@ -321,6 +321,21 @@ a target-only catalog rather than mixing a detached tree with an evidence-free
 local tree; `CallGraph_KeepsVersionSkewedCallersWhenCalleesAreUnscoped` gates
 that projection never falls back to structural identity and collapses versions.
 
+`CrossLibraryCalleeNeighborhood` exposes the existing cross-library callee
+traversal as a call-only L1 inspection-graph neighborhood. Its request carries
+non-negative maximum edge depth and a positive call-node budget. The returned
+document retains one member seed, outgoing caller-to-callee direction, the
+generic neighborhood depth bound, the call-specific node bound, every retained
+physical call-site receipt, and any incomplete catalog correspondence. Depth
+zero retains only the seed. A missing in-scope definition remains an external
+boundary; an acquired definition may continue transitively across an assembly
+boundary. This surface does not add another resolver or traversal: it invokes
+`CatalogCallGraphScope.BuildCallTree`, projects the callee tree once, and applies
+the shared dense neighborhood projection. The
+`CrossLibraryCalleeNeighborhood_*` tests gate cross-boundary continuation,
+depth-zero and finite-depth behavior, node bounds, external placeholders,
+physical receipts, and correspondence disclosure.
+
 **No duplicated work.** At most two target-assembly indexes are ever built — the
 scoped single-body build and the full build — plus one build per cross-library
 package, and each is built once and reused for callees, callers, and any
@@ -479,5 +494,7 @@ Coverage lives in `src/ILInspector.Analysis.Tests/CallGraphProjectionTests.cs`
 deterministic ids and ordering, loop annotations across collapse and inversion,
 cross-assembly / generic-recursion-collapse / return-type identity behavior, the
 bodiless-target combined view, and the two-different-unsupported-roots rejection)
-and in `src/dotnet-inspect.Tests/MemberCallGraphSectionTests.cs` for the CLI
-section, its lowerings, and its `--fields` projection.
+and in `src/DotnetInspector.Queries.Tests/MemberCallGraphSessionTests.cs` for
+progressive acquisition and bounded cross-library callee neighborhoods.
+`src/dotnet-inspect.Tests/MemberCallGraphSectionTests.cs` covers the CLI section,
+its lowerings, and its `--fields` projection.

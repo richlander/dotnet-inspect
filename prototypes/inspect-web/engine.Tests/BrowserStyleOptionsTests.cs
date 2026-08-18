@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
+using ILInspector.Decompiler;
 using Pipeline = ILInspector.Decompiler.Pipeline;
 
 namespace InspectWeb.Engine.Tests;
@@ -8,23 +9,57 @@ namespace InspectWeb.Engine.Tests;
 public sealed class BrowserStyleOptionsTests
 {
     [Fact]
-    public void ListStyleOptions_ProjectsProductOwnedChoices()
+    public void ListVocabulary_ProjectsProductOwnedStyleChoices()
     {
-        BrowserStyleOption[] actual = JsonSerializer.Deserialize(
-            BrowserInspectionEngine.ListStyleOptions(),
-            BrowserJsonContext.Default.BrowserStyleOptionArray) ?? [];
+        using JsonDocument document = JsonDocument.Parse(
+            BrowserInspectionEngine.ListVocabulary());
+        JsonElement actual = document.RootElement
+            .GetProperty("sections")
+            .EnumerateArray()
+            .Single(section =>
+                section.GetProperty("id").GetString()
+                    == "csharp.style-choices")
+            .GetProperty("values");
 
-        Assert.Equal(Pipeline.StyleOptionCatalog.Choices.Count, actual.Length);
-        for (int i = 0; i < actual.Length; i++)
+        Assert.Equal(Pipeline.StyleOptionCatalog.Choices.Count, actual.GetArrayLength());
+        for (int i = 0; i < actual.GetArrayLength(); i++)
         {
             Pipeline.StyleOptionChoice expected = Pipeline.StyleOptionCatalog.Choices[i];
-            Assert.Equal(expected.Id, actual[i].Id);
-            Assert.Equal(expected.Title, actual[i].Title);
-            Assert.Equal(expected.Summary, actual[i].Summary);
-            Assert.Equal(expected.Tier.ToString(), actual[i].Tier);
-            Assert.Equal(expected.ByteDivergent, actual[i].ByteDivergent);
-            Assert.Equal(expected.OracleEndorsed, actual[i].OracleEndorsed);
-            Assert.Equal(expected.ConflictGroup, actual[i].ConflictGroup);
+            Assert.Equal(expected.Id, actual[i].GetProperty("id").GetString());
+            Assert.Equal(expected.Title, actual[i].GetProperty("title").GetString());
+            Assert.Equal(expected.Summary, actual[i].GetProperty("summary").GetString());
+            Assert.Equal(expected.Tier.ToString(), actual[i].GetProperty("tier").GetString());
+            Assert.Equal(expected.ByteDivergent, actual[i].GetProperty("byte_divergent").GetBoolean());
+            Assert.Equal(expected.OracleEndorsed, actual[i].GetProperty("oracle_endorsed").GetBoolean());
+            Assert.Equal(
+                expected.ConflictGroup,
+                actual[i].TryGetProperty("conflict_group", out JsonElement conflict)
+                    ? conflict.GetString()
+                    : null);
+        }
+    }
+
+    [Fact]
+    public void ListVocabulary_ProjectsProductOwnedBodyKinds()
+    {
+        using JsonDocument document = JsonDocument.Parse(
+            BrowserInspectionEngine.ListVocabulary());
+        JsonElement actual = document.RootElement
+            .GetProperty("sections")
+            .EnumerateArray()
+            .Single(section =>
+                section.GetProperty("id").GetString()
+                    == "csharp.body-kinds")
+            .GetProperty("values");
+
+        Assert.Equal(BodyShapeSearch.SupportedKinds.Count, actual.GetArrayLength());
+        for (int i = 0; i < actual.GetArrayLength(); i++)
+        {
+            string expected = BodyShapeSearch.SupportedKinds[i];
+            Assert.Equal(expected, actual[i].GetProperty("id").GetString());
+            Assert.Equal(
+                AnnotatedSourceNodeKinds.GetDisplayLabel(expected),
+                actual[i].GetProperty("label").GetString());
         }
     }
 

@@ -89,6 +89,20 @@ public static partial class BrowserInspectionEngine
 
         var assemblies = new List<BrowserAssemblySurface>();
         var types = new List<BrowserTypeSurface>();
+        HashSet<TypeCollisionKey> duplicateTypeKeys =
+        [
+            .. surfaces.Assemblies.Assemblies
+                .OfType<AssemblyContextEntry<AssemblyApiSurface>.Available>()
+                .SelectMany(entry => entry.Value.Surface.Types)
+                .GroupBy(TypeCollisionKey.Create)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key),
+        ];
+        var transportTextBudget =
+            new BrowserSurfaceProjection.BrowserSurfaceTextBudget(
+                BrowserApiSurfacePolicy.MaxRetainedTextCharacters);
+        string? transportTruncation = null;
+        int noticeEntryCount = surfaces.Assemblies.Assemblies.Length;
         for (int index = 0; index < surfaces.Assemblies.Assemblies.Length; index++)
         {
             if (surfaces.Assemblies.Assemblies[index]
@@ -107,15 +121,35 @@ public static partial class BrowserInspectionEngine
                     + "participant order, so per-assembly attribution cannot be trusted.");
             }
 
-            BrowserTypeSurface[] assemblyTypes =
-            [
-                .. available.Value.Surface.Types
-                    .Select(type => BrowserSurfaceProjection.Type(
-                        type,
-                        participant.Asset.AssemblyName,
-                        participant.Asset.Id,
-                        participant.Assembly.Identity.Name)),
-            ];
+            BrowserTypeSurface[] assemblyTypes;
+            transportTextBudget.BeginParticipant();
+            try
+            {
+                assemblyTypes =
+                [
+                    .. available.Value.Surface.Types
+                        .Select(type => BrowserSurfaceProjection.Type(
+                            type,
+                            participant.Asset.AssemblyName,
+                            participant.Asset.Id,
+                            participant.Assembly.Identity.Name,
+                            transportTextBudget,
+                            duplicateTypeKeys.Contains(
+                                TypeCollisionKey.Create(type)))),
+                ];
+                transportTextBudget.CommitParticipant();
+            }
+            catch (BrowserSurfaceProjection.BrowserSurfaceTextBoundExceededException)
+            {
+                transportTextBudget.AbandonParticipant();
+                transportTruncation =
+                    BrowserApiSurfacePolicy.TransportTruncationNotice(
+                        assemblies.Count,
+                        requested.Length - index,
+                        transportTextBudget.CommittedCharacters);
+                noticeEntryCount = index;
+                break;
+            }
             BrowserTypeSurface[] publicTypes =
             [
                 .. assemblyTypes.Where(type => IsDefaultBucket(surfaces, type)),
@@ -133,10 +167,19 @@ public static partial class BrowserInspectionEngine
             types.AddRange(assemblyTypes);
         }
 
+        string? extractionTruncation =
+            BrowserApiSurfacePolicy.TruncationNotice(surfaces.Truncation);
+        string? truncation = (extractionTruncation, transportTruncation) switch
+        {
+            (null, null) => null,
+            ({ } only, null) => only,
+            (null, { } only) => only,
+            var (left, right) => $"{left}; {right}",
+        };
         string? notice = BrowserSurfaceProjection.Notice(
-            surfaces.Assemblies.Assemblies,
-            BrowserApiSurfacePolicy.TruncationNotice(surfaces.Truncation));
-        if (assemblies.Count == 0)
+            [.. surfaces.Assemblies.Assemblies.Take(noticeEntryCount)],
+            truncation);
+        if (assemblies.Count == 0 && truncation is null)
         {
             throw new InvalidOperationException(
                 $"No assembly of {coordinate.PackageId} {coordinate.Version} for "
@@ -144,28 +187,20 @@ public static partial class BrowserInspectionEngine
                 + (notice ?? "The workspace reported no failure."));
         }
 
-        // Two assemblies in one package may ship the same type. Qualify only the collisions, so
-        // an unambiguous type keeps the identity deep links and search already use.
-        var duplicates = types
-            .GroupBy(type => type.Id, StringComparer.Ordinal)
-            .Where(group => group.Count() > 1)
-            .Select(group => group.Key)
-            .ToHashSet(StringComparer.Ordinal);
         BrowserTypeSurface[] identified =
         [
             .. types
-                .Select(type => duplicates.Contains(type.Id)
-                    ? type with { Id = $"{type.Assembly}:{type.Id}" }
-                    : type)
                 .OrderBy(type => type.Namespace, StringComparer.Ordinal)
                 .ThenBy(type => type.Name, StringComparer.Ordinal),
         ];
 
-        BrowserAssemblySurface defaultAssembly = assemblies.FirstOrDefault(
+        string defaultAssemblyId = assemblies.FirstOrDefault(
                 assembly => assembly.Id.Equals(
                     coordinate.DefaultAsset.Id,
                     StringComparison.Ordinal))
-            ?? assemblies[0];
+            ?.Id
+            ?? assemblies.FirstOrDefault()?.Id
+            ?? coordinate.DefaultAsset.Id;
 
         return JsonSerializer.Serialize(
             new BrowserPackageSurface(
@@ -173,7 +208,7 @@ public static partial class BrowserInspectionEngine
                 coordinate.Version,
                 [.. coordinate.Selection.AvailableTargetFrameworks],
                 coordinate.Framework,
-                defaultAssembly.Id,
+                defaultAssemblyId,
                 [.. assemblies],
                 identified,
                 [.. surfaces.Accessibility.Select(BrowserSurfaceProjection.Descriptor)],
@@ -183,6 +218,20 @@ public static partial class BrowserInspectionEngine
                 [.. coordinate.Package.Documents()],
                 notice),
             BrowserJsonContext.Default.BrowserPackageSurface);
+    }
+
+    readonly record struct TypeCollisionKey(
+        MetadataTypeDefinitionName? DefinitionName,
+        string Namespace,
+        string MetadataName)
+    {
+        public static TypeCollisionKey Create(ApiType type) =>
+            type.DefinitionName is { } definitionName
+                ? new(definitionName, "", "")
+                : new(
+                    null,
+                    type.Namespace ?? "",
+                    type.MetadataName ?? type.Name);
     }
 
     /// <summary>
@@ -928,34 +977,12 @@ public static partial class BrowserInspectionEngine
             BrowserJsonContext.Default.BrowserDependencyCoordinateMatch);
     }
 
-    // The library-owned StyleOptionCatalog is the single source of truth for the decompiler style
-    // taxonomy. These records carry its data across the Wasm boundary; the host retains no labels,
-    // summaries, or ordering of its own. Neither listing inspects an artifact.
+    // Vocabulary is product-owned static data. The browser receives the same section/field/value
+    // document as the CLI and retains no separate labels, ordering, defaults, or query semantics.
     [JSExport]
-    public static string ListStyleTiers() => JsonSerializer.Serialize(
-        Pipeline.StyleOptionCatalog.Tiers
-            .Select(tier => new BrowserStyleTier(
-                tier.Id.ToString(),
-                tier.Title,
-                tier.Summary,
-                tier.Order,
-                tier.ByteDivergent))
-            .ToArray(),
-        BrowserJsonContext.Default.BrowserStyleTierArray);
-
-    [JSExport]
-    public static string ListStyleOptions() => JsonSerializer.Serialize(
-        Pipeline.StyleOptionCatalog.Choices
-            .Select(choice => new BrowserStyleOption(
-                choice.Id,
-                choice.Title,
-                choice.Summary,
-                choice.Tier.ToString(),
-                choice.ByteDivergent,
-                choice.OracleEndorsed,
-                choice.ConflictGroup))
-            .ToArray(),
-        BrowserJsonContext.Default.BrowserStyleOptionArray);
+    public static string ListVocabulary() =>
+        DotnetInspector.Vocabulary.VocabularyJson.Serialize(
+            DotnetInspector.Vocabulary.VocabularyCatalog.Document);
 
     /// <summary>
     /// Resolves one exact package/version/framework coordinate, reuses its workspace, and returns
@@ -1106,8 +1133,27 @@ public static partial class BrowserInspectionEngine
     internal static string MermaidLabel(string value)
     {
         var builder = new StringBuilder(value.Length);
-        foreach (char character in value)
+        for (int index = 0; index < value.Length; index++)
         {
+            char character = value[index];
+            if (char.IsHighSurrogate(character)
+                && index + 1 < value.Length
+                && char.IsLowSurrogate(value[index + 1]))
+            {
+                char lowSurrogate = value[++index];
+                var scalar = new Rune(character, lowSurrogate);
+                if (Rune.GetUnicodeCategory(scalar) == UnicodeCategory.Format)
+                {
+                    AppendUnicodeEscape(builder, character);
+                    AppendUnicodeEscape(builder, lowSurrogate);
+                }
+                else
+                {
+                    builder.Append(character).Append(lowSurrogate);
+                }
+                continue;
+            }
+
             switch (character)
             {
                 case '&':
@@ -1127,16 +1173,14 @@ public static partial class BrowserInspectionEngine
                     break;
                 case '\u2028':
                 case '\u2029':
-                    builder.Append("&#92;u")
-                        .Append(((int)character).ToString("X4", CultureInfo.InvariantCulture));
+                    AppendUnicodeEscape(builder, character);
                     break;
                 default:
-                    if (char.IsControl(character))
+                    if (char.IsControl(character)
+                        || char.IsSurrogate(character)
+                        || char.GetUnicodeCategory(character) == UnicodeCategory.Format)
                     {
-                        builder.Append("&#92;u")
-                            .Append(((int)character).ToString(
-                                "X4",
-                                CultureInfo.InvariantCulture));
+                        AppendUnicodeEscape(builder, character);
                     }
                     else
                     {
@@ -1148,6 +1192,10 @@ public static partial class BrowserInspectionEngine
 
         return builder.ToString();
     }
+
+    static void AppendUnicodeEscape(StringBuilder builder, char character) =>
+        builder.Append("&#92;u")
+            .Append(((int)character).ToString("X4", CultureInfo.InvariantCulture));
 
     static BrowserCallGraphTarget Target(
         CallGraphNode node,

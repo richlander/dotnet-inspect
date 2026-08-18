@@ -566,6 +566,21 @@ public class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
+        if (options.ShowDependencies)
+        {
+            CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
+            string packageReference = target.IsLocalFile
+                ? target.OriginalArgument
+                : version.Length > 0
+                    ? $"{packageName}@{version}"
+                    : packageName;
+            return await ShowDependencyTreeAsync(
+                client,
+                packageReference,
+                options,
+                logger);
+        }
+
         string? extractPath = null;
         PackageExtractionResult? resolution = null;
 
@@ -600,7 +615,7 @@ public class PackageCommand
             if (options.ListTfms)
                 return ListPackageTfms(extractPath, options);
 
-            // Parse nuspec (needed for the --dependencies early exit and full inspection)
+            // Parse nuspec for full package inspection.
             var nuspec = Services.NuspecParser.FindAndParse(extractPath);
 
             // Handle file content modes and exit early.
@@ -612,15 +627,6 @@ public class PackageCommand
                 return PrintPackageFileContents(
                     [ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, nuspec?.ReadmeFile, options)],
                     options);
-            }
-
-            // Handle --dependencies mode: resolve transitive deps and show tree
-            if (options.ShowDependencies)
-            {
-                CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
-                var depResult = new InspectionResult { PackageName = packageName, Version = version };
-                if (nuspec != null) ApplyNuspec(nuspec, depResult);
-                return await ShowDependencyTreeAsync(client, depResult, options, logger);
             }
 
             if (options.AllLibraries)
@@ -3932,7 +3938,12 @@ public class PackageCommand
             return false;
         }
 
-        var table = BuildAllLibrariesTable(packageName, version, inspections, sections[0]);
+        var table = BuildAllLibrariesTable(
+            packageName,
+            version,
+            inspections,
+            sections[0],
+            options.Rows);
         if (table == null)
         {
             CommandError.Write($"--all-libraries row output does not support section: {sections[0]}.");
@@ -3940,7 +3951,7 @@ public class PackageCommand
             return false;
         }
 
-        if (table.Rows.Length == 0)
+        if (!table.HasRowsBeforeWindow)
         {
             CommandError.WriteNote("matched section has no row data across all libraries.");
             return true;
@@ -3952,64 +3963,98 @@ public class PackageCommand
             var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
             markoutWriter.WriteTable(table.Headers, table.StableHeaders, table.Rows);
             markoutWriter.Flush();
-        }, options.Rows);
+        });
         return true;
     }
 
-    private sealed record AllLibrariesTable(string[] Headers, string[] StableHeaders, string[][] Rows);
+    private sealed record AllLibrariesTable(
+        string[] Headers,
+        string[] StableHeaders,
+        string[][] Rows,
+        bool HasRowsBeforeWindow);
 
     private static AllLibrariesTable? BuildAllLibrariesTable(
         string packageName,
         string version,
         List<LibraryInspection> inspections,
-        string section)
+        string section,
+        RowWindow? rowWindow)
     {
         if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
         {
-            var libraryInfoRows = inspections
-                .SelectMany(inspection => BuildLibraryInfoRows(packageName, version, inspection))
+            var rowsByLibrary = inspections
+                .Select(inspection =>
+                    BuildLibraryInfoRows(packageName, version, inspection).ToArray())
+                .ToArray();
+            var libraryInfoRows = rowsByLibrary
+                .SelectMany(rows => RowWindow.Apply(rowWindow, rows))
                 .ToArray();
             return new(
                 ["Package", "Version", "Library", "TFM", "Field", "Value"],
                 ["package", "version", "library", "tfm", "field", "value"],
-                libraryInfoRows);
+                libraryInfoRows,
+                rowsByLibrary.Any(rows => rows.Length != 0));
         }
 
         if (section.Equals(IntegrationSectionNames.Opportunities, StringComparison.OrdinalIgnoreCase))
         {
             var opportunityRows = inspections
                 .SelectMany(inspection => (inspection.IntegrationOpportunities ?? [])
-                    .Select(opportunity => WithProvenance(
-                        packageName,
-                        version,
-                        inspection,
-                        opportunity.Integration,
-                        opportunity.Api,
-                        opportunity.IntegrationType,
-                        opportunity.LookFor)))
+                    .Select(opportunity => new
+                    {
+                        Inspection = inspection,
+                        Opportunity = opportunity
+                    }))
+                .OrderBy(
+                    row => row.Opportunity.Integration,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    row => CodeCell(row.Opportunity.Api),
+                    StringComparer.Ordinal)
+                .Select(row => WithProvenance(
+                    packageName,
+                    version,
+                    row.Inspection,
+                    row.Opportunity.Integration,
+                    row.Opportunity.Api,
+                    row.Opportunity.IntegrationType,
+                    row.Opportunity.LookFor))
                 .ToArray();
             return new(
                 ["Package", "Version", "Library", "TFM", "Integration", "API", "Integration Type", "Look For"],
                 ["package", "version", "library", "tfm", "integration", "api", "integration_type", "look_for"],
-                opportunityRows);
+                [.. RowWindow.Apply(rowWindow, opportunityRows)],
+                opportunityRows.Length != 0);
         }
 
         if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
         {
             var switchRows = inspections
                 .SelectMany(inspection => inspection.SwitchInspection.PayloadsForRendering()
-                    .Select(switchInfo => WithProvenance(
-                        packageName,
-                        version,
-                        inspection,
-                        switchInfo.Kind,
-                        switchInfo.Switch,
-                        switchInfo.Api)))
+                    .Select(switchInfo => new
+                    {
+                        Inspection = inspection,
+                        SwitchInfo = switchInfo
+                    }))
+                .OrderBy(
+                    row => row.SwitchInfo.Kind,
+                    StringComparer.Ordinal)
+                .ThenBy(
+                    row => CodeCell(row.SwitchInfo.Switch),
+                    StringComparer.Ordinal)
+                .Select(row => WithProvenance(
+                    packageName,
+                    version,
+                    row.Inspection,
+                    row.SwitchInfo.Kind,
+                    row.SwitchInfo.Switch,
+                    row.SwitchInfo.Api))
                 .ToArray();
             return new(
                 ["Package", "Version", "Library", "TFM", "Kind", "Switch", "API"],
                 ["package", "version", "library", "tfm", "kind", "switch", "api"],
-                switchRows);
+                [.. RowWindow.Apply(rowWindow, switchRows)],
+                switchRows.Length != 0);
         }
 
         var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
@@ -4039,7 +4084,8 @@ public class PackageCommand
         return new(
             ["Package", "Version", "Library", "TFM", "Kind", valueColumn],
             ["package", "version", "library", "tfm", "kind", valueStableColumn],
-            focusedRows);
+            [.. RowWindow.Apply(rowWindow, focusedRows)],
+            focusedRows.Length != 0);
     }
 
     private static IEnumerable<string[]> BuildLibraryInfoRows(string packageName, string version, LibraryInspection inspection)
@@ -4059,6 +4105,12 @@ public class PackageCommand
                      ("Custom Attributes", info.CustomAttributes),
                      ("Deterministic", info.Deterministic ? "Yes" : "No"),
                      ("Extension Methods", info.ExtensionMethods),
+                     ("Facade", info.Facade switch
+                     {
+                         true => "Yes",
+                         false => "No",
+                         null => null
+                     }),
                      ("File Size", info.FileSize),
                      ("Informational Version", info.InformationalVersion),
                      ("Integrations", info.Integrations),
@@ -4075,6 +4127,7 @@ public class PackageCommand
                      ("Target Framework", info.TargetFramework),
                      ("Type Forwarders", info.TypeForwarders),
                      ("Types", info.Types),
+                     ("Union Types", info.UnionTypes),
                      ("Version", info.Version)
                  })
         {
@@ -4517,64 +4570,83 @@ public class PackageCommand
     }
 
     private static async Task<int> ShowDependencyTreeAsync(
-        HttpClient client, InspectionResult result, InspectionOptions options, VerboseLogger logger)
+        HttpClient client,
+        string packageReference,
+        InspectionOptions options,
+        VerboseLogger logger)
     {
-        var selection = DependencyResolutionService.SelectDependencyGroup(
-            result.DependencyGroups,
-            options.Tfm,
-            allowCompatibleFallbackForRequestedTfm: false);
-        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoDependencyGroups)
-        {
-            CommandError.WriteLine("No dependencies declared in package.");
-            return 0;
-        }
+        PackageDependencyGraphResult result =
+            await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                client,
+                packageReference,
+                options.Tfm,
+                options.SourceOptions,
+                logger,
+                includePrerelease: options.IncludePrerelease,
+                allowCompatibleFallbackForRequestedTfm: false);
 
-        if (selection.Status == DependencyResolutionService.DependencyGroupSelectionStatus.NoMatchingTargetFramework)
+        if (result is PackageDependencyGraphResult.Error error)
         {
-            CommandError.Write($"No dependencies found for TFM '{selection.TargetFramework}'.");
-            CommandError.WriteLine("Available TFMs: " + string.Join(", ", selection.AvailableTargetFrameworks));
+            CommandError.Write(
+                error.Message,
+                error.Detail is null ? [] : [error.Detail]);
             return 1;
         }
 
-        var group = selection.Group!;
-        var tfm = selection.TargetFramework ?? group.TargetFramework;
-        var packageText = new PackageInspectionText(result);
-        var tfmText = new InertString(TextPolicy.Field, tfm);
-
-        if (group.Dependencies.Count == 0)
+        if (result is PackageDependencyGraphResult.Empty empty)
         {
+            if (empty.Kind
+                == PackageDependencyGraphResult.EmptyKind.NoDependencyGroups)
+            {
+                CommandError.WriteLine(empty.Message);
+                return 0;
+            }
+
+            var packageName =
+                new InertString(
+                    TextPolicy.Field,
+                    empty.ManifestPackageName);
+            var version =
+                new InertString(
+                    TextPolicy.Field,
+                    empty.ManifestVersion);
+            var description =
+                new InertString(TextPolicy.Field, empty.Message);
             var emptyView = new EmptyDepsView
             {
                 Title = InertString.Format(
                     TextPolicy.Field,
-                    $"{packageText.PackageName} ({packageText.Version})").ToString(),
-                Description = InertString.Format(
-                    TextPolicy.Field,
-                    $"No additional dependencies for {tfmText}.").ToString()
+                    $"{packageName} ({version})").ToString(),
+                Description = description.ToString()
             };
-            Console.WriteLine(MarkoutSerializer.Serialize(emptyView, InspectionContext.Default));
+            Console.WriteLine(
+                MarkoutSerializer.Serialize(
+                    emptyView,
+                    InspectionContext.Default));
             return 0;
         }
 
-        // Resolve transitive dependencies
-        var globalSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var depNodes = await DependencyResolutionService.ResolveDependencyTreeAsync(
-            client,
-            group.Dependencies,
-            tfm,
-            globalSeen,
-            logger.Log,
-            options.SourceOptions);
-
+        var graph = (PackageDependencyGraphResult.Graph)result;
+        var packageText =
+            new InertString(
+                TextPolicy.Field,
+                graph.ManifestPackageName);
+        var versionText =
+            new InertString(
+                TextPolicy.Field,
+                graph.ManifestVersion);
         var view = new PackageDependenciesView
         {
             Title = InertString.Format(
                 TextPolicy.Field,
-                $"{packageText.PackageName} {packageText.Version}").ToString(),
-            Dependencies = ToTreeNodes(depNodes)
+                $"{packageText} {versionText}").ToString(),
+            Dependencies = ToTreeNodes(graph.Dependencies)
         };
 
-        MarkoutSerializer.Serialize(view, Console.Out, PackageDependenciesContext.Default);
+        MarkoutSerializer.Serialize(
+            view,
+            Console.Out,
+            PackageDependenciesContext.Default);
         return 0;
     }
 

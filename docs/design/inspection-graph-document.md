@@ -398,6 +398,7 @@ A relationship descriptor defines:
 - semantic direction and endpoint roles;
 - admitted edge source and target subject kinds;
 - admitted original-occurrence source and target subject kinds;
+- admitted seed subject kinds, entry mechanisms, and semantic endpoint roles;
 - the producer that owns the relation;
 - whether the relation is observed, derived, or synthetic;
 - the occurrence evidence contract;
@@ -493,6 +494,27 @@ while admitting only member-to-member original occurrences. The projection
 rule receives the typed occurrence, including its producer evidence, and the
 semantically directed selected endpoint. It does not recover package ownership
 from labels or capture an unvalidated per-document side map.
+
+Seed admission is also descriptor-owned and separate from endpoint projection.
+A seed may enter a relationship as an exact logical `EdgeEndpoint`, as an
+original `OccurrenceEndpoint` retained behind a rolled-up edge, or through
+typed `OwnedSubjects`. Every admission names semantic source or target;
+incoming traversal never changes that role. Callers can query all matching
+admissions without collapsing their entry kind or role. Direct edge and
+occurrence admissions must use a subject kind declared by the corresponding
+descriptor endpoint domain. An owned-subject admission must name a strict
+typed owner of a kind in that semantic endpoint domain; it authorizes later
+expansion but does not change the logical edge's subject kind or direction.
+
+The single-seed neighborhood requires at least one selected relationship and
+the seed kind and semantic direction must be admitted by at least one of them.
+Integration catalog validation occurs before producer execution and fails with
+the selected relationship id and typed guidance. Induced-set requests carry no
+seeds and bypass that gate.
+`RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`,
+`AdmissionsMatchDeclaredEndpointDomains`, and
+`RelationshipCatalogsDeclareCurrentSeedAdmissions` gate the implemented
+descriptor contracts.
 
 Each relationship descriptor owns an occurrence-identity projection within one
 document. Projection deduplicates repeated observations by that key before
@@ -704,6 +726,58 @@ typed package-owned members and retains member-to-member call semantics.
 No mode chooses a subject lens, relationship set, or characteristic selection
 automatically. The same relationship, identity, direction, limit, and failure
 contracts apply in every mode.
+
+`InspectionGraphNeighborhoodRequest` is the first composed request over these
+orthogonal axes. It currently requires one seed or two or more equal peer
+seeds, one or more typed relationship descriptors, semantic traversal
+direction, and a finite maximum edge depth.
+The resulting document retains both its `ModeRequest` and
+`NeighborhoodRequest`; a consumer never has to infer selection or bounds from
+the surviving topology.
+
+Relationship producers may retain a stricter typed breadth budget alongside
+that shared request. The bounded call neighborhood records
+`call.traversal-node-bound` in addition to
+`queries.neighborhood-depth-bound`, because Analysis enforces its node budget
+while building the cross-library callee tree. Hitting either bound remains
+visible through call traversal incompleteness; it does not erase the member
+seed or its physical evidence. Nonzero catalog correspondence counts likewise
+remain a typed `call.correspondence-incomplete` limit rather than a
+success-shaped empty graph. `CrossLibraryCalleeNeighborhood_*` gates these
+call-specific compositions.
+
+The Integration implementation validates catalog membership before producer
+execution. Its relationship set drives the deterministic query-registry plan,
+including opportunity's Integration and extension prerequisites for
+fulfillment reconciliation. Projection begins through the selected
+descriptor's exact edge, original-occurrence, or typed owned-subject admission
+for each seed, then walks logical endpoints for the remaining hops. Incoming
+traversal changes which endpoint is followed, never the stored edge or
+occurrence direction. Peer projection is one deterministic multi-source walk:
+every peer begins at depth zero, reached topology is the union of their bounded
+neighborhoods, and shared edges and occurrences retain one identity. It does
+not fabricate a primary seed or require every peer to be connected.
+
+Projection assigns new dense document-local ids while retaining semantic
+subjects, relationship descriptors, occurrence evidence and occurrence
+identity. Failures from requested relationship producers and their required
+composition prerequisites remain visible even when their target is outside
+healthy reached topology. A typed `queries.neighborhood-depth-bound` limit
+records the requested bound, including depth zero. An admissible owner-issued
+seed remains bound even when selected producers emit no relationship evidence.
+For peer requests, the same bound is targeted at every equal seed so no peer's
+completeness is inferred from another's topology.
+`Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
+`Execute_ZeroDepthRetainsSeedWithoutEdges`,
+`Execute_ZeroDepthRetainsAdmissibleSeedWithoutSelectedEvidence`,
+`Execute_PeerNeighborhoodConnectsEqualSeeds`,
+`Execute_ZeroDepthPeerNeighborhoodRetainsEverySeed`,
+`Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed`,
+`Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression`,
+`Execute_NeighborhoodRetainsSelectedProducerFailures`,
+`Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures`, and
+`Execute_RejectsForeignRelationshipBeforeProducerExecution` gate these
+contracts.
 
 ### Type outward
 
@@ -972,7 +1046,7 @@ when one exact member supplies both its extension and integration occurrences.
 This suppresses the OpenAI and Bedrock raw gaps without suppressing Azure or a
 same-spelled type from another acquisition.
 `InspectionGraphIntegrationsQueryTests.Execute_ProjectsLockedIChatClientEvidenceAcrossPackageGroups`,
-`PackageAndTypeReadingsShareTheSameIntegrationOccurrences`, and
+`PackageAndTypeModesShareSemanticIntegrationOccurrences`, and
 `Execute_DoesNotJoinAmbiguousMatchingAssemblyIdentities` gate those claims.
 
 Aspire hosting package webs, an `AddOpenAI` seed graph, and a two-plane AppHost
@@ -1005,9 +1079,19 @@ subject lenses it advances.
 5. **Findings and analysis adoption.** Add explicit adapters for #4091, #4121,
    and #4114 after their contracts land, without changing their native producer
    semantics.
-6. **Seed and set composition.** Apply the same envelope to #4133 package/type
-   seeds, peer seeds, and induced input sets; preserve current member-seeded
-   defaults and bounds.
+6. **Seed and set composition.** `InspectionGraphModeRequest` now makes
+   single-seed, peer-seed, and induced-set intent explicit.
+   `CallGraphInspectionGraphAdapter` preserves the current member seed;
+   `InspectionGraphPackageBoundary` and `InspectionGraphIntegrationsQuery`
+   bind type, assembly, and package subjects to exact nodes or groups; peers
+   retain equal roles; and request-free workspace projection declares its
+   workspace-participant induced-set rule. Relationship descriptors now own
+   direct edge, original occurrence, and owned-subject seed admission, and
+   preserve each admission's semantic role for request planning.
+   `InspectionGraphNeighborhoodRequest` now drives finite single-seed
+   Integration traversal and producer selection. Peer connecting
+   neighborhoods, explicit-subject induced sets, and presentation lowering
+   remain.
 
 ## Required implementation gates
 

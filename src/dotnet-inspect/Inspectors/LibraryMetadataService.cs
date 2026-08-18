@@ -67,6 +67,19 @@ internal static class LibraryMetadataService
             var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(
                 requiredScanners,
                 requiredQueries);
+            IAssemblyReferenceResolver? bodyReferenceResolver =
+                bodyAnalysisFeatures.HasFlag(
+                    Analysis.LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities)
+                    ? new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(path)
+                        {
+                            TargetFramework = options.Tfm,
+                            IncludeDepsJsonAssets = false,
+                            IncludeAspNetCoreSharedFramework = false,
+                            PreferImplementationAssemblies = true,
+                        })
+                    : null;
             using var service = assemblyReference is not null
                 ? bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
                     ? SourceLinkService.Open(assemblyReference, logger.Log)
@@ -112,6 +125,7 @@ internal static class LibraryMetadataService
                     {
                         AssemblyPath = path,
                         AssemblyReference = assemblyReference,
+                        BodyReferenceResolver = bodyReferenceResolver,
                         Model = nativeAudit,
                         Logger = logger,
                         MetadataContext = pdbContext,
@@ -247,6 +261,7 @@ internal static class LibraryMetadataService
                 {
                     AssemblyPath = path,
                     AssemblyReference = assemblyReference,
+                    BodyReferenceResolver = bodyReferenceResolver,
                     Model = inspection,
                     Logger = logger,
                     MetadataContext = pdbContext,
@@ -480,7 +495,7 @@ internal static class LibraryMetadataService
         IReadOnlySet<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
-        if (scanners?.Contains(Sections.LibrarySections.ScannerTopLeverage) == true
+        if (queries?.Contains(TopLeverageQuery.Definition) == true
             || queries?.Contains(UnsafeEvidenceQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
@@ -1387,58 +1402,6 @@ internal static class LibraryMetadataService
            && definition.Equals(Analysis.TypeRef.Definition("System.Text.Json", "System.Text.Json.Serialization.Metadata", "JsonTypeInfo`1"));
 
     /// <summary>
-    /// Ranks the assembly's methods by call-graph leverage (distinct direct callers,
-    /// then outbound shape). Emits the full ranked set so the row limiter (<c>-n</c>/
-    /// <c>--rows</c>) controls how many rows are shown, matching the type-scoped view.
-    /// </summary>
-    internal static List<MethodLeverageSummary>? ScanTopLeverage(
-        Func<Analysis.LibraryBodyIndex> openIndex,
-        Func<IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>>
-            getDrillMap,
-        string path,
-        VerboseLogger logger)
-    {
-        try
-        {
-            var index = openIndex();
-            var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
-            // Reuse the exact Member Index canonical-signature/digest path (via the
-            // extracted API surface) so library-scope rows carry the same round-tripping
-            // Stable selector, Visibility, and Name:N Selector as the type-scoped view.
-            var drillByToken = getDrillMap();
-            var rows = index.TopLeverage(int.MaxValue)
-                .Select(entry =>
-                {
-                    drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
-                    return new MethodLeverageSummary
-                    {
-                        Member = FormatMethod(entry.Method),
-                        Callers = entry.DirectCallerCount,
-                        RootReach = entry.RootReach,
-                        Fanout = entry.Fanout,
-                        Depth = entry.MaxDepth,
-                        LoopCalls = entry.LoopCallCount,
-                        Generated = IsGeneratedMethod(entry.Method, generatedFrameworkTypes),
-                        Visibility = drill.Visibility,
-                        Stable = drill.Stable,
-                        Selector = drill.Selector,
-                    };
-                })
-                .ToList();
-            return rows.Count > 0 ? rows : null;
-        }
-        catch (CostDeclarationException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning($"Error scanning leverage in {path}: {ex.Message}");
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Builds a metadata-token → (Stable, Visibility, Selector) map across the whole
     /// assembly by running the shared <see cref="ApiOutputFormatter.BuildMemberDrillMap"/>
     /// per type. Two surfaces are extracted: the default (public) surface numbers public
@@ -1494,6 +1457,7 @@ internal static class LibraryMetadataService
         try
         {
             var index = openIndex();
+            ReportOptimizationDiagnostics(index);
             var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
             var rows = FilterAndOrderTriageOpportunities(
                     TriageOpportunities(index, options)
@@ -1504,6 +1468,9 @@ internal static class LibraryMetadataService
                 .Select(opportunity => new OptimizationOpportunitySummary
                 {
                     Member = FormatMethod(opportunity.Method),
+                    Assembly = opportunity.Method.AssemblyName,
+                    MethodToken = FormatToken(
+                        opportunity.Method.MetadataToken),
                     Candidate = opportunity.CandidateId,
                     Finding = opportunity.SourceFinding,
                     Provenance = FormatProvenance(opportunity.Provenance),
@@ -1511,6 +1478,8 @@ internal static class LibraryMetadataService
                     Shape = opportunity.Shape,
                     Operation = opportunity.Operation,
                     Token = FormatToken(opportunity.OperandToken),
+                    EvidenceMethod = FormatToken(
+                        opportunity.EvidenceMethodToken),
                     Evidence = opportunity.Evidence,
                     Fix = opportunity.SafeFixDirection,
                     Priority = TriagePriority(opportunity),
@@ -1545,6 +1514,22 @@ internal static class LibraryMetadataService
         {
             logger.LogWarning($"Error scanning optimization opportunities in {path}: {ex.Message}");
             return null;
+        }
+    }
+
+    internal static void ReportOptimizationDiagnostics(
+        Analysis.LibraryBodyIndex index,
+        Func<Analysis.AnalysisDiagnostic, bool>? include = null)
+    {
+        foreach (Analysis.AnalysisDiagnostic diagnostic
+            in index.Diagnostics)
+        {
+            if (include is not null && !include(diagnostic))
+                continue;
+            CommandError.WriteWarning(
+                $"performance analysis incomplete for "
+                + $"{diagnostic.Method}: "
+                + diagnostic.Message);
         }
     }
 
@@ -1949,6 +1934,7 @@ internal static class LibraryMetadataService
             "Shape" => opportunity.Shape,
             "Operation" => opportunity.Operation,
             "Token" => FormatToken(opportunity.OperandToken),
+            "EvidenceMethod" => FormatToken(opportunity.EvidenceMethodToken),
             "Evidence" => opportunity.Evidence,
             "Fix" => opportunity.SafeFixDirection,
             "Priority" => TriagePriority(opportunity),
@@ -2076,7 +2062,8 @@ internal static class LibraryMetadataService
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        InspectionQueryResults results)
+        InspectionQueryResults results,
+        ScannerContext scannerContext)
     {
         if (results.TryGet(MetadataImageQuery.Definition, out MetadataImageResult? metadata))
         {
@@ -2110,6 +2097,18 @@ internal static class LibraryMetadataService
                 out UnsafeEvidenceResult? unsafeEvidence))
         {
             ApplyUnsafeEvidenceResult(path, inspection, logger, unsafeEvidence);
+        }
+
+        if (results.TryGet(
+                TopLeverageQuery.Definition,
+                out TopLeverageResult? topLeverage))
+        {
+            ApplyTopLeverageResult(
+                path,
+                inspection,
+                logger,
+                topLeverage,
+                scannerContext.DrillMap);
         }
 
         if (results.TryGet(
@@ -2209,6 +2208,63 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown audit metadata result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyTopLeverageResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        TopLeverageResult result,
+        Func<IReadOnlyDictionary<int, (string? Stable, string Visibility, string Selector)>>
+            getDrillMap)
+    {
+        ArgumentNullException.ThrowIfNull(getDrillMap);
+
+        inspection.TopLeverageQueryResult = result;
+        inspection.TopLeverage = null;
+        inspection.TopLeverageDrillMap = null;
+
+        switch (result)
+        {
+            case TopLeverageResult.Available available:
+                var drillByToken = getDrillMap();
+                inspection.TopLeverageDrillMap = drillByToken;
+                var rows = available.Methods
+                    .Select(entry =>
+                    {
+                        drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
+                        return new MethodLeverageSummary
+                        {
+                            Member = ApiOutputFormatter.FormatMethod(entry.Method),
+                            Callers = entry.DirectCallerCount,
+                            RootReach = entry.RootReach,
+                            Fanout = entry.Fanout,
+                            Depth = entry.MaxDepth,
+                            LoopCalls = entry.LoopCallCount,
+                            Generated = IsGeneratedMethod(
+                                entry.Method,
+                                available.GeneratedFrameworkTypeNames),
+                            Visibility = drill.Visibility,
+                            Stable = drill.Stable,
+                            Selector = drill.Selector,
+                        };
+                    })
+                    .ToList();
+                inspection.TopLeverage = rows.Count > 0 ? rows : null;
+                break;
+
+            case TopLeverageResult.NoMetadata:
+                break;
+
+            case TopLeverageResult.Failed failed:
+                logger.LogWarning(
+                    $"Error scanning leverage in {path}: {failed.Error.Message}");
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown top leverage result '{result.GetType().Name}'.");
         }
     }
 
@@ -2701,7 +2757,7 @@ internal static class LibraryMetadataService
             throw new InspectionQueryException("Typed query execution failed.", ex);
         }
 
-        ApplyQueryResults(path, inspection, logger, results);
+        ApplyQueryResults(path, inspection, logger, results, scannerContext);
     }
 
     static FindingInspection<T> FailedInspection<T>(

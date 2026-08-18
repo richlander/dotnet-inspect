@@ -1,0 +1,64 @@
+# Product Vocabulary
+
+`dotnet-inspect vocabulary` exposes the stable values accepted by product-owned
+queries. It is an inspection document, not a help-text command or an enum dump:
+sections are vocabularies, and section rows are legal values.
+
+## Data all the way down
+
+Vocabulary uses the ordinary output model:
+
+```bash
+dotnet-inspect vocabulary
+dotnet-inspect vocabulary -D
+dotnet-inspect vocabulary -S Accessibility
+dotnet-inspect vocabulary -S "C# Style Choices" --json
+dotnet-inspect vocabulary -S "C# Body Kinds"
+dotnet-inspect vocabulary -S @Decompiler --count
+```
+
+- Bare `vocabulary` renders the `Vocabulary Sections` index.
+- `-D` discovers sections, categories, and fields.
+- `-S` selects the values to materialize.
+- `--columns`, `--fields`, `--rows`, and `--count` narrow those values.
+- Markdown, plain text, table, TSV, JSONL, and JSON use the same section and row identities.
+
+The structured document carries a schema version. Every section declares its
+stable ID, categories, accepted query inputs, field schema, legal operators, and
+typed values. A stable value ID can therefore flow from discovery or a website
+picker back into a typed query without parsing labels.
+
+## Ownership
+
+`DotnetInspector.Vocabulary` composes existing owner catalogs; it does not
+reclassify their values:
+
+- `ApiAccessibility` owns accessibility identity, order, defaults, and
+  classification.
+- `StyleOptionCatalog` owns C# style tiers, selectable choices, conflicts,
+  endorsement, and byte-divergence properties.
+- `BodyShapeSearch.SupportedKinds` owns searchable body-kind identity and order;
+  `AnnotatedSourceNodeKinds` owns their display labels.
+
+CLI and browser/WASM consume the same `VocabularyCatalog` and
+`VocabularyJson` projection. Hosts may select a section for a purpose-specific
+control, but they do not restate its values, labels, order, defaults, or
+selection semantics.
+
+Static vocabulary answers "what may I ask?" Target-aware facets remain query
+results: they add availability, counts, or rejection reasons for one inspected
+target while retaining the static value IDs.
+
+## Current sections
+
+| Section | Stable ID | Values |
+| ------- | --------- | ------ |
+| Vocabulary Sections | `vocabulary.sections` | Available vocabulary sections |
+| Accessibility | `api.accessibility` | API accessibility facet IDs |
+| C# Style Tiers | `csharp.style-tiers` | Style fidelity/presentation tiers |
+| C# Style Choices | `csharp.style-choices` | Selectable rendering choice IDs |
+| C# Body Kinds | `csharp.body-kinds` | Exact rendered body-syntax kinds |
+
+Body-kind vocabulary now lands ahead of query consumption. The next slice moves
+kind predicates into scoped rich queries; once that replacement is complete,
+the standalone `body-shape` command is removed without a compatibility alias.
