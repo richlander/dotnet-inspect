@@ -520,10 +520,16 @@ and pin their checkout, SDK setup, and artifact actions to exact commits. The
 workflow contract gate enforces those references. Azure's pinned action still
 pulls Microsoft's `staticappsclient:stable` image; that vendor-controlled
 deployment dependency is not immutable and remains inside the Azure trust
-boundary. Both workflows disable Azure's own app build. The staging publish
-step embeds the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC
-build timestamp. The home and workspace status bars show that version, link
-the short commit to GitHub, and disclose the binary build time.
+boundary. Both workflows disable Azure's own app build and require the
+published artifact to contain `staticwebapp.config.json`. That configuration
+serves `/` and `/index.html` with `Cache-Control: no-cache, no-store,
+must-revalidate`, so an Azure edge cannot retain an old browser boot graph
+after its fingerprinted Wasm assets rotate.
+`BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
+gates the header contract and publish wiring. The staging publish step embeds
+the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
+timestamp. The home and workspace status bars show that version, link the
+short commit to GitHub, and disclose the binary build time.
 `BuildIdentity_UsesVersionedRepositoryProvenance` and
 `ready status shows versioned linked build provenance` gate the engine and UI
 halves.
