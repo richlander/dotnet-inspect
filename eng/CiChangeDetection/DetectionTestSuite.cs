@@ -343,7 +343,6 @@ internal static class DetectionTestSuite
         foreach (string promotionInput in new[]
         {
             ".github/workflows/promote-inspect-web.yml",
-            "eng/validate-inspect-web-runtime-async.cs",
             "eng/validate-inspect-web-promotion.cs",
             "eng/validate-inspect-web-promotion.sh",
         })

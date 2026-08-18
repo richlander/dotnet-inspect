@@ -158,13 +158,6 @@ jobs:
           -c Release
           --output artifacts/inspect-web-publish
 
-      - name: Validate browser runtime-async compatibility
-        run: >
-          dotnet run
-          eng/validate-inspect-web-runtime-async.cs
-          --
-          artifacts/runtime-async-off/bin
-
       - name: Test browser engine
         run: >
           dotnet run

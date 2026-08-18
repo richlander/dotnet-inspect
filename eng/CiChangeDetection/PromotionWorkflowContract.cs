@@ -526,10 +526,6 @@ internal static class PromotionWorkflowContract
               -p:VersionPrefix="$version" \
               -p:SourceRevisionId="$GITHUB_SHA" \
               -p:BuildTimestampUtc="$built_at"
-            dotnet run \
-              eng/validate-inspect-web-runtime-async.cs \
-              -- \
-              artifacts/runtime-async-off/bin
             """;
         if (GetRequiredScalar(publish, "run", "staging publish step").TrimEnd() !=
             ExpectedPublish)

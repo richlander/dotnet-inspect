@@ -311,7 +311,6 @@ while IFS= read -r -d '' file; do
     # `ci-required` passes on a `skipped`.
     eng/restore-iltools.sh) CODE=true ;;
     eng/activate-iltools.sh) CODE=true ;;
-    eng/validate-inspect-web-runtime-async.cs) WEB=true ;;
     eng/validate-inspect-web-promotion.cs) WEB=true ;;
     eng/validate-inspect-web-promotion.sh) WEB=true ;;
     # Global analyzer input consumed by every product and Browser build.

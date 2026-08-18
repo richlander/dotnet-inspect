@@ -398,12 +398,8 @@ therefore selects `RuntimeAsync=off` before repository build properties are
 evaluated and passes that mode through every project reference.
 `BrowserBuildSelectsRuntimeAsyncOptOutBeforeRepositoryProps` and
 `RuntimeAsyncOptOutUsesDistinctCompilerPaths` gate the two build invariants.
-Both Browser CI and staging deployment run
-`eng/validate-inspect-web-runtime-async.cs` against the published
-managed-assembly closure and reject the runtime-async method implementation
-flag. Browser builds use separate
-compiler intermediate and output trees, so an incrementally reused normal
-build cannot enter the Browser publish.
+Browser builds use separate compiler intermediate and output trees, so an
+incrementally reused normal build cannot enter the Browser publish.
 
 On a bare visit, `app.js` waits for the home page's first contentful paint
 before dynamically importing `engine.js`. Search and demo controls remain

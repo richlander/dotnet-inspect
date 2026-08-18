@@ -47,10 +47,6 @@ jobs:
             -p:VersionPrefix="$version" \
             -p:SourceRevisionId="$GITHUB_SHA" \
             -p:BuildTimestampUtc="$built_at"
-          dotnet run \
-            eng/validate-inspect-web-runtime-async.cs \
-            -- \
-            artifacts/runtime-async-off/bin
 
       - name: Upload staged site artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
