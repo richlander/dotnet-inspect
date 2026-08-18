@@ -20236,7 +20236,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_ImpliedGenericSelector_RejectsConflictingOptionArity()
+    public async Task Member_ImpliedGenericSelector_RejectsNoncanonicalOptionArity()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "MemoryExtensions.AsSpan<T>", "--platform", "System.Memory",
@@ -20244,7 +20244,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("cannot combine different generic arities", error);
+        Assert.Contains("requires exactly one member name", error);
     }
 
     [Fact]
