@@ -440,107 +440,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         return IsWellKnownValueType(definition.Namespace, definition.Name);
     }
 
-    MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
-    {
-        var declaringType = TypeRefDecoder.Instance.GetTypeFromDefinition(_reader, typeHandle, 0);
-        ImmutableArray<TypeRef> parameterTypes;
-        TypeRef returnType;
-        byte signatureHeader;
-        int requiredParameterCount;
-        if (SignatureBlobGuard.IsSafeToDecode(_reader, methodDef.Signature, SignatureBlobGuard.Kind.Method))
-        {
-            var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
-            parameterTypes = signature.ParameterTypes;
-            returnType = signature.ReturnType;
-            signatureHeader = signature.Header.RawValue;
-            requiredParameterCount = signature.RequiredParameterCount;
-        }
-        else
-        {
-            parameterTypes = [];
-            returnType = TypeRef.Unsupported("method signature nesting depth exceeded");
-            signatureHeader = 0;
-            requiredParameterCount = -1;
-        }
-        return new MethodIdentity(
-            _assemblyName,
-            _mvid,
-            declaringType,
-            _reader.GetString(methodDef.Name),
-            parameterTypes,
-            returnType,
-            MetadataTokens.GetToken(methodHandle),
-            (methodDef.Attributes & MethodAttributes.Static) != 0,
-            IsExtensionMethod(typeHandle, methodDef),
-            ComputeCallerUnsafeMode(typeHandle, methodDef, parameterTypes, returnType),
-            methodDef.GetGenericParameters().Count,
-            GenericParameterNames(methodDef))
-        {
-            SignatureHeader = signatureHeader,
-            RequiredParameterCount = requiredParameterCount,
-            IsVirtualDispatchOpen =
-                DispatchCanTargetOverride(
-                    _reader.GetTypeDefinition(typeHandle),
-                    methodDef),
-        };
-    }
-
-    static bool DispatchCanTargetOverride(
-        TypeDefinition declaringType,
-        MethodDefinition method) =>
-        (method.Attributes & MethodAttributes.Virtual) != 0
-        && (method.Attributes & MethodAttributes.Final) == 0
-        && (declaringType.Attributes & TypeAttributes.Sealed) == 0;
-
-    ImmutableArray<string> GenericParameterNames(MethodDefinition methodDef)
-    {
-        var handles = methodDef.GetGenericParameters();
-        if (handles.Count == 0)
-            return [];
-        var names = ImmutableArray.CreateBuilder<string>(handles.Count);
-        foreach (var handle in handles)
-            names.Add(_reader.GetString(_reader.GetGenericParameter(handle).Name));
-        return names.MoveToImmutable();
-    }
-
-    bool IsExtensionMethod(TypeDefinitionHandle typeHandle, MethodDefinition methodDef)
-    {
-        var type = _reader.GetTypeDefinition(typeHandle);
-        return (type.Attributes & TypeAttributes.Abstract) != 0
-            && (type.Attributes & TypeAttributes.Sealed) != 0
-            && (methodDef.Attributes & MethodAttributes.Static) != 0
-            && AttributeReader.HasExtensionAttribute(_reader, type.GetCustomAttributes())
-            && AttributeReader.HasExtensionAttribute(_reader, methodDef.GetCustomAttributes());
-    }
-
-    // Mirrors Roslyn's PEMethodSymbol.CallerUnsafeMode: a member "requires
-    // unsafe" when it carries RequiresUnsafeAttribute (the metadata form of
-    // the `unsafe` modifier) or has a pointer/function pointer in its
-    // signature; the mode is then gated on the module opting into the rules.
-    CallerUnsafeMode ComputeCallerUnsafeMode(
-        TypeDefinitionHandle typeHandle, MethodDefinition methodDef,
-        ImmutableArray<TypeRef> parameterTypes, TypeRef returnType)
-    {
-        bool requiresUnsafe =
-            HasRequiresUnsafe(methodDef.GetCustomAttributes())
-            || HasRequiresUnsafe(_reader.GetTypeDefinition(typeHandle).GetCustomAttributes())
-            || parameterTypes.Any(type => type.ContainsPointer())
-            || returnType.ContainsPointer();
-
-        if (!requiresUnsafe)
-            return CallerUnsafeMode.None;
-        return _memorySafetyRulesEnabled ? CallerUnsafeMode.Explicit : CallerUnsafeMode.Implicit;
-    }
-
-    // Read attributes straight from SRM — a simple has-attribute check needs
-    // no shared decode/render machinery, so Analysis stays independent.
-    bool HasRequiresUnsafe(CustomAttributeHandleCollection attributes)
-        // Match the distinctive simple name: the implemented attribute is in
-        // System.Diagnostics.CodeAnalysis, while the design doc says
-        // System.Runtime.CompilerServices — tolerate the namespace churn.
-        => HasAttributeNamed(attributes, "RequiresUnsafeAttribute",
-            "System.Diagnostics.CodeAnalysis", "System.Runtime.CompilerServices");
-
     bool HasAttributeNamed(CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
     {
         foreach (var handle in attributes)
@@ -645,14 +544,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         }
         return false;
     }
-
-    // True when the method is marked [System.Runtime.CompilerServices.CompilerGenerated]
-    // — record synthesized members (EqualityContract/PrintMembers/Equals/GetHashCode/
-    // ToString), lambdas, iterators, and async state machines. These have ordinary names
-    // (e.g. get_EqualityContract) that the angle-bracket name heuristics miss, yet none
-    // are user-actionable source-shape rewrite targets, so exclude them from collection.
-    bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
-        => HasAttributeNamed(attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
 
     (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
     {
