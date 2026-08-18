@@ -17973,9 +17973,13 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData("Field")]
-    [InlineData("Val*")]
-    public async Task Package_JsonRecognizesFieldLayoutColumns(string column)
+    [InlineData("Field", false)]
+    [InlineData("Field", true)]
+    [InlineData("Val*", false)]
+    [InlineData("Val*", true)]
+    public async Task Package_JsonRecognizesFieldLayoutColumns(
+        string column,
+        bool fixedOverview)
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.Package.JsonFieldLayout",
@@ -17983,16 +17987,20 @@ public partial class CommandExecutionTests
             "# Package");
         try
         {
+            string[] selection = fixedOverview
+                ? ["-S"]
+                : ["-S", "Package Info"];
             var (exit, output, error) = await RunAppAsync(
-                "package",
-                packagePath,
-                "-S",
-                "Package Info",
-                "--json",
-                "--columns",
-                column,
-                "--tips",
-                "q");
+                [
+                    "package",
+                    packagePath,
+                    .. selection,
+                    "--json",
+                    "--columns",
+                    column,
+                    "--tips",
+                    "q",
+                ]);
 
             Assert.Equal(0, exit);
             using var _ = JsonDocument.Parse(output);

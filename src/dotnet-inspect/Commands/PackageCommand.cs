@@ -1089,10 +1089,13 @@ public class PackageCommand
         var renderedColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var renderedSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var fieldLayoutSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyCollection<string>? selectedSections = options.FixedOverview
+            ? pipeline.BareSelectSectionNames
+            : options.IncludeSections;
         if (options.Columns is { Length: > 0 }
-            && options.IncludeSections is { Count: > 0 })
+            && selectedSections is { Count: > 0 })
         {
-            foreach (string section in options.IncludeSections)
+            foreach (string section in selectedSections)
             {
                 var unresolved = new HashSet<string>(
                     columnSchema.ValidateProjection(section, options.Columns).Unresolved,
