@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using DotnetInspector.Inspectors;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Tests;
@@ -59,6 +61,30 @@ public sealed class PackageExtractorOfflineTests : IDisposable
         Assert.Contains("not available offline", outcome.ErrorMessage);
         Assert.Contains("no cached package", outcome.ErrorMessage);
         Assert.DoesNotContain("not found", outcome.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackageDependencyTree_OfflineUncachedVersion_ReportsCacheMiss()
+    {
+        string packageName =
+            $"Definitely.Uncached.Dependencies.{Guid.NewGuid():N}";
+
+        PackageDependencyGraphResult result =
+            await DependencyGraphService.BuildPackageDependencyTreeAsync(
+                Core.HttpClientFactory.Shared,
+                $"{packageName}@1.0.0",
+                requestedTfm: null,
+                sourceOptions: null,
+                new VerboseLogger(enabled: false));
+
+        var error =
+            Assert.IsType<PackageDependencyGraphResult.Error>(result);
+        Assert.Contains("not available offline", error.Message);
+        Assert.Contains("no cached package", error.Message);
+        Assert.DoesNotContain(
+            "not found",
+            error.Message,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

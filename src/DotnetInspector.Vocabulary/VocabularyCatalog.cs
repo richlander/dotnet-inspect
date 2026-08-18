@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 
 using DotnetInspector.Queries;
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Vocabulary;
@@ -172,6 +173,9 @@ public static class VocabularyCatalog
     /// <summary>The selectable C# style-choice vocabulary section.</summary>
     public const string StyleChoicesSection = "C# Style Choices";
 
+    /// <summary>The exact rendered C# body-kind vocabulary section.</summary>
+    public const string BodyKindsSection = "C# Body Kinds";
+
     /// <summary>The current static vocabulary document.</summary>
     public static VocabularyDocument Document { get; } = CreateDocument();
 
@@ -187,6 +191,7 @@ public static class VocabularyCatalog
             CreateAccessibility(),
             CreateStyleTiers(),
             CreateStyleChoices(),
+            CreateBodyKinds(),
         ];
         VocabularySection index = CreateSectionIndex(values);
         var document = new VocabularyDocument(1, [index, .. values]);
@@ -329,6 +334,41 @@ public static class VocabularyCatalog
             "Selectable product-owned C# rendering choices.",
             ["@Vocabulary", "@Decompiler"],
             ["decompiler.style-picker", "decompiler.render"],
+            fields,
+            rows);
+    }
+
+    private static VocabularySection CreateBodyKinds()
+    {
+        ImmutableArray<VocabularyField> fields =
+        [
+            TextField(
+                "id",
+                "ID",
+                "Exact stable rendered-syntax kind.",
+                VocabularyOperator.Equals,
+                VocabularyOperator.NotEquals,
+                VocabularyOperator.In),
+            TextField(
+                "label",
+                "Label",
+                "Product-owned display label.",
+                VocabularyOperator.Equals,
+                VocabularyOperator.Glob),
+        ];
+        ImmutableArray<VocabularyRow> rows =
+        [
+            .. BodyShapeSearch.SupportedKinds.Select(kind => new VocabularyRow(
+                ("id", VocabularyValue.FromText(kind)),
+                ("label", VocabularyValue.FromText(
+                    AnnotatedSourceNodeKinds.GetDisplayLabel(kind))))),
+        ];
+        return new(
+            "csharp.body-kinds",
+            BodyKindsSection,
+            "Exact rendered C# syntax kinds accepted by body queries.",
+            ["@Vocabulary", "@Decompiler"],
+            ["decompiler.body-kind"],
             fields,
             rows);
     }
