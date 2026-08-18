@@ -679,7 +679,18 @@ only when the post-dominator machinery is proven.
    or beside its goto declines the whole transaction. Accepted retained merges
    receive a dedicated empty label anchor, so later expression/sugar passes
    cannot consume the owner and printer-synthesized `unsafe` scopes begin after
-   the target.
+   the target. Downstream `fixed` recovery also declines before moving an
+   externally targeted anchor into the fixed body. The array, string, and
+   managed-reference fixed forms share that scope proof.
+
+   Nested diamond recovery additionally proves that no transfer from the first
+   arm enters the sibling arm before treating them as `if`/`else`; otherwise the
+   shared successor remains after the nested guard. This preserves the
+   non-low-surrogate fallback in `OrdinalCasing.ToUpperOrdinal` and
+   `ToLowerOrdinal`, whose third predecessor is valid C# fallthrough rather than
+   an `else` arm. Retained loops reject already-raised `Switch` nodes and nested
+   `return`/`throw` exits as well as raw switch/EH transfers, because the
+   block-level post-dominator model does not represent those descendant exits.
 
    `CanonicalWhileWithRetainedBodyMergeRaises` and
    `CoreLibUrlDecodeWithRetainedBodyMergeRaises` gate the accepted synthetic
@@ -690,12 +701,21 @@ only when the post-dominator machinery is proven.
    `RetainedBodyMergeWithNoncanonicalExitStaysFlat`,
    `RetainedBodyMergeWithExternalInteriorEntryStaysFlat`, and
    `RetainedBodyMergeWithSwitchStaysFlat` gate the declined boundary;
+   `RetainedBodyMergeWithStructuredSwitchStaysFlat` and
+   `RetainedBodyMergeWithStructuredMethodExitStaysFlat` gate the descendant
+   switch/exit boundary;
+   `RetainedBodyMergeWithCrossArmPredecessorPreservesJoin` and
+   `CoreLibOrdinalCasingCrossArmPredecessorPreservesFallbackPath` gate the
+   cross-arm predecessor proof;
    `RetainedBodyMergeWithEmptyLandingPadStaysFlat` and
    `RetainedBodyMergeNestedBelowItsGotoStaysFlat` prove every surviving goto
    still has a printable, lexically visible target label;
    `RetainedBodyMergeLabelStaysOutsideSynthesizedUnsafeScope` and
    `RetainedBodyMergeLabelSurvivesDownstreamInlining` prove that owner survives
-   final emission. Against
+   final emission. `ArrayPin_ExternallyTargetedBodyLabel_StaysLowered`,
+   `ManagedReferencePin_ExternallyTargetedBodyLabel_StaysLowered`, and
+   `Rung6StringPinningExternallyTargetedBodyLabelStaysLowered` gate that all
+   fixed-statement forms preserve the same scope. Against
    exact base `6f4d8f73f`, the slice moved CoreLib from 11,786 to 11,793
    structured containers (752 to 745 flat) and the pinned corpus from 30,046
    to 30,068 (2,677 to 2,655 flat), with zero pass bugs in both

@@ -832,6 +832,21 @@ public class LadderRung6GateTests
     }
 
     [Fact]
+    public void Rung6StringPinningExternallyTargetedBodyLabelStaysLowered()
+    {
+        var function = SyntheticStringPin(
+            aliasPointerLocal: false,
+            includeUnpin: false,
+            externalBodyLabel: true);
+
+        new FixedStatementPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<Fixed>());
+        Assert.Single(function.Descendants.OfType<LabelAnchor>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void Rung6StackallocInitializerResiduals_RecoverFully()
     {
         AssertStackallocInitializerResiduals(NewUnsafePath, StackallocInitializerType);
@@ -939,7 +954,8 @@ public class LadderRung6GateTests
         bool derivedAlias = false,
         bool collideStackSlotName = false,
         bool sourceLocal = false,
-        bool overwriteAlias = false)
+        bool overwriteAlias = false,
+        bool externalBodyLabel = false)
     {
         var charType = TypeRef.CoreLib("System", "Char");
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -974,9 +990,17 @@ public class LadderRung6GateTests
         elseArm.Add(new StoreStackSlot(0, new ILInspector.Decompiler.Pipeline.Convert(nativeUInt, isChecked: false, isUnsigned: false, new LoadLocal(0, pinnedCharRef))));
 
         var block = new Block(0);
+        if (externalBodyLabel)
+            block.Add(new Branch(100));
         if (sourceLocal)
             block.Add(new StoreLocal(sourceLocalIndex, stringType, new LoadArgument(0, "value", stringType)));
         block.Add(new IfStatement(new LogicalNot(SourceRead()), thenArm, elseArm));
+        if (externalBodyLabel)
+        {
+            var anchor = new LabelAnchor();
+            anchor.SetSourceOffset(100);
+            block.Add(anchor);
+        }
         if (aliasPointerLocal)
         {
             var basePointer = new ILInspector.Decompiler.Pipeline.Convert(charPointer, isChecked: false, isUnsigned: false, new LoadStackSlot(0, nativeUInt));

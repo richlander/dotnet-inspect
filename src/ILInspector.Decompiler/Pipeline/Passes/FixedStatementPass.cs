@@ -141,6 +141,8 @@ public sealed class FixedStatementPass : IIrPass
                 && !pinStores.Contains(c) && !unpins.Contains(c))
             .OrderBy(c => c.ChildIndex)
             .ToList();
+        if (HasExternalTransferIntoBody(function, bodyStmts))
+            return;
 
         // A body statement wedged before the innermost pin is reordered under it,
         // so it must be a pure pointer derive (a store of a pin-derived pointer)
@@ -293,6 +295,37 @@ public sealed class FixedStatementPass : IIrPass
 
     static bool ReferencesAnySlot(IrNode root, IReadOnlySet<int> pinnedSlots, IReadOnlySet<int> derivedSlots)
         => Loads(root).Any(l => pinnedSlots.Contains(l.Index) || derivedSlots.Contains(l.Index));
+
+    internal static bool HasExternalTransferIntoBody(
+        IrFunction function,
+        IReadOnlyList<IrNode> bodyStatements)
+    {
+        var bodyLabels = bodyStatements
+            .SelectMany(statement => statement.DescendantsOutsideNestedFunctions.Prepend(statement))
+            .Where(node => node.OwnsSourceLabel && node.SourceOffset >= 0)
+            .Select(node => node.SourceOffset)
+            .ToHashSet();
+        if (bodyLabels.Count == 0)
+            return false;
+
+        foreach (var transfer in function.DescendantsOutsideNestedFunctions)
+        {
+            if (bodyStatements.Any(statement => ReferenceOwnership.IsInside(transfer, statement)))
+                continue;
+
+            bool entersBody = transfer switch
+            {
+                Branch branch => bodyLabels.Contains(branch.TargetOffset),
+                ConditionalBranch conditional => bodyLabels.Contains(conditional.TargetOffset),
+                SwitchBranch switchBranch => switchBranch.TargetOffsets.Any(bodyLabels.Contains),
+                Leave leave => bodyLabels.Contains(leave.TargetOffset),
+                _ => false,
+            };
+            if (entersBody)
+                return true;
+        }
+        return false;
+    }
 
     static IEnumerable<LoadLocal> Loads(IrNode root)
         => root.Descendants.Prepend(root).OfType<LoadLocal>();

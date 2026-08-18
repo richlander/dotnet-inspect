@@ -108,8 +108,11 @@ internal static class FixedArrayRaising
         var bodyStmts = entry.Children
             .Where(c => c.ChildIndex > guard.ChildIndex && c.ChildIndex <= bodyEnd)
             .ToList();
-        if (bodyStmts.Count == 0)
+        if (bodyStmts.Count == 0
+            || FixedStatementPass.HasExternalTransferIntoBody(function, bodyStmts))
+        {
             return;
+        }
 
         foreach (var node in function.Descendants)
         {
@@ -204,6 +207,8 @@ internal static class FixedArrayRaising
         var bodyStmts = block.Children
             .Where(c => c.ChildIndex > guard.ChildIndex && c.ChildIndex < unpin.ChildIndex)
             .ToList();
+        if (FixedStatementPass.HasExternalTransferIntoBody(function, bodyStmts))
+            return;
 
         // The derived pointer is written only by the diamond's arms; a body write
         // would mean the slot outlives the fixed region.

@@ -667,8 +667,18 @@ public sealed class StructuringPass : IIrPass
         {
             foreach (var node in ctx.Blocks[source].DescendantsOutsideNestedFunctions)
             {
-                if (node is TryCatch or TryFinally or Leave or EndFinally or EndFilter or SwitchBranch)
+                if (node is TryCatch
+                    or TryFinally
+                    or Leave
+                    or EndFinally
+                    or EndFilter
+                    or SwitchBranch
+                    or Switch
+                    or Return
+                    or Throw)
+                {
                     return true;
+                }
                 if (!ReferenceEquals(node.Parent, ctx.Blocks[source])
                     && node is Branch or ConditionalBranch)
                 {
@@ -1955,7 +1965,10 @@ public sealed class StructuringPass : IIrPass
             && branchTarget == targetIndex;
     }
 
-    /// <summary>The diamond join: the false arm's last block ends with a goto past the true arm; null means guard shape.</summary>
+    /// <summary>
+    /// The diamond join: the false arm's last block ends with a goto past the
+    /// true arm, and no other false-arm transfer enters the true arm.
+    /// </summary>
     static int? FindDiamondJoin(IReadOnlyList<Block> blocks, Dictionary<int, int> offsetToIndex, int falseStart, int trueStart, int stop)
     {
         if (falseStart >= trueStart)
@@ -1966,6 +1979,18 @@ public sealed class StructuringPass : IIrPass
             && offsetToIndex.TryGetValue(branch.TargetOffset, out int join)
             && join > trueStart && join <= stop)
         {
+            for (int source = falseStart; source < trueStart; source++)
+            {
+                foreach (int targetOffset in TransferTargets(blocks[source]))
+                {
+                    if (offsetToIndex.TryGetValue(targetOffset, out int target)
+                        && target >= trueStart
+                        && target < join)
+                    {
+                        return null;
+                    }
+                }
+            }
             return join;
         }
         return null;

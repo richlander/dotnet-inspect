@@ -316,6 +316,103 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
+    public void RetainedBodyMergeWithStructuredSwitchStaysFlat()
+    {
+        var blocks = RetainedLoopBlocks();
+        var switchBody = new BlockContainer();
+        switchBody.Add(Term(200, new Return(new Constant(99, I32))));
+        blocks[11] = Block(
+            11,
+            new Switch(
+                new Constant(0, I32),
+                [new SwitchSection([new Constant(0, I32)], false, switchBody)]),
+            new StoreLocal(0, I32, new Constant(7, I32)),
+            Cond(13));
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<Switch>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RetainedBodyMergeWithStructuredMethodExitStaysFlat(bool useThrow)
+    {
+        var blocks = RetainedLoopBlocks();
+        var exitArm = new Block(200);
+        exitArm.Add(
+            useThrow
+                ? new Throw(new Constant(null, TypeRef.CoreLib("System", "Object")))
+                : new Return(new Constant(99, I32)));
+        blocks[11] = Block(
+            11,
+            new IfStatement(
+                new Comparison(
+                    ComparisonKind.Equal,
+                    isUnsigned: false,
+                    new Constant(0, I32),
+                    new Constant(1, I32)),
+                exitArm,
+                null),
+            new StoreLocal(0, I32, new Constant(7, I32)),
+            Cond(13));
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void RetainedBodyMergeWithCrossArmPredecessorPreservesJoin()
+    {
+        var blocks = CrossArmRetainedLoopBlocks();
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        var joinStore = Assert.Single(
+            function.Descendants.OfType<StoreLocal>(),
+            store => store.Value is Constant { Value: 4 });
+        var joinBlock = Assert.IsType<Block>(joinStore.Parent);
+        Assert.Equal(1, joinStore.ChildIndex);
+        Assert.IsType<IfStatement>(joinBlock.Children[0]);
+    }
+
+    [Theory]
+    [InlineData("ToUpperOrdinal")]
+    [InlineData("ToLowerOrdinal")]
+    public void CoreLibOrdinalCasingCrossArmPredecessorPreservesFallbackPath(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(object).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            "System.Globalization.OrdinalCasing",
+            methodName);
+        Assert.NotNull(function);
+        var diagnostics = new StructuringDiagnostics();
+
+        IrPasses.Run(
+            function!,
+            IrPasses.Default,
+            new PassContext(new Stepper(enabled: false), diagnostics));
+        function!.CheckInvariant();
+
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        string fallbackName = methodName == "ToUpperOrdinal" ? "ToUpper" : "ToLower";
+        var fallbackStore = Assert.Single(
+            function.Descendants.OfType<StoreIndirect>(),
+            store => store.Value is Call { Callee.Name: var name } && name == fallbackName);
+        var fallbackBlock = Assert.IsType<Block>(fallbackStore.Parent);
+        Assert.Equal(1, fallbackStore.ChildIndex);
+        Assert.IsType<IfStatement>(fallbackBlock.Children[0]);
+    }
+
+    [Fact]
     public void CoreLibUrlDecodeWithRetainedBodyMergeRaises()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
@@ -535,6 +632,21 @@ public class RetainedMergeStructuringTests
             Cond(13)),
         Term(12, Cond(1)),
         Term(13, new Return(new LoadLocal(0, I32))),
+    ];
+
+    static Block[] CrossArmRetainedLoopBlocks() =>
+    [
+        Term(0, new Branch(9)),
+        Term(1, Cond(3)),
+        Block(2, new StoreLocal(0, I32, new Constant(1, I32)), new Branch(8)),
+        Term(3, Cond(7)),
+        Term(4, Cond(7)),
+        Block(5, new StoreLocal(0, I32, new Constant(2, I32)), Cond(7)),
+        Block(6, new StoreLocal(0, I32, new Constant(3, I32)), new Branch(8)),
+        Term(7, new StoreLocal(0, I32, new Constant(4, I32))),
+        Term(8, new StoreLocal(0, I32, new Constant(5, I32))),
+        Term(9, Cond(1)),
+        Term(10, new Return(new LoadLocal(0, I32))),
     ];
 
     static (IrFunction Function, StructuringDiagnostics Diagnostics) Structure(
