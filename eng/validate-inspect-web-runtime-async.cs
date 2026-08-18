@@ -16,7 +16,7 @@ Console.WriteLine("inspect-web runtime-async artifact gate passed.");
 static void Validate(string outputDirectory)
 {
     HashSet<string> assemblies = new(StringComparer.Ordinal);
-    int typeReferenceCount = 0;
+    int methodCount = 0;
     foreach (string path in Directory.EnumerateFiles(
         outputDirectory,
         "*.dll",
@@ -34,25 +34,23 @@ static void Validate(string outputDirectory)
                 metadata.GetAssemblyDefinition().Name));
         }
 
-        foreach (TypeReferenceHandle handle in metadata.TypeReferences)
+        foreach (MethodDefinitionHandle handle in metadata.MethodDefinitions)
         {
-            typeReferenceCount++;
-            TypeReference reference = metadata.GetTypeReference(handle);
-            if (IsRuntimeAsyncHelper(
-                metadata.GetString(reference.Namespace),
-                metadata.GetString(reference.Name)))
+            methodCount++;
+            MethodDefinition method = metadata.GetMethodDefinition(handle);
+            if (IsRuntimeAsync(method.ImplAttributes))
             {
                 throw new InvalidOperationException(
-                    $"{path} references System.Runtime.CompilerServices.AsyncHelpers, "
+                    $"{path} contains a runtime-async method, "
                     + "which the Browser/Wasm host cannot execute.");
             }
         }
     }
 
-    if (typeReferenceCount == 0)
+    if (methodCount == 0)
     {
         throw new InvalidOperationException(
-            "The runtime-async metadata reader found no type references.");
+            "The runtime-async metadata reader found no method definitions.");
     }
 
     foreach (string required in new[] { "InspectWeb.Engine", "NuGetFetch" })
@@ -65,17 +63,15 @@ static void Validate(string outputDirectory)
     }
 }
 
-static bool IsRuntimeAsyncHelper(string @namespace, string name) =>
-    @namespace == "System.Runtime.CompilerServices"
-    && name == "AsyncHelpers";
+static bool IsRuntimeAsync(MethodImplAttributes attributes) =>
+    (attributes & (MethodImplAttributes)0x2000) != 0;
 
 static void RunSelfTest()
 {
     RuntimeAsyncCanary().GetAwaiter().GetResult();
 
-    if (!IsRuntimeAsyncHelper("System.Runtime.CompilerServices", "AsyncHelpers")
-        || IsRuntimeAsyncHelper("System.Runtime.CompilerServices", "AsyncHelper")
-        || IsRuntimeAsyncHelper("Example", "AsyncHelpers"))
+    if (!IsRuntimeAsync((MethodImplAttributes)0x2000)
+        || IsRuntimeAsync(MethodImplAttributes.IL))
     {
         throw new InvalidOperationException(
             "The runtime-async metadata discriminator failed its canaries.");
@@ -84,24 +80,22 @@ static void RunSelfTest()
     string assemblyPath = Path.Combine(
         AppContext.BaseDirectory,
         $"{Assembly.GetExecutingAssembly().GetName().Name}.dll");
-    if (!ReferencesRuntimeAsync(assemblyPath))
+    if (!ContainsRuntimeAsyncMethod(assemblyPath))
     {
         throw new InvalidOperationException(
             "The runtime-async metadata reader missed its compiled async canary.");
     }
 }
 
-static bool ReferencesRuntimeAsync(string path)
+static bool ContainsRuntimeAsyncMethod(string path)
 {
     using FileStream stream = File.OpenRead(path);
     using PEReader pe = new(stream);
     MetadataReader metadata = pe.GetMetadataReader();
-    foreach (TypeReferenceHandle handle in metadata.TypeReferences)
+    foreach (MethodDefinitionHandle handle in metadata.MethodDefinitions)
     {
-        TypeReference reference = metadata.GetTypeReference(handle);
-        if (IsRuntimeAsyncHelper(
-            metadata.GetString(reference.Namespace),
-            metadata.GetString(reference.Name)))
+        MethodDefinition method = metadata.GetMethodDefinition(handle);
+        if (IsRuntimeAsync(method.ImplAttributes))
         {
             return true;
         }
@@ -110,4 +104,6 @@ static bool ReferencesRuntimeAsync(string path)
     return false;
 }
 
-static async Task RuntimeAsyncCanary() => await Task.Yield();
+#pragma warning disable CS1998
+static async Task RuntimeAsyncCanary() { }
+#pragma warning restore CS1998

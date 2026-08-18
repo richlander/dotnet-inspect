@@ -82,6 +82,10 @@ public sealed class BrowserEngineLayeringTests
             "artifacts/runtime-async-off/bin",
             Assert.Single(isolatedOutput.Elements("BaseOutputPath")).Value,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "artifacts/runtime-async-off/obj",
+            Assert.Single(isolatedOutput.Elements("IntermediateOutputPath")).Value,
+            StringComparison.Ordinal);
 
         XElement disabledFeatures = Assert.Single(
             repositoryTargets.Descendants("PropertyGroup"),

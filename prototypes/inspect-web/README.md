@@ -394,15 +394,15 @@ Open `http://127.0.0.1:5198`. Create a deployable static bundle with
 loader uses secure-context browser APIs.
 
 The Browser/Wasm host cannot execute .NET 11 runtime-async methods. The engine
-therefore disables runtime async late for its own compilation and passes the
-same compiler feature as a global property through every project reference.
+therefore selects `RuntimeAsync=off` before repository build properties are
+evaluated and passes that mode through every project reference.
 `RuntimeAsyncDisableCoversBrowserProjectGraph` gates that project and workflow
 wiring. Both Browser CI and staging deployment run
 `eng/validate-inspect-web-runtime-async.cs` against the published
-managed-assembly closure and reject any metadata reference to
-`System.Runtime.CompilerServices.AsyncHelpers`. Runtime-async builds use a
-separate output tree, so an incrementally reused normal build cannot enter the
-Browser publish.
+managed-assembly closure and reject the runtime-async method implementation
+flag. Browser builds use separate
+compiler intermediate and output trees, so an incrementally reused normal
+build cannot enter the Browser publish.
 
 On a bare visit, `app.js` waits for the home page's first contentful paint
 before dynamically importing `engine.js`. Search and demo controls remain
