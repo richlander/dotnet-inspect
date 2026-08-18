@@ -450,6 +450,7 @@ MethodSemantics-based accessor exclusion, and `Extract_PreservesEventRaiserAndOt
 the event semantic-method boundary. `MethodImplWithoutImplementedInterface_IsNotExplicit`,
 `AbstractInstanceMethodImplWithoutFinal_IsNotExplicit`,
 `Extract_UsesContainingGenericParameterInExplicitQualifier`,
+`ExplicitQualifier_UsesContainingGenericParameterName`,
 `Extract_RetainsReabstractedInterfaceMethodImpls`, and
 `FidelityLookup_NormalizesOnlyTrustedPlatformProvenance` gate the MethodImpl and provenance
 authentication rules above.

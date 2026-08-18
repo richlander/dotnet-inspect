@@ -1,10 +1,45 @@
 using System.Text;
+using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
 namespace ILInspector.CSharp.Tests;
 
 public sealed class CSharpDeclarationWriterTests
 {
+    [Fact]
+    public void ExplicitQualifier_UsesContainingGenericParameterName()
+    {
+        using var stream = File.OpenRead(
+            typeof(CSharpDeclarationWriterTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = surface.Types.Single(
+            type => type.Kind == "class"
+                && type.Name.Contains(
+                    nameof(OpenGenericExplicitPropertyFixture<int>),
+                    StringComparison.Ordinal));
+        ApiMember property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property"
+                && member.Name.EndsWith(".Item", StringComparison.Ordinal));
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                property);
+
+        Assert.Contains(
+            $"{nameof(IOpenGenericExplicitPropertyFixture<int>)}<TValue>.Item",
+            declaration,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "<T0>",
+            declaration,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public void TypeDeclaration_PreservesRecordModifiers()
     {
@@ -1820,5 +1855,17 @@ public sealed class CSharpDeclarationWriterTests
                     ApiExplicitInterfaceDeclarationKind.SameImage,
                     definitionName)
             ]);
+    }
+
+    interface IOpenGenericExplicitPropertyFixture<T>
+    {
+        T Item { get; }
+    }
+
+    sealed class OpenGenericExplicitPropertyFixture<TValue> :
+        IOpenGenericExplicitPropertyFixture<TValue>
+    {
+        TValue IOpenGenericExplicitPropertyFixture<TValue>.Item =>
+            default!;
     }
 }
