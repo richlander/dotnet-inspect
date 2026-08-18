@@ -67,10 +67,14 @@ internal static class LibraryMetadataService
             var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(
                 requiredScanners,
                 requiredQueries);
-            IAssemblyReferenceResolver? bodyReferenceResolver =
+            bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities)
+                || requiredScanners?.Contains(
+                    Sections.LibrarySections.ScannerBodyShapes) == true;
+            IAssemblyReferenceResolver? bodyReferenceResolver =
+                needsBodyReferenceResolver
                     ? new AssemblyDependencyResolver(
                         new AssemblyDependencyResolutionOptions(path)
                         {
@@ -168,7 +172,8 @@ internal static class LibraryMetadataService
                     : MetadataFindings.InspectAssemblySurface(
                         surfaceClassification,
                         FindingSubjectFor(path)),
-                PerformanceTriageOptions = options.PerformanceTriage
+                PerformanceTriageOptions = options.PerformanceTriage,
+                BodyKindQueryOptions = options.BodyKindQuery,
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
@@ -508,6 +513,8 @@ internal static class LibraryMetadataService
         }
         if (scanners?.Contains(Sections.LibrarySections.ScannerResourceTriage) == true)
             features |= Analysis.LibraryBodyAnalysisFeatures.LeakTriage;
+        if (scanners?.Contains(Sections.LibrarySections.ScannerBodyShapes) == true)
+            features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
         return features;
     }
 
