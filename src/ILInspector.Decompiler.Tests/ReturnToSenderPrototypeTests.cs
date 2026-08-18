@@ -147,7 +147,7 @@ public class ReturnToSenderPrototypeTests
         var assemblyPath = CompileFixture("""
             public sealed class Target
             {
-                public int Run() => 42;
+                public int Run() => this.Extra();
             }
 
             public static class TargetExtensions
@@ -163,7 +163,10 @@ public class ReturnToSenderPrototypeTests
 
             var target = Assert.Single(result.Plan.Types, type => type.Name == "Target");
             Assert.DoesNotContain(target.Members, member => member.Name == "Extra");
-            Assert.DoesNotContain("int Extra(", result.Source, StringComparison.Ordinal);
+            var extensions = Assert.Single(result.Plan.Types, type => type.Name == "TargetExtensions");
+            Assert.Contains(extensions.Members, member => member.Name == "Extra" && member.IsExtension);
+            Assert.Contains("static class TargetExtensions", result.Source, StringComparison.Ordinal);
+            Assert.Contains("int Extra(this Target target)", result.Source, StringComparison.Ordinal);
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
         }
         finally
@@ -608,7 +611,7 @@ public class ReturnToSenderPrototypeTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void CompileBackTargets_UnrepresentableOperatorDoesNotBreakUnrelatedTarget(
+    public void CompileBackTargets_ReconstructsUnrepresentableOperatorAsRawClosureMethod(
         bool staticZeroParameter)
     {
         var assemblyPath = EmitUnrepresentableOperatorFixture(staticZeroParameter);
@@ -617,7 +620,7 @@ public class ReturnToSenderPrototypeTests
             var result = Assert.Single(ReturnToSender.CompileBackTargets(
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
-                RoundTripScope.All,
+                RoundTripScope.Cluster,
                 RoundTripBodyPolicy.Full));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
@@ -625,12 +628,13 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains(
                 result.FullBodies,
                 body => body.Member == "Poison.op_Addition"
-                    && body.Status != MemberBodyProductionStatus.Complete);
-            Assert.False(result.BodyComplete);
+                    && body.Status == MemberBodyProductionStatus.Complete);
+            Assert.Contains("op_Addition(", result.Source, StringComparison.Ordinal);
             Assert.Contains(
                 result.Plan.Diagnostics,
                 diagnostic => diagnostic.Reason == "operator-not-representable"
-                    && diagnostic.Detail.Contains("op_Addition", StringComparison.Ordinal));
+                    && diagnostic.Detail.Contains("op_Addition", StringComparison.Ordinal)
+                    && diagnostic.Detail.Contains("not representable", StringComparison.Ordinal));
         }
         finally
         {
@@ -671,8 +675,11 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
-    [Fact]
-    public void CompileBackTargets_SuppressedFinalizerKeepsItsDeclarator()
+    [Theory]
+    [InlineData(RoundTripBodyPolicy.Selected)]
+    [InlineData(RoundTripBodyPolicy.Full)]
+    public void CompileBackTargets_SuppressedFinalizerKeepsItsDeclarator(
+        RoundTripBodyPolicy bodyPolicy)
     {
         var assemblyPath = EmitNonDestructorFinalizerFixture();
         try
@@ -681,7 +688,7 @@ public class ReturnToSenderPrototypeTests
                 assemblyPath,
                 [new ReturnToSender.RequestedTarget("Target", "Finalize", 0)],
                 RoundTripScope.Cluster,
-                RoundTripBodyPolicy.Selected));
+                bodyPolicy));
 
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.False(result.UsedCompileBackFloor, result.Detail);
@@ -10335,7 +10342,7 @@ public class ReturnToSenderPrototypeTests
             var member = Assert.Single(
                 result.Plan.PrintRequests.SelectMany(request => request.Members),
                 member => member.Name == methodName);
-            Assert.False(member.CSharpOperatorDeclaration);
+            Assert.Null(member.CSharpOperatorDeclaration);
             Assert.Contains($"string {methodName}(Poison value)", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain(operatorDeclaration, result.Source, StringComparison.Ordinal);
             Assert.Contains(
@@ -10386,10 +10393,10 @@ public class ReturnToSenderPrototypeTests
             var addition = Assert.Single(number.Members, member => member.Name == "op_Addition");
             Assert.Contains(
                 addition.SourceFacts,
-                fact => fact.Id == "operator-pair-sibling" && fact.Detail == "op_Addition");
+                fact => fact.Id == "closure-method" && fact.Detail == "op_Addition");
             Assert.DoesNotContain(
                 addition.SourceFacts,
-                fact => fact.Id == "typed-closure-method");
+                fact => fact.Id == "operator-pair-sibling");
         }
         finally
         {
@@ -10563,7 +10570,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_EmitsSignatureMatchedEqualityOperatorPairSibling()
+    public void CompileBackTargets_EmitsProductEqualityOperatorSurface()
     {
         var assemblyPath = CompileFixture("""
             public sealed class Row
@@ -10585,7 +10592,8 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains("operator ==(Row left, string right)", result.Source);
             Assert.Contains("operator !=(Row left, string right)", result.Source);
-            Assert.DoesNotContain("operator !=(Row left, Row right)", result.Source);
+            Assert.Contains("operator ==(Row left, Row right)", result.Source);
+            Assert.Contains("operator !=(Row left, Row right)", result.Source);
         }
         finally
         {
@@ -12314,20 +12322,8 @@ public class ReturnToSenderPrototypeTests
             typeof(object).Assembly);
         var module = assembly.DefineDynamicModule("fixture");
 
-        var target = module.DefineType(
-            "Target",
-            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
-        var run = target.DefineMethod(
-            "Run",
-            MethodAttributes.Public | MethodAttributes.Static,
-            typeof(int),
-            Type.EmptyTypes);
-        var runIl = run.GetILGenerator();
-        runIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4, 42);
-        runIl.Emit(System.Reflection.Emit.OpCodes.Ret);
-        target.CreateType();
-
         var poison = module.DefineType("Poison", TypeAttributes.Public | TypeAttributes.Class);
+        var constructor = poison.DefineDefaultConstructor(MethodAttributes.Public);
         var op = poison.DefineMethod(
             "op_Addition",
             staticZeroParameter
@@ -12340,6 +12336,29 @@ public class ReturnToSenderPrototypeTests
         opIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_0);
         opIl.Emit(System.Reflection.Emit.OpCodes.Ret);
         poison.CreateType();
+
+        var target = module.DefineType(
+            "Target",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        var run = target.DefineMethod(
+            "Run",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            Type.EmptyTypes);
+        var runIl = run.GetILGenerator();
+        if (staticZeroParameter)
+        {
+            runIl.Emit(System.Reflection.Emit.OpCodes.Call, op);
+        }
+        else
+        {
+            runIl.Emit(System.Reflection.Emit.OpCodes.Newobj, constructor);
+            runIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_1);
+            runIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_2);
+            runIl.Emit(System.Reflection.Emit.OpCodes.Call, op);
+        }
+        runIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        target.CreateType();
 
         assembly.Save(path);
         return path;

@@ -653,6 +653,7 @@ static class ReturnToSender
             {
                 RequiresAsyncModifier = finalRequest.TargetBody.RequiresAsyncModifier,
                 RequiresUnsafeModifier = finalRequest.TargetBody.RequiresUnsafeModifier,
+                SuppressDestructorSyntax = finalRequest.TargetBody.SuppressDestructorSyntax,
             });
         return RoundTripRequest.Create(
             RoundTripArtifactIdentity.FromFile(assemblyPath, "return-to-sender"),
