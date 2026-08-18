@@ -300,6 +300,7 @@ public sealed class TimelineCommandTests
         var endpoint = new ApiSurfaceEndpoint(
             new AssemblySet(
                 assemblies: [],
+                packages: [],
                 diagnostics: [],
                 tempDirs: [tempDir]),
             Surface(Type("Widget")));

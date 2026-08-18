@@ -35,6 +35,14 @@ public class AssemblySetResolverTests
             Assert.Equal("1.0.0", entry.Version);
             Assert.True(File.Exists(entry.Path));
 
+            var package = Assert.Single(assemblySet.Packages);
+            Assert.Equal(packagePath, package.RequestedPackage);
+            Assert.Equal("TestPackage", package.PackageName);
+            Assert.Equal("1.0.0", package.Version);
+            Assert.Equal(
+                Path.Combine("lib", "net10.0", "TestPackage.dll"),
+                Path.GetRelativePath(package.ExtractPath, entry.Path));
+
             var tempDir = Assert.Single(assemblySet.OwnedTemporaryDirectories);
             Assert.True(Directory.Exists(tempDir));
 
@@ -44,6 +52,50 @@ public class AssemblySetResolverTests
         }
         finally
         {
+            Directory.Delete(packageDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task CollectAsync_AcquisitionOnlyCanTransferPackageExtraction()
+    {
+        var packageDir = Directory.CreateTempSubdirectory("assembly-set-transfer-package-test").FullName;
+        var packagePath = Path.Combine(packageDir, "Transferred.1.0.0.nupkg");
+        var sourceAssembly = typeof(AssemblySetResolverTests).Assembly.Location;
+        string? transferredTempDir = null;
+
+        try
+        {
+            using (var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create))
+            {
+                archive.CreateEntryFromFile(sourceAssembly, "lib/net10.0/Transferred.dll");
+            }
+
+            using var httpClient = new HttpClient();
+            using var assemblySet = await AssemblySetResolver.CollectAsync(
+                httpClient,
+                new AssemblySetRequest
+                {
+                    Packages = [packagePath],
+                    TempDirPrefix = "assembly-set-transfer-test",
+                    PackageSelectionMode = AssemblySetPackageSelectionMode.AcquisitionOnly,
+                });
+            var package = Assert.Single(assemblySet.Packages);
+            Assert.Empty(assemblySet.Assemblies);
+
+            var transferred = assemblySet.TransferOwnedTemporaryDirectories();
+            Assert.Empty(assemblySet.OwnedTemporaryDirectories);
+            transferredTempDir = Assert.Single(transferred);
+
+            assemblySet.Dispose();
+
+            Assert.True(Directory.Exists(transferredTempDir));
+            Assert.True(Directory.Exists(package.ExtractPath));
+        }
+        finally
+        {
+            if (transferredTempDir is not null && Directory.Exists(transferredTempDir))
+                Directory.Delete(transferredTempDir, recursive: true);
             Directory.Delete(packageDir, recursive: true);
         }
     }

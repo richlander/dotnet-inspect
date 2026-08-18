@@ -108,19 +108,29 @@ internal static class ApiSourceResolver
 
         if (!string.IsNullOrEmpty(packagePath))
         {
-            var outcome = await PackageExtractor.ExtractPackageAsync(
+            using var packageSet = await AssemblySetResolver.CollectAsync(
                 context.HttpClient,
-                packagePath,
-                context.Logger.Log,
-                "inspect-api",
-                acquisitionSourceOptions);
-            if (!outcome.IsSuccess)
+                new AssemblySetRequest
+                {
+                    Packages = [packagePath],
+                    TempDirPrefix = "inspect-api",
+                    SourceOptions = acquisitionSourceOptions,
+                    PackageSelectionMode = AssemblySetPackageSelectionMode.AcquisitionOnly,
+                },
+                context.Logger.Log);
+            var resolvedPackage = packageSet.Packages.SingleOrDefault();
+            if (resolvedPackage is null)
             {
-                CommandError.Write($"{outcome.ErrorMessage}");
+                var diagnostic = packageSet.Diagnostics.FirstOrDefault();
+                CommandError.Write(
+                    diagnostic?.Message ?? $"Package '{packagePath}' could not be resolved.");
                 return (null!, 1);
             }
-            var extracted = outcome.Result!;
-            (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
+
+            (searchPath, packageName, packageVersion) = (
+                resolvedPackage.ExtractPath,
+                resolvedPackage.PackageName,
+                resolvedPackage.Version);
             apiSource = SourceKind.NuGet;
             apiVersion = packageVersion;
 
@@ -161,6 +171,32 @@ internal static class ApiSourceResolver
                 selectedTfm = options.Tfm;
                 logger.Log($"Using TFM: {options.Tfm}");
             }
+
+            if (Directory.Exists(searchPath))
+            {
+                var dlls = TfmSelector.GetPackageAssemblies(searchPath);
+                if (dlls.Count > 0)
+                {
+                    var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath, packageName);
+                    if (selectedPath != null)
+                    {
+                        searchPath = selectedPath;
+                        selectedTfm = tfm;
+                        if (tfm != null)
+                            logger.Log($"Auto-selected TFM: {tfm}");
+                    }
+                    else if (dlls.Count > 1)
+                    {
+                        CommandError.Write("Multiple libraries found. Please specify one with --library or --tfm.");
+                        return (null!, 1);
+                    }
+                }
+            }
+
+            if (packageSet.OwnedTemporaryDirectories.Count > 1)
+                throw new InvalidOperationException("API source resolution acquired multiple temporary directories.");
+
+            tempDir = packageSet.TransferOwnedTemporaryDirectories().SingleOrDefault();
         }
         else if (!string.IsNullOrEmpty(options.AssemblyPath))
         {
@@ -339,27 +375,6 @@ internal static class ApiSourceResolver
                 var secondDot = apiVersion.IndexOf('.', dotIndex + 1);
                 var majorMinor = secondDot > 0 ? apiVersion[..secondDot] : apiVersion;
                 selectedTfm = $"net{majorMinor}";
-            }
-        }
-
-        if (Directory.Exists(searchPath))
-        {
-            var dlls = TfmSelector.GetPackageAssemblies(searchPath);
-            if (dlls.Count > 0)
-            {
-                var (selectedPath, tfm) = TfmSelector.SelectHighestTfmAssembly(dlls, searchPath, packageName);
-                if (selectedPath != null)
-                {
-                    searchPath = selectedPath;
-                    selectedTfm = tfm;
-                    if (tfm != null)
-                        logger.Log($"Auto-selected TFM: {tfm}");
-                }
-                else if (dlls.Count > 1)
-                {
-                    CommandError.Write("Multiple libraries found. Please specify one with --library or --tfm.");
-                    return (null!, 1);
-                }
             }
         }
 

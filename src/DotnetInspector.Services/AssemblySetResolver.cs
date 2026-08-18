@@ -40,6 +40,12 @@ public sealed record AssemblySetEntry(
     AssemblySetSourceKind SourceKind,
     string? Tfm = null);
 
+public sealed record AssemblySetPackage(
+    string RequestedPackage,
+    string ExtractPath,
+    string? PackageName,
+    string? Version);
+
 public enum AssemblySetSourceKind
 {
     Package,
@@ -54,6 +60,7 @@ public enum AssemblySetPackageSelectionMode
 {
     TargetFramework,
     LibAssembliesDescending,
+    AcquisitionOnly,
 }
 
 public sealed record AssemblySetDiagnostic(AssemblySetDiagnosticSeverity Severity, string Message);
@@ -65,26 +72,39 @@ public enum AssemblySetDiagnosticSeverity
 }
 
 /// <summary>
-/// Owned assembly collection. Disposing it removes temporary package extraction directories.
+/// Owned assembly and package acquisition collection.
+/// Disposing it removes temporary package extraction directories.
 /// </summary>
 public sealed class AssemblySet : IDisposable
 {
-    private readonly IReadOnlyList<string> _tempDirs;
+    private readonly List<string> _tempDirs;
     private bool _disposed;
 
     internal AssemblySet(
         IReadOnlyList<AssemblySetEntry> assemblies,
+        IReadOnlyList<AssemblySetPackage> packages,
         IReadOnlyList<AssemblySetDiagnostic> diagnostics,
         IReadOnlyList<string> tempDirs)
     {
         Assemblies = assemblies;
+        Packages = packages;
         Diagnostics = diagnostics;
-        _tempDirs = tempDirs;
+        _tempDirs = [.. tempDirs];
     }
 
     public IReadOnlyList<AssemblySetEntry> Assemblies { get; }
+    public IReadOnlyList<AssemblySetPackage> Packages { get; }
     public IReadOnlyList<AssemblySetDiagnostic> Diagnostics { get; }
     public IReadOnlyList<string> OwnedTemporaryDirectories => _tempDirs;
+
+    public IReadOnlyList<string> TransferOwnedTemporaryDirectories()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        string[] transferred = [.. _tempDirs];
+        _tempDirs.Clear();
+        return transferred;
+    }
 
     public void Dispose()
     {
@@ -116,6 +136,7 @@ public static class AssemblySetResolver
         Action<string>? log = null)
     {
         List<AssemblySetEntry> assemblies = [];
+        List<AssemblySetPackage> packages = [];
         List<AssemblySetDiagnostic> diagnostics = [];
         List<string> tempDirs = [];
 
@@ -142,6 +163,14 @@ public static class AssemblySetResolver
                 var extracted = outcome.Result!;
                 if (extracted.TempDir != null)
                     tempDirs.Add(extracted.TempDir);
+                packages.Add(new AssemblySetPackage(
+                    pkg,
+                    extracted.ExtractPath,
+                    extracted.PackageName,
+                    extracted.Version));
+
+                if (request.PackageSelectionMode == AssemblySetPackageSelectionMode.AcquisitionOnly)
+                    continue;
 
                 IEnumerable<string> dlls;
                 string? selectedTfm = null;
@@ -371,7 +400,7 @@ public static class AssemblySetResolver
                 }
             }
 
-            return new AssemblySet(assemblies, diagnostics, tempDirs);
+            return new AssemblySet(assemblies, packages, diagnostics, tempDirs);
         }
         catch
         {

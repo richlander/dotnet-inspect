@@ -135,6 +135,21 @@ public sealed class LayeringTests
             referencedTypes);
     }
 
+    [Fact]
+    public void ApiSourceResolver_AcquiresPackagesThroughAssemblySetResolver()
+    {
+        string path = Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "src",
+            "dotnet-inspect",
+            "Inspectors",
+            "ApiSourceResolver.cs");
+        string source = File.ReadAllText(path);
+
+        Assert.Contains("AssemblySetResolver.CollectAsync", source);
+        Assert.DoesNotContain("PackageExtractor.ExtractPackageAsync", source);
+    }
+
     [Theory]
     [InlineData("DiffCommand.cs")]
     [InlineData("TimelineCommand.cs")]
