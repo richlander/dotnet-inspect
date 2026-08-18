@@ -167,6 +167,9 @@ jobs:
         working-directory: prototypes/inspect-web
         run: npm test
 
+      - name: Test inspect-web promotion validation
+        run: dotnet run eng/validate-inspect-web-promotion.cs -- --self-test
+
       - name: Test annotated-source viewer
         working-directory: prototypes/annotated-source-viewer
         run: npm test
