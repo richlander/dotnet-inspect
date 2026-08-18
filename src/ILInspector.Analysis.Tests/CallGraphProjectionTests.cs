@@ -242,7 +242,7 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
-    public void FindNodePreservesStructuralAmbiguity()
+    public void FindNodeDoesNotCrossVersionedEvidence()
     {
         MemberRef repeated = Member("Svc", "Do");
         CallGraphProjection projection =
@@ -274,7 +274,7 @@ public class CallGraphProjectionTests
             IsStatic: true);
 
         Assert.Equal(
-            CallGraphNodeMatch.Ambiguous,
+            CallGraphNodeMatch.NotProjected,
             projection.FindNode(method, out _));
     }
 

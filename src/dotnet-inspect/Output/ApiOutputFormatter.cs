@@ -2217,9 +2217,14 @@ public static class ApiOutputFormatter
     {
         var candidatesByNode =
             new Dictionary<int, HashSet<string>>();
+        IReadOnlySet<string> generatedFrameworkTypes =
+            index.GeneratedFrameworkTypeNames;
         foreach (Analysis.OptimizationOpportunity opportunity in
             index.OptimizationOpportunities.Where(opportunity =>
-                opportunity.Shape == "sync-call-in-async"))
+                opportunity.Shape == "sync-call-in-async"
+                && LibraryMetadataService.IncludePerformanceOpportunity(
+                    opportunity,
+                    generatedFrameworkTypes)))
         {
             if (projection.FindNode(
                     opportunity.Method,

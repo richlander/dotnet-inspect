@@ -80,11 +80,14 @@ MethodDef/IL coordinate, and proposed replacement.
 
 The cue joins the opportunity's source `MethodIdentity` through
 `CallGraphProjection.FindNode`, which prefers retained definition evidence and
-then uses the projection's typed structural fallback. This matters for classic
-async methods: their physical evidence can live in generated `MoveNext`. The
-source node receives the cue without inventing a logical edge that is absent
-from the source method's IL. `CallGraphSection_ProjectsAsyncAlternativeOpportunities`
-gates that end-to-end behavior.
+then uses the typed structural identity of an evidence-free projection. The
+candidate set applies the same generated-code suppression as Performance
+Triage. This matters for classic async methods: their physical evidence can
+live in generated `MoveNext`. The source node receives the cue without
+inventing a logical edge that is absent from the source method's IL.
+`CallGraphSection_ProjectsAsyncAlternativeOpportunities` and
+`CallGraphSection_OmitsSuppressedGeneratedAsyncAlternatives` gate that
+end-to-end behavior.
 
 With the exception fields projected, the caller half of `Call Graph` answers
 exception-reachability questions directly:

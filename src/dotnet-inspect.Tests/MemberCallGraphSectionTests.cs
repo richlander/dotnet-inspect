@@ -447,6 +447,44 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_ResolvesAsyncAlternativeFieldWildcard()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.CallsSyncSiblingFromAsync)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["AsyncA*"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("async alternatives 1", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_OmitsSuppressedGeneratedAsyncAlternatives()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.CreateAsyncCallback)],
+            IncludeSections = [SectionNames.CallGraph],
+            Fields = ["AsyncAlternatives"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.DoesNotContain("async alternatives", result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_UsesRequestedFieldsWhenRenderingNodeLabels()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -772,6 +810,13 @@ public static class MemberCallGraphFixture
         await Task.Yield();
         return ReadValue(value);
     }
+
+    public static Func<int, Task<int>> CreateAsyncCallback() =>
+        async value =>
+        {
+            await Task.Yield();
+            return ReadValue(value);
+        };
 }
 
 // Instance fixtures whose accessors carry non-default modifiers, so the synthesized

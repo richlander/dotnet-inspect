@@ -354,8 +354,7 @@ public sealed partial class CallGraphProjection
         CallGraphNode[] structural =
         [
             .. Nodes.Where(candidate =>
-                GraphNodeIdentity.FromMember(candidate.Member)
-                    == identity),
+                candidate.Identity == identity),
         ];
         if (structural.Length == 1)
         {
