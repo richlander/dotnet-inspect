@@ -61,7 +61,8 @@ public static class PdbAcquisitionService
         NuGetSourceOptions? sourceOptions,
         CancellationToken cancellationToken,
         IPdbStore? pdbStore,
-        IPackageSourceAuthorization? sourceAuthorization)
+        IPackageSourceAuthorization? sourceAuthorization,
+        SymbolAcquisitionLimits? limits = null)
     {
         var downloader = pdbStore is null
             ? new SymbolPackageDownloader(httpClient)
@@ -69,6 +70,12 @@ public static class PdbAcquisitionService
                 ? new SymbolPackageDownloader(
                     httpClient,
                     pdbStore)
+                : limits is not null
+                    ? new SymbolPackageDownloader(
+                        httpClient,
+                        pdbStore,
+                        sourceAuthorization,
+                        limits)
                 : new SymbolPackageDownloader(
                     httpClient,
                     pdbStore,
@@ -144,7 +151,8 @@ public static class PdbAcquisitionService
         Action<string>? log,
         bool cacheOnly = false,
         NuGetSourceOptions? sourceOptions = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        SymbolAcquisitionLimits? limits = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(assembly);
@@ -170,7 +178,8 @@ public static class PdbAcquisitionService
             sourceOptions,
             cancellationToken,
             pdbStore,
-            sourceAuthorization);
+            sourceAuthorization,
+            limits);
     }
 
     private static (
