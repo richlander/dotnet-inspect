@@ -150,8 +150,10 @@ entry gate invalidates every later result, so run it first and report it.
    theory data cannot alter the real runner process.
    `ExplicitFilterGuardTests.TestHost_RejectsEveryUnmatchedExplicitFilter` is
    the subprocess gate for both the rejection and isolation contracts.
-   `ExplicitFilterGuardTests.AppHostAlias_ConcurrentInvocationsAreSerialized`
-   protects its renamed-apphost regression from concurrent test processes.
+   `ExplicitFilterGuardTests.AppHostAlias_ConcurrentProcessesAreIsolated`
+   protects its renamed-apphost regression from concurrent test processes by
+   holding isolated aliases live in independent workers while another host
+   starts through the real muxer.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
    `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by

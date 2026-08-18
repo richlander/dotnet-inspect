@@ -1,7 +1,5 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using ILInspector.Decompiler.Tests.Gating;
 using Xunit.Sdk;
@@ -18,9 +16,20 @@ public sealed class ExplicitFilterGuardProcessCollection;
 [Collection("ExplicitFilterGuardProcess")]
 public class ExplicitFilterGuardTests
 {
+    private const string AppHostAliasDirectoryPrefix =
+        ".filter-guard-host-alias-";
     private const string AppHostAliasMethod =
         "ILInspector.Decompiler.Tests.ExplicitFilterGuardTests."
         + "AppHostAlias_IsTheExecutingTestProcess";
+    private const string AppHostConcurrencyMethod =
+        "ILInspector.Decompiler.Tests.ExplicitFilterGuardTests."
+        + "AppHostAlias_ConcurrentProcessesAreIsolated";
+    private const string AppHostWorkerEnvironmentVariable =
+        "DOTNET_INSPECT_FILTER_GUARD_APPHOST_WORKER";
+    private const string AppHostReadyEnvironmentVariable =
+        "DOTNET_INSPECT_FILTER_GUARD_APPHOST_READY";
+    private const string AppHostReleaseEnvironmentVariable =
+        "DOTNET_INSPECT_FILTER_GUARD_APPHOST_RELEASE";
 
     [Fact]
     public void FindIncludedFilters_ExtractsClassAndMethodSelectors()
@@ -209,7 +218,7 @@ public class ExplicitFilterGuardTests
         };
 
     [Fact]
-    public void AppHostAlias_IsTheExecutingTestProcess()
+    public async Task AppHostAlias_IsTheExecutingTestProcess()
     {
         string? expectedPath =
             Environment.GetEnvironmentVariable(
@@ -220,18 +229,80 @@ public class ExplicitFilterGuardTests
                 Path.GetFullPath(expectedPath),
                 Path.GetFullPath(Environment.ProcessPath!));
         }
+
+        string? releasePath =
+            Environment.GetEnvironmentVariable(
+                AppHostReleaseEnvironmentVariable);
+        if (releasePath is not null)
+        {
+            await WaitForMarkerAsync(releasePath);
+        }
     }
 
     [Fact]
-    public async Task AppHostAlias_ConcurrentInvocationsAreSerialized()
+    public async Task AppHostAlias_ConcurrentProcessesAreIsolated()
     {
-        ProcessResult[] results = await Task.WhenAll(
-            RunAppHostAsync("-method", AppHostAliasMethod),
-            RunAppHostAsync("-method", AppHostAliasMethod));
-
-        foreach (ProcessResult result in results)
+        if (Environment.GetEnvironmentVariable(
+                AppHostWorkerEnvironmentVariable) is not null)
         {
-            AssertSuccessfulAppHostRun(result);
+            ProcessResult workerResult =
+                await RunAppHostAsync("-method", AppHostAliasMethod);
+            AssertSuccessfulRun(workerResult, "independent apphost worker");
+            return;
+        }
+
+        string markerId = Guid.NewGuid().ToString("N");
+        string readyPath1 = Path.Combine(
+            Path.GetTempPath(),
+            $"filter-guard-apphost-ready-{markerId}-1");
+        string readyPath2 = Path.Combine(
+            Path.GetTempPath(),
+            $"filter-guard-apphost-ready-{markerId}-2");
+        string releasePath = Path.Combine(
+            Path.GetTempPath(),
+            $"filter-guard-apphost-release-{markerId}");
+        Task<ProcessResult>[] workers =
+        [
+            RunHostAsync(
+                CreateAppHostWorkerEnvironment(readyPath1, releasePath),
+                "-method",
+                AppHostConcurrencyMethod),
+            RunHostAsync(
+                CreateAppHostWorkerEnvironment(readyPath2, releasePath),
+                "-method",
+                AppHostConcurrencyMethod),
+        ];
+        ProcessResult[] workerResults;
+        try
+        {
+            await Task.WhenAll(
+                WaitForMarkerAsync(readyPath1, workers[0]),
+                WaitForMarkerAsync(readyPath2, workers[1]));
+
+            ProcessResult consumer =
+                await RunHostAsync("-method", AppHostAliasMethod);
+            AssertSuccessfulRun(
+                consumer,
+                "muxer consumer while apphost aliases were live");
+        }
+        finally
+        {
+            File.WriteAllText(releasePath, "release");
+            try
+            {
+                workerResults = await Task.WhenAll(workers);
+            }
+            finally
+            {
+                File.Delete(readyPath1);
+                File.Delete(readyPath2);
+                File.Delete(releasePath);
+            }
+        }
+
+        foreach (ProcessResult result in workerResults)
+        {
+            AssertSuccessfulRun(result, "independent apphost worker");
         }
     }
 
@@ -264,14 +335,30 @@ public class ExplicitFilterGuardTests
 
     private static void AssertSuccessfulAppHostRun(
         ProcessResult result)
+        => AssertSuccessfulRun(
+            result,
+            "apphost running a valid filter without dotnet on PATH");
+
+    private static void AssertSuccessfulRun(
+        ProcessResult result,
+        string description)
     {
         Assert.True(
             result.ExitCode == 0,
-            "Expected the apphost to run a valid filter without dotnet on PATH, "
-            + $"got {result.ExitCode}.\n"
+            $"Expected {description} to succeed, got {result.ExitCode}.\n"
             + $"{result.Output}\n{result.Error}");
         Assert.Contains("Total: 1,", result.Output);
     }
+
+    private static Dictionary<string, string?> CreateAppHostWorkerEnvironment(
+        string readyPath,
+        string releasePath) =>
+        new()
+        {
+            [AppHostWorkerEnvironmentVariable] = "1",
+            [AppHostReadyEnvironmentVariable] = readyPath,
+            [AppHostReleaseEnvironmentVariable] = releasePath,
+        };
 
     private static async Task<ProcessResult> RunAppHostAsync(
         params string[] arguments)
@@ -284,51 +371,31 @@ public class ExplicitFilterGuardTests
                 + (OperatingSystem.IsWindows() ? ".exe" : string.Empty));
         Assert.True(File.Exists(appHostPath), $"Test apphost not found: {appHostPath}");
 
+        string appHostDirectory = Path.GetDirectoryName(appHostPath)!;
         string emptyPath = Path.Combine(
             Path.GetTempPath(),
             $"filter-guard-host-alias-{Guid.NewGuid():N}");
-        string aliasPath = Path.Combine(
-            Path.GetDirectoryName(appHostPath)!,
-            OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
-        string stagedAliasPath =
-            $"{aliasPath}.{Guid.NewGuid():N}.tmp";
-        string lockPath = Path.Combine(
-            Path.GetTempPath(),
-            "dotnet-inspect-filter-guard-"
-                + Convert.ToHexString(
-                    SHA256.HashData(
-                        Encoding.UTF8.GetBytes(
-                            Path.GetFullPath(appHostPath))))
-                + ".lock");
-        // Removing this rendezvous file could split existing waiters from new openers.
-        await using FileStream aliasLock =
-            await AcquireExclusiveLockAsync(lockPath);
-        bool aliasCreated = false;
-        bool stagedAliasCreated = false;
+        string aliasDirectory = Path.Combine(
+            appHostDirectory,
+            $"{AppHostAliasDirectoryPrefix}{Guid.NewGuid():N}");
+        string aliasFileName =
+            OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+        string aliasPath = Path.Combine(aliasDirectory, aliasFileName);
+        string sharedAliasPath = Path.Combine(
+            appHostDirectory,
+            aliasFileName);
 
         try
         {
+            Assert.False(
+                File.Exists(sharedAliasPath),
+                $"A shared apphost alias already exists: {sharedAliasPath}");
             Directory.CreateDirectory(emptyPath);
-            if (File.Exists(aliasPath))
-            {
-                Assert.True(
-                    FilesHaveSameContent(appHostPath, aliasPath),
-                    $"A non-test apphost alias already exists: {aliasPath}");
-                File.Delete(aliasPath);
-            }
-
-            File.Copy(appHostPath, stagedAliasPath);
-            stagedAliasCreated = true;
-            if (!OperatingSystem.IsWindows())
-            {
-                File.SetUnixFileMode(
-                    stagedAliasPath,
-                    File.GetUnixFileMode(appHostPath));
-            }
-
-            File.Move(stagedAliasPath, aliasPath);
-            stagedAliasCreated = false;
-            aliasCreated = true;
+            CreateIsolatedAppHostDirectory(
+                appHostDirectory,
+                aliasDirectory,
+                appHostPath,
+                aliasPath);
 
             var environment = new Dictionary<string, string?>
             {
@@ -343,18 +410,21 @@ public class ExplicitFilterGuardTests
                 environment["DOTNET_ROOT"] = Path.GetDirectoryName(dotnetHostPath);
             }
 
+            string? readyPath =
+                Environment.GetEnvironmentVariable(
+                    AppHostReadyEnvironmentVariable);
+            if (readyPath is not null)
+            {
+                File.WriteAllText(readyPath, "ready");
+            }
+
             return await RunProcessAsync(aliasPath, null, environment, arguments);
         }
         finally
         {
-            if (aliasCreated && File.Exists(aliasPath))
+            if (Directory.Exists(aliasDirectory))
             {
-                File.Delete(aliasPath);
-            }
-
-            if (stagedAliasCreated && File.Exists(stagedAliasPath))
-            {
-                File.Delete(stagedAliasPath);
+                Directory.Delete(aliasDirectory, recursive: true);
             }
 
             if (Directory.Exists(emptyPath))
@@ -364,39 +434,57 @@ public class ExplicitFilterGuardTests
         }
     }
 
-    private static async Task<FileStream> AcquireExclusiveLockAsync(
-        string path)
+    private static void CreateIsolatedAppHostDirectory(
+        string sourceDirectory,
+        string destinationDirectory,
+        string appHostPath,
+        string aliasPath)
     {
-        while (true)
+        string[] supportFiles = Directory
+            .EnumerateFiles(
+                sourceDirectory,
+                "*",
+                SearchOption.AllDirectories)
+            .Where(path => !Path
+                .GetRelativePath(sourceDirectory, path)
+                .StartsWith(
+                    AppHostAliasDirectoryPrefix,
+                    StringComparison.Ordinal))
+            .ToArray();
+
+        Directory.CreateDirectory(destinationDirectory);
+        foreach (string sourcePath in supportFiles)
         {
-            try
-            {
-                return new FileStream(
-                    path,
-                    FileMode.OpenOrCreate,
-                    FileAccess.ReadWrite,
-                    FileShare.None,
-                    bufferSize: 1,
-                    FileOptions.Asynchronous);
-            }
-            catch (IOException)
-            {
-                await Task.Delay(
-                    50,
-                    TestContext.Current.CancellationToken);
-            }
+            string destinationPath = Path.Combine(
+                destinationDirectory,
+                Path.GetRelativePath(sourceDirectory, sourcePath));
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(destinationPath)!);
+            File.CreateHardLink(destinationPath, sourcePath);
         }
+
+        File.CreateHardLink(aliasPath, appHostPath);
     }
 
-    private static bool FilesHaveSameContent(
-        string left,
-        string right)
+    private static async Task WaitForMarkerAsync(
+        string path,
+        Task<ProcessResult>? owner = null)
     {
-        var leftInfo = new FileInfo(left);
-        var rightInfo = new FileInfo(right);
-        return leftInfo.Length == rightInfo.Length
-            && File.ReadAllBytes(left).AsSpan()
-                .SequenceEqual(File.ReadAllBytes(right));
+        while (!File.Exists(path))
+        {
+            if (owner?.IsCompleted == true)
+            {
+                ProcessResult result = await owner;
+                throw new InvalidOperationException(
+                    "Apphost worker exited before publishing its ready marker. "
+                    + $"Exit code: {result.ExitCode}\n"
+                    + $"{result.Output}\n{result.Error}");
+            }
+
+            await Task.Delay(
+                25,
+                TestContext.Current.CancellationToken);
+        }
     }
 
     private static async Task<ProcessResult> RunHostAsync(
