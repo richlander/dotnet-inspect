@@ -29,7 +29,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["CatchEntryFoldingTests.cs"] = (1, "Product-output validity: compiles synthesized try/catch source per case."),
             ["CharElementStorePrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced char-element-store source."),
             ["CoerceChokePointTests.cs"] = (1, "Product-output validity: compiles synthesized coercion source per case."),
-            ["CSharpPrinterReceiverTests.cs"] = (1, "Product-output validity: compiles printer receiver-spelling output."),
+            ["CSharpPrinterReceiverTests.cs"] = (2, "Product-output validity: compiles printer receiver-spelling output."),
             ["DataflowFactsTests.cs"] = (1, "Product-output validity: compiles synthesized dataflow source per case."),
             ["EnumCastPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced enum-cast source."),
             ["EnumCaseLabelOrderTests.cs"] = (1, "Round-trip fixed point: recompiles the alphabetically ordered product output and decompiles it again."),
@@ -121,9 +121,9 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     alphabetical output and proves a second decompilation is identical.
     //   #4238 adds LambdaRaisingPassTests.cs (1 site): recompiles recovered
     //     explicit ref-parameter lambda syntax.
-    //   Combined: 41 files, 51 sites.
+    //   Combined: 41 files, 52 sites.
     const int ExpectedDynamicFiles = 41;
-    const int ExpectedDynamicSites = 51;
+    const int ExpectedDynamicSites = 52;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
