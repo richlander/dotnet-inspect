@@ -1004,6 +1004,41 @@ public sealed class PackageSourceClientTests
     }
 
     [Fact]
+    public async Task GalleryLateMetadataRejectionIsNotRetriedAsTimeout()
+    {
+        var handler = new RecordingHandler();
+        handler.SetResponse(
+            GalleryVersions,
+            request => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(
+                    new LateOversizeStream(
+                        """{"versions":["1.0.0"]}"""u8.ToArray())),
+                RequestMessage = request,
+            });
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(
+                handler,
+                new NuGetFetchOptions
+                {
+                    MaxMetadataResponseBytes = 8,
+                    RequestTimeout = TimeSpan.FromSeconds(1),
+                    OperationTimeout = TimeSpan.FromSeconds(2),
+                    MetadataBodyTimeout = TimeSpan.FromMilliseconds(40),
+                });
+
+        PackageSourceFailure failure = Failed(
+            await runtime.GetVersionsAsync(
+                "contoso",
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageSourceFailureKind.ResponseRejected,
+            failure.Kind);
+        Assert.Equal([GalleryVersions], handler.Requested);
+    }
+
+    [Fact]
     public async Task GalleryMissingPackageHasNoVersions()
     {
         var handler = new RecordingHandler();
@@ -1804,6 +1839,62 @@ public sealed class PackageSourceClientTests
             CancellationToken cancellationToken = default) =>
             ValueTask.FromException<int>(
                 new IOException("The response body ended."));
+
+        public override void Flush() =>
+            throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+
+        public override void Write(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class LateOversizeStream(byte[] content) : Stream
+    {
+        private int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            if (_position == content.Length)
+                return 0;
+            if (_position == 0)
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                    await Task.Yield();
+            }
+
+            int count = Math.Min(
+                content.Length - _position,
+                buffer.Length);
+            content.AsSpan(_position, count).CopyTo(buffer.Span);
+            _position += count;
+            return count;
+        }
+
+        public override int Read(
+            byte[] buffer,
+            int offset,
+            int count) =>
+            throw new NotSupportedException();
 
         public override void Flush() =>
             throw new NotSupportedException();
