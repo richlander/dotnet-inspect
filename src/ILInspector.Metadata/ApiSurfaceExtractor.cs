@@ -1268,6 +1268,22 @@ public static class ApiSurfaceExtractor
                     (accessors.Adder, "add"),
                     (accessors.Remover, "remove"));
 
+                var eventTypeNodeProvider = observeText is null
+                    ? TypeNodeProvider.Instance
+                    : new TypeNodeProvider(observeText, observeDecodeWork);
+                ApplyAccessorStructuralReturns(
+                    accessorModels,
+                    reader,
+                    kind => kind switch
+                    {
+                        "add" => accessors.Adder,
+                        "remove" => accessors.Remover,
+                        _ => default,
+                    },
+                    eventTypeNodeProvider,
+                    typeContext,
+                    observeText);
+
                 string eventName = DecodeString(
                     reader,
                     evt.Name,
@@ -3094,6 +3110,9 @@ public static class ApiSurfaceExtractor
                 Name = paramName,
                 Type = type,
                 CanonicalType = canonicalType,
+                StructuralType = paramTypes[i].HasStructuralPayload
+                    ? paramTypes[i].StructuralIdentity()
+                    : null,
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = defaultValueText
@@ -3143,6 +3162,9 @@ public static class ApiSurfaceExtractor
             ExtensionReceiverType = extensionReceiverType,
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
+            StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
+                ? treeSignature.ReturnType.StructuralIdentity()
+                : null,
             ReturnAttributes = returnAttributes,
             MemberName = methodName,
             TypeParameters = methodTypeParameters,
@@ -4109,6 +4131,19 @@ public static class ApiSurfaceExtractor
             }
         }
 
+        ApplyAccessorStructuralReturns(
+            accessorModels,
+            reader,
+            kind => kind switch
+            {
+                "get" => accessors.Getter,
+                "set" => accessors.Setter,
+                _ => default,
+            },
+            typeNodeProvider,
+            context,
+            beforeRetainText);
+
         var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(
                 reader,
                 prop.GetCustomAttributes(),
@@ -4204,6 +4239,9 @@ public static class ApiSurfaceExtractor
                 Name = paramName,
                 Type = paramType,
                 CanonicalType = canonicalParamType,
+                StructuralType = paramTypes[i].HasStructuralPayload
+                    ? paramTypes[i].StructuralIdentity()
+                    : null,
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = defaultValueText
@@ -4227,6 +4265,9 @@ public static class ApiSurfaceExtractor
         {
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
+            StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
+                ? treeSignature.ReturnType.StructuralIdentity()
+                : null,
             MemberName = indexerParameters.Count > 0 ? "this[]" : name,
             IsRequired = isRequired,
             Parameters = parameterModels,
@@ -4299,6 +4340,50 @@ public static class ApiSurfaceExtractor
     private static bool IsAbstractMethod(MetadataReader reader, MethodDefinitionHandle handle)
         => !handle.IsNil
             && (reader.GetMethodDefinition(handle).Attributes & MethodAttributes.Abstract) != 0;
+
+    static void ApplyAccessorStructuralReturns(
+        List<ApiAccessor> accessors,
+        MetadataReader reader,
+        Func<string, MethodDefinitionHandle> handleForKind,
+        TypeNodeProvider provider,
+        GenericContext context,
+        Action<string>? beforeRetainText)
+    {
+        foreach (ApiAccessor accessor in accessors)
+        {
+            accessor.StructuralReturnType = MethodStructuralReturnType(
+                reader,
+                handleForKind(accessor.Kind),
+                provider,
+                context,
+                beforeRetainText);
+        }
+    }
+
+    static string? MethodStructuralReturnType(
+        MetadataReader reader,
+        MethodDefinitionHandle handle,
+        TypeNodeProvider provider,
+        GenericContext context,
+        Action<string>? beforeRetainText)
+    {
+        if (handle.IsNil)
+            return null;
+
+        var method = reader.GetMethodDefinition(handle);
+        var signature = GuardedProviderDecode.Method(
+            reader,
+            method,
+            provider,
+            context,
+            (TypeNode)new DegradedTypeNode());
+        if (!signature.ReturnType.HasStructuralPayload)
+            return null;
+
+        string identity = signature.ReturnType.StructuralIdentity();
+        beforeRetainText?.Invoke(identity);
+        return identity;
+    }
 
     /// <summary>
     /// Formats a property accessor with its access level prefix when it differs from the property's overall level.
@@ -4456,6 +4541,7 @@ public static class ApiSurfaceExtractor
         ObserveText(parameter.Name, observe);
         ObserveText(parameter.Type, observe);
         ObserveText(parameter.CanonicalType, observe);
+        ObserveText(parameter.StructuralType, observe);
         ObserveText(parameter.Modifier, observe);
         ObserveText(parameter.DefaultValueText, observe);
     }
@@ -4481,6 +4567,7 @@ public static class ApiSurfaceExtractor
             return;
         AddText(ref count, signature.ReturnType);
         AddText(ref count, signature.CanonicalReturnType);
+        AddText(ref count, signature.StructuralReturnType);
         AddText(ref count, signature.ReturnAttributes);
         AddText(ref count, signature.MemberName);
         AddText(ref count, signature.ExtensionReceiverType);
@@ -4492,6 +4579,7 @@ public static class ApiSurfaceExtractor
             AddText(ref count, parameter.Name);
             AddText(ref count, parameter.Type);
             AddText(ref count, parameter.CanonicalType);
+            AddText(ref count, parameter.StructuralType);
             AddText(ref count, parameter.Modifier);
             AddText(ref count, parameter.DefaultValueText);
         }
@@ -4505,6 +4593,7 @@ public static class ApiSurfaceExtractor
         AddText(ref count, accessor.MethodName);
         AddText(ref count, accessor.Accessibility);
         AddText(ref count, accessor.ReturnAttributes);
+        AddText(ref count, accessor.StructuralReturnType);
     }
 
     static void AddText(ref long count, TypeParameter parameter)
