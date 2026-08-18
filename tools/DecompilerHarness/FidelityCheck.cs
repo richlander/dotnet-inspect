@@ -3203,15 +3203,20 @@ static class FidelityCheck
             return false;
         }
 
-        var bodyParameters = body.GetParameters()
-            .Select(reader.GetParameter)
-            .ToDictionary(parameter => parameter.SequenceNumber);
-        var declarationParameters = declaration.GetParameters()
-            .Select(reader.GetParameter)
-            .ToDictionary(parameter => parameter.SequenceNumber);
+        if (!TryParameterAttributes(reader, body, out var bodyParameters)
+            || !TryParameterAttributes(
+                reader,
+                declaration,
+                out var declarationParameters))
+        {
+            return false;
+        }
+        const ParameterAttributes implementationFlags =
+            ParameterAttributes.In | ParameterAttributes.Out;
         if (bodyParameters.Keys.Union(declarationParameters.Keys).Any(sequence =>
-            ParameterAttributesAt(bodyParameters, sequence)
-                != ParameterAttributesAt(declarationParameters, sequence)))
+            (bodyParameters.GetValueOrDefault(sequence) & implementationFlags)
+                != (declarationParameters.GetValueOrDefault(sequence)
+                    & implementationFlags)))
         {
             return false;
         }
@@ -3252,13 +3257,27 @@ static class FidelityCheck
         }
 
         return true;
+    }
 
-        static ParameterAttributes ParameterAttributesAt(
-            IReadOnlyDictionary<int, System.Reflection.Metadata.Parameter> parameters,
-            int sequence)
-            => parameters.TryGetValue(sequence, out var parameter)
-                ? parameter.Attributes
-                : 0;
+    static bool TryParameterAttributes(
+        MetadataReader reader,
+        MethodDefinition method,
+        out Dictionary<int, ParameterAttributes> attributes)
+    {
+        attributes = [];
+        foreach (var handle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(handle);
+            if (!attributes.TryAdd(
+                    parameter.SequenceNumber,
+                    parameter.Attributes))
+            {
+                attributes = [];
+                return false;
+            }
+        }
+
+        return true;
     }
 
     static bool IsSystemValueTypeConstraint(
@@ -4550,14 +4569,11 @@ static class FidelityCheck
             return null;
         }
         if (entry.Member.Kind == "explicit-interface-implementation"
-            && (SyntaxFactory.ParseMemberDeclaration(result.Text)
-                    is not MethodDeclarationSyntax
-                    {
-                        ExplicitInterfaceSpecifier.Name: { } interfaceName
-                    }
-                || interfaceName.DescendantNodesAndSelf()
-                    .OfType<AliasQualifiedNameSyntax>()
-                    .Any()))
+            && SyntaxFactory.ParseMemberDeclaration(result.Text)
+                is not MethodDeclarationSyntax
+                {
+                    ExplicitInterfaceSpecifier.Name: IdentifierNameSyntax
+                })
         {
             return null;
         }

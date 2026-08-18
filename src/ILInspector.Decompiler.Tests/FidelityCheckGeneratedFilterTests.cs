@@ -464,6 +464,37 @@ public class FidelityCheckGeneratedFilterTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    public void Evaluate_UsesProductWholeMemberWhenOnlyInterfaceParameterIsOptional()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IOptional
+            {
+                int Compute(int value = 42);
+            }
+
+            public sealed class OptionalFixture : IOptional
+            {
+                int IOptional.Compute(int value) => value + 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "OptionalFixture",
+                    candidate => candidate.Method == "IOptional.Compute"));
+            Assert.True(result.UsedProductWholeMember);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
     public void Evaluate_DeclinesQualifiedExplicitInterfaceWhenTypeShadowsNamespace()
     {
         var assemblyPath = CompileFixture("""
@@ -902,6 +933,8 @@ public class FidelityCheckGeneratedFilterTests
     {
         var assemblyPath = CompileFixture("""
             using NI = N.I;
+            using BI = B.I;
+            using FII = FileInfo.I;
 
             public interface IGlobal
             {
@@ -960,6 +993,27 @@ public class FidelityCheckGeneratedFilterTests
                 }
             }
 
+            namespace B
+            {
+                public interface I
+                {
+                    int T(int value);
+                }
+            }
+
+            namespace FileInfo
+            {
+                public interface I
+                {
+                    void M(T.I value);
+                }
+            }
+
+            namespace T
+            {
+                public sealed class I { }
+            }
+
             namespace A
             {
                 public sealed class I { }
@@ -968,9 +1022,27 @@ public class FidelityCheckGeneratedFilterTests
 
             namespace A.B
             {
+                public interface I
+                {
+                    void Other();
+                }
+
                 public sealed class ParentNamespaceShadow : NI
                 {
                     void NI.M(A.I value) { }
+                }
+
+                public sealed class NestedNamespaceShadow : BI
+                {
+                    int BI.T(int value) => value + 1;
+                }
+            }
+
+            namespace System.IO.Blah
+            {
+                public sealed class ReferencedParentTypeShadow : FII
+                {
+                    void FII.M(T.I value) { }
                 }
             }
             """);
@@ -988,6 +1060,8 @@ public class FidelityCheckGeneratedFilterTests
                     "StreamConstraintFixture",
                     "MethodGenericShadow",
                     "ParentNamespaceShadow",
+                    "NestedNamespaceShadow",
+                    "ReferencedParentTypeShadow",
                 })
             {
                 var type = reader.GetTypeDefinition(Assert.Single(
