@@ -4,6 +4,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
 using ILInspector.Analysis.StructuralCloneFixtures;
 
 namespace ILInspector.Analysis.Tests;
@@ -214,6 +215,152 @@ public class StructuralCloneRetrievalTests
     }
 
     [Fact]
+    public void RetrieveSimilar_CrossAssemblyScopesCandidateIdentity()
+    {
+        using PEReader seedImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.Old);
+        using PEReader candidateImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.New);
+        MetadataReader seedReader = seedImage.GetMetadataReader();
+        MetadataReader candidateReader =
+            candidateImage.GetMetadataReader();
+        MethodDefinitionHandle seed = DiffMethod(
+            seedReader,
+            "Stable");
+        MethodDefinitionHandle expected = DiffMethod(
+            candidateReader,
+            "Stable");
+
+        StructuralCloneRetrievalResult result =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                seed,
+                candidateImage,
+                DiffPopulation(candidateReader));
+
+        Assert.Equal(
+            StructuralCloneRetrievalDisposition.Completed,
+            result.Disposition);
+        Assert.NotEqual(
+            result.Seed.Method.ModuleVersionId,
+            candidateReader.GetGuid(
+                candidateReader.GetModuleDefinition().Mvid));
+        StructuralCloneRetrievalCandidate candidate =
+            Assert.Single(
+                result.Candidates,
+                item => item.Method.Handle == expected);
+        Assert.Equal(
+            candidateReader.GetGuid(
+                candidateReader.GetModuleDefinition().Mvid),
+            candidate.Method.ModuleVersionId);
+        Assert.Equal(10_000, candidate.Similarity.Score);
+    }
+
+    [Fact]
+    public void RetrieveSimilar_CrossAssemblyInputOrderIsDeterministic()
+    {
+        using PEReader seedImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.Old);
+        using PEReader candidateImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.New);
+        MetadataReader seedReader = seedImage.GetMetadataReader();
+        MetadataReader candidateReader =
+            candidateImage.GetMetadataReader();
+        MethodDefinitionHandle seed = DiffMethod(
+            seedReader,
+            "MultipleHunks");
+        ImmutableArray<MethodDefinitionHandle> population =
+            DiffPopulation(candidateReader);
+
+        StructuralCloneRetrievalResult forward =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                seed,
+                candidateImage,
+                population);
+        StructuralCloneRetrievalResult reverse =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                seed,
+                candidateImage,
+                [.. population.Reverse()]);
+
+        Assert.Equal(
+            forward.Candidates.Select(CandidateKey),
+            reverse.Candidates.Select(CandidateKey));
+    }
+
+    [Fact]
+    public void RetrieveSimilar_CrossAssemblyCandidateFailurePreservesSeed()
+    {
+        using PEReader seedImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.Old);
+        using var candidateImage = new PEReader(
+            new MemoryStream([1, 2, 3, 4]));
+        MetadataReader seedReader = seedImage.GetMetadataReader();
+        MethodDefinitionHandle seed = DiffMethod(
+            seedReader,
+            "Stable");
+
+        StructuralCloneRetrievalResult result =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                seed,
+                candidateImage,
+                [MetadataTokens.MethodDefinitionHandle(1)]);
+
+        Assert.Equal(
+            StructuralCloneRetrievalDisposition.Failed,
+            result.Disposition);
+        Assert.Equal(
+            StructuralCloneDisposition.Completed,
+            result.Seed.Disposition);
+        Assert.Equal(
+            seedReader.GetGuid(
+                seedReader.GetModuleDefinition().Mvid),
+            result.Seed.Method.ModuleVersionId);
+        Assert.Equal(1, result.Receipt.BodyProductions);
+        Assert.Contains(
+            result.Blockers,
+            static blocker =>
+                blocker.Kind
+                    == StructuralCloneRetrievalBlockerKind
+                        .MetadataReadFailure
+                && blocker.Detail.StartsWith(
+                    "The candidate ",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RetrieveSimilar_SameModuleAcrossReadersExcludesSeed()
+    {
+        using PEReader seedImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.Old);
+        using PEReader candidateImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.Old);
+        MetadataReader seedReader = seedImage.GetMetadataReader();
+        MetadataReader candidateReader =
+            candidateImage.GetMetadataReader();
+        MethodDefinitionHandle seed = DiffMethod(
+            seedReader,
+            "Stable");
+
+        StructuralCloneRetrievalResult result =
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                seed,
+                candidateImage,
+                DiffPopulation(candidateReader));
+
+        Assert.DoesNotContain(
+            result.Candidates,
+            candidate => candidate.Method.Handle == seed);
+        Assert.Equal(
+            DiffPopulation(candidateReader).Length - 1,
+            result.Receipt.ProcessedMethods);
+    }
+
+    [Fact]
     public void RetrieveSimilar_RejectsDuplicatePopulationHandles()
     {
         using PEReader image = OpenFixture();
@@ -306,6 +453,31 @@ public class StructuralCloneRetrievalTests
     static PEReader OpenFixture()
         => new(File.OpenRead(
             typeof(StructuralCloneFixture).Assembly.Location));
+
+    static PEReader OpenDiffFixture(FixtureDefinition fixture)
+        => new(File.OpenRead(fixture.AssemblyPath()));
+
+    static ImmutableArray<MethodDefinitionHandle> DiffPopulation(
+        MetadataReader reader)
+    {
+        TypeDefinition type = reader.GetTypeDefinition(
+            reader.TypeDefinitions.Single(handle =>
+            {
+                TypeDefinition candidate =
+                    reader.GetTypeDefinition(handle);
+                return reader.GetString(candidate.Namespace)
+                        == "DiffFixtureSample"
+                    && reader.GetString(candidate.Name) == "DiffSample";
+            }));
+        return [.. type.GetMethods()];
+    }
+
+    static MethodDefinitionHandle DiffMethod(
+        MetadataReader reader,
+        string name)
+        => DiffPopulation(reader).Single(handle =>
+            reader.GetString(
+                reader.GetMethodDefinition(handle).Name) == name);
 
     static ImmutableArray<MethodDefinitionHandle> Population()
         =>

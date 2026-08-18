@@ -59,7 +59,7 @@ public sealed record StructuralCloneSimilarityEvidence(
     int SeedLocals,
     int CandidateLocals);
 
-/// <summary>One deterministically ranked same-PE clone candidate.</summary>
+/// <summary>One deterministically ranked structural-clone candidate.</summary>
 public sealed record StructuralCloneRetrievalCandidate(
     int Rank,
     MetadataMethodAddress Method,
@@ -84,7 +84,7 @@ public sealed record StructuralCloneRetrievalLimits(
     int MaximumResults = 100,
     StructuralCloneComparisonLimits? ComparisonLimits = null);
 
-/// <summary>Product-owned result for one bounded seeded A-vs-A retrieval.</summary>
+/// <summary>Product-owned result for one bounded seeded retrieval.</summary>
 public sealed record StructuralCloneRetrievalResult
 {
     internal StructuralCloneRetrievalResult(
@@ -144,8 +144,44 @@ public static partial class StructuralCloneAnalysis
         MethodDefinitionHandle seed,
         ImmutableArray<MethodDefinitionHandle> methods,
         StructuralCloneRetrievalLimits? limits = null)
+        => RetrieveSimilar(
+            image,
+            seed,
+            image,
+            methods,
+            sameImage: true,
+            limits);
+
+    /// <summary>
+    /// Ranks likely structural-clone peers from one candidate image for a seed
+    /// in another image. Cross-image similarity uses portable structural
+    /// operand categories; it never establishes cross-reader correspondence or
+    /// a clone relation.
+    /// </summary>
+    public static StructuralCloneRetrievalResult RetrieveSimilar(
+        PEReader seedImage,
+        MethodDefinitionHandle seed,
+        PEReader candidateImage,
+        ImmutableArray<MethodDefinitionHandle> methods,
+        StructuralCloneRetrievalLimits? limits = null)
+        => RetrieveSimilar(
+            seedImage,
+            seed,
+            candidateImage,
+            methods,
+            ReferenceEquals(seedImage, candidateImage),
+            limits);
+
+    static StructuralCloneRetrievalResult RetrieveSimilar(
+        PEReader seedImage,
+        MethodDefinitionHandle seed,
+        PEReader candidateImage,
+        ImmutableArray<MethodDefinitionHandle> methods,
+        bool sameImage,
+        StructuralCloneRetrievalLimits? limits)
     {
-        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(seedImage);
+        ArgumentNullException.ThrowIfNull(candidateImage);
         if (methods.IsDefault)
         {
             throw new ArgumentException(
@@ -156,7 +192,8 @@ public static partial class StructuralCloneAnalysis
         limits ??= new StructuralCloneRetrievalLimits();
         ValidateRetrievalLimits(limits);
         int potentialCandidates =
-            methods.Length - (methods.Contains(seed) ? 1 : 0);
+            methods.Length
+            - (sameImage && methods.Contains(seed) ? 1 : 0);
         StructuralCloneComparisonLimits comparisonLimits =
             limits.ComparisonLimits
             ?? new StructuralCloneComparisonLimits();
@@ -191,8 +228,8 @@ public static partial class StructuralCloneAnalysis
         }
 
         if (!TryGetMetadataReader(
-                image,
-                out MetadataReader reader,
+                seedImage,
+                out MetadataReader seedReader,
                 out StructuralCloneMetadataFailure metadataFailure))
         {
             return FailedRetrieval(
@@ -201,12 +238,10 @@ public static partial class StructuralCloneAnalysis
                 potentialCandidates,
                 metadataFailure);
         }
-        ValidateHandle(reader, seed, nameof(seed));
-        foreach (MethodDefinitionHandle method in orderedMethods)
-            ValidateHandle(reader, method, nameof(methods));
+        ValidateHandle(seedReader, seed, nameof(seed));
         if (!TryGetModuleVersionId(
-                reader,
-                out Guid moduleVersionId,
+                seedReader,
+                out Guid seedModuleVersionId,
                 out metadataFailure))
         {
             return FailedRetrieval(
@@ -216,10 +251,11 @@ public static partial class StructuralCloneAnalysis
                 metadataFailure);
         }
 
-        MetadataMethodAddress seedAddress = new(moduleVersionId, seed);
+        MetadataMethodAddress seedAddress =
+            new(seedModuleVersionId, seed);
         BodyProduction seedProduction = Produce(
-            image,
-            reader,
+            seedImage,
+            seedReader,
             seedAddress,
             StructuralCloneSide.Both,
             comparisonLimits);
@@ -272,8 +308,36 @@ public static partial class StructuralCloneAnalysis
                     BodyProductions: 1));
         }
 
+        if (!TryGetMetadataReader(
+                candidateImage,
+                out MetadataReader candidateReader,
+                out metadataFailure)
+            || !TryGetModuleVersionId(
+                candidateReader,
+                out Guid candidateModuleVersionId,
+                out metadataFailure))
+        {
+            return FailedCandidateRetrieval(
+                seedOutcome,
+                methods.Length,
+                potentialCandidates,
+                metadataFailure);
+        }
+        foreach (MethodDefinitionHandle method in orderedMethods)
+            ValidateHandle(candidateReader, method, nameof(methods));
+        bool sameModule =
+            seedModuleVersionId == candidateModuleVersionId;
+        if (!sameImage
+            && sameModule
+            && methods.Contains(seed))
+        {
+            potentialCandidates--;
+        }
+
         StructuralCloneRetrievalProfile seedProfile =
-            StructuralCloneRetrievalProfile.Create(seedProduction.Facts!);
+            StructuralCloneRetrievalProfile.Create(
+                seedProduction.Facts!,
+                portableOperands: !sameModule);
         ImmutableArray<StructuralCloneRetrievalMethodOutcome>.Builder outcomes =
             ImmutableArray.CreateBuilder<StructuralCloneRetrievalMethodOutcome>(
                 orderedMethods.Length);
@@ -286,12 +350,13 @@ public static partial class StructuralCloneAnalysis
 
         foreach (MethodDefinitionHandle handle in orderedMethods)
         {
-            if (handle == seed)
+            if (sameModule && handle == seed)
                 continue;
-            MetadataMethodAddress address = new(moduleVersionId, handle);
+            MetadataMethodAddress address =
+                new(candidateModuleVersionId, handle);
             BodyProduction production = Produce(
-                image,
-                reader,
+                candidateImage,
+                candidateReader,
                 address,
                 StructuralCloneSide.Both,
                 comparisonLimits);
@@ -303,7 +368,8 @@ public static partial class StructuralCloneAnalysis
                     eligible++;
                     StructuralCloneRetrievalProfile profile =
                         StructuralCloneRetrievalProfile.Create(
-                            production.Facts!);
+                            production.Facts!,
+                            portableOperands: !sameModule);
                     if (seedProduction.Facts!.Signature
                         != production.Facts!.Signature)
                     {
@@ -539,6 +605,36 @@ public static partial class StructuralCloneAnalysis
                 BodyProductions: 0));
     }
 
+    static StructuralCloneRetrievalResult FailedCandidateRetrieval(
+        StructuralCloneRetrievalMethodOutcome seed,
+        int inputMethods,
+        int potentialCandidates,
+        StructuralCloneMetadataFailure failure)
+    {
+        StructuralCloneRetrievalBlocker blocker = new(
+            StructuralCloneRetrievalBlockerKind.MetadataReadFailure,
+            $"The candidate {failure.Subject} is invalid: "
+                + $"{failure.Exception.GetType().Name}: "
+                + failure.Exception.Message);
+        return new StructuralCloneRetrievalResult(
+            StructuralCloneRetrievalDisposition.Failed,
+            seed,
+            [],
+            [],
+            [blocker],
+            new StructuralCloneRetrievalReceipt(
+                inputMethods,
+                ProcessedMethods: 0,
+                SuppressedCandidates: potentialCandidates,
+                EligibleMethods: 0,
+                UnsupportedMethods: 0,
+                LimitReachedMethods: 0,
+                FailedMethods: 0,
+                RankedCandidates: 0,
+                ReturnedCandidates: 0,
+                BodyProductions: 1));
+    }
+
     static StructuralCloneRetrievalMethodOutcome RetrievalMethodOutcome(
         MetadataMethodAddress address,
         BodyProduction production)
@@ -565,7 +661,8 @@ public static partial class StructuralCloneAnalysis
         int LocalCount)
     {
         public static StructuralCloneRetrievalProfile Create(
-            StructuralCloneBodyFacts facts)
+            StructuralCloneBodyFacts facts,
+            bool portableOperands = false)
         {
             ImmutableArray<RetrievalOperationFeature>.Builder operations =
                 ImmutableArray.CreateBuilder<RetrievalOperationFeature>();
@@ -599,7 +696,10 @@ public static partial class StructuralCloneAnalysis
                         new RetrievalOperationFeature(
                             operation.OpCode,
                             operation.OperandKind,
-                            localType is null ? operation.Value : 0,
+                            RetrievalValue(
+                                operation,
+                                localType,
+                                portableOperands),
                             localType));
                     positions.Add(
                         new RetrievalPositionFeature(
@@ -633,6 +733,23 @@ public static partial class StructuralCloneAnalysis
                 facts.Graph.Blocks.Sum(
                     static block => block.Outgoing.Length),
                 facts.Locals.Length);
+        }
+
+        static long RetrievalValue(
+            StructuralCloneOperation operation,
+            StructuralCloneTypeIdentity? localType,
+            bool portableOperands)
+        {
+            if (localType is not null)
+                return 0;
+            if (!portableOperands)
+                return operation.Value;
+            return operation.OperandKind
+                is StructuralCloneOperandKind.MetadataToken
+                    or StructuralCloneOperandKind.UserStringToken
+                    or StructuralCloneOperandKind.SignatureToken
+                ? 0
+                : operation.Value;
         }
     }
 

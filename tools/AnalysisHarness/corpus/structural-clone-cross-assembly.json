@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "left": {
+    "assemblyName": "DiffFixtureSample",
+    "type": "DiffFixtureSample.DiffSample",
+    "project": "src/DiffFixtures.V1"
+  },
+  "right": {
+    "assemblyName": "DiffFixtureSample",
+    "type": "DiffFixtureSample.DiffSample",
+    "project": "src/DiffFixtures.V2"
+  },
+  "limits": {
+    "maximumMethods": 100,
+    "maximumResults": 100,
+    "maximumBlocks": 10000
+  },
+  "queries": [
+    {
+      "id": "stable-body",
+      "seed": "Stable",
+      "reviewedTopK": 2,
+      "minimumPrecisionBasisPoints": 5000,
+      "minimumRecallBasisPoints": 10000,
+      "labels": [
+        {
+          "candidate": "Stable",
+          "relevance": "relevant",
+          "maximumRank": 1,
+          "scoresAbove": [
+            "ConstantValue"
+          ],
+          "rationale": "The same unchanged member is the intended cross-version peer."
+        },
+        {
+          "candidate": "ConstantValue",
+          "relevance": "hardNegative",
+          "maximumRank": 2,
+          "scoresAbove": [],
+          "rationale": "A close constant-return body is not the same logical member."
+        }
+      ]
+    },
+    {
+      "id": "multiple-edits",
+      "seed": "MultipleHunks",
+      "reviewedTopK": 2,
+      "minimumPrecisionBasisPoints": 5000,
+      "minimumRecallBasisPoints": 10000,
+      "labels": [
+        {
+          "candidate": "MultipleHunks",
+          "relevance": "relevant",
+          "maximumRank": 1,
+          "scoresAbove": [
+            "SemanticMultiCallChange"
+          ],
+          "rationale": "The corresponding versioned member retains its two-edit shape."
+        },
+        {
+          "candidate": "SemanticMultiCallChange",
+          "relevance": "hardNegative",
+          "maximumRank": 2,
+          "scoresAbove": [],
+          "rationale": "A similarly sized two-call body is an independently authored control."
+        }
+      ]
+    },
+    {
+      "id": "user-string-hazard",
+      "seed": "StringToken",
+      "reviewedTopK": 2,
+      "minimumPrecisionBasisPoints": 5000,
+      "minimumRecallBasisPoints": 10000,
+      "labels": [
+        {
+          "candidate": "StringToken",
+          "relevance": "relevant",
+          "maximumRank": 1,
+          "scoresAbove": [],
+          "rationale": "The corresponding member changes only its user-string value."
+        },
+        {
+          "candidate": "SemanticCallStringLiteralNearMiss",
+          "relevance": "semanticHazard",
+          "maximumRank": 2,
+          "scoresAbove": [],
+          "rationale": "Portable operand categories intentionally tie an unrelated string-return body."
+        }
+      ]
+    },
+    {
+      "id": "call-target-hazard",
+      "seed": "CallToken",
+      "reviewedTopK": 2,
+      "minimumPrecisionBasisPoints": 5000,
+      "minimumRecallBasisPoints": 10000,
+      "labels": [
+        {
+          "candidate": "CallToken",
+          "relevance": "relevant",
+          "maximumRank": 1,
+          "scoresAbove": [
+            "SemanticCallChange"
+          ],
+          "rationale": "The corresponding member keeps the same one-call structural shape."
+        },
+        {
+          "candidate": "SemanticCallChange",
+          "relevance": "semanticHazard",
+          "maximumRank": 2,
+          "scoresAbove": [],
+          "rationale": "A different call target can remain structurally close across readers."
+        }
+      ]
+    },
+    {
+      "id": "branch-target-shift",
+      "seed": "BranchTargetOffsetShift",
+      "reviewedTopK": 2,
+      "minimumPrecisionBasisPoints": 5000,
+      "minimumRecallBasisPoints": 10000,
+      "labels": [
+        {
+          "candidate": "BranchTargetOffsetShift",
+          "relevance": "relevant",
+          "maximumRank": 1,
+          "scoresAbove": [
+            "BranchRetarget"
+          ],
+          "rationale": "The corresponding member inserts work without changing the logical target."
+        },
+        {
+          "candidate": "BranchRetarget",
+          "relevance": "hardNegative",
+          "maximumRank": 2,
+          "scoresAbove": [],
+          "rationale": "The close negative changes which return the branch reaches."
+        }
+      ]
+    },
+    {
+      "id": "type-token-shapes",
+      "seed": "TypeTokenShapes",
+      "reviewedTopK": 2,
+      "minimumPrecisionBasisPoints": 5000,
+      "minimumRecallBasisPoints": 10000,
+      "labels": [
+        {
+          "candidate": "TypeTokenShapes",
+          "relevance": "relevant",
+          "maximumRank": 1,
+          "scoresAbove": [
+            "FieldToken"
+          ],
+          "rationale": "The corresponding member preserves its family of type-bearing operations."
+        },
+        {
+          "candidate": "FieldToken",
+          "relevance": "hardNegative",
+          "maximumRank": 2,
+          "scoresAbove": [],
+          "rationale": "A metadata-heavy field body is the closest unrelated eligible control."
+        }
+      ]
+    },
+    {
+      "id": "allocation-regression-miss",
+      "seed": "RegressesAllocInLoop",
+      "reviewedTopK": 2,
+      "minimumPrecisionBasisPoints": 0,
+      "minimumRecallBasisPoints": 0,
+      "labels": [
+        {
+          "candidate": "Assign",
+          "relevance": "hardNegative",
+          "maximumRank": 1,
+          "scoresAbove": [],
+          "rationale": "A tiny assignment helper outranks the evolved loop body but is unrelated."
+        },
+        {
+          "candidate": "SameAllocationCountBecomesHot",
+          "relevance": "hardNegative",
+          "maximumRank": 2,
+          "scoresAbove": [],
+          "rationale": "Another allocation scenario is close but not the corresponding member."
+        },
+        {
+          "candidate": "RegressesAllocInLoop",
+          "relevance": "relevant",
+          "maximumRank": 3,
+          "scoresAbove": [],
+          "rationale": "The corresponding member is an explicit retrieval miss at reviewed K=2."
+        }
+      ]
+    }
+  ]
+}

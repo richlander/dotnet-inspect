@@ -42,6 +42,11 @@ const string Usage =
           source-reviewed CoreLib ledger. Every reviewed top-K row has an independent relevance
           label; precision and recall cover only those labels, not all possible relationships.
 
+      --clone-cross-assembly-corpus <left> <right> [--cross-assembly-ledger <file>] [--json]
+          Grade product-owned cross-image structural-clone retrieval against the authored
+          version-pair ledger. Similarity uses portable structural operand categories and does
+          not establish a cross-reader clone relation.
+
       --clone-census <assembly> [--seed <0xMethodDef|Type::Method>] [--top N]
           Run bounded product-owned exact discovery over every MethodDef in one assembly.
           Reports exact families, receipts, suppression, and an optional seed-to-family drill-in.
@@ -137,6 +142,11 @@ string? cloneCoreLibCorpusAssembly = null;
 string? coreLibLedger = null;
 bool cloneCoreLibCorpusSpecified = false;
 bool coreLibLedgerSpecified = false;
+string? cloneCrossAssemblyLeft = null;
+string? cloneCrossAssemblyRight = null;
+string? crossAssemblyLedger = null;
+bool cloneCrossAssemblySpecified = false;
+bool crossAssemblyLedgerSpecified = false;
 string? cloneCensusAssembly = null;
 string? cloneCensusSeed = null;
 bool cloneCensusSpecified = false;
@@ -261,6 +271,28 @@ for (int i = 0; i < args.Length; i++)
                 args,
                 ref i,
                 "--corelib-ledger",
+                missingValueOptions);
+            break;
+        case "--clone-cross-assembly-corpus":
+            selectedModes.Add("--clone-cross-assembly-corpus");
+            cloneCrossAssemblySpecified = true;
+            cloneCrossAssemblyLeft = NextRequiredValue(
+                args,
+                ref i,
+                "--clone-cross-assembly-corpus",
+                missingValueOptions);
+            cloneCrossAssemblyRight = NextRequiredValue(
+                args,
+                ref i,
+                "--clone-cross-assembly-corpus",
+                missingValueOptions);
+            break;
+        case "--cross-assembly-ledger":
+            crossAssemblyLedgerSpecified = true;
+            crossAssemblyLedger = NextRequiredValue(
+                args,
+                ref i,
+                "--cross-assembly-ledger",
                 missingValueOptions);
             break;
         case "--clone-census":
@@ -502,6 +534,13 @@ if (coreLibLedgerSpecified && !cloneCoreLibCorpusSpecified)
         "--corelib-ledger requires --clone-corelib-corpus.");
     return 2;
 }
+if (crossAssemblyLedgerSpecified && !cloneCrossAssemblySpecified)
+{
+    Console.Error.WriteLine(
+        "--cross-assembly-ledger requires "
+            + "--clone-cross-assembly-corpus.");
+    return 2;
+}
 if ((cloneCensusSeedSpecified || cloneMaximumMethodsSpecified)
     && !cloneCensusSpecified
     && !cloneWorksheetSpecified)
@@ -598,6 +637,16 @@ if (cloneCoreLibCorpusAssembly is not null)
         cloneCoreLibCorpusAssembly,
         coreLibLedger,
         json);
+
+if (cloneCrossAssemblyLeft is not null
+    && cloneCrossAssemblyRight is not null)
+{
+    return RunCloneCrossAssemblyCorpus(
+        cloneCrossAssemblyLeft,
+        cloneCrossAssemblyRight,
+        crossAssemblyLedger,
+        json);
+}
 
 if (cloneCensusAssembly is not null)
 {
@@ -748,6 +797,65 @@ static int RunCloneCoreLibCorpus(
                 ? StructuralCloneCoreLibCorpus.ToJson(report)
                     + Environment.NewLine
                 : StructuralCloneCoreLibCorpus.Format(report));
+        return report.Success ? 0 : 1;
+    }
+    catch (Exception ex) when (
+        ex is InvalidDataException
+            or BadImageFormatException
+            or IOException
+            or UnauthorizedAccessException
+            or System.Text.Json.JsonException)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
+    }
+}
+
+static int RunCloneCrossAssemblyCorpus(
+    string leftAssembly,
+    string rightAssembly,
+    string? crossAssemblyLedger,
+    bool json)
+{
+    if (!File.Exists(leftAssembly))
+    {
+        Console.Error.WriteLine(
+            $"Left assembly not found: {leftAssembly}");
+        return 2;
+    }
+    if (!File.Exists(rightAssembly))
+    {
+        Console.Error.WriteLine(
+            $"Right assembly not found: {rightAssembly}");
+        return 2;
+    }
+
+    string ledger =
+        crossAssemblyLedger
+        ?? Path.Combine(
+            AppContext.BaseDirectory,
+            "corpus",
+            "structural-clone-cross-assembly.json");
+    if (!File.Exists(ledger))
+    {
+        Console.Error.WriteLine(
+            $"Cross-assembly ledger not found: {ledger}");
+        return 2;
+    }
+
+    try
+    {
+        StructuralCloneCrossAssemblyCorpusReport report =
+            StructuralCloneCrossAssemblyCorpus.Run(
+                leftAssembly,
+                rightAssembly,
+                StructuralCloneCrossAssemblyCorpus.Load(
+                    File.ReadAllText(ledger)));
+        Console.Write(
+            json
+                ? StructuralCloneCrossAssemblyCorpus.ToJson(report)
+                    + Environment.NewLine
+                : StructuralCloneCrossAssemblyCorpus.Format(report));
         return report.Success ? 0 : 1;
     }
     catch (Exception ex) when (
@@ -1143,6 +1251,9 @@ static string? NextRequiredValue(
 static string MissingValueError(string option) =>
     option switch
     {
+        "--clone-cross-assembly-corpus" =>
+            "--clone-cross-assembly-corpus requires left and right "
+                + "assembly paths.",
         "--clone-corpus" or "--clone-corelib-corpus"
             or "--clone-census" or "--clone-worksheet"
             or "--paydirt-recall"
