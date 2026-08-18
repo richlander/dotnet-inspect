@@ -20547,6 +20547,53 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("-o")]
+    [InlineData("--output")]
+    public async Task SkillDocuments_OutputAliasesWritePackageAndProjectPayloads(string outputOption)
+    {
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.Output",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", "package skill"));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.Output",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [new ProjectSkillDoc("skills/project-skill/SKILL.md", "project skill")]));
+
+        try
+        {
+            var packageOutput = Path.Combine(packageTempDir, "package-skill.md");
+            var projectOutput = Path.Combine(projectTempDir, "project-skill.md");
+
+            var (packageExit, packageStdout, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare",
+                outputOption, packageOutput);
+            var (projectExit, projectStdout, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--bare", outputOption, projectOutput);
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, projectExit);
+            Assert.Empty(packageStdout);
+            Assert.Empty(projectStdout);
+            Assert.Empty(packageError);
+            Assert.Empty(projectError);
+            Assert.Equal("package skill", File.ReadAllText(packageOutput));
+            Assert.Equal("project skill", File.ReadAllText(projectOutput));
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Package_ReadmePrint_NamesTheEmptySectionWhenThePackageShipsNoSuchDocument()
     {
