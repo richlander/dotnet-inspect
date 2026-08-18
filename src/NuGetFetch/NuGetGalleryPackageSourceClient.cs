@@ -90,7 +90,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
                     $"{FlatContainer}{EscapeSegment(normalizedId)}/index.json";
                 using var operation = CreateOperation(cancellationToken);
                 (bool found, VersionIndex? index) =
-                    await operation.RunRequestAsync(
+                    await NuGetHttpRetry.RunRequestAsync(
+                        operation,
                         async requestToken =>
                         {
                             using HttpRequestMessage request =
@@ -210,7 +211,8 @@ internal sealed class NuGetGalleryPackageSourceClient : IPackageSourceClient
         var operation = CreateOperation(cancellationToken);
         try
         {
-            return await operation.RunStreamingRequestAsync(
+            return await NuGetHttpRetry.RunStreamingRequestAsync(
+                operation,
                 async requestToken =>
                 {
                     using HttpRequestMessage request =

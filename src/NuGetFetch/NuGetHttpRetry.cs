@@ -1,0 +1,97 @@
+using System.Net;
+using System.Net.Sockets;
+
+namespace NuGetFetch;
+
+internal static class NuGetHttpRetry
+{
+    private const int MaximumRetries = 3;
+
+    public static async Task<T> RunRequestAsync<T>(
+        NuGetOperationDeadline operation,
+        Func<CancellationToken, Task<T>> request)
+    {
+        for (int retry = 0; ; retry++)
+        {
+            try
+            {
+                return await operation.RunRequestAsync(request)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception)
+                when (retry < MaximumRetries
+                    && IsTransient(exception))
+            {
+                await DelayAsync(operation, retry).ConfigureAwait(false);
+            }
+        }
+    }
+
+    public static async Task<(Stream Stream, T Metadata)>
+        RunStreamingRequestAsync<T>(
+            NuGetOperationDeadline operation,
+            Func<CancellationToken, Task<(
+                Stream Stream,
+                IDisposable Owner,
+                T Metadata)>> request)
+    {
+        for (int retry = 0; ; retry++)
+        {
+            try
+            {
+                return await operation.RunStreamingRequestAsync(request)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception)
+                when (retry < MaximumRetries
+                    && IsTransient(exception))
+            {
+                await DelayAsync(operation, retry).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static Task<bool> DelayAsync(
+        NuGetOperationDeadline operation,
+        int retry) =>
+        operation.RunRequestAsync(
+            async cancellationToken =>
+            {
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(100 * (1 << retry)),
+                    cancellationToken).ConfigureAwait(false);
+                return true;
+            });
+
+    private static bool IsTransient(Exception exception) =>
+        exception is NuGetRequestTimeoutException
+        || exception is IOException
+        || exception is HttpRequestException request
+            && (request.StatusCode is
+                    HttpStatusCode.RequestTimeout
+                    or HttpStatusCode.InternalServerError
+                    or HttpStatusCode.BadGateway
+                    or HttpStatusCode.ServiceUnavailable
+                    or HttpStatusCode.GatewayTimeout
+                || HasTransientSocketError(request));
+
+    private static bool HasTransientSocketError(Exception exception)
+    {
+        for (Exception? current = exception.InnerException;
+             current is not null;
+             current = current.InnerException)
+        {
+            if (current is SocketException socket)
+            {
+                return socket.SocketErrorCode is
+                    SocketError.ConnectionReset
+                    or SocketError.ConnectionAborted
+                    or SocketError.Shutdown
+                    or SocketError.TimedOut
+                    or SocketError.TryAgain;
+            }
+        }
+
+        return false;
+    }
+}

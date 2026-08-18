@@ -104,7 +104,8 @@ public class SearchService
                 "The search endpoint is not a usable absolute HTTP or HTTPS URL.");
         }
 
-        SearchResponse? parsed = await operation.RunRequestAsync(
+        SearchResponse? parsed = await NuGetHttpRetry.RunRequestAsync(
+            operation,
             async requestToken =>
             {
                 using HttpRequestMessage request =

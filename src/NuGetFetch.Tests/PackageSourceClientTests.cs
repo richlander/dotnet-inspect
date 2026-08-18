@@ -1409,6 +1409,52 @@ public sealed class PackageSourceClientTests
             failure.Capability);
     }
 
+    [Theory]
+    [InlineData("search")]
+    [InlineData("versions")]
+    [InlineData("package")]
+    public async Task GalleryRetriesTransientFailuresWithinOneOperation(
+        string operation)
+    {
+        var handler = new TransientGalleryHandler();
+        using IPackageSourceClient runtime =
+            PackageSourceClientFactory.CreateGallery(handler);
+
+        switch (operation)
+        {
+            case "search":
+                Assert.Single(
+                    Succeeded(
+                        await runtime.SearchAsync(
+                            "contoso",
+                            cancellationToken:
+                                TestContext.Current.CancellationToken))
+                    .Matches);
+                break;
+            case "versions":
+                Assert.Single(
+                    Succeeded(
+                        await runtime.GetVersionsAsync(
+                            "contoso",
+                            TestContext.Current.CancellationToken))
+                    .Candidates);
+                break;
+            case "package":
+                PackageSourcePayload payload = Succeeded(
+                    await runtime.GetPackageAsync(
+                        "contoso",
+                        "1.0.0",
+                        TestContext.Current.CancellationToken));
+                await payload.Content.DisposeAsync();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(operation));
+        }
+
+        Assert.Equal(2, handler.Requests);
+    }
+
     [Fact]
     public async Task GalleryCallerCancellationRemainsCancellation()
     {
@@ -1676,6 +1722,39 @@ public sealed class PackageSourceClientTests
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("Unreachable.");
+        }
+    }
+
+    private sealed class TransientGalleryHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Requests++ == 0)
+            {
+                return Task.FromResult(
+                    new HttpResponseMessage(HttpStatusCode.BadGateway));
+            }
+
+            string url = request.RequestUri!.AbsoluteUri;
+            HttpContent content = url.StartsWith(
+                    GallerySearch,
+                    StringComparison.Ordinal)
+                ? new StringContent(
+                    """{"data":[{"id":"Contoso","version":"1.0.0"}]}""")
+                : url.Equals(GalleryVersions, StringComparison.Ordinal)
+                    ? new StringContent(
+                        """{"versions":["1.0.0"]}""")
+                    : new ByteArrayContent("package bytes"u8.ToArray());
+            return Task.FromResult(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = content,
+                });
         }
     }
 
