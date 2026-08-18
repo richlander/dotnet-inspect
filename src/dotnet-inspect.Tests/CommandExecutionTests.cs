@@ -24247,6 +24247,116 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_JsonPayloadShapesAllowFieldProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonPayloadFieldProjection",
+            "README.md",
+            "# Package");
+        try
+        {
+            var count = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package files",
+                "--count",
+                "--json",
+                "--fields",
+                "Path",
+                "--tips",
+                "q");
+            var value = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package files",
+                "--value",
+                "--row",
+                "first",
+                "--json",
+                "--fields",
+                "Path",
+                "--tips",
+                "q");
+            var paths = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package files",
+                "--paths",
+                "--json",
+                "--fields",
+                "Path",
+                "--tips",
+                "q");
+            var urls = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package files",
+                "--urls",
+                "--json",
+                "--fields",
+                "Path",
+                "--tips",
+                "q");
+            var print = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "Package README file",
+                "--print",
+                "--json",
+                "--fields",
+                "Path",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, count.Exit);
+            Assert.Empty(count.Error);
+            Assert.True(
+                int.Parse(count.Output, CultureInfo.InvariantCulture) > 1);
+
+            Assert.Equal(0, value.Exit);
+            Assert.Empty(value.Error);
+            using (var valueDocument = JsonDocument.Parse(value.Output))
+            {
+                Assert.False(
+                    string.IsNullOrEmpty(
+                        valueDocument.RootElement.GetProperty("value").GetString()));
+            }
+
+            Assert.Equal(0, paths.Exit);
+            Assert.Empty(paths.Error);
+            using (var pathsDocument = JsonDocument.Parse(paths.Output))
+                Assert.True(pathsDocument.RootElement.GetArrayLength() > 1);
+
+            Assert.Equal(1, urls.Exit);
+            Assert.Empty(urls.Output);
+            Assert.Contains(
+                "selected section has no URL values",
+                urls.Error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "field 'Path' not found",
+                urls.Error,
+                StringComparison.Ordinal);
+
+            Assert.Equal(0, print.Exit);
+            Assert.Empty(print.Error);
+            using var printDocument = JsonDocument.Parse(print.Output);
+            Assert.Equal(
+                "# Package",
+                printDocument.RootElement.GetProperty("content").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_MultiplePackages_DiscoverRefusalPrecedesCountProjection()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(

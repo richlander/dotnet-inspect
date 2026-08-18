@@ -1394,8 +1394,7 @@ public class PackageCommand
             return true;
         }
 
-        if (options.JsonOutput
-            && !options.Count
+        if (RendersTypedPackageJsonDocument(options)
             && !options.FixedOverview
             && options.IncludeSections is not { Count: > 0 })
             return true;
@@ -1476,7 +1475,7 @@ public class PackageCommand
                 sections,
                 options.Fields,
                 columns: null,
-                strictKinds: options.JsonOutput);
+                strictKinds: RendersTypedPackageJsonDocument(options));
         }
 
         if (options.Columns is { Length: > 0 })
@@ -1490,6 +1489,20 @@ public class PackageCommand
 
         return valid;
     }
+
+    private static bool RendersTypedPackageJsonDocument(InspectionOptions options) =>
+        options.JsonOutput
+        && !options.Count
+        && !options.Value
+        && !options.Urls
+        && !options.Paths
+        && !options.Print
+        && !options.Bare
+        && options.Discover is null
+        && !options.ListVersions
+        && !options.ListLayout
+        && !options.ListTfms
+        && !options.ShowContent;
 
     private static DocumentSchema PackageCountColumnSchema(
         DocumentSchema schema,
