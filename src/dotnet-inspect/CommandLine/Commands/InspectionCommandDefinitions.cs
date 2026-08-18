@@ -400,14 +400,39 @@ public static class InspectionCommandDefinitions
             var select = opts.ParseSelect(parseResult);
             var selectDefault = opts.ParseSelectDefault(parseResult);
             bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
-            var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
+            var whereExpressions = parseResult.GetValue(opts.RowWhere) ?? [];
+            if (!BodyKindQueryOptions.TryExtract(
+                    whereExpressions,
+                    out var bodyKindQuery,
+                    out var performanceWhere,
+                    out var bodyKindError))
+            {
+                CommandError.Write(bodyKindError);
+                return 1;
+            }
+            var performanceTriage = opts.ParsePerformanceTriageOptions(
+                parseResult,
+                performanceWhere);
             if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             {
                 CommandError.Write(triageShapeError);
                 return 1;
             }
+            if (bodyKindQuery.HasFilter && performanceTriage.HasFilters)
+            {
+                CommandError.Write(
+                    "A Body Shapes predicate cannot be combined with Performance Triage "
+                    + "filters or --order-by in one query.");
+                return 1;
+            }
             if (!string.IsNullOrWhiteSpace(typeFilter))
                 select = [.. select ?? [], "Source Files"];
+            if (bodyKindQuery.HasFilter
+                && !opts.IsDiscoveryMode(parseResult)
+                && !hasExplicitSelect)
+            {
+                select = [.. select ?? [], SectionNames.BodyShapes];
+            }
             // Only surface performance sections from row filters when the user did not select
             // sections with -S; an explicit selection like -S "Top Leverage" must not silently gain
             // a second section and break single-section formats (--table/--tsv/--jsonl). When the
@@ -478,6 +503,7 @@ public static class InspectionCommandDefinitions
                 ProjectionRow = opts.ParsePrintRow(parseResult),
                 Rows = opts.ParseRows(parseResult),
                 PerformanceTriage = performanceTriage,
+                BodyKindQuery = bodyKindQuery,
                 Schema = opts.ParseSchema(parseResult),
                 NoHeader = parseResult.GetValue(opts.NoHeaders),
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult),

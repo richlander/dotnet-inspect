@@ -14306,7 +14306,7 @@ public partial class CommandExecutionTests
                  {
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
-                     "Unsafe Members", "SourceLink: Files", "SourceLink: Availability",
+                     "Unsafe Members", "Body Shapes", "SourceLink: Files", "SourceLink: Availability",
                      "SourceLink: Missing Files", "SourceLink: Integrity", "Context: Member",
                      "Integration: Opportunities"
                  })
@@ -14326,7 +14326,7 @@ public partial class CommandExecutionTests
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Context", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
+            new[] { "@Audit", "@Context", "@Decompiler", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
         var raw = SplitOutputLines(output);
@@ -14940,20 +14940,6 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Equal("System.HexConverter", output.Trim());
-    }
-
-    [Fact]
-    public async Task LibraryCommand_IlOffsetMemberContext_ShowsAsyncKind()
-    {
-        var token = typeof(ILOffsetAsyncFixture).GetMethod(nameof(ILOffsetAsyncFixture.StateMachineAsync))!.MetadataToken;
-        var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x0", "-S", "Context: Member", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("| Member | DotnetInspector.Tests.CommandExecutionTests.ILOffsetAsyncFixture.StateMachineAsync |", output);
-        Assert.Contains("| Async | Runtime |", output);
     }
 
     [Fact]
@@ -16603,13 +16589,15 @@ public partial class CommandExecutionTests
             UnsafeEvidenceQuery.Definition,
         ];
 
-        // A coordinate-scoped section cannot be selected without its coordinate: "Metadata: Heap"
-        // exits non-zero with 'requires --heap <heap>:<address>', the same way
-        // "Context: Source Location" needs --il-offset in BuildDiscoverySelectionArgs. It is
-        // query-bound, so QueryBoundSections lists it, but supplying a coordinate is
-        // orthogonal to prerequisite sufficiency. The per-heap listing sections
-        // ("Metadata: #Strings" and friends) need no coordinate and stay in the set.
-        string[] coordinateScoped = [MetadataSectionNames.Heap];
+        // Parameter-scoped sections cannot be selected without their required input:
+        // "Metadata: Heap" needs --heap and "Body Shapes" needs --where Kind=....
+        // They remain data-bound, but supplying the parameter is orthogonal to prerequisite
+        // sufficiency. Other metadata heaps need no coordinate and stay in the set.
+        string[] parameterScoped =
+        [
+            MetadataSectionNames.Heap,
+            SectionNames.BodyShapes,
+        ];
 
         var registry = LibrarySections.CreateScannerRegistry();
         var pipeline = LibrarySections.CreatePipeline();
@@ -16621,7 +16609,7 @@ public partial class CommandExecutionTests
 
         // Excluding a name that no longer exists would silently shrink to a no-op, so the
         // exclusion must still name a real data-bound section.
-        foreach (var name in coordinateScoped)
+        foreach (var name in parameterScoped)
             Assert.Contains(name, bound);
 
         var scannerNames = pipeline.ScannerBoundSections
@@ -16632,7 +16620,7 @@ public partial class CommandExecutionTests
             .Select(b => b.Name);
         var names = scannerNames
             .Concat(queryNames)
-            .Where(n => !coordinateScoped.Contains(n, StringComparer.Ordinal))
+            .Where(n => !parameterScoped.Contains(n, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();

@@ -188,7 +188,8 @@
 - Gives `package` and `library` authored base and domain categories. Package
   exposes `@Package`, `@Files`, `@Dependencies`, `@Audit`, and `@SourceLink`;
   library exposes `@Library`, `@Surface`, `@Audit`, `@Performance`,
-  `@SourceLink`, `@Integrations`, `@Metadata`, and `@Context` (#3838, #4061).
+  `@Decompiler`, `@SourceLink`, `@Integrations`, `@Metadata`, and `@Context`
+  (#3838, #4061).
 - Makes discovery distinguish structural membership from effective evidence.
   `-D --schema` reports the static graph, library `--effective` runs full
   probes, and bare `-S` returns high-value, fixed-length, network-free base
@@ -214,6 +215,9 @@
 - Adds `body-shape` for exact rendered-syntax searches in one assembly, with
   stable kinds, containing members, MethodDef tokens, exact ranges, and
   selected text (#4048).
+- Adds the library `Body Shapes` section. A validated
+  `--where "Kind=<C# Body Kinds ID>"` predicate auto-selects it and uses the
+  ordinary section projection, count, and structured output formats.
 - Makes `Call Graph` one bidirectional evidence section with Markdown edge
   rows, tree, Mermaid, TSV, and JSONL projections; adds bounded cycle findings
   and scoped cross-library traversal (#4001, #4013, #4069, #4065).
