@@ -123,6 +123,8 @@ public partial class SymbolPackageDownloader
     private readonly IPdbStore _pdbStore;
     private readonly IPackageSourceAuthorization? _sourceAuthorization;
     private readonly bool _usePersistentMissCache;
+    private readonly SymbolAcquisitionLimits? _limits;
+    internal const long DefaultMaximumSymbolBytes = 500_000_000;
 
     /// <summary>
     /// Creates a downloader backed by the default filesystem PDB cache
@@ -183,6 +185,27 @@ public partial class SymbolPackageDownloader
         _pdbStore = pdbStore;
         _sourceAuthorization = sourceAuthorization;
         _usePersistentMissCache = usePersistentMissCache;
+    }
+
+    /// <summary>
+    /// Creates a host-neutral downloader with explicit persistence,
+    /// authorization, and untrusted-content limits.
+    /// </summary>
+    public SymbolPackageDownloader(
+        HttpClient client,
+        IPdbStore pdbStore,
+        IPackageSourceAuthorization sourceAuthorization,
+        SymbolAcquisitionLimits limits,
+        bool usePersistentMissCache = false)
+        : this(
+            client,
+            pdbStore,
+            sourceAuthorization,
+            usePersistentMissCache)
+    {
+        _limits =
+            limits
+            ?? throw new ArgumentNullException(nameof(limits));
     }
 
     /// <summary>

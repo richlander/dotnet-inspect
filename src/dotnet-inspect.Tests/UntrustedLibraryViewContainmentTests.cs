@@ -1465,6 +1465,7 @@ public class LibraryViewShapeDerivedContainmentTests
         "LibraryInspection.Aspire (List`1): computed projection still null after the walk",
         "LibraryInspection.AssemblyAttributeInspection (FindingInspection`1): computed projection still null after the walk",
         "LibraryInspection.Authentication (List`1): computed projection still null after the walk",
+        "LibraryInspection.BodyShapes (List`1): computed projection still null after the walk",
         "LibraryInspection.Configuration (List`1): computed projection still null after the walk",
         "LibraryInspection.CustomAttributes (List`1): computed projection still null after the walk",
         "LibraryInspection.DependencyInjection (List`1): computed projection still null after the walk",

@@ -6,7 +6,7 @@ namespace NuGetFetch;
 /// <summary>
 /// Searches the NuGet Search API for packages by keyword or prefix.
 /// </summary>
-public class SearchService
+public partial class SearchService
 {
     private const int PrefixSearchPageSize = 100;
     private const int MaxPrefixSearchPages = 32;
