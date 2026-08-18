@@ -309,6 +309,33 @@ public static class TfmResolver
     }
 
     /// <summary>
+    /// Parses the base framework identity from either a base TFM or a
+    /// platform-qualified TFM.
+    /// </summary>
+    /// <remarks>
+    /// The platform suffix does not change the framework release line:
+    /// <c>net10.0</c>, <c>net10.0-browser</c>, and
+    /// <c>net10.0-windows10.0.19041.0</c> all have the same base identity.
+    /// An absent base or suffix is rejected rather than repaired.
+    /// </remarks>
+    public static bool TryGetBaseFrameworkIdentity(
+        string? tfm,
+        out FrameworkIdentity identity)
+    {
+        identity = default;
+        if (string.IsNullOrEmpty(tfm))
+            return false;
+
+        int separator = tfm.IndexOf('-', StringComparison.Ordinal);
+        if (separator == 0 || separator == tfm.Length - 1)
+            return false;
+
+        return TryGetFrameworkIdentity(
+            separator < 0 ? tfm : tfm[..separator],
+            out identity);
+    }
+
+    /// <summary>
     /// Reads a run of ASCII digits as a non-negative number, or returns false.
     /// </summary>
     /// <remarks>

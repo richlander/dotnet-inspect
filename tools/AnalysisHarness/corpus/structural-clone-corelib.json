@@ -1,0 +1,747 @@
+{
+  "schemaVersion": 1,
+  "artifact": {
+    "fileName": "System.Private.CoreLib.dll",
+    "sha256": "6c14b54d28c604613aef5a690fa10aa768e584556e90a736b506f40022f8afea",
+    "moduleVersionId": "82790b72-6139-4dc6-8bd5-0d6b13d1c5e8"
+  },
+  "source": {
+    "repository": "https://github.com/dotnet/dotnet",
+    "commit": "e2c1e00b3d0f96afb892fb261d5921565b400246"
+  },
+  "limits": {
+    "maximumMethods": 50000,
+    "maximumResults": 50000,
+    "maximumBlocks": 10000
+  },
+  "methods": [
+    {
+      "token": "0x06001396",
+      "type": "System.Guid",
+      "method": "op_GreaterThan",
+      "signature": "op_GreaterThan(Guid, Guid)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Guid.cs",
+        "line": 1712
+      }
+    },
+    {
+      "token": "0x06001397",
+      "type": "System.Guid",
+      "method": "op_GreaterThanOrEqual",
+      "signature": "op_GreaterThanOrEqual(Guid, Guid)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Guid.cs",
+        "line": 1773
+      }
+    },
+    {
+      "token": "0x06001394",
+      "type": "System.Guid",
+      "method": "op_LessThan",
+      "signature": "op_LessThan(Guid, Guid)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Guid.cs",
+        "line": 1590
+      }
+    },
+    {
+      "token": "0x06001395",
+      "type": "System.Guid",
+      "method": "op_LessThanOrEqual",
+      "signature": "op_LessThanOrEqual(Guid, Guid)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Guid.cs",
+        "line": 1651
+      }
+    },
+    {
+      "token": "0x06000F85",
+      "type": "System.Convert",
+      "method": "ToHexString",
+      "signature": "ToHexString(byte[], int, int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Convert.cs",
+        "line": 2782
+      }
+    },
+    {
+      "token": "0x06000F8A",
+      "type": "System.Convert",
+      "method": "ToHexStringLower",
+      "signature": "ToHexStringLower(byte[], int, int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Convert.cs",
+        "line": 2877
+      }
+    },
+    {
+      "token": "0x06000F7D",
+      "type": "System.Convert",
+      "method": "FromBase64CharArray",
+      "signature": "FromBase64CharArray(char[], int, int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Convert.cs",
+        "line": 2553
+      }
+    },
+    {
+      "token": "0x06000F88",
+      "type": "System.Convert",
+      "method": "TryToHexString",
+      "signature": "TryToHexString(ReadOnlySpan<byte>, Span<char>, out int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Convert.cs",
+        "line": 2813
+      }
+    },
+    {
+      "token": "0x06000F8D",
+      "type": "System.Convert",
+      "method": "TryToHexStringLower",
+      "signature": "TryToHexStringLower(ReadOnlySpan<byte>, Span<char>, out int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Convert.cs",
+        "line": 2908
+      }
+    },
+    {
+      "token": "0x06000F73",
+      "type": "System.Convert",
+      "method": "ToBase64String",
+      "signature": "ToBase64String(byte[], int, int, Base64FormattingOptions)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Convert.cs",
+        "line": 2331
+      }
+    },
+    {
+      "token": "0x060043ED",
+      "type": "System.Text.Ascii",
+      "method": "NarrowFourUtf16CharsToAsciiAndWriteToBuffer",
+      "signature": "NarrowFourUtf16CharsToAsciiAndWriteToBuffer(ref byte, ulong)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Text/Ascii.Utility.cs",
+        "line": 1269
+      }
+    },
+    {
+      "token": "0x060045F9",
+      "type": "System.Text.Latin1Utility",
+      "method": "NarrowFourUtf16CharsToLatin1AndWriteToBuffer",
+      "signature": "NarrowFourUtf16CharsToLatin1AndWriteToBuffer(ref byte, ulong)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Text/Latin1Utility.Helpers.cs",
+        "line": 49
+      }
+    },
+    {
+      "token": "0x06004402",
+      "type": "System.Text.Ascii",
+      "method": "WidenFourAsciiBytesToUtf16AndWriteToBuffer",
+      "signature": "WidenFourAsciiBytesToUtf16AndWriteToBuffer(ref char, uint)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Text/Ascii.Utility.cs",
+        "line": 2278
+      }
+    },
+    {
+      "token": "0x060043EE",
+      "type": "System.Text.Ascii",
+      "method": "NarrowTwoUtf16CharsToAsciiAndWriteToBuffer",
+      "signature": "NarrowTwoUtf16CharsToAsciiAndWriteToBuffer(ref byte, uint)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Text/Ascii.Utility.cs",
+        "line": 1324
+      }
+    },
+    {
+      "token": "0x060045FA",
+      "type": "System.Text.Latin1Utility",
+      "method": "NarrowTwoUtf16CharsToLatin1AndWriteToBuffer",
+      "signature": "NarrowTwoUtf16CharsToLatin1AndWriteToBuffer(ref byte, uint)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Text/Latin1Utility.Helpers.cs",
+        "line": 93
+      }
+    },
+    {
+      "token": "0x0600936D",
+      "type": "System.IO.StringStream",
+      "method": "Read",
+      "signature": "Read(byte[], int, int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/IO/StringStream.cs",
+        "line": 93
+      }
+    },
+    {
+      "token": "0x060046A5",
+      "type": "System.Text.TranscodingStream",
+      "method": "Read",
+      "signature": "Read(byte[], int, int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Text/TranscodingStream.cs",
+        "line": 289
+      }
+    },
+    {
+      "token": "0x06009355",
+      "type": "System.IO.ReadOnlyMemoryStream",
+      "method": "Read",
+      "signature": "Read(byte[], int, int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/IO/ReadOnlyMemoryStream.cs",
+        "line": 100
+      }
+    },
+    {
+      "token": "0x06009386",
+      "type": "System.IO.WritableMemoryStream",
+      "method": "Read",
+      "signature": "Read(byte[], int, int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/IO/WritableMemoryStream.cs",
+        "line": 99
+      }
+    },
+    {
+      "token": "0x0600A24C",
+      "type": "System.Collections.Generic.EnumComparer`1",
+      "method": "Equals",
+      "signature": "Equals(object)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Comparer.cs",
+        "line": 141
+      }
+    },
+    {
+      "token": "0x0600A267",
+      "type": "System.Collections.Generic.GenericEqualityComparer`1",
+      "method": "Equals",
+      "signature": "Equals(object)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/EqualityComparer.cs",
+        "line": 159
+      }
+    },
+    {
+      "token": "0x0600A271",
+      "type": "System.Collections.Generic.NullableEqualityComparer`1",
+      "method": "Equals",
+      "signature": "Equals(object)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/EqualityComparer.cs",
+        "line": 199
+      }
+    },
+    {
+      "token": "0x0600A277",
+      "type": "System.Collections.Generic.ObjectEqualityComparer`1",
+      "method": "Equals",
+      "signature": "Equals(object)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/EqualityComparer.cs",
+        "line": 228
+      }
+    },
+    {
+      "token": "0x0600A27C",
+      "type": "System.Collections.Generic.ByteEqualityComparer",
+      "method": "Equals",
+      "signature": "Equals(object)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/EqualityComparer.cs",
+        "line": 249
+      }
+    },
+    {
+      "token": "0x0600A286",
+      "type": "System.Collections.Generic.EnumEqualityComparer`1",
+      "method": "Equals",
+      "signature": "Equals(object)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/EqualityComparer.cs",
+        "line": 282
+      }
+    },
+    {
+      "token": "0x0600A2AD",
+      "type": "System.Collections.Generic.GenericComparer`1",
+      "method": "Equals",
+      "signature": "Equals(object)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Comparer.cs",
+        "line": 70
+      }
+    },
+    {
+      "token": "0x0600A2B4",
+      "type": "System.Collections.Generic.NullableComparer`1",
+      "method": "Equals",
+      "signature": "Equals(object)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Comparer.cs",
+        "line": 105
+      }
+    },
+    {
+      "token": "0x0600A2B7",
+      "type": "System.Collections.Generic.ObjectComparer`1",
+      "method": "Equals",
+      "signature": "Equals(object)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Comparer.cs",
+        "line": 123
+      }
+    },
+    {
+      "token": "0x06008231",
+      "type": "System.Runtime.CompilerServices.Unsafe",
+      "method": "SubtractByteOffset",
+      "signature": "SubtractByteOffset<T>(ref T, nuint)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/Unsafe.cs",
+        "line": 957
+      }
+    },
+    {
+      "token": "0x0600820A",
+      "type": "System.Runtime.CompilerServices.Unsafe",
+      "method": "Add",
+      "signature": "Add<T>(ref T, int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/Unsafe.cs",
+        "line": 106
+      }
+    },
+    {
+      "token": "0x0600820B",
+      "type": "System.Runtime.CompilerServices.Unsafe",
+      "method": "Add",
+      "signature": "Add<T>(ref T, nint)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/Unsafe.cs",
+        "line": 134
+      }
+    },
+    {
+      "token": "0x0600820C",
+      "type": "System.Runtime.CompilerServices.Unsafe",
+      "method": "Add",
+      "signature": "Add<T>(void*, int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/Unsafe.cs",
+        "line": 163
+      }
+    },
+    {
+      "token": "0x0600820D",
+      "type": "System.Runtime.CompilerServices.Unsafe",
+      "method": "Add",
+      "signature": "Add<T>(ref T, nuint)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/Unsafe.cs",
+        "line": 191
+      }
+    },
+    {
+      "token": "0x0600820E",
+      "type": "System.Runtime.CompilerServices.Unsafe",
+      "method": "AddByteOffset",
+      "signature": "AddByteOffset<T>(ref T, nuint)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/Unsafe.cs",
+        "line": 220
+      }
+    },
+    {
+      "token": "0x0600822C",
+      "type": "System.Runtime.CompilerServices.Unsafe",
+      "method": "Subtract",
+      "signature": "Subtract<T>(ref T, int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/Unsafe.cs",
+        "line": 829
+      }
+    },
+    {
+      "token": "0x0600822D",
+      "type": "System.Runtime.CompilerServices.Unsafe",
+      "method": "Subtract",
+      "signature": "Subtract<T>(void*, int)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/Unsafe.cs",
+        "line": 857
+      }
+    },
+    {
+      "token": "0x0600822E",
+      "type": "System.Runtime.CompilerServices.Unsafe",
+      "method": "Subtract",
+      "signature": "Subtract<T>(ref T, nint)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/Unsafe.cs",
+        "line": 884
+      }
+    },
+    {
+      "token": "0x0600822F",
+      "type": "System.Runtime.CompilerServices.Unsafe",
+      "method": "Subtract",
+      "signature": "Subtract<T>(ref T, nuint)",
+      "source": {
+        "path": "src/runtime/src/libraries/System.Private.CoreLib/src/System/Runtime/CompilerServices/Unsafe.cs",
+        "line": 911
+      }
+    }
+  ],
+  "queries": [
+    {
+      "id": "guid-relational-operators",
+      "seed": "0x06001396",
+      "reviewedTopK": 3,
+      "minimumPrecisionBasisPoints": 10000,
+      "minimumRecallBasisPoints": 10000,
+      "labels": [
+        {
+          "candidate": "0x06001397",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Near",
+          "maximumRank": 3,
+          "scoresAbove": [],
+          "rationale": "The source implements the inclusive sibling of the same lexicographic Guid comparison."
+        },
+        {
+          "candidate": "0x06001394",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Different",
+          "maximumRank": 3,
+          "scoresAbove": [],
+          "rationale": "The source is the reversed-direction member of the same four-operator Guid family."
+        },
+        {
+          "candidate": "0x06001395",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Different",
+          "maximumRank": 3,
+          "scoresAbove": [],
+          "rationale": "The source is the inclusive reversed-direction member of the same Guid operator family."
+        }
+      ]
+    },
+    {
+      "id": "convert-hex-casing",
+      "seed": "0x06000F85",
+      "reviewedTopK": 2,
+      "minimumPrecisionBasisPoints": 5000,
+      "minimumRecallBasisPoints": 3333,
+      "labels": [
+        {
+          "candidate": "0x06000F8A",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Near",
+          "maximumRank": 1,
+          "scoresAbove": [
+            "0x06000F7D"
+          ],
+          "rationale": "The wrapper differs only by selecting the lower-case hex implementation."
+        },
+        {
+          "candidate": "0x06000F7D",
+          "relevance": "HardNegative",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Different",
+          "maximumRank": 2,
+          "scoresAbove": [],
+          "rationale": "Base64 decoding shares validation and slicing shape but is a different operation."
+        },
+        {
+          "candidate": "0x06000F88",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Different",
+          "maximumRank": 3000,
+          "scoresAbove": [],
+          "rationale": "The span-based upper-case hex writer is source-related but missed far outside top two."
+        },
+        {
+          "candidate": "0x06000F8D",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Different",
+          "maximumRank": 3000,
+          "scoresAbove": [],
+          "rationale": "The span-based lower-case hex writer is source-related but missed far outside top two."
+        },
+        {
+          "candidate": "0x06000F73",
+          "relevance": "OrdinaryNegative",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Different",
+          "maximumRank": null,
+          "scoresAbove": [],
+          "rationale": "Base64 formatting is an unrelated encoding control and is not signature-compatible with the seed."
+        }
+      ]
+    },
+    {
+      "id": "ascii-latin1-narrowing",
+      "seed": "0x060043ED",
+      "reviewedTopK": 2,
+      "minimumPrecisionBasisPoints": 5000,
+      "minimumRecallBasisPoints": 3333,
+      "labels": [
+        {
+          "candidate": "0x060045F9",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Different",
+          "maximumRank": 1,
+          "scoresAbove": [
+            "0x06004402"
+          ],
+          "rationale": "The source performs the same four-character narrowing shape for Latin-1 instead of ASCII."
+        },
+        {
+          "candidate": "0x06004402",
+          "relevance": "HardNegative",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Different",
+          "maximumRank": 2,
+          "scoresAbove": [],
+          "rationale": "Widening four ASCII bytes is the inverse operation despite a close vectorized shape."
+        },
+        {
+          "candidate": "0x060043EE",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Different",
+          "maximumRank": 5,
+          "scoresAbove": [],
+          "rationale": "The source is the two-character member of the same ASCII narrowing family."
+        },
+        {
+          "candidate": "0x060045FA",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Different",
+          "maximumRank": 5,
+          "scoresAbove": [],
+          "rationale": "The source is the two-character Latin-1 sibling and falls outside reviewed top two."
+        }
+      ]
+    },
+    {
+      "id": "stream-read-wrappers",
+      "seed": "0x0600936D",
+      "reviewedTopK": 3,
+      "minimumPrecisionBasisPoints": 10000,
+      "minimumRecallBasisPoints": 10000,
+      "labels": [
+        {
+          "candidate": "0x060046A5",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 3,
+          "scoresAbove": [],
+          "rationale": "Both source methods validate the array slice then delegate to the span Read overload."
+        },
+        {
+          "candidate": "0x06009355",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 3,
+          "scoresAbove": [],
+          "rationale": "Both memory-backed stream wrappers adapt the array segment to Span<byte> and call Read."
+        },
+        {
+          "candidate": "0x06009386",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 3,
+          "scoresAbove": [],
+          "rationale": "The writable and string-backed stream wrappers have the same array-to-span Read body."
+        }
+      ]
+    },
+    {
+      "id": "comparer-equals-boilerplate",
+      "seed": "0x0600A24C",
+      "reviewedTopK": 8,
+      "minimumPrecisionBasisPoints": 10000,
+      "minimumRecallBasisPoints": 10000,
+      "labels": [
+        {
+          "candidate": "0x0600A267",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 8,
+          "scoresAbove": [],
+          "rationale": "The comparer-self Equals override intentionally repeats the same type-identity boilerplate."
+        },
+        {
+          "candidate": "0x0600A271",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 8,
+          "scoresAbove": [],
+          "rationale": "The nullable equality comparer intentionally repeats the comparer-self Equals boilerplate."
+        },
+        {
+          "candidate": "0x0600A277",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 8,
+          "scoresAbove": [],
+          "rationale": "The object equality comparer intentionally repeats the comparer-self Equals boilerplate."
+        },
+        {
+          "candidate": "0x0600A27C",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 8,
+          "scoresAbove": [],
+          "rationale": "The byte equality comparer intentionally repeats the comparer-self Equals boilerplate."
+        },
+        {
+          "candidate": "0x0600A286",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 8,
+          "scoresAbove": [],
+          "rationale": "The enum equality comparer intentionally repeats the comparer-self Equals boilerplate."
+        },
+        {
+          "candidate": "0x0600A2AD",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 8,
+          "scoresAbove": [],
+          "rationale": "The generic ordering comparer uses the same comparer-self Equals boilerplate."
+        },
+        {
+          "candidate": "0x0600A2B4",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 8,
+          "scoresAbove": [],
+          "rationale": "The nullable ordering comparer uses the same comparer-self Equals boilerplate."
+        },
+        {
+          "candidate": "0x0600A2B7",
+          "relevance": "Relevant",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 8,
+          "scoresAbove": [],
+          "rationale": "The object ordering comparer uses the same comparer-self Equals boilerplate."
+        }
+      ]
+    },
+    {
+      "id": "unsafe-intrinsic-stubs",
+      "seed": "0x06008231",
+      "reviewedTopK": 9,
+      "minimumPrecisionBasisPoints": 0,
+      "minimumRecallBasisPoints": 0,
+      "labels": [
+        {
+          "candidate": "0x0600820A",
+          "relevance": "SemanticHazard",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 9,
+          "scoresAbove": [],
+          "rationale": "CoreCLR replaces this intrinsic stub; exact throw bodies do not imply equivalent operations."
+        },
+        {
+          "candidate": "0x0600820B",
+          "relevance": "SemanticHazard",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 9,
+          "scoresAbove": [],
+          "rationale": "CoreCLR replaces this intrinsic stub; exact throw bodies do not imply equivalent operations."
+        },
+        {
+          "candidate": "0x0600820C",
+          "relevance": "SemanticHazard",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 9,
+          "scoresAbove": [],
+          "rationale": "The pointer Add intrinsic has the same CoreCLR placeholder body but different semantics."
+        },
+        {
+          "candidate": "0x0600820D",
+          "relevance": "SemanticHazard",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 9,
+          "scoresAbove": [],
+          "rationale": "CoreCLR replaces this intrinsic stub; exact throw bodies do not imply equivalent operations."
+        },
+        {
+          "candidate": "0x0600820E",
+          "relevance": "SemanticHazard",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 9,
+          "scoresAbove": [],
+          "rationale": "AddByteOffset is a different intrinsic operation despite its exact placeholder body."
+        },
+        {
+          "candidate": "0x0600822C",
+          "relevance": "SemanticHazard",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 9,
+          "scoresAbove": [],
+          "rationale": "Subtract is a different intrinsic operation despite its exact placeholder body."
+        },
+        {
+          "candidate": "0x0600822D",
+          "relevance": "SemanticHazard",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 9,
+          "scoresAbove": [],
+          "rationale": "Pointer subtraction is semantically distinct despite its exact CoreCLR placeholder body."
+        },
+        {
+          "candidate": "0x0600822E",
+          "relevance": "SemanticHazard",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 9,
+          "scoresAbove": [],
+          "rationale": "Subtract is a different intrinsic operation despite its exact placeholder body."
+        },
+        {
+          "candidate": "0x0600822F",
+          "relevance": "SemanticHazard",
+          "expectedDisposition": "Completed",
+          "expectedRelation": "Exact",
+          "maximumRank": 9,
+          "scoresAbove": [],
+          "rationale": "Subtract is a different intrinsic operation despite its exact placeholder body."
+        }
+      ]
+    }
+  ]
+}

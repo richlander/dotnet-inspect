@@ -82,12 +82,36 @@ public abstract record PackageVersionListingResult
     {
     }
 
+    /// <summary>
+    /// One listed version and the authorized sources that reported that exact
+    /// candidate.
+    /// </summary>
+    public sealed record Candidate
+    {
+        internal Candidate(
+            string version,
+            IEnumerable<PackageSource> reportingSources)
+        {
+            Version = version;
+            ReportingSources = new ReadOnlyCollection<PackageSource>(
+                [.. reportingSources]);
+        }
+
+        public string Version { get; }
+        public IReadOnlyList<PackageSource> ReportingSources { get; }
+    }
+
     /// <summary>An authoritative listed-version set, in ascending semantic-version order.</summary>
     public sealed record Available : PackageVersionListingResult
     {
-        internal Available(IEnumerable<string> versions) =>
-            Versions = new ReadOnlyCollection<string>([.. versions]);
+        internal Available(IEnumerable<Candidate> candidates)
+        {
+            Candidates = new ReadOnlyCollection<Candidate>([.. candidates]);
+            Versions = new ReadOnlyCollection<string>(
+                [.. Candidates.Select(candidate => candidate.Version)]);
+        }
 
+        public IReadOnlyList<Candidate> Candidates { get; }
         public IReadOnlyList<string> Versions { get; }
     }
 
@@ -293,7 +317,8 @@ public static class PackageCoordinateResolver
                 includePrerelease,
                 log,
                 useVersionCache,
-                cancellationToken).ConfigureAwait(false);
+                requireCompleteSources: true,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
         if (hasIncompleteMetadata)
         {
             return new PackageVersionListingResult.Unavailable(
@@ -306,7 +331,10 @@ public static class PackageCoordinateResolver
         }
 
         return new PackageVersionListingResult.Available(
-            candidates.Select(candidate => candidate.Version));
+            candidates.Select(candidate =>
+                new PackageVersionListingResult.Candidate(
+                    candidate.Version,
+                    candidate.ReportingSources)));
     }
 
     /// <summary>

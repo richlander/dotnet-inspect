@@ -14,6 +14,7 @@ public static class InfoTracker
     private static int _cacheHits;
     private static int _cacheMisses;
     private static CountingTextWriter? _countingWriter;
+    private static long _additionalCharsWritten;
     private static readonly object _detailsLock = new();
     private static readonly Dictionary<string, string> _details = new(StringComparer.OrdinalIgnoreCase);
 
@@ -35,6 +36,13 @@ public static class InfoTracker
     public static void RecordHttpRequest() => Interlocked.Increment(ref _httpRequests);
     public static void RecordCacheHit() => Interlocked.Increment(ref _cacheHits);
     public static void RecordCacheMiss() => Interlocked.Increment(ref _cacheMisses);
+
+    public static void RecordOutputChars(long count)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        if (_enabled)
+            Interlocked.Add(ref _additionalCharsWritten, count);
+    }
 
     public static void SetDetail(string key, string value)
     {
@@ -59,11 +67,14 @@ public static class InfoTracker
         _cacheHits = 0;
         _cacheMisses = 0;
         _countingWriter = null;
+        _additionalCharsWritten = 0;
         lock (_detailsLock)
             _details.Clear();
     }
 
-    public static long CharsWritten => _countingWriter?.CharCount ?? 0;
+    public static long CharsWritten =>
+        (_countingWriter?.CharCount ?? 0)
+        + Interlocked.Read(ref _additionalCharsWritten);
     public static TimeSpan Elapsed => _stopwatch.Elapsed;
     public static int HttpRequests => _httpRequests;
     public static int CacheHits => _cacheHits;

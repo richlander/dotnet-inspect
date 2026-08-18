@@ -279,6 +279,29 @@ public sealed record BrowserAnnotatedSource(
     string Provenance,
     string? ContextLimitation);
 
+public sealed record BrowserSource(
+    string Provider,
+    string Provenance,
+    string? Url,
+    string? AuthoredLimitation,
+    string Text);
+
+public sealed record BrowserStyleOption(
+    string Id,
+    string Title,
+    string Summary,
+    string Tier,
+    bool ByteDivergent,
+    bool OracleEndorsed,
+    string? ConflictGroup);
+
+public sealed record BrowserStyleTier(
+    string Id,
+    string Title,
+    string Summary,
+    int Order,
+    bool ByteDivergent);
+
 /// <summary>
 /// Ecosystem integration evidence for one workspace, carried exactly as
 /// <c>AssemblyContextIntegrationsQuery</c> produced it: one group per package/version/framework,
@@ -404,6 +427,7 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserAnnotatedSource))]
+[JsonSerializable(typeof(BrowserSource))]
 [JsonSerializable(typeof(BrowserCallGraph))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
