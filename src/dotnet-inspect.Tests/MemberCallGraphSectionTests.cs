@@ -344,6 +344,29 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_DoesNotDefaultCuesForAnotherSectionsField()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.LoopHeavyCall)],
+            IncludeSections = [SectionNames.CallGraph, SectionNames.Facts],
+            Fields = ["Category"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("## Facts", result.Output);
+        Assert.DoesNotContain("fanout", result.Output);
+        Assert.DoesNotContain("fanin", result.Output);
+        Assert.DoesNotContain("depth", result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_ProjectsAllocationAndCopySignals()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions

@@ -1705,10 +1705,13 @@ public static class ApiOutputFormatter
                     projection,
                     FormatCallee,
                     analysisInspection.CallGraphFields,
+                    analysisInspection.HasCallGraphFieldProjection,
                     renderedRows,
-                    BuildCallGraphOpportunityAnnotations(
-                        projection,
-                        analysisInspection.CallGraphBodyIndexes));
+                    analysisInspection.IncludesCallGraphOpportunities
+                        ? BuildCallGraphOpportunityAnnotations(
+                            projection,
+                            analysisInspection.CallGraphBodyIndexes)
+                        : null);
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph)

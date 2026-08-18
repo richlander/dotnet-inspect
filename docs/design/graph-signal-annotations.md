@@ -95,7 +95,17 @@ Field aliases and wildcard patterns are resolved once through Markout's
 projection matcher before labels are built. Objective signals and opportunity
 cues therefore interpret a request such as `--fields "A*"` consistently;
 `CallGraphSection_ResolvesAllWildcardSignalFields` gates the shared
-resolution.
+resolution. An explicit field projection that matches only another selected
+section does not restore Call Graph's default cues;
+`CallGraphSection_DoesNotDefaultCuesForAnotherSectionsField` gates that
+distinction.
+
+Opportunity analysis in cross-assembly graph scope sessions is enabled only
+when the resolved graph fields include `Async` / `AsyncAlternatives`.
+Selecting `Performance Triage` alongside an unprojected Call Graph enables the
+target member's canonical triage analysis without multiplying that work across
+the graph scope; `CallGraphScopes_DoNotInheritPerformanceTriageOpportunities`
+gates the cost boundary.
 
 With the exception fields projected, the caller half of `Call Graph` answers
 exception-reachability questions directly:

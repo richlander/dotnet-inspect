@@ -19,6 +19,8 @@ internal sealed class ApiMemberAnalysisInspection
     readonly IReadOnlyList<string>? _callerScopeAssemblies;
     readonly bool _includeAllocations;
     readonly bool _includeOpportunities;
+    readonly bool _includeGraphOpportunities;
+    readonly bool _hasCallGraphFieldProjection;
     readonly IReadOnlyList<CallGraphField> _callGraphFields = [];
     readonly IReadOnlySet<int>? _bodyScope;
     readonly Dictionary<
@@ -57,14 +59,16 @@ internal sealed class ApiMemberAnalysisInspection
             && (options?.Fields is { Length: > 0 }
                 || options?.Columns is { Length: > 0 }))
         {
+            _hasCallGraphFieldProjection = true;
             _includeAllocations = true;
             IReadOnlyList<string> fields =
                 options?.Fields is { Length: > 0 } requestedFields
                     ? requestedFields
                     : options?.Columns ?? [];
             _callGraphFields = CallGraphFieldSelection.Resolve(fields);
-            if (_callGraphFields.Contains(
-                    CallGraphField.AsyncAlternatives))
+            _includeGraphOpportunities = _callGraphFields.Contains(
+                CallGraphField.AsyncAlternatives);
+            if (_includeGraphOpportunities)
             {
                 _includeOpportunities = true;
             }
@@ -91,6 +95,12 @@ internal sealed class ApiMemberAnalysisInspection
 
     internal IReadOnlyList<CallGraphField> CallGraphFields =>
         _callGraphFields;
+
+    internal bool HasCallGraphFieldProjection =>
+        _hasCallGraphFieldProjection;
+
+    internal bool IncludesCallGraphOpportunities =>
+        _includeGraphOpportunities;
 
     internal IReadOnlyList<Analysis.LibraryBodyIndex>
         CallGraphBodyIndexes
@@ -273,7 +283,8 @@ internal sealed class ApiMemberAnalysisInspection
                     ScopeCandidates,
                     includeAllocations,
                     includeOpportunities:
-                        includeAllocations && _includeOpportunities);
+                        includeAllocations
+                            && _includeGraphOpportunities);
             if (unfiltered.Count == 0)
                 return null;
 
@@ -287,7 +298,8 @@ internal sealed class ApiMemberAnalysisInspection
                 plan.GraphCandidates,
                 includeAllocations,
                 includeOpportunities:
-                    includeAllocations && _includeOpportunities);
+                    includeAllocations
+                        && _includeGraphOpportunities);
         if (opened.Count == 0
             && !plan.HasRuledOutCandidateNotDefinitelyUnopenable)
         {
@@ -311,7 +323,7 @@ internal sealed class ApiMemberAnalysisInspection
             OpenScopes(
                 ForwardScopeCandidates(),
                 _includeAllocations,
-                _includeOpportunities);
+                _includeGraphOpportunities);
         if (opened.Count == 0)
             return null;
 

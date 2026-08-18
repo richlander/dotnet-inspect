@@ -37,13 +37,19 @@ internal static class CallGraphSectionAdapter
     /// uses the same spelling rather than a second one.
     /// </param>
     /// <param name="requestedFields">
-    /// The <c>--fields</c>/<c>-D</c> selection. When empty, a default set of scale cues is used, the
-    /// same defaulting the tree rendering has always applied.
+    /// Call Graph fields resolved from the <c>--fields</c>/<c>-D</c>
+    /// selection.
+    /// </param>
+    /// <param name="hasFieldProjection">
+    /// Whether the command has an explicit field projection. An empty
+    /// <paramref name="requestedFields"/> then means the projection matched
+    /// another selected section, not that default graph cues were requested.
     /// </param>
     public static Markout.Graph ToGraph(
         CallGraphProjection projection,
         Func<MemberRef, string> spellMember,
         IReadOnlyList<CallGraphField>? requestedFields = null,
+        bool hasFieldProjection = false,
         IReadOnlyList<CallGraphRow>? rows = null,
         IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
             opportunityAnnotations = null)
@@ -76,6 +82,7 @@ internal static class CallGraphSectionAdapter
                     node,
                     spellMember,
                     requestedFields,
+                    hasFieldProjection,
                     opportunityAnnotations))
             {
                 Group = Group(node),
@@ -129,6 +136,7 @@ internal static class CallGraphSectionAdapter
         CallGraphNode node,
         Func<MemberRef, string> spellMember,
         IReadOnlyList<CallGraphField>? requestedFields,
+        bool hasFieldProjection,
         IReadOnlyDictionary<int, CallGraphOpportunityAnnotations>?
             opportunityAnnotations)
     {
@@ -149,9 +157,9 @@ internal static class CallGraphSectionAdapter
                 break;
         }
 
-        if (requestedFields is { Count: > 0 })
+        if (hasFieldProjection)
         {
-            foreach (CallGraphField field in requestedFields)
+            foreach (CallGraphField field in requestedFields ?? [])
             {
                 if (Annotation(node.Perf, field) is { } annotation)
                     suffixes.Add(annotation);
