@@ -1,6 +1,8 @@
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Queries;
+using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Sections;
 
@@ -22,6 +24,7 @@ public static class LibrarySections
     // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
     public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
     public const string ScannerResourceTriage = "ResourceTriage";
+    public const string ScannerBodyShapes = "BodyShapes";
 
     /// <summary>
     /// Builds the library catalog from one scanner registry and one typed query catalog, so
@@ -128,6 +131,7 @@ public static class LibrarySections
             .Add<TopLeverage>(
                 TopLeverageQuery.Definition,
                 HasMethodBodies)
+            .Add<BodyShapes>(HasMethodBodies)
             .Add<PerformanceBoxing>(HasMethodBodies)
             .Add<PerformanceArrays>(HasMethodBodies)
             .Add<PerformanceClosures>(HasMethodBodies)
@@ -170,6 +174,8 @@ public static class LibrarySections
                 SectionNames.Symbols)
             .AddCategory(SectionCategoryNames.Performance,
                 [.. PerformanceKinds.Sections, SectionNames.ArrayPoolEscapes, SectionNames.TopLeverage])
+            .AddCategory(SectionCategoryNames.Decompiler,
+                SectionNames.BodyShapes)
             .AddCategory(SectionCategoryNames.SourceLink,
                 SectionNames.SourceLinkFiles,
                 SectionNames.SourceLinkDiagnostics,
@@ -202,7 +208,43 @@ public static class LibrarySections
                     ctx.DrillMap,
                     ctx.AssemblyPath,
                     ctx.Logger)))
+            .Add(ScannerBodyShapes, SectionCost.Unbounded, ScanBodyShapes)
             ;
+    }
+
+    private static void ScanBodyShapes(ScannerContext context)
+    {
+        string kind = context.Model.BodyKindQueryOptions.Kind
+            ?? throw new InvalidOperationException(
+                "The Body Shapes scanner requires a validated body-kind predicate.");
+        var metadata = context.MetadataContext
+            ?? throw new InvalidOperationException(
+                "The Body Shapes scanner requires the command's prefetched PE image.");
+        using var source = MetadataSource.OpenFromPrefetchedImage(
+            context.AssemblyPath,
+            metadata.GetPrefetchedImage(),
+            metadata.PortablePdbPath,
+            context.BodyReferenceResolver);
+        var result = BodyShapeSearch.Search(source, kind);
+        context.Model.BodyShapeSearchResult = result;
+
+        if (result.Failures.Count == 0)
+            return;
+
+        if (context.Logger.Enabled)
+        {
+            foreach (var failure in result.Failures)
+            {
+                context.Logger.LogWarning(
+                    $"Body Shapes skipped {failure.Subject}: {failure.Reason}");
+            }
+        }
+        else
+        {
+            DotnetInspector.Output.CommandError.WriteWarning(
+                $"Body Shapes skipped {result.Failures.Count} candidates; "
+                + "rerun with --verbose for details.");
+        }
     }
 
     /// <summary>Builds the typed query registry used by library sections.</summary>
@@ -771,6 +813,18 @@ public static class LibrarySections
         public static bool CanRender(LibraryInspection model)
             => model.TopLeverageQueryResult is TopLeverageResult.Available
                 { Methods.IsEmpty: false };
+    }
+
+    public sealed class BodyShapes : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.BodyShapes;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static string? ScannerKey => ScannerBodyShapes;
+        public static bool CanRender(LibraryInspection model)
+            => model.BodyShapeSearchResult is not null;
     }
 
     // Kind-scoped performance sections. Each shares the holistic optimization-opportunity scan

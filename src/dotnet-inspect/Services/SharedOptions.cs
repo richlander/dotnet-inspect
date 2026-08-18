@@ -417,7 +417,9 @@ public class SharedOptions
     public RowSelector? ParsePrintRow(ParseResult parseResult)
         => RowSelector.TryParse(parseResult.GetValue(Row), out var selector) ? selector : null;
 
-    public PerformanceTriageOptions ParsePerformanceTriageOptions(ParseResult parseResult)
+    public PerformanceTriageOptions ParsePerformanceTriageOptions(
+        ParseResult parseResult,
+        IReadOnlyList<string>? where = null)
     {
         var shapes = (parseResult.GetValue(PerformanceTriageShape) ?? [])
             .SelectMany(value => value.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -432,7 +434,7 @@ public class SharedOptions
             MinConfidence = parseResult.GetValue(PerformanceTriageMinConfidence),
             Shapes = shapes,
             Top = top is > 0 ? top : null,
-            Where = parseResult.GetValue(RowWhere) ?? [],
+            Where = [.. where ?? parseResult.GetValue(RowWhere) ?? []],
             OrderBy = parseResult.GetValue(RowOrderBy)
         };
     }
