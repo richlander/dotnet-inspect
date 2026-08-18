@@ -97,6 +97,12 @@ public sealed class StructuralTypeIdentityTests
             genericParameterCount: 0,
             [int32]);
         TypeNode functionPointer = provider.GetFunctionPointerType(signature);
+        TypeNode methodParameter = provider.GetGenericMethodParameter(context: null, index: 0);
+        TypeNode typeParameter = provider.GetGenericTypeParameter(context: null, index: 1);
+        Assert.Equal("M0", methodParameter.StructuralIdentity());
+        Assert.Equal("T1", typeParameter.StructuralIdentity());
+        Assert.False(methodParameter.HasStructuralPayload);
+
         Assert.Equal("delegate* unmanaged[Cdecl]<int, void>", functionPointer.Render());
         Assert.Equal(
             StructuralTypeIdentity.FunctionPointer(

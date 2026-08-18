@@ -2797,7 +2797,9 @@ public static class ApiSurfaceExtractor
                 Name = paramName,
                 Type = type,
                 CanonicalType = canonicalType,
-                StructuralType = paramTypes[i].StructuralIdentity(),
+                StructuralType = paramTypes[i].HasStructuralPayload
+                    ? paramTypes[i].StructuralIdentity()
+                    : null,
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = defaultValueText
@@ -2847,7 +2849,9 @@ public static class ApiSurfaceExtractor
             ExtensionReceiverType = extensionReceiverType,
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
-            StructuralReturnType = treeSignature.ReturnType.StructuralIdentity(),
+            StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
+                ? treeSignature.ReturnType.StructuralIdentity()
+                : null,
             ReturnAttributes = returnAttributes,
             MemberName = methodName,
             TypeParameters = methodTypeParameters,
@@ -3906,7 +3910,9 @@ public static class ApiSurfaceExtractor
                 Name = paramName,
                 Type = paramType,
                 CanonicalType = canonicalParamType,
-                StructuralType = paramTypes[i].StructuralIdentity(),
+                StructuralType = paramTypes[i].HasStructuralPayload
+                    ? paramTypes[i].StructuralIdentity()
+                    : null,
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = defaultValueText
@@ -3930,7 +3936,9 @@ public static class ApiSurfaceExtractor
         {
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
-            StructuralReturnType = treeSignature.ReturnType.StructuralIdentity(),
+            StructuralReturnType = treeSignature.ReturnType.HasStructuralPayload
+                ? treeSignature.ReturnType.StructuralIdentity()
+                : null,
             MemberName = indexerParameters.Count > 0 ? "this[]" : name,
             IsRequired = isRequired,
             Parameters = parameterModels,

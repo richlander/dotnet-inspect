@@ -30,6 +30,35 @@ public sealed class ApiSignatureModelTests
         Assert.Equal("int", member.SignatureModel.Parameters[0].Type);
         Assert.True(member.SignatureModel.Parameters[3].HasDefault);
         Assert.Equal("1", member.SignatureModel.Parameters[3].DefaultValueText);
+        Assert.Null(member.SignatureModel.Parameters[0].StructuralType);
+        Assert.Null(member.SignatureModel.Parameters[2].StructuralType);
+        Assert.Null(member.SignatureModel.Parameters[3].StructuralType);
+    }
+
+    [Fact]
+    public void MethodSignatureModel_ExposesStructuralTypeForFunctionPointerParameter()
+    {
+        var member = GetMember(
+            nameof(FunctionPointerShapeFixture),
+            nameof(FunctionPointerShapeFixture.Ret));
+
+        Assert.NotNull(member.SignatureModel);
+        string? structuralType = Assert.Single(member.SignatureModel.Parameters).StructuralType;
+        Assert.StartsWith("delegate*", structuralType, StringComparison.Ordinal);
+        Assert.Contains(";I0;E0;G0;R1", structuralType, StringComparison.Ordinal);
+        Assert.StartsWith("delegate*", member.SignatureModel.StructuralReturnType, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MethodSignatureModel_OmitsStructuralTypeForGenericParameters()
+    {
+        var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.GenericMethod));
+
+        Assert.NotNull(member.SignatureModel);
+        Assert.NotEmpty(member.SignatureModel.TypeParameters);
+        Assert.Equal("T", Assert.Single(member.SignatureModel.Parameters).Type);
+        Assert.Null(Assert.Single(member.SignatureModel.Parameters).StructuralType);
+        Assert.Null(member.SignatureModel.StructuralReturnType);
     }
 
     [Fact]

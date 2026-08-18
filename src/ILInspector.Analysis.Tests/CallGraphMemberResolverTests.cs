@@ -635,6 +635,93 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void Selector_UsesPositionalGenericIdentityWhenStructuralTypeIsAbsent()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            TypeParameters = [new TypeParameter { Name = "TOuter" }],
+            Members = [],
+        };
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            ReturnType = "void",
+            MetadataToken = 0x06000001,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                TypeParameters = [new TypeParameter { Name = "TMethod" }],
+                Parameters =
+                [
+                    new ApiParameter { Name = "method", Type = "TMethod" },
+                    new ApiParameter { Name = "outer", Type = "TOuter" },
+                    new ApiParameter { Name = "list", Type = "System.Collections.Generic.List<TMethod>" },
+                ],
+            },
+        };
+        type.Members = [member];
+        var declaringType = TypeRef.Definition("Samples", "Samples", "Owner");
+        var graph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            declaringType,
+            "M",
+            [
+                TypeRef.MethodGenericParameter(0),
+                TypeRef.GenericParameter(0),
+                TypeRef.GenericInstance(
+                    TypeRef.Definition("corelib", "System.Collections.Generic", "List`1"),
+                    [TypeRef.MethodGenericParameter(0)]),
+            ],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+            GenericArity = 1,
+        });
+
+        Assert.Null(member.SignatureModel!.Parameters[0].StructuralType);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, member).Key,
+            graph.Key);
+        Assert.Equal("M0", graph.ParameterTypes[0]);
+        Assert.Equal("T0", graph.ParameterTypes[1]);
+        Assert.Same(
+            member,
+            CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.Member);
+    }
+
+    [Fact]
+    public void Selector_KeepsNestedGenericDisplayIdentityWhenStructuralTypeIsAbsent()
+    {
+        var nested = Method("Samples.Outer<int>.Inner<string>");
+        nested.MetadataToken = 0x06000001;
+        var flat = Method("Samples.Outer<int, string>");
+        flat.MetadataToken = 0x06000002;
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [nested, flat],
+        };
+
+        CallGraphMemberSelector nestedSelector =
+            CallGraphMemberResolver.CreateSelector(type, nested);
+        CallGraphMemberSelector flatSelector =
+            CallGraphMemberResolver.CreateSelector(type, flat);
+
+        Assert.NotEqual(nestedSelector.Key, flatSelector.Key);
+        Assert.Contains(".Inner{", nestedSelector.ParameterTypes[0], StringComparison.Ordinal);
+        Assert.Same(
+            nested,
+            CallGraphMemberResolver.Resolve(type, nestedSelector.Name, nestedSelector.Key)!.Member);
+        Assert.Same(
+            flat,
+            CallGraphMemberResolver.Resolve(type, flatSelector.Name, flatSelector.Key)!.Member);
+    }
+
+    [Fact]
     public void Selector_DoesNotInventStructureFromDisplayOrUnsupportedPayload()
     {
         var declaringType = TypeRef.Definition("Samples", "Samples", "Owner");

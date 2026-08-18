@@ -310,18 +310,7 @@ internal sealed class GenericTypeNode(
     public ImmutableArray<TypeNode> Arguments => arguments;
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
-    internal override bool HasStructuralPayload =>
-        arguments.Any(argument => argument.HasStructuralPayload);
     public override long EstimatedRenderedLength => estimatedRenderedLength;
-
-    internal override string StructuralIdentity()
-    {
-        if (!HasStructuralPayload)
-            return base.StructuralIdentity();
-
-        string head = CSharpText.PrimitiveTypeNames.ToClrFullName(baseName);
-        return $"{head}{{{string.Join(",", arguments.Select(argument => argument.StructuralIdentity()))}}}{nestedSuffix}";
-    }
 
     static long EstimateRenderedLength(
         string baseName,
@@ -514,10 +503,17 @@ internal sealed class ByRefTypeNode(TypeNode elementType) : TypeNode
 }
 
 /// <summary>Generic type or method parameters (T, TKey, etc.).</summary>
-internal sealed class GenericParameterNode(string name, bool hasValueTypeConstraint) : TypeNode
+internal sealed class GenericParameterNode(
+    string name,
+    bool hasValueTypeConstraint,
+    bool isMethodParameter,
+    int index) : TypeNode
 {
     public override bool IsReferenceType => false;
     public override long EstimatedRenderedLength => name.Length + 1L;
+
+    internal override string StructuralIdentity()
+        => isMethodParameter ? $"M{index}" : $"T{index}";
 
     public override string Render(bool canonicalTuples) => IsNullableAnnotated ? $"{name}?" : name;
 
