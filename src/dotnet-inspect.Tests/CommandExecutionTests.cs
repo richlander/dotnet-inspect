@@ -2457,6 +2457,33 @@ public partial class CommandExecutionTests
         Assert.True(int.TryParse(scalarOutput.Trim(), out _));
     }
 
+    [Fact]
+    public async Task Vocabulary_EnvironmentMermaidRejectsMultiSectionCount()
+    {
+        string? originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
+            var (exit, output, error) = await RunAppAsync(
+                "vocabulary",
+                "-S",
+                "@Decompiler",
+                "--count",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "cannot render multiple sections as Mermaid",
+                error);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+        }
+    }
+
     /// <summary>
     /// Bare <c>-S</c> is a selection, so <c>--count</c> over it is well-defined (#3547). The
     /// curated route carries that selection as a flag rather than as an include set, so this also

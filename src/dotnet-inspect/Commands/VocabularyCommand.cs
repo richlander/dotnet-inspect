@@ -85,9 +85,8 @@ public static class VocabularyCommand
             else
             {
                 string[] orderedSections = [.. sections.Select(section => section.Name)];
-                OutputFormat format = ResolveCountFormat(options);
                 if (!CountOutput.ValidateMapFormat(
-                        format,
+                        options.Format,
                         orderedSections,
                         options.Tree))
                 {
@@ -109,7 +108,7 @@ public static class VocabularyCommand
                 CountOutput.Write(
                     projection,
                     orderedSections,
-                    format,
+                    options.Format,
                     options.NoHeader);
             }
             return 0;
@@ -218,19 +217,6 @@ public static class VocabularyCommand
         ];
         writer.WriteTable(labels, ids, rows);
     }
-
-    private static OutputFormat ResolveCountFormat(VocabularyOptions options) =>
-        options.JsonOutput
-            ? OutputFormat.Json
-            : options.Tsv
-                ? OutputFormat.Tsv
-                : options.Jsonl
-                    ? OutputFormat.Jsonl
-                    : options.Tabular
-                        ? OutputFormat.Table
-                        : options.PlainText
-                            ? OutputFormat.PlainText
-                            : OutputFormat.Markdown;
 
     private static DocumentSchema CreateSchema(VocabularyDocument document)
     {

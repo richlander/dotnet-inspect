@@ -321,6 +321,7 @@ public sealed class VocabularyCommandTests
             {
                 Select = ["@Decompiler"],
                 Count = true,
+                Format = OutputFormat.PlainText,
                 PlainText = true,
             })));
 
@@ -367,6 +368,7 @@ public sealed class VocabularyCommandTests
             {
                 Select = ["@Decompiler"],
                 Count = true,
+                Format = OutputFormat.Json,
                 JsonOutput = true,
             })));
 
