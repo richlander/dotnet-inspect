@@ -563,6 +563,7 @@ public static class CompileBackSourceComposer
         {
             PropertyGetterArtifactRequest getter => ComposePropertyGetter(
                 request.AssemblyPath,
+                request.CompilationClosure,
                 request.Reader,
                 request.Function,
                 request.TargetType,
@@ -581,6 +582,7 @@ public static class CompileBackSourceComposer
                 operatorResolver),
             PropertySetterArtifactRequest setter => ComposePropertySetter(
                 request.AssemblyPath,
+                request.CompilationClosure,
                 request.Reader,
                 request.Function,
                 request.TargetType,
@@ -598,6 +600,7 @@ public static class CompileBackSourceComposer
                 operatorResolver),
             EventAccessorArtifactRequest eventAccessor => ComposeEventAccessor(
                 request.AssemblyPath,
+                request.CompilationClosure,
                 request.Reader,
                 request.Function,
                 request.TargetType,
@@ -1169,6 +1172,7 @@ public static class CompileBackSourceComposer
 
     internal static CompileBackSourceResult ComposePropertyGetter(
         string assemblyPath,
+        ReturnToSender.CompilationClosure? compilationClosure,
         MetadataReader reader,
         IrFunction function,
         TypeDefinitionHandle targetType,
@@ -1208,6 +1212,18 @@ public static class CompileBackSourceComposer
         };
         if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
+        if (ImplicitInterfaceTargetIsOmitted(
+                assemblyPath,
+                compilationClosure,
+                reader,
+                targetTypeDef,
+                getter))
+        {
+            diagnostics.Add(new CompileBackPlanningDiagnostic(
+                "type identity",
+                "implicit-interface-not-reconstructed",
+                $"{targetIdentity.MetadataFullName}::{reader.GetString(getter.Name)}"));
+        }
 
         var targetMembers = new List<CompileBackMemberRequirement>
         {
@@ -2689,14 +2705,16 @@ public static class CompileBackSourceComposer
 
     static ExternalInterfaceReferenceInfo? ExternalInterfaceReference(
         MetadataReader reader,
-        TypeReferenceHandle handle)
+        TypeReferenceHandle handle,
+        bool allowGenericMetadataName = false)
     {
         var typeRef = reader.GetTypeReference(handle);
         if (typeRef.ResolutionScope.Kind != HandleKind.AssemblyReference)
             return null;
 
         string metadataFullName = reader.GetFullTypeName(typeRef);
-        if (metadataFullName.Contains('`', StringComparison.Ordinal))
+        if (!allowGenericMetadataName
+            && metadataFullName.Contains('`', StringComparison.Ordinal))
             return null;
 
         return new ExternalInterfaceReferenceInfo(
@@ -2798,6 +2816,7 @@ public static class CompileBackSourceComposer
 
     internal static CompileBackSourceResult ComposePropertySetter(
         string assemblyPath,
+        ReturnToSender.CompilationClosure? compilationClosure,
         MetadataReader reader,
         IrFunction function,
         TypeDefinitionHandle targetType,
@@ -2834,6 +2853,18 @@ public static class CompileBackSourceComposer
         };
         if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
+        if (ImplicitInterfaceTargetIsOmitted(
+                assemblyPath,
+                compilationClosure,
+                reader,
+                targetTypeDef,
+                setter))
+        {
+            diagnostics.Add(new CompileBackPlanningDiagnostic(
+                "type identity",
+                "implicit-interface-not-reconstructed",
+                $"{targetIdentity.MetadataFullName}::{reader.GetString(setter.Name)}"));
+        }
 
         var indexerParameterCount = propertySignature.ParameterTypes.Length;
         var targetMembers = new List<CompileBackMemberRequirement>
@@ -2925,6 +2956,7 @@ public static class CompileBackSourceComposer
 
     internal static CompileBackSourceResult ComposeEventAccessor(
         string assemblyPath,
+        ReturnToSender.CompilationClosure? compilationClosure,
         MetadataReader reader,
         IrFunction function,
         TypeDefinitionHandle targetType,
@@ -2976,6 +3008,18 @@ public static class CompileBackSourceComposer
         };
         if (closureFacts.TryGetValue(targetType, out var targetClosureFacts))
             targetFacts.AddRange(targetClosureFacts);
+        if (ImplicitInterfaceTargetIsOmitted(
+                assemblyPath,
+                compilationClosure,
+                reader,
+                targetTypeDef,
+                accessor))
+        {
+            diagnostics.Add(new CompileBackPlanningDiagnostic(
+                "type identity",
+                "implicit-interface-not-reconstructed",
+                $"{targetIdentity.MetadataFullName}::{reader.GetString(accessor.Name)}"));
+        }
 
         var targetMembers = new List<CompileBackMemberRequirement>
         {
@@ -3181,11 +3225,16 @@ public static class CompileBackSourceComposer
                 "external-interface-base-not-reconstructed",
                 externalInterfaceDeclineReason));
         }
-        if (ExternalImplicitInterfaceTargetIsOmitted(reader, targetTypeDef, method))
+        if (ImplicitInterfaceTargetIsOmitted(
+                assemblyPath,
+                compilationClosure,
+                reader,
+                targetTypeDef,
+                method))
         {
             diagnostics.Add(new CompileBackPlanningDiagnostic(
                 "type identity",
-                "external-implicit-interface-not-reconstructed",
+                "implicit-interface-not-reconstructed",
                 $"{targetIdentity.MetadataFullName}::{reader.GetString(method.Name)}"));
         }
         string? explicitInterfaceMemberName =
@@ -3869,7 +3918,9 @@ public static class CompileBackSourceComposer
         => method.Attributes.HasFlag(MethodAttributes.Virtual)
             && !method.Attributes.HasFlag(MethodAttributes.NewSlot);
 
-    static bool ExternalImplicitInterfaceTargetIsOmitted(
+    static bool ImplicitInterfaceTargetIsOmitted(
+        string assemblyPath,
+        ReturnToSender.CompilationClosure? compilationClosure,
         MetadataReader reader,
         TypeDefinition typeDef,
         MethodDefinition method)
@@ -3888,8 +3939,354 @@ public static class CompileBackSourceComposer
             return false;
         }
 
-        return typeDef.GetInterfaceImplementations().Any(handle =>
-            reader.GetInterfaceImplementation(handle).Interface.Kind != HandleKind.TypeDefinition);
+        MethodSignature<string> targetSignature;
+        try
+        {
+            targetSignature = method.DecodeSignature(
+                SignatureDecoder.Instance,
+                GenericContext.ForMethod(reader, typeDef, method));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return false;
+        }
+
+        foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
+        {
+            var interfaceHandle = reader.GetInterfaceImplementation(implementationHandle).Interface;
+            if (interfaceHandle.Kind == HandleKind.TypeDefinition)
+                continue;
+            if (OmittedInterfaceDeclaresTarget(
+                    assemblyPath,
+                    compilationClosure,
+                    reader,
+                    interfaceHandle,
+                    method,
+                    targetSignature))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool OmittedInterfaceDeclaresTarget(
+        string assemblyPath,
+        ReturnToSender.CompilationClosure? compilationClosure,
+        MetadataReader reader,
+        EntityHandle interfaceHandle,
+        MethodDefinition targetMethod,
+        MethodSignature<string> targetSignature)
+    {
+        EntityHandle root = interfaceHandle;
+        bool genericInstantiation = false;
+        if (interfaceHandle.Kind == HandleKind.TypeSpecification)
+        {
+            if (!TryReadNamedTypeSpecificationRoot(
+                    reader,
+                    (TypeSpecificationHandle)interfaceHandle,
+                    out root,
+                    out genericInstantiation))
+            {
+                return false;
+            }
+        }
+
+        if (root.Kind == HandleKind.TypeDefinition)
+        {
+            var interfaceDef = reader.GetTypeDefinition((TypeDefinitionHandle)root);
+            return InterfaceDeclaresTarget(
+                reader,
+                interfaceDef,
+                targetMethod,
+                targetSignature,
+                exactSignature: !genericInstantiation);
+        }
+        if (root.Kind != HandleKind.TypeReference
+            || ExternalInterfaceReference(
+                reader,
+                (TypeReferenceHandle)root,
+                allowGenericMetadataName: true) is not { } interfaceReference)
+        {
+            return false;
+        }
+
+        return ExternalInterfaceDeclaresTarget(
+            assemblyPath,
+            compilationClosure,
+            reader,
+            interfaceReference,
+            targetMethod,
+            targetSignature,
+            exactSignature: !genericInstantiation);
+    }
+
+    static bool InterfaceDeclaresTarget(
+        MetadataReader reader,
+        TypeDefinition interfaceDef,
+        MethodDefinition targetMethod,
+        MethodSignature<string> targetSignature,
+        bool exactSignature)
+    {
+        string targetName = reader.GetString(targetMethod.Name);
+        foreach (var methodHandle in interfaceDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (reader.GetString(method.Name) != targetName
+                || method.GetGenericParameters().Count != targetMethod.GetGenericParameters().Count)
+            {
+                continue;
+            }
+            MethodSignature<string> signature;
+            try
+            {
+                signature = method.DecodeSignature(
+                    SignatureDecoder.Instance,
+                    GenericContext.ForMethod(reader, interfaceDef, method));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                continue;
+            }
+            if (signature.ParameterTypes.Length != targetSignature.ParameterTypes.Length)
+                continue;
+            if (!exactSignature
+                || signature.ReturnType == targetSignature.ReturnType
+                    && signature.ParameterTypes.SequenceEqual(
+                        targetSignature.ParameterTypes,
+                        StringComparer.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        foreach (var implementationHandle in interfaceDef.GetInterfaceImplementations())
+        {
+            var inherited = reader.GetInterfaceImplementation(implementationHandle).Interface;
+            if (inherited.Kind == HandleKind.TypeDefinition
+                && InterfaceDeclaresTarget(
+                    reader,
+                    reader.GetTypeDefinition((TypeDefinitionHandle)inherited),
+                    targetMethod,
+                    targetSignature,
+                    exactSignature))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool ExternalInterfaceDeclaresTarget(
+        string assemblyPath,
+        ReturnToSender.CompilationClosure? compilationClosure,
+        MetadataReader targetReader,
+        ExternalInterfaceReferenceInfo interfaceReference,
+        MethodDefinition targetMethod,
+        MethodSignature<string> targetSignature,
+        bool exactSignature)
+    {
+        ReturnToSender.CompilationClosure closure =
+            compilationClosure
+            ?? ReturnToSender.CreateCompilationClosure(assemblyPath);
+        if (ResolveExternalTypeDefinition(
+                closure.TargetAssembly,
+                interfaceReference.AssemblyIdentity,
+                interfaceReference.MetadataFullName,
+                closure.Resolver) is not { } definition)
+        {
+            return false;
+        }
+
+        try
+        {
+            return ResolvedExternalInterfaceDeclaresTarget(
+                definition,
+                closure.Resolver,
+                targetReader.GetString(targetMethod.Name),
+                targetMethod.GetGenericParameters().Count,
+                targetSignature,
+                exactSignature,
+                []);
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {
+            return false;
+        }
+
+        static bool ResolvedExternalInterfaceDeclaresTarget(
+            (
+                ResolvedAssemblyReference Assembly,
+                MetadataTypeDefinitionAddress Address) definition,
+            AssemblyDependencyResolver resolver,
+            string targetName,
+            int targetGenericArity,
+            MethodSignature<string> targetSignature,
+            bool exactSignature,
+            HashSet<string> visited)
+        {
+            using Stream stream = definition.Assembly.OpenRead();
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+                return false;
+            var reader = peReader.GetMetadataReader();
+            if (!definition.Address.TryResolve(
+                    reader,
+                    out TypeDefinitionHandle interfaceHandle))
+            {
+                return false;
+            }
+            return ExternalInterfaceDefinitionDeclaresTarget(
+                reader,
+                definition.Assembly,
+                interfaceHandle,
+                resolver,
+                targetName,
+                targetGenericArity,
+                targetSignature,
+                exactSignature,
+                visited);
+        }
+
+        static bool ExternalInterfaceDefinitionDeclaresTarget(
+            MetadataReader reader,
+            ResolvedAssemblyReference assembly,
+            TypeDefinitionHandle interfaceHandle,
+            AssemblyDependencyResolver resolver,
+            string targetName,
+            int targetGenericArity,
+            MethodSignature<string> targetSignature,
+            bool exactSignature,
+            HashSet<string> visited)
+        {
+            string visitKey =
+                $"{assembly.Identity}|{reader.GetGuid(reader.GetModuleDefinition().Mvid):D}|"
+                + $"{MetadataTokens.GetToken(interfaceHandle):X8}";
+            if (!visited.Add(visitKey))
+                return false;
+            var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
+            foreach (var methodHandle in interfaceDef.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(methodHandle);
+                if (reader.GetString(method.Name) != targetName
+                    || method.GetGenericParameters().Count != targetGenericArity)
+                {
+                    continue;
+                }
+                MethodSignature<string> signature;
+                try
+                {
+                    signature = method.DecodeSignature(
+                        SignatureDecoder.Instance,
+                        GenericContext.ForMethod(reader, interfaceDef, method));
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+                {
+                    continue;
+                }
+                if (signature.ParameterTypes.Length != targetSignature.ParameterTypes.Length)
+                    continue;
+                if (!exactSignature
+                    || signature.ReturnType == targetSignature.ReturnType
+                        && signature.ParameterTypes.SequenceEqual(
+                            targetSignature.ParameterTypes,
+                            StringComparer.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            foreach (var implementationHandle in interfaceDef.GetInterfaceImplementations())
+            {
+                EntityHandle inherited = reader.GetInterfaceImplementation(implementationHandle).Interface;
+                bool inheritedExact = exactSignature;
+                if (inherited.Kind == HandleKind.TypeSpecification)
+                {
+                    if (!TryReadNamedTypeSpecificationRoot(
+                            reader,
+                            (TypeSpecificationHandle)inherited,
+                            out inherited,
+                            out bool genericInstantiation))
+                    {
+                        continue;
+                    }
+                    inheritedExact &= !genericInstantiation;
+                }
+                if (inherited.Kind == HandleKind.TypeDefinition
+                    && ExternalInterfaceDefinitionDeclaresTarget(
+                        reader,
+                        assembly,
+                        (TypeDefinitionHandle)inherited,
+                        resolver,
+                        targetName,
+                        targetGenericArity,
+                        targetSignature,
+                        inheritedExact,
+                        visited))
+                {
+                    return true;
+                }
+                if (inherited.Kind == HandleKind.TypeReference
+                    && ExternalInterfaceReference(
+                        reader,
+                        (TypeReferenceHandle)inherited,
+                        allowGenericMetadataName: true) is { } inheritedReference
+                    && ResolveExternalTypeDefinition(
+                        assembly,
+                        inheritedReference.AssemblyIdentity,
+                        inheritedReference.MetadataFullName,
+                        resolver) is { } inheritedDefinition
+                    && ResolvedExternalInterfaceDeclaresTarget(
+                        inheritedDefinition,
+                        resolver,
+                        targetName,
+                        targetGenericArity,
+                        targetSignature,
+                        inheritedExact,
+                        visited))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    static bool TryReadNamedTypeSpecificationRoot(
+        MetadataReader reader,
+        TypeSpecificationHandle handle,
+        out EntityHandle root,
+        out bool genericInstantiation)
+    {
+        root = default;
+        genericInstantiation = false;
+        try
+        {
+            var blob = reader.GetBlobReader(reader.GetTypeSpecification(handle).Signature);
+            byte code = blob.ReadByte();
+            genericInstantiation = code == 0x15;
+            if (genericInstantiation)
+                code = blob.ReadByte();
+            if (code is not (0x11 or 0x12))
+                return false;
+            int encoded = blob.ReadCompressedInteger();
+            if (encoded < 0)
+                return false;
+            int row = encoded >> 2;
+            root = (encoded & 3) switch
+            {
+                0 => MetadataTokens.TypeDefinitionHandle(row),
+                1 => MetadataTokens.TypeReferenceHandle(row),
+                2 => MetadataTokens.TypeSpecificationHandle(row),
+                _ => default,
+            };
+            return !root.IsNil;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return false;
+        }
     }
 
     static bool IsProtectedMethod(MethodDefinition method)

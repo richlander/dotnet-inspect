@@ -1044,7 +1044,7 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Contains(
-                "external-implicit-interface-not-reconstructed",
+                "implicit-interface-not-reconstructed",
                 result.Detail,
                 StringComparison.Ordinal);
         }
@@ -1052,6 +1052,147 @@ public class ReturnToSenderPrototypeTests
         {
             DeleteFixture(assemblyPath);
         }
+    }
+
+    [Fact]
+    public void CompileBackTargets_UnrelatedExternalInterfaceDoesNotDeclineLocalSlot()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface ILocal
+            {
+                int Read();
+            }
+
+            public sealed class Probe : ILocal, System.IDisposable
+            {
+                public int Read() => 42;
+                public void Dispose() { }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.DoesNotContain(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "implicit-interface-not-reconstructed");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_GenericLocalInterfaceDeclineUsesNeutralReason()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface ILocal<T>
+            {
+                T Read();
+            }
+
+            public sealed class Probe : ILocal<int>
+            {
+                public int Read() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Probe", "Read", 0)],
+                applyCompileBackFloor: false));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+            Assert.Contains(
+                "implicit-interface-not-reconstructed",
+                result.Detail,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("external-", result.Detail, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalImplicitInterfaceAccessorsDeclineNatively()
+    {
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            public interface IProbe
+            {
+                int Count { get; }
+                int Value { set; }
+                event System.Action Changed;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "contracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class Probe : IProbe
+            {
+                public int Count => 42;
+                public int Value { set { } }
+                public event System.Action Changed
+                {
+                    add { }
+                    remove { }
+                }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            foreach (string methodName in new[] { "get_Count", "set_Value", "add_Changed", "remove_Changed" })
+            {
+                var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                    assemblyPath,
+                    [new ReturnToSender.RequestedTarget("Probe", methodName, 0)],
+                    applyCompileBackFloor: false));
+
+                Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+                Assert.False(result.UsedCompileBackFloor, result.Detail);
+                Assert.Contains(
+                    "implicit-interface-not-reconstructed",
+                    result.Detail,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RealPrintedRangeMapAccessorDeclinesNatively()
+    {
+        var result = Assert.Single(ReturnToSender.CompileBackTargets(
+            typeof(PrintedRangeMap).Assembly.Location,
+            [new ReturnToSender.RequestedTarget(
+                "ILInspector.Decompiler.Pipeline.PrintedRangeMap",
+                "get_Count",
+                0)],
+            applyCompileBackFloor: false));
+
+        Assert.Equal(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+        Assert.False(result.UsedCompileBackFloor, result.Detail);
+        Assert.Contains(
+            "implicit-interface-not-reconstructed",
+            result.Detail,
+            StringComparison.Ordinal);
     }
 
     [Fact]
