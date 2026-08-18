@@ -54,19 +54,38 @@ public partial class SymbolPackageDownloader
         bool storeOperation = false;
         try
         {
-            var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(
-                _client, url, log: log,
-                cancellationToken: cancellationToken,
-                trafficKind: NetworkTrafficKind.SymbolDownload).ConfigureAwait(false);
-            using var response = httpResult.Response;
-            if (response == null || !response.IsSuccessStatusCode)
+            var httpResult =
+                await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                    _client,
+                    url,
+                    static _ => true,
+                    log: log,
+                    cancellationToken: cancellationToken,
+                    trafficKind: NetworkTrafficKind.SymbolDownload,
+                    maxDownloadSize:
+                        _limits?.MaxPortablePdbBytes
+                        ?? DefaultMaximumSymbolBytes).ConfigureAwait(false);
+            if (httpResult.Bytes is not { } pdbBytes)
             {
-                CacheMissIfDefinitive(url, httpResult);
+                CacheMissIfDefinitive(
+                    url,
+                    new HttpRetryHelper.HttpRetryResult(
+                        null,
+                        httpResult.StatusCode));
+                if (httpResult.Status
+                    == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
+                {
+                    log?.Invoke(
+                        "MSDL PDB response exceeds the configured download limit.");
+                }
                 log?.Invoke("MSDL: symbol not found");
                 return new PdbProbeResult(null, windowsPdbDetected);
             }
 
-            using (var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
+            using (var content =
+                   new MemoryStream(
+                       pdbBytes,
+                       writable: false))
             {
                 storeOperation = true;
                 await _pdbStore.PutAsync(cacheKey, content, cancellationToken).ConfigureAwait(false);
@@ -168,18 +187,37 @@ public partial class SymbolPackageDownloader
             bool storeOperation = false;
             try
             {
-                var httpResult = await HttpRetryHelper.GetWithRetryResultAsync(
-                    _client, url, log: log,
-                    cancellationToken: cancellationToken,
-                    trafficKind: NetworkTrafficKind.SymbolDownload).ConfigureAwait(false);
-                using var response = httpResult.Response;
-                if (response == null || !response.IsSuccessStatusCode)
+                var httpResult =
+                    await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
+                        _client,
+                        url,
+                        static _ => true,
+                        log: log,
+                        cancellationToken: cancellationToken,
+                        trafficKind: NetworkTrafficKind.SymbolDownload,
+                        maxDownloadSize:
+                            _limits?.MaxPortablePdbBytes
+                            ?? DefaultMaximumSymbolBytes).ConfigureAwait(false);
+                if (httpResult.Bytes is not { } pdbBytes)
                 {
-                    CacheMissIfDefinitive(url, httpResult);
+                    CacheMissIfDefinitive(
+                        url,
+                        new HttpRetryHelper.HttpRetryResult(
+                            null,
+                            httpResult.StatusCode));
+                    if (httpResult.Status
+                        == HttpRetryHelper.HttpBodyFetchStatus.TooLarge)
+                    {
+                        log?.Invoke(
+                            "PDB response exceeds the configured download limit.");
+                    }
                     continue;
                 }
 
-                using (var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
+                using (var content =
+                       new MemoryStream(
+                           pdbBytes,
+                           writable: false))
                 {
                     storeOperation = true;
                     await _pdbStore.PutAsync(cacheKey, content, cancellationToken).ConfigureAwait(false);
