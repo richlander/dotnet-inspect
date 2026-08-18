@@ -265,6 +265,9 @@ public static class MemberOptionsParser
 
         // Combine -m option with positional members
         var allMembers = optionMembers.Concat(positionalMembers).ToArray();
+        string[] routerDeferredTypeMemberValues = routerDeferredTypeOrMember
+            ? [.. allMembers]
+            : [];
         var ctorOnly = parseResult.GetValue(args.CtorOption);
 
         // Process dotted syntax and overload shorthand
@@ -358,6 +361,8 @@ public static class MemberOptionsParser
             UnsafeOnly = parseResult.GetValue(args.UnsafeOption),
             CtorOnly = ctorOnly,
             OverloadIndex = parseResult.GetValue(args.IndexOption) ?? shorthandIndex,
+            OverloadIndexExplicitlySet =
+                parseResult.GetResult(args.IndexOption) is { Implicit: false },
             MemberDigest = memberDigest,
             MemberGenericArity = memberGenericArity,
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],
@@ -381,7 +386,8 @@ public static class MemberOptionsParser
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),
             SourceOptions = sourceOptions,
-            RouterDeferredTypeOrMember = routerDeferredTypeOrMember
+            RouterDeferredTypeOrMember = routerDeferredTypeOrMember,
+            RouterDeferredTypeMemberValues = routerDeferredTypeMemberValues
         };
 
         options = options with

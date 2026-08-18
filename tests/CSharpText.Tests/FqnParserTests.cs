@@ -269,6 +269,40 @@ public class FqnParserTests
         Assert.Null(FqnParser.GetMemberGenericArity(malformed));
     }
 
+    [Fact]
+    public void NormalizeMemberName_QualifiedExplicitInterfaceGenericMethodUsesTerminalArity()
+    {
+        const string selector = "IMap<T>.Map<U,V>";
+
+        Assert.Equal("IMap<T>.Map", FqnParser.NormalizeMemberName(selector));
+        Assert.Equal(2, FqnParser.GetMemberGenericArity(selector));
+    }
+
+    [Theory]
+    [InlineData("Map<T??>")]
+    [InlineData("Map<T*?>")]
+    [InlineData("Map<T&?>")]
+    [InlineData("Map<T&&>")]
+    [InlineData("Map<T><U>")]
+    public void NormalizeMemberName_InvalidPostfixOrAdjacentGenericSuffixIsPreserved(
+        string malformed)
+    {
+        Assert.Equal(malformed, FqnParser.NormalizeMemberName(malformed));
+        Assert.Null(FqnParser.GetMemberGenericArity(malformed));
+    }
+
+    [Theory]
+    [InlineData("Map<T?>")]
+    [InlineData("Map<T?[]?>")]
+    [InlineData("Map<T[][]>")]
+    [InlineData("Map<Outer<T>.Inner<U>>")]
+    public void NormalizeMemberName_ValidPostfixAndNestedGenericSuffixKeepsArity(
+        string selector)
+    {
+        Assert.Equal("Map", FqnParser.NormalizeMemberName(selector));
+        Assert.Equal(1, FqnParser.GetMemberGenericArity(selector));
+    }
+
     [Theory]
     [InlineData("operatorApply")]
     [InlineData("OperatorApply")]

@@ -174,7 +174,7 @@ public static class FqnParser
     public static string NormalizeMemberName(string memberName)
     {
         memberName = memberName.Trim();
-        var angleIdx = memberName.IndexOf('<');
+        var angleIdx = FindTerminalGenericArgumentListStart(memberName);
         if (angleIdx > 0 && GetMemberGenericArity(memberName).HasValue)
         {
             memberName = memberName[..angleIdx];
@@ -195,9 +195,16 @@ public static class FqnParser
     public static int? GetMemberGenericArity(string memberName)
     {
         memberName = memberName.Trim();
-        var angleIdx = memberName.IndexOf('<');
+        var angleIdx = FindTerminalGenericArgumentListStart(memberName);
         if (angleIdx > 0)
         {
+            if (memberName.AsSpan(..angleIdx).TrimEnd().EndsWith(
+                    ">",
+                    StringComparison.Ordinal))
+            {
+                return null;
+            }
+
             var closeIdx = FindMatchingAngleBracket(memberName, angleIdx);
             if (closeIdx != memberName.Length - 1
                 || !TryCountTypeParameters(
@@ -225,6 +232,32 @@ public static class FqnParser
         }
 
         return null;
+    }
+
+    private static int FindTerminalGenericArgumentListStart(
+        ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty || value[^1] != '>')
+            return -1;
+
+        var depth = 0;
+        for (var i = value.Length - 1; i >= 0; i--)
+        {
+            if (value[i] == '>')
+            {
+                depth++;
+            }
+            else if (value[i] == '<')
+            {
+                depth--;
+                if (depth == 0)
+                    return i;
+                if (depth < 0)
+                    return -1;
+            }
+        }
+
+        return -1;
     }
 
     private static string NormalizeOperatorOrSpecialMemberName(string memberName)
@@ -301,7 +334,11 @@ public static class FqnParser
 
         count = 1;
         var segmentStart = 0;
-        var completedNestedType = false;
+        var coreCompleted = false;
+        var hasPostfix = false;
+        var nullableApplied = false;
+        var pointerApplied = false;
+        var byRefApplied = false;
         var arrayRankDepth = 0;
         for (var i = 0; i < typeParams.Length; i++)
         {
@@ -310,7 +347,10 @@ public static class FqnParser
                 if (typeParams[i] == ']')
                 {
                     arrayRankDepth--;
-                    completedNestedType = true;
+                    coreCompleted = true;
+                    hasPostfix = true;
+                    nullableApplied = false;
+                    pointerApplied = false;
                 }
                 else if (typeParams[i] != ','
                     && !char.IsWhiteSpace(typeParams[i]))
@@ -325,7 +365,7 @@ public static class FqnParser
             switch (typeParams[i])
             {
                 case '<':
-                    if (completedNestedType
+                    if (coreCompleted
                         || typeParams[segmentStart..i].IsWhiteSpace())
                     {
                         count = 0;
@@ -343,7 +383,8 @@ public static class FqnParser
                     }
 
                     i = close;
-                    completedNestedType = true;
+                    coreCompleted = true;
+                    hasPostfix = false;
                     break;
                 case '>':
                     count = 0;
@@ -357,10 +398,15 @@ public static class FqnParser
 
                     count++;
                     segmentStart = i + 1;
-                    completedNestedType = false;
+                    coreCompleted = false;
+                    hasPostfix = false;
+                    nullableApplied = false;
+                    pointerApplied = false;
+                    byRefApplied = false;
                     break;
                 case '[':
-                    if (typeParams[segmentStart..i].IsWhiteSpace())
+                    if (byRefApplied
+                        || typeParams[segmentStart..i].IsWhiteSpace())
                     {
                         count = 0;
                         return false;
@@ -371,14 +417,54 @@ public static class FqnParser
                 case ']':
                     count = 0;
                     return false;
+                case '?':
+                    if (nullableApplied || pointerApplied || byRefApplied)
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    coreCompleted = true;
+                    hasPostfix = true;
+                    nullableApplied = true;
+                    break;
+                case '*':
+                    if (byRefApplied)
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    coreCompleted = true;
+                    hasPostfix = true;
+                    pointerApplied = true;
+                    break;
+                case '&':
+                    if (byRefApplied)
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    coreCompleted = true;
+                    hasPostfix = true;
+                    byRefApplied = true;
+                    break;
                 case '.':
                 case '+':
-                    completedNestedType = false;
+                    if (hasPostfix || byRefApplied)
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    coreCompleted = false;
+                    nullableApplied = false;
+                    pointerApplied = false;
                     break;
                 default:
-                    if (completedNestedType
-                        && !char.IsWhiteSpace(typeParams[i])
-                        && typeParams[i] is not ('?' or '*' or '&' or '[' or ']'))
+                    if (coreCompleted
+                        && !char.IsWhiteSpace(typeParams[i]))
                     {
                         count = 0;
                         return false;

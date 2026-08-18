@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Net;
+using DotnetInspector.CommandLine;
 using DotnetInspector.CSharpBodySlicer;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
@@ -41,9 +42,8 @@ public class ApiCommand
         MemberOptions options)
     {
         if (options.Focus is not null) return "--focus";
-        if (options.OverloadIndex.HasValue) return "--index";
+        if (options.OverloadIndexExplicitlySet) return "--index";
         if (options.CtorOnly) return "--ctor";
-        if (options.Limit.HasValue) return "--limit";
         if (options.CallerScopeDirectories.Length > 0) return "--bin";
         if (options.CallerScopeProjects.Length > 0) return "--project";
         if (options.CallerScopePackages.Length > 0) return "--caller-package";
@@ -52,8 +52,17 @@ public class ApiCommand
         return null;
     }
 
-    internal static TypeOptions ToTypeOptions(ApiOptions options) =>
-        new()
+    internal static TypeOptions ToTypeOptions(ApiOptions options)
+    {
+        var (memberFilter, memberLimit) = options is MemberOptions
+            {
+                RouterDeferredTypeOrMember: true
+            } memberOptions
+            ? SharedParsers.ParseMemberFilter(
+                memberOptions.RouterDeferredTypeMemberValues)
+            : (options.MemberFilter, options.Limit);
+
+        return new()
         {
             TypeName = options.TypeName, PackagePath = options.PackagePath,
             PackageRangeAddress = options.PackageRangeAddress,
@@ -82,8 +91,8 @@ public class ApiCommand
             MermaidOutput = options.MermaidOutput,
             EmbeddedMermaid = options.EmbeddedMermaid,
             Bare = options.Bare,
-            NoHeader = options.NoHeader, Limit = options.Limit, MemberLimit = options.Limit,
-            MemberFilter = options.MemberFilter,
+            NoHeader = options.NoHeader, Limit = memberLimit, MemberLimit = memberLimit,
+            MemberFilter = memberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
             Print = options.Print, PrintRow = options.PrintRow,
@@ -104,6 +113,7 @@ public class ApiCommand
             DllPath = options.DllPath,
             PdbPath = options.PdbPath
         };
+    }
 
     /// <summary>
     /// True when bare <c>-S</c> was requested, carries no explicit section values to fall back on,

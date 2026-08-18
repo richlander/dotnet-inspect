@@ -39,6 +39,15 @@ public static class MemberCommand
             if (error.HasValue) return error.Value;
             options = (MemberOptions)preamble.Options;
         }
+        else if (options.Discover != null && !options.EffectiveDiscovery)
+        {
+            var (_, discoveryExitCode) = ApiCommand.RunPreamble(options);
+            if (discoveryExitCode.HasValue)
+                return discoveryExitCode.Value;
+
+            throw new InvalidOperationException(
+                "Static discovery did not produce an exit code.");
+        }
 
         var (source, sourceError) = await ApiSourceResolver.ResolveAsync(options);
         if (sourceError.HasValue) return sourceError.Value;
@@ -88,6 +97,13 @@ public static class MemberCommand
             if (options.RouterDeferredTypeOrMember
                 && lookupResult.ImpliedMember is null)
             {
+                if (unresolvedOptions.MemberGenericArity.HasValue)
+                {
+                    CommandError.Write(
+                        "The type command's -m filter does not support generic arity selectors; use the member command.");
+                    return 1;
+                }
+
                 if (ApiCommand.GetDeferredTypeIncompatibleOption(unresolvedOptions)
                     is { } incompatibleOption)
                 {

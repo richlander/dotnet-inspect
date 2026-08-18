@@ -3495,6 +3495,97 @@ public partial class CommandExecutionTests
         Assert.Equal(0, deferred.Exit);
     }
 
+    [Fact]
+    public async Task Router_DeferredExactTypePreservesSharedMemberLimit()
+    {
+        const string target =
+            "System.Collections.Immutable.ImmutableArray<T>.Builder";
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections.Immutable",
+            "-m",
+            "1",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Equal("1", deferred.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData("Add:1")]
+    [InlineData("Add~ffffffff")]
+    public async Task Router_DeferredExactTypePreservesLiteralTypeMemberFilter(
+        string memberFilter)
+    {
+        const string target =
+            "System.Collections.Immutable.ImmutableArray<T>.Builder";
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections.Immutable",
+            "-m",
+            memberFilter,
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(1, deferred.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeRejectsGenericArityMemberFilter()
+    {
+        const string target =
+            "System.Collections.Immutable.ImmutableArray<T>.Builder";
+        string[] tail =
+        [
+            "--platform",
+            "System.Collections.Immutable",
+            "-m",
+            "Add<X>",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", target, .. tail]);
+        var deferred = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(1, deferred.Exit);
+    }
+
+    [Fact]
+    public async Task Router_DeferredStaticSchemaDoesNotResolveSource()
+    {
+        var missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"{Guid.NewGuid():N}.dll");
+        var (exit, output, error) = await RunAppAsync(
+            "Missing.Generic<T>",
+            "--library",
+            missingAssembly,
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Type Info", output);
+        Assert.Empty(error);
+    }
+
     [Theory]
     [InlineData("DotnetInspector.Tests.SampleGenericClass<T>")]
     [InlineData("SampleGenericClass<T>")]
@@ -20296,6 +20387,24 @@ public partial class CommandExecutionTests
         Assert.NotEmpty(error);
     }
 
+    [Fact]
+    public async Task Router_RepeatedNullableGenericArgumentDoesNotResolveType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Collections.Generic.List<T??>",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.NotEmpty(error);
+    }
+
     [Theory]
     [InlineData("Clear`0")]
     [InlineData("ConvertAll`01")]
@@ -20340,6 +20449,27 @@ public partial class CommandExecutionTests
         Assert.Equal(direct, deferred);
         Assert.Equal(0, deferred.Exit);
         Assert.Equal("1", deferred.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Member_QualifiedExplicitInterfaceGenericSelectorUsesMethodArity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(GenericExplicitInterfaceFixture<>).FullName!,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "explicit:DotnetInspector.Tests.IGenericExplicitInterfaceFixture<T>.Map<U,V>",
+            "-S",
+            SectionNames.Signature,
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
     }
 
     [Fact]
@@ -24402,6 +24532,24 @@ public sealed class MemberGenericSelectorFixture
 {
     public string GenericChoice(string value) => value;
     public T GenericChoice<T>(T value) => value;
+}
+
+public interface IGenericExplicitInterfaceFixture<T>
+{
+    void Map<U>(U value);
+    void Map<U, V>(U first, V second);
+}
+
+public sealed class GenericExplicitInterfaceFixture<T>
+    : IGenericExplicitInterfaceFixture<T>
+{
+    void IGenericExplicitInterfaceFixture<T>.Map<U>(U value)
+    {
+    }
+
+    void IGenericExplicitInterfaceFixture<T>.Map<U, V>(U first, V second)
+    {
+    }
 }
 
 public sealed class Operators<T>

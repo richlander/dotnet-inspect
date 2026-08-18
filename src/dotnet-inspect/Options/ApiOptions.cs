@@ -286,6 +286,8 @@ public record TypeOptions : ApiOptions
 public record MemberOptions : ApiOptions
 {
     internal bool RouterDeferredTypeOrMember { get; init; }
+    internal string[] RouterDeferredTypeMemberValues { get; init; } = [];
+    internal bool OverloadIndexExplicitlySet { get; init; }
     public bool CtorOnly { get; init; }
     public int? OverloadIndex { get; init; }
     public string? MemberDigest { get; init; }
