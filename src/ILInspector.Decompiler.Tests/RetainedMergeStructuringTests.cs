@@ -241,6 +241,54 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
+    public void RetainedBodyMergeLabelStaysOutsideSynthesizedUnsafeScope()
+    {
+        var blocks = RetainedLoopBlocks();
+        var pointer = TypeRef.Pointer(I32);
+        blocks[11] = Block(
+            11,
+            new StoreIndirect(
+                I32,
+                new LoadArgument(0, "p", pointer),
+                new Constant(7, I32)),
+            Cond(13));
+
+        var (function, diagnostics) = Structure(
+            blocks,
+            parameters: [new Parameter("p", pointer)],
+            usesUpdatedMemorySafetyRules: true);
+
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+        int label = output.IndexOf("IL_000B:", StringComparison.Ordinal);
+        int unsafeBlock = output.IndexOf("unsafe\n", StringComparison.Ordinal);
+        Assert.True(label >= 0, output);
+        Assert.True(unsafeBlock > label, output);
+        Assert.DoesNotContain("unsafe\n{\n    IL_000B:", output);
+    }
+
+    [Fact]
+    public void RetainedBodyMergeLabelSurvivesDownstreamInlining()
+    {
+        var blocks = RetainedLoopBlocks();
+        blocks[11] = Block(
+            11,
+            new StoreStackSlot(0, new Constant(7, I32)),
+            new StoreLocal(0, I32, new LoadStackSlot(0, I32)),
+            Cond(13));
+        var (function, diagnostics) = Structure(blocks);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("goto IL_000B;", output);
+        Assert.Contains("IL_000B:", output);
+    }
+
+    [Fact]
     public void RetainedBodyMergeWithEmptyLandingPadStaysFlat()
     {
         var blocks = RetainedLoopBlocks();
@@ -286,12 +334,11 @@ public class RetainedMergeStructuringTests
         function!.CheckInvariant();
 
         Assert.Equal(1, diagnostics.RetainedRegions);
-        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
         Assert.Contains(
-            loop.Body.Descendants.OfType<Branch>(),
+            function.Descendants.OfType<Branch>(),
             branch => branch.TargetOffset == 0xB5);
         string output = CSharpPrinter.Print(function).Output!;
-        Assert.Contains("while (", output);
+        Assert.Contains("for (", output);
         Assert.Contains("goto IL_00B5;", output);
     }
 
@@ -490,7 +537,10 @@ public class RetainedMergeStructuringTests
         Term(13, new Return(new LoadLocal(0, I32))),
     ];
 
-    static (IrFunction Function, StructuringDiagnostics Diagnostics) Structure(Block[] blocks)
+    static (IrFunction Function, StructuringDiagnostics Diagnostics) Structure(
+        Block[] blocks,
+        Parameter[]? parameters = null,
+        bool usesUpdatedMemorySafetyRules = false)
     {
         var container = new BlockContainer();
         foreach (var block in blocks)
@@ -498,9 +548,12 @@ public class RetainedMergeStructuringTests
         var function = new IrFunction(
             "M",
             Owner,
-            new MethodSignature(I32, [], HasThis: false, GenericParameterCount: 0),
+            new MethodSignature(I32, parameters is null ? [] : [.. parameters], HasThis: false, GenericParameterCount: 0),
             [I32],
-            container);
+            container)
+        {
+            UsesUpdatedMemorySafetyRules = usesUpdatedMemorySafetyRules,
+        };
         var diagnostics = new StructuringDiagnostics();
 
         new StructuringPass().Run(

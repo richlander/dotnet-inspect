@@ -1432,6 +1432,16 @@ public sealed class ForeachStatement : IrNode
     public override string Describe() => $"{(IsAwait ? "AwaitForeachStatement" : "ForeachStatement")} V_{LocalIndex} ({LocalType.ToDisplayString()})";
 }
 
+/// <summary>
+/// A stable empty statement that owns a retained branch-target label. Unlike a
+/// neighboring statement, later expression and sugar passes cannot consume it,
+/// and the printer keeps it outside any synthesized <c>unsafe</c> block.
+/// </summary>
+public sealed class LabelAnchor : IrNode
+{
+    public override string Describe() => "LabelAnchor";
+}
+
 /// <summary>An unconditional branch to the block starting at <see cref="TargetOffset"/>.</summary>
 public sealed class Branch : IrNode
 {

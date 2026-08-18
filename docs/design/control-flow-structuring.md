@@ -676,7 +676,10 @@ only when the post-dominator machinery is proven.
    generated-transfer ownership check guards `break`/`continue` binding. A
    post-build proof also requires each retained target label to remain in the
    same lexical C# block as its goto or an enclosing block; a label nested below
-   or beside its goto declines the whole transaction.
+   or beside its goto declines the whole transaction. Accepted retained merges
+   receive a dedicated empty label anchor, so later expression/sugar passes
+   cannot consume the owner and printer-synthesized `unsafe` scopes begin after
+   the target.
 
    `CanonicalWhileWithRetainedBodyMergeRaises` and
    `CoreLibUrlDecodeWithRetainedBodyMergeRaises` gate the accepted synthetic
@@ -689,7 +692,10 @@ only when the post-dominator machinery is proven.
    `RetainedBodyMergeWithSwitchStaysFlat` gate the declined boundary;
    `RetainedBodyMergeWithEmptyLandingPadStaysFlat` and
    `RetainedBodyMergeNestedBelowItsGotoStaysFlat` prove every surviving goto
-   still has a printable, lexically visible target label. Against
+   still has a printable, lexically visible target label;
+   `RetainedBodyMergeLabelStaysOutsideSynthesizedUnsafeScope` and
+   `RetainedBodyMergeLabelSurvivesDownstreamInlining` prove that owner survives
+   final emission. Against
    exact base `6f4d8f73f`, the slice moved CoreLib from 11,786 to 11,793
    structured containers (752 to 745 flat) and the pinned corpus from 30,046
    to 30,068 (2,677 to 2,655 flat), with zero pass bugs in both

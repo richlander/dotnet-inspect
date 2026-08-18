@@ -2302,6 +2302,14 @@ public sealed class StructuringPass : IIrPass
             }
             var statements = block.DetachChildren();
             int resultStart = result.Children.Count;
+            if (ctx.AllowRetainedMergeWithinLoop
+                && ctx.RetainedMergeIndices.Contains(i)
+                && ctx.FlowFacts.BranchTargets.Contains(block.StartOffset))
+            {
+                var anchor = new LabelAnchor();
+                anchor.SetSourceOffset(block.StartOffset);
+                result.Add(anchor);
+            }
             var last = statements[^1];
             for (int s = 0; s < statements.Count - 1; s++)
                 result.Add(statements[s]);
