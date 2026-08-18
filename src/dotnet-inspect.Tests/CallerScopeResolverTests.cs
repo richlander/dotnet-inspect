@@ -170,8 +170,16 @@ public class CallerScopeResolverTests
             return;
         }
 
-        startInfo.ArgumentList.Add(path);
-        startInfo.ArgumentList.Add(target);
+        if (OperatingSystem.IsWindows())
+        {
+            startInfo.ArgumentList.Add(path);
+            startInfo.ArgumentList.Add(target);
+        }
+        else
+        {
+            startInfo.ArgumentList.Add(target);
+            startInfo.ArgumentList.Add(path);
+        }
         startInfo.RedirectStandardError = true;
         startInfo.RedirectStandardOutput = true;
         startInfo.UseShellExecute = false;

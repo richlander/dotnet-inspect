@@ -3,7 +3,10 @@ using Microsoft.Win32.SafeHandles;
 
 namespace DotnetInspector.Inspectors;
 
-internal readonly record struct PhysicalFileIdentity(ulong Device, ulong File);
+internal readonly record struct PhysicalFileIdentity(
+    ulong Device,
+    ulong FileLow,
+    ulong FileHigh);
 
 internal static partial class PhysicalFileIdentityProvider
 {
@@ -40,23 +43,29 @@ internal static partial class PhysicalFileIdentityProvider
     {
         if (OperatingSystem.IsWindows())
         {
-            if (!GetFileInformationByHandle(handle, out WindowsFileInformation info))
+            if (!GetFileInformationByHandleEx(
+                handle,
+                FileInfoByHandleClass.FileIdInfo,
+                out WindowsFileIdInformation info,
+                (uint)Marshal.SizeOf<WindowsFileIdInformation>()))
             {
                 identity = default;
-                failure = $"GetFileInformationByHandle failed with error " +
+                failure = $"GetFileInformationByHandleEx failed with error " +
                     $"{Marshal.GetLastPInvokeError()}";
                 return false;
             }
 
-            ulong file = ((ulong)info.FileIndexHigh << 32) | info.FileIndexLow;
-            if (file == 0)
+            if (info.FileIdLow == 0 && info.FileIdHigh == 0)
             {
                 identity = default;
-                failure = "GetFileInformationByHandle returned no stable file index";
+                failure = "GetFileInformationByHandleEx returned no stable file ID";
                 return false;
             }
 
-            identity = new PhysicalFileIdentity(info.VolumeSerialNumber, file);
+            identity = new PhysicalFileIdentity(
+                info.VolumeSerialNumber,
+                info.FileIdLow,
+                info.FileIdHigh);
             failure = null;
             return true;
         }
@@ -68,31 +77,21 @@ internal static partial class PhysicalFileIdentityProvider
             return false;
         }
 
-        if (OperatingSystem.IsLinux())
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
         {
-            int descriptor = handle.DangerousGetHandle().ToInt32();
-            if (LinuxFStat(descriptor, out LinuxFileStatus info) != 0)
+            if (UnixFStat(handle, out UnixFileStatus info) != 0)
             {
                 identity = default;
-                failure = $"fstat failed with error {Marshal.GetLastPInvokeError()}";
-                return false;
-            }
-
-            return FromUnix(info.Device, info.Inode, out identity, out failure);
-        }
-
-        if (OperatingSystem.IsMacOS())
-        {
-            int descriptor = handle.DangerousGetHandle().ToInt32();
-            if (MacFStat(descriptor, out MacFileStatus info) != 0)
-            {
-                identity = default;
-                failure = $"fstat$INODE64 failed with error " +
+                failure = $"SystemNative_FStat failed with error " +
                     $"{Marshal.GetLastPInvokeError()}";
                 return false;
             }
 
-            return FromUnix(info.Device, info.Inode, out identity, out failure);
+            return FromUnix(
+                unchecked((ulong)info.Device),
+                unchecked((ulong)info.Inode),
+                out identity,
+                out failure);
         }
 
         identity = default;
@@ -114,7 +113,7 @@ internal static partial class PhysicalFileIdentityProvider
             return false;
         }
 
-        identity = new PhysicalFileIdentity(device, inode);
+        identity = new PhysicalFileIdentity(device, inode, 0);
         failure = null;
         return true;
     }
@@ -122,61 +121,53 @@ internal static partial class PhysicalFileIdentityProvider
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetFileInformationByHandle(
+    private static partial bool GetFileInformationByHandleEx(
         SafeFileHandle file,
-        out WindowsFileInformation information);
-
-    [LibraryImport("libc", EntryPoint = "fstat", SetLastError = true)]
-    private static partial int LinuxFStat(
-        int descriptor,
-        out LinuxFileStatus information);
+        FileInfoByHandleClass informationClass,
+        out WindowsFileIdInformation information,
+        uint bufferSize);
 
     [LibraryImport(
-        "libSystem.dylib",
-        EntryPoint = "fstat$INODE64",
+        "libSystem.Native",
+        EntryPoint = "SystemNative_FStat",
         SetLastError = true)]
-    private static partial int MacFStat(
-        int descriptor,
-        out MacFileStatus information);
+    private static partial int UnixFStat(
+        SafeFileHandle file,
+        out UnixFileStatus information);
+
+    private enum FileInfoByHandleClass
+    {
+        FileIdInfo = 18,
+    }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct WindowsFileInformation
+    private struct WindowsFileIdInformation
     {
-        internal uint FileAttributes;
-        internal uint CreationTimeLow;
-        internal uint CreationTimeHigh;
-        internal uint LastAccessTimeLow;
-        internal uint LastAccessTimeHigh;
-        internal uint LastWriteTimeLow;
-        internal uint LastWriteTimeHigh;
-        internal uint VolumeSerialNumber;
-        internal uint FileSizeHigh;
-        internal uint FileSizeLow;
-        internal uint NumberOfLinks;
-        internal uint FileIndexHigh;
-        internal uint FileIndexLow;
+        internal ulong VolumeSerialNumber;
+        internal ulong FileIdLow;
+        internal ulong FileIdHigh;
     }
 
-    [StructLayout(LayoutKind.Explicit, Size = 256)]
-    private struct LinuxFileStatus
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UnixFileStatus
     {
-        // The supported 64-bit Linux ABIs begin stat with dev_t and ino_t.
-        // Reserve more than the complete native struct so fstat cannot overrun it.
-        [FieldOffset(0)]
-        internal ulong Device;
-
-        [FieldOffset(8)]
-        internal ulong Inode;
-    }
-
-    [StructLayout(LayoutKind.Explicit, Size = 144)]
-    private struct MacFileStatus
-    {
-        // Darwin's 64-bit inode layout places dev_t at 0 and ino_t at 8.
-        [FieldOffset(0)]
-        internal uint Device;
-
-        [FieldOffset(8)]
-        internal ulong Inode;
+        internal int Flags;
+        internal int Mode;
+        internal uint UserId;
+        internal uint GroupId;
+        internal long Size;
+        internal long AccessTime;
+        internal long AccessTimeNanoseconds;
+        internal long ModificationTime;
+        internal long ModificationTimeNanoseconds;
+        internal long StatusChangeTime;
+        internal long StatusChangeTimeNanoseconds;
+        internal long BirthTime;
+        internal long BirthTimeNanoseconds;
+        internal long Device;
+        internal long RawDevice;
+        internal long Inode;
+        internal uint UserFlags;
+        internal int HardLinkCount;
     }
 }
