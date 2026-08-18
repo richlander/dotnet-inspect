@@ -1472,44 +1472,7 @@ internal static class LibraryMetadataService
                             opportunity,
                             generatedFrameworkTypes)),
                     options)
-                .Select(opportunity => new OptimizationOpportunitySummary
-                {
-                    Member = FormatMethod(opportunity.Method),
-                    Assembly = opportunity.Method.AssemblyName,
-                    MethodToken = FormatToken(
-                        opportunity.Method.MetadataToken),
-                    Candidate = opportunity.CandidateId,
-                    Finding = opportunity.SourceFinding,
-                    Provenance = FormatProvenance(opportunity.Provenance),
-                    RootReach = opportunity.RootReach,
-                    Shape = opportunity.Shape,
-                    Operation = opportunity.Operation,
-                    Token = FormatToken(opportunity.OperandToken),
-                    EvidenceMethod = FormatToken(
-                        opportunity.EvidenceMethodToken),
-                    Evidence = opportunity.Evidence,
-                    Fix = opportunity.SafeFixDirection,
-                    Priority = TriagePriority(opportunity),
-                    Confidence = opportunity.Confidence,
-                    Loop = IteratesInLoop(opportunity) ? "loop" : "",
-                    CallerLoop = FormatCallerLoop(opportunity.CallerLoop),
-                    CallerLoopDepth = opportunity.CallerLoop?.Depth,
-                    CallerLoopWitness = FormatCallerLoopWitness(opportunity.CallerLoop),
-                    Allocation = opportunity.RuntimeAllocationType,
-                    Path = opportunity.PathContext,
-                    PathConfidence = opportunity.PathConfidence,
-                    PostDominance = opportunity.PostDominance,
-                    IL = opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
-                    Weight = opportunity.Weight,
-                    DirectSites = opportunity.DirectAllocationSites,
-                    OncePaths = opportunity.OnceAllocationPaths,
-                    ConditionalPaths = opportunity.ConditionalAllocationPaths,
-                    RepeatedPaths = opportunity.RepeatedAllocationPaths,
-                    UnknownPaths = opportunity.UnknownAllocationPaths,
-                    CachedSites = opportunity.CachedAllocationSites,
-                    OpaquePaths = opportunity.OpaqueCallPaths,
-                    Saturated = opportunity.AllocationCountSaturated ? "yes" : null,
-                })
+                .Select(ProjectOptimizationOpportunity)
                 .ToList();
             return rows.Count > 0 ? rows : null;
         }
@@ -1539,6 +1502,51 @@ internal static class LibraryMetadataService
                 + diagnostic.Message);
         }
     }
+
+    internal static OptimizationOpportunitySummary ProjectOptimizationOpportunity(
+        Analysis.OptimizationOpportunity opportunity)
+        => new()
+        {
+            Member = FormatMethod(opportunity.Method),
+            Assembly = opportunity.Method.AssemblyName,
+            ModuleVersionId =
+                opportunity.Method.ModuleVersionId == Guid.Empty
+                    ? null
+                    : opportunity.Method.ModuleVersionId,
+            MethodToken = FormatToken(
+                opportunity.Method.MetadataToken),
+            Candidate = opportunity.CandidateId,
+            Finding = opportunity.SourceFinding,
+            Provenance = FormatProvenance(opportunity.Provenance),
+            RootReach = opportunity.RootReach,
+            Shape = opportunity.Shape,
+            Operation = opportunity.Operation,
+            Token = FormatToken(opportunity.OperandToken),
+            EvidenceMethod = FormatToken(
+                opportunity.EvidenceMethodToken),
+            Evidence = opportunity.Evidence,
+            Fix = opportunity.SafeFixDirection,
+            Priority = TriagePriority(opportunity),
+            Confidence = opportunity.Confidence,
+            Loop = IteratesInLoop(opportunity) ? "loop" : "",
+            CallerLoop = FormatCallerLoop(opportunity.CallerLoop),
+            CallerLoopDepth = opportunity.CallerLoop?.Depth,
+            CallerLoopWitness = FormatCallerLoopWitness(opportunity.CallerLoop),
+            Allocation = opportunity.RuntimeAllocationType,
+            Path = opportunity.PathContext,
+            PathConfidence = opportunity.PathConfidence,
+            PostDominance = opportunity.PostDominance,
+            IL = opportunity.ILOffset is { } offset ? $"IL_{offset:X4}" : null,
+            Weight = opportunity.Weight,
+            DirectSites = opportunity.DirectAllocationSites,
+            OncePaths = opportunity.OnceAllocationPaths,
+            ConditionalPaths = opportunity.ConditionalAllocationPaths,
+            RepeatedPaths = opportunity.RepeatedAllocationPaths,
+            UnknownPaths = opportunity.UnknownAllocationPaths,
+            CachedSites = opportunity.CachedAllocationSites,
+            OpaquePaths = opportunity.OpaqueCallPaths,
+            Saturated = opportunity.AllocationCountSaturated ? "yes" : null,
+        };
 
     internal static ResourceTriageScan ScanResourceTriage(
         Func<Analysis.LibraryBodyIndex> openIndex,
