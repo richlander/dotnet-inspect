@@ -197,6 +197,54 @@ public sealed class TypeShellProducerTests
     }
 
     [Fact]
+    public void MemberShellProducer_PreservesCustomIndexerMetadataName()
+    {
+        var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Custom",
+            Kind: CSharpShellMemberKind.PropertySet,
+            IsStatic: false,
+            Parameters: [new CSharpShellParameter("index", "int")],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.TargetBody,
+            Body: "return;",
+            Attributes: ["Contoso.NotIndexerName"]));
+
+        Assert.Contains("Contoso.NotIndexerName", policy.Member.Attributes);
+        Assert.Contains(
+            "System.Runtime.CompilerServices.IndexerNameAttribute(\"Custom\")",
+            policy.Member.Attributes);
+
+        var ordinary = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(
+            Name: "Item",
+            Kind: CSharpShellMemberKind.PropertyGet,
+            IsStatic: false,
+            Parameters: [new CSharpShellParameter("index", "int")],
+            ReturnType: "int",
+            TypeParameters: [],
+            BodyKind: CSharpShellBodyKind.Throw,
+            Body: null));
+        var explicitImplementation = CSharpMemberShellProducer.BuildPolicy(
+            new CSharpMemberShellSpec(
+                Name: "Custom",
+                Kind: CSharpShellMemberKind.PropertyGet,
+                IsStatic: false,
+                Parameters: [new CSharpShellParameter("index", "int")],
+                ReturnType: "int",
+                TypeParameters: [],
+                BodyKind: CSharpShellBodyKind.Throw,
+                Body: null,
+                ExplicitInterfaceMemberName: "IValues.Custom"));
+
+        Assert.DoesNotContain(
+            ordinary.Member.Attributes,
+            attribute => attribute.Contains("IndexerName", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            explicitImplementation.Member.Attributes,
+            attribute => attribute.Contains("IndexerName", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void MemberShellProducer_ComposesExplicitInterfaceEventWithSiblingBody()
     {
         var policy = CSharpMemberShellProducer.BuildPolicy(new CSharpMemberShellSpec(

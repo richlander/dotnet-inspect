@@ -1688,7 +1688,20 @@ public static class CompileBackSourceComposer
             {
                 if (index == matchIndex)
                     continue;
-                if (SynthesizeExternalInterfaceStub(interfaceReference.DisplayFullName, requiredMethods[index]) is not { } stub)
+                var requiredMethod = requiredMethods[index];
+                var implicitImplementation = FindImplicitInterfaceMethod(
+                    reader,
+                    targetMethodDefinition.GetDeclaringType(),
+                    requiredMethod);
+                var stub = implicitImplementation.IsNil
+                    ? SynthesizeExternalInterfaceStub(
+                        interfaceReference.DisplayFullName,
+                        requiredMethod)
+                    : ImplicitInterfaceMethodRequirement(
+                        reader,
+                        targetMethodDefinition.GetDeclaringType(),
+                        implicitImplementation);
+                if (stub is null)
                     return null;
                 additionalInterfaceStubs.Add(stub);
             }
@@ -1702,6 +1715,99 @@ public static class CompileBackSourceComposer
         }
 
         return null;
+    }
+
+    static MethodDefinitionHandle FindImplicitInterfaceMethod(
+        MetadataReader reader,
+        TypeDefinitionHandle targetType,
+        ExternalInterfaceRequiredMethod requiredMethod)
+    {
+        MethodDefinitionHandle match = default;
+        foreach (var methodHandle in reader.GetTypeDefinition(targetType).GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
+                || method.Attributes.HasFlag(MethodAttributes.Static)
+                || reader.GetString(method.Name) != requiredMethod.Name
+                || method.GetGenericParameters().Count != requiredMethod.GenericArity
+                || SignatureHasUnrepresentableDetail(reader, method))
+            {
+                continue;
+            }
+
+            MethodSignature<string> signature;
+            try
+            {
+                signature = method.DecodeSignature(
+                    SignatureDecoder.Instance,
+                    GenericContext.ForMethod(
+                        reader,
+                        reader.GetTypeDefinition(targetType),
+                        method));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                continue;
+            }
+
+            if (signature.ReturnType != requiredMethod.ReturnType
+                || !signature.ParameterTypes.SequenceEqual(
+                    requiredMethod.ParameterTypes,
+                    StringComparer.Ordinal))
+            {
+                continue;
+            }
+            if (!match.IsNil)
+                return default;
+            match = methodHandle;
+        }
+
+        return match;
+    }
+
+    static CompileBackMemberRequirement? ImplicitInterfaceMethodRequirement(
+        MetadataReader reader,
+        TypeDefinitionHandle targetType,
+        MethodDefinitionHandle methodHandle)
+    {
+        var typeDef = reader.GetTypeDefinition(targetType);
+        var method = reader.GetMethodDefinition(methodHandle);
+        try
+        {
+            var signature = GuardedSignatureText.MethodText(
+                reader,
+                method,
+                GenericContext.ForMethod(reader, typeDef, method));
+            var declaration = MetadataDeclarationQuery.GetMethod(
+                reader,
+                typeDef,
+                method,
+                signature);
+            if (declaration.Signature.ReturnType is not { } returnType)
+                return null;
+            string name = reader.GetString(method.Name);
+            return new CompileBackMemberRequirement(
+                new CompileBackMethodIdentity(
+                    CompileBackTypeIdentity.FromDefinition(reader, typeDef).FullName,
+                    Identifier(name),
+                    0,
+                    MethodSignatureText(name, signature)),
+                CompileBackMemberKind.Method,
+                IsStatic: false,
+                ToCompileBackParameters(declaration.Signature.Parameters),
+                CompileBackTypeSignature.Display(returnType),
+                ToCompileBackTypeParameters(declaration.Signature.TypeParameters),
+                CompileBackStubBodyKind.Throw,
+                TargetBody: null,
+                [new CompileBackFact("metadata", "external-interface-implicit-method", name)],
+                declaration.Attributes,
+                declaration.Signature.ReturnAttributes,
+                MetadataToken: MetadataTokens.GetToken(methodHandle));
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     // Synthesizes a `throw null` explicit-interface stub for a NON-target member of an external
@@ -4636,6 +4742,7 @@ public static class CompileBackSourceComposer
             var accessorMethod = accessor.IsNil ? default : reader.GetMethodDefinition(accessor);
             bool isStatic = !accessor.IsNil && accessorMethod.Attributes.HasFlag(MethodAttributes.Static);
             var returnType = CompileBackTypeSignature.Display(propertyReturnType);
+            var parameters = ToCompileBackParameters(propertyDeclaration.Signature.Parameters);
             bool isAutoProperty = hasGetter
                 && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
             bool isInitSetter = hasSetter && SetterIsInitOnly(reader, accessors.Setter);
@@ -4648,10 +4755,14 @@ public static class CompileBackSourceComposer
                 isAutoProperty,
                 noBodyProperty);
             return new CompileBackMemberRequirement(
-                new CompileBackMethodIdentity(typeIdentity.FullName, Identifier(propertyName), 0, $"property {propertyReturnType}"),
+                new CompileBackMethodIdentity(
+                    typeIdentity.FullName,
+                    Identifier(propertyName),
+                    0,
+                    PropertySignatureText(propertyName, propertyReturnType, parameters)),
                 hasGetter ? CompileBackMemberKind.PropertyGet : CompileBackMemberKind.PropertySet,
                 isStatic,
-                ToCompileBackParameters(propertyDeclaration.Signature.Parameters),
+                parameters,
                 returnType,
                 [],
                 stubBody,
@@ -5096,9 +5207,23 @@ public static class CompileBackSourceComposer
             TypeDefinition interfaceDef,
             CompileBackMemberRequirement interfaceMember)
         {
+            int? interfaceAccessorToken = interfaceMember.Kind == CompileBackMemberKind.PropertyGet
+                ? interfaceMember.GetterToken
+                : interfaceMember.SetterToken;
             var interfaceProperty = interfaceDef.GetProperties().FirstOrDefault(handle =>
-                Identifier(reader.GetString(reader.GetPropertyDefinition(handle).Name))
-                    == interfaceMember.Identity.Method);
+            {
+                var accessors = reader.GetPropertyDefinition(handle).GetAccessors();
+                var accessor = interfaceMember.Kind == CompileBackMemberKind.PropertyGet
+                    ? accessors.Getter
+                    : accessors.Setter;
+                return interfaceAccessorToken is int token
+                    ? !accessor.IsNil && MetadataTokens.GetToken(accessor) == token
+                    : PropertyMatchesRequirement(
+                        reader,
+                        interfaceDef,
+                        handle,
+                        interfaceMember);
+            });
             if (interfaceProperty.IsNil)
                 return default;
 
@@ -5127,9 +5252,47 @@ public static class CompileBackSourceComposer
             return typeDef.GetProperties().FirstOrDefault(handle =>
             {
                 string candidateName = reader.GetString(reader.GetPropertyDefinition(handle).Name);
-                return candidateName == propertyName
-                    || candidateName == $"{interfaceName}.{propertyName}";
+                return (candidateName == propertyName
+                        || candidateName == $"{interfaceName}.{propertyName}")
+                    && PropertyMatchesRequirement(
+                        reader,
+                        typeDef,
+                        handle,
+                        interfaceMember);
             });
+        }
+
+        static bool PropertyMatchesRequirement(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            PropertyDefinitionHandle propertyHandle,
+            CompileBackMemberRequirement requirement)
+        {
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            var accessors = property.GetAccessors();
+            var accessor = requirement.Kind == CompileBackMemberKind.PropertyGet
+                ? accessors.Getter
+                : accessors.Setter;
+            if (accessor.IsNil
+                || reader.GetMethodDefinition(accessor).Attributes.HasFlag(MethodAttributes.Static)
+                    != requirement.IsStatic)
+            {
+                return false;
+            }
+
+            try
+            {
+                var declaration = MetadataDeclarationQuery.GetProperty(reader, typeDef, property);
+                return declaration.Signature.ReturnType is { } returnType
+                    && CompileBackTypeSignature.Display(returnType) == requirement.ReturnType
+                    && SameParameters(
+                        ToCompileBackParameters(declaration.Signature.Parameters),
+                        requirement.Parameters);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return false;
+            }
         }
 
         static PropertyDefinitionHandle PropertyForAccessor(
@@ -5647,7 +5810,14 @@ public static class CompileBackSourceComposer
                     isAutoProperty,
                     noBodyProperty);
                 members.Add(new CompileBackMemberRequirement(
-                    new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(propertyName), 0, $"property {propertyReturnType}"),
+                    new CompileBackMethodIdentity(
+                        requirement.Type.FullName,
+                        Identifier(propertyName),
+                        0,
+                        PropertySignatureText(
+                            propertyName,
+                            propertyReturnType,
+                            propertyParameters)),
                     hasGetter ? CompileBackMemberKind.PropertyGet : CompileBackMemberKind.PropertySet,
                     IsStatic: isStatic,
                     Parameters: propertyParameters,
@@ -5845,6 +6015,7 @@ public static class CompileBackSourceComposer
                     .Where(candidate =>
                         candidate.member.Kind == memberKind
                         && candidate.member.Identity.Method == identifierName
+                        && candidate.member.ExplicitInterfaceMemberName is null
                         && candidate.member.IsStatic == methodIsStatic
                         && candidate.member.IsOperator == methodIsOperator
                         && candidate.member.TypeParameters.Count == method.GetGenericParameters().Count
@@ -6081,6 +6252,17 @@ public static class CompileBackSourceComposer
 
         static string MethodSignatureText(string name, MethodSignature<string> signature)
             => $"{signature.ReturnType} {name}({string.Join(", ", signature.ParameterTypes)})";
+
+        static string PropertySignatureText(
+            string name,
+            string returnType,
+            IReadOnlyList<CompileBackParameter> parameters)
+            => $"{returnType} {name}[{string.Join(", ", parameters.Select(ParameterSignatureText))}]";
+
+        static string ParameterSignatureText(CompileBackParameter parameter)
+            => parameter.Modifier is { Length: > 0 } modifier
+                ? $"{modifier} {parameter.Type.DisplayName}"
+                : parameter.Type.DisplayName;
 
         internal static TypeDefinitionHandle? FindType(MetadataReader reader, string metadataFullName)
         {

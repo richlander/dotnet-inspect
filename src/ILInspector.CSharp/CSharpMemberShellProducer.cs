@@ -286,7 +286,7 @@ public static class CSharpMemberShellProducer
                 _ => throw new NotSupportedException(
                     $"Unsupported C# shell accessibility '{spec.Accessibility}'."),
             },
-            Attributes = spec.Attributes?.ToList() ?? [],
+            Attributes = MemberAttributes(spec, isProperty, isExplicitInterface),
             IsUnsafe = spec.RequiresUnsafeModifier || RequiresUnsafe(spec),
             IsAsync = spec.IsAsync,
             IsExtension = spec.IsExtension,
@@ -341,6 +341,37 @@ public static class CSharpMemberShellProducer
         }
 
         return member;
+    }
+
+    static List<string> MemberAttributes(
+        CSharpMemberShellSpec spec,
+        bool isProperty,
+        bool isExplicitInterface)
+    {
+        var attributes = spec.Attributes?.ToList() ?? [];
+        if (isProperty
+            && spec.Parameters.Count > 0
+            && !isExplicitInterface
+            && spec.Name != "Item"
+            && CSharpIdentifier.IsIdentifierLike(spec.Name)
+            && !attributes.Any(IsIndexerNameAttribute))
+        {
+            attributes.Add(
+                $"System.Runtime.CompilerServices.IndexerNameAttribute(\"{spec.Name}\")");
+        }
+
+        return attributes;
+    }
+
+    static bool IsIndexerNameAttribute(string attribute)
+    {
+        int argumentStart = attribute.IndexOf('(');
+        string name = (argumentStart < 0 ? attribute : attribute[..argumentStart]).Trim();
+        if (name.StartsWith("global::", StringComparison.Ordinal))
+            name = name["global::".Length..];
+        return name is "IndexerName" or "IndexerNameAttribute"
+            or "System.Runtime.CompilerServices.IndexerName"
+            or "System.Runtime.CompilerServices.IndexerNameAttribute";
     }
 
     static string? DeclarationSignature(CSharpMemberShellSpec spec)

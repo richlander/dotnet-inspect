@@ -210,6 +210,98 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullKeepsPublicInterfaceImplementationPublic()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections;
+
+            public sealed class Holder : IEqualityComparer
+            {
+                bool IEqualityComparer.Equals(object left, object right) =>
+                    ReferenceEquals(left, right);
+
+                public int GetHashCode(object value) => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Holder",
+                    "System.Collections.IEqualityComparer.Equals",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains(
+                "bool System.Collections.IEqualityComparer.Equals(",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "public int GetHashCode(object value)",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "System.Collections.IEqualityComparer.GetHashCode",
+                result.Source,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullKeepsExplicitOverloadedIndexersDistinct()
+    {
+        var assemblyPath = CompileFixture("""
+            public interface IValues
+            {
+                int this[int index] { get; }
+                int this[string index] { get; }
+            }
+
+            public sealed class Holder : IValues
+            {
+                int IValues.this[int index] => 1;
+                int IValues.this[string index] => 2;
+            }
+
+            public static class Target
+            {
+                public static int Run() => 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.True(result.BodyComplete, result.Detail);
+            Assert.Contains("int IValues.this[int index]", result.Source, StringComparison.Ordinal);
+            Assert.Contains("int IValues.this[string index]", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return 1;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return 2;", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_PreservesStandaloneAccessorPrefixedMethods()
     {
         var assemblyPath = CompileFixture("""
@@ -8882,6 +8974,42 @@ public class ReturnToSenderPrototypeTests
             Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
             Assert.Contains("public int this[int index]", result.Source);
             Assert.Contains("set", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsCustomNamedIndexerSetter()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Runtime.CompilerServices;
+
+            public sealed class Holder
+            {
+                private int _value;
+
+                [IndexerName("Custom")]
+                public int this[int index]
+                {
+                    set { _value = index + value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "set_Custom", 0)],
+                false));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("IndexerName", result.Source, StringComparison.Ordinal);
+            Assert.Contains("public int this[int index]", result.Source, StringComparison.Ordinal);
         }
         finally
         {
