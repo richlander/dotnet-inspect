@@ -2580,6 +2580,32 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.False(bodyRead);
     }
 
+    [Fact]
+    public async Task BodyTransferDeadline_DoesNotBoundCacheCommit()
+    {
+        byte[] nupkg = TestPackageArchive.Create(
+            "lib/net10.0/Sample.dll");
+        var store = new DelayedCommitStore(
+            TimeSpan.FromMilliseconds(150));
+        using var client = new HttpClient(
+            new NuGetOrgPayloadHandler(nupkg))
+        {
+            Timeout = TimeSpan.FromMilliseconds(50),
+        };
+
+        PackagePayloadResult result =
+            await PackagePayloadAcquisition.AcquireAsync(
+                client,
+                Coordinate(NuGetOrg),
+                store,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            PackagePayloadOrigin.Download,
+            Acquired(result).Origin);
+    }
+
     static AcquiredPackagePayload Acquired(PackagePayloadResult result)
         => Assert.IsType<PackagePayloadResult.Acquired>(result).Payload;
 
@@ -2903,6 +2929,49 @@ public sealed class PackagePayloadAcquisitionTests
         {
             onRead();
             return base.ReadAsync(buffer, cancellationToken);
+        }
+    }
+
+    sealed class DelayedCommitStore(TimeSpan delay) : IPackageStore
+    {
+        readonly InMemoryPackageStore _inner = new();
+
+        public IPackageContent? TryGetCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null) =>
+            _inner.TryGetCached(
+                packageName,
+                version,
+                allowedSourceKeys,
+                log);
+
+        public IEnumerable<IPackageContent> EnumerateCached(
+            string packageName,
+            string version,
+            IReadOnlyList<string>? allowedSourceKeys,
+            Action<string>? log = null) =>
+            _inner.EnumerateCached(
+                packageName,
+                version,
+                allowedSourceKeys,
+                log);
+
+        public async ValueTask<IPackageContent> CommitAsync(
+            string packageName,
+            string version,
+            string sourceKey,
+            Stream nupkg,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(delay, cancellationToken);
+            return await _inner.CommitAsync(
+                packageName,
+                version,
+                sourceKey,
+                nupkg,
+                cancellationToken);
         }
     }
 

@@ -80,15 +80,58 @@ internal sealed class NuGetOperationDeadline : IDisposable
         }
     }
 
+    public async Task DelayAsync(TimeSpan delay)
+    {
+        ThrowIfExpired();
+        try
+        {
+            await Task.Delay(
+                delay,
+                _operationCancellation.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception)
+        {
+            if (_callerToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(
+                    "NuGet operation was canceled by the caller.",
+                    exception,
+                    _callerToken);
+            }
+
+            throw new NuGetOperationTimeoutException(
+                _operationTimeout,
+                exception);
+        }
+
+        ThrowIfExpired();
+    }
+
     public async Task<Stream> RunStreamingRequestAsync(
         Func<CancellationToken, Task<(Stream Stream, IDisposable Owner)>> request)
+    {
+        (Stream stream, _) = await RunStreamingRequestAsync(
+            async cancellationToken =>
+            {
+                (Stream responseStream, IDisposable owner) =
+                    await request(cancellationToken).ConfigureAwait(false);
+                return (responseStream, owner, Metadata: false);
+            }).ConfigureAwait(false);
+        return stream;
+    }
+
+    public async Task<(Stream Stream, T Metadata)> RunStreamingRequestAsync<T>(
+        Func<CancellationToken, Task<(
+            Stream Stream,
+            IDisposable Owner,
+            T Metadata)>> request)
     {
         long requestStarted = Stopwatch.GetTimestamp();
         CancellationTokenSource requestCancellation =
             CreateRequestCancellation();
         try
         {
-            (Stream stream, IDisposable owner) =
+            (Stream stream, IDisposable owner, T metadata) =
                 await request(requestCancellation.Token).ConfigureAwait(false);
             if (IsAnyDeadlineExpired(requestStarted, requestCancellation))
             {
@@ -109,12 +152,14 @@ internal sealed class NuGetOperationDeadline : IDisposable
             }
 
             _ownershipTransferred = true;
-            return new DeadlineStream(
-                stream,
-                owner,
-                requestCancellation,
-                this,
-                requestStarted);
+            return (
+                new DeadlineStream(
+                    stream,
+                    owner,
+                    requestCancellation,
+                    this,
+                    requestStarted),
+                metadata);
         }
         catch (OperationCanceledException ex)
         {
