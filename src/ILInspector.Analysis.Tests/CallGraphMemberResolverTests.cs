@@ -722,6 +722,190 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void Selector_MatchesRefReadonlyGenericAcrossProducers()
+    {
+        TypeRef modified = TypeRef.UnsupportedModified(
+            TypeRef.CoreLib("System.Runtime.InteropServices", "InAttribute"),
+            TypeRef.ByRef(TypeRef.MethodGenericParameter(0)),
+            isRequired: true);
+        var graph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "M",
+            ImmutableArray<TypeRef>.Empty,
+            modified,
+            MemberKind.Method)
+        {
+            HasThis = true,
+            GenericArity = 1,
+        });
+        var type = new ApiType { Namespace = "Samples", Name = "Owner" };
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            ReturnType = "ref readonly T",
+            MetadataToken = 0x06000001,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "ref readonly T",
+                StructuralReturnType = StructuralTypeIdentity.Modified(
+                    required: true,
+                    "System.Runtime.InteropServices.InAttribute",
+                    "M0@"),
+                TypeParameters = [new TypeParameter { Name = "T" }],
+            },
+        };
+        type.Members = [member];
+
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, member).Key,
+            graph.Key);
+        Assert.Same(
+            member,
+            CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.Member);
+    }
+
+    [Fact]
+    public void Selector_MatchesNestedGenericUnderPayloadAcrossProducers()
+    {
+        TypeRef inAttribute = TypeRef.CoreLib("System.Runtime.InteropServices", "InAttribute");
+        TypeRef nested = TypeRef.UnsupportedModified(
+            inAttribute,
+            TypeRef.ByRef(
+                TypeRef.GenericInstance(
+                    TypeRef.Definition("Samples", "Samples", "Outer`1+Inner`1"),
+                    [
+                        TypeRef.CoreLib("System", "Int32"),
+                        TypeRef.CoreLib("System", "String"),
+                    ])),
+            isRequired: true);
+        TypeRef flat = TypeRef.UnsupportedModified(
+            inAttribute,
+            TypeRef.ByRef(
+                TypeRef.GenericInstance(
+                    TypeRef.Definition("Samples", "Samples", "Outer`2"),
+                    [
+                        TypeRef.CoreLib("System", "Int32"),
+                        TypeRef.CoreLib("System", "String"),
+                    ])),
+            isRequired: true);
+        var declaringType = TypeRef.Definition("Samples", "Samples", "Owner");
+        CallGraphMemberSelector nestedGraph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            declaringType,
+            "M",
+            ImmutableArray<TypeRef>.Empty,
+            nested,
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
+        CallGraphMemberSelector flatGraph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            declaringType,
+            "M",
+            ImmutableArray<TypeRef>.Empty,
+            flat,
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
+        var type = new ApiType { Namespace = "Samples", Name = "Owner" };
+        var nestedMember = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            ReturnType = "ref readonly Samples.Outer<int>.Inner<string>",
+            MetadataToken = 0x06000001,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "ref readonly Samples.Outer<int>.Inner<string>",
+                StructuralReturnType = StructuralTypeIdentity.Modified(
+                    required: true,
+                    "System.Runtime.InteropServices.InAttribute",
+                    "Samples.Outer{System.Int32}.Inner{System.String}@"),
+            },
+        };
+        var flatMember = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            ReturnType = "ref readonly Samples.Outer<int, string>",
+            MetadataToken = 0x06000002,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "ref readonly Samples.Outer<int, string>",
+                StructuralReturnType = StructuralTypeIdentity.Modified(
+                    required: true,
+                    "System.Runtime.InteropServices.InAttribute",
+                    "Samples.Outer{System.Int32,System.String}@"),
+            },
+        };
+        type.Members = [nestedMember, flatMember];
+
+        Assert.NotEqual(nestedGraph.Key, flatGraph.Key);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, nestedMember).Key,
+            nestedGraph.Key);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, flatMember).Key,
+            flatGraph.Key);
+        Assert.Same(
+            nestedMember,
+            CallGraphMemberResolver.Resolve(type, nestedGraph.Name, nestedGraph.Key)!.Member);
+        Assert.Same(
+            flatMember,
+            CallGraphMemberResolver.Resolve(type, flatGraph.Name, flatGraph.Key)!.Member);
+    }
+
+    [Fact]
+    public void Selector_MatchesFunctionPointerOfGenericInstantiationAcrossProducers()
+    {
+        var signature = new MethodSignature<TypeRef>(
+            new SignatureHeader(
+                SignatureKind.Method,
+                SignatureCallingConvention.Default,
+                SignatureAttributes.None),
+            TypeRef.CoreLib("System", "Void"),
+            requiredParameterCount: 1,
+            genericParameterCount: 0,
+            [
+                TypeRef.GenericInstance(
+                    TypeRef.Definition("corelib", "System.Collections.Generic", "List`1"),
+                    [TypeRef.MethodGenericParameter(0)]),
+            ]);
+        var graph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "M",
+            [TypeRef.UnsupportedFunctionPointer(signature)],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+            GenericArity = 1,
+        });
+        var type = new ApiType { Namespace = "Samples", Name = "Owner" };
+        var member = Method(
+            "delegate*<System.Collections.Generic.List<T>, void>",
+            StructuralTypeIdentity.FunctionPointer(
+                SignatureCallingConvention.Default,
+                hasThis: false,
+                explicitThis: false,
+                genericParameterCount: 0,
+                requiredParameterCount: 1,
+                ["System.Collections.Generic.List{M0}"],
+                "System.Void"));
+        member.MetadataToken = 0x06000001;
+        member.SignatureModel!.TypeParameters = [new TypeParameter { Name = "T" }];
+        type.Members = [member];
+
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, member).Key,
+            graph.Key);
+        Assert.Same(
+            member,
+            CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.Member);
+    }
+
+    [Fact]
     public void Selector_DoesNotInventStructureFromDisplayOrUnsupportedPayload()
     {
         var declaringType = TypeRef.Definition("Samples", "Samples", "Owner");

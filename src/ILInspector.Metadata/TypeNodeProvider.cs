@@ -130,7 +130,11 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         GenericTypeNode node;
         if (backtickIndex < 0)
         {
-            node = new GenericTypeNode(rawName, genericType.IsReferenceType, typeArguments);
+            node = new GenericTypeNode(
+                rawName,
+                genericType.IsReferenceType,
+                typeArguments,
+                metadataName: rawName);
         }
         else
         {
@@ -148,7 +152,8 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                 genericType.IsReferenceType,
                 typeArguments,
                 nestedSuffix,
-                genericType.IsDegraded);
+                genericType.IsDegraded,
+                rawName);
         }
 
         ObserveMaterialization(node.EstimatedRenderedLength);

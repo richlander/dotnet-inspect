@@ -50,6 +50,44 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void MethodSignatureModel_UsesPositionalGenericsUnderRefReadonlyAndFunctionPointerPayload()
+    {
+        var genericReturn = GetMember(
+            nameof(StructuralGenericPayloadFixtures),
+            nameof(StructuralGenericPayloadFixtures.GenericRefReadonly));
+        Assert.NotNull(genericReturn.SignatureModel);
+        Assert.Contains(
+            "M0@",
+            genericReturn.SignatureModel.StructuralReturnType,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "{T@",
+            genericReturn.SignatureModel.StructuralReturnType,
+            StringComparison.Ordinal);
+
+        var nested = GetMember(
+            nameof(StructuralGenericPayloadFixtures),
+            nameof(StructuralGenericPayloadFixtures.Nested));
+        var flat = GetMember(
+            nameof(StructuralGenericPayloadFixtures),
+            nameof(StructuralGenericPayloadFixtures.Flat));
+        Assert.Contains(
+            ".Inner{",
+            nested.SignatureModel?.StructuralReturnType,
+            StringComparison.Ordinal);
+        Assert.NotEqual(
+            nested.SignatureModel?.StructuralReturnType,
+            flat.SignatureModel?.StructuralReturnType);
+
+        var fnptr = GetMember(
+            nameof(StructuralGenericPayloadFixtures),
+            nameof(StructuralGenericPayloadFixtures.FnptrOfList));
+        string? structuralType = Assert.Single(fnptr.SignatureModel!.Parameters).StructuralType;
+        Assert.Contains("List{M0}", structuralType, StringComparison.Ordinal);
+        Assert.DoesNotContain("List{T}", structuralType, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void MethodSignatureModel_OmitsStructuralTypeForGenericParameters()
     {
         var member = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.GenericMethod));
@@ -468,6 +506,33 @@ public sealed class ApiSignatureFixtures
         get => index.ToString();
         private set { }
     }
+}
+
+public sealed class StructuralGenericPayloadFixtures
+{
+    public ref readonly T GenericRefReadonly<T>()
+        => throw new InvalidOperationException();
+
+    public ref readonly Outer<int>.Inner<string> Nested()
+        => throw new InvalidOperationException();
+
+    public ref readonly Flat<int, string> Flat()
+        => throw new InvalidOperationException();
+
+    public unsafe void FnptrOfList<T>(delegate*<List<T>, void> callback)
+    {
+    }
+}
+
+public class Outer<TOuter>
+{
+    public class Inner<TInner>
+    {
+    }
+}
+
+public class Flat<T1, T2>
+{
 }
 
 [AttributeUsage(AttributeTargets.Parameter)]

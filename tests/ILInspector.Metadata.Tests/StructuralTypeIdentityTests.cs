@@ -115,4 +115,60 @@ public sealed class StructuralTypeIdentityTests
                 "System.Void"),
             functionPointer.StructuralIdentity());
     }
+
+    [Fact]
+    public void TypeNode_RecursesPositionalGenericsUnderWrappersAndGenericInstantiations()
+    {
+        var provider = TypeNodeProvider.Instance;
+        TypeNode methodParameter = provider.GetGenericMethodParameter(context: null, index: 0);
+        TypeNode typeParameter = provider.GetGenericTypeParameter(context: null, index: 1);
+        TypeNode byRef = provider.GetByReferenceType(methodParameter);
+        TypeNode required = provider.GetModifiedType(
+            new NamedTypeNode("System.Runtime.InteropServices.InAttribute", isReferenceType: false),
+            byRef,
+            isRequired: true);
+        TypeNode list = provider.GetGenericInstantiation(
+            new NamedTypeNode("System.Collections.Generic.List`1", isReferenceType: true),
+            [methodParameter]);
+        TypeNode nested = provider.GetGenericInstantiation(
+            new NamedTypeNode("Samples.Outer`1.Inner`1", isReferenceType: true),
+            [
+                provider.GetPrimitiveType(PrimitiveTypeCode.Int32),
+                provider.GetPrimitiveType(PrimitiveTypeCode.String),
+            ]);
+        TypeNode flat = provider.GetGenericInstantiation(
+            new NamedTypeNode("Samples.Outer`2", isReferenceType: true),
+            [
+                provider.GetPrimitiveType(PrimitiveTypeCode.Int32),
+                provider.GetPrimitiveType(PrimitiveTypeCode.String),
+            ]);
+        var functionPointer = provider.GetFunctionPointerType(
+            new MethodSignature<TypeNode>(
+                new SignatureHeader(
+                    SignatureKind.Method,
+                    SignatureCallingConvention.Default,
+                    SignatureAttributes.None),
+                provider.GetPrimitiveType(PrimitiveTypeCode.Void),
+                requiredParameterCount: 1,
+                genericParameterCount: 0,
+                [list]));
+
+        Assert.Equal("M0@", byRef.StructuralIdentity());
+        Assert.Equal("T1", typeParameter.StructuralIdentity());
+        Assert.Equal(
+            StructuralTypeIdentity.Modified(
+                required: true,
+                "System.Runtime.InteropServices.InAttribute",
+                "M0@"),
+            required.StructuralIdentity());
+        Assert.Equal("System.Collections.Generic.List{M0}", list.StructuralIdentity());
+        Assert.Equal(
+            "Samples.Outer{System.Int32}.Inner{System.String}",
+            nested.StructuralIdentity());
+        Assert.Equal("Samples.Outer{System.Int32,System.String}", flat.StructuralIdentity());
+        Assert.NotEqual(nested.StructuralIdentity(), flat.StructuralIdentity());
+        Assert.Contains("List{M0}", functionPointer.StructuralIdentity(), StringComparison.Ordinal);
+        Assert.DoesNotContain("List{TM0}", functionPointer.StructuralIdentity(), StringComparison.Ordinal);
+        Assert.False(list.HasStructuralPayload);
+    }
 }

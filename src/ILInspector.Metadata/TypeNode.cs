@@ -301,7 +301,8 @@ internal sealed class GenericTypeNode(
     bool isReferenceType,
     ImmutableArray<TypeNode> arguments,
     string nestedSuffix = "",
-    bool degradedGenericType = false) : TypeNode
+    bool degradedGenericType = false,
+    string? metadataName = null) : TypeNode
 {
     readonly long estimatedRenderedLength =
         EstimateRenderedLength(baseName, arguments, nestedSuffix);
@@ -311,6 +312,11 @@ internal sealed class GenericTypeNode(
     public override bool IsReferenceType => isReferenceType;
     public override bool IsDegraded => degradedGenericType || arguments.Any(argument => argument.IsDegraded);
     public override long EstimatedRenderedLength => estimatedRenderedLength;
+
+    internal override string StructuralIdentity()
+        => StructuralTypeIdentity.Generic(
+            metadataName ?? baseName,
+            arguments.Select(argument => argument.StructuralIdentity()));
 
     static long EstimateRenderedLength(
         string baseName,
@@ -376,9 +382,7 @@ internal sealed class SZArrayTypeNode(TypeNode elementType) : TypeNode
         Math.Min(int.MaxValue, elementType.EstimatedRenderedLength + 3);
 
     internal override string StructuralIdentity()
-        => HasStructuralPayload
-            ? $"{elementType.StructuralIdentity()}[]"
-            : base.StructuralIdentity();
+        => $"{elementType.StructuralIdentity()}[]";
 
     public override string Render(bool canonicalTuples)
     {
@@ -413,9 +417,7 @@ internal sealed class MDArrayTypeNode(TypeNode elementType, int rank) : TypeNode
             elementType.EstimatedRenderedLength + Math.Max(rank, 0L) + 2);
 
     internal override string StructuralIdentity()
-        => HasStructuralPayload
-            ? $"{elementType.StructuralIdentity()}[{new string(',', Math.Max(rank - 1, 0))}]"
-            : base.StructuralIdentity();
+        => $"{elementType.StructuralIdentity()}[{new string(',', Math.Max(rank - 1, 0))}]";
 
     public override string Render(bool canonicalTuples)
     {
@@ -448,9 +450,7 @@ internal sealed class PointerTypeNode(TypeNode elementType) : TypeNode
         Math.Min(int.MaxValue, elementType.EstimatedRenderedLength + 1);
 
     internal override string StructuralIdentity()
-        => HasStructuralPayload
-            ? $"{elementType.StructuralIdentity()}*"
-            : base.StructuralIdentity();
+        => $"{elementType.StructuralIdentity()}*";
 
     public override string Render(bool canonicalTuples) => $"{elementType.Render(canonicalTuples)}*";
 
@@ -478,9 +478,7 @@ internal sealed class ByRefTypeNode(TypeNode elementType) : TypeNode
         Math.Min(int.MaxValue, elementType.EstimatedRenderedLength + 4);
 
     internal override string StructuralIdentity()
-        => HasStructuralPayload
-            ? $"{elementType.StructuralIdentity()}@"
-            : base.StructuralIdentity();
+        => $"{elementType.StructuralIdentity()}@";
 
     public override string Render(bool canonicalTuples) => $"ref {elementType.Render(canonicalTuples)}";
 
