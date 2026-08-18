@@ -3063,6 +3063,21 @@ internal static class ProgramSupport
         if (!hasTriageCandidate)
             return Array.Empty<AllocationCandidate>();
 
+        bool hasLibraryCandidate = false;
+        for (int i = 0; i < coordinateCandidates.Count; i++)
+        {
+            if (string.Equals(
+                    coordinateCandidates[i].Source,
+                    "library",
+                    StringComparison.Ordinal))
+            {
+                hasLibraryCandidate = true;
+                break;
+            }
+        }
+        if (!hasLibraryCandidate)
+            return Array.Empty<AllocationCandidate>();
+
         return FindTraceLibrariesSupersededByTriageWithTriage(
             matchedCandidates,
             coordinateCandidates,

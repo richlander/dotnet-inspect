@@ -618,6 +618,36 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void FindTraceLibrariesSupersededByTriage_TriageOnly_DoesNotAllocate()
+    {
+        var triage = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage");
+        AllocationCandidate[] candidates =
+            [triage];
+        _ = ProgramSupport.FindTraceLibrariesSupersededByTriage(
+            candidates,
+            candidates,
+            "System.String");
+
+        long before =
+            GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 10_000; i++)
+        {
+            _ = ProgramSupport.FindTraceLibrariesSupersededByTriage(
+                candidates,
+                candidates,
+                "System.String");
+        }
+        long allocated =
+            GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_CollapsesOnlyMatchingTriageModuleVersion()
     {
         Guid firstMvid = Guid.Parse(
