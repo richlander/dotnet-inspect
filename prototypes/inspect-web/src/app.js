@@ -7,17 +7,13 @@ import {
   dependencyCoordinateCandidates,
   dependencyGroupSelectionMessage,
   dependencyGraphGroupSelectionIndex,
-  dependencyGraphExternalKey,
-  dependencyGraphPackageKey,
   dependencyGraphRenderSignature,
-  ensureBoundedGraphNode,
   graphTargetNavigationDisposition,
   graphMemberSelection,
   lenses,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
-  mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
   packageForView,
@@ -36,6 +32,10 @@ import {
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.js";
+import {
+  buildDependencyGraphMermaid,
+  buildTypeGraphMermaid
+} from "./graph-mermaid.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
 
@@ -5919,7 +5919,7 @@ function openPackageFromError(packageId, version) {
 function renderLoading() {
   app.innerHTML = `
     <div class="loading-screen">
-      <div class="loading-brand"><span>◇</span> dotnet-inspect</div>
+      <a class="loading-brand" href="/" aria-label="dotnet inspect home"><span>◇</span> dotnet-inspect</a>
       ${state.error
         ? `<div class="load-error">
              <strong>${escapeHtml(state.errorTitle || "Inspection query failed")}</strong>
@@ -6226,29 +6226,6 @@ async function loadSelectedTypeMetadata() {
 
 // Projects the neutral type-relationship node/edge model into a Mermaid flowchart so it
 // renders with the same pan/zoom/click affordances as the call graph.
-function buildTypeGraphMermaid(meta) {
-  const nodes = meta.graphNodes || [];
-  const edges = meta.graphEdges || [];
-  if (nodes.length < 2) return null;
-  const idOf = new Map();
-  nodes.forEach((node, index) => idOf.set(node.id, `t${index}`));
-  const lines = ["flowchart TD"];
-  for (const node of nodes) {
-    const label = mermaidLabel(shortTypeName(node.displayName));
-    lines.push(`  ${idOf.get(node.id)}["${label}"]:::${node.role}`);
-  }
-  for (const edge of edges) {
-    const from = idOf.get(edge.fromId);
-    const to = idOf.get(edge.toId);
-    if (from && to) lines.push(`  ${from} --> ${to}`);
-  }
-  lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
-  lines.push("classDef base fill:var(--panel-active),stroke:var(--line-strong),color:var(--text);");
-  lines.push("classDef interface fill:transparent,stroke:var(--line-strong),color:var(--dim);");
-  lines.push("classDef derived fill:var(--panel),stroke:var(--line),color:var(--text);");
-  return lines.join("\n");
-}
-
 async function renderTypeGraph() {
   const container = document.querySelector("#type-graph-diagram");
   if (!container || container.querySelector(".graph-viewport")) return;
@@ -6362,180 +6339,6 @@ function relatedTypeChip(name) {
 // dependency manifests) and three levels of callers (open packages that transitively
 // depend on the centre). Because only opened packages have cached manifests, the graph
 // grows as the user clicks around and opens more of the neighbourhood.
-function buildDependencyGraphMermaid() {
-  const MAX_DEPTH = 3;
-  const MAX_NODES = 80;
-  const nodeInfo = new Map();
-  let truncated = false;
-  const ensureNode = (key, create) => {
-    const result = ensureBoundedGraphNode(
-      nodeInfo,
-      key,
-      create,
-      MAX_NODES);
-    truncated ||= result.truncated;
-    return result.node;
-  };
-  const openPackageNode = (pkg, kind = "open") => {
-    const packageKey = packageIdentityKey(pkg);
-    const key = dependencyGraphPackageKey(pkg);
-    return ensureNode(key, () => {
-      const sameIdCount = state.packages.filter(candidate =>
-        candidate.id.toLowerCase() === pkg.id.toLowerCase()).length;
-      return {
-        key,
-        id: pkg.id,
-        kind,
-        packageKey,
-        versionRange: "",
-        label: sameIdCount > 1
-          ? `${pkg.id}@${pkg.version} · ${pkg.activeFramework}`
-          : pkg.id
-      };
-    });
-  };
-  const dependencyNode = dependency => {
-    const open = uniqueCompatiblePackage(
-      state.packages,
-      dependency.id,
-      dependency.versionRange);
-    if (open) return openPackageNode(open);
-
-    const versionRange = dependency.versionRange || "";
-    const key = dependencyGraphExternalKey(dependency.id, versionRange);
-    return ensureNode(key, () => {
-      return {
-        key,
-        id: dependency.id,
-        kind: "external",
-        packageKey: "",
-        versionRange,
-        label: versionRange
-          ? `${dependency.id} ${versionRange}`
-          : dependency.id
-      };
-    });
-  };
-  openPackageNode(state.package, "self");
-
-  const edgeSet = new Set();
-  const edges = [];
-  const addEdge = (from, to) => {
-    const key = `${from.key}\u0001${to.key}`;
-    if (edgeSet.has(key)) return;
-    edgeSet.add(key);
-    edges.push({ from: from.key, to: to.key });
-  };
-
-  const groupFor = pkg => {
-    if (packageIdentityKey(pkg) === packageIdentityKey(state.package)) {
-      const groups = state.packageDependencies?.dependencyGroups || [];
-      const selectedGroupIndex = dependencyGraphGroupSelectionIndex(
-        state.packageDependencies,
-        state.dependenciesGroupIndex,
-        resolveDependenciesGroupIndex(groups));
-      return selectedDependencyGroup(
-        state.packageDependencies,
-        selectedGroupIndex);
-    }
-
-    const data = state.workspaceDependencies[workspaceDependencyKey(pkg)];
-    return selectedDependencyGroup(data);
-  };
-
-  // Callees: walk the centre's dependencies, expanding any dependency that is itself an
-  // open package (only open packages have cached manifests to walk further).
-  let downFrontier = [state.package];
-  const downVisited = new Set([packageIdentityKey(state.package)]);
-  for (let depth = 0; depth < MAX_DEPTH && downFrontier.length && !truncated; depth++) {
-    const next = [];
-    for (const pkg of downFrontier) {
-      const group = groupFor(pkg);
-      if (!group) continue;
-      const source = openPackageNode(
-        pkg,
-        packageIdentityKey(pkg) === packageIdentityKey(state.package)
-          ? "self"
-          : "open");
-      for (const dependency of group.dependencies || []) {
-        const target = dependencyNode(dependency);
-        if (!target) break;
-        addEdge(source, target);
-        if (target.packageKey && !downVisited.has(target.packageKey)) {
-          downVisited.add(target.packageKey);
-          const open = state.packages.find(candidate =>
-            packageIdentityKey(candidate) === target.packageKey);
-          if (open) next.push(open);
-        }
-        if (truncated) break;
-      }
-    }
-    downFrontier = next;
-  }
-
-  // Callers: open packages that (transitively) declare a dependency on a frontier node.
-  let upFrontier = [state.package];
-  const upVisited = new Set([packageIdentityKey(state.package)]);
-  for (let depth = 0; depth < MAX_DEPTH && upFrontier.length && !truncated; depth++) {
-    const next = [];
-    for (const targetPackage of upFrontier) {
-      const target = openPackageNode(
-        targetPackage,
-        packageIdentityKey(targetPackage) === packageIdentityKey(state.package)
-          ? "self"
-          : "open");
-      if (!target) break;
-      for (const pkg of state.packages) {
-        const pkgKey = packageIdentityKey(pkg);
-        if (pkgKey === target.packageKey) continue;
-        const group = groupFor(pkg);
-        if (!group) continue;
-        if ((group.dependencies || []).some(dependency =>
-          packageIdentityKey(uniqueCompatiblePackage(
-            state.packages,
-            dependency.id,
-            dependency.versionRange)) === target.packageKey)) {
-          const caller = openPackageNode(pkg);
-            if (!caller) break;
-            addEdge(caller, target);
-          if (!upVisited.has(pkgKey)) {
-            upVisited.add(pkgKey);
-            next.push(pkg);
-          }
-        }
-        if (truncated) break;
-      }
-    }
-    upFrontier = next;
-  }
-
-  if (!edges.length) return null;
-
-  const keys = [...nodeInfo.keys()];
-  const idOf = new Map();
-  keys.forEach((key, index) => idOf.set(key, `d${index}`));
-  const lines = ["flowchart TD"];
-  for (const key of keys) {
-    const info = nodeInfo.get(key);
-    const label = mermaidLabel(info.label);
-    lines.push(`  ${idOf.get(key)}["${label}"]:::${info.kind}`);
-  }
-  for (const edge of edges) {
-    lines.push(`  ${idOf.get(edge.from)} --> ${idOf.get(edge.to)}`);
-  }
-  lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
-  lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
-  lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
-  const nodeInfoById = new Map(
-    keys.map(key => [idOf.get(key), nodeInfo.get(key)]));
-  return {
-    definition: lines.join("\n"),
-    nodeInfoById,
-    truncated,
-    nodeLimit: MAX_NODES
-  };
-}
-
 async function renderDependencyGraph() {
   const container = document.querySelector("#dependency-graph-diagram");
   if (!container) return;
@@ -6546,7 +6349,7 @@ async function renderDependencyGraph() {
     pending.invalidate();
     return;
   }
-  const built = buildDependencyGraphMermaid();
+  const built = buildDependencyGraphMermaid(state, uniqueCompatiblePackage);
   if (!built) {
     depGraphRenderSequence.invalidate();
     container.dataset.graphDef = "";
