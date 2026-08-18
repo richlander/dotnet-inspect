@@ -18016,6 +18016,45 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("--columns", "Bogus", "columns")]
+    [InlineData("--columns", "Version", "columns")]
+    [InlineData("--fields", "Bogus", "fields")]
+    public async Task Package_FixedOverviewJsonRejectsUnknownProjection(
+        string option,
+        string name,
+        string kind)
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.JsonFixedOverviewInvalidProjection",
+            "README.md",
+            "# Package");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                "--json",
+                option,
+                name,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("not found", error, StringComparison.Ordinal);
+            Assert.Contains(
+                $"No {kind} matched projection: {name}",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Package_JsonEmptyColumnWithCompanionSectionRemainsTypedJson(

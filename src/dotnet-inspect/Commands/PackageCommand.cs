@@ -1346,6 +1346,7 @@ public class PackageCommand
 
         if (options.JsonOutput
             && !options.Count
+            && !options.FixedOverview
             && options.IncludeSections is not { Count: > 0 })
             return true;
 
