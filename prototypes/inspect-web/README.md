@@ -474,6 +474,18 @@ the staging deployment job. The separate `inspect-web-staging` GitHub
 environment accepts only `main` and holds a deployment token scoped to the
 staging Azure Static Web App.
 
+`.github/workflows/deploy-inspect-web-coreclr.yml` publishes the same `main`
+commit to the isolated comparison site at
+`https://coreclr.dotnet-inspect.ca`. It uses a third Azure Static Web App, the
+main-only `inspect-web-coreclr-staging` environment, a distinct deployment
+token, and the non-promotable `inspect-web-coreclr-site` artifact. The site is
+interpreter-only while the .NET 11 Preview 7 SDK lacks the packaged headers and
+Emscripten cache wiring needed for CoreCLR native relinking. The workflow pins
+the proven preview SDK and the `UseMonoRuntime=false`,
+`WasmBuildNative=false`, `WasmNestedPublishAppDependsOn=`, and
+`WasmEnableExceptionHandling=true` overrides. It verifies the CoreCLR-specific
+`GetDotNetRuntimeHeap` hook before and after artifact transfer.
+
 `.github/workflows/promote-inspect-web.yml` intentionally promotes one
 successful staging run to production at `https://dotnet-inspect.net`. The
 operator supplies the staging run ID and types `promote`; the workflow verifies
@@ -484,11 +496,11 @@ the run attempt, commit, artifact identity, and digest, downloads the exact
 artifact ID with digest mismatch configured as an error, and deploys the
 archived staging files. `validate-inspect-web-promotion.cs --self-test`, run
 by inspect-web CI, gates the evidence discriminator and close negative cases;
-the CI change-detection workflow contract gate keeps both deployment jobs free
-of candidate code, keeps production revalidation on the trusted dispatch
-revision, and orders each artifact download before only verification and
-deployment. Manual staging runs remain useful for recovery but are deliberately
-not promotable.
+the CI change-detection workflow contract gate keeps all deployment jobs free
+of candidate code, closes the CoreCLR runtime and credential contract, keeps
+production revalidation on the trusted dispatch revision, and orders each
+artifact download before only verification and deployment. Manual staging runs
+remain useful for recovery but are deliberately not promotable.
 
 Production promotion uses the distinct `inspect-web-production-promotion`
 environment and `AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION`
@@ -500,16 +512,16 @@ repository-scoped token. Token rotation invalidates credentials already copied
 into queued parent-era jobs; deleting both old secret locations makes later
 reruns fail closed.
 
-Both deployment workflows pin the Azure deployment action to an exact commit
-and pin their checkout, SDK setup, and artifact actions to exact commits. The
-workflow contract gate enforces those references. Azure's pinned action still
-pulls Microsoft's `staticappsclient:stable` image; that vendor-controlled
-deployment dependency is not immutable and remains inside the Azure trust
-boundary. Both workflows disable Azure's own app build and require the
-published artifact to contain `staticwebapp.config.json`. That configuration
-serves `/` and `/index.html` with `Cache-Control: no-cache, no-store,
-must-revalidate`, so an Azure edge cannot retain an old browser boot graph
-after its fingerprinted Wasm assets rotate.
+All three deployment workflows pin the Azure deployment action to an exact
+commit and pin their checkout, SDK setup, and artifact actions to exact
+commits. The workflow contract gate enforces those references. Azure's pinned
+action still pulls Microsoft's `staticappsclient:stable` image; that
+vendor-controlled deployment dependency is not immutable and remains inside
+the Azure trust boundary. All three workflows disable Azure's own app build
+and require the published artifact to contain `staticwebapp.config.json`. That
+configuration serves `/` and `/index.html` with `Cache-Control: no-cache,
+no-store, must-revalidate`, so an Azure edge cannot retain an old browser boot
+graph after its fingerprinted Wasm assets rotate.
 `BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
 gates the header contract and publish wiring. The staging publish step embeds
 the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
@@ -523,9 +535,8 @@ The Azure resources, custom-domain assignments, GitHub environments, branch
 restrictions, required production reviewer, and environment-scoped deployment
 tokens live outside this repository and are **not** verified by anything in it.
 Treat successful staging and promotion runs, not this file, as evidence that
-the corresponding deployed site is current. The staging domain is intentionally
-not publicized, but it is public infrastructure and is not a confidentiality
-boundary.
+the corresponding deployed site is current. Both staging domains are public
+infrastructure and are not confidentiality boundaries.
 
 See [architecture-spike.md](architecture-spike.md) for the proposed .NET 11
 browser engine and the NativeAOT decision.
