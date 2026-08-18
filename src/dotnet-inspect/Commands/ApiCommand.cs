@@ -634,11 +634,10 @@ public class ApiCommand
             };
         }
 
-        // Discovery mode: -D/--discover lists effective sections (resolves source) by default;
-        // --schema normally opts out to the cheap, offline static schema listing. A dotted member
-        // target is the exception: metadata lookup must first distinguish a namespace-qualified
-        // type from Type.Member so structural discovery reports the pipeline that actually applies.
-        if (options.Discover != null && !options.EffectiveDiscovery && !memberPipelineRequiresLookup)
+        // Discovery mode: -D/--discover lists effective sections (resolves source) by default.
+        // --schema always opts out to the cheap, offline structural listing; an unresolved dotted
+        // target reports the conservative member schema because metadata is intentionally unavailable.
+        if (options.Discover != null && !options.EffectiveDiscovery)
         {
             var structuralOptions =
                 (ApiOptions?)structuralDetailOptions ?? options;
