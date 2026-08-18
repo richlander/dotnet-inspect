@@ -548,6 +548,37 @@ public sealed class InspectionGraphIntegrationsQueryTests
     }
 
     [Fact]
+    public void Execute_ExplicitInducedSetRetainsDeclaredMemberInput()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument workspace =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphSubject.MemberSubject member = workspace.Nodes
+            .Select(static node => node.Subject)
+            .OfType<InspectionGraphSubject.MemberSubject>()
+            .First();
+
+        InspectionGraphDocument document =
+            InspectionGraphIntegrationsQuery.Execute(
+                fixture.Context,
+                new InspectionGraphInducedSetRequest(
+                    [member],
+                    [
+                        InspectionGraphIntegrationsCatalog
+                            .IntegrationObserved,
+                    ],
+                    InspectionGraphInducedSetAdmissionRule
+                        .BothEndpointsWithinSubjectClosure));
+
+        Assert.Equal(
+            [member],
+            document.Nodes.Select(static node => node.Subject));
+        Assert.Empty(document.Edges);
+        Assert.Empty(document.Occurrences);
+        Assert.Empty(document.Seeds);
+    }
+
+    [Fact]
     public void Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand()
     {
         using var fixture = IntegrationFixture.Create();
@@ -677,6 +708,88 @@ public sealed class InspectionGraphIntegrationsQueryTests
                     "feed",
                     "net11.0",
                     null));
+
+        InspectionQueryException exception = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphIntegrationsQuery.Execute(
+                    fixture.Context,
+                    new InspectionGraphInducedSetRequest(
+                        [missing],
+                        [
+                            InspectionGraphIntegrationsCatalog
+                                .IntegrationObserved,
+                        ],
+                        InspectionGraphInducedSetAdmissionRule
+                            .BothEndpointsWithinSubjectClosure),
+                    (query, _) => executions.Add(query)));
+
+        Assert.Contains("not present", exception.Message);
+        Assert.Contains("workspace scope", exception.Message);
+        Assert.Empty(executions);
+    }
+
+    [Fact]
+    public void Execute_RejectsUndeclaredInScopeTypeBeforeProducerExecution()
+    {
+        using var fixture = IntegrationFixture.Create();
+        AssemblyAcquisitionRegistration registration =
+            fixture.Context.Group.Participants[0]
+                .Assembly.Registration;
+        MetadataTypeDefinitionName missingType =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Missing.Explicit.Subject",
+                    ["NotDeclared"]))
+                .Name;
+        InspectionGraphSubject missing =
+            InspectionGraphSubject.ForAcquiredType(
+                registration,
+                missingType);
+        var executions = new List<InspectionQueryDefinition>();
+
+        InspectionQueryException exception = Assert.Throws<
+            InspectionQueryException>(
+                () => InspectionGraphIntegrationsQuery.Execute(
+                    fixture.Context,
+                    new InspectionGraphInducedSetRequest(
+                        [missing],
+                        [
+                            InspectionGraphIntegrationsCatalog
+                                .IntegrationObserved,
+                        ],
+                        InspectionGraphInducedSetAdmissionRule
+                            .BothEndpointsWithinSubjectClosure),
+                    (query, _) => executions.Add(query)));
+
+        Assert.Contains("not present", exception.Message);
+        Assert.Contains("workspace scope", exception.Message);
+        Assert.Empty(executions);
+    }
+
+    [Fact]
+    public void Execute_RejectsUndeclaredInScopeMemberBeforeProducerExecution()
+    {
+        using var fixture = IntegrationFixture.Create();
+        InspectionGraphDocument workspace =
+            InspectionGraphIntegrationsQuery.Execute(fixture.Context);
+        InspectionGraphMemberIdentity.AcquiredApi declared =
+            workspace.Nodes
+                .Select(static node => node.Subject)
+                .OfType<InspectionGraphSubject.MemberSubject>()
+                .Select(static member => member.Identity)
+                .OfType<InspectionGraphMemberIdentity.AcquiredApi>()
+                .First();
+        InspectionGraphSubject missing =
+            InspectionGraphSubject.ForAcquiredApiMember(
+                declared.Registration,
+                declared.DeclaringType,
+                new MemberAnchor(
+                    "M~0000000000",
+                    $"{declared.DeclaringType}.NotDeclared()",
+                    "0000000000",
+                    "Missing.Explicit.Subject",
+                    "NotDeclared"));
+        var executions = new List<InspectionQueryDefinition>();
 
         InspectionQueryException exception = Assert.Throws<
             InspectionQueryException>(

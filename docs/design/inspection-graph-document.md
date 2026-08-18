@@ -815,7 +815,10 @@ contracts.
 `Execute_ExplicitPackageSetInducesOnlyInternalEvidence`,
 `Execute_ExplicitInducedSetRequiresBothEndpointClosures`,
 `Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance`,
+`Execute_RejectsUndeclaredInScopeTypeBeforeProducerExecution`,
+`Execute_RejectsUndeclaredInScopeMemberBeforeProducerExecution`,
 `Execute_ExplicitInducedSetRetainsIsolatedInput`,
+`Execute_ExplicitInducedSetRetainsDeclaredMemberInput`,
 `Execute_ExplicitInducedSetRetainsOnlyInClosureFailures`, and
 `Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand` gate explicit-set
 projection.

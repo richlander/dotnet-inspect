@@ -910,11 +910,82 @@ public static class InspectionGraphIntegrationsQuery
             }
 
             if (!TryGetRegistration(subject, out var registration)
-                || !_participants.ContainsKey(registration))
+                || !_participants.TryGetValue(
+                    registration,
+                    out var participant))
             {
                 throw SubjectNotPresent(subject);
             }
+
+            switch (subject)
+            {
+                case InspectionGraphSubject.AssemblySubject:
+                    if (!_boundary.TryGetAssemblySubject(
+                            registration,
+                            out var exactAssembly)
+                        || exactAssembly != subject)
+                    {
+                        throw SubjectNotPresent(subject);
+                    }
+                    break;
+                case InspectionGraphSubject.TypeSubject
+                {
+                    Identity:
+                        InspectionGraphTypeIdentity.AcquiredDefinition type
+                }:
+                    EnsureDeclared(
+                        participant,
+                        subject,
+                        session =>
+                            session.ProbeDeclaration(type.Type)
+                                is TypeDeclarationResult.Defined);
+                    break;
+                case InspectionGraphSubject.MemberSubject
+                {
+                    Identity:
+                        InspectionGraphMemberIdentity.AcquiredApi member
+                }:
+                    EnsureDeclared(
+                        participant,
+                        subject,
+                        session =>
+                            session.ProbeDeclaration(
+                                member.DeclaringType)
+                                is TypeDeclarationResult.Defined
+                            && session.DeclaresExtensionMember(
+                                member.DeclaringType,
+                                member.Member));
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown explicit-subject kind.");
+            }
+
             AddNode(subject, registration);
+        }
+
+        void EnsureDeclared(
+            AssemblyContextParticipant participant,
+            InspectionGraphSubject subject,
+            Func<AssemblyInspectionSession, bool> predicate)
+        {
+            AssemblyImageAccessResult<bool> access =
+                _context.Group.UseAssemblySession(
+                    participant.Assembly,
+                    predicate);
+            if (access
+                is AssemblyImageAccessResult<bool>.Rejected rejected)
+            {
+                throw new InspectionQueryException(
+                    $"Explicit induced-set subject '{subject}' could not "
+                    + "be validated because its workspace participant "
+                    + $"image is unavailable ({rejected.Failure.Kind}). "
+                    + "Update the request to use a subject declared by "
+                    + "this workspace.");
+            }
+
+            if (!((AssemblyImageAccessResult<bool>.Available)access).Value)
+                throw SubjectNotPresent(subject);
         }
 
         internal void AddTypeCurrency(
