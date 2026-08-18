@@ -243,6 +243,50 @@ public class LibraryCommand
             };
         }
 
+        if (options.Discover is null || fullEffectiveDiscovery)
+        {
+            bool bodyShapesSelected =
+                options.IncludeSections?.Contains(SectionNames.BodyShapes) == true;
+            if (options.BodyKindQuery.HasFilter
+                && options.PerformanceTriage.HasFilters)
+            {
+                CommandError.Write(
+                    "A Body Shapes predicate cannot be combined with Performance Triage "
+                    + "filters or --order-by in one query.");
+                return 1;
+            }
+            if (options.BodyKindQuery.HasFilter
+                && options.IncludeSections is not { Count: > 0 })
+            {
+                options = options with
+                {
+                    IncludeSections =
+                    [
+                        SectionNames.BodyShapes,
+                    ],
+                    ExactIncludeSectionsOverride =
+                    [
+                        SectionNames.BodyShapes,
+                    ],
+                };
+                bodyShapesSelected = true;
+            }
+            if (options.BodyKindQuery.HasFilter && !bodyShapesSelected)
+            {
+                CommandError.Write(
+                    $"--where Kind=... targets section '{SectionNames.BodyShapes}'. "
+                    + $"Omit -S or include -S \"{SectionNames.BodyShapes}\".");
+                return 1;
+            }
+            if (bodyShapesSelected && !options.BodyKindQuery.HasFilter)
+            {
+                CommandError.Write(
+                    $"Section '{SectionNames.BodyShapes}' requires "
+                    + "--where \"Kind=<C# Body Kinds ID>\".");
+                return 1;
+            }
+        }
+
         options = options with
         {
             UserIncludeSectionsOverride = options.IncludeSections is { Count: > 0 }
@@ -1285,8 +1329,11 @@ public class LibraryCommand
             "IL coordinate sections require --il-offset <token>+<offset>.";
         var heapCoordinateRequired =
             $"\"{MetadataSectionNames.Heap}\" requires --heap <heap>:<address>, for example --heap \"#Strings:0x1a4\".";
+        var bodyKindRequired =
+            $"\"{SectionNames.BodyShapes}\" requires --where \"Kind=<C# Body Kinds ID>\".";
         var removedILCoordinateSections = false;
         var removedHeapSection = false;
+        var removedBodyShapesSection = false;
 
         if (sections.Overlaps(ILCoordinateSections)
             && string.IsNullOrWhiteSpace(options.ILOffsetParameter))
@@ -1321,15 +1368,32 @@ public class LibraryCommand
             }
         }
 
+        if (sections.Contains(SectionNames.BodyShapes)
+            && !options.BodyKindQuery.HasFilter)
+        {
+            if (!selectResult.ExactSections.Contains(SectionNames.BodyShapes))
+            {
+                removedBodyShapesSection = sections.Remove(SectionNames.BodyShapes);
+            }
+            else if (options.Discover == null)
+            {
+                return bodyKindRequired;
+            }
+        }
+
         if (sections.Count != 0
-            || (!removedILCoordinateSections && !removedHeapSection))
+            || (!removedILCoordinateSections
+                && !removedHeapSection
+                && !removedBodyShapesSection))
         {
             return null;
         }
 
-        return removedILCoordinateSections
-            ? ilCoordinateRequired
-            : heapCoordinateRequired;
+        if (removedILCoordinateSections)
+            return ilCoordinateRequired;
+        if (removedHeapSection)
+            return heapCoordinateRequired;
+        return bodyKindRequired;
     }
 
     // Catalog-hidden set for the effective (real-assembly) -D flows. Base-category

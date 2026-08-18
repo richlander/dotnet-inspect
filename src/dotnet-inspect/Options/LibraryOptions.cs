@@ -293,6 +293,11 @@ public record LibraryOptions : IProjectionOptions
     public PerformanceTriageOptions PerformanceTriage { get; init; } = PerformanceTriageOptions.Default;
 
     /// <summary>
+    /// Exact rendered-syntax predicate for the Body Shapes section.
+    /// </summary>
+    public BodyKindQueryOptions BodyKindQuery { get; init; } = BodyKindQueryOptions.Default;
+
+    /// <summary>
     /// NuGet source configuration options.
     /// </summary>
     public NuGetSourceOptions? SourceOptions { get; init; }
