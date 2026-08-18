@@ -744,8 +744,15 @@ public static class ApiSurfaceExtractor
                 var method = reader.GetMethodDefinition(methodHandle);
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
                 var isExplicitInterfaceImplementation = explicitImplementationBodies.ContainsKey(methodHandle);
-                if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
+                bool isObjectFinalizeOverride =
+                    objectFinalizeOverrides.Contains(methodHandle);
+                if (methodAccess != MethodAttributes.Public
+                    && !includeAll
+                    && !isExplicitInterfaceImplementation
+                    && !isObjectFinalizeOverride)
+                {
                     continue;
+                }
 
                 string methodName = DecodeString(
                     reader,
@@ -819,7 +826,7 @@ public static class ApiSurfaceExtractor
                 // rejected — rendering it `~Type()` would erase `<T>`.
                 var isFinalizer = apiType.Kind == "class"
                     && method.GetGenericParameters().Count == 0
-                    && (objectFinalizeOverrides.Contains(methodHandle)
+                    && (isObjectFinalizeOverride
                         || IsImplicitObjectFinalizeOverride(
                             reader,
                             typeDefHandle,
@@ -833,12 +840,8 @@ public static class ApiSurfaceExtractor
                     {
                         ".ctor" => "constructor",
                         _ when isOperator => "operator",
-                        // A finalizer compiles to a `Finalize` method carrying an
-                        // explicit `.override System.Object::Finalize` MethodImpl,
-                        // so it also lands in `explicitImplementationBodies`. Classify
-                        // it as its own kind before the explicit-interface arm so it
-                        // is not filed under Explicit Interface Implementations; the
-                        // MethodImpl still (correctly) suppresses its accessibility.
+                        // Classify finalizers before the explicit-interface arm;
+                        // their MethodImpl targets a class slot, not an interface.
                         _ when isFinalizer => "finalizer",
                         _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
                         _ => "method"
@@ -1379,6 +1382,8 @@ public static class ApiSurfaceExtractor
         bool isExtensionClass)
     {
         var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
+        var objectFinalizeOverrides =
+            GetObjectFinalizeOverrides(reader, typeDef);
         var (accessorMethods, explicitInterfaceAccessorMethods) =
             GetAccessorMethods(
                 reader,
@@ -1391,8 +1396,12 @@ public static class ApiSurfaceExtractor
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
             bool isExplicitImplementation =
                 explicitImplementationBodies.ContainsKey(methodHandle);
-            if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
+            if (methodAccess != MethodAttributes.Public
+                && !isExplicitImplementation
+                && !objectFinalizeOverrides.Contains(methodHandle))
+            {
                 continue;
+            }
 
             string methodName = reader.GetString(method.Name);
             if (accessorMethods.Contains(methodHandle)
@@ -2029,13 +2038,11 @@ public static class ApiSurfaceExtractor
         const MethodAttributes shape =
             MethodAttributes.Private
             | MethodAttributes.Final
-            | MethodAttributes.Virtual
-            | MethodAttributes.NewSlot;
+            | MethodAttributes.Virtual;
         const MethodAttributes mask =
             MethodAttributes.MemberAccessMask
             | MethodAttributes.Final
-            | MethodAttributes.Virtual
-            | MethodAttributes.NewSlot;
+            | MethodAttributes.Virtual;
         return (method.Attributes & mask) == shape;
     }
 
