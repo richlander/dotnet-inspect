@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ILInspector.Analysis;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
@@ -124,6 +125,76 @@ public class ResearchFactRegistryTests
         {
             File.Delete(copyPath);
             File.Delete(fullFirstPath);
+        }
+    }
+
+    [Fact]
+    public void AnalysisIndexCache_CaseDistinctPathsRetainDistinctEvidence()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-research-case-").FullName;
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                var startInfo = new ProcessStartInfo("fsutil.exe")
+                {
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                };
+                startInfo.ArgumentList.Add("file");
+                startInfo.ArgumentList.Add("SetCaseSensitiveInfo");
+                startInfo.ArgumentList.Add(directory);
+                startInfo.ArgumentList.Add("enable");
+
+                using Process process = Process.Start(startInfo)!;
+                string standardOutput = process.StandardOutput.ReadToEnd();
+                string standardError = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                Assert.SkipUnless(
+                    process.ExitCode == 0,
+                    "The filesystem does not support case-distinct sibling " +
+                    $"files.\nstdout:\n{standardOutput}\nstderr:\n{standardError}");
+            }
+
+            string upperPath = Path.Combine(directory, "Evidence.dll");
+            string lowerPath = Path.Combine(directory, "evidence.dll");
+            File.Copy(
+                typeof(ResearchFixture).Assembly.Location,
+                upperPath);
+            File.Copy(
+                typeof(LibraryBodyIndex).Assembly.Location,
+                lowerPath,
+                overwrite: true);
+            Assert.SkipUnless(
+                Directory.EnumerateFiles(directory, "*.dll").Count() == 2,
+                "The filesystem does not support case-distinct sibling files.");
+
+            ResearchFactRequirements requirements =
+                ResearchFactRequirements.ForAssembly(
+                    LibraryBodyAnalysisFeatures.MethodEvidence);
+            LibraryBodyIndex upper =
+                AnalysisIndexCache.ForPath(upperPath, requirements, 0);
+            LibraryBodyIndex lower =
+                AnalysisIndexCache.ForPath(lowerPath, requirements, 0);
+
+            Assert.NotSame(upper, lower);
+            Assert.Equal(Path.GetFullPath(upperPath), upper.Path);
+            Assert.Equal(Path.GetFullPath(lowerPath), lower.Path);
+            Assert.NotEqual(
+                Assert.Single(
+                    upper.Methods
+                        .Select(method => method.AssemblyName)
+                        .Distinct()),
+                Assert.Single(
+                    lower.Methods
+                        .Select(method => method.AssemblyName)
+                        .Distinct()));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 
