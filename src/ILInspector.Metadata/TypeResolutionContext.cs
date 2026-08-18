@@ -157,6 +157,21 @@ public sealed class TypeResolutionCatalog : IDisposable
     public AssemblyCatalogId Id => _acquisition.CatalogId;
 
     /// <summary>
+    /// Registers an already retained immutable image for reuse by later
+    /// resolution contexts without reacquiring its bytes.
+    /// </summary>
+    public void RegisterRetainedSnapshot(
+        ResolvedAssemblyReference assembly,
+        AssemblyImageSnapshot snapshot)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _acquisition.RegisterRetainedSnapshot(assembly, snapshot);
+        }
+    }
+
+    /// <summary>
     /// Extracts a resolution-aware API surface from the same retained candidate
     /// image used by this catalog's resolution generations. External base facts
     /// remain opt-in because they add one type request per surfaced external base.
@@ -625,6 +640,16 @@ public sealed class TypeResolutionCatalog : IDisposable
             lock (_gate)
             {
                 _disposed = true;
+                _latestCandidates =
+                    ImmutableDictionary<
+                        AssemblyCandidateId,
+                        FrozenCandidate>.Empty;
+                _latestGeneration = null;
+                _declarations.Clear();
+                _bindings.Clear();
+                _resolutions.Clear();
+                _definitionJoinTokens.Clear();
+                _unresolvedBindingKeys.Clear();
             }
 
             _acquisition.Dispose();
@@ -718,12 +743,12 @@ public sealed class TypeResolutionContext : IDisposable
     readonly Dictionary<
         AssemblyAcquisitionRegistration,
         ResolvedAssemblyReference> _descriptors;
-    readonly ImmutableDictionary<RequestKey, TypeResolutionOutcome> _outcomes;
-    readonly ImmutableDictionary<
+    ImmutableDictionary<RequestKey, TypeResolutionOutcome> _outcomes;
+    ImmutableDictionary<
         TypeResolutionManifestKey,
         TypeResolutionOutcome> _projectionFailures;
-    readonly ImmutableDictionary<BindingKey, AssemblyBindingOutcome> _bindings;
-    readonly ImmutableDictionary<AssemblyCandidateId, AssemblyInventorySnapshot>
+    ImmutableDictionary<BindingKey, AssemblyBindingOutcome> _bindings;
+    ImmutableDictionary<AssemblyCandidateId, AssemblyInventorySnapshot>
         _inventories;
     bool _disposed;
 
@@ -823,6 +848,40 @@ public sealed class TypeResolutionContext : IDisposable
             }
 
             return inventory;
+        }
+    }
+
+    /// <summary>
+    /// Returns the candidate descriptor backed by this generation's retained
+    /// immutable image rather than its original acquisition source.
+    /// </summary>
+    /// <remarks>
+    /// <c>CrossAssemblyMetadataResolver_UsesRetainedCandidateImage</c>
+    /// gates that consumers do not reopen the mutable source.
+    /// </remarks>
+    public ResolvedAssemblyReference? RetainAssemblyReference(
+        ResolvedAssemblyCandidate candidate)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        lock (_gate)
+        {
+            lock (_catalog.LifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _catalog.EnsureAlive();
+                if (!_candidates.TryGetValue(
+                        candidate.Assembly.Registration,
+                        out ResolvedAssemblyCandidate? owned)
+                    || !ReferenceEquals(owned, candidate))
+                {
+                    throw new ArgumentException(
+                        "The candidate does not belong to this generation.",
+                        nameof(candidate));
+                }
+
+                return _catalog.Acquisition
+                    .RetainAssemblyReference(candidate);
+            }
         }
     }
 
@@ -1201,6 +1260,21 @@ public sealed class TypeResolutionContext : IDisposable
             if (_disposed)
                 return;
             _disposed = true;
+            _candidates.Clear();
+            _registrationFailures.Clear();
+            _descriptors.Clear();
+            _outcomes =
+                ImmutableDictionary<RequestKey, TypeResolutionOutcome>.Empty;
+            _projectionFailures =
+                ImmutableDictionary<
+                    TypeResolutionManifestKey,
+                    TypeResolutionOutcome>.Empty;
+            _bindings =
+                ImmutableDictionary<BindingKey, AssemblyBindingOutcome>.Empty;
+            _inventories =
+                ImmutableDictionary<
+                    AssemblyCandidateId,
+                    AssemblyInventorySnapshot>.Empty;
         }
 
         if (_ownsCatalog)

@@ -71,6 +71,24 @@ MethodDef, but never participates in candidate selection. The close gates are
 gated by `CompileBackTargets_LegacySignatureCannotOverrideOrdinal` and
 `SourceSignatureCorrespondence_RejectsLegacyCandidateSelection`.
 
+An assembly-bound Portable PDB does not supply the missing attribution identity.
+When present and recognized, its checksum can authenticate a mapped document's
+content, but a `#line` directive in another, potentially unsupplied compilation
+input can route that input's MethodDef sequence points into the authenticated
+document. The PDB does not record the physical syntax tree behind those points.
+Compiling a proposed body and comparing normalized IL can reject some false
+candidates, but equivalent IL is not source provenance and divergence may
+instead reflect compiler, reference, shell, local-layout, or generated-code
+differences.
+
+Local PDB spans may therefore inform non-authoritative correspondence but cannot
+authorize fault attribution. `TryIsolateRecompileFailure_DeclinesRawSourceIndex`
+gates raw-index ineligibility. No dedicated gate asserts the broader absence of
+a PDB-authoritative path; that remains an architectural non-action boundary.
+Issue #3835 is blocked on a trusted complete-source manifest plus an
+assembly-wide line-mapping exclusion, or a stronger per-method provenance
+contract.
+
 ## The gauntlet
 
 | Stage | Boss | Current implementation | What it proves | Does not prove |
