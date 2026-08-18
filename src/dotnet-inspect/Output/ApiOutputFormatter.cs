@@ -2212,8 +2212,8 @@ public static class ApiOutputFormatter
             new Dictionary<int, HashSet<string>>();
         foreach (Analysis.LibraryBodyIndex index in indexes)
         {
-            IReadOnlySet<string> generatedFrameworkTypes =
-                index.GeneratedFrameworkTypeNames;
+            IReadOnlySet<Analysis.TypeRef> generatedFrameworkTypes =
+                index.GeneratedFrameworkTypes;
             foreach (Analysis.OptimizationOpportunity opportunity in
                 index.OptimizationOpportunities.Where(opportunity =>
                     opportunity.Shape == "sync-call-in-async"
