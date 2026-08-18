@@ -51,11 +51,15 @@ public sealed record BodyShapeRow(
     [MarkoutPropertyName("End Column")]
     public int EndColumn { get; init; } = EndColumn;
     public string Match { get; init; } = MarkoutInline.Code(Match);
-}
 
-[MarkoutContextOptions(SuppressTableWarnings = true)]
-[MarkoutContext(typeof(BodyShapeResultView))]
-[MarkoutContext(typeof(BodyShapeRow))]
-public partial class BodyShapeViewContext : MarkoutSerializerContext
-{
+    internal static BodyShapeRow FromMatch(ILInspector.Decompiler.BodyShapeMatch match)
+        => new(
+            match.Kind,
+            match.Member,
+            $"0x{match.MethodToken:X8}",
+            match.Extent.StartLine + 1,
+            match.Extent.StartColumn + 1,
+            match.Extent.EndLine + 1,
+            match.Extent.EndColumn + 1,
+            match.Text);
 }

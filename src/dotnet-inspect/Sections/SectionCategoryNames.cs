@@ -82,6 +82,9 @@ public static class SectionCategoryNames
     /// <summary>Curated group of the kind-scoped performance sections (library scope).</summary>
     public const string Performance = "@Performance";
 
+    /// <summary>Decompiler-backed rendered-source query sections.</summary>
+    public const string Decompiler = "@Decompiler";
+
     /// <summary>
     /// Raw ECMA-335 metadata sections (library scope): one <c>Metadata: &lt;Table&gt;</c> section
     /// per projected table, plus <c>Metadata: Image</c> for the image-level facts that are not

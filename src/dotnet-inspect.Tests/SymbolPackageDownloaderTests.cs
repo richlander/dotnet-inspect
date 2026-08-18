@@ -177,6 +177,115 @@ public class SymbolPackageDownloaderTests : IDisposable
     }
 
     [Fact]
+    public async Task AcquirePdbAsync_LimitedHostRejectsOversizedSymbolPackage()
+    {
+        var guid = Guid.NewGuid();
+        var handler = new CountingHandler(request =>
+            request.RequestUri?.AbsolutePath.EndsWith(
+                ".snupkg",
+                StringComparison.OrdinalIgnoreCase) == true
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(new byte[65]),
+                }
+                : new HttpResponseMessage(HttpStatusCode.NotFound));
+        using var client = new HttpClient(handler);
+        var downloader = new SymbolPackageDownloader(
+            client,
+            new InMemoryPdbStore(),
+            new UniformPackageSourceAuthorization(
+                [NuGetFetch.PackageSource.NuGetOrg]),
+            new SymbolAcquisitionLimits(
+                maxSymbolPackageBytes: 64,
+                maxPortablePdbBytes: 32,
+                maxSymbolPackageEntries: 8));
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "Example.pdb",
+                isPortable: true,
+                assemblyName: "Example",
+                packageName: "Example.Package",
+                packageVersion: "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AcquirePdbAsync_LimitedHostRejectsOversizedMsdlBeforeStore(
+        bool declaresLength)
+    {
+        var handler = new CountingHandler(request =>
+        {
+            if (request.RequestUri?.Host == "msdl.microsoft.com")
+            {
+                HttpContent content = declaresLength
+                    ? new ByteArrayContent(new byte[65])
+                    : new UnknownLengthContent(new byte[65]);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = content,
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+        var downloader = new SymbolPackageDownloader(
+            client,
+            new ThrowingPutPdbStore(),
+            new UniformPackageSourceAuthorization(
+                [NuGetFetch.PackageSource.NuGetOrg]),
+            new SymbolAcquisitionLimits(
+                maxSymbolPackageBytes: 64,
+                maxPortablePdbBytes: 64,
+                maxSymbolPackageEntries: 8));
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                Guid.NewGuid(),
+                pdbAge: 1,
+                pdbFileName: "System.Example.pdb",
+                isPortable: true,
+                assemblyName: "System.Example",
+                packageName: "System.Example",
+                packageVersion: "1.0.0",
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+    }
+
+    [Fact]
+    public async Task InMemoryPdbStore_RetainedByteLimitRejectsAdditionalContent()
+    {
+        var store = new InMemoryPdbStore(maxRetainedBytes: 4);
+        await store.PutAsync(
+            "first",
+            new MemoryStream([1, 2, 3]),
+            TestContext.Current.CancellationToken);
+
+        InvalidDataException error =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => store.PutAsync(
+                    "second",
+                    new MemoryStream([4, 5]),
+                    TestContext.Current.CancellationToken).AsTask());
+
+        Assert.Contains("retained-byte limit", error.Message);
+        Assert.Equal(3, store.RetainedBytes);
+        Assert.Null(await store.TryOpenAsync(
+            "second",
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task DownloadPdbAsync_FileSystemStore_PreservesPathContract()
     {
         var guid = Guid.Parse("21112222-3333-4444-5555-666677778888");
@@ -742,5 +851,19 @@ public class SymbolPackageDownloaderTests : IDisposable
 
         public string? TryGetLocalPath(string key)
             => null;
+    }
+
+    private sealed class UnknownLengthContent(byte[] content) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context) =>
+            stream.WriteAsync(content).AsTask();
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 }

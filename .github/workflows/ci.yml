@@ -156,6 +156,7 @@ jobs:
           dotnet publish
           prototypes/inspect-web/engine/InspectWeb.Engine.csproj
           -c Release
+          --output artifacts/inspect-web-publish
 
       - name: Test browser engine
         run: >
