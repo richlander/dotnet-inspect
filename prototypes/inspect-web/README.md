@@ -65,6 +65,13 @@ replaced or cleared under Settings. Package search uses the mirror's
 NuGet.org capability because `PackageBaseAddress` does not serve `.snupkg`
 payloads; when that endpoint is blocked, Source falls back to decompilation.
 
+When a non-default mirror is active, the opaque share packet (`w`) includes its
+service-index URL (`n`). Opening that link validates the same way Settings does,
+persists the mirror on success, and loads packages from it. Shares from nuget.org
+omit `n` so they do not wipe a recipient's stored corporate mirror. A shared
+mirror that fails validation falls back to the recipient's stored source (if
+any) and surfaces a notice.
+
 ## Run the .NET 11 browser-WASM prototype
 
 Install the experimental browser workload selected by the repository SDK:

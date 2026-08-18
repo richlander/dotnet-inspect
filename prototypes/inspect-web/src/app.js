@@ -332,16 +332,25 @@ function base64UrlDecode(value) {
 }
 
 // Compact, opaque share packet. Carries everything needed to fully restore a session — the
-// open-tab set, which tab is active, the current view, and (only in type view) the selected
-// type/member — so the visible query stays down to a human-readable ?package=<id>. Keys are
-// terse to keep the encoded string short:
+// open-tab set, which tab is active, the current view, (only in type view) the selected
+// type/member, and a non-default NuGet service-index URL when one is active — so the visible
+// query stays down to a human-readable ?package=<id>. Keys are terse to keep the encoded
+// string short:
 //   t = tabs [[id, version, framework], …]   a = active tab index   v = view token
 //   y/m/o/c = selected type / member / overload / member section (type view only)
+//   n = NuGet v3 service-index URL when the active source is not nuget.org
 function encodeShareState() {
   const packet = {
     t: state.packages.map(item => [item.id, item.version, item.activeFramework || ""]),
     a: Math.max(0, state.packages.indexOf(state.package))
   };
+  // Carry a non-default package source so a shared link can open on the same anonymous
+  // mirror the sender used. Omitted for nuget.org so a default share does not wipe a
+  // recipient's stored corporate mirror. Applied only after the same HTTPS/CORS validation
+  // path Settings uses — never trusted raw from the URL.
+  if (state.packageSource && !state.packageSource.isDefault && state.packageSource.serviceIndexUrl) {
+    packet.n = state.packageSource.serviceIndexUrl;
+  }
   // Which platform library the runtime pack is scoped to is part of the view's provenance —
   // capture it so refresh/back/share land on that library instead of the aggregate platform.
   if (isRuntimePackId(state.package.id) && state.libraryScope && state.libraryScope.size === 1) {
@@ -372,13 +381,36 @@ function tabsFromTuples(list) {
     .filter(tab => tab.id);
 }
 
+function normalizeSharedNuGetMirror(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  // Reject obviously non-URL payloads early so the share packet cannot force a prompt
+  // body or localStorage write with garbage; full policy still runs in the engine.
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:") return "";
+    if (url.username || url.password || url.search || url.hash) return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+function packageSourceUrlsMatch(left, right) {
+  const a = normalizeSharedNuGetMirror(left) || String(left || "").trim();
+  const b = normalizeSharedNuGetMirror(right) || String(right || "").trim();
+  if (!a || !b) return false;
+  return a.replace(/\/+$/, "").toLowerCase() === b.replace(/\/+$/, "").toLowerCase();
+}
+
 function decodeShareState(value) {
   if (!value) return null;
   try {
     const raw = JSON.parse(base64UrlDecode(value));
     // Legacy form: a bare tuple array of tabs, carrying no view or selection.
     if (Array.isArray(raw)) {
-      return { tabs: tabsFromTuples(raw), active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, library: null };
+      return { tabs: tabsFromTuples(raw), active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, library: null, nugetMirror: "" };
     }
     if (raw && Array.isArray(raw.t)) {
       return {
@@ -390,7 +422,8 @@ function decodeShareState(value) {
         member: raw.m != null ? String(raw.m) : null,
         overload: raw.o != null ? String(raw.o) : null,
         section: raw.c != null ? String(raw.c) : null,
-        library: raw.l != null ? String(raw.l) : null
+        library: raw.l != null ? String(raw.l) : null,
+        nugetMirror: normalizeSharedNuGetMirror(raw.n)
       };
     }
     return null;
@@ -465,7 +498,10 @@ function parseLocation() {
     packageLens: view.packageLens,
     tabs,
     active,
-    library
+    library,
+    // Rich share packets may carry a non-default NuGet service index; legacy packets and
+    // bare query links leave this empty so localStorage / default source stay in control.
+    nugetMirror: share?.rich ? (share.nugetMirror || "") : ""
   };
 }
 
@@ -7679,8 +7715,36 @@ async function bootstrap() {
       render();
     });
     const tEngine = performance.now();
+    // Share-envelope mirror wins over localStorage so a received link can pre-set the feed.
+    // Absence of `n` does not clear a stored mirror — default shares must not wipe a
+    // recipient's corporate source. Validation is the same path Settings uses.
+    const sharedMirror = initialLocation.nugetMirror || "";
     const storedMirror = loadStoredNuGetMirror();
-    if (storedMirror) {
+    if (sharedMirror) {
+      state.loadingMessage = "Connecting to shared NuGet mirror…";
+      render();
+      try {
+        await configureNuGetMirror(sharedMirror);
+      } catch (error) {
+        // Fall through to the stored mirror (if any) so a bad shared URL does not
+        // permanently block a recipient who already has a working source.
+        state.queryNotice = `Shared NuGet mirror could not be used: ${String(error?.message || error)}`;
+        if (storedMirror && !packageSourceUrlsMatch(storedMirror, sharedMirror)) {
+          state.loadingMessage = "Connecting to your NuGet mirror…";
+          render();
+          try {
+            state.packageSource = await inspectConfigurePackageSource(storedMirror);
+            bumpPackageSourceGeneration();
+          } catch {
+            state.packageSource = inspectUseDefaultPackageSource();
+            bumpPackageSourceGeneration();
+          }
+        } else {
+          state.packageSource = inspectUseDefaultPackageSource();
+          bumpPackageSourceGeneration();
+        }
+      }
+    } else if (storedMirror) {
       state.loadingMessage = "Connecting to your NuGet mirror…";
       render();
       try {
@@ -7877,7 +7941,11 @@ document.addEventListener("mousedown", event => {
 // hand-edited URL). Within the loaded package we mutate selection directly; a different
 // package is (re)loaded with the URL selection queued as a deep link.
 window.addEventListener("popstate", () => {
-  if (!state.package) return;
+  void handlePopState();
+});
+
+async function handlePopState() {
+  if (!state.package && !state.home) return;
   const loc = parseLocation();
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
@@ -7890,13 +7958,31 @@ window.addEventListener("popstate", () => {
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
   state.packageLens = loc.packageLens || "overview";
-  const samePackage = loc.package
+  // History may land on a share packet that named a different mirror. Apply it before
+  // package fetch so back/forward keeps the feed that produced that view. Missing `n`
+  // leaves the current source alone (same rule as cold bootstrap). Switching mirrors
+  // clears the workspace, so force a full package restore afterward.
+  let mirrorSwitched = false;
+  if (loc.nugetMirror
+      && (state.packageSource.isDefault
+        || !packageSourceUrlsMatch(state.packageSource.serviceIndexUrl, loc.nugetMirror))) {
+    try {
+      await configureNuGetMirror(loc.nugetMirror);
+      mirrorSwitched = true;
+    } catch (error) {
+      state.queryNotice = `Shared NuGet mirror could not be used: ${String(error?.message || error)}`;
+    }
+  }
+  const activePackage = state.package;
+  const samePackage = !mirrorSwitched
+    && activePackage
+    && loc.package
     && (isRuntimePackId(loc.package)
-      ? isRuntimePackId(state.package.id)
-      : (loc.package.toLowerCase() === state.package.id.toLowerCase()
-        && (!loc.version || loc.version.toLowerCase() === state.package.version.toLowerCase())));
-  if (samePackage || !loc.package) {
-    if (isRuntimePackId(state.package.id)) {
+      ? isRuntimePackId(activePackage.id)
+      : (loc.package.toLowerCase() === activePackage.id.toLowerCase()
+        && (!loc.version || loc.version.toLowerCase() === activePackage.version.toLowerCase())));
+  if (samePackage || (!loc.package && activePackage)) {
+    if (isRuntimePackId(activePackage.id)) {
       // Back/forward within the platform: re-scope to the target library (or the
       // aggregate) before restoring selection, since scope is part of the view.
       restorePlatformScopeThenDeepLink(loc);
@@ -7910,11 +7996,11 @@ window.addEventListener("popstate", () => {
     // on a NuGet fetch when back/forward lands on a platform state.
     pendingDeepLink = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
     restoreRuntimePackFromHistory(loc);
-  } else {
+  } else if (loc.package) {
     pendingDeepLink = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
     loadPackage(loc.package, loc.version || "latest", loc.framework || "");
   }
-});
+}
 
 // Re-scope the active runtime pack to the platform library named in a share/history packet
 // (lazily loading that assembly if needed via the same drill-in path as clicking it), or
