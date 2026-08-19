@@ -2377,8 +2377,8 @@ internal static class CSharpDeclarationWriter
     /// <see cref="TryRenderSignatureModel"/> cannot yet emit. Signatures built
     /// from the model escape names in <see cref="FormatParameter"/> and must not
     /// come through here.
-    /// <c>MemberDeclaration_SignatureModel_EscapesParametersWithoutScanningText</c>
-    /// is the gate.
+    /// <c>MemberDeclaration_SignatureModel_DoesNotEscapeUnnamedParameterType</c>
+    /// is the skip-vs-scan gate.
     /// </summary>
     /// <remarks>
     /// Only a parenthesis run that actually opens a parameter list is rewritten. C#

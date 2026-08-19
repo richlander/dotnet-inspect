@@ -1221,10 +1221,10 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     /// <summary>
-    /// #3561: when <see cref="ApiSignature"/> is present, parameter names are escaped
-    /// from the model. A poisoned <see cref="ApiMember.Signature"/> whose comment
-    /// <c>)</c> would close the text scanner early must not be consulted, and a tuple
-    /// return must not be re-lexed.
+    /// #3561: when <see cref="ApiSignature"/> is present, the writer must not
+    /// consult <see cref="ApiMember.Signature"/>. A poisoned comment <c>)</c>
+    /// would close the text scanner early; the model still emits the escaped name
+    /// and an unmangled tuple return.
     /// </summary>
     [Fact]
     public void MemberDeclaration_SignatureModel_EscapesParametersWithoutScanningText()
@@ -1248,6 +1248,36 @@ public sealed class CSharpDeclarationWriterTests
 
         Assert.Equal(
             "public (int, string) Pair(int @event)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    /// <summary>
+    /// Skip-vs-scan gate for #3561. An unnamed model parameter is emitted as the
+    /// type alone. Re-lexing that string treats the type keyword as a name and
+    /// produces <c>@int</c> (CS0246) — the #3489/#3528 defect on the model path.
+    /// </summary>
+    [Fact]
+    public void MemberDeclaration_SignatureModel_DoesNotEscapeUnnamedParameterType()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Values", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            Signature = "void M(@int)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "void",
+                MemberName = "M",
+                Parameters =
+                [
+                    new ApiParameter { Type = "int" }
+                ]
+            }
+        };
+
+        Assert.Equal(
+            "public void M(int)",
             CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
     }
 
