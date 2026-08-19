@@ -1028,6 +1028,13 @@ export function graphMemberSelection(
   return ownerMatches.length === 1 ? ownerMatches[0] : null;
 }
 
+export function searchableMemberGroups<
+  T extends { overloads: readonly { graphOnly?: boolean }[] },
+>(groups: readonly T[]): T[] {
+  return groups.filter(group =>
+    !group.overloads.some(overload => overload.graphOnly));
+}
+
 export interface ScopedRequestState {
   loading: boolean;
   error: string;

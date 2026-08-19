@@ -60,6 +60,7 @@ import {
   sourceSurfaceIsVisible,
   sourceReloadKind,
   sourceRequestNeedsLoad,
+  searchableMemberGroups,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   typeLensesFor,
@@ -2891,6 +2892,12 @@ test("call graph navigation resolves accessor body selectors without a token", (
       selectorKey: "getter-selector"
     }),
     { groupIndex: 0, overloadIndex: 0 });
+
+  const runtimeResolver =
+    appSource.match(/function findRuntimeMemberSelection[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  assert.match(runtimeResolver, /graphMemberSelection\(groups, node\)/);
+  assert.doesNotMatch(runtimeResolver, /node\.metadataToken != null/);
 });
 
 test("graph-only member targets round-trip through shared URLs", () => {
@@ -3092,6 +3099,18 @@ test("platform graph navigation supersedes package member loading immediately", 
 });
 
 test("projected members remain distinct from the public API surface", () => {
+  const publicGroup = {
+    key: "method:M",
+    overloads: [{ name: "M", graphOnly: false }]
+  };
+  const projectedGroup = {
+    key: "graph:method:M",
+    overloads: [{ name: "M", graphOnly: true }]
+  };
+
+  assert.deepEqual(
+    searchableMemberGroups([publicGroup, projectedGroup]),
+    [publicGroup]);
   assert.match(
     appSource,
     /Graph-discovered implementation members/);
@@ -3104,6 +3123,9 @@ test("projected members remain distinct from the public API surface", () => {
   assert.match(
     appSource,
     /memberSectionIdsFor\(\s*member,\s*state\.package\?\.isRuntimePack,\s*memberHasSelectedBody\(member\)\)/);
+  assert.match(
+    appSource,
+    /searchableMemberGroups\(memberGroups\(type\)\)/);
 });
 
 test("shared graph projection validates before committing API state", () => {

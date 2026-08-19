@@ -4641,7 +4641,7 @@ function spotlightMemberCandidates() {
   for (const pkg of [state.package, ...state.packages.filter(item => item !== state.package)]) {
     if (!pkg?.types) continue;
     for (const type of pkg.types) {
-      for (const group of memberGroups(type)) {
+      for (const group of searchableMemberGroups(memberGroups(type))) {
         pool.push({ pkg, type, memberKey: group.key, name: group.name, kind: group.kind });
       }
     }
@@ -7152,29 +7152,14 @@ function findRuntimeMemberSelection(
   const type = resolvePlatformGraphTargetType(pack, node);
   if (!type) return null;
   const groups = memberGroups(type);
-  if (node.metadataToken != null) {
-    for (const group of groups) {
-      const overloadIndex = group.overloads.findIndex(
-        overload => (overload.bodySelectors ?? []).some(body =>
-          body.token === node.metadataToken
-          && body.memberName === node.memberName
-          && body.selectorKey === node.selectorKey));
-      if (overloadIndex >= 0) return { type, group, overloadIndex };
-    }
-  }
-  const matches: Array<{
-    type: BrowserTypeSurface;
-    group: AppMemberGroup;
-    overloadIndex: number;
-  }> = [];
-  for (const group of groups) {
-    for (let i = 0; i < group.overloads.length; i++) {
-      if (group.overloads[i].graphSelectorKey === node.selectorKey) {
-        matches.push({ type, group, overloadIndex: i });
+  const selection = graphMemberSelection(groups, node);
+  return selection
+    ? {
+        type,
+        group: groups[selection.groupIndex],
+        overloadIndex: selection.overloadIndex
       }
-    }
-  }
-  return matches.length === 1 ? matches[0] : null;
+    : null;
 }
 
 function stripArity(name: string) {
