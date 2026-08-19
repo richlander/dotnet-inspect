@@ -330,7 +330,6 @@ static int ExecuteCorrelate(CorrelateOptions options)
             return exitCode;
     }
 
-    lookup.ReconcileTextSupersession();
     ApplyTypeConfirmation(result);
     Render(result, options);
     return 0;
@@ -1351,7 +1350,12 @@ static int MarkFrameWeights(
 
         var matchedIds = new HashSet<int>();
         foreach (var candidate in lookup.FindByMethodText(frames[frame]))
+        {
+            if (candidate.SupersededByTriage)
+                continue;
+
             MarkHit(candidate, matchedIds, sourceKind, bytes: null, exactOffset: false, weight);
+        }
         matchedRows += matchedIds.Count;
     }
 
@@ -1372,29 +1376,31 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
             || !TryParseHexInt(match.Groups["offset"].Value, out var offset))
             continue;
 
-        var supersessions = lookup.FindTextSupersessions(
-            token,
-            offset);
-        if (supersessions.Count > 0)
+        foreach (var candidate
+                 in lookup.FindRejectedByTokenOffset(
+                     token,
+                     offset))
         {
-            lookup.RecordObservedTextCoordinate(
-                token,
-                offset);
-            foreach (var supersession in supersessions)
-                suppressedMethodIds.Add(
-                    supersession.Library.Id);
+            suppressedMethodIds.Add(candidate.Id);
         }
 
         var candidates = lookup.FindByTokenOffset(
             token,
             offset);
+        int activeCount = candidates.Count(
+            static candidate =>
+                !candidate.SupersededByTriage);
+        int activeIndex = 0;
         for (int i = 0; i < candidates.Count; i++)
         {
+            if (candidates[i].SupersededByTriage)
+                continue;
+
             long? attributedBytes = bytes is long totalBytes
                 ? ProgramSupport.AttributedBytesForTest(
                     totalBytes,
-                    candidates.Count,
-                    i)
+                    activeCount,
+                    activeIndex)
                 : null;
             MarkHit(
                 candidates[i],
@@ -1402,7 +1408,8 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
                 sourceKind,
                 attributedBytes,
                 exactOffset: true,
-                weight: 1d / candidates.Count);
+                weight: 1d / activeCount);
+            activeIndex++;
         }
     }
 
@@ -2585,21 +2592,21 @@ sealed class AllocationCandidate(
 sealed class CandidateLookup
 {
     readonly Dictionary<(int Token, int Offset), List<AllocationCandidate>> _byTokenOffset;
-    readonly Dictionary<(int Token, int Offset), TextSupersession[]> _textSupersessions;
-    readonly HashSet<(int Token, int Offset)> _observedTextCoordinates = [];
+    readonly Dictionary<(int Token, int Offset), AllocationCandidate[]> _rejectedByTokenOffset;
     readonly Dictionary<(string Module, int Token), List<AllocationCandidate>> _byModuleMethodToken;
     readonly HashSet<string> _candidateModules;
     readonly List<(string Fragment, AllocationCandidate Candidate)> _methodFragments;
 
     CandidateLookup(
         Dictionary<(int Token, int Offset), List<AllocationCandidate>> byTokenOffset,
-        Dictionary<(int Token, int Offset), TextSupersession[]> textSupersessions,
+        Dictionary<(int Token, int Offset), AllocationCandidate[]> rejectedByTokenOffset,
         Dictionary<(string Module, int Token), List<AllocationCandidate>> byModuleMethodToken,
         HashSet<string> candidateModules,
         List<(string Fragment, AllocationCandidate Candidate)> methodFragments)
     {
         _byTokenOffset = byTokenOffset;
-        _textSupersessions = textSupersessions;
+        _rejectedByTokenOffset =
+            rejectedByTokenOffset;
         _byModuleMethodToken = byModuleMethodToken;
         _candidateModules = candidateModules;
         _methodFragments = methodFragments;
@@ -2655,20 +2662,27 @@ sealed class CandidateLookup
         foreach (var tokenList in byModuleMethodToken.Values)
             tokenList.Sort(static (left, right) => left.IlOffset.CompareTo(right.IlOffset));
 
-        foreach (var ambiguousKey in byTokenOffset
-                     .Where(static pair =>
-                         HasAmbiguousTextCoordinateIdentity(
-                             pair.Value))
-                     .Select(static pair => pair.Key)
-                     .ToArray())
+        var rejectedByTokenOffset =
+            new Dictionary<
+                (int Token, int Offset),
+                AllocationCandidate[]>();
+        foreach (var (key, coordinateCandidates)
+                 in byTokenOffset.ToArray())
         {
-            byTokenOffset.Remove(ambiguousKey);
+            if (!HasAmbiguousTextCoordinateIdentity(
+                    coordinateCandidates))
+            {
+                continue;
+            }
+
+            rejectedByTokenOffset.Add(
+                key,
+                [.. coordinateCandidates]);
+            byTokenOffset.Remove(key);
         }
 
         var textSupersessions =
-            new Dictionary<
-                (int Token, int Offset),
-                TextSupersession[]>();
+            new List<TextSupersession>();
         foreach (var (key, coordinateCandidates)
                  in byTokenOffset)
         {
@@ -2678,8 +2692,7 @@ sealed class CandidateLookup
             if (supersessions.Length == 0)
                 continue;
 
-            textSupersessions.Add(
-                key,
+            textSupersessions.AddRange(
                 supersessions);
             var supersededIds = supersessions
                 .Select(static supersession =>
@@ -2690,9 +2703,69 @@ sealed class CandidateLookup
                     candidate.Id));
         }
 
+        if (textSupersessions.Count > 0)
+        {
+            var supersededIds = textSupersessions
+                .Select(static supersession =>
+                    supersession.Library.Id)
+                .ToHashSet();
+            foreach (var supersession
+                     in textSupersessions)
+            {
+                supersession.Library
+                    .SupersededByTriage = true;
+            }
+            foreach (var tokenList
+                     in byModuleMethodToken.Values)
+            {
+                tokenList.RemoveAll(candidate =>
+                    supersededIds.Contains(
+                        candidate.Id));
+            }
+
+            var targetsByLibraryId =
+                textSupersessions
+                    .GroupBy(static supersession =>
+                        supersession.Library.Id)
+                    .ToDictionary(
+                        static group => group.Key,
+                        static group => group
+                            .SelectMany(
+                                static supersession =>
+                                    supersession
+                                        .TriageCandidates)
+                            .DistinctBy(
+                                static target =>
+                                    target.Id)
+                            .ToArray());
+            var redirectedFragments =
+                new List<(
+                    string Fragment,
+                    AllocationCandidate Candidate)>();
+            foreach (var (fragment, candidate)
+                     in fragments)
+            {
+                if (!targetsByLibraryId.TryGetValue(
+                        candidate.Id,
+                        out var targets))
+                {
+                    redirectedFragments.Add(
+                        (fragment, candidate));
+                    continue;
+                }
+
+                foreach (var target in targets)
+                {
+                    redirectedFragments.Add(
+                        (fragment, target));
+                }
+            }
+            fragments = redirectedFragments;
+        }
+
         return new CandidateLookup(
             byTokenOffset,
-            textSupersessions,
+            rejectedByTokenOffset,
             byModuleMethodToken,
             [.. byModuleMethodToken.Keys.Select(static key => key.Module)],
             fragments);
@@ -2728,35 +2801,15 @@ sealed class CandidateLookup
     public IReadOnlyList<AllocationCandidate> FindByTokenOffset(int token, int offset)
         => _byTokenOffset.TryGetValue((token, offset), out var candidates) ? candidates : [];
 
-    public IReadOnlyList<TextSupersession>
-        FindTextSupersessions(
+    public IReadOnlyList<AllocationCandidate>
+        FindRejectedByTokenOffset(
             int token,
             int offset)
-        => _textSupersessions.TryGetValue(
+        => _rejectedByTokenOffset.TryGetValue(
             (token, offset),
-            out var supersessions)
-            ? supersessions
+            out var candidates)
+            ? candidates
             : [];
-
-    public void RecordObservedTextCoordinate(
-        int token,
-        int offset)
-        => _observedTextCoordinates.Add(
-            (token, offset));
-
-    public void ReconcileTextSupersession()
-    {
-        foreach (var key in _observedTextCoordinates)
-        {
-            foreach (var supersession
-                     in _textSupersessions[key])
-            {
-                TransferEvidence(
-                    supersession.Library,
-                    supersession.TriageCandidates);
-            }
-        }
-    }
 
     public IReadOnlyList<AllocationCandidate> FindNearestByCodeAddress(TraceCodeAddress address)
     {
@@ -2948,79 +3001,12 @@ sealed class CandidateLookup
     static bool PredictedTypesCompatible(
         AllocationCandidate left,
         AllocationCandidate right)
-        => left.PredictedType is { Length: > 0 } leftType
-            && right.PredictedType is { Length: > 0 } rightType
-            && (left.MatchesAllocatedType(
-                    rightType)
-                || right.MatchesAllocatedType(
-                    leftType));
-
-    static void TransferEvidence(
-        AllocationCandidate library,
-        IReadOnlyList<AllocationCandidate> triageCandidates)
-    {
-        for (int i = 0; i < triageCandidates.Count; i++)
-        {
-            var triage = triageCandidates[i];
-            triage.RuntimeHits += library.RuntimeHits;
-            triage.RuntimeWeight +=
-                library.RuntimeWeight
-                / triageCandidates.Count;
-            triage.RuntimeBytes +=
-                ProgramSupport.AttributedBytesForTest(
-                    library.RuntimeBytes,
-                    triageCandidates.Count,
-                    i);
-            triage.AllocationHits += library.AllocationHits;
-            triage.AllocationBytes +=
-                ProgramSupport.AttributedBytesForTest(
-                    library.AllocationBytes,
-                    triageCandidates.Count,
-                    i);
-            triage.ShapeAllocationHits +=
-                library.ShapeAllocationHits;
-            triage.ShapeAllocationBytes +=
-                ProgramSupport.AttributedBytesForTest(
-                    library.ShapeAllocationBytes,
-                    triageCandidates.Count,
-                    i);
-            triage.ShapeMatched |= library.ShapeMatched;
-            triage.ExactOffsetObserved |=
-                library.ExactOffsetObserved;
-            triage.IlOffsetJoinObserved |=
-                library.IlOffsetJoinObserved;
-            triage.AmbiguousIlOffsetJoin |=
-                library.AmbiguousIlOffsetJoin;
-            foreach (var source in library.ObservedSources)
-                triage.ObservedSources.Add(source);
-            foreach (var (type, bytes)
-                     in library.ObservedAllocatedTypes)
-            {
-                triage.ObservedAllocatedTypes[type] =
-                    triage.ObservedAllocatedTypes
-                        .GetValueOrDefault(type)
-                    + ProgramSupport.AttributedBytesForTest(
-                        bytes,
-                        triageCandidates.Count,
-                        i);
-            }
-        }
-
-        library.RuntimeHits = 0;
-        library.RuntimeWeight = 0;
-        library.RuntimeBytes = 0;
-        library.AllocationHits = 0;
-        library.AllocationBytes = 0;
-        library.ShapeAllocationHits = 0;
-        library.ShapeAllocationBytes = 0;
-        library.ShapeMatched = false;
-        library.ExactOffsetObserved = false;
-        library.IlOffsetJoinObserved = false;
-        library.AmbiguousIlOffsetJoin = false;
-        library.ObservedSources.Clear();
-        library.ObservedAllocatedTypes.Clear();
-        library.SupersededByTriage = true;
-    }
+        => (left.PredictedType is { Length: > 0 } leftType
+                && right.MatchesAllocatedType(
+                    leftType))
+            || (right.PredictedType is { Length: > 0 } rightType
+                && left.MatchesAllocatedType(
+                    rightType));
 }
 
 readonly record struct TextSupersession(

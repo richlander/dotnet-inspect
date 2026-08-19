@@ -491,15 +491,10 @@ public class E2EFixtureTests
     {
         string assemblyPath =
             FixtureCatalog.RunFasterAllocation.AssemblyPath();
-        var sourceMethod =
-            typeof(RunFaster.AllocationFixture.Program).GetMethod(
-                "Main",
-                BindingFlags.Public | BindingFlags.Static);
         var evidenceMethod =
             typeof(RunFaster.AllocationFixture.Program).GetMethod(
                 "AllocateOne",
                 BindingFlags.Public | BindingFlags.Static);
-        Assert.NotNull(sourceMethod);
         Assert.NotNull(evidenceMethod);
         var occurrence = Assert.Single(
             LibraryBodyIndex.Open(assemblyPath)
@@ -562,7 +557,7 @@ public class E2EFixtureTests
             File.WriteAllText(
                 triagePath,
                 $$$"""
-                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"{{{occurrence.Method.AssemblyName}}}","module_version_id":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{sourceMethod.MetadataToken:X8}}}","evidence_method":"0x{{{evidenceMethod.MetadataToken:X8}}}","shape":"object-allocation","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"{{{allocatedType}}}"}]}}
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"{{{occurrence.Method.AssemblyName}}}","module_version_id":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{evidenceMethod.MetadataToken:X8}}}","evidence_method":"0x{{{evidenceMethod.MetadataToken:X8}}}","shape":"object-allocation","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"{{{allocatedType}}}"}]}}
                 """);
         }
 
@@ -687,6 +682,62 @@ public class E2EFixtureTests
             Assert.False(
                 candidate.GetProperty(
                     "exactOffsetObserved").GetBoolean());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_RejectedBuildCoordinateDoesNotUseMethodFallback()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"objects":[{"member":"Fixture.Type.M()","assembly":"Fixture","module_version_id":"11111111-1111-1111-1111-111111111111","method_token":"0x06000001","evidence_method":"0x06000003","shape":"object-allocation","il":"IL_0005","allocation":"System.Object"},{"member":"Fixture.Type.M()","assembly":"Fixture","module_version_id":"22222222-2222-2222-2222-222222222222","method_token":"0x06000002","evidence_method":"0x06000003","shape":"object-allocation","il":"IL_0005","allocation":"System.Object"}]}}
+                """);
+            File.WriteAllText(
+                logPath,
+                "0x06000003+0005 Fixture.Type.M() 512 bytes");
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output = JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                0,
+                output.RootElement.GetProperty(
+                    "observedCandidates").GetInt32());
+            Assert.All(
+                output.RootElement.GetProperty(
+                    "candidates").EnumerateArray(),
+                candidate =>
+                {
+                    Assert.Equal(
+                        0,
+                        candidate.GetProperty(
+                            "runtimeBytes").GetInt64());
+                    Assert.Equal(
+                        "cold-for-this-workload",
+                        candidate.GetProperty(
+                            "status").GetString());
+                });
         }
         finally
         {
