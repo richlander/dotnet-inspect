@@ -159,9 +159,9 @@ public record InspectionOptions : IProjectionOptions
     public bool JsonOutput { get; init; }
 
     /// <summary>
-    /// Output as plain text.
+    /// Effective output format after CLI and environment precedence.
     /// </summary>
-    public bool PlainText { get; init; }
+    public OutputFormat Format { get; init; } = OutputFormat.Markdown;
 
     /// <summary>
     /// Print a single selected payload without headings, fences, separators, or tips.
@@ -298,7 +298,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || JsonOutput || PlainText || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || Format != OutputFormat.Markdown || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

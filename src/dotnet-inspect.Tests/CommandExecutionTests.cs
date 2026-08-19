@@ -1050,6 +1050,7 @@ public partial class CommandExecutionTests
                 <dependency id="Test.Dependency.One" />
                 <dependency id="Test.Dependency.Two" />
               </group>
+              <group targetFramework="net10.0" />
             </dependencies>
             """);
 
@@ -17106,6 +17107,9 @@ public partial class CommandExecutionTests
             Assert.Empty(schema.Error);
             Assert.Equal(schema.Output, schemaAlias.Output);
             Assert.Equal(schema.Error, schemaAlias.Error);
+            Assert.Contains("Dependencies", schema.Output);
+            Assert.DoesNotContain("Manifest", schema.Output);
+            Assert.DoesNotContain("Package Info", schema.Output);
         }
         finally
         {
@@ -17191,7 +17195,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_DependencyTree_RejectsPlainTextFormats()
+    public async Task Package_DependencyTree_RejectsNonMarkdownFormats()
     {
         var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
@@ -17205,6 +17209,12 @@ public partial class CommandExecutionTests
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "plaintext");
             var environmentAlias = await RunAppAsync(
                 "package", packagePath, "--dependencies", "--tips", "q");
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
+            var mermaidAlias = await RunAppAsync(
+                "package", packagePath, "--dependencies", "--tips", "q");
+            var explicitMarkdown = await RunAppAsync(
+                "package", packagePath, "--dependencies", "--markdown",
+                "--tfm", "net9.0", "--tips", "q");
 
             Assert.Equal(1, canonical.Exit);
             Assert.Empty(canonical.Output);
@@ -17215,10 +17225,115 @@ public partial class CommandExecutionTests
             Assert.Equal(1, environmentAlias.Exit);
             Assert.Empty(environmentAlias.Output);
             Assert.Contains("--dependencies cannot be combined with row projections or non-Markdown formats", environmentAlias.Error);
+            Assert.Equal(1, mermaidAlias.Exit);
+            Assert.Empty(mermaidAlias.Output);
+            Assert.Contains("--dependencies cannot be combined with row projections or non-Markdown formats", mermaidAlias.Error);
+            Assert.Equal(0, explicitMarkdown.Exit);
+            Assert.Contains("Test.Dependency.One", explicitMarkdown.Output);
         }
         finally
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencyAlias_PreservesProgrammaticSelectionConflict()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var rendered = await ConsoleCapture.RunAsync(
+                () => PackageCommand.ExecuteAsync(
+                    new InspectionOptions
+                    {
+                        PackageArgs = [packagePath],
+                        ShowDependencies = true,
+                        IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            PackageSections.Manifest,
+                        },
+                    }));
+
+            Assert.Equal(1, rendered.ExitCode);
+            Assert.Empty(rendered.Output);
+            Assert.Contains("--dependencies is an alias for -S Dependencies --tree", rendered.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencyTree_HonorsOutputPath()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        var outputPath = Path.Combine(tempDir, "dependencies.md");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Dependencies", "--tree",
+                "--tfm", "net9.0", "--out", outputPath, "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(output);
+            Assert.Empty(error);
+            var written = File.ReadAllText(outputPath);
+            Assert.Contains("Test.Dependency.One", written);
+            Assert.Contains("Test.Dependency.Two", written);
+
+            var empty = await RunAppAsync(
+                "package", packagePath, "-S", "Dependencies", "--tree",
+                "--tfm", "net10.0", "--out", outputPath, "--tips", "q");
+
+            Assert.Equal(0, empty.Exit);
+            Assert.Empty(empty.Output);
+            Assert.Empty(empty.Error);
+            Assert.Contains("No additional dependencies for net10.0", File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencyAlias_PrintUsesAliasDiagnostic()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--dependencies", "--print", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("--dependencies cannot be combined with row projections or non-Markdown formats", error);
+            Assert.DoesNotContain("-S/--select", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_AllLibraries_RejectsTree()
+    {
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "--tree", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("--all-libraries cannot be combined with --tree", error);
+        }
+        finally
+        {
             Directory.Delete(tempDir, recursive: true);
         }
     }

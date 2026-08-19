@@ -67,6 +67,20 @@ public class PackageCommand
         if (!packageLibraryMode && options.Discover != null && (options.Schema || packageArgs.Length < 1))
         {
             var schemaMap = PackageDiscoverySchema();
+            if (options.Select is { Length: > 0 })
+            {
+                var selectResult = SelectResolver.ResolveSelectAsSections(
+                    options.Select,
+                    sectionNames,
+                    pipeline.InfoSectionNames,
+                    pipeline.GetCategoryMap(),
+                    selectDefault: false);
+                if (SelectOutput.WriteUnresolved(selectResult))
+                    return 1;
+                if (selectResult.Sections is { Count: > 0 })
+                    schemaMap = FilterDiscoverySchema(schemaMap, selectResult.Sections);
+            }
+
             return DiscoverOutput.Execute(options.Discover, schemaMap,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 verbosity: (int)options.Verbosity,
@@ -139,6 +153,9 @@ public class PackageCommand
                 return 1;
             }
 
+            if (!ValidateDependencyTreeProjection(options))
+                return 1;
+
             // #3448 aligns the package gate with the library one: a count over several selected
             // sections is meaningful now that the file family is disjoint, so require a selection
             // rather than exactly one section.
@@ -207,9 +224,6 @@ public class PackageCommand
                 if (requiredVerbosity > options.Verbosity)
                     options = options with { Verbosity = requiredVerbosity };
             }
-
-            if (!ValidateDependencyTreeProjection(options))
-                return 1;
 
             if (!ValidatePackageProjection(
                     options,
@@ -1563,6 +1577,14 @@ public class PackageCommand
             return options;
 
         var select = options.Select?.ToList() ?? [];
+        if (options.IncludeSections is { Count: > 0 })
+        {
+            foreach (var section in options.IncludeSections)
+            {
+                if (!select.Contains(section, StringComparer.OrdinalIgnoreCase))
+                    select.Add(section);
+            }
+        }
         if (!select.Contains(PackageSections.Dependencies, StringComparer.OrdinalIgnoreCase))
             select.Add(PackageSections.Dependencies);
 
@@ -1599,7 +1621,7 @@ public class PackageCommand
             || options.Rows is not null
             || options.Bare
             || options.JsonOutput
-            || options.PlainText
+            || options.Format != OutputFormat.Markdown
             || options.TabularExplicitlySet)
         {
             var optionName = options.ShowDependencies ? "--dependencies" : "--tree";
@@ -1608,6 +1630,26 @@ public class PackageCommand
         }
 
         return true;
+    }
+
+    private static DocumentSchema FilterDiscoverySchema(
+        DocumentSchema schema,
+        IReadOnlySet<string> selectedSections)
+    {
+        var result = new DocumentSchema();
+        foreach (var name in schema.SectionNames)
+        {
+            if (!selectedSections.Contains(name))
+                continue;
+
+            var section = schema.GetSection(name);
+            if (section is { Items.Length: > 0 })
+                result.Add(name, section.ItemKind, section.Items.Select(item => item.Name).ToArray());
+            else
+                result.AddSection(name);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -3350,6 +3392,7 @@ public class PackageCommand
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null) conflicts.Add("-D/--discover");
+        if (options.Tree && options.Discover == null) conflicts.Add("--tree");
         if (options.Columns != null) conflicts.Add("--columns");
         if (options.Fields != null) conflicts.Add("--fields");
 
@@ -4828,10 +4871,12 @@ public class PackageCommand
                     $"{packageName} ({version})").ToString(),
                 Description = description.ToString()
             };
-            Console.WriteLine(
-                MarkoutSerializer.Serialize(
-                    emptyView,
-                    InspectionContext.Default));
+            WriteDependencyTreeOutput(
+                options.OutputPath,
+                writer => writer.WriteLine(
+                    MarkoutSerializer.Serialize(
+                        emptyView,
+                        InspectionContext.Default)));
             return 0;
         }
 
@@ -4852,11 +4897,33 @@ public class PackageCommand
             Dependencies = ToTreeNodes(graph.Dependencies)
         };
 
-        MarkoutSerializer.Serialize(
-            view,
-            Console.Out,
-            PackageDependenciesContext.Default);
+        WriteDependencyTreeOutput(
+            options.OutputPath,
+            writer => MarkoutSerializer.Serialize(
+                view,
+                writer,
+                PackageDependenciesContext.Default));
         return 0;
+    }
+
+    private static void WriteDependencyTreeOutput(
+        string? outputPath,
+        Action<TextWriter> write)
+    {
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            write(Console.Out);
+            return;
+        }
+
+        using var output = new StreamWriter(
+            outputPath,
+            append: false,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
+        {
+            NewLine = Console.Out.NewLine
+        };
+        write(output);
     }
 
     /// <summary>
