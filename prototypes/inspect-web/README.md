@@ -554,6 +554,25 @@ style catalog's tier grouping, byte-divergent badges, and checked state; the
 taste popover's active/default states; and the Settings page's theme segment,
 close-button label, and active-style-count states.
 
+`src/metadata-viewer.ts` owns the Metadata lens (the image-level summary of each
+assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
+headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
+it) as pure, dependency-injected render functions; both describe the metadata
+image rather than the API surface within it, so they share one module the way
+`type-panel.ts` combines the type selector and the type viewer. `app.js` still
+owns `state`, the engine calls that fetch an image, a table row window, or a
+heap listing, the explorer's focus/history stack, the DOM event binding, the
+`IntersectionObserver` that hydrates cards lazily, the resize listener, and the
+global keydown handler, and passes each computed slice in explicitly; the shared
+helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
+`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay in
+`app.js` and are injected the same way. `test/metadata-viewer.test.js` gates the
+lens's picker, loading, failure, stale-scope, partial-read, and empty-image
+states and its heap/table ordering; the explorer's chips, history-button
+enablement, overview versus focus lightbox, lazy-load hooks, pager bounds, row
+highlight and selection, ref->def jump targets, cell escaping, heap addressing
+and coverage notes, and the row inspector.
+
 - `Cmd/Ctrl+K` focuses the persistent command prompt.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
 - Arrow keys select a completion, `Tab` accepts it, and `Enter` runs it.
