@@ -165,7 +165,6 @@ public static class LibrarySections
                 SectionNames.UnionTypes,
                 SectionNames.PInvokeMethods)
             .AddCategory(SectionCategoryNames.Audit,
-                SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
                 SectionNames.SourceLinkDiagnostics,
@@ -174,8 +173,6 @@ public static class LibrarySections
                 SectionNames.Symbols)
             .AddCategory(SectionCategoryNames.Performance,
                 [.. PerformanceKinds.Sections, SectionNames.ArrayPoolEscapes, SectionNames.TopLeverage])
-            .AddCategory(SectionCategoryNames.Decompiler,
-                SectionNames.BodyShapes)
             .AddCategory(SectionCategoryNames.SourceLink,
                 SectionNames.SourceLinkFiles,
                 SectionNames.SourceLinkDiagnostics,
