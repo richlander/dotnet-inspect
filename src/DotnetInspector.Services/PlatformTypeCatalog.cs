@@ -13,11 +13,11 @@ public sealed class PlatformTypeLookupPattern
 {
     PlatformTypeLookupPattern(string normalized, bool hasExplicitGenericNotation)
     {
-        Normalized = normalized;
+        NormalizedLookup = NormalizeLookup(normalized);
         HasExplicitGenericNotation = hasExplicitGenericNotation;
     }
 
-    internal string Normalized { get; }
+    internal string NormalizedLookup { get; }
     internal bool HasExplicitGenericNotation { get; }
 
     public static PlatformTypeLookupPatternResult Create(string? value)
@@ -37,22 +37,32 @@ public sealed class PlatformTypeLookupPattern
     }
 
     internal bool Matches(MetadataTypeDefinitionName name) =>
-        TypeMatcher.Matches(name.ToMetadataFullName(), Normalized);
+        TypeMatcher.MatchesNormalized(
+            NormalizeMetadataLookup(name),
+            NormalizedLookup);
 
     internal bool IsExact(MetadataTypeDefinitionName name)
     {
-        string candidate = NormalizeLookup(name.ToMetadataFullName());
-        string pattern = NormalizeLookup(Normalized);
-        return candidate.Equals(pattern, StringComparison.OrdinalIgnoreCase)
-            || (candidate.Length > pattern.Length
-                && candidate[candidate.Length - pattern.Length - 1] == '.'
+        string candidate = NormalizeMetadataLookup(name);
+        return candidate.Equals(
+                NormalizedLookup,
+                StringComparison.OrdinalIgnoreCase)
+            || (candidate.Length > NormalizedLookup.Length
+                && candidate[
+                    candidate.Length
+                    - NormalizedLookup.Length
+                    - 1] == '.'
                 && candidate.EndsWith(
-                    pattern,
+                    NormalizedLookup,
                     StringComparison.OrdinalIgnoreCase));
     }
 
     static string NormalizeLookup(string value) =>
         FqnParser.NormalizeTypeName(value).Replace('+', '.');
+
+    static string NormalizeMetadataLookup(
+        MetadataTypeDefinitionName name) =>
+        name.ToMetadataFullName().Replace('+', '.');
 }
 
 /// <summary>The result of validating a platform type lookup pattern.</summary>
@@ -227,6 +237,35 @@ internal sealed class PlatformTypeCatalog
             selected = exact;
         else if (pattern.HasExplicitGenericNotation)
             return new PlatformTypeLookupOutcome.Missing();
+
+        if (selected.Length > 1
+            && selected
+                .Select(candidate =>
+                    candidate.Type.ToMetadataFullName())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() == 1)
+        {
+            var resolvedTypeName =
+                selected[0].Type.ToMetadataFullName();
+            var assemblyPrefixMatches = selected
+                .Where(candidate =>
+                    resolvedTypeName.StartsWith(
+                        candidate.Assembly.Identity.Name + ".",
+                        StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(candidate =>
+                    candidate.Assembly.Identity.Name.Length)
+                .ToArray();
+            if (assemblyPrefixMatches.Length > 0
+                && (assemblyPrefixMatches.Length == 1
+                    || assemblyPrefixMatches[0]
+                            .Assembly.Identity.Name.Length
+                        > assemblyPrefixMatches[1]
+                            .Assembly.Identity.Name.Length))
+            {
+                return new PlatformTypeLookupOutcome.Resolved(
+                    assemblyPrefixMatches[0]);
+            }
+        }
 
         return selected.Length == 1
             ? new PlatformTypeLookupOutcome.Resolved(selected[0])

@@ -182,12 +182,15 @@ public static class RouterCommandDefinition
 
     private static class RouterTokenRewriter
     {
+        private const int MaxTypeMemberBoundaryProbes = 64;
+
         public static async Task<string[]> RewriteAsync(
             string[] tokens,
             NuGetSourceOptions sourceOptions)
         {
             var target = tokens[0];
             var tail = tokens[1..];
+            var hasExplicitApiSource = HasExplicitApiSource(tail);
 
             if (CommandLineHelpers.TryClassifyAsFilePath(target, out var dllPath, out var nupkgPath))
             {
@@ -204,17 +207,21 @@ public static class RouterCommandDefinition
             var trailingSegmentHasGenericNotation =
                 TypeMatcher.HasExplicitGenericNotation(
                     target[trailingSegmentStart..]);
+            var hasTypeOption = ContainsOption(tokens, "--type")
+                || ContainsOption(tokens, "-t");
+            var hasMemberOption = ContainsOption(tokens, "--member")
+                || ContainsOption(tokens, "-m");
             if (hasExplicitGenericNotation
-                && (ContainsOption(tokens, "--type")
-                    || ContainsOption(tokens, "-t")))
+                && hasTypeOption
+                && hasExplicitApiSource)
             {
                 return ["type", target, .. tail];
             }
 
-            if ((ContainsOption(tokens, "--member")
-                    || ContainsOption(tokens, "-m"))
+            if (hasMemberOption
                 && (!hasExplicitGenericNotation
-                    || trailingSegmentHasGenericNotation))
+                    || (trailingSegmentHasGenericNotation
+                        && hasExplicitApiSource)))
                 return ["member", target, .. tail];
 
             if (ContainsOption(tokens, "--library")
@@ -267,7 +274,6 @@ public static class RouterCommandDefinition
             }
 
             var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
-            bool hasExplicitApiSource = HasExplicitApiSource(tail);
             if (hasExplicitApiSource
                 && TrySplitOperatorMemberTarget(
                     target,
@@ -295,9 +301,21 @@ public static class RouterCommandDefinition
             var frameworkSpec = GetOptionValue(tail, "--framework");
             var exactTypeLookup = LookupExactGenericPlatformType(
                 target,
+                allowSimpleName: hasTypeOption || hasMemberOption,
                 frameworkSpec: frameworkSpec);
             if (exactTypeLookup is PlatformTypeLookupOutcome.Resolved exactType)
-                return RouteExactGenericPlatformType(exactType, target, tail);
+            {
+                return hasMemberOption
+                    && trailingSegmentHasGenericNotation
+                    ? RouteExactGenericPlatformMemberTarget(
+                        exactType,
+                        target,
+                        tail)
+                    : RouteExactGenericPlatformType(
+                        exactType,
+                        target,
+                        tail);
+            }
 
             if (LookupExactGenericPlatformMember(target, frameworkSpec)
                 is { } exactMember)
@@ -587,17 +605,70 @@ public static class RouterCommandDefinition
                 string target,
                 string? frameworkSpec)
         {
-            var lastDot = FqnParser.LastTopLevelDot(target);
-            if (lastDot <= 0 || lastDot == target.Length - 1)
-                return null;
+            (
+                string TypeTarget,
+                string MemberSelector,
+                PlatformTypeLookupOutcome.Resolved Lookup)? resolved = null;
+            var genericDepth = 0;
+            var probes = 0;
+            for (var i = 0;
+                i < target.Length
+                && probes < MaxTypeMemberBoundaryProbes;
+                i++)
+            {
+                if (target[i] == '<')
+                {
+                    genericDepth++;
+                    continue;
+                }
+                if (target[i] == '>')
+                {
+                    genericDepth--;
+                    continue;
+                }
+                if (target[i] != '.'
+                    || genericDepth != 0
+                    || i == 0
+                    || i == target.Length - 1)
+                {
+                    continue;
+                }
 
-            var typeTarget = target[..lastDot];
-            return LookupExactGenericPlatformType(
+                var typeTarget = target[..i];
+                if (!TypeMatcher.HasExplicitGenericNotation(
+                        typeTarget))
+                {
+                    continue;
+                }
+
+                probes++;
+                var lookup = LookupExactGenericPlatformType(
                     typeTarget,
                     allowSimpleName: true,
-                    frameworkSpec: frameworkSpec) is { } lookup
-                ? (typeTarget, target[(lastDot + 1)..], lookup)
-                : null;
+                    frameworkSpec: frameworkSpec);
+                if (lookup
+                    is PlatformTypeLookupOutcome.Resolved exact)
+                {
+                    resolved = (
+                        typeTarget,
+                        target[(i + 1)..],
+                        exact);
+                    continue;
+                }
+
+                if (resolved is not null)
+                    return resolved;
+                if (lookup is not null)
+                {
+                    return (
+                        typeTarget,
+                        target[(i + 1)..],
+                        lookup);
+                }
+                return null;
+            }
+
+            return resolved;
         }
 
         private static bool WritePlatformTypeLookupFailure(
@@ -662,6 +733,25 @@ public static class RouterCommandDefinition
                     member.MemberSelector,
                     .. tail
                 ];
+
+        private static string[] RouteExactGenericPlatformMemberTarget(
+            PlatformTypeLookupOutcome.Resolved resolved,
+            string target,
+            string[] tail) =>
+            !HasExplicitApiSource(tail)
+            && TryGetExplicitPlatformSource(
+                resolved,
+                out var assembly,
+                out var framework)
+                ? [
+                    "member",
+                    target,
+                    "--platform",
+                    assembly,
+                    .. FrameworkArgsUnlessSpecified(framework, tail),
+                    .. tail
+                ]
+                : ["member", target, .. tail];
 
         private static bool HasExplicitApiSource(string[] tokens) =>
             ContainsOption(tokens, "--package")

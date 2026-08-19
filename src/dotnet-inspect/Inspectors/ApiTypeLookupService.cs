@@ -75,9 +75,12 @@ internal sealed record MemberFilterValidationResult(
 
 internal static class ApiTypeLookupService
 {
+    private const int MaxTypeMemberBoundaryProbes = 64;
+
     public static ApiTypeLookupResult LookupType(ApiSurface api, string typeName)
     {
-        var lookup = TypeMatcher.Lookup(api.Types.Select(t => t.FullName), typeName);
+        var typeNames = api.Types.Select(t => t.FullName).ToArray();
+        var lookup = TypeMatcher.Lookup(typeNames, typeName);
         if (lookup.Match != null)
             return new ApiTypeLookupResult(typeName, lookup, api.Types.First(t => t.FullName == lookup.Match));
 
@@ -88,8 +91,11 @@ internal static class ApiTypeLookupService
         // trailing segment and retry the prefix as a type. If the prefix resolves, the peeled
         // suffix is surfaced as an implied member filter.
         var searchEnd = typeName.Length;
-        while (searchEnd > 0)
+        var probes = 0;
+        while (searchEnd > 0
+            && probes < MaxTypeMemberBoundaryProbes)
         {
+            probes++;
             var dot = FqnParser.LastTopLevelDot(typeName[..searchEnd]);
             if (dot <= 0)
                 break;
@@ -114,7 +120,9 @@ internal static class ApiTypeLookupService
             }
 
             var typeCandidate = typeName[..typeEnd];
-            var prefixLookup = TypeMatcher.Lookup(api.Types.Select(t => t.FullName), typeCandidate);
+            var prefixLookup = TypeMatcher.Lookup(
+                typeNames,
+                typeCandidate);
             if (prefixLookup.Match != null)
                 return new ApiTypeLookupResult(
                     typeName,

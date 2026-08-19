@@ -329,11 +329,16 @@ public static class FqnParser
     private static bool TryCountTypeParameters(
         ReadOnlySpan<char> typeParams,
         out int count,
-        int nestedGenericDepth = 0)
+        bool nestingValidated = false)
     {
         count = 0;
         if (typeParams.IsEmpty || typeParams.IsWhiteSpace())
             return false;
+        if (!nestingValidated
+            && !HasSupportedGenericNesting(typeParams))
+        {
+            return false;
+        }
 
         var unboundArity = 1;
         var isUnboundGeneric = false;
@@ -393,7 +398,6 @@ public static class FqnParser
                 case '<':
                     if (!currentPartHasCore
                         || coreCompleted
-                        || nestedGenericDepth >= MaxNestedGenericDepth
                         || typeParams[segmentStart..i].IsWhiteSpace())
                     {
                         count = 0;
@@ -405,7 +409,7 @@ public static class FqnParser
                         || !TryCountTypeParameters(
                             typeParams[(i + 1)..close],
                             out _,
-                            nestedGenericDepth + 1))
+                            nestingValidated: true))
                     {
                         count = 0;
                         return false;
@@ -504,6 +508,28 @@ public static class FqnParser
                     nullableApplied = false;
                     pointerApplied = false;
                     break;
+                case ':':
+                    if (!currentPartHasCore
+                        || hasPostfix
+                        || byRefApplied
+                        || i + 1 >= typeParams.Length
+                        || typeParams[i + 1] != ':')
+                    {
+                        count = 0;
+                        return false;
+                    }
+
+                    i++;
+                    currentPartHasCore = false;
+                    coreSeparatedByWhitespace = false;
+                    coreCompleted = false;
+                    nullableApplied = false;
+                    pointerApplied = false;
+                    break;
+                case '(':
+                case ')':
+                    count = 0;
+                    return false;
                 default:
                     if (char.IsWhiteSpace(typeParams[i]))
                     {
@@ -530,6 +556,29 @@ public static class FqnParser
         }
 
         return true;
+    }
+
+    private static bool HasSupportedGenericNesting(
+        ReadOnlySpan<char> value)
+    {
+        var depth = 0;
+        foreach (var c in value)
+        {
+            if (c == '<')
+            {
+                depth++;
+                if (depth > MaxNestedGenericDepth)
+                    return false;
+            }
+            else if (c == '>')
+            {
+                depth--;
+                if (depth < 0)
+                    return false;
+            }
+        }
+
+        return depth == 0;
     }
 
     private static int FindMatchingAngleBracket(

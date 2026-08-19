@@ -216,7 +216,7 @@ public static class SharedParsers
     public static (string? TypeFilter, string MemberName) ParseDottedMember(string value)
     {
         var dotIdx = FqnParser.LastTopLevelDot(value);
-        if (dotIdx > 0 && !value.Contains('*') && !value.Contains('?'))
+        if (dotIdx > 0 && !TypeMatcher.IsTypeGlobPattern(value))
             return (value[..dotIdx], value[(dotIdx + 1)..]);
         return (null, value);
     }
@@ -262,8 +262,13 @@ public static class SharedParsers
     /// Modifies the array in place and returns extracted metadata.
     /// </summary>
     /// <param name="members">The member arguments to process.</param>
+    /// <param name="inferDottedTypeFilter">
+    /// Whether a qualified member may supply a missing type target.
+    /// </param>
     /// <returns>Extracted type filter and overload index if found.</returns>
-    public static (string? DottedTypeFilter, int? OverloadIndex, string? MemberDigest, int? GenericArity, bool GenericArityConflict, HashSet<string> KindFilter) ProcessMemberArguments(string[] members)
+    public static (string? DottedTypeFilter, int? OverloadIndex, string? MemberDigest, int? GenericArity, bool GenericArityConflict, HashSet<string> KindFilter) ProcessMemberArguments(
+        string[] members,
+        bool inferDottedTypeFilter = true)
     {
         string? dottedTypeFilter = null;
         int? overloadIndex = null;
@@ -277,7 +282,7 @@ public static class SharedParsers
             var kindQualified = TryParseKindQualifiedMember(members[i], out _, out _);
 
             // Check for dotted syntax (Type.Member)
-            if (!kindQualified)
+            if (!kindQualified && inferDottedTypeFilter)
             {
                 var (typeFilter, dottedMemberName) = ParseDottedMember(members[i]);
                 if (typeFilter != null)

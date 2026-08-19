@@ -3201,6 +3201,7 @@ public partial class CommandExecutionTests
     [InlineData("System.Collections.Generic.List<.T>")]
     [InlineData("System.Collections.Generic.List<T?*>")]
     [InlineData("System.Collections.Generic.List<T U?>")]
+    [InlineData("System.Action<(int,string)>")]
     [InlineData("System.Threading.Tasks.Task<T1,T2>")]
     public async Task Router_ExplicitMissingGenericArity_DoesNotBroaden(
         string target)
@@ -3562,6 +3563,176 @@ public partial class CommandExecutionTests
             "q"
         ];
         var direct = await RunAppAsync(["type", target, .. tail]);
+        var routed = await RunAppAsync([target, .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+    }
+
+    [Fact]
+    public async Task Router_GenericTypeFilterPreservesPlatformOwner()
+    {
+        SkipUnlessAspNetCoreAvailable();
+        const string target =
+            "Microsoft.AspNetCore.Components.Endpoints.FormMapping"
+            + ".ArrayPoolBufferAdapter<T1,T2,T3>";
+
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "-t",
+            "5",
+            "--all",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("8", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_GenericMemberFilterPreservesPlatformOwner()
+    {
+        SkipUnlessAspNetCoreAvailable();
+        const string target =
+            "Microsoft.AspNetCore.Components.Endpoints.FormMapping"
+            + ".ArrayPoolBufferAdapter<T1,T2,T3>";
+
+        var (exit, output, error) = await RunAppAsync(
+            target,
+            "-m",
+            "explicit:ToResult",
+            "--framework",
+            "aspnetcore",
+            "--all",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_BareQualifiedExplicitInterfaceKeepsLongestTypePrefix()
+    {
+        const string typeName =
+            "System.Collections.Generic.List<T>";
+        const string memberName =
+            "System.Collections.IList.IsReadOnly";
+        string[] tail =
+        [
+            "--all",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+        [
+            "member",
+            typeName,
+            "--platform",
+            "System.Collections",
+            "-m",
+            memberName,
+            .. tail
+        ]);
+        var routed = await RunAppAsync(
+            [$"{typeName}.{memberName}", .. tail]);
+
+        Assert.Equal(direct, routed);
+        Assert.Equal(0, routed.Exit);
+        Assert.Equal("1", routed.Output.Trim());
+    }
+
+    [Fact]
+    public async Task Member_QualifiedNullableGenericOptionSelectorInfersType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "--platform",
+            "System.Collections",
+            "-m",
+            "System.Collections.Generic.List<T>"
+                + ".ConvertAll<TOutput?>",
+            "-S",
+            "Signature",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_SuppliedTypeRetainsQualifiedOptionSelector()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.List<T>",
+            "--platform",
+            "System.Collections",
+            "-m",
+            "System.Collections.IList.IsReadOnly",
+            "--all",
+            "-S",
+            "Member Index",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Type_ExplicitGenericFilterMatchesExactArity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "--platform",
+            "System.Private.CoreLib",
+            "-t",
+            "System.Action<T>",
+            "-S",
+            "Delegates",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("1", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Router_GlobalAliasWhitespaceGenericArgumentResolvesExactType()
+    {
+        const string target =
+            "System.Action<global :: System.String>";
+        string[] tail =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            "Type Info",
+            "--count",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            ["type", target, .. tail]);
         var routed = await RunAppAsync([target, .. tail]);
 
         Assert.Equal(direct, routed);

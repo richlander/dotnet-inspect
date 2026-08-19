@@ -162,6 +162,10 @@ public class SharedParsersTests
     [Theory]
     [InlineData("GenericChoice<System.String>", null, "GenericChoice<System.String>")]
     [InlineData("Fixture.GenericChoice<System.String>", "Fixture", "GenericChoice<System.String>")]
+    [InlineData(
+        "System.Collections.Generic.List<T>.ConvertAll<TOutput?>",
+        "System.Collections.Generic.List<T>",
+        "ConvertAll<TOutput?>")]
     public void ParseDottedMember_GenericArgumentDotsAreNotMemberBoundaries(
         string value,
         string? expectedTypeFilter,
@@ -317,6 +321,23 @@ public class SharedParsersTests
         Assert.Null(genericArity);
         Assert.False(genericArityConflict);
         Assert.Empty(kindFilter);
+    }
+
+    [Fact]
+    public void ProcessMemberArguments_SuppliedTypeRetainsQualifiedMember()
+    {
+        var members =
+            new[] { "System.Collections.IList.IsReadOnly" };
+
+        var (typeFilter, _, _, _, _, _) =
+            SharedParsers.ProcessMemberArguments(
+                members,
+                inferDottedTypeFilter: false);
+
+        Assert.Null(typeFilter);
+        Assert.Equal(
+            "System.Collections.IList.IsReadOnly",
+            members[0]);
     }
 
     [Fact]

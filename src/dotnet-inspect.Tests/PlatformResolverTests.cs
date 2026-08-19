@@ -443,6 +443,15 @@ public class PlatformResolverTests
         Assert.Equal(
             "Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter`3.PooledBuffer",
             resolved.Candidate.Type.ToMetadataFullName());
+
+        var frameworkResolved =
+            Assert.IsType<PlatformTypeLookupOutcome.Resolved>(
+                PlatformResolver.LookupTypeInFramework(
+                    "Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter<T1,T2,T3>",
+                    "aspnetcore"));
+        Assert.Equal(
+            "Microsoft.AspNetCore.Components.Endpoints",
+            frameworkResolved.Candidate.Assembly.Identity.Name);
     }
 
     [Fact]

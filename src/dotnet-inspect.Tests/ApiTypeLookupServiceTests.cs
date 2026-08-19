@@ -102,6 +102,26 @@ public class ApiTypeLookupServiceTests
     }
 
     [Fact]
+    public void LookupType_QualifiedMemberWithinProbeBoundKeepsCompleteRemainder()
+    {
+        var api = CreateSurface();
+        var member = string.Join(
+            '.',
+            Enumerable.Repeat("Interface", 60))
+            + ".Member";
+
+        var result = ApiTypeLookupService.LookupType(
+            api,
+            $"System.Text.Json.JsonSerializer.{member}");
+
+        Assert.True(result.Found);
+        Assert.Equal(
+            "System.Text.Json.JsonSerializer",
+            result.Match);
+        Assert.Equal(member, result.ImpliedMember);
+    }
+
+    [Fact]
     public void LookupType_GenericContainingTypeAndGenericMember_PeelsTrailingMember()
     {
         var api = new ApiSurface

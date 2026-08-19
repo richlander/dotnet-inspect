@@ -30,6 +30,7 @@ public class FqnParserTests
     [Theory]
     [InlineData("List<T>", "List`1")]
     [InlineData("Dictionary<,>", "Dictionary`2")]
+    [InlineData("Action<global :: System.String>", "Action`1")]
     [InlineData("Dictionary<TKey,TValue>", "Dictionary`2")]
     [InlineData("Span<T>", "Span`1")]
     [InlineData("ReadOnlySpan<T>", "ReadOnlySpan`1")]
@@ -78,6 +79,7 @@ public class FqnParserTests
     [InlineData("List<T.>")]
     [InlineData("List<T?*>")]
     [InlineData("List<T U?>")]
+    [InlineData("Action<(int,string)>")]
     public void MalformedGenericType_IsNotNormalizedToValidMetadataIdentity(
         string input) =>
         Assert.Equal(input, FqnParser.NormalizeTypeName(input));
@@ -95,7 +97,7 @@ public class FqnParserTests
         const int rejectedDepth = 66;
         var rejected =
             string.Concat(Enumerable.Repeat("Outer<", rejectedDepth))
-            + "T"
+            + new string('T', 30_000)
             + new string('>', rejectedDepth);
         Assert.Equal(rejected, FqnParser.NormalizeTypeName(rejected));
     }

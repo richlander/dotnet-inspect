@@ -85,6 +85,19 @@ public class TypeMatcherTests
             result.Match);
     }
 
+    [Theory]
+    [InlineData("System.Action", false)]
+    [InlineData("System.Action`1", true)]
+    [InlineData("System.Action`2", false)]
+    public void MatchesTypeFilter_explicit_generic_arity_is_exact(
+        string candidate,
+        bool expected) =>
+        Assert.Equal(
+            expected,
+            TypeMatcher.MatchesTypeFilter(
+                candidate,
+                "System.Action<T>"));
+
     [Fact]
     public void Lookup_prefers_non_generic_type_when_pattern_has_no_generic_notation()
     {
