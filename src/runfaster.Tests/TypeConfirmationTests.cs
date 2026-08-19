@@ -260,10 +260,62 @@ public class TypeConfirmationTests
         ProgramSupport.ApplyTypeConfirmation(result);
 
         Assert.True(triage.TypeConfirmed);
+        Assert.Equal(
+            "Fixture.Specific",
+            triage.TypeConfirmedType);
         Assert.True(library.SupersededByTriage);
         Assert.Equal(
             "superseded-by-triage",
             library.Status);
+    }
+
+    [Fact]
+    public void ApplyTypeConfirmation_KeepsTypeVolumeAndSiteCountAtomic()
+    {
+        var library = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "Fixture.Specific",
+            source: "library");
+        var target = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.Object",
+            source: "triage");
+        library.ProjectedByTriage = true;
+        target.ProjectedLibraries.Add(library);
+        var result = new CorrelationResult();
+        result.Candidates.Add(library);
+        result.Candidates.Add(target);
+        for (int index = 0; index < 7; index++)
+        {
+            result.Candidates.Add(
+                CandidateWithType(
+                    3 + index,
+                    $"Fixture.Other{index}.M()",
+                    "System.Object",
+                    methodToken:
+                        0x06000010 + index));
+        }
+        result.RecordTypeVolume(
+            "System.Object",
+            2_000_000);
+        result.RecordTypeVolume(
+            "Fixture.Specific",
+            3_000_000);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.Equal(
+            "Fixture.Specific",
+            target.TypeConfirmedType);
+        Assert.Equal(
+            3_000_000,
+            target.TypeConfirmedBytes);
+        Assert.Equal(
+            1,
+            target.TypeConfirmedSiteCount);
+        Assert.False(target.TypeConfirmedAmbiguous);
     }
 
     [Fact]

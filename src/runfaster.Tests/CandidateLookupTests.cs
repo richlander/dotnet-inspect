@@ -538,6 +538,56 @@ public class CandidateLookupTests
     }
 
     [Fact]
+    public void AttributeBytes_AlternatingGroupsRotateIndependently()
+    {
+        var firstA = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            kind: "A1");
+        var secondA = Candidate(
+            id: 3,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            kind: "A2");
+        var firstB = Candidate(
+            id: 16,
+            methodToken: 0x06000002,
+            ilOffset: 0x0010,
+            kind: "B1");
+        var secondB = Candidate(
+            id: 17,
+            methodToken: 0x06000002,
+            ilOffset: 0x0010,
+            kind: "B2");
+        var lookup = CandidateLookup.Create(
+            [firstA, secondA, firstB, secondB]);
+        long firstATotal = 0;
+        long secondATotal = 0;
+        long firstBTotal = 0;
+        long secondBTotal = 0;
+
+        for (int index = 0; index < 100; index++)
+        {
+            var a = lookup.AttributeBytes(
+                [firstA, secondA],
+                1);
+            var b = lookup.AttributeBytes(
+                [firstB, secondB],
+                1);
+            firstATotal += a[firstA.Id];
+            secondATotal += a[secondA.Id];
+            firstBTotal += b[firstB.Id];
+            secondBTotal += b[secondB.Id];
+        }
+
+        Assert.Equal(50, firstATotal);
+        Assert.Equal(50, secondATotal);
+        Assert.Equal(50, firstBTotal);
+        Assert.Equal(50, secondBTotal);
+    }
+
+    [Fact]
     public void WhitespaceAssemblyHasNoRuntimeCoordinate()
     {
         var candidate = Candidate(

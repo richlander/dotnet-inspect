@@ -1959,7 +1959,9 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
 
     var typeConfirmed = result.Candidates
         .Where(c => c.TypeConfirmed)
-        .GroupBy(c => (c.Method, c.PredictedType))
+        .GroupBy(c => (
+            c.Method,
+            c.TypeConfirmedType))
         .Select(g => g.First())
         .OrderByDescending(c => c.TypeConfirmedBytes)
         .ThenBy(c => c.Method, StringComparer.Ordinal)
@@ -1971,12 +1973,12 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
         Console.WriteLine();
         Console.WriteLine("These static sites had no exact IL frame in the trace — commonly because the JIT inlined the method into its caller — but their predicted allocation type was realized-hot at runtime. The allocated type survives inlining even when the site does not, so the type is confirmed hot; the exact site is not pinned (that is the inlining cost). The volume column is the whole type's realized volume, not bytes attributed to this site; for a type-ambiguous row it is shared across the listed sites, so do not sum it.");
         Console.WriteLine();
-        Console.WriteLine("| Method | Kind | Predicted Type | Realized Type Volume (whole type) | Escape Kind | Site Certainty |");
+        Console.WriteLine("| Method | Kind | Confirmed Type | Realized Type Volume (whole type) | Escape Kind | Site Certainty |");
         Console.WriteLine("| ------ | ---- | -------------- | --------------------------------: | ----------- | -------------- |");
         foreach (var c in typeConfirmed)
         {
             var certainty = c.TypeConfirmedAmbiguous ? $"type-ambiguous ({c.TypeConfirmedSiteCount.ToString(CultureInfo.InvariantCulture)} sites share type)" : "unique predicted type";
-            Console.WriteLine($"| `{Escape(c.Method)}` | {Escape(c.AllocationKind)} | `{Escape(c.PredictedType ?? "")}` | {FormatBytes(c.TypeConfirmedBytes)} | {Escape(c.EscapeKind ?? "")} | {Escape(certainty)} |");
+            Console.WriteLine($"| `{Escape(c.Method)}` | {Escape(c.AllocationKind)} | `{Escape(c.TypeConfirmedType ?? "")}` | {FormatBytes(c.TypeConfirmedBytes)} | {Escape(c.EscapeKind ?? "")} | {Escape(certainty)} |");
         }
         Console.WriteLine();
     }
@@ -2283,6 +2285,9 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     {
         // Whole-type realized volume, not bytes attributed to this site; shared across sites for a
         // type-ambiguous confirmation, so a consumer must not sum it across rows.
+        writer.WriteString(
+            "typeConfirmedType",
+            candidate.TypeConfirmedType);
         writer.WriteNumber("realizedTypeVolumeBytes", candidate.TypeConfirmedBytes);
         writer.WriteNumber("typeConfirmedSiteCount", candidate.TypeConfirmedSiteCount);
         writer.WriteBoolean("typeConfirmedAmbiguous", candidate.TypeConfirmedAmbiguous);
@@ -2493,6 +2498,11 @@ sealed class MethodAllocationSummary(string method)
     }
 }
 
+readonly record struct TypeConfirmationEvidence(
+    string Type,
+    long Bytes,
+    int SiteCount);
+
 sealed class AllocationCandidate(
     int id,
     string source,
@@ -2604,8 +2614,14 @@ sealed class AllocationCandidate(
     // Type-level confirmation (issue #2264): set when this site's exact IL frame did not resolve
     // (commonly because the JIT inlined the method) but its predicted allocated type was realized-hot
     // at runtime. Coarser than a site hit: it confirms the type is hot, not which site.
-    public long TypeConfirmedBytes { get; set; }
-    public int TypeConfirmedSiteCount { get; set; }
+    public TypeConfirmationEvidence?
+        TypeConfirmation { get; private set; }
+    public string? TypeConfirmedType =>
+        TypeConfirmation?.Type;
+    public long TypeConfirmedBytes =>
+        TypeConfirmation?.Bytes ?? 0;
+    public int TypeConfirmedSiteCount =>
+        TypeConfirmation?.SiteCount ?? 0;
     public bool TypeConfirmed => TypeConfirmedBytes > 0 && !IsObserved;
     public bool TypeConfirmedAmbiguous => TypeConfirmedSiteCount > 1;
     public bool ProjectedByTriage { get; set; }
@@ -2619,6 +2635,31 @@ sealed class AllocationCandidate(
         {
             projectedLibrary.SupersededByTriage =
                 true;
+        }
+    }
+    public void ConfirmType(
+        string type,
+        long bytes,
+        int siteCount)
+    {
+        var proposed = new TypeConfirmationEvidence(
+            type,
+            bytes,
+            siteCount);
+        if (TypeConfirmation is not
+            TypeConfirmationEvidence current
+            || proposed.Bytes > current.Bytes
+            || (proposed.Bytes == current.Bytes
+                && proposed.SiteCount
+                    < current.SiteCount)
+            || (proposed.Bytes == current.Bytes
+                && proposed.SiteCount
+                    == current.SiteCount
+                && string.CompareOrdinal(
+                    proposed.Type,
+                    current.Type) < 0))
+        {
+            TypeConfirmation = proposed;
         }
     }
     public bool RowAmbiguous => AmbiguousIlOffsetJoin || (ShapeMatched && SameMethodShapeRows > 1 && !ExactOffsetObserved);
@@ -2812,19 +2853,29 @@ readonly record struct MethodTextMatch(
     AllocationCandidate Candidate,
     bool IsRuntimeBody);
 
+readonly record struct AttributionGroupHash(
+    ulong First,
+    ulong Second);
+
+readonly record struct ByteRemainderState(
+    AttributionGroupHash Hash,
+    int Offset);
+
 sealed class CandidateLookup
 {
-    const int ByteRemainderSlotCount = 4096;
+    const int ByteRemainderStateCapacity = 4096;
     readonly Dictionary<(int Token, int Offset), List<AllocationCandidate>> _byTokenOffset;
     readonly Dictionary<(int Token, int Offset), AllocationCandidate[]> _rejectedByTokenOffset;
     readonly Dictionary<(string Module, int Token), List<AllocationCandidate>> _byModuleMethodToken;
     readonly HashSet<string> _candidateModules;
     readonly Dictionary<int, string>
         _stableAttributionKeys = [];
-    readonly (ulong Hash, int Offset, bool Used)[]
-        _byteRemainderSlots =
-            new (ulong, int, bool)[
-                ByteRemainderSlotCount];
+    readonly Dictionary<
+        AttributionGroupHash,
+        LinkedListNode<ByteRemainderState>>
+        _byteRemainderStates = [];
+    readonly LinkedList<ByteRemainderState>
+        _byteRemainderLru = [];
     readonly List<(
         string Fragment,
         AllocationCandidate Candidate,
@@ -3148,18 +3199,18 @@ sealed class CandidateLookup
         if (remainder == 0)
             return result;
 
-        ulong groupHash =
+        var groupHash =
             ComputeAttributionGroupHash(
                 ordered);
-        int slotIndex = (int)(
-            groupHash
-            % ByteRemainderSlotCount);
-        ref var slot =
-            ref _byteRemainderSlots[slotIndex];
-        int start = slot.Used
-            && slot.Hash == groupHash
-            ? slot.Offset
-            : 0;
+        int start = 0;
+        if (_byteRemainderStates.TryGetValue(
+                groupHash,
+                out var node))
+        {
+            start = node.Value.Offset;
+            _byteRemainderLru.Remove(node);
+            _byteRemainderLru.AddLast(node);
+        }
         for (int index = 0;
              index < remainder;
              index++)
@@ -3169,11 +3220,35 @@ sealed class CandidateLookup
                 % ordered.Length;
             result[ordered[recipient].Id]++;
         }
-        slot = (
-            groupHash,
+        int nextOffset =
             (start + remainder)
-                % ordered.Length,
-            true);
+            % ordered.Length;
+        if (node is not null)
+        {
+            node.Value = new ByteRemainderState(
+                groupHash,
+                nextOffset);
+        }
+        else
+        {
+            if (_byteRemainderStates.Count
+                == ByteRemainderStateCapacity)
+            {
+                var oldest =
+                    _byteRemainderLru.First!;
+                _byteRemainderLru.RemoveFirst();
+                _byteRemainderStates.Remove(
+                    oldest.Value.Hash);
+            }
+            var state = new ByteRemainderState(
+                groupHash,
+                nextOffset);
+            var added =
+                _byteRemainderLru.AddLast(state);
+            _byteRemainderStates.Add(
+                groupHash,
+                added);
+        }
         return result;
     }
 
@@ -3363,25 +3438,35 @@ sealed class CandidateLookup
             ":",
             value);
 
-    static ulong ComputeAttributionGroupHash(
+    AttributionGroupHash
+        ComputeAttributionGroupHash(
         IReadOnlyList<AllocationCandidate> candidates)
     {
-        const ulong offsetBasis =
+        const ulong firstOffset =
             14695981039346656037UL;
-        const ulong prime = 1099511628211UL;
-        ulong hash = offsetBasis;
+        const ulong secondOffset =
+            7809847782465536322UL;
+        const ulong firstPrime =
+            1099511628211UL;
+        const ulong secondPrime =
+            14029467366897019727UL;
+        ulong first = firstOffset;
+        ulong second = secondOffset;
         foreach (var candidate in candidates)
         {
-            uint id = unchecked((uint)candidate.Id);
-            for (int shift = 0;
-                 shift < 32;
-                 shift += 8)
+            string key =
+                GetStableAttributionKey(candidate);
+            foreach (char character in key)
             {
-                hash ^= (byte)(id >> shift);
-                hash *= prime;
+                first ^= character;
+                first *= firstPrime;
+                second ^= character;
+                second *= secondPrime;
             }
         }
-        return hash;
+        return new AttributionGroupHash(
+            first,
+            second);
     }
 
     static bool HasAmbiguousTextCoordinateIdentity(
@@ -3717,13 +3802,34 @@ internal static class ProgramSupport
         if (result.RuntimeTypeVolume.Count == 0)
             return;
 
-        var runtimeByCanon = new Dictionary<string, long>(StringComparer.Ordinal);
-        foreach (var (type, bytes) in result.RuntimeTypeVolume)
+        var runtimeByCanon =
+            new Dictionary<
+                string,
+                (string Type, long Bytes)>(
+                    StringComparer.Ordinal);
+        foreach (var (type, bytes) in result
+                     .RuntimeTypeVolume
+                     .OrderBy(static pair =>
+                         pair.Key,
+                         StringComparer.Ordinal))
         {
             var canon = CanonicalTypeSignature(type, reflection: true);
             if (canon.Length == 0)
                 continue;
-            runtimeByCanon[canon] = runtimeByCanon.GetValueOrDefault(canon) + bytes;
+            if (runtimeByCanon.TryGetValue(
+                    canon,
+                    out var existing))
+            {
+                runtimeByCanon[canon] = (
+                    existing.Type,
+                    checked(existing.Bytes + bytes));
+            }
+            else
+            {
+                runtimeByCanon.Add(
+                    canon,
+                    (type, bytes));
+            }
         }
 
         // Types already explained by a site-observed candidate must not type-confirm other cold
@@ -3767,8 +3873,14 @@ internal static class ProgramSupport
 
         foreach (var (canon, candidates) in byCanon)
         {
-            if (!runtimeByCanon.TryGetValue(canon, out var volume) || volume < TypeConfirmMinBytes)
+            if (!runtimeByCanon.TryGetValue(
+                    canon,
+                    out var confirmation)
+                || confirmation.Bytes
+                    < TypeConfirmMinBytes)
+            {
                 continue;
+            }
 
             var plan = PlanTypeConfirmationSites(candidates);
             if (plan.SiteCount > TypeConfirmMaxSites)
@@ -3778,13 +3890,10 @@ internal static class ProgramSupport
                 candidate.SupersededByTriage = true;
             foreach (var candidate in plan.Candidates)
             {
-                candidate.TypeConfirmedBytes = Math.Max(
-                    candidate.TypeConfirmedBytes,
-                    volume);
-                candidate.TypeConfirmedSiteCount =
-                    Math.Max(
-                        candidate.TypeConfirmedSiteCount,
-                        plan.SiteCount);
+                candidate.ConfirmType(
+                    confirmation.Type,
+                    confirmation.Bytes,
+                    plan.SiteCount);
                 candidate
                     .MarkProjectedLibrariesSuperseded();
             }
