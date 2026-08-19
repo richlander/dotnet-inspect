@@ -306,13 +306,11 @@ public static partial class BrowserInspectionEngine
                 "original",
                 AuthoredProvenance(authored.Provenance),
                 authored.Inspection.Document?.ResolvedUrl,
-                null,
                 authored.Text),
             AssemblyMemberSource.Decompiled decompiled => new BrowserSource(
                 "decompiled",
                 DecompiledProvenance(participant),
                 null,
-                AuthoredLimitation(decompiled.AuthoredAttempt.Lines),
                 decompiled.Text),
             _ => throw new InvalidOperationException(
                 "Unknown available member source result."),
@@ -327,13 +325,11 @@ public static partial class BrowserInspectionEngine
                 "original",
                 AuthoredProvenance(authored.Provenance),
                 authored.Inspection.Document?.ResolvedUrl,
-                null,
                 authored.Text),
             AssemblyTypeSource.Decompiled decompiled => new BrowserSource(
                 "decompiled",
                 DecompiledProvenance(participant),
                 null,
-                AuthoredLimitation(decompiled.AuthoredAttempt.Lines),
                 decompiled.Text),
             _ => throw new InvalidOperationException(
                 "Unknown available type source result."),
