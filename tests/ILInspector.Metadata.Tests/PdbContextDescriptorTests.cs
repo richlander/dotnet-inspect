@@ -44,6 +44,53 @@ public class PdbContextDescriptorTests
     }
 
     [Fact]
+    public void EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization()
+    {
+        string path = typeof(EmbeddedSourceFixture).Assembly.Location;
+
+        Assert.Throws<PdbResourceLimitException>(
+            () => PdbContext.OpenEmbeddedPdbOnly(
+                path,
+                maxEmbeddedPdbBytes: 0));
+
+        using (PdbContext context = PdbContext.OpenEmbeddedPdbOnly(path))
+        {
+            PdbCustomDebugInformationResult result =
+                context.ReadModuleCustomDebugInformation(
+                    new Guid("CC110556-A091-4D38-9FEC-25AB9A351A6A"),
+                    maxValueBytes: 1);
+            Assert.True(result.LimitExceeded);
+            Assert.Null(result.Value);
+            Assert.True(result.ValueLength > 1);
+        }
+
+        using (SourceLinkService source = SourceLinkService.OpenEmbeddedPdbOnly(
+            path,
+            new SourceLinkReadLimits(
+                maxEmbeddedPdbBytes: int.MaxValue,
+                maxMapBytes: 1,
+                maxMappings: int.MaxValue)))
+        {
+            SourceLinkMapAudit audit = source.InspectSourceLinkMap();
+            Assert.Equal(SourceLinkMapLimitKind.EncodedBytes, audit.LimitKind);
+            Assert.Empty(audit.Entries);
+            Assert.True(audit.EncodedBytes > 1);
+        }
+
+        using (SourceLinkService source = SourceLinkService.OpenEmbeddedPdbOnly(
+            path,
+            new SourceLinkReadLimits(
+                maxEmbeddedPdbBytes: int.MaxValue,
+                maxMapBytes: int.MaxValue,
+                maxMappings: 0)))
+        {
+            SourceLinkMapAudit audit = source.InspectSourceLinkMap();
+            Assert.Equal(SourceLinkMapLimitKind.Mappings, audit.LimitKind);
+            Assert.Empty(audit.Entries);
+        }
+    }
+
+    [Fact]
     public void OpenDescriptor_UsesAuthoritativeStreamInsteadOfPath()
     {
         string authoritativePath = typeof(PdbContextDescriptorTests).Assembly.Location;

@@ -91,7 +91,7 @@ internal static class LibraryMetadataService
                         assemblyReference,
                         logger.Log)
                 : discoveryOnly
-                    ? SourceLinkService.OpenMetadataOnly(path, logger.Log)
+                    ? SourceLinkService.OpenEmbeddedPdbOnly(path, logger.Log)
                     : bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
                         ? SourceLinkService.Open(path, logger.Log)
                         : SourceLinkService.OpenPrefetched(path, logger.Log);

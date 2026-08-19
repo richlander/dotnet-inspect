@@ -7,6 +7,62 @@ namespace DotnetInspector.Services.Tests;
 public sealed class PackageContentAuditTests
 {
     [Theory]
+    [InlineData(".cjs")]
+    [InlineData(".cshtml")]
+    [InlineData(".css")]
+    [InlineData(".html")]
+    [InlineData(".js")]
+    [InlineData(".jsx")]
+    [InlineData(".mjs")]
+    [InlineData(".razor")]
+    [InlineData(".scss")]
+    [InlineData(".svg")]
+    [InlineData(".ts")]
+    [InlineData(".tsx")]
+    public void CommonWebTextFiles_AreAuditedOutsideContentDirectories(string extension)
+    {
+        string root = CreateRoot();
+        try
+        {
+            string relativePath = $"wwwroot/app{extension}";
+            Write(root, relativePath, "prefix\u202Esuffix");
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(root, [relativePath]);
+
+            Assert.True(result.Complete);
+            Assert.Equal(1, result.EligibleFiles);
+            PackageContentAuditFinding finding = Assert.Single(result.Findings);
+            Assert.Equal(PackageContentFindingKind.NonGraphicText, finding.Kind);
+            Assert.Contains("\\u202E", finding.EncodedText.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void KnownBinaryOutsideContentDirectories_IsNotTreatedAsText()
+    {
+        string root = CreateRoot();
+        try
+        {
+            WriteBytes(root, "wwwroot/image.png", [0x1B, 0x07]);
+
+            PackageContentAuditResult result =
+                PackageContentAudit.Scan(root, ["wwwroot/image.png"]);
+
+            Assert.True(result.Complete);
+            Assert.Equal(0, result.EligibleFiles);
+            Assert.Empty(result.Findings);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
     [InlineData("../", true)]
     [InlineData("https://example.test/repository-a/../repository-b/file.cs", true)]
     [InlineData("prefix../suffix", true)]
@@ -128,6 +184,54 @@ public sealed class PackageContentAuditTests
             PackageContentAuditFinding finding = Assert.Single(result.Findings);
             Assert.Equal(PackageContentFindingKind.InvalidTextEncoding, finding.Kind);
             Assert.Equal(TextConcern.None, finding.Concerns);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TruncatedPdb_RemainsVisibleAndMarksAuditIncomplete()
+    {
+        string root = CreateRoot();
+        try
+        {
+            WriteBytes(root, "symbols/broken.pdb", [0x42, 0x53, 0x4A]);
+
+            PackageContentAuditResult result =
+                PackageContentAudit.Scan(root, ["symbols/broken.pdb"]);
+
+            Assert.False(result.Complete);
+            Assert.Equal(0, result.ScannedSourceLinkMaps);
+            PackageContentAuditFinding finding = Assert.Single(result.Findings);
+            Assert.Equal(PackageContentFindingKind.InvalidSourceLinkMap, finding.Kind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("Microsoft C/C++ MSF 7.00\r\n\u001ADS\0\0\0")]
+    [InlineData("Microsoft C/C++ program database 2.00\r\n\u001AJG\0\0")]
+    public void WindowsPdb_IsRecognizedAsUnsupportedRatherThanMalformed(string signature)
+    {
+        string root = CreateRoot();
+        try
+        {
+            WriteBytes(
+                root,
+                "symbols/windows.pdb",
+                Encoding.ASCII.GetBytes(signature));
+
+            PackageContentAuditResult result =
+                PackageContentAudit.Scan(root, ["symbols/windows.pdb"]);
+
+            Assert.True(result.Complete);
+            Assert.Equal(0, result.ScannedSourceLinkMaps);
+            Assert.Empty(result.Findings);
         }
         finally
         {

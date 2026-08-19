@@ -1,6 +1,7 @@
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
+using ILInspector.Metadata;
 using InertText;
 
 namespace DotnetInspector.Services;
@@ -85,16 +86,18 @@ public static class PackageContentAudit
     internal const int MaxSourceLinkMappings = 16 * 1024;
     internal const int MaxSourceLinkMapBytes = 4 * 1024 * 1024;
     internal const int MaxTotalSourceLinkMapBytes = 32 * 1024 * 1024;
+    internal const int MaxEmbeddedPdbBytes = 64 * 1024 * 1024;
     internal const long MaxSourceLinkCarrierBytes = 64L * 1024 * 1024;
     internal const long MaxTotalSourceLinkCarrierBytes = 256L * 1024 * 1024;
     private const int MaxEncodedTextLength = 512;
 
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".bat", ".cmd", ".config", ".cs", ".csproj", ".editorconfig", ".fs", ".fsproj",
-        ".ini", ".json", ".jsonc", ".markdown", ".md", ".nuspec", ".props", ".ps1",
-        ".rsp", ".sh", ".targets", ".toml", ".txt", ".vb", ".vbproj", ".xml", ".yaml",
-        ".yml",
+        ".bat", ".cjs", ".cmd", ".config", ".cs", ".cshtml", ".csproj", ".css",
+        ".editorconfig", ".fs", ".fsproj", ".htm", ".html", ".ini", ".js", ".json",
+        ".jsonc", ".jsx", ".less", ".markdown", ".md", ".mjs", ".nuspec", ".props",
+        ".ps1", ".razor", ".rsp", ".sass", ".scss", ".sh", ".svg", ".targets", ".toml",
+        ".ts", ".tsx", ".txt", ".vb", ".vbproj", ".xml", ".yaml", ".yml",
     };
 
     private static readonly HashSet<string> TextFileNames = new(StringComparer.OrdinalIgnoreCase)
@@ -251,6 +254,12 @@ public static class PackageContentAudit
         {
             if (collector.Saturated)
                 break;
+            if (!CanInspectAnotherSourceLinkMap(
+                    assemblyPath,
+                    collector,
+                    scannedMappings,
+                    scannedMapBytes))
+                break;
             if (!TryResolveAndAccountSourceLinkCarrier(
                     root,
                     assemblyPath,
@@ -263,15 +272,20 @@ public static class PackageContentAudit
 
             try
             {
-                using SourceLinkService source = SourceLinkService.OpenEmbeddedPdbOnly(fullAssemblyPath);
+                var limits = new SourceLinkReadLimits(
+                    MaxEmbeddedPdbBytes,
+                    Math.Min(
+                        MaxSourceLinkMapBytes,
+                        MaxTotalSourceLinkMapBytes - scannedMapBytes),
+                    MaxSourceLinkMappings - scannedMappings);
+                using SourceLinkService source =
+                    SourceLinkService.OpenEmbeddedPdbOnly(
+                        fullAssemblyPath,
+                        limits);
                 if (!source.Context.HasMetadata || !source.Context.HasEmbeddedPdb)
                     continue;
 
-                SourceLinkMapInspection map = source.SourceLinkMap;
-                var audit = new SourceLinkMapAudit(
-                    map,
-                    source.SourceLinkMapEntries,
-                    source.SourceLinkJson is { } json ? Encoding.UTF8.GetByteCount(json) : 0);
+                SourceLinkMapAudit audit = source.InspectSourceLinkMap();
                 if (!AddSourceLinkMapFindings(
                         assemblyPath,
                         audit,
@@ -280,6 +294,13 @@ public static class PackageContentAudit
                         ref scannedMappings,
                         ref scannedMapBytes))
                     break;
+            }
+            catch (PdbResourceLimitException ex)
+            {
+                collector.AddIncomplete(ToolFinding(
+                    assemblyPath,
+                    PackageContentFindingKind.ScanLimit,
+                    ex.Message));
             }
             catch (Exception ex) when (
                 ex is IOException
@@ -301,6 +322,12 @@ public static class PackageContentAudit
         {
             if (collector.Saturated)
                 break;
+            if (!CanInspectAnotherSourceLinkMap(
+                    pdbPath,
+                    collector,
+                    scannedMappings,
+                    scannedMapBytes))
+                break;
             if (!TryResolveAndAccountSourceLinkCarrier(
                     root,
                     pdbPath,
@@ -315,7 +342,10 @@ public static class PackageContentAudit
             {
                 SourceLinkMapAudit audit = SourceLinkService.InspectPortablePdb(
                     fullPdbPath,
-                    MaxSourceLinkMapBytes);
+                    Math.Min(
+                        MaxSourceLinkMapBytes,
+                        MaxTotalSourceLinkMapBytes - scannedMapBytes),
+                    MaxSourceLinkMappings - scannedMappings);
                 if (!AddSourceLinkMapFindings(
                         pdbPath,
                         audit,
@@ -343,6 +373,31 @@ public static class PackageContentAudit
         return scannedMaps;
     }
 
+    private static bool CanInspectAnotherSourceLinkMap(
+        string evidencePath,
+        FindingCollector collector,
+        int scannedMappings,
+        int scannedMapBytes)
+    {
+        if (scannedMappings >= MaxSourceLinkMappings)
+        {
+            collector.AddLimit(
+                evidencePath,
+                $"SourceLink audit exceeded the {MaxSourceLinkMappings} mapping limit.");
+            return false;
+        }
+
+        if (scannedMapBytes >= MaxTotalSourceLinkMapBytes)
+        {
+            collector.AddLimit(
+                evidencePath,
+                $"SourceLink maps exceed the {MaxTotalSourceLinkMapBytes / (1024 * 1024)} MiB aggregate audit limit.");
+            return false;
+        }
+
+        return true;
+    }
+
     private static bool AddSourceLinkMapFindings(
         string evidencePath,
         SourceLinkMapAudit audit,
@@ -355,7 +410,15 @@ public static class PackageContentAudit
             return true;
 
         scannedMaps++;
-        if (audit.LimitExceeded
+        if (audit.LimitKind == SourceLinkMapLimitKind.Mappings)
+        {
+            collector.AddLimit(
+                evidencePath,
+                $"SourceLink audit exceeded the {MaxSourceLinkMappings} mapping limit.");
+            return false;
+        }
+
+        if (audit.LimitKind == SourceLinkMapLimitKind.EncodedBytes
             || audit.EncodedBytes > MaxSourceLinkMapBytes
             || scannedMapBytes + audit.EncodedBytes > MaxTotalSourceLinkMapBytes)
         {
@@ -473,15 +536,23 @@ public static class PackageContentAudit
     {
         try
         {
-            Span<byte> header = stackalloc byte[4];
+            Span<byte> header = stackalloc byte[64];
             using FileStream stream = File.OpenRead(fullPath);
-            if (stream.ReadAtLeast(
-                    header,
-                    header.Length,
-                    throwOnEndOfStream: false) < header.Length)
+            int read = stream.ReadAtLeast(
+                header,
+                header.Length,
+                throwOnEndOfStream: false);
+            ReadOnlySpan<byte> available = header[..read];
+            if (available.StartsWith("BSJB"u8))
+                return true;
+            if (IsWindowsPdbHeader(available))
                 return false;
 
-            return header.SequenceEqual("BSJB"u8);
+            collector.AddIncomplete(ToolFinding(
+                relativePath,
+                PackageContentFindingKind.InvalidSourceLinkMap,
+                "PDB content is truncated or has an unrecognized format."));
+            return false;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -492,6 +563,10 @@ public static class PackageContentAudit
             return false;
         }
     }
+
+    private static bool IsWindowsPdbHeader(ReadOnlySpan<byte> header)
+        => header.StartsWith("Microsoft C/C++ MSF "u8)
+            || header.StartsWith("Microsoft C/C++ program database "u8);
 
     private static bool HasPeHeader(
         string fullPath,

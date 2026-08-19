@@ -43,6 +43,14 @@ selection controls rendering.
 | `SourceLink: Missing Files` | compiler source paths that are neither reachable nor embedded | opt-in; derived from availability pass |
 | `SourceLink: Integrity` | downloads source bodies and checks PDB checksums | opt-in; slowest and exits non-zero on mismatch |
 
+Plain `library -D` may open an embedded PDB because it is already part of the
+named carrier, but it does not probe an adjacent PDB or acquire symbols. This
+lets discovery advertise the `@SourceLink` door for embedded maps without
+performing network work.
+`LibraryCommand_Discover_AdvertisesEmbeddedSourceLinkDoor` gates the positive
+carrier case; `LibraryPipeline_SourceLinkFamily_NotDiscoverableWithoutSourceLink`
+gates the close negative.
+
 ### Package
 
 `package` owns package-level aggregation. It should not force users to pivot to
@@ -80,7 +88,9 @@ is inspected as authored package content without claiming assembly identity;
 identity remains mandatory for method/document correspondence. The audit also
 emits a review-oriented finding for every literal `../` in a decoded document
 key or URL. That finding is intentionally suspiciousness, not a maliciousness
-verdict. The audit does not acquire PDBs or contact SourceLink URLs.
+verdict. Embedded-PDB inflation and SourceLink map byte/mapping materialization
+are caller-bounded before allocation. The audit does not acquire PDBs or
+contact SourceLink URLs.
 
 ### Type and member
 

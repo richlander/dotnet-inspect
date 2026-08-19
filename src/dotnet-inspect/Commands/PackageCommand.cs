@@ -1683,7 +1683,9 @@ public class PackageCommand
                     result.Version ?? string.Empty,
                     sourceByRow[row],
                     options.ContentScope,
-                    normalizeGithubLinksToRaw: !options.BrowsableUrls);
+                    normalizeGithubLinksToRaw: !options.BrowsableUrls,
+                    includeExactContent: HasUnstructuredOutputPath(options)
+                        && options.ContentScope == PackageFileContentScope.Full);
                 return new PrintableContent(content.Content, content.ExactContent);
             },
             new PrintProjectionOptions(
@@ -1872,12 +1874,18 @@ public class PackageCommand
         }
 
         var results = new List<PackageFileContentSet>();
+        int selectedFiles = 0;
         foreach (var target in targets)
         {
-            var result = await ReadPackageFileContentsAsync(target, options, context);
+            var result = await ReadPackageFileContentsAsync(
+                target,
+                options,
+                context,
+                suppressUnaryPayloadRead: selectedFiles > 0);
             if (result == null)
                 return 1;
             results.Add(result);
+            selectedFiles += result.Files.Count(static file => file.Found);
         }
 
         return PrintPackageFileContents(results, options);
@@ -1886,7 +1894,8 @@ public class PackageCommand
     private static async Task<PackageFileContentSet?> ReadPackageFileContentsAsync(
         PackageReferenceTarget target,
         InspectionOptions options,
-        CommandContext context)
+        CommandContext context,
+        bool suppressUnaryPayloadRead)
     {
         var logger = context.Logger;
         string? extractPath = null;
@@ -1922,7 +1931,14 @@ public class PackageCommand
                 ?? target.PackageName;
             var packageVersion = nuspec?.Version ?? version;
             var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
-            return ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, nuspec?.ReadmeFile, options);
+            return ReadPackageFileContents(
+                extractPath,
+                packageId,
+                packageVersion,
+                packageReadme,
+                nuspec?.ReadmeFile,
+                options,
+                suppressUnaryPayloadRead);
         }
         finally
         {
@@ -2418,21 +2434,55 @@ public class PackageCommand
         string version,
         string? readmeFile,
         string? declaredReadmeFile,
-        InspectionOptions options)
+        InspectionOptions options,
+        bool suppressUnaryPayloadRead = false)
     {
         var files = PackageFileLister.ListAll(extractPath, readmeFile);
-        var selectedFiles = FilterPackageFiles(files, options);
+        List<PackageFile> selectedFiles =
+        [
+            .. FilterPackageFiles(files, options)
+                .Select(file => WithDeclaredReadmeRole(file, declaredReadmeFile)),
+        ];
+        bool unaryPayload = RequiresUnaryPackageContent(options);
+        bool skipPayloadReads =
+            unaryPayload
+            && (suppressUnaryPayloadRead || selectedFiles.Count != 1);
+        bool includeExactContent =
+            unaryPayload
+            && HasUnstructuredOutputPath(options)
+            && options.ContentScope == PackageFileContentScope.Full;
         var contents = selectedFiles
-            .Select(file => ReadPackageFileContent(
-                extractPath,
-                packageName,
-                version,
-                WithDeclaredReadmeRole(file, declaredReadmeFile),
-                options.ContentScope,
-                normalizeGithubLinksToRaw: !options.BrowsableUrls))
+            .Select(file => skipPayloadReads
+                ? new PackageFileContent(
+                    packageName,
+                    version,
+                    file.Path,
+                    file.Size,
+                    Found: true,
+                    Content: string.Empty,
+                    file.IsReadme)
+                : ReadPackageFileContent(
+                    extractPath,
+                    packageName,
+                    version,
+                    file,
+                    options.ContentScope,
+                    normalizeGithubLinksToRaw: !options.BrowsableUrls,
+                    includeExactContent))
             .ToList();
         return new PackageFileContentSet(packageName, version, contents);
     }
+
+    private static bool RequiresUnaryPackageContent(InspectionOptions options)
+        => !LensProjection.IsRequested(options)
+            && (options.Bare
+                || HasUnstructuredOutputPath(options));
+
+    private static bool HasUnstructuredOutputPath(InspectionOptions options)
+        => !string.IsNullOrEmpty(options.OutputPath)
+            && !options.JsonOutput
+            && !options.Jsonl
+            && !options.JsonArray;
 
     /// <summary>
     /// Restores the readme role to the document the manifest declares when
@@ -2491,7 +2541,8 @@ public class PackageCommand
         string version,
         PackageFile file,
         PackageFileContentScope scope,
-        bool normalizeGithubLinksToRaw)
+        bool normalizeGithubLinksToRaw,
+        bool includeExactContent)
     {
         var fullPath = Path.Combine(extractPath, file.Path.Replace('/', Path.DirectorySeparatorChar));
         byte[] exactContent = File.ReadAllBytes(fullPath);
@@ -2511,7 +2562,7 @@ public class PackageCommand
                 Found: true,
                 ReadTextPreservingPreamble(exactContent),
                 file.IsReadme,
-                scope == PackageFileContentScope.Full ? exactContent : null);
+                includeExactContent ? exactContent : null);
         }
 
         var content = MarkdownContent.ApplyScope(
@@ -2528,7 +2579,7 @@ public class PackageCommand
             Found: true,
             content,
             file.IsReadme,
-            scope == PackageFileContentScope.Full ? exactContent : null);
+            includeExactContent ? exactContent : null);
     }
 
     /// <summary>
@@ -2587,7 +2638,8 @@ public class PackageCommand
         if (options.Bare)
             return PrintBarePackageFileContentRows(rows, options.OutputPath);
 
-        if (!string.IsNullOrEmpty(options.OutputPath) && !options.Jsonl)
+        if (HasUnstructuredOutputPath(options)
+            && options.OutputPath is { } exactOutputPath)
         {
             List<PackageFileContent> found = rows.Where(row => row.Found).ToList();
             if (found.Count != 1)
@@ -2597,7 +2649,7 @@ public class PackageCommand
                 return 1;
             }
 
-            WritePackageFileExport(found[0], options.OutputPath);
+            WritePackageFileExport(found[0], exactOutputPath);
             return 0;
         }
 
@@ -3116,7 +3168,8 @@ public class PackageCommand
             version,
             files[0],
             PackageFileContentScope.Full,
-            normalizeGithubLinksToRaw: !options.BrowsableUrls);
+            normalizeGithubLinksToRaw: !options.BrowsableUrls,
+            includeExactContent: HasUnstructuredOutputPath(options));
         if (!string.IsNullOrEmpty(options.OutputPath))
         {
             WritePackageFileExport(content, options.OutputPath);

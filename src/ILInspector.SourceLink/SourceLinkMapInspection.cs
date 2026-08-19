@@ -15,6 +15,15 @@ public enum SourceLinkMapStatus
 /// <summary>A SourceLink document mapping exactly as decoded from the portable PDB.</summary>
 public sealed record SourceLinkMapEntry(string Document, string? Url);
 
+/// <summary>The resource limit that stopped SourceLink map inspection.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<SourceLinkMapLimitKind>))]
+public enum SourceLinkMapLimitKind
+{
+    None,
+    EncodedBytes,
+    Mappings,
+}
+
 /// <summary>
 /// SourceLink map facts read directly from one portable PDB without claiming assembly identity.
 /// </summary>
@@ -22,7 +31,11 @@ public sealed record SourceLinkMapAudit(
     SourceLinkMapInspection Map,
     IReadOnlyList<SourceLinkMapEntry> Entries,
     int EncodedBytes,
-    bool LimitExceeded = false);
+    SourceLinkMapLimitKind LimitKind = SourceLinkMapLimitKind.None)
+{
+    [JsonIgnore]
+    public bool LimitExceeded => LimitKind != SourceLinkMapLimitKind.None;
+}
 
 /// <summary>
 /// Parse and entry-validation facts for one SourceLink document map.

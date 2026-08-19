@@ -44,7 +44,12 @@ public enum PdbCustomDebugInformationStatus
 public sealed record PdbCustomDebugInformationResult(
     PdbCustomDebugInformationStatus Status,
     byte[]? Value,
-    string? Error = null);
+    string? Error = null,
+    int ValueLength = 0,
+    bool LimitExceeded = false);
+
+/// <summary>A PDB resource exceeded a caller-supplied pre-allocation limit.</summary>
+public sealed class PdbResourceLimitException(string message) : IOException(message);
 
 /// <summary>
 /// A method-to-document relationship extracted from portable-PDB sequence points.
@@ -296,12 +301,58 @@ public class PdbContext : IDisposable
     public static PdbContext OpenEmbeddedPdbOnly(
         string assemblyPath,
         Action<string>? log = null)
-        => Open(
+        => OpenEmbeddedPdbOnly(assemblyPath, int.MaxValue, log);
+
+    /// <summary>
+    /// Opens PE metadata and an embedded portable PDB up to
+    /// <paramref name="maxEmbeddedPdbBytes"/>, but never probes an adjacent PDB.
+    /// </summary>
+    public static PdbContext OpenEmbeddedPdbOnly(
+        string assemblyPath,
+        int maxEmbeddedPdbBytes,
+        Action<string>? log = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
+        return Open(
             assemblyPath,
             log,
             PEStreamOptions.Default,
             loadLocalPdb: false,
-            loadEmbeddedPdb: true);
+            loadEmbeddedPdb: true,
+            maxEmbeddedPdbBytes: maxEmbeddedPdbBytes);
+    }
+
+    /// <summary>
+    /// Opens descriptor-owned PE metadata and an embedded portable PDB, but
+    /// never probes an adjacent PDB.
+    /// </summary>
+    public static PdbContext OpenEmbeddedPdbOnly(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+        => OpenEmbeddedPdbOnly(assembly, int.MaxValue, log);
+
+    /// <summary>
+    /// Opens descriptor-owned PE metadata and an embedded portable PDB up to
+    /// <paramref name="maxEmbeddedPdbBytes"/>, but never probes an adjacent PDB.
+    /// </summary>
+    public static PdbContext OpenEmbeddedPdbOnly(
+        ResolvedAssemblyReference assembly,
+        int maxEmbeddedPdbBytes,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.Default,
+            assembly.LastWriteTimeUtc,
+            loadLocalPdb: false,
+            loadEmbeddedPdb: true,
+            maxEmbeddedPdbBytes: maxEmbeddedPdbBytes);
+    }
 
     /// <summary>
     /// Opens descriptor-owned PE metadata without loading an embedded or
@@ -321,26 +372,6 @@ public class PdbContext : IDisposable
             assembly.LastWriteTimeUtc,
             loadLocalPdb: false,
             loadEmbeddedPdb: false);
-    }
-
-    /// <summary>
-    /// Opens descriptor-owned PE metadata and an embedded portable PDB, but
-    /// never probes an adjacent PDB.
-    /// </summary>
-    public static PdbContext OpenEmbeddedPdbOnly(
-        ResolvedAssemblyReference assembly,
-        Action<string>? log = null)
-    {
-        ArgumentNullException.ThrowIfNull(assembly);
-        return Open(
-            assembly.OpenRead(),
-            assembly.Path,
-            assembly.Identity.Name,
-            log,
-            PEStreamOptions.Default,
-            assembly.LastWriteTimeUtc,
-            loadLocalPdb: false,
-            loadEmbeddedPdb: true);
     }
 
     /// <summary>
@@ -419,7 +450,8 @@ public class PdbContext : IDisposable
         Action<string>? log,
         PEStreamOptions streamOptions,
         bool loadLocalPdb = true,
-        bool loadEmbeddedPdb = true)
+        bool loadEmbeddedPdb = true,
+        int maxEmbeddedPdbBytes = int.MaxValue)
         => Open(
             File.OpenRead(assemblyPath),
             assemblyPath,
@@ -428,7 +460,8 @@ public class PdbContext : IDisposable
             streamOptions,
             lastWriteTimeUtc: null,
             loadLocalPdb,
-            loadEmbeddedPdb);
+            loadEmbeddedPdb,
+            maxEmbeddedPdbBytes);
 
     static PdbContext Open(
         Stream stream,
@@ -438,7 +471,8 @@ public class PdbContext : IDisposable
         PEStreamOptions streamOptions,
         DateTime? lastWriteTimeUtc,
         bool loadLocalPdb = true,
-        bool loadEmbeddedPdb = true)
+        bool loadEmbeddedPdb = true,
+        int maxEmbeddedPdbBytes = int.MaxValue)
     {
         PEReader? peReader = null;
         PdbContext? context = null;
@@ -459,7 +493,7 @@ public class PdbContext : IDisposable
             if (!peReader.HasMetadata)
                 return context;
 
-            context.ReadDebugDirectory(loadEmbeddedPdb);
+            context.ReadDebugDirectory(loadEmbeddedPdb, maxEmbeddedPdbBytes);
             if (loadLocalPdb)
                 context.TryLoadLocalPdb();
 
@@ -1337,8 +1371,16 @@ public class PdbContext : IDisposable
     /// Reads the unique module custom-debug-information value having
     /// <paramref name="kind"/>.
     /// </summary>
-    public PdbCustomDebugInformationResult ReadModuleCustomDebugInformation(Guid kind)
-        => ReadCustomDebugInformation(EntityHandle.ModuleDefinition, kind);
+    public PdbCustomDebugInformationResult ReadModuleCustomDebugInformation(
+        Guid kind,
+        int maxValueBytes = int.MaxValue)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxValueBytes);
+        return ReadCustomDebugInformation(
+            EntityHandle.ModuleDefinition,
+            kind,
+            maxValueBytes);
+    }
 
     /// <summary>
     /// Reads one module custom-debug-information value directly from a standalone portable PDB.
@@ -1347,9 +1389,11 @@ public class PdbContext : IDisposable
     /// </summary>
     public static PdbCustomDebugInformationResult ReadPortablePdbModuleCustomDebugInformation(
         string pdbPath,
-        Guid kind)
+        Guid kind,
+        int maxValueBytes = int.MaxValue)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pdbPath);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxValueBytes);
 
         using FileStream stream = File.OpenRead(pdbPath);
         using MetadataReaderProvider provider = MetadataReaderProvider.FromPortablePdbStream(
@@ -1359,7 +1403,8 @@ public class PdbContext : IDisposable
         return ReadCustomDebugInformation(
             reader,
             EntityHandle.ModuleDefinition,
-            kind);
+            kind,
+            maxValueBytes);
     }
 
     /// <summary>
@@ -1407,18 +1452,24 @@ public class PdbContext : IDisposable
 
     PdbCustomDebugInformationResult ReadCustomDebugInformation(
         EntityHandle parent,
-        Guid kind)
+        Guid kind,
+        int maxValueBytes = int.MaxValue)
     {
         if (_pdbReader == null)
             return new(PdbCustomDebugInformationStatus.Absent, null);
 
-        return ReadCustomDebugInformation(_pdbReader, parent, kind);
+        return ReadCustomDebugInformation(
+            _pdbReader,
+            parent,
+            kind,
+            maxValueBytes);
     }
 
     static PdbCustomDebugInformationResult ReadCustomDebugInformation(
         MetadataReader pdbReader,
         EntityHandle parent,
-        Guid kind)
+        Guid kind,
+        int maxValueBytes = int.MaxValue)
     {
         BlobHandle value = default;
         bool found = false;
@@ -1470,9 +1521,21 @@ public class PdbContext : IDisposable
 
         try
         {
+            int valueLength = pdbReader.GetBlobReader(value).Length;
+            if (valueLength > maxValueBytes)
+            {
+                return new(
+                    PdbCustomDebugInformationStatus.Present,
+                    null,
+                    "The custom debug information exceeded the caller's byte limit.",
+                    valueLength,
+                    LimitExceeded: true);
+            }
+
             return new(
                 PdbCustomDebugInformationStatus.Present,
-                pdbReader.GetBlobBytes(value));
+                pdbReader.GetBlobBytes(value),
+                ValueLength: valueLength);
         }
         catch (Exception ex) when (IsCustomDebugInformationReadFailure(ex))
         {
@@ -1656,10 +1719,13 @@ public class PdbContext : IDisposable
 
     // --- Private implementation ---
 
-    private void ReadDebugDirectory(bool loadEmbeddedPdb)
+    private void ReadDebugDirectory(
+        bool loadEmbeddedPdb,
+        int maxEmbeddedPdbBytes)
     {
         CodeViewDebugDirectoryData? portableCodeView = null;
         CodeViewDebugDirectoryData? windowsCodeView = null;
+        bool embeddedPdbLoaded = false;
 
         foreach (var entry in _peReader.ReadDebugDirectory())
         {
@@ -1718,6 +1784,20 @@ public class PdbContext : IDisposable
                 HasEmbeddedPdb = true;
                 if (!loadEmbeddedPdb)
                     continue;
+                if (embeddedPdbLoaded)
+                {
+                    throw new BadImageFormatException(
+                        "The PE image carries multiple embedded portable PDB entries.");
+                }
+                embeddedPdbLoaded = true;
+
+                int embeddedPdbBytes = ReadEmbeddedPortablePdbDeclaredSize(entry);
+                if (embeddedPdbBytes > maxEmbeddedPdbBytes)
+                {
+                    throw new PdbResourceLimitException(
+                        $"The embedded portable PDB's declared {embeddedPdbBytes} decompressed bytes "
+                        + $"exceed the caller's {maxEmbeddedPdbBytes}-byte limit.");
+                }
 
                 PdbFormat = "Portable";
                 PdbLocation = "Embedded";
@@ -1737,6 +1817,29 @@ public class PdbContext : IDisposable
         {
             _log?.Invoke("Found both Windows (.ni.pdb) and Portable PDB entries, using Portable");
         }
+    }
+
+    private int ReadEmbeddedPortablePdbDeclaredSize(DebugDirectoryEntry entry)
+    {
+        const uint EmbeddedPortablePdbSignature = 0x4244504D;
+        const int HeaderSize = sizeof(uint) + sizeof(int);
+
+        if (entry.DataSize < HeaderSize)
+            throw new BadImageFormatException("The embedded portable PDB header is truncated.");
+
+        PEMemoryBlock block = _peReader.GetSectionData(entry.DataRelativeVirtualAddress);
+        if (block.Length < entry.DataSize)
+            throw new BadImageFormatException("The embedded portable PDB data is truncated.");
+
+        BlobReader reader = block.GetReader(0, entry.DataSize);
+        if (reader.ReadUInt32() != EmbeddedPortablePdbSignature)
+            throw new BadImageFormatException("The embedded portable PDB signature is invalid.");
+
+        int decompressedSize = reader.ReadInt32();
+        if (decompressedSize < 0)
+            throw new BadImageFormatException("The embedded portable PDB size is invalid.");
+
+        return decompressedSize;
     }
 
     private void TryLoadLocalPdb()

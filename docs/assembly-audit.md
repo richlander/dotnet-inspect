@@ -79,22 +79,27 @@ coverage.
 
 `Audit: Findings` explicitly scans text-bearing package files and SourceLink
 document maps decoded by the SourceLink owner. Candidate text files include
-known text extensions and names plus files under `content/`, `contentFiles/`,
-`build/`, `buildTransitive/`, and `skills/`; known binary extensions are
-excluded from the text pass. That pass is limited to 4 MiB per file and 32 MiB
-per package, uses strict UTF-8/UTF-16/UTF-32 decoding, and reports read,
-encoding, configuration, and limit failures instead of treating an incomplete
-scan as clean. The local PDB pass reuses the product SourceLink parser and does
-not acquire symbols or source over the network. It scans package-local portable
-PDBs directly and embedded PDBs through managed `.dll` and `.exe` carriers.
-Standalone PDB text is audited without claiming that it matches any package
-assembly; identity remains mandatory for method/source mapping.
+known source, configuration, web, TypeScript, and Razor extensions and names
+plus files under `content/`, `contentFiles/`, `build/`, `buildTransitive/`, and
+`skills/`; known binary extensions are excluded from the text pass. That pass
+is limited to 4 MiB per file and 32 MiB per package, uses strict
+UTF-8/UTF-16/UTF-32 decoding, and reports read, encoding, configuration, and
+limit failures instead of treating an incomplete scan as clean. The local PDB
+pass reuses the product SourceLink parser and does not acquire symbols or
+source over the network. It scans package-local portable PDBs directly and
+embedded PDBs through managed `.dll` and `.exe` carriers. Truncated or
+unrecognized `.pdb` content makes the audit partial; recognized Windows PDBs
+are unsupported rather than malformed. Standalone PDB text is audited without
+claiming that it matches any package assembly; identity remains mandatory for
+method/source mapping.
 
 Retained output is capped at 4,096 findings and 2 MiB of encoded evidence.
 SourceLink inspection is additionally capped at 4 MiB per decoded map, 32 MiB
-of maps per package, 16,384 decoded mappings, 64 MiB per PE/PDB carrier, and
-256 MiB of carriers per package. Reaching any cap adds one `scan limit` row and
-makes the result `Partial`.
+of maps per package, 16,384 decoded mappings, 64 MiB per decompressed embedded
+PDB, 64 MiB per PE/PDB carrier, and 256 MiB of carriers per package. The
+embedded-PDB, map-byte, and mapping-count limits are checked before their
+respective payloads are decompressed, copied, or retained. Reaching any cap
+adds one `scan limit` row and makes the result `Partial`.
 
 The detail table has exactly `Path`, `Kind`, and `Encoded Text`. A source line
 produces one rendering finding containing all Unicode concern kinds on that
@@ -121,8 +126,12 @@ dotnet-inspect package X -S @Audit
 
 `PackageContentAuditTests` gates bidi, OSC 52, NuGet configuration, strict
 decoding, BOM, binary-file, case-distinct paths, bounded evidence and
-cardinality, resource limits, and literal parent-path cases, including close
-negatives.
+cardinality, common web/Razor formats, malformed PDB handling, resource limits,
+and literal parent-path cases, including close negatives.
+`PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`
+and
+`SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`
+gate the pre-allocation PDB, map-byte, and mapping-count boundaries.
 `PackageAudit_RendersContentAndSourceLinkFindings` gates the
 three-column Markdown and JSONL contract with a compiler-produced hostile
 SourceLink PDB.

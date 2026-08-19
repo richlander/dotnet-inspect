@@ -149,23 +149,32 @@ public partial class SourceLinkResolver
     /// </summary>
     public string? ParseError { get; }
 
+    /// <summary>
+    /// Whether parsing stopped before retaining document mappings because the caller's mapping
+    /// limit was exceeded.
+    /// </summary>
+    public bool MappingLimitExceeded { get; }
+
     /// <summary>True when no entry is available to match against.</summary>
     public bool IsEmpty => _entries.Length == 0;
 
     /// <summary>An empty map, which resolves nothing.</summary>
-    public static SourceLinkResolver Empty { get; } = new([], [], [], parseError: null);
+    public static SourceLinkResolver Empty { get; } =
+        new([], [], [], parseError: null, mappingLimitExceeded: false);
 
     private SourceLinkResolver(
         Entry[] entries,
         string[] documentKeys,
         IReadOnlyList<string> rejectedKeys,
-        string? parseError)
+        string? parseError,
+        bool mappingLimitExceeded)
     {
         _entries = entries;
         DocumentKeys = documentKeys;
         RejectedKeys = rejectedKeys;
         DocumentMappings = [];
         ParseError = parseError;
+        MappingLimitExceeded = mappingLimitExceeded;
     }
 
     internal SourceLinkResolver(Dictionary<string, string> documentMappings)
@@ -183,6 +192,7 @@ public partial class SourceLinkResolver
         DocumentMappings = [.. mappings.Select(static mapping =>
             new SourceLinkDocumentMapping(mapping.Key, mapping.Value))];
         ParseError = null;
+        MappingLimitExceeded = false;
     }
 
     /// <summary>
@@ -190,7 +200,16 @@ public partial class SourceLinkResolver
     /// nothing and reports why through <see cref="ParseError"/>.
     /// </summary>
     public static SourceLinkResolver Parse(string? sourceLinkJson)
+        => Parse(sourceLinkJson, int.MaxValue);
+
+    /// <summary>
+    /// Parses a SourceLink map without retaining more than <paramref name="maxMappings"/>
+    /// document mappings.
+    /// </summary>
+    public static SourceLinkResolver Parse(string? sourceLinkJson, int maxMappings)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMappings);
+
         // Only absence is Empty. A payload that is present and says nothing -- blank, truncated,
         // or blanked out -- falls through to the parser, which rejects it and reports why. Widening
         // this test to IsNullOrWhiteSpace would make such a map indistinguishable from an assembly
@@ -201,17 +220,38 @@ public partial class SourceLinkResolver
         Dictionary<string, string?> mappings;
         try
         {
-            mappings = ReadDocuments(sourceLinkJson);
+            mappings = ReadDocuments(
+                sourceLinkJson,
+                maxMappings,
+                out bool mappingLimitExceeded);
+            if (mappingLimitExceeded)
+            {
+                return new SourceLinkResolver(
+                    [],
+                    [],
+                    [],
+                    $"The SourceLink map exceeds the caller's {maxMappings} document-mapping limit.",
+                    mappingLimitExceeded: true);
+            }
         }
         catch (JsonException e)
         {
             // A map with more than one valid reading, or no valid reading, resolves nothing.
-            return new SourceLinkResolver([], [], [], e.Message);
+            return new SourceLinkResolver(
+                [],
+                [],
+                [],
+                e.Message,
+                mappingLimitExceeded: false);
         }
 
         var entries = Build(mappings, out var rejected);
         return new SourceLinkResolver(
-            entries, [.. mappings.Keys], rejected, parseError: null)
+            entries,
+            [.. mappings.Keys],
+            rejected,
+            parseError: null,
+            mappingLimitExceeded: false)
         {
             DocumentMappings = [.. mappings.Select(static mapping =>
                 new SourceLinkDocumentMapping(mapping.Key, mapping.Value))],
@@ -756,9 +796,13 @@ public partial class SourceLinkResolver
     /// <exception cref="JsonException">
     /// The map is malformed or contains a duplicate property name.
     /// </exception>
-    private static Dictionary<string, string?> ReadDocuments(string sourceLinkJson)
+    private static Dictionary<string, string?> ReadDocuments(
+        string sourceLinkJson,
+        int maxMappings,
+        out bool mappingLimitExceeded)
     {
         Dictionary<string, string?> mappings = [];
+        mappingLimitExceeded = false;
 
         using var document = JsonDocument.Parse(
             sourceLinkJson,
@@ -788,6 +832,12 @@ public partial class SourceLinkResolver
 
         foreach (var property in documents.EnumerateObject())
         {
+            if (mappings.Count >= maxMappings)
+            {
+                mappingLimitExceeded = true;
+                return mappings;
+            }
+
             // A non-string value is a malformed entry. It is carried as null so that the key
             // reaches the entry parser and is rejected there, visibly, alongside every other
             // non-conformant key -- rather than being dropped here, where the map would look as

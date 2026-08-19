@@ -1312,7 +1312,13 @@ evidence plus NuGet restore-source semantics. It also reports every literal
 `../` in a decoded SourceLink document key or URL as a review-oriented parent
 path finding. This does not classify the mapping as malicious; the existing
 provenance boundary above remains responsible for canonicalizing resolved URLs
-before attribution. Neither audit section is the scalar-by-scalar refusal
+before attribution. Embedded-PDB inflation, SourceLink map bytes, and mapping
+inventory are rejected at their owner boundaries before over-budget payloads
+are decompressed, copied, or retained; the named gates are
+`PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`
+and
+`SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`.
+Neither audit section is the scalar-by-scalar refusal
 survey mode described below, and neither changes acceptance policy. Document payloads are
 encoded on stdout; exact bytes require `--out` with a single-file selection.
 `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`

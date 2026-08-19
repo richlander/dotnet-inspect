@@ -44,6 +44,19 @@ public class SourceLinkMapConformanceTests
         Assert.DoesNotContain("\\u202E", mapping.Url, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void MappingLimit_StopsBeforeRetainingAnOverBudgetInventory()
+    {
+        SLF.SourceLinkResolver resolver = SLF.SourceLinkResolver.Parse(
+            """{"documents":{"a.cs":"https://example.test/a.cs","b.cs":"https://example.test/b.cs"}}""",
+            maxMappings: 1);
+
+        Assert.True(resolver.MappingLimitExceeded);
+        Assert.Empty(resolver.DocumentMappings);
+        Assert.Empty(resolver.DocumentKeys);
+        Assert.NotNull(resolver.ParseError);
+    }
+
     /// <summary>
     /// The nine inputs measured across the two replaced implementations, each paired with the
     /// URL the specification requires. <see cref="EveryRow_IsOneTheReplacedImplementationsGot"/>

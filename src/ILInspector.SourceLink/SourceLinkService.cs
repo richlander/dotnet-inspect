@@ -19,6 +19,30 @@ public record SourceDocument(
     int DocumentRowId = 0,
     string? CanonicalPath = null);
 
+/// <summary>Pre-allocation limits for reading an embedded PDB and its SourceLink map.</summary>
+public sealed class SourceLinkReadLimits
+{
+    public static SourceLinkReadLimits Unlimited { get; } =
+        new(int.MaxValue, int.MaxValue, int.MaxValue);
+
+    public SourceLinkReadLimits(
+        int maxEmbeddedPdbBytes,
+        int maxMapBytes,
+        int maxMappings)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMapBytes);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMappings);
+        MaxEmbeddedPdbBytes = maxEmbeddedPdbBytes;
+        MaxMapBytes = maxMapBytes;
+        MaxMappings = maxMappings;
+    }
+
+    public int MaxEmbeddedPdbBytes { get; }
+    public int MaxMapBytes { get; }
+    public int MaxMappings { get; }
+}
+
 /// <summary>
 /// High-level SourceLink service over Metadata's PE/PDB extraction APIs.
 /// </summary>
@@ -36,9 +60,12 @@ public sealed class SourceLinkService : IDisposable
     readonly PdbContext _context;
     readonly ISourceLinkIndexCache? _cache;
     readonly Action<string>? _log;
+    readonly SourceLinkReadLimits _readLimits;
     bool _sourceLinkPresent;
     string? _sourceLinkJson;
     string? _sourceLinkError;
+    int _sourceLinkEncodedBytes;
+    SourceLinkMapLimitKind _sourceLinkLimitKind;
     SLF.SourceLinkResolver? _map;
     SourceDocumentPathResolver _pathResolver = SourceDocumentPathResolver.Empty;
     SourceLinkResolver? _resolver;
@@ -50,11 +77,13 @@ public sealed class SourceLinkService : IDisposable
     SourceLinkService(
         PdbContext context,
         ISourceLinkIndexCache? cache,
-        Action<string>? log)
+        Action<string>? log,
+        SourceLinkReadLimits? readLimits = null)
     {
         _context = context;
         _cache = cache;
         _log = log;
+        _readLimits = readLimits ?? SourceLinkReadLimits.Unlimited;
         RefreshPdbState();
     }
 
@@ -74,13 +103,16 @@ public sealed class SourceLinkService : IDisposable
     /// </summary>
     public static SourceLinkMapAudit InspectPortablePdb(
         string pdbPath,
-        int maxEncodedBytes = int.MaxValue)
+        int maxEncodedBytes = int.MaxValue,
+        int maxMappings = int.MaxValue)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxEncodedBytes);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxMappings);
         PdbCustomDebugInformationResult sourceLink =
             PdbContext.ReadPortablePdbModuleCustomDebugInformation(
                 pdbPath,
-                SourceLinkKind);
+                SourceLinkKind,
+                maxEncodedBytes);
         if (sourceLink.Status == PdbCustomDebugInformationStatus.Absent)
             return new SourceLinkMapAudit(SourceLinkMapInspection.Absent, [], 0);
 
@@ -94,6 +126,19 @@ public sealed class SourceLinkService : IDisposable
                     []),
                 [],
                 0);
+        }
+
+        if (sourceLink.LimitExceeded)
+        {
+            return new SourceLinkMapAudit(
+                new SourceLinkMapInspection(
+                    SourceLinkMapStatus.Unusable,
+                    "the SourceLink map exceeded the caller's encoded-byte limit",
+                    [],
+                    []),
+                [],
+                sourceLink.ValueLength,
+                SourceLinkMapLimitKind.EncodedBytes);
         }
 
         if (sourceLink.Value is null)
@@ -110,24 +155,21 @@ public sealed class SourceLinkService : IDisposable
                 0);
         }
 
-        if (sourceLink.Value.Length > maxEncodedBytes)
-        {
-            return new SourceLinkMapAudit(
-                new SourceLinkMapInspection(
-                    SourceLinkMapStatus.Unusable,
-                    "the SourceLink map exceeded the caller's encoded-byte limit",
-                    [],
-                    []),
-                [],
-                sourceLink.Value.Length,
-                LimitExceeded: true);
-        }
-
         try
         {
             string json = StrictUtf8.GetString(sourceLink.Value);
-            SLF.SourceLinkResolver map = SLF.SourceLinkResolver.Parse(json);
+            SLF.SourceLinkResolver map =
+                SLF.SourceLinkResolver.Parse(json, maxMappings);
             SourceLinkMapInspection inspection = CreateMapInspection(map);
+            if (map.MappingLimitExceeded)
+            {
+                return new SourceLinkMapAudit(
+                    inspection,
+                    [],
+                    sourceLink.ValueLength,
+                    SourceLinkMapLimitKind.Mappings);
+            }
+
             SourceLinkMapEntry[] entries =
             [
                 .. map.DocumentMappings.Select(static mapping =>
@@ -136,7 +178,7 @@ public sealed class SourceLinkService : IDisposable
             return new SourceLinkMapAudit(
                 inspection,
                 entries,
-                sourceLink.Value.Length);
+                sourceLink.ValueLength);
         }
         catch (DecoderFallbackException ex)
         {
@@ -147,7 +189,7 @@ public sealed class SourceLinkService : IDisposable
                     [],
                     []),
                 [],
-                sourceLink.Value.Length);
+                sourceLink.ValueLength);
         }
     }
 
@@ -170,6 +212,22 @@ public sealed class SourceLinkService : IDisposable
         string assemblyPath,
         Action<string>? log = null)
         => new(PdbContext.OpenEmbeddedPdbOnly(assemblyPath, log), DefaultCache, log);
+
+    public static SourceLinkService OpenEmbeddedPdbOnly(
+        string assemblyPath,
+        SourceLinkReadLimits limits,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        return new(
+            PdbContext.OpenEmbeddedPdbOnly(
+                assemblyPath,
+                limits.MaxEmbeddedPdbBytes,
+                log),
+            DefaultCache,
+            log,
+            limits);
+    }
 
     public static SourceLinkService OpenEmbeddedPdbOnly(
         ResolvedAssemblyReference assembly,
@@ -279,6 +337,18 @@ public sealed class SourceLinkService : IDisposable
             return CreateMapInspection(_map);
         }
     }
+
+    /// <summary>Returns the bounded SourceLink map audit for the current PDB state.</summary>
+    public SourceLinkMapAudit InspectSourceLinkMap()
+    {
+        EnsureCurrentPdbState();
+        return new SourceLinkMapAudit(
+            SourceLinkMap,
+            SourceLinkMapEntries,
+            _sourceLinkEncodedBytes,
+            _sourceLinkLimitKind);
+    }
+
     public string? RepositoryUrl => Provenance().Origin?.RepositoryUrl;
     public string? CommitHash => Provenance().Origin?.Revision;
 
@@ -411,6 +481,8 @@ public sealed class SourceLinkService : IDisposable
         _sourceLinkPresent = false;
         _sourceLinkJson = null;
         _sourceLinkError = null;
+        _sourceLinkEncodedBytes = 0;
+        _sourceLinkLimitKind = SourceLinkMapLimitKind.None;
         _map = null;
         _pathResolver = SourceDocumentPathResolver.Empty;
         _resolver = null;
@@ -421,13 +493,25 @@ public sealed class SourceLinkService : IDisposable
         try
         {
             var sourceLink =
-                _context.ReadModuleCustomDebugInformation(SourceLinkKind);
+                _context.ReadModuleCustomDebugInformation(
+                    SourceLinkKind,
+                    _readLimits.MaxMapBytes);
             _sourceLinkPresent =
                 sourceLink.Status != PdbCustomDebugInformationStatus.Absent;
             if (sourceLink.Status == PdbCustomDebugInformationStatus.Duplicate)
             {
                 _sourceLinkError =
                     "the PDB carries multiple SourceLink custom debug information records";
+                _log?.Invoke($"SourceLink unavailable: {_sourceLinkError}");
+                return;
+            }
+
+            _sourceLinkEncodedBytes = sourceLink.ValueLength;
+            if (sourceLink.LimitExceeded)
+            {
+                _sourceLinkLimitKind = SourceLinkMapLimitKind.EncodedBytes;
+                _sourceLinkError =
+                    "the SourceLink map exceeded the caller's encoded-byte limit";
                 _log?.Invoke($"SourceLink unavailable: {_sourceLinkError}");
                 return;
             }
@@ -444,7 +528,17 @@ public sealed class SourceLinkService : IDisposable
             }
 
             _sourceLinkJson = StrictUtf8.GetString(sourceLink.Value);
-            _map = SLF.SourceLinkResolver.Parse(_sourceLinkJson);
+            _map = SLF.SourceLinkResolver.Parse(
+                _sourceLinkJson,
+                _readLimits.MaxMappings);
+            if (_map.MappingLimitExceeded)
+            {
+                _sourceLinkLimitKind = SourceLinkMapLimitKind.Mappings;
+                _sourceLinkError = _map.ParseError;
+                _log?.Invoke($"SourceLink unavailable: {_sourceLinkError}");
+                return;
+            }
+
             _pathResolver = SourceDocumentPathResolver.Create(_map);
             _resolver = new SourceLinkResolver(_context, _map);
         }

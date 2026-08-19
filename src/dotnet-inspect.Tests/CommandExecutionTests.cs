@@ -19,6 +19,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -14230,6 +14231,24 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_Discover_AdvertisesEmbeddedSourceLinkDoor()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            typeof(EmbeddedSourceFixture).Assembly.Location,
+            "-D",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("@SourceLink", output);
+        Assert.DoesNotContain("SourceLink: Availability", output);
+        Assert.DoesNotContain("SourceLink: Files", output);
+    }
+
+    [Fact]
     public async Task LibraryCommand_ComputedPolesAreUnresolvable()
     {
         // Authored categories own every section, so computed @All/@Hidden poles no longer exist.
@@ -24130,6 +24149,45 @@ public partial class CommandExecutionTests
             Assert.Empty(blockExport.Output);
             Assert.Empty(blockExport.Error);
             Assert.Equal(shipped, File.ReadAllBytes(blockOutputPath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageContentOutput_MultipleFilesRefusesBeforeCreatingExport()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.PackageContentOutput.Many",
+            "README.md",
+            "readme",
+            extraFiles:
+            [
+                ("docs/FIRST.md", "first"),
+                ("docs/SECOND.md", "second"),
+            ]);
+        string outputPath = Path.Combine(tempDir, "should-not-exist.txt");
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--path",
+                "docs/*.md",
+                "--content",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "--content --out requires exactly one selected package content file; found 2.",
+                result.Error);
+            Assert.False(File.Exists(outputPath));
         }
         finally
         {
