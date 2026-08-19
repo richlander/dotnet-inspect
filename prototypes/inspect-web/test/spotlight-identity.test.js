@@ -181,6 +181,9 @@ test("leaving package search clears its pending loading state", () => {
   assert.match(
     scheduler,
     /query === state\.spotlightPkgQuery[\s\S]*spotlightPkgGeneration\+\+;[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
+  assert.match(
+    scheduler,
+    /const generation = \+\+spotlightPkgGeneration;\s*state\.spotlightPkgHits = \[\];\s*state\.spotlightPkgLoading = true;/);
 });
 
 test("Spotlight async work is generation-gated and refreshes either mounted surface", () => {
@@ -211,7 +214,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /state\.spotlightOpen[\s\S]*event\.key === "Escape"[\s\S]*closeSpotlight\(\)/);
   assert.match(
     appSource,
-    /function openSpotlight\(seed = "", scope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;/);
+    /function openSpotlight\(seed = "", scope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*state\.tasteOpen = false;/);
   assert.match(
     spotlightSource,
     /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
@@ -224,6 +227,12 @@ test("global workbench shortcuts respect the topmost modal", () => {
   assert.match(
     spotlightSource,
     /aria-activedescendant="spotlight-result-\$\{state\.spotlightIndex\}"[\s\S]*syncActiveDescendant\(items\.length\)/);
+  assert.match(
+    appSource,
+    /if \(state\.loading \|\| state\.error\) \{\s*if \(isContainedBrowserShortcut\(event\) \|\| event\.key === "\/"\)[\s\S]*event\.preventDefault\(\);[\s\S]*return;/);
+  assert.match(
+    appSource,
+    /function focusFilter\(\) \{[\s\S]*const input = document\.querySelector\("#type-filter"\);\s*if \(!input\) return;/);
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {

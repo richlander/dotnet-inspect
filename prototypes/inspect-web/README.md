@@ -532,9 +532,11 @@ The typed `src/status-bar.ts` component renders both the full-width workspace
 data bar and the home readiness bar. The workspace bar occupies the bottom row
 formerly used by the persistent command prompt, giving diagnostics, cache
 state, package source, active assembly, and framework the full viewport width.
-Package source is shown only in a workspace and distinguishes a local file,
-NuGet.org, a custom feed host, and the .NET platform. Missing provenance is
-shown as `Unknown` rather than omitted so acquisition failures stay diagnosable.
+Package source is shown only in a workspace. Current browser acquisition
+distinguishes NuGet.org from the .NET platform; the typed model also reserves
+local-file and custom-feed provenance for future acquisition paths. Missing or
+malformed provenance is shown as `Unknown` rather than omitted so acquisition
+failures stay diagnosable.
 
 `src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
 pane) and the type viewer (the type heading, metadata, and source sections
@@ -555,6 +557,15 @@ interaction. `app.js` supplies the workspace effects — selecting, closing, and
 opening a package or the runtime pack — so the component acquires no engine or
 workspace authority. `test/package-bar.test.js` gates tab markup, active/close
 state, escaping, and open-package query parsing.
+
+`src/settings-panel.ts` owns the Settings page and the decompiler "taste"
+popover it shares its style catalog with, as pure, dependency-injected render
+functions. `app.js` still owns `state`, localStorage persistence for theme and
+taste, and event wiring (`setTheme`, `toggleTaste`, `clearTaste`), and passes
+each computed slice in explicitly. `test/settings-panel.test.js` gates the
+style catalog's tier grouping, byte-divergent badges, and checked state; the
+taste popover's active/default states; and the Settings page's theme segment,
+close-button label, and active-style-count states.
 
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
