@@ -487,6 +487,145 @@ public class E2EFixtureTests
     }
 
     [Fact]
+    public void Correlate_TextSupersessionIsOrderIndependentAndShapeCompatible()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var sourceMethod =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "Main",
+                BindingFlags.Public | BindingFlags.Static);
+        var evidenceMethod =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "AllocateOne",
+                BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(sourceMethod);
+        Assert.NotNull(evidenceMethod);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    evidenceMethod.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            WriteTriage("System.Object");
+            string methodLine =
+                "RunFaster.AllocationFixture.Program.AllocateOne() "
+                + "100 bytes";
+            string coordinateLine =
+                $"0x{evidenceMethod.MetadataToken:X8}"
+                + $"+{occurrence.ILOffset:X4} 200 bytes";
+            var forward = Correlate(
+                $"{methodLine}{Environment.NewLine}"
+                + coordinateLine);
+            var reverse = Correlate(
+                $"{coordinateLine}{Environment.NewLine}"
+                + methodLine);
+
+            Assert.Equal(forward, reverse);
+            Assert.Equal(300, forward.TotalBytes);
+            Assert.Equal(300, forward.TriageBytes);
+            Assert.Equal(0, forward.LibraryBytes);
+            Assert.Equal(2, forward.TotalWeight);
+            Assert.Equal(
+                "superseded-by-triage",
+                forward.LibraryStatus);
+
+            WriteTriage("Incompatible.Type");
+            var incompatible = Correlate(
+                $"0x{evidenceMethod.MetadataToken:X8}"
+                + $"+{occurrence.ILOffset:X4} 512 bytes");
+
+            Assert.Equal(512, incompatible.TotalBytes);
+            Assert.Equal(256, incompatible.TriageBytes);
+            Assert.Equal(256, incompatible.LibraryBytes);
+            Assert.Equal(
+                "confirmed-hot",
+                incompatible.TriageStatus);
+            Assert.Equal(
+                "confirmed-hot",
+                incompatible.LibraryStatus);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
+        }
+
+        void WriteTriage(string allocatedType)
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"{{{occurrence.Method.AssemblyName}}}","module_version_id":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{sourceMethod.MetadataToken:X8}}}","evidence_method":"0x{{{evidenceMethod.MetadataToken:X8}}}","shape":"object-allocation","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"{{{allocatedType}}}"}]}}
+                """);
+        }
+
+        (
+            long TotalBytes,
+            long TriageBytes,
+            long LibraryBytes,
+            double TotalWeight,
+            string TriageStatus,
+            string LibraryStatus)
+            Correlate(string log)
+        {
+            File.WriteAllText(logPath, log);
+            var result = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            var coordinateRows = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .Where(candidate =>
+                    candidate.GetProperty(
+                        "tokenIl").GetString()
+                    == $"0x{evidenceMethod.MetadataToken:X8}"
+                        + $"+IL_{occurrence.ILOffset:X4}")
+                .ToArray();
+            var triage = Assert.Single(
+                coordinateRows,
+                candidate => candidate.GetProperty(
+                    "source").GetString() == "triage");
+            var library = Assert.Single(
+                coordinateRows,
+                candidate => candidate.GetProperty(
+                    "source").GetString() == "library");
+            long triageBytes = triage.GetProperty(
+                "runtimeBytes").GetInt64();
+            long libraryBytes = library.GetProperty(
+                "runtimeBytes").GetInt64();
+            return (
+                triageBytes + libraryBytes,
+                triageBytes,
+                libraryBytes,
+                triage.GetProperty(
+                    "runtimeWeight").GetDouble()
+                    + library.GetProperty(
+                        "runtimeWeight").GetDouble(),
+                triage.GetProperty(
+                    "status").GetString()!,
+                library.GetProperty(
+                    "status").GetString()!);
+        }
+    }
+
+    [Fact]
     public void Correlate_MissingSourceTokenDoesNotRelaxOffsetMatch()
     {
         string triagePath = Path.Combine(

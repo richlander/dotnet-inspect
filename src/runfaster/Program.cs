@@ -330,6 +330,7 @@ static int ExecuteCorrelate(CorrelateOptions options)
             return exitCode;
     }
 
+    lookup.ReconcileTextSupersession();
     ApplyTypeConfirmation(result);
     Render(result, options);
     return 0;
@@ -1364,17 +1365,24 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
 
     var bytes = TryReadBytes(line);
     var matchedIds = new HashSet<int>();
+    var suppressedMethodIds = new HashSet<int>();
     foreach (Match match in Patterns.TokenOffset().Matches(line))
     {
         if (!TryParseHexInt(match.Groups["token"].Value, out var token)
             || !TryParseHexInt(match.Groups["offset"].Value, out var offset))
             continue;
 
-        foreach (var candidate in lookup.FindSupersededByTokenOffset(
-                     token,
-                     offset))
+        var supersessions = lookup.FindTextSupersessions(
+            token,
+            offset);
+        if (supersessions.Count > 0)
         {
-            candidate.SupersededByTriage = true;
+            lookup.RecordObservedTextCoordinate(
+                token,
+                offset);
+            foreach (var supersession in supersessions)
+                suppressedMethodIds.Add(
+                    supersession.Library.Id);
         }
 
         var candidates = lookup.FindByTokenOffset(
@@ -1408,8 +1416,12 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
 
         foreach (var candidate in methodMatches)
         {
-            if (candidate.SupersededByTriage)
+            if (candidate.SupersededByTriage
+                || suppressedMethodIds.Contains(
+                    candidate.Id))
+            {
                 continue;
+            }
 
             if (!candidate.HasKnownDistinctEvidenceMethodBody
                 && ilOffset is int offset
@@ -2573,21 +2585,21 @@ sealed class AllocationCandidate(
 sealed class CandidateLookup
 {
     readonly Dictionary<(int Token, int Offset), List<AllocationCandidate>> _byTokenOffset;
-    readonly Dictionary<(int Token, int Offset), AllocationCandidate[]> _supersededByTokenOffset;
+    readonly Dictionary<(int Token, int Offset), TextSupersession[]> _textSupersessions;
+    readonly HashSet<(int Token, int Offset)> _observedTextCoordinates = [];
     readonly Dictionary<(string Module, int Token), List<AllocationCandidate>> _byModuleMethodToken;
     readonly HashSet<string> _candidateModules;
     readonly List<(string Fragment, AllocationCandidate Candidate)> _methodFragments;
 
     CandidateLookup(
         Dictionary<(int Token, int Offset), List<AllocationCandidate>> byTokenOffset,
-        Dictionary<(int Token, int Offset), AllocationCandidate[]> supersededByTokenOffset,
+        Dictionary<(int Token, int Offset), TextSupersession[]> textSupersessions,
         Dictionary<(string Module, int Token), List<AllocationCandidate>> byModuleMethodToken,
         HashSet<string> candidateModules,
         List<(string Fragment, AllocationCandidate Candidate)> methodFragments)
     {
         _byTokenOffset = byTokenOffset;
-        _supersededByTokenOffset =
-            supersededByTokenOffset;
+        _textSupersessions = textSupersessions;
         _byModuleMethodToken = byModuleMethodToken;
         _candidateModules = candidateModules;
         _methodFragments = methodFragments;
@@ -2653,25 +2665,25 @@ sealed class CandidateLookup
             byTokenOffset.Remove(ambiguousKey);
         }
 
-        var supersededByTokenOffset =
+        var textSupersessions =
             new Dictionary<
                 (int Token, int Offset),
-                AllocationCandidate[]>();
+                TextSupersession[]>();
         foreach (var (key, coordinateCandidates)
                  in byTokenOffset)
         {
-            var superseded = ProgramSupport
-                .FindLibrariesSupersededByTriage(
-                    coordinateCandidates)
-                .ToArray();
-            if (superseded.Length == 0)
+            var supersessions =
+                PlanTextSupersessions(
+                    coordinateCandidates);
+            if (supersessions.Length == 0)
                 continue;
 
-            supersededByTokenOffset.Add(
+            textSupersessions.Add(
                 key,
-                superseded);
-            var supersededIds = superseded
-                .Select(static candidate => candidate.Id)
+                supersessions);
+            var supersededIds = supersessions
+                .Select(static supersession =>
+                    supersession.Library.Id)
                 .ToHashSet();
             coordinateCandidates.RemoveAll(
                 candidate => supersededIds.Contains(
@@ -2680,7 +2692,7 @@ sealed class CandidateLookup
 
         return new CandidateLookup(
             byTokenOffset,
-            supersededByTokenOffset,
+            textSupersessions,
             byModuleMethodToken,
             [.. byModuleMethodToken.Keys.Select(static key => key.Module)],
             fragments);
@@ -2716,15 +2728,35 @@ sealed class CandidateLookup
     public IReadOnlyList<AllocationCandidate> FindByTokenOffset(int token, int offset)
         => _byTokenOffset.TryGetValue((token, offset), out var candidates) ? candidates : [];
 
-    public IReadOnlyList<AllocationCandidate>
-        FindSupersededByTokenOffset(
+    public IReadOnlyList<TextSupersession>
+        FindTextSupersessions(
             int token,
             int offset)
-        => _supersededByTokenOffset.TryGetValue(
+        => _textSupersessions.TryGetValue(
             (token, offset),
-            out var candidates)
-            ? candidates
+            out var supersessions)
+            ? supersessions
             : [];
+
+    public void RecordObservedTextCoordinate(
+        int token,
+        int offset)
+        => _observedTextCoordinates.Add(
+            (token, offset));
+
+    public void ReconcileTextSupersession()
+    {
+        foreach (var key in _observedTextCoordinates)
+        {
+            foreach (var supersession
+                     in _textSupersessions[key])
+            {
+                TransferEvidence(
+                    supersession.Library,
+                    supersession.TriageCandidates);
+            }
+        }
+    }
 
     public IReadOnlyList<AllocationCandidate> FindNearestByCodeAddress(TraceCodeAddress address)
     {
@@ -2857,7 +2889,143 @@ sealed class CandidateLookup
             .Count();
         return buildIdentityCount > 1;
     }
+
+    static TextSupersession[] PlanTextSupersessions(
+        IReadOnlyList<AllocationCandidate> candidates)
+    {
+        var supersededLibraries = ProgramSupport
+            .FindLibrariesSupersededByTriage(
+                candidates);
+        if (supersededLibraries.Count == 0)
+            return [];
+
+        var triageCandidates = candidates
+            .Where(static candidate => string.Equals(
+                candidate.Source,
+                "triage",
+                StringComparison.Ordinal))
+            .ToArray();
+        var result = new List<TextSupersession>();
+        foreach (var library in supersededLibraries)
+        {
+            var compatibleTriage = triageCandidates
+                .Where(triage =>
+                    PredictedTypesCompatible(
+                        library,
+                        triage))
+                .ToArray();
+            if (compatibleTriage.Length == 0)
+                continue;
+
+            AllocationCandidate[] buildTriage = [];
+            if (library.ModuleVersionId is Guid moduleVersionId)
+            {
+                buildTriage = compatibleTriage
+                    .Where(triage =>
+                        triage.ModuleVersionId
+                            == moduleVersionId)
+                    .ToArray();
+            }
+            if (buildTriage.Length == 0)
+            {
+                buildTriage = compatibleTriage
+                    .Where(static triage =>
+                        triage.ModuleVersionId is null)
+                    .ToArray();
+            }
+            if (buildTriage.Length > 0)
+            {
+                result.Add(
+                    new TextSupersession(
+                        library,
+                        buildTriage));
+            }
+        }
+
+        return [.. result];
+    }
+
+    static bool PredictedTypesCompatible(
+        AllocationCandidate left,
+        AllocationCandidate right)
+        => left.PredictedType is { Length: > 0 } leftType
+            && right.PredictedType is { Length: > 0 } rightType
+            && (left.MatchesAllocatedType(
+                    rightType)
+                || right.MatchesAllocatedType(
+                    leftType));
+
+    static void TransferEvidence(
+        AllocationCandidate library,
+        IReadOnlyList<AllocationCandidate> triageCandidates)
+    {
+        for (int i = 0; i < triageCandidates.Count; i++)
+        {
+            var triage = triageCandidates[i];
+            triage.RuntimeHits += library.RuntimeHits;
+            triage.RuntimeWeight +=
+                library.RuntimeWeight
+                / triageCandidates.Count;
+            triage.RuntimeBytes +=
+                ProgramSupport.AttributedBytesForTest(
+                    library.RuntimeBytes,
+                    triageCandidates.Count,
+                    i);
+            triage.AllocationHits += library.AllocationHits;
+            triage.AllocationBytes +=
+                ProgramSupport.AttributedBytesForTest(
+                    library.AllocationBytes,
+                    triageCandidates.Count,
+                    i);
+            triage.ShapeAllocationHits +=
+                library.ShapeAllocationHits;
+            triage.ShapeAllocationBytes +=
+                ProgramSupport.AttributedBytesForTest(
+                    library.ShapeAllocationBytes,
+                    triageCandidates.Count,
+                    i);
+            triage.ShapeMatched |= library.ShapeMatched;
+            triage.ExactOffsetObserved |=
+                library.ExactOffsetObserved;
+            triage.IlOffsetJoinObserved |=
+                library.IlOffsetJoinObserved;
+            triage.AmbiguousIlOffsetJoin |=
+                library.AmbiguousIlOffsetJoin;
+            foreach (var source in library.ObservedSources)
+                triage.ObservedSources.Add(source);
+            foreach (var (type, bytes)
+                     in library.ObservedAllocatedTypes)
+            {
+                triage.ObservedAllocatedTypes[type] =
+                    triage.ObservedAllocatedTypes
+                        .GetValueOrDefault(type)
+                    + ProgramSupport.AttributedBytesForTest(
+                        bytes,
+                        triageCandidates.Count,
+                        i);
+            }
+        }
+
+        library.RuntimeHits = 0;
+        library.RuntimeWeight = 0;
+        library.RuntimeBytes = 0;
+        library.AllocationHits = 0;
+        library.AllocationBytes = 0;
+        library.ShapeAllocationHits = 0;
+        library.ShapeAllocationBytes = 0;
+        library.ShapeMatched = false;
+        library.ExactOffsetObserved = false;
+        library.IlOffsetJoinObserved = false;
+        library.AmbiguousIlOffsetJoin = false;
+        library.ObservedSources.Clear();
+        library.ObservedAllocatedTypes.Clear();
+        library.SupersededByTriage = true;
+    }
 }
+
+readonly record struct TextSupersession(
+    AllocationCandidate Library,
+    AllocationCandidate[] TriageCandidates);
 
 enum OutputFormat
 {
