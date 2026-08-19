@@ -1,7 +1,6 @@
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
-  authoredSourceLimitationHtml,
   beginSourceRequestState,
   cancelSourceRequestState,
   callGraphDiagnosticsMessage,
@@ -29,7 +28,6 @@ import {
   parameterTitleHtml,
   removeWorkspacePackage,
   retainWorkspacePackage,
-  rootCommands,
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
   scopedRequestState,
@@ -46,7 +44,18 @@ import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
 } from "./graph-mermaid.js";
-import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
+import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.ts";
+import { createCommandBar } from "/src/command-bar.ts";
+import {
+  renderMemberNav,
+  renderTypeMetadata,
+  renderTypeNav,
+  renderTypeSource,
+  typeHeading,
+  typeMetadataSignature,
+  typeSourceSignature,
+} from "/src/type-panel.ts";
+import { createPackageBar } from "/src/package-bar.ts";
 import { loadPlatformIndex } from "/src/platform-index.js";
 
 let initializeEngine;
@@ -661,6 +670,27 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+const commandBar = createCommandBar({
+  state,
+  lenses,
+  escapeHtml,
+  execute: executeCommand,
+  render,
+  focusAfterDismiss: () => document.querySelector("#type-list").focus(),
+});
+
+const packageBar = createPackageBar({
+  state,
+  escapeHtml,
+  packageIdentityKey,
+  runtimePackPackage,
+  selectPackageTab,
+  closePackageTab,
+  openRuntimePack: openRuntimePackFromHome,
+  openPackage: (packageId, version) => loadPackage(packageId, version, ""),
+  showToast,
+});
+
 function selectedType() {
   if (!state.package) return null;
   return state.package.types.find(item => item.id === state.selectedTypeId) || filteredTypes()[0] || state.package.types[0];
@@ -1210,65 +1240,6 @@ function typeDisplayName(item) {
   return item?.displayName || item?.name || "";
 }
 
-function completions() {
-  const input = state.command.trimStart();
-  const tokens = input.split(/\s+/).filter(Boolean);
-  let entries;
-
-  if (!tokens.length) {
-    entries = rootCommands.map(([value, hint]) => ({ value, hint, kind: "command" }));
-  } else if (tokens[0] === "type") {
-    entries = state.package.types.map(item => ({
-      value: item.name,
-      hint: item.namespace,
-      kind: item.kind
-    }));
-  } else if (tokens[0] === "show") {
-    entries = lenses.map(([value, label]) => ({ value, hint: `${label} lens`, kind: "lens" }));
-  } else if (tokens[0] === "framework") {
-    entries = state.package.frameworks.map(value => ({ value, hint: "compile assets", kind: "framework" }));
-  } else if (tokens[0] === "types") {
-    entries = [
-      { value: "public", hint: "public surface (default)", kind: "filter" },
-      { value: "namespace", hint: "filter to a namespace", kind: "filter" },
-      { value: "kind", hint: "filter by class, struct, interface, or enum", kind: "filter" }
-    ];
-  } else {
-    entries = rootCommands.map(([value, hint]) => ({ value, hint, kind: "command" }));
-  }
-
-  if (input.endsWith(" ")) return entries.slice(0, 8);
-  const needle = tokens.at(-1)?.toLowerCase() || "";
-  return entries.filter(entry => entry.value.toLowerCase().includes(needle)).slice(0, 8);
-}
-
-function commandSuggestionsHtml(items) {
-  return `${items.map((item, index) => `
-      <button class="suggestion ${index === state.completionIndex ? "selected" : ""}" data-completion="${escapeHtml(item.value)}">
-        <strong>${escapeHtml(item.value)}</strong><span>${escapeHtml(item.hint)}</span><small>${escapeHtml(item.kind)}</small>
-      </button>`).join("")}
-      <div class="suggestion-help"><span>↑↓ select</span><span>tab complete</span><span>enter run</span><span>esc dismiss</span></div>`;
-}
-
-function bindCommandCompletionClicks(root) {
-  root.querySelectorAll("[data-completion]").forEach(button => button.addEventListener("mousedown", event => {
-    event.preventDefault();
-    applyCompletion(button.dataset.completion);
-  }));
-}
-
-// Repaint just the completion list. The command <input> is left untouched so the caret
-// and native editing state survive (a full render() forced the caret to the end every
-// keystroke), and nothing outside the command panel is rebuilt.
-function updateCommandSuggestions() {
-  const container = document.querySelector("#command-suggestions");
-  if (!container) return;
-  state.completionIndex = Math.min(state.completionIndex, Math.max(completions().length - 1, 0));
-  container.innerHTML = commandSuggestionsHtml(completions());
-  bindCommandCompletionClicks(container);
-  container.querySelector(".suggestion.selected")?.scrollIntoView({ block: "nearest" });
-}
-
 function render() {
   if (!sourceSurfaceIsVisible(state)
     && cancelSourceRequestState(state)) {
@@ -1321,30 +1292,12 @@ function render() {
     state.packageLens = "overview";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
-  const suggestions = completions();
-  state.completionIndex = Math.min(state.completionIndex, Math.max(suggestions.length - 1, 0));
 
   app.innerHTML = `
     <div class="workbench">
       <header class="titlebar">
         <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
-        <div class="package-tabs" role="tablist" aria-label="Package scope">
-          ${platformTabHtml()}
-          ${state.packages.filter(item => !item.isRuntimePack).map(item => `
-            <div class="package-tab ${packageIdentityEquals(item, state.package) ? "active" : ""}" data-package-key="${escapeHtml(packageIdentityKey(item))}" role="tab" tabindex="0">
-              <span class="package-cube">⬡</span>
-              <span class="tab-label">${escapeHtml(item.id)}</span>
-              <small>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</small>
-              ${packageIdentityEquals(item, state.package)
-                ? `<button class="tab-close" data-package-close="${escapeHtml(packageIdentityKey(item))}" type="button" aria-label="Close ${escapeHtml(item.id)}">×</button>`
-                : ""}
-            </div>`).join("")}
-        </div>
-        <form class="package-query" id="package-query">
-          <span>+</span>
-          <input id="package-query-input" placeholder="Package or Package@version" aria-label="Open NuGet package" autocomplete="off" spellcheck="false" />
-          <button>open</button>
-        </form>
+        ${packageBar.html()}
         <div class="title-actions">
           <button id="go-home" title="Back to the home page">home</button>
           <button id="theme-toggle" aria-label="Switch to light theme">${state.theme === "dark" ? "light" : "dark"}</button>
@@ -1437,19 +1390,7 @@ function render() {
         </section>
       </main>
 
-      <section class="command-area">
-        <div class="command-panel ${state.promptOpen ? "open" : ""}">
-          <div class="suggestions" id="command-suggestions" role="listbox">
-            ${commandSuggestionsHtml(suggestions)}
-          </div>
-          <div class="command-line">
-            <span class="command-scope">${escapeHtml(state.package.id)}:${escapeHtml(state.package.activeFramework)}</span>
-            <span class="prompt">›</span>
-            <input id="command" value="${escapeHtml(state.command)}" placeholder="type a command…  try “type JsonSerializer”" autocomplete="off" spellcheck="false" />
-            <kbd>⌘K</kbd>
-          </div>
-        </div>
-      </section>
+      ${commandBar.html()}
       ${state.spotlightOpen ? renderSpotlight() : ""}
       ${state.graphSourceOpen ? renderGraphSource() : ""}
       ${state.docViewerOpen ? renderDocViewer() : ""}
@@ -1491,7 +1432,7 @@ function maybeAutoLoadVisibleSource() {
   const type = selectedType();
   if (!type) return;
   if (kind === "type") {
-    const signature = typeSourceSignature(type);
+    const signature = typeSourceSignature(type, state.package, state.taste, memberRequestKey);
     if (sourceRequestNeedsLoad(
         state.typeSourceKey === signature,
         state.typeSourceLoading,
@@ -1520,7 +1461,7 @@ function maybeAutoLoadTypeMetadata() {
   if (state.lens !== "metadata") return;
   const type = selectedType();
   if (!type) return;
-  const signature = typeMetadataSignature(type);
+  const signature = typeMetadataSignature(type, state.package);
   if (state.typeMetadataKey === signature) {
     if (state.typeMetadata?.graphNodes?.length > 1) renderTypeGraph();
     return;
@@ -1529,7 +1470,43 @@ function maybeAutoLoadTypeMetadata() {
 }
 
 function renderNavPane(current, visible) {
-  return navMode() === "member" ? renderMemberNav(current) : renderTypeNav(current, visible);
+  return navMode() === "member"
+    ? renderMemberNavPane(current)
+    : renderTypeNavPane(current, visible);
+}
+
+function renderTypeNavPane(current, visible) {
+  return renderTypeNav({
+    current,
+    visible,
+    typeGroups: typeGroups(),
+    typeFilter: state.typeFilter,
+    namespaceFilter: state.namespaceFilter,
+    kindFilter: state.kindFilter,
+    namespaceCount: namespaces().length,
+    namespaceOptionsHtml: namespaceOptions(),
+    kindFilters: typeKinds(),
+    accessibilityControlHtml: accessibilityControl(),
+    libraryControlHtml: libraryControl(),
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    shortKind,
+  });
+}
+
+function renderMemberNavPane(type) {
+  return renderMemberNav({
+    type,
+    entries: memberNavEntries(type),
+    memberCount: memberGroups(type).length,
+    selectedMemberKey: state.selectedMemberKey,
+    selectedOverloadIndex: state.selectedOverloadIndex,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
 }
 
 // The scope switcher + lens strip. The leading segmented control is the scope ladder —
@@ -1563,96 +1540,6 @@ function renderScopeBar() {
       <span class="lens-separator"></span>
       ${strip}
     </nav>`;
-}
-
-function renderTypeNav(current, visible) {
-  return `
-    <aside class="type-browser" aria-label="Public types">
-      <div class="browser-head">
-        <div>
-          <span class="pane-label">PUBLIC TYPES</span>
-          <span class="result-count">${visible.length} shown</span>
-        </div>
-        <button class="tiny-button" id="clear-filter" title="Clear filter">×</button>
-      </div>
-      <label class="type-search">
-        <span>/</span>
-        <input id="type-filter" value="${escapeHtml(state.typeFilter)}" placeholder="Filter types, members, libraries" autocomplete="off" spellcheck="false" />
-        <kbd>⌘F</kbd>
-      </label>
-      <div class="namespace-picker">
-        <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
-          <option value="" ${!state.namespaceFilter ? "selected" : ""}>All namespaces · ${namespaces().length}</option>
-          ${namespaceOptions()}
-        </select>
-      </div>
-      <div class="chip-stack">
-        <div class="namespace-chips kind-chips" aria-label="Type kind filters">
-          <button class="${!state.kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
-          ${typeKinds().map(kind => `<button class="${state.kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
-        </div>
-        ${accessibilityControl()}
-        ${libraryControl()}
-      </div>
-      <div class="type-list" role="listbox" tabindex="0" id="type-list">
-        ${[...typeGroups()].map(([namespace, types]) => `
-          <section class="type-group">
-            <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
-              <span class="chevron">⌄</span>
-              <span>${escapeHtml(namespace)}</span>
-              <small>${types.length}</small>
-            </button>
-            ${types.map(item => {
-              const selected = item.id === current.id;
-              return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
-                <span class="kind-icon">${kindIcon(item.kind)}</span>
-                <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
-                <small>${escapeHtml(shortKind(item.kind))}</small>
-              </button>`;
-            }).join("")}
-          </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
-      </div>
-      <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
-    </aside>`;
-}
-
-function renderMemberNav(type) {
-  const entries = memberNavEntries(type);
-  return `
-    <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
-      <div class="browser-head">
-        <div>
-          <span class="pane-label">MEMBERS</span>
-          <span class="result-count">${memberGroups(type).length} members</span>
-        </div>
-      </div>
-      <button class="nav-back-row" id="nav-to-types" title="Back to types (Esc)">
-        <span class="chevron">‹</span>
-        <span class="type-name">${escapeHtml(typeDisplayName(type))}</span>
-        <small>types</small>
-      </button>
-      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list">
-        ${entries.map(entry => {
-          if (entry.kind === "member") {
-            const group = entry.group;
-            const isMulti = group.overloads.length > 1;
-            const active = group.key === state.selectedMemberKey;
-            const selected = active && (isMulti ? state.selectedOverloadIndex == null : true);
-            return `<button class="type-row member-row ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
-              <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-              <span class="type-name">${escapeHtml(group.name)}</span>
-              <small>${isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind))}</small>
-            </button>`;
-          }
-          const selected = entry.group.key === state.selectedMemberKey && state.selectedOverloadIndex === entry.index;
-          return `<button class="type-row overload-nav-row ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}">
-            <span class="overload-branch">↳</span>
-            <code>${highlight(entry.group.overloads[entry.index].signature)}</code>
-          </button>`;
-        }).join("")}
-      </div>
-      <footer class="pane-footer"><span>↑↓ members</span><span>←→ sections</span><span>esc types</span></footer>
-    </aside>`;
 }
 
 function packageHeading() {
@@ -3289,17 +3176,30 @@ function renderPackageOverview() {
     </section>${documentsSection}`;
 }
 
+function typeHeadingHtml(item) {
+  return typeHeading({ item, packageContext: state.package, escapeHtml, typeDisplayName, kindIcon, highlight });
+}
+
+function renderTypeMetadataHtml(item) {
+  return renderTypeMetadata({ item, packageContext: state.package, metadataState: state, escapeHtml, relatedTypeChip, factRows });
+}
+
+function renderTypeSourceHtml(item) {
+  const currentSignature = typeSourceSignature(item, state.package, state.taste, memberRequestKey);
+  return renderTypeSource({ item, currentSignature, sourceState: state, escapeHtml, highlightCSharp });
+}
+
 function renderLens(item) {
   if (state.atPackageRoot) return renderPackageView();
   const member = selectedMember(item);
   if (state.lens === "api" && member) return renderMember(item, member);
   if (state.lens === "source") {
     return `
-      ${typeHeading(item)}
-      ${renderTypeSource(item)}`;
+      ${typeHeadingHtml(item)}
+      ${renderTypeSourceHtml(item)}`;
   }
   if (state.lens === "metadata") {
-    return `${typeHeading(item)}${renderTypeMetadata(item)}`;
+    return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
   }
   const groups = memberGroups(item);
   const kindOrder = ["constructor", "method", "property", "field", "event"];
@@ -3313,7 +3213,7 @@ function renderLens(item) {
       `<button class="member-kind ${activeKind === kind ? "active" : ""}" data-kind="${kind}">${kindLabels[kind]}</button>`))
     .join("");
   return `
-    ${typeHeading(item)}
+    ${typeHeadingHtml(item)}
     <section class="document-section">
       <div class="section-title"><h2>Public API</h2><span>${groups.length} member groups · ${item.members} overloads</span></div>
       <div class="member-filter">${filterButtons}</div>
@@ -3489,7 +3389,7 @@ function renderMember(type, member) {
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`
       : state.memberSource
         ? `<section class="document-section source-result">
-            <div class="source-provenance"><strong>${state.memberSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.memberSource)}<button id="copy-source" type="button">copy</button></div>
+            <div class="source-provenance"><strong>${state.memberSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-source" type="button">copy</button></div>
             <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
@@ -3623,23 +3523,6 @@ function renderFactTable(title, rows, columns, emptyText) {
   </section>`;
 }
 
-function typeHeading(item) {
-  return `<header class="type-heading">
-    <div class="type-badge">${kindIcon(item.kind)}</div>
-    <div>
-      <div class="type-namespace">${escapeHtml(item.namespace)}</div>
-      <h1>${escapeHtml(typeDisplayName(item))}</h1>
-      <code class="type-signature">${highlight(item.signature)}</code>
-    </div>
-    <div class="type-metrics"><span><strong>${item.members}</strong> members</span><span><strong>${escapeHtml(item.accessibility || "public")}</strong> accessibility</span></div>
-    <dl class="definition-list">
-      <div><dt>TFM:</dt><dd>${escapeHtml(state.package.activeFramework)}</dd></div>
-      <div><dt>Library:</dt><dd>${escapeHtml(item.assembly)}</dd></div>
-      <div><dt>Package:</dt><dd>${escapeHtml(state.package.id)}@${escapeHtml(state.package.version)}</dd></div>
-    </dl>
-  </header>`;
-}
-
 function factRows(rows) {
   return `<dl class="fact-rows">${rows.map(([key, value, evidence]) => `<div><dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code>${factEvidence(evidence)}</dd></div>`).join("")}</dl>`;
 }
@@ -3656,126 +3539,6 @@ function factEvidence(offsets) {
   const extra = unique.length - shown.length;
   const label = shown.join(", ") + (extra > 0 ? ` +${extra}` : "");
   return `<span class="fact-evidence" title="${escapeHtml(unique.join(", "))}">${escapeHtml(label)}</span>`;
-}
-
-function typeMetadataSignature(item) {
-  return `${state.package.id}@${state.package.version}/${state.package.activeFramework}/${item.assembly}/${item.id}`;
-}
-
-const COMPOSITION_KINDS = [
-  ["methods", "Methods"],
-  ["properties", "Properties"],
-  ["fields", "Fields"],
-  ["events", "Events"],
-  ["constructors", "Constructors"],
-  ["operators", "Operators"],
-  ["extensionMethods", "Extension methods"],
-  ["explicitInterfaceImplementations", "Explicit impls"]
-];
-
-const COMPOSITION_FLAGS = [
-  ["static", "static"],
-  ["unsafe", "unsafe"],
-  ["async", "async"],
-  ["virtual", "virtual"],
-  ["abstract", "abstract"],
-  ["override", "override"],
-  ["extension", "extension"],
-  ["obsolete", "obsolete"]
-];
-
-function renderCompositionGrid(composition) {
-  const kinds = COMPOSITION_KINDS
-    .filter(([key]) => composition[key] > 0)
-    .map(([key, label]) => `<div class="count-cell"><strong>${composition[key]}</strong><span>${label}</span></div>`)
-    .join("");
-  const flags = COMPOSITION_FLAGS
-    .filter(([key]) => composition[key] > 0)
-    .map(([key, label]) => `<span class="count-flag flag-${key}">${composition[key]} ${label}</span>`)
-    .join("");
-  return `
-    <div class="composition-grid">${kinds || '<div class="count-cell"><strong>0</strong><span>members</span></div>'}</div>
-    ${flags ? `<div class="composition-flags">${flags}</div>` : ""}`;
-}
-
-function renderTypeMetadata(item) {
-  const current = typeMetadataSignature(item);
-  const fresh = state.typeMetadataKey === current;
-  if (state.typeMetadataLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`;
-  }
-  if (fresh && state.typeMetadataError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(state.typeMetadataError)}</p></section>`;
-  }
-  const meta = fresh ? state.typeMetadata : null;
-  if (!meta) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
-  }
-
-  const shape = [
-    ["Kind", [...(meta.modifiers || []), meta.kind].join(" ")],
-    ["Accessibility", meta.accessibility || "public"],
-    ["Namespace", meta.namespace || "global"],
-    ["Assembly", meta.assembly || item.assembly]
-  ];
-  if (meta.baseType) shape.push(["Base type", meta.baseType]);
-  if (meta.enumUnderlyingType) shape.push(["Enum underlying", meta.enumUnderlyingType]);
-  if (meta.typeParameters?.length) {
-    shape.push(["Type parameters", meta.typeParameters
-      .map(parameter => `${parameter.variance ? parameter.variance + " " : ""}${parameter.name}${parameter.constraints?.length ? ` : ${parameter.constraints.join(", ")}` : ""}`)
-      .join(" · ")]);
-  }
-
-  const interfaces = (meta.interfaces || []).length
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Implements</h2><span>${meta.interfaces.length} interface${meta.interfaces.length === 1 ? "" : "s"}</span></div>
-        <div class="type-chip-list">${meta.interfaces.map(name => relatedTypeChip(name)).join("")}</div>
-      </section>`
-    : "";
-
-  const derived = (meta.derivedTypes || []).length
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Known derived types</h2><span>${meta.derivedTypes.length} in ${escapeHtml(meta.assembly || item.assembly)}</span></div>
-        <div class="type-chip-list">${meta.derivedTypes.map(name => relatedTypeChip(name)).join("")}</div>
-      </section>`
-    : "";
-
-  const attributes = (meta.attributes || []).length
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Custom attributes</h2><span>${meta.attributes.length}</span></div>
-        <div class="type-chip-list">${meta.attributes.map(name => `<code class="attr-chip">[${escapeHtml(name)}]</code>`).join("")}</div>
-      </section>`
-    : "";
-
-  const composition = meta.composition
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Composition</h2><span>${meta.composition.total} member${meta.composition.total === 1 ? "" : "s"}</span></div>
-        ${renderCompositionGrid(meta.composition)}
-      </section>`
-    : "";
-
-  const graph = (meta.graphNodes || []).length > 1
-    ? `<section class="document-section call-graph-section">
-        <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — click a highlighted node to open</span></div>
-        <div id="type-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
-      </section>`
-    : "";
-
-  const failures = (meta.inspectionFailures || []).length
-    ? `<section class="document-section metadata-warning"><strong>⚠ Relationship view may be incomplete</strong><ul>${meta.inspectionFailures.map(entry => `<li><code>${escapeHtml(entry)}</code></li>`).join("")}</ul></section>`
-    : "";
-
-  return `
-    <section class="document-section">
-      <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
-      ${factRows(shape)}
-    </section>
-    ${composition}
-    ${interfaces}
-    ${derived}
-    ${attributes}
-    ${graph}
-    ${failures}`;
 }
 
 function shortTypeName(fullName) {
@@ -3803,34 +3566,6 @@ function splitSignalName(fullName) {
   };
 }
 
-function typeSourceSignature(item) {
-  return memberRequestKey([
-    state.package.id,
-    state.package.version,
-    state.package.activeFramework,
-    item.assembly,
-    item.definitionId ?? item.id
-  ], state.taste);
-}
-
-function renderTypeSource(item) {
-  const current = typeSourceSignature(item);
-  const fresh = state.typeSourceKey === current;
-  if (state.typeSourceLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
-  }
-  if (fresh && state.typeSource) {
-    return `<section class="document-section source-result">
-        <div class="source-provenance"><strong>${state.typeSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.typeSource.provenance)}</span>${state.typeSource.url ? `<a href="${escapeHtml(state.typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.typeSource)}<button id="copy-type-source" type="button">copy</button></div>
-        <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.typeSource.text)}</code></pre>
-      </section>`;
-  }
-  if (fresh && state.typeSourceError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(state.typeSourceError)}</p></section>`;
-  }
-  return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
-}
-
 function kindIcon(kind) {
   if (kind.includes("struct")) return "S";
   if (kind === "enum") return "E";
@@ -3856,37 +3591,7 @@ function highlightCSharp(value) {
 }
 
 function bindEvents() {
-  document.querySelectorAll("[data-package-key]").forEach(tab => {
-    const activate = () => selectPackageTab(
-      state.packages.find(item => packageIdentityKey(item) === tab.dataset.packageKey));
-    tab.addEventListener("click", event => {
-      if (event.target.closest("[data-package-close]")) return;
-      activate();
-    });
-    tab.addEventListener("keydown", event => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      activate();
-    });
-  });
-  document.querySelectorAll("[data-package-close]").forEach(button =>
-    button.addEventListener("click", event => {
-      event.stopPropagation();
-      closePackageTab(button.dataset.packageClose);
-    }));
-  document.querySelector("[data-platform-open]")?.addEventListener("click", () => openRuntimePackFromHome());
-  // Browser-tab behavior for a crowded strip: keep the active tab in view, and let a
-  // vertical wheel scroll the horizontal strip so hidden tabs stay reachable.
-  const tabStrip = document.querySelector(".package-tabs");
-  if (tabStrip) {
-    requestAnimationFrame(() =>
-      tabStrip.querySelector(".package-tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" }));
-    tabStrip.addEventListener("wheel", event => {
-      if (event.deltaY === 0) return;
-      event.preventDefault();
-      tabStrip.scrollLeft += event.deltaY;
-    }, { passive: false });
-  }
+  packageBar.bind(document);
   document.querySelectorAll("[data-scope]").forEach(button => button.addEventListener("click", () => {
     const target = button.dataset.scope;
     if (target === "package") {
@@ -4165,7 +3870,7 @@ function bindEvents() {
       const [assembly, heapName] = btn.dataset.mdeOpenHeap.split("|");
       openExplorerHeap(assembly, heapName);
     }));
-  bindCommandCompletionClicks(document);
+  commandBar.bind(document);
 
   document.querySelector("#framework").addEventListener("change", event => {
     switchPackageFramework(event.target.value);
@@ -4243,30 +3948,6 @@ function bindEvents() {
     focusFilter();
   });
 
-  const command = document.querySelector("#command");
-  command.addEventListener("focus", () => {
-    state.promptOpen = true;
-    document.querySelector(".command-panel").classList.add("open");
-  });
-  command.addEventListener("input", event => {
-    state.command = event.target.value;
-    state.promptOpen = true;
-    state.completionIndex = 0;
-    updateCommandSuggestions();
-  });
-  command.addEventListener("keydown", handleCommandKeys);
-  document.querySelector("#package-query").addEventListener("submit", event => {
-    event.preventDefault();
-    const value = document.querySelector("#package-query-input").value.trim();
-    const separator = value.lastIndexOf("@");
-    if (!value || separator === value.length - 1) {
-      showToast("enter a package, optionally followed by @version");
-      return;
-    }
-    const packageId = separator > 0 ? value.slice(0, separator) : value;
-    const version = separator > 0 ? value.slice(separator + 1) : "latest";
-    loadPackage(packageId, version, "");
-  });
   document.querySelector("#share").addEventListener("click", share);
   document.querySelector("[data-graph-back]")?.addEventListener("click", popPlatformDrill);
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
@@ -5476,51 +5157,7 @@ function handleSpotlightKeys(event) {
   }
 }
 
-function handleCommandKeys(event) {
-  const items = completions();
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    state.completionIndex = (state.completionIndex + 1) % Math.max(1, items.length);
-    updateCommandSuggestions();
-  } else if (event.key === "ArrowUp") {
-    event.preventDefault();
-    state.completionIndex = (state.completionIndex - 1 + Math.max(1, items.length)) % Math.max(1, items.length);
-    updateCommandSuggestions();
-  } else if (event.key === "Tab" && items.length) {
-    event.preventDefault();
-    applyCompletion(items[state.completionIndex].value);
-  } else if (event.key === "Enter") {
-    event.preventDefault();
-    executeCommand();
-  } else if (event.key === "Escape") {
-    state.promptOpen = false;
-    state.command = "";
-    render();
-    document.querySelector("#type-list").focus();
-  }
-}
-
-function applyCompletion(value) {
-  const tokens = state.command.trim().split(/\s+/).filter(Boolean);
-  if (!tokens.length) state.command = `${value} `;
-  else if (state.command.endsWith(" ")) state.command += `${value} `;
-  else {
-    tokens[tokens.length - 1] = value;
-    state.command = `${tokens.join(" ")} `;
-  }
-  state.completionIndex = 0;
-  state.promptOpen = true;
-  // We rewrote the command programmatically, so push it into the live input and
-  // repaint only the suggestion list (no full render / caret reset needed elsewhere).
-  const input = document.querySelector("#command");
-  if (input) input.value = state.command;
-  updateCommandSuggestions();
-  focusCommand();
-}
-
-function executeCommand() {
-  const value = state.command.trim();
-  if (!value) return;
+function executeCommand(value) {
   const [verb, ...rest] = value.split(/\s+/);
   const argument = rest.join(" ");
   if (verb === "type") {
@@ -5548,24 +5185,6 @@ function executeCommand() {
     share();
   }
   state.history = [value, ...state.history.filter(item => item !== value)].slice(0, 5);
-  state.command = "";
-  state.promptOpen = false;
-  render();
-}
-
-function openCommand(value = "") {
-  state.command = value;
-  state.promptOpen = true;
-  render();
-  focusCommand();
-}
-
-function focusCommand() {
-  requestAnimationFrame(() => {
-    const input = document.querySelector("#command");
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
-  });
 }
 
 function focusFilter() {
@@ -6238,7 +5857,7 @@ async function loadSelectedTypeSource() {
     render();
     return;
   }
-  const signature = typeSourceSignature(type);
+  const signature = typeSourceSignature(type, state.package, state.taste, memberRequestKey);
   if (!sourceRequestNeedsLoad(
       state.typeSourceKey === signature,
       state.typeSourceLoading,
@@ -6287,7 +5906,7 @@ async function loadSelectedTypeMetadata() {
     render();
     return;
   }
-  const signature = typeMetadataSignature(type);
+  const signature = typeMetadataSignature(type, state.package);
   if (state.typeMetadataKey === signature && (state.typeMetadata || state.typeMetadataError)) {
     render();
     return;
@@ -7543,7 +7162,7 @@ function renderGraphSource() {
   const body = state.graphSourceLoading
     ? `<div class="graph-source-status">Resolving source for ${escapeHtml(state.graphSourceTitle)}…</div>`
     : state.graphSource
-      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span>${state.graphSource.url ? `<a href="${escapeHtml(state.graphSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.graphSource)}</div>
+      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span>${state.graphSource.url ? `<a href="${escapeHtml(state.graphSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}</div>
          <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.graphSource.text)}</code></pre>`
       : `<div class="graph-source-status error">${escapeHtml(state.graphSourceError || "No source was returned.")}</div>`;
   return `
@@ -7822,22 +7441,6 @@ function platformLibrarySelectHtml(options = {}) {
       ${group("netcore.app", ".NET")}
       ${group("aspnetcore.app", "ASP.NET Core")}
     </select>`;
-}
-
-// The always-present, non-closable, left-most "Platform" tab. It abstracts the .NET runtime
-// packs (netcore.app, aspnetcore.app, …) behind a single surface: when a pack is resident it
-// activates it; otherwise clicking loads it lazily. Rendered separately from the normal tab
-// map so it is always first and never carries a close affordance.
-function platformTabHtml() {
-  const rt = runtimePackPackage();
-  const active = rt && state.package && state.package.id === rt.id ? "active" : "";
-  const framework = rt?.activeFramework || state.package?.activeFramework || "";
-  const attr = rt ? `data-package-key="${escapeHtml(packageIdentityKey(rt))}"` : `data-platform-open="1"`;
-  return `<button class="package-tab platform ${active}" ${attr} role="tab" title="Platform · .NET runtime libraries">
-      <span class="package-cube">◎</span>
-      <span class="tab-label">Platform</span>
-      <small>${escapeHtml(framework || "load")}</small>
-    </button>`;
 }
 
 // The resident runtime pseudo-package rides in the shared workspace/URL packet under the
@@ -8366,7 +7969,7 @@ document.addEventListener("keydown", event => {
     drillOut();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    openCommand();
+    commandBar.open();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
     event.preventDefault();
     openSpotlight();
