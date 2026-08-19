@@ -119,9 +119,9 @@ public sealed class SectionPipeline<TModel>
     /// <summary>
     /// Drops the computed <c>@All</c> and <c>@Hidden</c> poles from this pipeline's category map,
     /// making them unresolvable as selectors rather than merely undiscoverable. A command whose
-    /// sections are completely owned by authored category doors and automatic presets does not
-    /// need computed complements or supersets, and keeping them resolvable-but-unlisted leaves a
-    /// surface no discovery output describes.
+    /// sections are reached through authored category doors, automatic presets, or deliberately
+    /// exact-only selectors does not need computed complements or supersets. Keeping the computed
+    /// poles resolvable-but-unlisted would leave a surface no discovery output describes.
     /// </summary>
     public SectionPipeline<TModel> WithoutComputedPoles()
     {
