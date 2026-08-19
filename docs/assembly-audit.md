@@ -110,10 +110,12 @@ The detail table has exactly `Path`, `Kind`, and `Encoded Text`. A source line
 produces one rendering finding containing all Unicode concern kinds on that
 line. NuGet configuration also produces semantic rows for `<clear/>` and each
 declared package source, even when the same line already has a text finding.
-Each row encodes only the recognized element name and its attributes; nested
-content is not serialized into an outer row. Attribute values are structurally
-escaped, and evidence truncation keeps escape tokens and Unicode scalar values
-whole.
+Only unqualified NuGet elements and attributes contribute semantic evidence;
+namespace declarations and foreign expanded names cannot impersonate them.
+Each row encodes only the recognized element name and its semantic attributes;
+nested content is not serialized into an outer row. Attribute values are
+structurally escaped, and evidence truncation keeps escape tokens and Unicode
+scalar values whole.
 Each SourceLink mapping with concerning decoded text adds one row attributed to
 its package PDB (or assembly for an embedded PDB). A decoded document key or URL
 containing the literal `../` adds a separate `SourceLink parent path segment`
@@ -143,6 +145,8 @@ amplification.
 `PackageContentAuditTests.NuGetConfiguration_EscapesAttributeStructure` and
 `PackageContentAuditTests.NuGetConfiguration_TruncationKeepsSurrogatePairsWhole`
 gate unambiguous attribute evidence and scalar-safe truncation.
+`PackageContentAuditTests.NuGetConfiguration_NamespacesCannotForgeSemanticEvidence`
+gates the unqualified NuGet XML grammar.
 `PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`
 and
 `SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`

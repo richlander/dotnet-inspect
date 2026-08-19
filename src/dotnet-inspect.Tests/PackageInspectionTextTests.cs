@@ -448,6 +448,25 @@ public class PackageInspectionTextTests
         Assert.Equal("Yes", signing.RepositoryVerified);
     }
 
+    [Fact]
+    public void SigningSection_VerificationFailureDoesNotReportAuthorResult()
+    {
+        var result = new InspectionResult
+        {
+            SignatureResult = new SignatureVerificationResult
+            {
+                StatusMessage = "Verification failed: invalid signature",
+            },
+        };
+
+        var signing = new InspectionResultView(result).SigningSectionData;
+
+        Assert.NotNull(signing);
+        Assert.Null(signing.AuthorVerified);
+        Assert.Equal("Unknown", signing.Signed);
+        Assert.Equal("Verification failed: invalid signature", signing.Status);
+    }
+
     private static Type? CurrencyType(Type modelType, IReadOnlyDictionary<Type, Type> mappings)
     {
         if (modelType == typeof(string))

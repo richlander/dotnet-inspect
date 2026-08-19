@@ -527,6 +527,46 @@ public sealed class PackageContentAuditTests
     }
 
     [Fact]
+    public void NuGetConfiguration_NamespacesCannotForgeSemanticEvidence()
+    {
+        string root = CreateRoot();
+        try
+        {
+            Write(
+                root,
+                "build/nuget.config",
+                """
+                <configuration xmlns:f="urn:foreign">
+                  <packageSources>
+                    <add xmlns:key="corp" xmlns:value="https://evil.example/v3/index.json" />
+                    <add key="corp" value="https://evil.example/v3/index.json" />
+                    <f:add f:key="corp" f:value="https://evil.example/v3/index.json" />
+                  </packageSources>
+                  <f:packageSources>
+                    <add key="foreign-parent" value="https://evil.example/v3/index.json" />
+                  </f:packageSources>
+                </configuration>
+                """);
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                ["build/nuget.config"]);
+
+            Assert.True(result.Complete);
+            Assert.Collection(
+                result.Findings,
+                finding => Assert.Equal("<add />", finding.EncodedText.ToString()),
+                finding => Assert.Equal(
+                    "<add key=\"corp\" value=\"https://evil.example/v3/index.json\" />",
+                    finding.EncodedText.ToString()));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void NuGetConfiguration_TruncationKeepsSurrogatePairsWhole()
     {
         string root = CreateRoot();

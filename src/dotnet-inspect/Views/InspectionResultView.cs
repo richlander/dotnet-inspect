@@ -191,7 +191,9 @@ public class InspectionResultView
     [MarkoutSection(Name = PackageSections.Signature)]
     public SigningSection? SigningSectionData => Text.SignatureResult is { } signature
         ? new SigningSection(
-            signature.AuthorVerified ? "Yes" : "No",
+            signature.AuthorVerified
+                ? "Yes"
+                : signature.RepositoryVerified || signature.IsUnsigned ? "No" : null,
             signature.Publisher is { IsEmpty: false } publisher
                 ? InertString.Format(
                     TextPolicy.Field,
