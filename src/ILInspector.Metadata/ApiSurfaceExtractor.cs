@@ -6390,8 +6390,8 @@ public static class ApiSurfaceExtractor
             reader,
             kind => kind switch
             {
-                "get" => accessors.Getter,
-                "set" => accessors.Setter,
+                "get" => getterHandle,
+                "set" => setterHandle,
                 _ => default,
             },
             typeNodeProvider,
