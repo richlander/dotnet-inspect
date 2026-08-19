@@ -90,7 +90,7 @@ evidence unless a category is named.
 | Command | Base categories | Domain categories |
 | ------- | --------------- | ----------------- |
 | `package` | `@Package`, `@Files` | `@Dependencies`, `@Audit`, `@SourceLink` |
-| `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@Decompiler`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
+| `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -98,6 +98,10 @@ Dependencies`, and the unbounded `Package files` listing. `@Files` groups the
 curated nuspec, README, and skill-file sections. Other commands expose
 categories such as member `@Source`; `Switches` is a section. There are no
 user-facing `@All`, `@Default`, or `@Hidden` categories.
+
+Library `Unsafe Members` is intentionally standalone rather than category
+owned. Select it directly with `-S "Unsafe Members"`; use `-D "Unsafe Members"`
+for its fields or `-D --schema` to find it in the complete static graph.
 
 Bare `-S` returns high-value, fixed-length, network-free sections from the
 package or library base categories. Sections without evidence are omitted.
@@ -122,11 +126,18 @@ the explicit-only `Body Shapes` section when no `-S` selection is present:
 dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds"
 dnx dotnet-inspect -y -- library MyLib.dll \
   --where "Kind=ObjectCreationExpression" --jsonl
+dnx dotnet-inspect -y -- member Widget Render:1 --library MyLib.dll \
+  --where "Kind=InvocationExpression" --jsonl
 ```
 
-The first slice accepts exactly one case-sensitive equality predicate. It does
-not combine a Body Shapes predicate with Performance Triage filters or
-`--order-by` in the same query.
+Member scope requires one exact member name or stable selector and decompiles
+only the selected MethodDef body. An unambiguous method or single-accessor
+member is auto-selected; overloaded names require `Name:N` or `Name~digest`.
+A property or event with multiple body accessors requires an accessor selector;
+use `Name~digest:1`/`Name~digest:2` when the owner is overloaded. The current
+query accepts exactly one case-sensitive equality predicate. It does not
+combine a Body Shapes predicate with Performance Triage filters or
+`--order-by`.
 
 ## Filter and order performance rows
 
