@@ -877,42 +877,70 @@ public static class PackageContentAudit
     private static InertString EncodeNuGetConfigurationEvidence(XElement element)
     {
         var evidence = new StringBuilder(MaxEncodedTextLength);
-        bool complete = AppendBounded(evidence, "<")
-            && AppendBounded(evidence, element.Name.LocalName);
+        bool complete = AppendEvidenceToken(evidence, "<")
+            && AppendEvidenceToken(evidence, element.Name.LocalName);
         foreach (XAttribute attribute in element.Attributes())
         {
             complete = complete
-                && AppendBounded(evidence, " ")
-                && AppendBounded(evidence, attribute.Name.LocalName)
-                && AppendBounded(evidence, "=\"")
-                && AppendBounded(evidence, attribute.Value)
-                && AppendBounded(evidence, "\"");
+                && AppendEvidenceToken(evidence, " ")
+                && AppendEvidenceToken(evidence, attribute.Name.LocalName)
+                && AppendEvidenceToken(evidence, "=\"")
+                && AppendXmlAttributeValue(evidence, attribute.Value)
+                && AppendEvidenceToken(evidence, "\"");
             if (!complete)
                 break;
         }
-        complete = complete && AppendBounded(evidence, " />");
+        complete = complete && AppendEvidenceToken(evidence, " />");
 
         if (!complete)
-        {
-            if (evidence.Length == MaxEncodedTextLength)
-                evidence.Length--;
             evidence.Append('…');
-        }
 
         return new InertString(TextPolicy.Prose, evidence.ToString());
     }
 
-    private static bool AppendBounded(StringBuilder destination, string value)
+    private static bool AppendXmlAttributeValue(StringBuilder destination, string value)
     {
-        int remaining = MaxEncodedTextLength - destination.Length;
-        if (value.Length <= remaining)
+        for (int index = 0; index < value.Length; index++)
         {
-            destination.Append(value);
-            return true;
+            string? escaped = value[index] switch
+            {
+                '&' => "&amp;",
+                '<' => "&lt;",
+                '>' => "&gt;",
+                '"' => "&quot;",
+                _ => null,
+            };
+            if (escaped is not null)
+            {
+                if (!AppendEvidenceToken(destination, escaped))
+                    return false;
+                continue;
+            }
+
+            int length = char.IsHighSurrogate(value[index])
+                && index + 1 < value.Length
+                && char.IsLowSurrogate(value[index + 1])
+                    ? 2
+                    : 1;
+            if (!AppendEvidenceToken(destination, value.AsSpan(index, length)))
+                return false;
+            index += length - 1;
         }
 
-        destination.Append(value.AsSpan(0, remaining));
-        return false;
+        return true;
+    }
+
+    private static bool AppendEvidenceToken(StringBuilder destination, string value)
+        => AppendEvidenceToken(destination, value.AsSpan());
+
+    private static bool AppendEvidenceToken(StringBuilder destination, ReadOnlySpan<char> value)
+    {
+        const int ContentLimit = MaxEncodedTextLength - 1;
+        if (value.Length > ContentLimit - destination.Length)
+            return false;
+
+        destination.Append(value);
+        return true;
     }
 
     private sealed class FindingCollector

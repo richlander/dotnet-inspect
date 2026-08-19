@@ -485,6 +485,75 @@ public sealed class PackageContentAuditTests
     }
 
     [Fact]
+    public void NuGetConfiguration_EscapesAttributeStructure()
+    {
+        string root = CreateRoot();
+        try
+        {
+            Write(
+                root,
+                "build/nuget.config",
+                """
+                <configuration>
+                  <packageSources>
+                    <add key="a&quot; value=&quot;https://spoof.example" />
+                    <add key="a" value="https://spoof.example" />
+                  </packageSources>
+                </configuration>
+                """);
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                ["build/nuget.config"]);
+
+            Assert.True(result.Complete);
+            Assert.Equal(2, result.Findings.Count);
+            Assert.NotEqual(
+                result.Findings[0].EncodedText.ToString(),
+                result.Findings[1].EncodedText.ToString());
+            Assert.Contains(
+                "&quot;",
+                result.Findings[0].EncodedText.ToString(),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "&quot;",
+                result.Findings[1].EncodedText.ToString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void NuGetConfiguration_TruncationKeepsSurrogatePairsWhole()
+    {
+        string root = CreateRoot();
+        try
+        {
+            string value = new string('a', 498) + "\U0001F600" + "b";
+            Write(
+                root,
+                "build/nuget.config",
+                $"<configuration><packageSources><add value=\"{value}\" /></packageSources></configuration>");
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                ["build/nuget.config"]);
+
+            PackageContentAuditFinding finding = Assert.Single(result.Findings);
+            Assert.Equal(TextConcern.None, finding.EncodedText.Concerns);
+            Assert.StartsWith("<add", finding.EncodedText.ToString(), StringComparison.Ordinal);
+            Assert.EndsWith("…", finding.EncodedText.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void LongHostileLine_AfterLiteralBackslashesKeepsTheConcernInEvidence()
     {
         string root = CreateRoot();
