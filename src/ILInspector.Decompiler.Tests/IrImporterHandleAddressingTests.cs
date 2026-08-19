@@ -72,7 +72,7 @@ public class IrImporterHandleAddressingTests
 
         // Each Marker() overload returns a distinct literal, so the rendered body
         // identifies which method was resolved. Import each by its own handle; the
-        // three bodies must all be present and distinct — proving handle-direct
+        // four bodies must all be present and distinct — proving handle-direct
         // addressing reaches the private overload interleaved between the public
         // ones, which a publicOnly index would skip or misplace.
         var bodies = new List<string>();
@@ -87,8 +87,8 @@ public class IrImporterHandleAddressingTests
             bodies.Add(body!);
         }
 
-        Assert.Equal(3, bodies.Count);
-        Assert.Equal(3, new HashSet<string>(bodies).Count);
+        Assert.Equal(4, bodies.Count);
+        Assert.Equal(4, new HashSet<string>(bodies).Count);
     }
 
     [Fact]
