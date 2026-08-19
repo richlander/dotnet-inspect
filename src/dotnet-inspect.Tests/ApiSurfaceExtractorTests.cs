@@ -90,6 +90,25 @@ public class ApiSurfaceExtractorTests
         Assert.Equal(
             full.Types.Select(type => type.FullName).Order(),
             summary.Types.Select(type => type.FullName).Order());
+
+        var fullFinalizerType = Assert.Single(
+            full.Types,
+            type => type.Name == nameof(SummaryFinalizerFixture));
+        var summaryFinalizerType = Assert.Single(
+            summary.Types,
+            type => type.Name == nameof(SummaryFinalizerFixture));
+        var fullFinalizer = Assert.Single(
+            fullFinalizerType.Members,
+            member => member is { Name: "Finalize", Kind: "finalizer", IsFinalizer: true });
+        var summaryFinalizer = Assert.Single(
+            summaryFinalizerType.Members,
+            member => member is { Name: "Finalize", Kind: "finalizer", IsFinalizer: true });
+
+        Assert.Equal(fullFinalizer.Name, summaryFinalizer.Name);
+        Assert.Equal(fullFinalizerType.Members.Count, summaryFinalizerType.Members.Count);
+        Assert.Equal(
+            fullFinalizerType.Members.Select(member => member.Name).Order(),
+            summaryFinalizerType.Members.Select(member => member.Name).Order());
     }
 
     [Fact]
@@ -2000,4 +2019,11 @@ public class SampleImplementation : ISampleInterface
 internal class InternalTopLevelSurfaceFixture
 {
     public int Value() => 1;
+}
+
+public sealed class SummaryFinalizerFixture
+{
+    ~SummaryFinalizerFixture()
+    {
+    }
 }

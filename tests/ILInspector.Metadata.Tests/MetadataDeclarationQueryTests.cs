@@ -1068,6 +1068,29 @@ public sealed class MetadataDeclarationQueryTests
         }
     }
 
+    [Fact]
+    public void ExplicitAggregateRowSignature_RejectsModifiedVoidAccessorReturns()
+    {
+        using var stream = new MemoryStream(
+            BuildModifiedVoidExplicitAggregateImage(),
+            writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiType host = Assert.Single(surface.Types, type => type.Name == "Host");
+        Assert.DoesNotContain(host.Members, member => member.Kind is "property" or "event");
+        Assert.Equal(
+            2,
+            surface.InspectionFailures.Count(failure =>
+                failure.Operation == "property signature"
+                && failure.Detail == "The property setter does not return void."));
+        Assert.Equal(
+            2,
+            surface.InspectionFailures.Count(failure =>
+                failure.Operation == "event signature"
+                && failure.Detail == "The event adder does not return void."));
+    }
+
     /// <summary>
     /// The compiler-produced close negatives for the row-signature check: an explicit
     /// <c>init</c> setter carries <c>modreq(IsExternalInit)</c> over its <c>void</c> return, and
@@ -1090,6 +1113,16 @@ public sealed class MetadataDeclarationQueryTests
         Assert.Contains(aggregates, member => member.Name.EndsWith(".Value", StringComparison.Ordinal));
         Assert.Contains(aggregates, member => member.Name.EndsWith(".Item", StringComparison.Ordinal));
         Assert.Contains(aggregates, member => member.Kind == "event");
+
+        var extracted = Assert.Single(
+            ApiSurfaceExtractor.Extract(PeReader, includeAll: true).Types,
+            type => type.FullName.EndsWith(
+                "." + nameof(MetadataDeclarationQueryFixtures.ExplicitRowSignatureSurface),
+                StringComparison.Ordinal));
+        Assert.Contains(
+            extracted.Members,
+            member => member is { Kind: "property", IsExplicitInterfaceImplementation: true }
+                && member.Name.EndsWith(".Value", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1977,6 +2010,193 @@ public sealed class MetadataDeclarationQueryTests
             bodyOffset: 0,
             parameterList: MetadataTokens.ParameterHandle(1));
 
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildModifiedVoidExplicitAggregateImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("ModifiedVoidExplicitAggregate.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ModifiedVoidExplicitAggregate"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        TypeDefinitionHandle host = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Fixtures"),
+            metadata.GetOrAddString("Host"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        TypeReferenceHandle interfaceType = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("IRow"));
+        TypeReferenceHandle modifier = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("ArbitraryModifier"));
+        metadata.AddInterfaceImplementation(host, interfaceType);
+
+        var propertySignature = new BlobBuilder();
+        new BlobEncoder(propertySignature)
+            .PropertySignature(isInstanceProperty: true)
+            .Parameters(0, returnType => returnType.Type().Int32(), _ => { });
+        BlobHandle propertySignatureHandle = metadata.GetOrAddBlob(propertySignature);
+        bool propertyMapAdded = false;
+        AddProperty("RequiredValue", isRequiredModifier: true);
+        AddProperty("OptionalValue", isRequiredModifier: false);
+
+        bool eventMapAdded = false;
+        AddEvent("RequiredChanged", isRequiredModifier: true);
+        AddEvent("OptionalChanged", isRequiredModifier: false);
+
+        return Serialize(metadata);
+
+        void AddProperty(string name, bool isRequiredModifier)
+        {
+            BlobHandle signature = AddModifiedVoidAccessorSignature(
+                isRequiredModifier,
+                parameterType: default,
+                parameterTypeCode: 0x08);
+            MethodDefinitionHandle setter = metadata.AddMethodDefinition(
+                ExplicitAccessorAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"Contracts.IRow.set_{name}"),
+                signature,
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+            MemberReferenceHandle declaration = metadata.AddMemberReference(
+                interfaceType,
+                metadata.GetOrAddString($"set_{name}"),
+                signature);
+            metadata.AddMethodImplementation(host, setter, declaration);
+            PropertyDefinitionHandle property = metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString($"Contracts.IRow.{name}"),
+                propertySignatureHandle);
+            if (!propertyMapAdded)
+            {
+                metadata.AddPropertyMap(host, property);
+                propertyMapAdded = true;
+            }
+            metadata.AddMethodSemantics(
+                property,
+                MethodSemanticsAttributes.Setter,
+                setter);
+        }
+
+        void AddEvent(string name, bool isRequiredModifier)
+        {
+            BlobHandle signature = AddModifiedVoidAccessorSignature(
+                isRequiredModifier,
+                interfaceType,
+                parameterTypeCode: 0x12);
+            MethodDefinitionHandle adder = metadata.AddMethodDefinition(
+                ExplicitAccessorAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"Contracts.IRow.add_{name}"),
+                signature,
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+            MethodDefinitionHandle remover = metadata.AddMethodDefinition(
+                ExplicitAccessorAttributes,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"Contracts.IRow.remove_{name}"),
+                signature,
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+            metadata.AddMethodImplementation(
+                host,
+                adder,
+                metadata.AddMemberReference(
+                    interfaceType,
+                    metadata.GetOrAddString($"add_{name}"),
+                    signature));
+            metadata.AddMethodImplementation(
+                host,
+                remover,
+                metadata.AddMemberReference(
+                    interfaceType,
+                    metadata.GetOrAddString($"remove_{name}"),
+                    signature));
+            EventDefinitionHandle @event = metadata.AddEvent(
+                EventAttributes.None,
+                metadata.GetOrAddString($"Contracts.IRow.{name}"),
+                interfaceType);
+            if (!eventMapAdded)
+            {
+                metadata.AddEventMap(host, @event);
+                eventMapAdded = true;
+            }
+            metadata.AddMethodSemantics(
+                @event,
+                MethodSemanticsAttributes.Adder,
+                adder);
+            metadata.AddMethodSemantics(
+                @event,
+                MethodSemanticsAttributes.Remover,
+                remover);
+        }
+
+        BlobHandle AddModifiedVoidAccessorSignature(
+            bool isRequiredModifier,
+            EntityHandle parameterType,
+            byte parameterTypeCode)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x20); // HASTHIS
+            signature.WriteByte(0x01); // parameter count
+            signature.WriteByte(isRequiredModifier ? (byte)0x1F : (byte)0x20);
+            signature.WriteCompressedInteger(MetadataTokens.GetRowNumber(modifier) << 2 | 1);
+            signature.WriteByte(0x01); // VOID
+            signature.WriteByte(parameterTypeCode);
+            if (!parameterType.IsNil)
+                signature.WriteCompressedInteger(
+                    MetadataTokens.GetRowNumber(parameterType) << 2 | 1);
+            return metadata.GetOrAddBlob(signature);
+        }
+    }
+
+    const MethodAttributes ExplicitAccessorAttributes =
+        MethodAttributes.Private
+        | MethodAttributes.Virtual
+        | MethodAttributes.Final
+        | MethodAttributes.NewSlot
+        | MethodAttributes.SpecialName
+        | MethodAttributes.HideBySig;
+
+    static byte[] Serialize(MetadataBuilder metadata)
+    {
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
             new MetadataRootBuilder(metadata, suppressValidation: true),

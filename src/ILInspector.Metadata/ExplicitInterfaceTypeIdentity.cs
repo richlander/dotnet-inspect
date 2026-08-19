@@ -15,7 +15,10 @@ internal readonly record struct ExplicitInterfaceTypeIdentity(
     bool? IsInterface = null,
     bool IsWellKnownNullable = false,
     bool IsConstructedGeneric = false,
-    string? ModifiedTypeKey = null)
+    string? ModifiedTypeKey = null,
+    int CustomModifierCount = 0,
+    string? SingleCustomModifierMetadataName = null,
+    bool IsSingleCustomModifierRequired = false)
 {
     /// <summary>
     /// The identity key with every custom modifier stripped. Only a
@@ -304,7 +307,13 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
             IsInterface: unmodifiedType.IsInterface,
             IsWellKnownNullable: unmodifiedType.IsWellKnownNullable,
             IsConstructedGeneric: unmodifiedType.IsConstructedGeneric,
-            ModifiedTypeKey: unmodifiedType.UnmodifiedKey));
+            ModifiedTypeKey: unmodifiedType.UnmodifiedKey,
+            CustomModifierCount: checked(unmodifiedType.CustomModifierCount + 1),
+            SingleCustomModifierMetadataName: unmodifiedType.CustomModifierCount == 0
+                ? modifier.MetadataName
+                : null,
+            IsSingleCustomModifierRequired: unmodifiedType.CustomModifierCount == 0
+                && isRequired));
 
     public ExplicitInterfaceTypeIdentity GetFunctionPointerType(
         MethodSignature<ExplicitInterfaceTypeIdentity> signature)

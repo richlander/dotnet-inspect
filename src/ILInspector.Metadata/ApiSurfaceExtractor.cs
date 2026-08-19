@@ -1788,7 +1788,17 @@ public static class ApiSurfaceExtractor
 
             bool isExplicitImplementation =
                 methodImplementations.HasExplicitInterfaceTargets(methodHandle);
-            if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
+            bool isFinalizer = method.GetGenericParameters().Count == 0
+                && string.Equals(methodName, "Finalize", StringComparison.Ordinal)
+                && apiType.Kind == "class"
+                && (methodImplementations.OverridesObjectFinalize(methodHandle)
+                    || IsImplicitObjectFinalizeOverride(
+                        reader,
+                        method.GetDeclaringType(),
+                        method));
+            if (methodAccess != MethodAttributes.Public
+                && !isExplicitImplementation
+                && !isFinalizer)
                 continue;
 
             bool isNormallySkippedAccessor =
@@ -1819,8 +1829,9 @@ public static class ApiSurfaceExtractor
             var member = new ApiMember
             {
                 Name = methodName,
-                Kind = "method",
-                IsStatic = (method.Attributes & MethodAttributes.Static) != 0
+                Kind = isFinalizer ? "finalizer" : "method",
+                IsStatic = (method.Attributes & MethodAttributes.Static) != 0,
+                IsFinalizer = isFinalizer
             };
             if (isExtensionClass
                 && member.IsStatic
@@ -2627,8 +2638,8 @@ public static class ApiSurfaceExtractor
     /// <c>string IFoo.Bar</c> that no accessor implements. ECMA-335 II.22.34 and II.17.2 fix the
     /// relationship this restates: the getter returns the property type over the index
     /// parameters, and the setter takes those parameters plus a trailing value. Custom
-    /// modifiers are compared exactly except on the setter's return, where a legal
-    /// <c>init</c> accessor carries <c>modreq(IsExternalInit)</c> over <c>void</c>. The row's
+    /// modifiers are compared exactly except on the setter's return, where only a legal
+    /// <c>init</c> accessor's single <c>modreq(IsExternalInit)</c> over <c>void</c> is allowed. The row's
     /// <c>HASTHIS</c> bit is deliberately not compared: nothing in the projection reads it —
     /// static-ness comes from the accessor's method attributes — and Reflection.Emit produces
     /// otherwise-sound images whose Property rows omit it, so comparing it could only reject
@@ -2684,8 +2695,9 @@ public static class ApiSurfaceExtractor
             {
                 return "The property setter signature could not be decoded.";
             }
-            if (setter.ReturnType.UnmodifiedKey
-                != identityProvider.GetPrimitiveType(PrimitiveTypeCode.Void).UnmodifiedKey)
+            var voidType = identityProvider.GetPrimitiveType(PrimitiveTypeCode.Void);
+            if (setter.ReturnType.Key != voidType.Key
+                && !IsLegalInitOnlySetterReturn(setter.ReturnType, voidType))
             {
                 return "The property setter does not return void.";
             }
@@ -2712,7 +2724,7 @@ public static class ApiSurfaceExtractor
     /// <remarks>
     /// The peer of <see cref="ValidateExplicitPropertyRowSignature"/> for the shape ECMA-335
     /// II.18 fixes: <c>add_X</c> and <c>remove_X</c> each take the Event row's handler type and
-    /// return <c>void</c>. The row names its handler by handle, so it cannot say whether a
+    /// return exact, unmodified <c>void</c>. The row names its handler by handle, so it cannot say whether a
     /// signature would have spelled that handle <c>ELEMENT_TYPE_CLASS</c> or
     /// <c>ELEMENT_TYPE_VALUETYPE</c>; the comparison admits either rather than reading an
     /// encoding the row never carried as a disagreement. Gated by
@@ -2741,7 +2753,7 @@ public static class ApiSurfaceExtractor
         if (handlerAsValueType.IsDegraded || handlerAsClass.IsDegraded)
             return "The event row handler type could not be decoded.";
 
-        string voidKey = identityProvider.GetPrimitiveType(PrimitiveTypeCode.Void).UnmodifiedKey;
+        string voidKey = identityProvider.GetPrimitiveType(PrimitiveTypeCode.Void).Key;
         foreach (var (handle, role) in
             new[] { (accessors.Adder, "adder"), (accessors.Remover, "remover") })
         {
@@ -2757,7 +2769,7 @@ public static class ApiSurfaceExtractor
             {
                 return $"The event {role} signature could not be decoded.";
             }
-            if (signature.ReturnType.UnmodifiedKey != voidKey)
+            if (signature.ReturnType.Key != voidKey)
                 return $"The event {role} does not return void.";
             if (signature.ParameterTypes is not [var handlerParameter]
                 || (handlerParameter.Key != handlerAsClass.Key
@@ -2769,6 +2781,15 @@ public static class ApiSurfaceExtractor
 
         return null;
     }
+
+    static bool IsLegalInitOnlySetterReturn(
+        ExplicitInterfaceTypeIdentity returnType,
+        ExplicitInterfaceTypeIdentity voidType)
+        => returnType.UnmodifiedKey == voidType.Key
+            && returnType.CustomModifierCount == 1
+            && returnType.IsSingleCustomModifierRequired
+            && returnType.SingleCustomModifierMetadataName
+                == "System.Runtime.CompilerServices.IsExternalInit";
 
     static bool TryDecodeAccessorSignature(
         MetadataReader reader,
