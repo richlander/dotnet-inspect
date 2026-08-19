@@ -61,6 +61,16 @@ public class ApiCommand
             ? SharedParsers.ParseMemberFilter(
                 memberOptions.RouterDeferredTypeMemberValues)
             : (options.MemberFilter, options.Limit);
+        var performanceTriage = options.BodyKindQuery.Kind is { } bodyKind
+            ? options.PerformanceTriage with
+            {
+                Where =
+                [
+                    .. options.PerformanceTriage.Where,
+                    $"Kind={bodyKind}"
+                ]
+            }
+            : options.PerformanceTriage;
 
         return new()
         {
@@ -104,7 +114,7 @@ public class ApiCommand
             ShapeExplicitlySet = options.ShapeExplicitlySet,
             Schema = options.Schema, Count = options.Count, Rows = options.Rows,
             JsonArray = options.JsonArray,
-            PerformanceTriage = options.PerformanceTriage,
+            PerformanceTriage = performanceTriage,
             SourceOptions = options.SourceOptions,
             TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
             RenderConfigWarnings = options.RenderConfigWarnings,

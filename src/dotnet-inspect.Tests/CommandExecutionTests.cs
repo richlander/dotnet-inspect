@@ -3453,6 +3453,31 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_DeferredExactTypePreservesBodyKindFilterValidation()
+    {
+        string[] arguments =
+        [
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform",
+            "System.Collections.Immutable",
+            "--where",
+            "Kind=InvocationExpression",
+            "--table",
+            "--rows",
+            "1",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(deferred.Output);
+        Assert.Contains("Field 'Kind' is not filterable", deferred.Error);
+    }
+
+    [Fact]
     public async Task Router_DeferredExactTypePreservesTypeDocumentationDefaults()
     {
         string[] arguments =

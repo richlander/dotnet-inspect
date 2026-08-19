@@ -25,6 +25,14 @@ public static class TypeCommand
 
     public static async Task<int> ExecuteAsync(TypeOptions options)
     {
+        if (!PerformanceTriageOptions.TryValidate(
+                options.PerformanceTriage,
+                out var performanceTriageError))
+        {
+            CommandError.Write(performanceTriageError);
+            return 1;
+        }
+
         // Shared preamble: section validation, discovery, verbosity promotion
         var (preamble, error) = ApiCommand.RunPreamble(options);
         if (error.HasValue) return error.Value;
