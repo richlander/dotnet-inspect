@@ -420,11 +420,16 @@ explicit-interface methods, properties, and events retain their interface clause
 declaration shape. An unresolved external MethodImpl declaration is accepted as interface
 evidence only when its structured definition identity also appears in the containing type's
 InterfaceImpl rows; a private body shape alone cannot turn an external class slot into an
-interface member. Valid abstract MethodImpl bodies are retained for interfaces that re-abstract
-inherited default members, and constructed interface qualifiers are decoded with the containing
-type's generic-parameter names. Compile-back provenance keeps non-platform assembly identity
-exact; facade/core-library correspondence is normalized only when both assembly references carry
-trusted platform key tokens. Event raiser and other semantic
+interface member. A structurally valid MethodImpl whose external target cannot be authenticated
+is retained with unavailable provenance and an `authenticate MethodImpl target` inspection
+failure, rather than being silently dropped or relabeled as an interface member. Property and
+event spelling uses the authenticated MethodImpl declaration method name for its semantic member
+leaf; it does not infer that leaf from the implementing property's or event's unrelated metadata
+name. Valid abstract MethodImpl bodies are retained for interfaces that re-abstract inherited
+default members, and constructed interface qualifiers are decoded with the containing type's
+generic-parameter names. Compile-back provenance keeps non-platform assembly identity exact;
+facade/core-library correspondence is normalized only when both assembly references carry trusted
+platform key tokens. Event raiser and other semantic
 methods remain method members because `ApiMember` has no event-token slots through which their
 bodies could otherwise remain addressable.
 `DirectDefinition_CarriesAccessibilityAndConstructorFacts` gates the copied declaration facts,
@@ -447,10 +452,12 @@ methods and accessors,
 `SkeletonOmitsUnconstructibleExternalBaseForPlainMethod` gates fail-closed compile-back
 consumption. `Extract_PreservesOrdinaryAccessorPrefixedMethods` is the direct Metadata gate for
 MethodSemantics-based accessor exclusion, and `Extract_PreservesEventRaiserAndOtherMethods` gates
-the event semantic-method boundary. `MethodImplWithoutImplementedInterface_IsNotExplicit`,
+the event semantic-method boundary. ``MethodImplWithoutImplementedInterface_FailsVisibly`,
 `AbstractInstanceMethodImplWithoutFinal_IsNotExplicit`,
+`Extract_TransitiveExternalMethodImplFailsVisibly`,
 `Extract_UsesContainingGenericParameterInExplicitQualifier`,
 `ExplicitQualifier_UsesContainingGenericParameterName`,
+`ExplicitInterfaceProperty_UsesRealVisualBasicDeclarationLeaf`,
 `Extract_RetainsReabstractedInterfaceMethodImpls`, and
 `FidelityLookup_NormalizesOnlyTrustedPlatformProvenance` gate the MethodImpl and provenance
 authentication rules above.

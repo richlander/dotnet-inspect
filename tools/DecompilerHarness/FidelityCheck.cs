@@ -6426,7 +6426,9 @@ static class FidelityCheck
     {
         if (expected.Kind != actual.Kind
             || expected.DefinitionName != actual.DefinitionName
-            || expected.InterfaceTypeName != actual.InterfaceTypeName)
+            || expected.InterfaceTypeName != actual.InterfaceTypeName
+            || expected.DeclarationMemberName
+                != actual.DeclarationMemberName)
         {
             return false;
         }

@@ -587,6 +587,36 @@ public class ApiMemberIdentityTests
         Assert.NotNull(staticMember.ExplicitInterfaceProvenance);
     }
 
+    [Fact]
+    public void Extract_TransitiveExternalMethodImplFailsVisibly()
+    {
+        using var stream = File.OpenRead(
+            typeof(Microsoft.VisualBasic.Collection).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName
+                == "Microsoft.VisualBasic.Collection");
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name
+                == "ICollectionGetEnumerator");
+
+        Assert.Equal("method", member.Kind);
+        Assert.Equal("private", member.Accessibility);
+        Assert.Equal(
+            ApiExplicitInterfaceProvenanceKind.Unavailable,
+            Assert.IsType<ApiExplicitInterfaceProvenance>(
+                member.ExplicitInterfaceProvenance)
+            .Kind);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target"
+                && failure.SubjectToken == member.MetadataToken);
+    }
+
     [Theory]
     // main uses a single combined depth counter over '<'/'>'/'('/')' , so an F#
     // quoted name like ``x<)`` (emitted verbatim as "System.Int32 x<)") relies on

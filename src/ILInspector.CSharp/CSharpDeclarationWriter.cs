@@ -1843,7 +1843,17 @@ internal static class CSharpDeclarationWriter
             string? explicitQualifier = isExplicitProperty
                 ? ExplicitInterfaceQualifier(member)
                 : null;
-            if (isExplicitProperty && explicitQualifier is null)
+            string? explicitMemberLeaf = isExplicitProperty
+                && model.MemberName != "this[]"
+                    ? ExplicitInterfaceMemberLeaf(
+                        member,
+                        model.MemberName,
+                        member.Name)
+                    : null;
+            if (isExplicitProperty
+                && (explicitQualifier is null
+                    || model.MemberName != "this[]"
+                        && explicitMemberLeaf is null))
                 return false;
 
             var head = model.IsRequired ? $"required {propertyType}" : propertyType;
@@ -1852,7 +1862,7 @@ internal static class CSharpDeclarationWriter
                     ? $"{explicitQualifier}.this[{parameters}]"
                     : $"this[{parameters}]"
                 : isExplicitProperty
-                    ? $"{explicitQualifier}.{ExplicitInterfaceMemberLeaf(model.MemberName, member.Name)}"
+                    ? $"{explicitQualifier}.{explicitMemberLeaf}"
                 : string.IsNullOrWhiteSpace(model.MemberName)
                     ? member.Name
                     : model.MemberName!;
@@ -1871,10 +1881,18 @@ internal static class CSharpDeclarationWriter
             string? explicitQualifier = isExplicitEvent
                 ? ExplicitInterfaceQualifier(member)
                 : null;
-            if (isExplicitEvent && explicitQualifier is null)
+            string? explicitMemberLeaf = isExplicitEvent
+                ? ExplicitInterfaceMemberLeaf(
+                    member,
+                    model.MemberName,
+                    member.Name)
+                : null;
+            if (isExplicitEvent
+                && (explicitQualifier is null
+                    || explicitMemberLeaf is null))
                 return false;
             var eventMemberName = isExplicitEvent
-                ? $"{explicitQualifier}.{ExplicitInterfaceMemberLeaf(model.MemberName, member.Name)}"
+                ? $"{explicitQualifier}.{explicitMemberLeaf}"
                 : string.IsNullOrWhiteSpace(model.MemberName)
                     ? member.Name
                     : model.MemberName!;
@@ -1947,7 +1965,9 @@ internal static class CSharpDeclarationWriter
             foreach (ApiExplicitInterfaceDeclarationContext declaration
                 in provenance.Declarations)
             {
-                if (declaration.DefinitionName is not { } candidate
+                if (declaration.Kind
+                        == ApiExplicitInterfaceDeclarationKind.Unavailable
+                    || declaration.DefinitionName is not { } candidate
                     || definitionName is not null
                         && definitionName != candidate
                     || hasDeclaration
@@ -2000,17 +2020,78 @@ internal static class CSharpDeclarationWriter
             : typeName;
     }
 
-    static string ExplicitInterfaceMemberLeaf(
+    static string? ExplicitInterfaceMemberLeaf(
+        ApiMember member,
         string? modelName,
         string fallback)
     {
+        if (member.ExplicitInterfaceProvenance is { } provenance)
+        {
+            string? declarationLeaf = null;
+            bool hasDeclaration = false;
+            foreach (ApiExplicitInterfaceDeclarationContext declaration
+                in provenance.Declarations)
+            {
+                string? candidate =
+                    ExplicitInterfaceDeclarationMemberLeaf(
+                        member.Kind,
+                        declaration.DeclarationMemberName);
+                if (candidate is null
+                    || hasDeclaration
+                        && candidate != declarationLeaf)
+                {
+                    return null;
+                }
+                declarationLeaf = candidate;
+                hasDeclaration = true;
+            }
+
+            if (hasDeclaration)
+                return declarationLeaf;
+        }
+
         string name = string.IsNullOrWhiteSpace(modelName)
             ? fallback
             : modelName;
         int separator = name.LastIndexOf('.');
         return separator >= 0
             ? name[(separator + 1)..]
-            : name;
+            : null;
+    }
+
+    static string? ExplicitInterfaceDeclarationMemberLeaf(
+        string memberKind,
+        string? declarationName)
+    {
+        if (string.IsNullOrWhiteSpace(declarationName))
+            return null;
+
+        int separator = declarationName.LastIndexOf('.');
+        string methodName = separator >= 0
+            ? declarationName[(separator + 1)..]
+            : declarationName;
+        string[] prefixes = memberKind switch
+        {
+            "property" => ["get_", "set_"],
+            "event" => ["add_", "remove_", "raise_"],
+            _ => [],
+        };
+        foreach (string prefix in prefixes)
+        {
+            if (!methodName.StartsWith(
+                    prefix,
+                    StringComparison.Ordinal)
+                || methodName.Length == prefix.Length)
+            {
+                continue;
+            }
+
+            string leaf = methodName[prefix.Length..];
+            return IsIdentitySafeIdentifier(leaf)
+                ? EscapeIdentifier(leaf)
+                : null;
+        }
+        return null;
     }
 
     static bool TryFormatDefinitionName(

@@ -819,7 +819,8 @@ public sealed record ApiExplicitInterfaceDeclarationContext
         ApiExplicitInterfaceDeclarationKind kind,
         MetadataTypeDefinitionName? definitionName = null,
         AssemblyReferenceIdentity? assembly = null,
-        string? interfaceTypeName = null)
+        string? interfaceTypeName = null,
+        string? declarationMemberName = null)
     {
         if (kind == ApiExplicitInterfaceDeclarationKind.External
             && assembly is null)
@@ -840,6 +841,7 @@ public sealed record ApiExplicitInterfaceDeclarationContext
         DefinitionName = definitionName;
         Assembly = assembly;
         InterfaceTypeName = interfaceTypeName;
+        DeclarationMemberName = declarationMemberName;
     }
 
     public ApiExplicitInterfaceDeclarationKind Kind { get; }
@@ -854,6 +856,13 @@ public sealed record ApiExplicitInterfaceDeclarationContext
     /// assembly provenance remain authoritative for identity.
     /// </summary>
     public string? InterfaceTypeName { get; }
+
+    /// <summary>
+    /// Exact MethodImpl declaration method name. Property and event renderers
+    /// derive their source member leaf from this identity rather than from the
+    /// implementing member's unrelated metadata name.
+    /// </summary>
+    public string? DeclarationMemberName { get; }
 }
 
 /// <summary>
@@ -894,8 +903,14 @@ public sealed record ApiExplicitInterfaceProvenance
     static ApiExplicitInterfaceProvenanceKind Classify(
         ImmutableArray<ApiExplicitInterfaceDeclarationContext> declarations)
     {
-        var distinct =
-            declarations.Distinct().ToImmutableArray();
+        var distinct = declarations
+            .Select(declaration => (
+                declaration.Kind,
+                declaration.DefinitionName,
+                declaration.Assembly,
+                declaration.InterfaceTypeName))
+            .Distinct()
+            .ToImmutableArray();
         if (distinct.Length != 1)
             return ApiExplicitInterfaceProvenanceKind.Ambiguous;
 

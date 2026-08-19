@@ -1195,7 +1195,7 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
-    public void ExplicitInterfaceProperty_UsesTypedQualifierForUndottedName()
+    public void ExplicitInterfaceProperty_UsesDeclarationLeafForUndottedName()
     {
         var type = new ApiType
         {
@@ -1205,14 +1205,17 @@ public sealed class CSharpDeclarationWriterTests
         };
         var member = new ApiMember
         {
-            Name = "Count",
+            Name = "ICollectionCount",
             Kind = "property",
             ExplicitInterfaceProvenance =
-                SameImageProvenance("Samples", "ICounter"),
+                SameImageProvenance(
+                    "Samples",
+                    "ICounter",
+                    "get_Count"),
             SignatureModel = new ApiSignature
             {
                 ReturnType = "int",
-                MemberName = "Count",
+                MemberName = "ICollectionCount",
                 Accessors = [new ApiAccessor { Kind = "get" }]
             }
         };
@@ -1257,7 +1260,8 @@ public sealed class CSharpDeclarationWriterTests
                                 new Version(1, 0, 0, 0),
                                 null,
                                 null),
-                            "Contracts.ICounter<int>")
+                            "Contracts.ICounter<int>",
+                            "get_Count")
                     ]),
             SignatureModel = new ApiSignature
             {
@@ -1272,6 +1276,33 @@ public sealed class CSharpDeclarationWriterTests
 
         Assert.Equal(
             "int dependency::Contracts.ICounter<int>.Count { get; }",
+            declaration);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceProperty_UsesRealVisualBasicDeclarationLeaf()
+    {
+        using var stream = File.OpenRead(
+            typeof(Microsoft.VisualBasic.Collection).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName
+                == "Microsoft.VisualBasic.Collection");
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == "ICollectionCount");
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                member);
+
+        Assert.Equal(
+            "int System.Collections.ICollection.Count { get; }",
             declaration);
     }
 
@@ -1837,7 +1868,8 @@ public sealed class CSharpDeclarationWriterTests
 
     static ApiExplicitInterfaceProvenance SameImageProvenance(
         string? @namespace = null,
-        string? name = null)
+        string? name = null,
+        string? declarationMemberName = null)
     {
         MetadataTypeDefinitionName? definitionName = null;
         if (@namespace is not null && name is not null)
@@ -1853,7 +1885,9 @@ public sealed class CSharpDeclarationWriterTests
             [
                 new ApiExplicitInterfaceDeclarationContext(
                     ApiExplicitInterfaceDeclarationKind.SameImage,
-                    definitionName)
+                    definitionName,
+                    declarationMemberName:
+                        declarationMemberName)
             ]);
     }
 

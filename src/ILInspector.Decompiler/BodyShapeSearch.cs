@@ -274,6 +274,11 @@ public static class BodyShapeSearch
         {
             if (token is not { } value)
                 return;
+            if (member.ExplicitInterfaceProvenance?.Kind
+                == ApiExplicitInterfaceProvenanceKind.Unavailable)
+            {
+                return;
+            }
             var entity = MetadataTokens.EntityHandle(value);
             if (entity.Kind != HandleKind.MethodDefinition)
                 return;

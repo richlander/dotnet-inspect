@@ -3218,7 +3218,10 @@ public sealed class CSharpTypePrinterTests
             Name = "Samples.IValue.Value",
             Kind = "property",
             ExplicitInterfaceProvenance =
-                SameImageProvenance("Samples", "IValue"),
+                SameImageProvenance(
+                    "Samples",
+                    "IValue",
+                    "get_Value"),
             SignatureModel = new ApiSignature
             {
                 ReturnType = "int",
@@ -4500,7 +4503,8 @@ public sealed class CSharpTypePrinterTests
 
     static ApiExplicitInterfaceProvenance SameImageProvenance(
         string @namespace,
-        string name)
+        string name,
+        string? declarationMemberName = null)
     {
         var valid =
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
@@ -4511,7 +4515,9 @@ public sealed class CSharpTypePrinterTests
             [
                 new ApiExplicitInterfaceDeclarationContext(
                     ApiExplicitInterfaceDeclarationKind.SameImage,
-                    valid.Name)
+                    valid.Name,
+                    declarationMemberName:
+                        declarationMemberName)
             ]);
     }
 

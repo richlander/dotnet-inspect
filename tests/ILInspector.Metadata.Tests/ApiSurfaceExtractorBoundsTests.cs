@@ -357,7 +357,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
                                 new Version(1, 0, 0, 0),
                                 "fr",
                                 "0011223344556677"),
-                            "Contracts.IValue<int>")
+                            "Contracts.IValue<int>",
+                            "get_Value")
                     ]),
         };
 
@@ -367,7 +368,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 + "Dependency".Length
                 + "fr".Length
                 + "0011223344556677".Length
-                + "Contracts.IValue<int>".Length,
+                + "Contracts.IValue<int>".Length
+                + "get_Value".Length,
             ApiSurfaceExtractor.CountRetainedText(withProvenance)
                 - ApiSurfaceExtractor.CountRetainedText(
                     withoutProvenance));
@@ -440,7 +442,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
-    public void MethodImplWithoutImplementedInterface_IsNotExplicit()
+    public void MethodImplWithoutImplementedInterface_FailsVisibly()
     {
         byte[] image = BuildUndottedExplicitAccessorImage(
             addInterfaceImplementation: false);
@@ -453,6 +455,10 @@ public sealed class ApiSurfaceExtractorBoundsTests
             ApiSurfaceExtractor.Extract(peReader);
 
         Assert.Empty(Assert.Single(surface.Types).Members);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
     }
 
     [Fact]
