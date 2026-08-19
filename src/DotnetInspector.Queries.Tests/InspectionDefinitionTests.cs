@@ -81,8 +81,9 @@ public class InspectionDefinitionTests
             { "schemaVersion": 1, "kind": "query", "id": "q", "id": "other" }
             """;
 
-        var ex = Assert.Throws<JsonException>(() => InspectionDefinitionJson.Parse(json));
+        var ex = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(json));
         Assert.Contains("duplicate", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.IsType<JsonException>(ex.InnerException);
     }
 
     [Fact]
@@ -102,6 +103,89 @@ public class InspectionDefinitionTests
             """{ "schemaVersion": 1, "kind": "bundle", "id": "x" }"""));
         Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
             """{ "schemaVersion": 99, "kind": "query", "id": "x" }"""));
+    }
+
+    [Fact]
+    public void Parse_RejectsNullNestedArrayElements()
+    {
+        Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            {
+              "schemaVersion": 1,
+              "kind": "workspace",
+              "id": "ws",
+              "contexts": [
+                { "name": "c", "members": [ null ] }
+              ]
+            }
+            """));
+
+        Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            {
+              "schemaVersion": 1,
+              "kind": "workspace",
+              "id": "ws",
+              "contexts": [ null ]
+            }
+            """));
+
+        Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            {
+              "schemaVersion": 1,
+              "kind": "navigation",
+              "id": "n",
+              "focus": "t",
+              "tabs": [ null ]
+            }
+            """));
+    }
+
+    [Fact]
+    public void Parse_EnforcesCoordinateBudgetAcrossNestedLists()
+    {
+        // Two contexts of 600 members each = 1200 > MaxCoordinatesPerRecord (1024).
+        var members = string.Join(
+            ",",
+            Enumerable.Range(0, 600).Select(i =>
+                $$"""{"kind":"package","id":"P{{i}}","version":"1.0.0","framework":"net10.0"}"""));
+        var json = $$"""
+            {
+              "schemaVersion": 1,
+              "kind": "workspace",
+              "id": "ws",
+              "contexts": [
+                { "name": "a", "members": [ {{members}} ] },
+                { "name": "b", "members": [ {{members}} ] }
+              ]
+            }
+            """;
+
+        var ex = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(json));
+        Assert.Contains("coordinate limit", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parse_RejectsDualRuntimeIdentifierSpellings()
+    {
+        var ex = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            {
+              "schemaVersion": 1,
+              "kind": "workspace",
+              "id": "ws",
+              "contexts": [
+                {
+                  "name": "c",
+                  "rid": "win-x64",
+                  "runtimeIdentifier": "linux-x64",
+                  "members": [ { "kind": "package", "id": "P", "version": "1.0.0", "framework": "net10.0" } ]
+                }
+              ]
+            }
+            """));
+        Assert.Contains("rid and runtimeIdentifier", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -162,10 +246,6 @@ public class InspectionDefinitionTests
     public void Registry_WorkspaceFreeScenario_CreatesNoAssemblyGroup()
     {
         var registry = new InspectionDefinitionRegistry();
-        registry.Add(new ScenarioDefinition(1, "source-only", input: "bundle:doc"));
-        registry.Add(new ViewDefinition(1, "v", type: "T"));
-        // Re-add with view via new registry
-        registry = new InspectionDefinitionRegistry();
         registry.Add(new ScenarioDefinition(1, "source-only", input: "bundle:doc", view: "v"));
         registry.Add(new ViewDefinition(1, "v", type: "T"));
 
@@ -182,6 +262,53 @@ public class InspectionDefinitionTests
         var registry = new InspectionDefinitionRegistry();
         registry.Add(new ScenarioDefinition(1, "only", input: "x"));
         Assert.Throws<InspectionDefinitionException>(() => registry.ResolveScenario("other"));
+    }
+
+    [Fact]
+    public void Registry_RejectsSubscribeAndFilesystemCoordinates_AndCrossKindPeers()
+    {
+        var subscribeWs = new InspectionDefinitionRegistry();
+        subscribeWs.Add(new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition("c", subscribe: ":Platform@10.0.10")]));
+        subscribeWs.Add(new ScenarioDefinition(1, "s", workspace: "ws"));
+        var subscribeEx = Assert.Throws<InspectionDefinitionException>(() => subscribeWs.ResolveScenario("s"));
+        Assert.Contains("subscribe", subscribeEx.Message, StringComparison.OrdinalIgnoreCase);
+
+        var nav = new InspectionDefinitionRegistry();
+        nav.Add(new NavigationDefinition(
+            1,
+            "n",
+            [new NavigationTabDefinition("t", subscribe: ":Platform")],
+            focus: "t"));
+        nav.Add(new ScenarioDefinition(1, "s", navigation: "n", input: "x"));
+        var navEx = Assert.Throws<InspectionDefinitionException>(() => nav.ResolveScenario("s"));
+        Assert.Contains("subscribe", navEx.Message, StringComparison.OrdinalIgnoreCase);
+
+        foreach (DefinitionMemberCoordinate coordinate in new DefinitionMemberCoordinate[]
+                 {
+                     new DefinitionMemberCoordinate.ProjectCoordinate("proj.csproj", "net10.0"),
+                     new DefinitionMemberCoordinate.LocalCoordinate("/tmp/a.dll"),
+                     new DefinitionMemberCoordinate.DirectoryCoordinate("/tmp/out", "net10.0"),
+                 })
+        {
+            var registry = new InspectionDefinitionRegistry();
+            registry.Add(new WorkspaceDefinition(
+                1,
+                "ws",
+                [new WorkspaceContextDefinition("c", members: [coordinate])]));
+            registry.Add(new ScenarioDefinition(1, "s", workspace: "ws"));
+            var ex = Assert.Throws<InspectionDefinitionException>(() => registry.ResolveScenario("s"));
+            Assert.Contains("filesystem", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Cross-kind: scenario workspace id that is only a view must fail visibly.
+        var cross = new InspectionDefinitionRegistry();
+        cross.Add(new ViewDefinition(1, "looks-like-ws", type: "T"));
+        cross.Add(new ScenarioDefinition(1, "s", workspace: "looks-like-ws"));
+        var crossEx = Assert.Throws<InspectionDefinitionException>(() => cross.ResolveScenario("s"));
+        Assert.Contains("unknown workspace", crossEx.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -888,8 +888,10 @@ Definition records and product demos (this slice):
   `RendererRegistry` style) of the three home scenarios; listing is metadata-only
   and `ResolveHomeScenario` allocates only that demo's peer records; JSON remains
   the portable load path for external definitions; and
-- `InspectionDefinitionTests` is the gate for round-trip, separation, and
-  demo-parity claims above.
+- `InspectionDefinitionTests` is the gate for round-trip, separation,
+  demo-parity, null nested-array rejection, whole-record coordinate budget,
+  dual `rid`/`runtimeIdentifier` rejection, and fail-closed subscribe /
+  filesystem / cross-kind peer resolution.
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates

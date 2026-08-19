@@ -51,8 +51,9 @@ public static class ProductInspectionDemos
 
     /// <summary>
     /// Catalog metadata for hosts (menus, help). Does not allocate demo records.
+    /// Exposed as a read-only wrapper over the static table.
     /// </summary>
-    public static IReadOnlyList<Entry> Entries => s_entries;
+    public static IReadOnlyList<Entry> Entries { get; } = Array.AsReadOnly(s_entries);
 
     /// <summary>Returns whether <paramref name="scenarioId"/> is a product home demo.</summary>
     public static bool HasScenario(string scenarioId)

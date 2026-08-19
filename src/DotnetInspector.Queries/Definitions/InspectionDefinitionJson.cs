@@ -37,8 +37,18 @@ public static class InspectionDefinitionJson
                 $"Definition JSON exceeds the {MaxUtf8ByteLength}-byte limit.");
         }
 
-        using var document = HardenedJson.Parse(utf8Json);
-        return Bind(document.RootElement);
+        JsonDocument document;
+        try
+        {
+            document = HardenedJson.Parse(utf8Json);
+        }
+        catch (JsonException ex)
+        {
+            throw new InspectionDefinitionException($"Definition JSON is invalid: {ex.Message}", ex);
+        }
+
+        using (document)
+            return Bind(document.RootElement);
     }
 
     public static string Serialize(InspectionDefinitionRecord record)
@@ -81,19 +91,20 @@ public static class InspectionDefinitionJson
             throw new InspectionDefinitionException("Definition record requires id.");
 
         var kind = dto.Kind.Trim().ToLowerInvariant();
+        var coordinateCount = 0;
         return kind switch
         {
             "catalog" => new CatalogDefinition(
                 dto.SchemaVersion,
                 dto.Id,
-                MapGroups(dto.Groups)),
+                MapGroups(dto.Groups, ref coordinateCount)),
             "workspace" => new WorkspaceDefinition(
                 dto.SchemaVersion,
                 dto.Id,
-                MapContexts(dto.Contexts),
+                MapContexts(dto.Contexts, ref coordinateCount),
                 dto.Title,
                 dto.Description,
-                MapGroups(dto.Groups)),
+                MapGroups(dto.Groups, ref coordinateCount)),
             "query" => new QueryDefinition(dto.SchemaVersion, dto.Id, dto.QueryId),
             "view" => new ViewDefinition(
                 dto.SchemaVersion,
@@ -108,7 +119,7 @@ public static class InspectionDefinitionJson
             "navigation" => new NavigationDefinition(
                 dto.SchemaVersion,
                 dto.Id,
-                MapTabs(dto.Tabs),
+                MapTabs(dto.Tabs, ref coordinateCount),
                 dto.Focus ?? throw new InspectionDefinitionException("Navigation requires focus.")),
             "scenario" => new ScenarioDefinition(
                 dto.SchemaVersion,
@@ -190,34 +201,56 @@ public static class InspectionDefinitionJson
             _ => throw new InspectionDefinitionException($"Unsupported record type {record.GetType().Name}."),
         };
 
-    private static List<CatalogGroupDefinition> MapGroups(List<CatalogGroupDto>? groups)
+    private static List<CatalogGroupDefinition> MapGroups(
+        List<CatalogGroupDto>? groups,
+        ref int coordinateCount)
     {
         if (groups is null || groups.Count == 0)
             return [];
 
-        return groups.Select(MapGroup).ToList();
+        var mapped = new List<CatalogGroupDefinition>(groups.Count);
+        foreach (var group in groups)
+        {
+            if (group is null)
+                throw new InspectionDefinitionException("Catalog group entry must not be null.");
+            mapped.Add(MapGroup(group, ref coordinateCount));
+        }
+
+        return mapped;
     }
 
-    private static CatalogGroupDefinition MapGroup(CatalogGroupDto dto)
+    private static CatalogGroupDefinition MapGroup(CatalogGroupDto dto, ref int coordinateCount)
     {
         if (string.IsNullOrWhiteSpace(dto.Name))
             throw new InspectionDefinitionException("Catalog group requires name.");
 
         return new CatalogGroupDefinition(
             dto.Name,
-            MapCoordinates(dto.Members),
-            MapGroups(dto.Children));
+            MapCoordinates(dto.Members, ref coordinateCount),
+            MapGroups(dto.Children, ref coordinateCount));
     }
 
-    private static List<WorkspaceContextDefinition> MapContexts(List<WorkspaceContextDto>? contexts)
+    private static List<WorkspaceContextDefinition> MapContexts(
+        List<WorkspaceContextDto>? contexts,
+        ref int coordinateCount)
     {
         if (contexts is null || contexts.Count == 0)
             throw new InspectionDefinitionException("Workspace requires at least one context.");
 
-        return contexts.Select(MapContext).ToList();
+        var mapped = new List<WorkspaceContextDefinition>(contexts.Count);
+        foreach (var context in contexts)
+        {
+            if (context is null)
+                throw new InspectionDefinitionException("Workspace context entry must not be null.");
+            mapped.Add(MapContext(context, ref coordinateCount));
+        }
+
+        return mapped;
     }
 
-    private static WorkspaceContextDefinition MapContext(WorkspaceContextDto dto)
+    private static WorkspaceContextDefinition MapContext(
+        WorkspaceContextDto dto,
+        ref int coordinateCount)
     {
         if (string.IsNullOrWhiteSpace(dto.Name))
             throw new InspectionDefinitionException("Workspace context requires name.");
@@ -225,51 +258,75 @@ public static class InspectionDefinitionJson
         return new WorkspaceContextDefinition(
             dto.Name,
             dto.Framework,
-            dto.Rid ?? dto.RuntimeIdentifier,
+            ChooseRuntimeIdentifier(dto.Rid, dto.RuntimeIdentifier, "Workspace context"),
             dto.Subscribe,
-            MapCoordinates(dto.Members));
+            MapCoordinates(dto.Members, ref coordinateCount));
     }
 
-    private static List<NavigationTabDefinition> MapTabs(List<NavigationTabDto>? tabs)
+    private static List<NavigationTabDefinition> MapTabs(
+        List<NavigationTabDto>? tabs,
+        ref int coordinateCount)
     {
         if (tabs is null || tabs.Count == 0)
             throw new InspectionDefinitionException("Navigation requires at least one tab.");
 
-        return tabs.Select(MapTab).ToList();
+        var mapped = new List<NavigationTabDefinition>(tabs.Count);
+        foreach (var tab in tabs)
+        {
+            if (tab is null)
+                throw new InspectionDefinitionException("Navigation tab entry must not be null.");
+            mapped.Add(MapTab(tab, ref coordinateCount));
+        }
+
+        return mapped;
     }
 
-    private static NavigationTabDefinition MapTab(NavigationTabDto dto)
+    private static NavigationTabDefinition MapTab(NavigationTabDto dto, ref int coordinateCount)
     {
         if (string.IsNullOrWhiteSpace(dto.Id))
             throw new InspectionDefinitionException("Navigation tab requires id.");
 
         DefinitionMemberCoordinate? coordinate = null;
         if (dto.Coordinate is not null)
-            coordinate = MapCoordinate(dto.Coordinate);
+            coordinate = MapCoordinate(dto.Coordinate, ref coordinateCount);
 
         return new NavigationTabDefinition(
             dto.Id,
             coordinate,
             dto.Subscribe,
             dto.Framework,
-            dto.Rid ?? dto.RuntimeIdentifier);
+            ChooseRuntimeIdentifier(dto.Rid, dto.RuntimeIdentifier, "Navigation tab"));
     }
 
-    private static List<DefinitionMemberCoordinate> MapCoordinates(List<MemberCoordinateDto>? members)
+    private static List<DefinitionMemberCoordinate> MapCoordinates(
+        List<MemberCoordinateDto>? members,
+        ref int coordinateCount)
     {
         if (members is null || members.Count == 0)
             return [];
-        if (members.Count > MaxCoordinatesPerRecord)
+
+        var mapped = new List<DefinitionMemberCoordinate>(members.Count);
+        foreach (var member in members)
+        {
+            if (member is null)
+                throw new InspectionDefinitionException("Member coordinate entry must not be null.");
+            mapped.Add(MapCoordinate(member, ref coordinateCount));
+        }
+
+        return mapped;
+    }
+
+    private static DefinitionMemberCoordinate MapCoordinate(
+        MemberCoordinateDto dto,
+        ref int coordinateCount)
+    {
+        coordinateCount++;
+        if (coordinateCount > MaxCoordinatesPerRecord)
         {
             throw new InspectionDefinitionException(
                 $"Definition exceeds the {MaxCoordinatesPerRecord}-coordinate limit.");
         }
 
-        return members.Select(MapCoordinate).ToList();
-    }
-
-    private static DefinitionMemberCoordinate MapCoordinate(MemberCoordinateDto dto)
-    {
         if (string.IsNullOrWhiteSpace(dto.Kind))
             throw new InspectionDefinitionException("Member coordinate requires kind.");
 
@@ -279,7 +336,7 @@ public static class InspectionDefinitionJson
                 Require(dto.Id, "package id"),
                 dto.Version,
                 dto.Framework,
-                dto.Rid ?? dto.RuntimeIdentifier),
+                ChooseRuntimeIdentifier(dto.Rid, dto.RuntimeIdentifier, "Package coordinate")),
             "platform" => new DefinitionMemberCoordinate.PlatformCoordinate(
                 Require(dto.Family, "platform family"),
                 dto.Assembly,
@@ -292,15 +349,26 @@ public static class InspectionDefinitionJson
             "project" => new DefinitionMemberCoordinate.ProjectCoordinate(
                 Require(dto.Path, "project path"),
                 dto.Framework,
-                dto.Rid ?? dto.RuntimeIdentifier),
+                ChooseRuntimeIdentifier(dto.Rid, dto.RuntimeIdentifier, "Project coordinate")),
             "local" => new DefinitionMemberCoordinate.LocalCoordinate(
                 Require(dto.Path, "local path")),
             "directory" => new DefinitionMemberCoordinate.DirectoryCoordinate(
                 Require(dto.Path, "directory path"),
                 dto.Framework,
-                dto.Rid ?? dto.RuntimeIdentifier),
+                ChooseRuntimeIdentifier(dto.Rid, dto.RuntimeIdentifier, "Directory coordinate")),
             _ => throw new InspectionDefinitionException($"Unknown member coordinate kind '{dto.Kind}'."),
         };
+    }
+
+    private static string? ChooseRuntimeIdentifier(string? rid, string? runtimeIdentifier, string owner)
+    {
+        if (rid is not null && runtimeIdentifier is not null)
+        {
+            throw new InspectionDefinitionException(
+                $"{owner} specifies both rid and runtimeIdentifier; use only one spelling.");
+        }
+
+        return rid ?? runtimeIdentifier;
     }
 
     private static string Require(string? value, string name)
