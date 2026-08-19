@@ -141,7 +141,7 @@ public sealed class BodyShapesSectionTests
                     "library",
                     FixturePath,
                     "-D",
-                    "@Decompiler",
+                    SectionNames.BodyShapes,
                     "--effective",
                 ]))
                 .InvokeAsync());
