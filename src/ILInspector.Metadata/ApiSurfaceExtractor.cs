@@ -2374,6 +2374,7 @@ public static class ApiSurfaceExtractor
     /// </summary>
     private sealed class MethodImplementationProjection
     {
+        const int MethodImplementationRowWorkChars = 256;
         readonly MetadataReader reader;
         readonly TypeDefinition typeDefinition;
         readonly ExplicitInterfaceTypeIdentityProvider identityProvider;
@@ -2384,8 +2385,18 @@ public static class ApiSurfaceExtractor
         readonly Dictionary<MethodDefinitionHandle, List<ExplicitInterfaceMethodTarget>>
             explicitInterfaceTargets = [];
         readonly Dictionary<MethodDefinitionHandle, bool> objectFinalizeOverrides = [];
+        readonly Dictionary<MethodDefinitionHandle, MethodSignature<ExplicitInterfaceTypeIdentity>>
+            bodySignatures = [];
+        readonly Dictionary<MethodDefinitionHandle, MethodSignature<ExplicitInterfaceTypeIdentity>>
+            methodDefinitionSignatures = [];
+        readonly Dictionary<MemberReferenceSignatureCacheKey,
+            MethodSignature<ExplicitInterfaceTypeIdentity>> memberReferenceSignatures = [];
         readonly HashSet<MethodDefinitionHandle> validatedBodies = [];
         HashSet<string>? implementedInterfaces;
+
+        readonly record struct MemberReferenceSignatureCacheKey(
+            BlobHandle Signature,
+            ExplicitInterfaceSignatureContext Context);
 
         public MethodImplementationProjection(
             MetadataReader reader,
@@ -2442,16 +2453,20 @@ public static class ApiSurfaceExtractor
                 return targets;
 
             IReadOnlySet<string> interfaces = GetImplementedInterfaces();
+            MethodSignature<ExplicitInterfaceTypeIdentity> bodySignature =
+                GetBodySignature(body);
             foreach (EntityHandle declaration in declarations)
             {
+                identityProvider.ObserveWork(MethodImplementationRowWorkChars);
                 if (!TryGetInterfaceMethodDeclaration(
                         reader,
-                        body,
+                        bodySignature,
                         declaration,
                         interfaces,
                         typeContext,
                         identityProvider,
                         observeDecodeWork,
+                        GetDeclarationSignature,
                         out var target))
                 {
                     continue;
@@ -2474,16 +2489,20 @@ public static class ApiSurfaceExtractor
             }
 
             IReadOnlySet<string> interfaces = GetImplementedInterfaces();
+            MethodSignature<ExplicitInterfaceTypeIdentity> bodySignature =
+                GetBodySignature(body);
             foreach (EntityHandle declaration in declarations)
             {
+                identityProvider.ObserveWork(MethodImplementationRowWorkChars);
                 if (TryGetInterfaceMethodDeclaration(
                         reader,
-                        body,
+                        bodySignature,
                         declaration,
                         interfaces,
                         typeContext,
                         identityProvider,
                         observeDecodeWork,
+                        GetDeclarationSignature,
                         out var target))
                 {
                     ObserveTarget(target);
@@ -2508,6 +2527,106 @@ public static class ApiSurfaceExtractor
                         observeDecodeWork));
             objectFinalizeOverrides.Add(body, result);
             return result;
+        }
+
+        MethodSignature<ExplicitInterfaceTypeIdentity> GetBodySignature(
+            MethodDefinitionHandle bodyHandle)
+        {
+            if (bodySignatures.TryGetValue(bodyHandle, out var cached))
+                return cached;
+
+            var body = reader.GetMethodDefinition(bodyHandle);
+            var result = GuardedProviderDecode.MethodResult(
+                reader,
+                body,
+                identityProvider,
+                ExplicitInterfaceSignatureContext.Open(
+                    GenericContext.ForMethod(
+                        reader,
+                        typeContext,
+                        body,
+                        observeDecodeWork)),
+                DegradedExplicitInterfaceType);
+            if (result.IsDegraded || HasDegradedType(result.Value))
+            {
+                throw new BadImageFormatException(
+                    "The MethodImpl body signature could not be decoded.");
+            }
+
+            bodySignatures.Add(bodyHandle, result.Value);
+            return result.Value;
+        }
+
+        MethodSignature<ExplicitInterfaceTypeIdentity> GetDeclarationSignature(
+            EntityHandle declaration,
+            ExplicitInterfaceTypeIdentity declaringTypeIdentity)
+        {
+            switch (declaration.Kind)
+            {
+                case HandleKind.MethodDefinition:
+                    var handle = (MethodDefinitionHandle)declaration;
+                    if (methodDefinitionSignatures.TryGetValue(handle, out var cachedMethod))
+                        return cachedMethod;
+
+                    var method = reader.GetMethodDefinition(handle);
+                    var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
+                    var methodResult = GuardedProviderDecode.MethodResult(
+                        reader,
+                        method,
+                        identityProvider,
+                        ExplicitInterfaceSignatureContext.Open(
+                            GenericContext.ForMethod(
+                                reader,
+                                GenericContext.ForType(
+                                    reader,
+                                    declaringType,
+                                    observeDecodeWork),
+                                method,
+                                observeDecodeWork)),
+                        DegradedExplicitInterfaceType);
+                    if (methodResult.IsDegraded || HasDegradedType(methodResult.Value))
+                    {
+                        throw new BadImageFormatException(
+                            "The MethodImpl declaration signature could not be decoded.");
+                    }
+
+                    methodDefinitionSignatures.Add(handle, methodResult.Value);
+                    return methodResult.Value;
+
+                case HandleKind.MemberReference:
+                    var member = reader.GetMemberReference(
+                        (MemberReferenceHandle)declaration);
+                    var context = ExplicitInterfaceSignatureContext
+                        .Open(typeContext)
+                        .WithTypeArguments(
+                            declaringTypeIdentity.GenericArguments,
+                            declaringTypeIdentity.GenericArity);
+                    var key = new MemberReferenceSignatureCacheKey(
+                        member.Signature,
+                        context);
+                    if (memberReferenceSignatures.TryGetValue(key, out var cachedReference))
+                        return cachedReference;
+
+                    MethodSignature<ExplicitInterfaceTypeIdentity> signature =
+                        GuardedProviderDecode.MemberRefMethod(
+                            reader,
+                            member,
+                            identityProvider,
+                            context,
+                            DegradedExplicitInterfaceType);
+                    if (HasDegradedType(signature))
+                    {
+                        throw new BadImageFormatException(
+                            "The MethodImpl declaration signature could not be decoded.");
+                    }
+
+                    memberReferenceSignatures.Add(key, signature);
+                    return signature;
+
+                default:
+                    throw new BadImageFormatException(
+                        "The MethodImpl declaration kind is unsupported.");
+            }
         }
 
         HashSet<string> GetImplementedInterfaces()
@@ -2861,12 +2980,14 @@ public static class ApiSurfaceExtractor
 
     private static bool TryGetInterfaceMethodDeclaration(
         MetadataReader reader,
-        MethodDefinitionHandle bodyHandle,
+        MethodSignature<ExplicitInterfaceTypeIdentity> bodySignature,
         EntityHandle declaration,
         IReadOnlySet<string> implementedInterfaces,
         GenericContext context,
         ExplicitInterfaceTypeIdentityProvider identityProvider,
         Action<int>? observeDecodeWork,
+        Func<EntityHandle, ExplicitInterfaceTypeIdentity,
+            MethodSignature<ExplicitInterfaceTypeIdentity>> getDeclarationSignature,
         out ExplicitInterfaceMethodTarget target)
     {
         target = default;
@@ -2902,13 +3023,10 @@ public static class ApiSurfaceExtractor
             throw new BadImageFormatException("The MethodImpl interface identity could not be decoded.");
         if (!implementedInterfaces.Contains(declaringTypeIdentity.Key)
             || !MethodImplSignaturesMatch(
-                reader,
-                bodyHandle,
+                bodySignature,
                 declaration,
                 declaringTypeIdentity,
-                context,
-                identityProvider,
-                observeDecodeWork))
+                getDeclarationSignature))
             return false;
 
         if (declaringTypeIdentity.IsInterface == false)
@@ -2929,80 +3047,15 @@ public static class ApiSurfaceExtractor
     }
 
     private static bool MethodImplSignaturesMatch(
-        MetadataReader reader,
-        MethodDefinitionHandle bodyHandle,
+        MethodSignature<ExplicitInterfaceTypeIdentity> bodySignature,
         EntityHandle declaration,
         ExplicitInterfaceTypeIdentity declaringTypeIdentity,
-        GenericContext typeContext,
-        ExplicitInterfaceTypeIdentityProvider identityProvider,
-        Action<int>? observeDecodeWork)
+        Func<EntityHandle, ExplicitInterfaceTypeIdentity,
+            MethodSignature<ExplicitInterfaceTypeIdentity>> getDeclarationSignature)
     {
-        var body = reader.GetMethodDefinition(bodyHandle);
-        var bodyResult = GuardedProviderDecode.MethodResult(
-            reader,
-            body,
-            identityProvider,
-            ExplicitInterfaceSignatureContext.Open(
-                GenericContext.ForMethod(reader, typeContext, body, observeDecodeWork)),
-            new ExplicitInterfaceTypeIdentity(
-                "<invalid>",
-                "<invalid>",
-                IsDegraded: true));
-        if (bodyResult.IsDegraded)
-            throw new BadImageFormatException("The MethodImpl body signature could not be decoded.");
-
-        MethodSignature<ExplicitInterfaceTypeIdentity> declarationSignature;
-        switch (declaration.Kind)
-        {
-            case HandleKind.MethodDefinition:
-                var method = reader.GetMethodDefinition((MethodDefinitionHandle)declaration);
-                var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
-                var declarationResult = GuardedProviderDecode.MethodResult(
-                    reader,
-                    method,
-                    identityProvider,
-                    ExplicitInterfaceSignatureContext.Open(
-                        GenericContext.ForMethod(
-                            reader,
-                            GenericContext.ForType(reader, declaringType, observeDecodeWork),
-                            method,
-                            observeDecodeWork)),
-                    new ExplicitInterfaceTypeIdentity(
-                        "<invalid>",
-                        "<invalid>",
-                        IsDegraded: true));
-                if (declarationResult.IsDegraded)
-                    throw new BadImageFormatException(
-                        "The MethodImpl declaration signature could not be decoded.");
-                declarationSignature = declarationResult.Value;
-                break;
-            case HandleKind.MemberReference:
-                var member = reader.GetMemberReference((MemberReferenceHandle)declaration);
-                declarationSignature = GuardedProviderDecode.MemberRefMethod(
-                    reader,
-                    member,
-                    identityProvider,
-                    ExplicitInterfaceSignatureContext
-                        .Open(typeContext)
-                        .WithTypeArguments(
-                            declaringTypeIdentity.GenericArguments,
-                            declaringTypeIdentity.GenericArity),
-                    new ExplicitInterfaceTypeIdentity(
-                        "<invalid>",
-                        "<invalid>",
-                        IsDegraded: true));
-                break;
-            default:
-                return false;
-        }
-
-        if (HasDegradedType(bodyResult.Value)
-            || HasDegradedType(declarationSignature))
-        {
-            throw new BadImageFormatException("The MethodImpl signature contains an unsupported type.");
-        }
-
-        return MethodSignaturesMatch(bodyResult.Value, declarationSignature);
+        MethodSignature<ExplicitInterfaceTypeIdentity> declarationSignature =
+            getDeclarationSignature(declaration, declaringTypeIdentity);
+        return MethodSignaturesMatch(bodySignature, declarationSignature);
     }
 
     private static bool HasDegradedType(

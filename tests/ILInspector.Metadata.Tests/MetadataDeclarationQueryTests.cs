@@ -649,6 +649,58 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void ExplicitInterfaceTypeSpecCache_DistinguishesSubstitutedContexts()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Synthetic.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x13); // ELEMENT_TYPE_VAR
+        signature.WriteCompressedInteger(0);
+        TypeSpecificationHandle typeSpec = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(signature));
+        using var peReader = new PEReader(
+            new MemoryStream(Serialize(metadata), writable: false));
+        MetadataReader reader = peReader.GetMetadataReader();
+        var provider = new ExplicitInterfaceTypeIdentityProvider();
+        var intType = provider.GetPrimitiveType(PrimitiveTypeCode.Int32);
+        var stringType = provider.GetPrimitiveType(PrimitiveTypeCode.String);
+
+        ExplicitInterfaceTypeIdentity first = provider.GetTypeFromSpecification(
+            reader,
+            new ExplicitInterfaceSignatureContext(null, [intType], 1),
+            typeSpec,
+            rawTypeKind: 0x12);
+        ExplicitInterfaceTypeIdentity second = provider.GetTypeFromSpecification(
+            reader,
+            new ExplicitInterfaceSignatureContext(null, [stringType], 1),
+            typeSpec,
+            rawTypeKind: 0x12);
+
+        Assert.Equal("System.Int32", first.MetadataName);
+        Assert.Equal("System.String", second.MetadataName);
+        Assert.NotEqual(first.Key, second.Key);
+    }
+
+    [Fact]
     public void ExplicitInterfaceTypeIdentity_RejectsOversizedAssemblyIdentityBlob()
     {
         var metadata = new MetadataBuilder();

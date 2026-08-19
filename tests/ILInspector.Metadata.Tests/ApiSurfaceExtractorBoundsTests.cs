@@ -936,7 +936,10 @@ public sealed class ApiSurfaceExtractorBoundsTests
     {
         const int depth = 192;
         const int methodImplCount = 256;
-        byte[] image = BuildDeepGenericMethodImplImage(depth, methodImplCount);
+        byte[] image = BuildDeepGenericMethodImplImage(
+            depth,
+            methodImplCount,
+            uniqueParents: false);
         using var stream = new MemoryStream(image, writable: false);
         using var peReader = new PEReader(stream);
         long before = GC.GetAllocatedBytesForCurrentThread();
@@ -974,6 +977,112 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Assert.Equal(
             unboundedType.Members.Select(member => (member.Name, member.Kind)),
             boundedType.Members.Select(member => (member.Name, member.Kind)));
+    }
+
+    [Fact]
+    public void RepeatedDeepGenericMethodImplUniqueParents_UseBoundedUnboundedAllocation()
+    {
+        const int depth = 192;
+        const int methodImplCount = 256;
+        byte[] image = BuildDeepGenericMethodImplImage(
+            depth,
+            methodImplCount,
+            uniqueParents: true);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == "DeepGenericImplementer");
+        Assert.Equal(methodImplCount, type.Members.Count);
+        Assert.True(
+            allocated < 32L * 1024 * 1024,
+            $"unbounded extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void RepeatedWideMethodImplDeclarations_UseBoundedUnboundedAllocation()
+    {
+        const int parameterCount = 5_000;
+        const int methodImplCount = 500;
+        byte[] image = BuildWideMethodImplImage(parameterCount, methodImplCount);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        ApiType type = Assert.Single(surface.Types, candidate => candidate.Name == "Implementer");
+        Assert.Single(type.Members);
+        Assert.True(
+            allocated < 32L * 1024 * 1024,
+            $"unbounded extraction allocated {allocated:N0} bytes");
+
+        using var queryStream = new MemoryStream(image, writable: false);
+        using var queryReader = new PEReader(queryStream);
+        MetadataReader reader = queryReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name) == "Implementer");
+        before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiType queried = MetadataDeclarationQuery.GetTypeSurface(reader, typeHandle);
+
+        allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Single(queried.Members);
+        Assert.True(
+            allocated < 32L * 1024 * 1024,
+            $"type query allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void DistinctMethodImplSignatures_FailClosedWithinProjectionBudget()
+    {
+        byte[] image = BuildDistinctMethodImplSignatureImage(
+            methodCount: 256,
+            minimumParameterCount: 768);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Contains(
+            surface.InspectionFailures,
+            candidate => candidate.Detail.Contains(
+                "explicit-interface projection exceeds",
+                StringComparison.Ordinal));
+        Assert.True(
+            allocated < 96L * 1024 * 1024,
+            $"failed extraction allocated {allocated:N0} bytes");
+    }
+
+    [Fact]
+    public void CachedMethodImplRowFlood_FailsClosedWithinProjectionBudget()
+    {
+        byte[] image = BuildWideMethodImplImage(
+            parameterCount: 0,
+            methodImplCount: 32_769);
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Contains(
+            surface.InspectionFailures,
+            candidate => candidate.Detail.Contains(
+                "explicit-interface projection exceeds",
+                StringComparison.Ordinal));
+        Assert.True(
+            allocated < 96L * 1024 * 1024,
+            $"failed extraction allocated {allocated:N0} bytes");
     }
 
     [Fact]
@@ -2121,7 +2230,10 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildDeepGenericMethodImplImage(int depth, int methodImplCount)
+    static byte[] BuildDeepGenericMethodImplImage(
+        int depth,
+        int methodImplCount,
+        bool uniqueParents)
     {
         var metadata = Metadata("DeepGenericMethodImpl");
         AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
@@ -2141,8 +2253,8 @@ public sealed class ApiSurfaceExtractorBoundsTests
             metadata.GetOrAddString("Leaf"));
         var parentSignature = new BlobBuilder();
         WriteDeepGenericType(parentSignature, depth, genericInterface, leaf);
-        TypeSpecificationHandle parent = metadata.AddTypeSpecification(
-            metadata.GetOrAddBlob(parentSignature));
+        BlobHandle parentBlob = metadata.GetOrAddBlob(parentSignature);
+        TypeSpecificationHandle parent = metadata.AddTypeSpecification(parentBlob);
         TypeDefinitionHandle type = AddModuleAndPublicType(
             metadata,
             "DeepGenericImplementer",
@@ -2167,14 +2279,120 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 signature,
                 bodyOffset: -1,
                 MetadataTokens.ParameterHandle(1));
+            EntityHandle declarationParent = uniqueParents
+                ? metadata.AddTypeSpecification(parentBlob)
+                : parent;
             MemberReferenceHandle declaration = metadata.AddMemberReference(
-                parent,
+                declarationParent,
                 metadata.GetOrAddString($"M{index}"),
                 signature);
             metadata.AddMethodImplementation(type, body, declaration);
         }
 
         return Serialize(metadata);
+    }
+
+    static byte[] BuildWideMethodImplImage(int parameterCount, int methodImplCount)
+    {
+        var metadata = Metadata("WideMethodImpl");
+        AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle interfaceType = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("IProbe"));
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "Implementer",
+            TypeAttributes.Public);
+        metadata.AddInterfaceImplementation(type, interfaceType);
+        BlobHandle signature = AddWideMethodSignature(metadata, parameterCount);
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Contracts.IProbe.M"),
+            signature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        for (int index = 0; index < methodImplCount; index++)
+        {
+            MemberReferenceHandle declaration = metadata.AddMemberReference(
+                interfaceType,
+                metadata.GetOrAddString($"M{index}"),
+                signature);
+            metadata.AddMethodImplementation(type, body, declaration);
+        }
+
+        return Serialize(metadata);
+    }
+
+    static byte[] BuildDistinctMethodImplSignatureImage(
+        int methodCount,
+        int minimumParameterCount)
+    {
+        var metadata = Metadata("DistinctMethodImplSignatures");
+        AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle interfaceType = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("IProbe"));
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "Implementer",
+            TypeAttributes.Public);
+        metadata.AddInterfaceImplementation(type, interfaceType);
+        for (int index = 0; index < methodCount; index++)
+        {
+            BlobHandle signature = AddWideMethodSignature(
+                metadata,
+                minimumParameterCount + index);
+            MethodDefinitionHandle body = metadata.AddMethodDefinition(
+                MethodAttributes.Private
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.Final
+                    | MethodAttributes.NewSlot
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString($"M{index}"),
+                signature,
+                bodyOffset: -1,
+                MetadataTokens.ParameterHandle(1));
+            MemberReferenceHandle declaration = metadata.AddMemberReference(
+                interfaceType,
+                metadata.GetOrAddString($"M{index}"),
+                signature);
+            metadata.AddMethodImplementation(type, body, declaration);
+        }
+
+        return Serialize(metadata);
+    }
+
+    static BlobHandle AddWideMethodSignature(
+        MetadataBuilder metadata,
+        int parameterCount)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20); // HASTHIS
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01); // VOID
+        for (int index = 0; index < parameterCount; index++)
+            signature.WriteByte(0x08); // I4
+        return metadata.GetOrAddBlob(signature);
     }
 
     static void WriteDeepGenericType(

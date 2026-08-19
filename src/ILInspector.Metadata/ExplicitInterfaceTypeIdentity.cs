@@ -77,25 +77,38 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         typeSpecificationIdentityCache = [];
     string? currentModuleKey;
     int? identityCacheEntryLimit;
+    int remainingProjectionWork =
+        MetadataSafetyPolicy.MaxExplicitInterfaceProjectionWorkChars;
 
     readonly record struct NamedIdentityCacheKey(EntityHandle Handle, byte RawTypeKind);
 
     readonly record struct TypeSpecificationIdentityCacheKey(
-        TypeSpecificationHandle Handle,
+        BlobHandle Signature,
         byte RawTypeKind,
         ExplicitInterfaceSignatureContext Context);
 
     /// <summary>Charges one decoded or composed identity against the extraction work budget.</summary>
     internal ExplicitInterfaceTypeIdentity Observe(ExplicitInterfaceTypeIdentity identity)
     {
-        observeDecodeWork?.Invoke(
+        ObserveWork(
             checked(identity.Key.Length
                 + identity.MetadataName.Length
                 + (identity.AggregateAliasName?.Length ?? 0)));
         return identity;
     }
 
-    internal void ObserveWork(int characters) => observeDecodeWork?.Invoke(characters);
+    internal void ObserveWork(int characters)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(characters);
+        observeDecodeWork?.Invoke(characters);
+        if (remainingProjectionWork < characters)
+        {
+            throw new BadImageFormatException(
+                "The explicit-interface projection exceeds the metadata safety limit.");
+        }
+
+        remainingProjectionWork -= characters;
+    }
 
     public ExplicitInterfaceTypeIdentity GetPrimitiveType(PrimitiveTypeCode typeCode)
     {
@@ -193,7 +206,11 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         TypeSpecificationHandle handle,
         byte rawTypeKind)
     {
-        var cacheKey = new TypeSpecificationIdentityCacheKey(handle, rawTypeKind, context);
+        BlobHandle signature = reader.GetTypeSpecification(handle).Signature;
+        var cacheKey = new TypeSpecificationIdentityCacheKey(
+            signature,
+            rawTypeKind,
+            context);
         if (typeSpecificationIdentityCache.TryGetValue(cacheKey, out var cached))
             return cached;
 

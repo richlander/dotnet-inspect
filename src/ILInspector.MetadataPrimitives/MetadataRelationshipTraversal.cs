@@ -51,6 +51,20 @@ public static class MetadataSafetyPolicy
         MaxStructuralSignatureWorkChars;
 
     /// <summary>
+    /// Maximum cumulative identity, signature, and row work used to validate one
+    /// type's explicit-interface MethodImpl projection. The projection caches
+    /// repeated body, declaration-signature, and TypeSpec blobs, while this
+    /// ceiling bounds genuinely distinct or numerous well-formed rows on the
+    /// unbounded extraction path. Gated by
+    /// <c>RepeatedWideMethodImplDeclarations_UseBoundedUnboundedAllocation</c>,
+    /// <c>RepeatedDeepGenericMethodImplUniqueParents_UseBoundedUnboundedAllocation</c>,
+    /// <c>DistinctMethodImplSignatures_FailClosedWithinProjectionBudget</c>, and
+    /// <c>CachedMethodImplRowFlood_FailsClosedWithinProjectionBudget</c>.
+    /// </summary>
+    public const int MaxExplicitInterfaceProjectionWorkChars =
+        8 * 1024 * 1024;
+
+    /// <summary>
     /// Maximum type nodes examined before decoding one metadata signature.
     /// This bounds the iterative guard stack and SRM's decoded parameter/type
     /// materialization for structurally shallow but hostile signatures. Gated by
