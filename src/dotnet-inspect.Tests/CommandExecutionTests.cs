@@ -17422,6 +17422,9 @@ public partial class CommandExecutionTests
                 Assert.Equal(baseline.Error, redirected.Error);
                 Assert.Empty(redirected.Output);
                 Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+                Assert.False(
+                    File.ReadAllBytes(outputPath).AsSpan().StartsWith(
+                        new byte[] { 0xEF, 0xBB, 0xBF }));
             }
 
             var infoBaseline = await RunAppInDirectoryAsync(
