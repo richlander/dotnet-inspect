@@ -425,11 +425,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             // spells the same value correctly (issue #2983). Outer entries win
             // on collision: a definition the host already resolved keeps its
             // authoritative shape.
-            function.TypeShapes = MergeMap(function.TypeShapes, body.TypeShapes);
-            function.EnumMembers = MergeMap(function.EnumMembers, body.EnumMembers);
-            function.EnumUnderlyingTypes = MergeMap(function.EnumUnderlyingTypes, body.EnumUnderlyingTypes);
-            function.UnionTypes = MergeSet(function.UnionTypes, body.UnionTypes);
-            function.ByRefLikeTypes = MergeSet(function.ByRefLikeTypes, body.ByRefLikeTypes);
+            function.MergeTypeFactsFrom(body);
             environment?.Elide();
         }
 
@@ -670,24 +666,4 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             yield return descendant;
     }
 
-    static IReadOnlyDictionary<TKey, TValue> MergeMap<TKey, TValue>(
-        IReadOnlyDictionary<TKey, TValue> outer, IReadOnlyDictionary<TKey, TValue> inner)
-        where TKey : notnull
-    {
-        if (inner.Count == 0)
-            return outer;
-        var result = outer as ImmutableDictionary<TKey, TValue> ?? ImmutableDictionary.CreateRange(outer);
-        foreach (var (key, value) in inner)
-            if (!result.ContainsKey(key))
-                result = result.SetItem(key, value);
-        return result;
-    }
-
-    static IReadOnlySet<TypeRef> MergeSet(IReadOnlySet<TypeRef> outer, IReadOnlySet<TypeRef> inner)
-    {
-        if (inner.Count == 0)
-            return outer;
-        var result = outer as ImmutableHashSet<TypeRef> ?? ImmutableHashSet.CreateRange(outer);
-        return result.Union(inner);
-    }
 }
