@@ -13,16 +13,6 @@ export const packageLenses = [
   ["metadata", "Metadata"]
 ];
 
-export const rootCommands = [
-  ["type", "select a public type"],
-  ["types", "filter or group the type index"],
-  ["show", "change the active lens"],
-  ["framework", "select a target framework"],
-  ["find", "search the current package"],
-  ["clear", "clear the current filter"],
-  ["share", "copy a link to this selection"]
-];
-
 export const MAX_WORKSPACE_PACKAGES = 12;
 export const MAX_SHARE_STATE_CHARACTERS = 65536;
 
@@ -368,28 +358,24 @@ export function graphTargetNavigationDisposition(candidate, target) {
     : "none";
 }
 
-export function authoredSourceLimitationHtml(source) {
-  if (!source?.authoredLimitation) return "";
-  const escaped = String(source.authoredLimitation)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-  return `<span class="graph-source-status">Original source unavailable: ${escaped}</span>`;
-}
-
 export function callGraphDiagnosticsMessage(diagnostics) {
-  if (!diagnostics?.isIncomplete) return "";
-  const boundaries = [];
-  if (diagnostics.hasUnexploredTraversalBoundary)
-    boundaries.push("unexplored traversal");
+  if (!diagnostics) return "";
+  const evidence = [];
+  if (diagnostics.incompleteNodes > 0)
+    evidence.push(`${diagnostics.incompleteNodes} incomplete node${diagnostics.incompleteNodes === 1 ? "" : "s"}`);
+  if (diagnostics.incompleteEdges > 0)
+    evidence.push(`${diagnostics.incompleteEdges} incomplete edge${diagnostics.incompleteEdges === 1 ? "" : "s"}`);
+  if (diagnostics.bindingIdentityConflicts > 0)
+    evidence.push(`${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}`);
   if (diagnostics.hasAnalysisFailureBoundary)
-    boundaries.push("analysis failure");
-  const boundaryText = boundaries.length
-    ? ` Boundaries: ${boundaries.join(" and ")}.`
-    : "";
-  return `Partial call graph: ${diagnostics.incompleteNodes} incomplete node${diagnostics.incompleteNodes === 1 ? "" : "s"}, ${diagnostics.incompleteEdges} incomplete edge${diagnostics.incompleteEdges === 1 ? "" : "s"}, and ${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}.${boundaryText}`;
+    evidence.push("one or more method bodies could not be analyzed");
+  if (!evidence.length) return "";
+  const detail = evidence.length === 1
+    ? evidence[0]
+    : evidence.length === 2
+    ? `${evidence[0]} and ${evidence[1]}`
+    : `${evidence.slice(0, -1).join(", ")}, and ${evidence.at(-1)}`;
+  return `Partial call graph: ${detail}.`;
 }
 
 export function parameterTitleHtml(parameters) {

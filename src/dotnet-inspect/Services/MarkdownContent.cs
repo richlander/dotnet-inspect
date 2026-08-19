@@ -186,12 +186,50 @@ public static class MarkdownContent
 
     private static string TrimYamlScalar(string value)
     {
+        value = RemoveYamlInlineComment(value).TrimEnd();
         if (value.Length >= 2)
         {
             if ((value[0] == '"' && value[^1] == '"')
                 || (value[0] == '\'' && value[^1] == '\''))
             {
                 return value[1..^1];
+            }
+        }
+
+        return value;
+    }
+
+    private static string RemoveYamlInlineComment(string value)
+    {
+        var quote = '\0';
+        for (var i = 0; i < value.Length; i++)
+        {
+            var character = value[i];
+            if (quote == '\0')
+            {
+                if (character is '\'' or '"')
+                {
+                    quote = character;
+                }
+                else if (character == '#' && (i == 0 || char.IsWhiteSpace(value[i - 1])))
+                {
+                    return value[..i];
+                }
+
+                continue;
+            }
+
+            if (quote == '\'' && character == '\'' && i + 1 < value.Length && value[i + 1] == '\'')
+            {
+                i++;
+            }
+            else if (quote == '"' && character == '\\')
+            {
+                i++;
+            }
+            else if (character == quote)
+            {
+                quote = '\0';
             }
         }
 

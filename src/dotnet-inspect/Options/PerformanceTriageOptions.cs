@@ -126,13 +126,17 @@ public sealed record PerformanceTriageOptions
     public string[] Where { get; init; } = [];
     public string? OrderBy { get; init; }
 
-    public bool HasFilters =>
+    public bool HasCandidateFilters =>
         LoopOnly
         || !string.IsNullOrWhiteSpace(MinConfidence)
         || Shapes.Length > 0
-        || Top.HasValue
-        || Where.Length > 0
+        || Where.Length > 0;
+
+    public bool HasRanking =>
+        Top.HasValue
         || !string.IsNullOrWhiteSpace(OrderBy);
+
+    public bool HasFilters => HasCandidateFilters || HasRanking;
 
     public bool IncludesAllocationFanout =>
         Shapes.Contains("allocation-fanout", StringComparer.OrdinalIgnoreCase);

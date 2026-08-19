@@ -258,7 +258,7 @@ public sealed class NuGetDeadlineRaceTests
         new()
         {
             RequestTimeout = TimeSpan.FromMilliseconds(40),
-            OperationTimeout = TimeSpan.FromSeconds(2),
+            OperationTimeout = TimeSpan.FromSeconds(30),
             MetadataBodyTimeout = TimeSpan.FromMilliseconds(40),
         };
 

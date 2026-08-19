@@ -39,6 +39,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 public sealed class LambdaRaisingPass : IIrPass
 {
+    sealed record RaisedLambda(Lambda Lambda, IrFunction TypeFacts);
+
     public string Name => "lambda-raising";
 
     public void Run(IrFunction function, PassContext context)
@@ -55,18 +57,19 @@ public sealed class LambdaRaisingPass : IIrPass
         {
             if (creation.Parent is null)
                 continue;  // detached by an earlier rewrite in this walk
-            Lambda? lambda =
+            RaisedLambda? raised =
                 GeneratedCodeIdentity.IsNonCapturingLambdaMethod(creation.Method) ? RaiseNonCapturing(creation, context)
                 : GeneratedCodeIdentity.IsCapturingLambdaMethod(creation.Method) ? RaiseCapturing(creation, context)
                 : null;
-            if (lambda is null)
+            if (raised is null)
                 continue;
             context.Stepper.StepOver($"raise lambda {creation.Method.Name}", creation);
-            creation.ReplaceWith(lambda);
+            function.MergeTypeFactsFrom(raised.TypeFacts);
+            creation.ReplaceWith(raised.Lambda);
         }
     }
 
-    static Lambda? RaiseNonCapturing(DelegateCreation creation, PassContext context)
+    static RaisedLambda? RaiseNonCapturing(DelegateCreation creation, PassContext context)
     {
         var body = RaisedBody(creation, context);
         if (body is null)
@@ -80,7 +83,7 @@ public sealed class LambdaRaisingPass : IIrPass
         return Finish(creation, body, creation, allowLocals: true);
     }
 
-    static Lambda? RaiseCapturing(DelegateCreation creation, PassContext context)
+    static RaisedLambda? RaiseCapturing(DelegateCreation creation, PassContext context)
     {
         // The delegate target is the folded environment: new <>c__DisplayClass
         // { field = capturedValue, ... }. Anything else (a display class kept in a
@@ -232,7 +235,7 @@ public sealed class LambdaRaisingPass : IIrPass
             // Raise every lambda first; commit nothing unless all succeed and each
             // lambda's read fields are stored before its creation. The environment
             // allocation is each lambda's outer provenance anchor.
-            var raised = new List<(DelegateCreation Creation, Lambda Lambda)>(creations.Count);
+            var raised = new List<(DelegateCreation Creation, RaisedLambda Raised)>(creations.Count);
             foreach (var creation in creations)
             {
                 int creationIndex = StatementIndex(creation, setupBlock);
@@ -251,7 +254,8 @@ public sealed class LambdaRaisingPass : IIrPass
             foreach (var (creation, lambda) in raised)
             {
                 context.Stepper.StepOver($"raise captured lambda {creation.Method.Name}", creation);
-                creation.ReplaceWith(lambda);
+                function.MergeTypeFactsFrom(lambda.TypeFacts);
+                creation.ReplaceWith(lambda.Lambda);
             }
             foreach (var outerRead in outerReads)
                 outerRead.ReplaceWith(captures[outerRead.Field.Name].Clone());
@@ -289,7 +293,7 @@ public sealed class LambdaRaisingPass : IIrPass
     // Bails if `this` is used any way other than reading a known captured field.
     // <paramref name="readFields"/> reports the capture fields the body reads, so
     // the local-display-class caller can verify each is stored before this creation.
-    static Lambda? RaiseWithCaptures(
+    static RaisedLambda? RaiseWithCaptures(
         DelegateCreation creation, Dictionary<string, IrExpression> captures, IrNode provenance, PassContext context,
         out IReadOnlyCollection<string> readFields)
     {
@@ -355,7 +359,7 @@ public sealed class LambdaRaisingPass : IIrPass
     // through a nested lambda scope. Capturing callers enable that only when all
     // substituted captures are argument/this loads, whose names are stable across
     // the nested print scope.
-    static Lambda? Finish(DelegateCreation creation, IrFunction body, IrNode provenance, bool allowLocals)
+    static RaisedLambda? Finish(DelegateCreation creation, IrFunction body, IrNode provenance, bool allowLocals)
     {
         if (!allowLocals && !body.Locals.IsEmpty)
             return null;
@@ -363,10 +367,12 @@ public sealed class LambdaRaisingPass : IIrPass
             return null;
         bool hasByRefParameter =
             body.Signature.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef);
+        var host = RootFunction(creation);
         if (hasByRefParameter
             && (creation.Method.HasRefReadOnlyParameters
                 || creation.Method.ParameterRefKindsFacts != ParameterRefKindFacts.Known
-                || creation.Method.ParameterRefKinds.Length != body.Signature.Parameters.Length))
+                || creation.Method.ParameterRefKinds.Length != body.Signature.Parameters.Length
+                || !CanSpellExplicitParameterTypes(body, creation, host)))
         {
             return null;
         }
@@ -406,7 +412,34 @@ public sealed class LambdaRaisingPass : IIrPass
             ParameterRefKinds = hasByRefParameter ? creation.Method.ParameterRefKinds : [],
         };
         lambda.InheritSourceOffset(provenance);
-        return lambda;
+        return new RaisedLambda(lambda, body);
+    }
+
+    static bool CanSpellExplicitParameterTypes(
+        IrFunction body,
+        DelegateCreation creation,
+        IrFunction host)
+    {
+        var parameterTypes = new TypeRef[body.Signature.Parameters.Length];
+        var isDynamic = new bool[body.Signature.Parameters.Length];
+        for (int i = 0; i < body.Signature.Parameters.Length; i++)
+        {
+            parameterTypes[i] = body.Signature.Parameters[i].Type;
+            isDynamic[i] = body.Signature.Parameters[i].IsDynamic;
+            if (!CSharpSpellability.CanSpellExplicitParameterType(
+                    parameterTypes[i],
+                    host,
+                    creation.Method.ParameterRefKinds[i],
+                    isDynamic[i]))
+            {
+                return false;
+            }
+        }
+
+        return !CSharpSpellability.AnyLeadingSegmentShadowedByKnownTypes(parameterTypes, host)
+            && !CSharpSpellability.AnyPrintedAliasShadowedByKnownTypes(parameterTypes, isDynamic, host)
+            && !CSharpSpellability.AnyBareNameShadowedByKnownTypes(parameterTypes, host)
+            && !CSharpSpellability.AnyPrintedNameIdentityCollision(parameterTypes, isDynamic, host);
     }
 
     static IEnumerable<IrNode> Self(IrNode node)
