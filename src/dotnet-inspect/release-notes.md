@@ -36,6 +36,11 @@
 
 ### Experimental analysis and decompilation
 
+- Rendered body-kind queries can now target one exact `member` overload. The
+  query resolves properties and events to their accessor MethodDef tokens,
+  emits round-tripping owner-plus-accessor selectors, supports non-public
+  selections with `--all`, and decompiles only the selected body instead of
+  scanning the assembly.
 - Adds bounded exact structural clone comparison and same-assembly discovery.
   Exact normalized IL/control-flow witnesses remain distinct from unsupported,
   failed, limited, ambiguous, and different outcomes; incomplete candidate
@@ -184,7 +189,7 @@
 - Gives `package` and `library` authored base and domain categories. Package
   exposes `@Package`, `@Files`, `@Dependencies`, `@Audit`, and `@SourceLink`;
   library exposes `@Library`, `@Surface`, `@Audit`, `@Performance`,
-  `@Decompiler`, `@SourceLink`, `@Integrations`, `@Metadata`, and `@Context`
+  `@SourceLink`, `@Integrations`, `@Metadata`, and `@Context`
   (#3838, #4061).
 - Makes discovery distinguish structural membership from effective evidence.
   `-D --schema` reports the static graph, library `--effective` runs full

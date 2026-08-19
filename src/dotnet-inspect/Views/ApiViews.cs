@@ -1,5 +1,6 @@
 using ILInspector.CSharp;
 using System.Text.Json.Serialization;
+using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using Markout;
@@ -309,6 +310,10 @@ public class TypeView
     [MarkoutSection(Name = SectionNames.PerformanceTriage, EmptyText = ApiSectionEmptyText.TypePerformanceTriage)]
     [JsonIgnore]
     public List<OptimizationOpportunityRow>? OptimizationOpportunityRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.BodyShapes, EmptyText = "No matching body shapes found.")]
+    [JsonIgnore]
+    public List<ApiBodyShapeRow>? BodyShapeRows { get; set; }
 
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
@@ -1061,6 +1066,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(CostFactRow))]
 [MarkoutContext(typeof(TopLeverageRow))]
 [MarkoutContext(typeof(OptimizationOpportunityRow))]
+[MarkoutContext(typeof(ApiBodyShapeRow))]
 [MarkoutContext(typeof(ConstructorOverloadView))]
 [MarkoutContext(typeof(ConstructorParameterRow))]
 [MarkoutContext(typeof(EnumValueRow))]
@@ -1076,6 +1082,43 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(ApiInfoSection))]
 public partial class ApiViewContext : MarkoutSerializerContext
 {
+}
+
+[MarkoutSerializable]
+public sealed record ApiBodyShapeRow(
+    string Kind,
+    string Member,
+    string Token,
+    int StartLine,
+    int StartColumn,
+    int EndLine,
+    int EndColumn,
+    string Match)
+{
+    public string Kind { get; init; } = CSharpIdentifier.ContainRenderedText(Kind);
+    public string Member { get; init; } = MarkoutInline.Code(Member);
+    public string Token { get; init; } = MarkoutInline.Code(Token);
+    [MarkoutPropertyName("Start Line")]
+    public int StartLine { get; init; } = StartLine;
+    [MarkoutPropertyName("Start Column")]
+    public int StartColumn { get; init; } = StartColumn;
+    [MarkoutPropertyName("End Line")]
+    public int EndLine { get; init; } = EndLine;
+    [MarkoutPropertyName("End Column")]
+    public int EndColumn { get; init; } = EndColumn;
+    public string Match { get; init; } = MarkoutInline.Code(Match);
+
+    internal static ApiBodyShapeRow FromMatch(
+        ILInspector.Decompiler.BodyShapeMatch match)
+        => new(
+            match.Kind,
+            match.Member,
+            $"0x{match.MethodToken:X8}",
+            match.Extent.StartLine + 1,
+            match.Extent.StartColumn + 1,
+            match.Extent.EndLine + 1,
+            match.Extent.EndColumn + 1,
+            match.Text);
 }
 
 [MarkoutSerializable]
