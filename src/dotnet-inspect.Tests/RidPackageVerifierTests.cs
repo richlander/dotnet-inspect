@@ -424,6 +424,53 @@ public class RidPackageVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_ValidCaseVariantOverridesInvalidExactSibling()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string exactPath = Path.Combine(
+                directory,
+                "TestPackage.linux-x64.1.0.0.nupkg");
+            string caseVariantPath = Path.Combine(
+                directory,
+                "testpackage.linux-x64.1.0.0.nupkg");
+            File.WriteAllBytes(
+                exactPath,
+                []);
+            if (File.Exists(caseVariantPath))
+            {
+                Assert.Skip(
+                    "The filesystem does not support case-distinct sibling files.");
+                return;
+            }
+
+            WritePackageArchive(
+                caseVariantPath,
+                "testpackage.linux-x64",
+                "1.0.0");
+            InspectionResult result = CreateResult();
+
+            await RidPackageVerifier.VerifyAsync(
+                new HttpClient(),
+                result,
+                "1.0.0",
+                directory,
+                new VerboseLogger(enabled: false));
+
+            Assert.True(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task VerifyAsync_DisappearingCaseVariantSiblingIsUnknown()
     {
         string directory = Path.Combine(

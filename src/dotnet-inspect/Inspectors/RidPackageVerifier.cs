@@ -159,9 +159,10 @@ public static class RidPackageVerifier
                 packageId,
                 version,
                 log).ConfigureAwait(false);
-        if (exact.Status != NuspecProbeStatus.Absent)
+        if (exact.Status == NuspecProbeStatus.Present)
             return exact;
 
+        NuspecProbeStatus status = exact.Status;
         LocalSiblingCandidates candidates =
             snapshot.GetCandidates(expectedFileName);
         foreach (string candidatePath in candidates.Paths)
@@ -174,13 +175,18 @@ public static class RidPackageVerifier
                     log).ConfigureAwait(false);
             if (candidate.Status == NuspecProbeStatus.Present)
                 return candidate;
+
+            status = CombineEvidence(status, candidate.Status);
         }
 
-        return candidates.Paths.Count > 0 || !candidates.Complete
-            ? new NuspecProbeResult(
-                null,
-                NuspecProbeStatus.Indeterminate)
-            : exact;
+        if (candidates.Paths.Count > 0 || !candidates.Complete)
+        {
+            status = CombineEvidence(
+                status,
+                NuspecProbeStatus.Indeterminate);
+        }
+
+        return new NuspecProbeResult(null, status);
     }
 
     internal sealed class LocalPackageDirectorySnapshot(
