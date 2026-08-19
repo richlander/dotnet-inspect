@@ -122,6 +122,9 @@ const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8"
 const graphSource = readFileSync(
   new URL("../src/graph-mermaid.js", import.meta.url),
   "utf8");
+const typePanelSource = readFileSync(
+  new URL("../src/type-panel.ts", import.meta.url),
+  "utf8");
 const packageBarSource = readFileSync(
   new URL("../src/package-bar.ts", import.meta.url),
   "utf8");
@@ -565,10 +568,10 @@ test("annotated source request identity includes the selected body", () => {
 
 test("type source identity includes decompiler taste", () => {
   const typeSignature =
-    appSource.match(/function typeSourceSignature\(item\)[\s\S]*?\n}/)?.[0]
+    typePanelSource.match(/export function typeSourceSignature\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(typeSignature, /memberRequestKey\(/);
-  assert.match(typeSignature, /state\.taste/);
+  assert.match(typeSignature, /taste/);
 });
 
 test("source operations cancel when superseded or hidden", () => {
