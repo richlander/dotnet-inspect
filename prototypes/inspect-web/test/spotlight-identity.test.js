@@ -3088,6 +3088,7 @@ test("platform graph navigation supersedes package member loading immediately", 
   assert.match(
     navigation,
     /state\.platformDrillLoading = false;\s*state\.platformDrillError = "";/);
+  assert.match(navigation, /state\.memberCallGraphExpanding = false;/);
 });
 
 test("projected members remain distinct from the public API surface", () => {
@@ -3133,6 +3134,30 @@ test("selector-only accessors use body-aware implementation queries", () => {
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
     ["overview", "call-graph", "facts", "annotated"]);
+});
+
+test("platform graph borders reflect actual resident lookup", () => {
+  const binding =
+    appSource.match(/if \(bindCallGraphNodes\)[\s\S]*?\n  fit\(\);/)?.[0]
+    ?? "";
+
+  assert.match(binding, /const resident = pack\s*\? findRuntimeMemberSelection\(pack, target\)/);
+  assert.match(binding, /if \(!resident\) node\.classList\.add\("platform-node"\)/);
+  assert.match(binding, /if \(resident\) \{\s*navigateToRuntimeMember\(/);
+});
+
+test("home navigation invalidates pending graph work", () => {
+  const home =
+    appSource.match(/function goHome\(\) \{[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  const history =
+    appSource.match(/window\.addEventListener\("popstate"[\s\S]*?\n\}\);/)?.[0]
+    ?? "";
+
+  assert.match(home, /invalidateGraphMemberNavigation\(\)/);
+  assert.match(home, /state\.memberCallGraphExpanding = false/);
+  assert.match(history, /invalidateGraphMemberNavigation\(\)/);
+  assert.match(history, /state\.memberCallGraphExpanding = false/);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {

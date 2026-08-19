@@ -6853,6 +6853,7 @@ async function navigateToGraphMember(
   target: BrowserCallGraphTarget,
 ) {
   state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
   state.platformDrillLoading = false;
   state.platformDrillError = "";
   if (loaded.group) {
@@ -7014,7 +7015,10 @@ function popPlatformDrill() {
 // identity when that surface has no unique member match.
 async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   invalidateGraphMemberNavigation();
-  const seq = state.memberCallGraphSeq;
+  const seq = ++state.memberCallGraphSeq;
+  state.memberCallGraphExpanding = false;
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
   const type = selectedType();
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
@@ -8194,6 +8198,7 @@ function clearNavigationError() {
 window.addEventListener("popstate", () => {
   const navigationSeq = navigationSequence.begin();
   state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
   state.loading = false;
   const loc = parseLocation();
   state.queryNotice = loc.workspaceNotice || "";
