@@ -4,7 +4,7 @@ import {
   buildAnnotatedView,
   factsForNode,
   nodeAtOffset,
-} from "../src/annotated-source-view.js";
+} from "../src/annotated-source-view.ts";
 import { sampleDocument } from "../../annotated-source-viewer/src/sample-document.js";
 
 test("an invalid document is refused rather than rendered", () => {
@@ -42,6 +42,15 @@ test("hiding a medium drops only that medium's lines and rebases no coordinate",
     view.lines[2].segments.map(segment => segment.text).join(""),
     "    return new object();",
   );
+});
+
+test("an explicitly undefined medium preserves the JavaScript visibility semantics", () => {
+  const view = buildAnnotatedView(sampleDocument, {
+    media: { CSharp: undefined, Il: true },
+  });
+
+  assert.equal(view.media.CSharp, undefined);
+  assert.deepEqual(view.lines.map(line => line.number), [2, 5]);
 });
 
 test("selecting a fact highlights every target node across both media", () => {

@@ -53,8 +53,39 @@ public static class AsyncFixtures
     public static async Task<int> AwaitConditional(Task<int> a, bool flag)
         => flag ? await a : 0;
 
+    public static async Task<bool> DynamicReferenceIdentity(
+        Task<ReferenceIdentityPlain> value,
+        dynamic right)
+        => (object)(await value) == (object)right;
+
+    public static async Task<bool> DynamicArrayReferenceIdentity(
+        Task<ReferenceIdentityPlain> value,
+        dynamic[] right)
+        => (object)(await value) == (object)right[0];
+
+    public static async Task<bool> ObjectArrayReferenceIdentity(
+        Task<ReferenceIdentityPlain> value,
+        object[] right)
+        => (object)(await value) == right[0];
+
+    public static async Task<int> InterfaceReceiver(Task<InterfaceValue> value)
+        => ((IInterfaceValue)(await value)).GetValue();
+
 #pragma warning disable CS1998 // Pins async metadata when no await survives into the body.
     public static async Task NoAwait()
+    {
+    }
+
+    public sealed class ReferenceIdentityPlain
+    {
+    }
+
+    public interface IInterfaceValue
+    {
+        int GetValue() => 7;
+    }
+
+    public readonly struct InterfaceValue : IInterfaceValue
     {
     }
 #pragma warning restore CS1998
