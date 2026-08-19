@@ -46,7 +46,7 @@ import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
 } from "./graph-mermaid.js";
-import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
+import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.ts";
 import { loadPlatformIndex } from "/src/platform-index.js";
 
 let initializeEngine;
