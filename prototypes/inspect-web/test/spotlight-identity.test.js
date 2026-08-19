@@ -55,6 +55,7 @@ import {
   resolveOpportunitySourceType,
   resolvePlatformGraphTargetType,
   resolveRuntimeGraphTargetCandidate,
+  runtimeGraphTargetNavigationDisposition,
   shareStateLengthError,
   scopedRequestState,
   selectedDependencyGroup,
@@ -3165,10 +3166,60 @@ test("platform graph borders reflect actual resident lookup", () => {
     appSource.match(/if \(bindCallGraphNodes\)[\s\S]*?\n  fit\(\);/)?.[0]
     ?? "";
 
-  assert.match(binding, /const resident = pack\s*\? findRuntimeMemberSelection\(pack, target\)/);
-  assert.match(binding, /if \(!resident\) node\.classList\.add\("platform-node"\)/);
-  assert.match(binding, /if \(resident\) \{\s*navigateToRuntimeMember\(/);
+  assert.match(binding, /resolveRuntimeGraphTargetCandidate\(pack, target\)/);
+  assert.match(binding, /if \(disposition === "lookup"\) node\.classList\.add\("platform-node"\)/);
+  assert.match(binding, /if \(disposition === "member"\) \{\s*navigateToRuntimeMember\(/);
+  assert.match(binding, /else \{\s*drillPlatformNode\(target\)/);
   assert.match(binding, /disposition === "resident"/);
+});
+
+test("runtime graph nodes separate member, drill, and lookup disposition", () => {
+  const normalTarget = {
+    kind: "normal",
+    assembly: "System.Private.CoreLib",
+    typeDefinitionId: "System.RuntimeType",
+    memberName: "PrivateHelper",
+    selectorKey: "private-helper"
+  };
+  const externalTarget = { ...normalTarget, kind: "external" };
+
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      { status: "unique" },
+      normalTarget,
+      true),
+    "member");
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      { status: "unique" },
+      normalTarget,
+      false),
+    "drill");
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      { status: "missing" },
+      normalTarget,
+      false),
+    "drill");
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      { status: "unique" },
+      externalTarget,
+      false),
+    "drill");
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      { status: "missing" },
+      externalTarget,
+      false),
+    "lookup");
+
+  const runtimeNavigation =
+    appSource.match(/function navigateToRuntimeMember[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  assert.match(
+    runtimeNavigation,
+    /state\.libraryScope = targetLibrary \? new Set\(\[targetLibrary\]\) : null/);
 });
 
 test("runtime graph identities share and restore through exact resident candidates", () => {
