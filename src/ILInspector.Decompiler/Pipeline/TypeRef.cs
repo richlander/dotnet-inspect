@@ -182,6 +182,22 @@ public sealed class TypeRef : IEquatable<TypeRef>
     /// <summary>Function-pointer parameter ref-kinds, aligned with <see cref="TypeArguments"/> when <see cref="Kind"/> is <see cref="TypeRefKind.FunctionPointer"/>.</summary>
     public ImmutableArray<ArgumentRefKind> FunctionPointerParameterRefKinds { get; private init; } = [];
 
+    /// <summary>
+    /// Whether function-pointer modifiers and calling convention survive in the
+    /// C# spelling. Gated by
+    /// <c>LambdaRaisingPassTests.ByRefLambdaWithRefReadonlyFunctionPointerSibling_StaysLowered</c>
+    /// and its exact function-pointer sibling tests.
+    /// </summary>
+    public bool FunctionPointerSignatureIsExact { get; private init; } = true;
+
+    /// <summary>
+    /// Whether an MD-array has no explicit bounds or sizes that the C# type
+    /// syntax would erase. Gated by
+    /// <c>LambdaRaisingPassTests.ByRefLambdaWithMdArraySibling_Raises</c> and
+    /// <c>ByRefLambdaWithUnspellableSibling_StaysLowered</c>.
+    /// </summary>
+    public bool ArrayShapeIsExact { get; private init; } = true;
+
     internal ImmutableArray<TypeRefCustomModifier> CustomModifiers { get; init; } = [];
 
     /// <summary>
@@ -328,7 +344,16 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     public static TypeRef SzArray(TypeRef element) => new(TypeRefKind.SzArray) { ElementType = element };
 
-    public static TypeRef MdArray(TypeRef element, int rank) => new(TypeRefKind.Array) { ElementType = element, Rank = rank };
+    public static TypeRef MdArray(TypeRef element, int rank)
+        => MdArray(element, rank, arrayShapeIsExact: true);
+
+    internal static TypeRef MdArray(TypeRef element, int rank, bool arrayShapeIsExact)
+        => new(TypeRefKind.Array)
+        {
+            ElementType = element,
+            Rank = rank,
+            ArrayShapeIsExact = arrayShapeIsExact,
+        };
 
     public static TypeRef ByRef(TypeRef element) => new(TypeRefKind.ByRef) { ElementType = element };
 
@@ -353,15 +378,30 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     /// <summary>A function pointer over <paramref name="parameters"/> returning <paramref name="returnType"/>; <paramref name="callingConvention"/> is the C# spelling (empty = managed).</summary>
     public static TypeRef FunctionPointer(TypeRef returnType, ImmutableArray<TypeRef> parameters, string callingConvention)
+        => FunctionPointer(returnType, parameters, callingConvention, callingConventionIsExact: true);
+
+    internal static TypeRef FunctionPointer(
+        TypeRef returnType,
+        ImmutableArray<TypeRef> parameters,
+        string callingConvention,
+        bool callingConventionIsExact)
     {
-        bool suppressGcTransition = HasCustomModifier(
-            returnType,
-            isRequired: false,
-            "System.Runtime.CompilerServices",
-            "CallConvSuppressGCTransition");
         var parameterRefKinds = FunctionPointerParameterRefKindsFor(parameters);
-        string convention = AddSuppressGcTransition(callingConvention, suppressGcTransition);
-        return FunctionPointer(returnType, parameters, convention, parameterRefKinds);
+        bool conventionModifiersAreExact = TryApplyFunctionPointerConventionModifiers(
+            callingConvention,
+            returnType,
+            out string convention);
+        convention = AddSuppressGcTransition(
+            convention,
+            HasCustomModifier(
+                returnType,
+                isRequired: false,
+                "System.Runtime.CompilerServices",
+                "CallConvSuppressGCTransition"));
+        bool signatureIsExact = callingConventionIsExact
+            && conventionModifiersAreExact
+            && FunctionPointerRefKindsAreExact(returnType, parameters);
+        return FunctionPointer(returnType, parameters, convention, parameterRefKinds, signatureIsExact);
     }
 
     internal static TypeRef FunctionPointer(
@@ -369,12 +409,21 @@ public sealed class TypeRef : IEquatable<TypeRef>
         ImmutableArray<TypeRef> parameters,
         string callingConvention,
         ImmutableArray<ArgumentRefKind> parameterRefKinds)
+        => FunctionPointer(returnType, parameters, callingConvention, parameterRefKinds, signatureIsExact: true);
+
+    static TypeRef FunctionPointer(
+        TypeRef returnType,
+        ImmutableArray<TypeRef> parameters,
+        string callingConvention,
+        ImmutableArray<ArgumentRefKind> parameterRefKinds,
+        bool signatureIsExact)
         => new(TypeRefKind.FunctionPointer)
         {
             ElementType = returnType,
             TypeArguments = parameters,
             CallingConvention = callingConvention,
             FunctionPointerParameterRefKinds = parameterRefKinds,
+            FunctionPointerSignatureIsExact = signatureIsExact,
         };
 
     internal static ImmutableArray<ArgumentRefKind> FunctionPointerParameterRefKindsFor(ImmutableArray<TypeRef> parameters)
@@ -430,6 +479,177 @@ public sealed class TypeRef : IEquatable<TypeRef>
     internal TypeRef WithCustomModifier(TypeRef modifier, bool isRequired)
         => Copy(customModifiers: CustomModifiers.Add(new TypeRefCustomModifier(isRequired, modifier)));
 
+    internal bool ExplicitParameterModifiersAreExact(ArgumentRefKind refKind)
+    {
+        bool isByRef = Kind == TypeRefKind.ByRef;
+        if (isByRef != (refKind != ArgumentRefKind.Value))
+            return false;
+        if (!isByRef)
+        {
+            // Function-pointer calling-convention and parameter modifiers stay
+            // attached to the signature TypeRefs (#4250). Their exactness is
+            // FunctionPointerSignatureIsExact, not this explicit-parameter slot.
+            if (Kind == TypeRefKind.FunctionPointer)
+                return CustomModifiers.IsDefaultOrEmpty;
+            return !ContainsCustomModifiers;
+        }
+        if (ElementType is null || ElementType.ContainsCustomModifiers)
+            return false;
+        return CustomModifiers.Distinct().Count() == CustomModifiers.Length
+            && CustomModifiers.All(modifier =>
+                IsExactExplicitParameterModifier(modifier, refKind));
+    }
+
+    bool ContainsCustomModifiers
+        => !CustomModifiers.IsDefaultOrEmpty
+            || (ElementType?.ContainsCustomModifiers ?? false)
+            || TypeArguments.Any(argument => argument.ContainsCustomModifiers);
+
+    static bool TryApplyFunctionPointerConventionModifiers(
+        string callingConvention,
+        TypeRef returnType,
+        out string convention)
+    {
+        convention = callingConvention;
+        var modifiers = returnType.CustomModifiers
+            .Where(modifier =>
+                modifier.Modifier.Namespace == "System.Runtime.CompilerServices"
+                && modifier.Modifier.Name.StartsWith("CallConv", StringComparison.Ordinal))
+            .Select(modifier => (
+                modifier.IsRequired,
+                Name: modifier.Modifier.Name["CallConv".Length..]))
+            .ToArray();
+        if (modifiers.Any(modifier => modifier.IsRequired))
+            return false;
+        var modifierNames = modifiers
+            .Select(modifier => modifier.Name)
+            .ToArray();
+        if (modifierNames.Length == 0)
+            return true;
+        if (callingConvention.Length == 0)
+            return false;
+
+        var parts = new List<string>();
+        const string prefix = "unmanaged[";
+        if (callingConvention.StartsWith(prefix, StringComparison.Ordinal)
+            && callingConvention.EndsWith(']'))
+        {
+            parts.AddRange(callingConvention[prefix.Length..^1]
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+        }
+        else if (callingConvention != "unmanaged")
+        {
+            return false;
+        }
+
+        foreach (var modifier in modifierNames)
+        {
+            if (modifier is not ("Cdecl"
+                or "Stdcall"
+                or "Thiscall"
+                or "Fastcall"
+                or "SuppressGCTransition"
+                or "MemberFunction")
+                || parts.Contains(modifier, StringComparer.Ordinal))
+            {
+                return false;
+            }
+            parts.Add(modifier);
+        }
+        convention = parts.Count == 0
+            ? "unmanaged"
+            : $"unmanaged[{string.Join(", ", parts)}]";
+        return true;
+    }
+
+    static bool FunctionPointerRefKindsAreExact(
+        TypeRef returnType,
+        ImmutableArray<TypeRef> parameters)
+    {
+        if (HasNestedCustomModifiers(returnType)
+            || returnType.CustomModifiers.Any(modifier => !IsOptionalCallConvModifier(modifier)))
+        {
+            return false;
+        }
+
+        foreach (var parameter in parameters)
+        {
+            if (HasNestedCustomModifiers(parameter)
+                || parameter.CustomModifiers.Distinct().Count()
+                    != parameter.CustomModifiers.Length
+                || parameter.CustomModifiers.Any(modifier =>
+                    !IsExactFunctionPointerParameterModifier(modifier)))
+            {
+                return false;
+            }
+            bool hasIn = HasCustomModifier(
+                parameter,
+                isRequired: true,
+                "System.Runtime.InteropServices",
+                "InAttribute");
+            bool hasOut = HasCustomModifier(
+                parameter,
+                isRequired: true,
+                "System.Runtime.InteropServices",
+                "OutAttribute");
+            bool hasIsReadOnly = HasCustomModifier(
+                parameter,
+                isRequired: true,
+                "System.Runtime.CompilerServices",
+                "IsReadOnlyAttribute");
+            bool hasRequiresLocation = HasCustomModifier(
+                parameter,
+                isRequired: true,
+                "System.Runtime.CompilerServices",
+                "RequiresLocationAttribute");
+            if (hasRequiresLocation
+                || (hasIsReadOnly && !hasIn)
+                || (hasIn && hasOut)
+                || (parameter.Kind != TypeRefKind.ByRef && (hasIn || hasOut || hasIsReadOnly)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool HasNestedCustomModifiers(TypeRef type)
+        => (type.ElementType?.ContainsCustomModifiers ?? false)
+            || type.TypeArguments.Any(argument => argument.ContainsCustomModifiers);
+
+    static bool IsOptionalCallConvModifier(TypeRefCustomModifier modifier)
+        => !modifier.IsRequired
+            && modifier.Modifier.Assembly == CoreLibrary
+            && modifier.Modifier.Namespace == "System.Runtime.CompilerServices"
+            && modifier.Modifier.Name.StartsWith("CallConv", StringComparison.Ordinal);
+
+    static bool IsExactFunctionPointerParameterModifier(TypeRefCustomModifier modifier)
+        => modifier.IsRequired
+            && modifier.Modifier.Assembly == CoreLibrary
+            && ((modifier.Modifier.Namespace == "System.Runtime.InteropServices"
+                    && modifier.Modifier.Name is "InAttribute" or "OutAttribute")
+                || (modifier.Modifier.Namespace == "System.Runtime.CompilerServices"
+                    && modifier.Modifier.Name == "IsReadOnlyAttribute"));
+
+    static bool IsExactExplicitParameterModifier(
+        TypeRefCustomModifier modifier,
+        ArgumentRefKind refKind)
+        => modifier.IsRequired
+            && modifier.Modifier.Assembly == CoreLibrary
+            && refKind switch
+            {
+                ArgumentRefKind.In =>
+                    (modifier.Modifier.Namespace == "System.Runtime.InteropServices"
+                        && modifier.Modifier.Name == "InAttribute")
+                    || (modifier.Modifier.Namespace == "System.Runtime.CompilerServices"
+                        && modifier.Modifier.Name == "IsReadOnlyAttribute"),
+                ArgumentRefKind.Out =>
+                    modifier.Modifier.Namespace == "System.Runtime.InteropServices"
+                    && modifier.Modifier.Name == "OutAttribute",
+                _ => false,
+            };
+
     static bool HasCustomModifier(TypeRef type, bool isRequired, string ns, string name)
         => type.CustomModifiers.Any(modifier =>
             modifier.IsRequired == isRequired
@@ -462,6 +682,8 @@ public sealed class TypeRef : IEquatable<TypeRef>
             DefinitionModuleVersionId = DefinitionModuleVersionId,
             CallingConvention = callingConvention ?? CallingConvention,
             FunctionPointerParameterRefKinds = functionPointerParameterRefKinds ?? FunctionPointerParameterRefKinds,
+            FunctionPointerSignatureIsExact = FunctionPointerSignatureIsExact,
+            ArrayShapeIsExact = ArrayShapeIsExact,
             ValueTypeHint = valueTypeHint ?? ValueTypeHint,
             InlineArray = inlineArray ?? InlineArray,
             EnclosingType = EnclosingType,
@@ -721,8 +943,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         TypeRefKind.Definition => RenderDefinition(scope),
         TypeRefKind.GenericInstance => RenderGenericInstance(scope),
-        TypeRefKind.SzArray => $"{ElementType!.ToDisplayString(scope)}[]",
-        TypeRefKind.Array => $"{ElementType!.ToDisplayString(scope)}[{new string(',', Rank - 1)}]",
+        TypeRefKind.SzArray or TypeRefKind.Array => RenderArray(scope),
         TypeRefKind.ByRef => $"ref {ElementType!.ToDisplayString(scope)}",
         TypeRefKind.Pointer => $"{ElementType!.ToDisplayString(scope)}*",
         TypeRefKind.Pinned => $"pinned {ElementType!.ToDisplayString(scope)}",
@@ -733,6 +954,28 @@ public sealed class TypeRef : IEquatable<TypeRef>
     };
 
     public override string ToString() => ToDisplayString();
+
+    /// <summary>
+    /// C# writes array ranks left-to-right from the element name
+    /// (<c>int[][,]</c>), while metadata nests the other way. Collect suffixes
+    /// from the outside in so mixed SZ/MD ranks keep source order. Rank &lt; 1
+    /// is not valid C#; render it as a diagnostic instead of throwing.
+    /// </summary>
+    string RenderArray(TypeRef? scope)
+    {
+        var suffixes = new List<string>();
+        TypeRef element = this;
+        while (element.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
+        {
+            suffixes.Add(element.Kind == TypeRefKind.SzArray
+                ? "[]"
+                : element.Rank > 0
+                    ? $"[{new string(',', element.Rank - 1)}]"
+                    : $"[rank:{element.Rank}]");
+            element = element.ElementType!;
+        }
+        return element.ToDisplayString(scope) + string.Concat(suffixes);
+    }
 
     bool IsPrivateImplementationDetails
         => Kind == TypeRefKind.Definition
@@ -772,6 +1015,33 @@ public sealed class TypeRef : IEquatable<TypeRef>
     }
 
     /// <summary>
+    /// True when the product printer emits this nested type through its declaring
+    /// chain from <paramref name="scope"/> (<c>Outer.Inner</c> /
+    /// <c>Outer&lt;T&gt;.Inner</c>) rather than the bare innermost name. Used by
+    /// explicit-parameter spellability to test the identifier that actually binds.
+    /// </summary>
+    internal bool PrintsAsQualifiedNestedName(TypeRef? scope)
+    {
+        if (scope is null)
+            return false;
+
+        if (Kind == TypeRefKind.GenericInstance)
+        {
+            if (ElementType is not { Name: var name } || !name.Contains('+') || EnclosingInScope(scope))
+                return false;
+
+            int total = 0;
+            foreach (var segment in name.Split('+'))
+                total += ArityOf(segment);
+            return total == TypeArguments.Length;
+        }
+
+        return Name.Contains('+')
+            && !IsPrivateImplementationDetails
+            && !DefinitionEnclosingInScope(scope);
+    }
+
+    /// <summary>
     /// True when this nested definition's enclosing type is the printing scope
     /// (or contains it), so the bare innermost name binds. A non-nested
     /// definition is always "in scope" — its name has no declaring chain to lose.
@@ -801,7 +1071,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         var parts = new List<string>();
         foreach (var segment in Name.Split('+'))
         {
-            string name = StripArity(segment);
+            string name = CSharpNaming.TypeNameSegment(segment);
             int arity = ArityOf(segment);
             if (arity > 0)
                 name = $"{name}<{new string(',', arity - 1)}>";

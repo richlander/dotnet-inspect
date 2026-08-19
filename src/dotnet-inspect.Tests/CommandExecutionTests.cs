@@ -1119,6 +1119,16 @@ public partial class CommandExecutionTests
     }
 
     private sealed record ProjectSkillDoc(string Path, string Text);
+
+    private static ProjectSkillDoc CompliantProjectSkill(string path, string body)
+    {
+        var segments = path.Replace('\\', '/').Split('/');
+        var name = segments[^2];
+        return new ProjectSkillDoc(
+            path,
+            $"---\nname: {name}\ndescription: Test package skill guidance.\n---\n{body}");
+    }
+
     private sealed record ProjectDocPackage(
         string Id,
         string Version,
@@ -7282,11 +7292,12 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Discover_UnsafeApplicability_IgnoresLegacyEffectiveCache()
+    public async Task Discover_BareEffective_IgnoresLegacyEffectiveCache()
     {
         const string legacyCategory = "effective-v19";
-        const string currentCategory = "effective-v22";
-        string directory = Path.Combine(Path.GetTempPath(), $"unsafe-cache-{Guid.NewGuid():N}");
+        const string currentCategory = "effective-v23";
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"effective-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         string assemblyPath = Path.Combine(directory, "Instructions.dll");
         File.Copy(typeof(InstructionProducer).Assembly.Location, assemblyPath);
@@ -7301,6 +7312,7 @@ public partial class CommandExecutionTests
 
         try
         {
+            await CoreCache.RequestVersionedCategoryCleanupAsync();
             foreach (string key in keys)
             {
                 CoreCache.Set(legacyCategory, key, "Library Info\n", extension: "tsv");
@@ -7309,13 +7321,14 @@ public partial class CommandExecutionTests
 
             var (exit, output, error) = await RunAppAsync(
                 "library", assemblyPath,
-                "-D",
+                "-D", "--effective",
                 "--tree",
                 "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains(SectionNames.UnsafeMembers, output);
+            Assert.Contains(SectionNames.References, output);
+            Assert.DoesNotContain(SectionNames.UnsafeMembers, output);
         }
         finally
         {
@@ -13853,6 +13866,18 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task BareName_DecompilerCategory_IsNotPublished()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json", "-S", "@Decompiler", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value '@Decompiler' not found.", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Body Shapes\" requires", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LibraryCommand_PlatformFacade_LibraryInfoShowsFacadeAssemblyYes()
     {
         var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime.CompilerServices.Unsafe");
@@ -14290,7 +14315,7 @@ public partial class CommandExecutionTests
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Context", "@Decompiler", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
+            new[] { "@Audit", "@Context", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
         var raw = SplitOutputLines(output);
@@ -15564,6 +15589,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Signals", output);
         Assert.Contains("Symbols", output);
+        Assert.DoesNotContain(SectionNames.UnsafeMembers, output);
         Assert.DoesNotContain("Switches", output);
         Assert.DoesNotContain("Integrations", output);
         Assert.DoesNotContain("Tip:", error);
@@ -20890,6 +20916,53 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("-o")]
+    [InlineData("--output")]
+    public async Task SkillDocuments_OutputAliasesWritePackageAndProjectPayloads(string outputOption)
+    {
+        var (packagePath, packageTempDir) = CreateLocalReadmePackage(
+            "Test.Skills.Output",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/package-skill/SKILL.md", "package skill"));
+        var (projectPath, projectTempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage(
+                "Test.Project.Skills.Output",
+                "1.0.0",
+                "README.md",
+                "readme",
+                Skills: [CompliantProjectSkill("skills/project-skill/SKILL.md", "project skill")]));
+
+        try
+        {
+            var packageOutput = Path.Combine(packageTempDir, "package-skill.md");
+            var projectOutput = Path.Combine(projectTempDir, "project-skill.md");
+
+            var (packageExit, packageStdout, packageError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--bare",
+                outputOption, packageOutput);
+            var (projectExit, projectStdout, projectError) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--print", "--body", "--bare", outputOption, projectOutput);
+
+            Assert.Equal(0, packageExit);
+            Assert.Equal(0, projectExit);
+            Assert.Empty(packageStdout);
+            Assert.Empty(projectStdout);
+            Assert.Empty(packageError);
+            Assert.Empty(projectError);
+            Assert.Equal("package skill", File.ReadAllText(packageOutput));
+            Assert.Equal("project skill", File.ReadAllText(projectOutput));
+        }
+        finally
+        {
+            Directory.Delete(packageTempDir, recursive: true);
+            Directory.Delete(projectTempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Package_ReadmePrint_NamesTheEmptySectionWhenThePackageShipsNoSuchDocument()
     {
@@ -21788,14 +21861,14 @@ public partial class CommandExecutionTests
     {
         var querySkill = """
             ---
-            name: Query guidance
+            name: query
             description: Find APIs from restored dependencies.
             ---
             # Query skill
             """;
         var sourceSkill = """
             ---
-            name: Source guidance
+            name: source
             description: Inspect SourceLink-backed files.
             ---
             # Source skill
@@ -21819,11 +21892,234 @@ public partial class CommandExecutionTests
             using var queryDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Skills.Query")));
             Assert.Equal("Test.Project.Skills.Query", queryDocument.RootElement.GetProperty("package").GetString());
             Assert.Equal("skills/query/SKILL.md", queryDocument.RootElement.GetProperty("path").GetString());
-            Assert.Equal("Query guidance", queryDocument.RootElement.GetProperty("name").GetString());
+            Assert.Equal("query", queryDocument.RootElement.GetProperty("name").GetString());
             Assert.Equal("Find APIs from restored dependencies.", queryDocument.RootElement.GetProperty("description").GetString());
 
             using var sourceDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Skills.Source")));
             Assert.Equal("skills/source/SKILL.md", sourceDocument.RootElement.GetProperty("path").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("../../owned", "valid")]
+    [InlineData("Uppercase", "uppercase")]
+    [InlineData("-leading", "leading")]
+    [InlineData("trailing-", "trailing")]
+    [InlineData("two--hyphens", "two-hyphens")]
+    [InlineData("with/slash", "with-slash")]
+    [InlineData("with\\backslash", "with-backslash")]
+    [InlineData("\"valid # not-a-comment\"", "valid")]
+    [InlineData("different-name", "directory-name")]
+    [InlineData("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklm", "long-name")]
+    public async Task Project_SkillsSection_RejectsNoncompliantSkillNames(
+        string name, string directoryName)
+    {
+        var skill = $$"""
+            ---
+            name: {{name}}
+            description: Package guidance.
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Skills.Invalid", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc($"skills/{directoryName}/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "must declare an Agent Skills-compliant name that matches its containing directory",
+                error);
+            Assert.DoesNotContain(name, error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("inline-comment # a valid YAML comment")]
+    [InlineData("\"inline-comment\" # a valid YAML comment")]
+    [InlineData("'inline-comment' # a valid YAML comment")]
+    public async Task Project_SkillsSection_AcceptsYamlInlineComments(string nameDeclaration)
+    {
+        var skill = $$"""
+            ---
+            name: {{nameDeclaration}}
+            description: Package guidance. # a valid YAML comment
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Skills.InlineComment", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/inline-comment/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                "inline-comment",
+                document.RootElement.GetProperty("name").GetString());
+            Assert.Equal(
+                "Package guidance.",
+                document.RootElement.GetProperty("description").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SkillsSection_AcceptsDirectoryNameAndExtensionFrontmatter()
+    {
+        var skill = """
+            ---
+            name: markout-output-formats
+            description: Control output formats.
+            version: 0.35.2
+            ---
+            # Markout output formats
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Markout", "0.35.2", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/markout-output-formats/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                "markout-output-formats",
+                document.RootElement.GetProperty("name").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SkillsSection_RejectsMissingName()
+    {
+        var skill = """
+            ---
+            description: Package guidance.
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Skills.MissingName", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/missing-name/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "must declare an Agent Skills-compliant name that matches its containing directory",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(1024, true)]
+    [InlineData(1025, false)]
+    public async Task Project_SkillsSection_ValidatesDescriptionLength(
+        int descriptionLength,
+        bool expectedSuccess)
+    {
+        var descriptionLine = descriptionLength < 0
+            ? ""
+            : $"description: {new string('d', descriptionLength)}\n";
+        var skill = $"---\nname: description-boundary\n{descriptionLine}---\n# Package skill";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Skills.Description", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/description-boundary/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(expectedSuccess ? 0 : 1, exit);
+            if (expectedSuccess)
+            {
+                Assert.Empty(error);
+                using var document = JsonDocument.Parse(output);
+                Assert.Equal(
+                    descriptionLength,
+                    document.RootElement.GetProperty("description").GetString()!.Length);
+            }
+            else
+            {
+                Assert.Empty(output);
+                Assert.Contains(
+                    "must declare an Agent Skills-compliant description of 1 to 1024 characters",
+                    error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SkillsSection_FailsWhenRestoredSkillFileIsMissing()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Skills.MissingFile", "1.0.0", "README.md", "readme", Skills:
+                [CompliantProjectSkill("skills/missing-file/SKILL.md", "# Package skill")]));
+        var skillPath = Path.Combine(
+            tempDir,
+            "packages",
+            "test.project.skills.missingfile",
+            "1.0.0",
+            "skills",
+            "missing-file",
+            "SKILL.md");
+        File.Delete(skillPath);
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "listed in project.assets.json is missing from the package cache",
+                error);
         }
         finally
         {
@@ -21836,9 +22132,9 @@ public partial class CommandExecutionTests
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Paths.One", "1.0.0", "README.md", "one", Skills:
-                [new ProjectSkillDoc("skills/SKILL.md", "one")]),
+                [CompliantProjectSkill("skills/SKILL.md", "one")]),
             new ProjectDocPackage("Test.Project.Paths.Two", "1.0.0", "README.md", "two", Skills:
-                [new ProjectSkillDoc("skills/two/SKILL.md", "two")]));
+                [CompliantProjectSkill("skills/two/SKILL.md", "two")]));
 
         try
         {
@@ -21860,7 +22156,7 @@ public partial class CommandExecutionTests
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Value.One", "1.2.3", "README.md", "one", Skills:
-                [new ProjectSkillDoc("skills/value/SKILL.md", "one")]));
+                [CompliantProjectSkill("skills/value/SKILL.md", "one")]));
 
         try
         {
@@ -21883,6 +22179,7 @@ public partial class CommandExecutionTests
         var skill = """
             ---
             name: selected
+            description: Test package skill guidance.
             ---
             # Skill guidance
             """;
@@ -21913,12 +22210,12 @@ public partial class CommandExecutionTests
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("A.Project.NoSkills", "1.0.0", "README.md", "readme"),
             new ProjectDocPackage("B.Project.HasSkills", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/selected/SKILL.md", "selected")]));
+                [CompliantProjectSkill("skills/selected/SKILL.md", "selected")]));
 
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print");
+                projectPath, "-S", "Skills", "--print", "--body");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -22106,12 +22403,12 @@ public partial class CommandExecutionTests
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Print.Jsonl", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/jsonl/SKILL.md", "selected")]));
+                [CompliantProjectSkill("skills/jsonl/SKILL.md", "selected")]));
 
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print", "--jsonl");
+                projectPath, "-S", "Skills", "--print", "--body", "--jsonl");
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
@@ -22131,9 +22428,9 @@ public partial class CommandExecutionTests
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Print.One", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/one/SKILL.md", "one")]),
+                [CompliantProjectSkill("skills/one/SKILL.md", "one")]),
             new ProjectDocPackage("Test.Project.Print.Two", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/two/SKILL.md", "two")]));
+                [CompliantProjectSkill("skills/two/SKILL.md", "two")]));
 
         try
         {
@@ -22155,14 +22452,14 @@ public partial class CommandExecutionTests
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Print.One", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/one/SKILL.md", "one")]),
+                [CompliantProjectSkill("skills/one/SKILL.md", "one")]),
             new ProjectDocPackage("Test.Project.Print.Two", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/two/SKILL.md", "two")]));
+                [CompliantProjectSkill("skills/two/SKILL.md", "two")]));
 
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print", "--row", "2");
+                projectPath, "-S", "Skills", "--print", "--body", "--row", "2");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -22180,14 +22477,14 @@ public partial class CommandExecutionTests
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("A.Project.NoSkills", "1.0.0", "README.md", "readme"),
             new ProjectDocPackage("B.Project.FirstPrintable", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/first/SKILL.md", "first")]),
+                [CompliantProjectSkill("skills/first/SKILL.md", "first")]),
             new ProjectDocPackage("C.Project.SecondPrintable", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/second/SKILL.md", "second")]));
+                [CompliantProjectSkill("skills/second/SKILL.md", "second")]));
 
         try
         {
             var (exit, output, error) = await RunProjectFixtureAsync(
-                projectPath, "-S", "Skills", "--print", "--row", "1");
+                projectPath, "-S", "Skills", "--print", "--body", "--row", "1");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
@@ -22204,9 +22501,9 @@ public partial class CommandExecutionTests
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.PrintAll.One", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/one/SKILL.md", "one")]),
+                [CompliantProjectSkill("skills/one/SKILL.md", "one")]),
             new ProjectDocPackage("Test.Project.PrintAll.Two", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/two/SKILL.md", "two")]));
+                [CompliantProjectSkill("skills/two/SKILL.md", "two")]));
 
         try
         {
@@ -22226,9 +22523,10 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsBare_PrintsFirstSkillDocument()
     {
+        var skill = CompliantProjectSkill("skills/bare/SKILL.md", "selected");
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Bare", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/bare/SKILL.md", "selected")]));
+                [skill]));
 
         try
         {
@@ -22237,7 +22535,7 @@ public partial class CommandExecutionTests
 
             Assert.True(exit == 0, $"exit={exit}\nstdout:\n{output}\nstderr:\n{error}");
             Assert.Empty(error);
-            Assert.Equal("selected", output.Trim());
+            Assert.Equal(skill.Text, output.Trim());
         }
         finally
         {
@@ -22248,12 +22546,13 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task Project_SkillsBare_MultipleDocuments_PrintsFirstPrintableDocument()
     {
+        var firstSkill = CompliantProjectSkill("skills/first/SKILL.md", "first");
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("A.Project.NoSkills", "1.0.0", "README.md", "readme"),
             new ProjectDocPackage("B.Project.FirstPrintable", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/first/SKILL.md", "first")]),
+                [firstSkill]),
             new ProjectDocPackage("C.Project.SecondPrintable", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/second/SKILL.md", "second")]));
+                [CompliantProjectSkill("skills/second/SKILL.md", "second")]));
 
         try
         {
@@ -22262,7 +22561,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("first", output.Trim());
+            Assert.Equal(firstSkill.Text, output.Trim());
         }
         finally
         {
@@ -22275,7 +22574,7 @@ public partial class CommandExecutionTests
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Columns", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/selected/SKILL.md", "selected")]));
+                [CompliantProjectSkill("skills/selected/SKILL.md", "selected")]));
 
         try
         {
@@ -22319,8 +22618,8 @@ public partial class CommandExecutionTests
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Count.One", "1.0.0", "README.md", "readme", Skills:
                 [
-                    new ProjectSkillDoc("skills/one/SKILL.md", "one"),
-                    new ProjectSkillDoc("skills/two/SKILL.md", "two")
+                    CompliantProjectSkill("skills/one/SKILL.md", "one"),
+                    CompliantProjectSkill("skills/two/SKILL.md", "two")
                 ]),
             new ProjectDocPackage("Test.Project.Count.None", "1.0.0", "README.md", "readme"));
 
@@ -22424,7 +22723,7 @@ public partial class CommandExecutionTests
                 "README.md",
                 "readme",
                 agents,
-                [new ProjectSkillDoc("skills/newline/SKILL.md", "skill body")]));
+                [CompliantProjectSkill("skills/newline/SKILL.md", "skill body")]));
         var (packagePath, packageTempDir) = CreateLocalReadmePackage(
             "Test.Package.NewlineGate",
             "README.md",
