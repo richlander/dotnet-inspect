@@ -402,8 +402,30 @@ public class ApiCommand
         {
             if (SelectOutput.WriteUnresolved(selectResult))
                 return (null!, 1);
+            if (options is MemberOptions bodyMemberOptions
+                && ApplyBodyShapeSelectionRequirements(
+                    bodyMemberOptions,
+                    selectResult) is { } bodyShapeError)
+            {
+                CommandError.Write(bodyShapeError);
+                return (null!, 1);
+            }
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
+        }
+        if (options is MemberOptions
+            {
+                BodyKindQuery.HasFilter: true,
+                Select: null,
+                SelectDefault: false,
+                Discover: null,
+                IncludeSections: null,
+            })
+        {
+            options = options with
+            {
+                IncludeSections = [SectionNames.BodyShapes],
+            };
         }
 
         // An explicit selector on a type-shaped request may ultimately belong to either the exact
@@ -572,6 +594,66 @@ public class ApiCommand
             typePipeline,
             memberPipeline,
             typeCatalog.QueryRegistry), null);
+    }
+
+    internal static string? ApplyBodyShapeSelectionRequirements(
+        MemberOptions options,
+        SelectResult selectResult)
+    {
+        if (selectResult.Sections is not { } sections)
+            return options.BodyKindQuery.HasFilter
+                && options.Select is { Length: > 0 }
+                ? $"--where Kind=... targets section '{SectionNames.BodyShapes}'."
+                : null;
+
+        bool selected = sections.Contains(SectionNames.BodyShapes);
+        if (options.BodyKindQuery.HasFilter)
+        {
+            return selected
+                ? null
+                : $"--where Kind=... targets section '{SectionNames.BodyShapes}'. "
+                    + $"Omit -S or include -S \"{SectionNames.BodyShapes}\".";
+        }
+
+        if (!selected)
+            return null;
+
+        const string required =
+            "Section 'Body Shapes' requires --where \"Kind=<C# Body Kinds ID>\".";
+        if (TargetsBodyShapes(options, options.Select)
+            || sections.Count == 1)
+        {
+            return required;
+        }
+
+        sections.Remove(SectionNames.BodyShapes);
+        return null;
+    }
+
+    internal static bool TargetsBodyShapes(
+        MemberOptions options,
+        string[]? selectors)
+    {
+        if (selectors is not { Length: > 0 })
+            return false;
+
+        var pipeline = ApiMemberSectionPipelines.Create(options);
+        foreach (var selector in selectors)
+        {
+            var resolved = SelectResolver.ResolveSelectAsSections(
+                [selector],
+                pipeline.SelectableSectionNames,
+                pipeline.InfoSectionNames,
+                pipeline.GetCategoryMap());
+            if (!resolved.HasError
+                && resolved.Sections is { Count: 1 } sections
+                && sections.Contains(SectionNames.BodyShapes))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool ValidateMemberGraphFormat(
@@ -1162,6 +1244,11 @@ public class ApiCommand
                 discover, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
             if (!resolved.HasError && resolved.Sections is { Count: > 0 })
                 sections.UnionWith(resolved.Sections);
+        }
+        if (options is MemberOptions { BodyKindQuery.HasFilter: false }
+            && options.Discover is not null)
+        {
+            sections.Remove(SectionNames.BodyShapes);
         }
         return sections;
     }
@@ -1990,6 +2077,16 @@ public class ApiCommand
                 WritePerformanceTriageDocumentJsonError();
                 return 1;
             }
+            if (GetRequestedMemberSections(type, options)
+                    .Contains(SectionNames.BodyShapes)
+                && options.IncludeSections?.Contains(
+                    SectionNames.BodyShapes) == true)
+            {
+                CommandError.Write(
+                    "Document --json cannot represent Body Shapes analysis. "
+                    + "Use --jsonl, --tsv, or --table.");
+                return 1;
+            }
             // --fields/--columns select table columns; document JSON has no column-slicing
             // facility, so the combination is rejected rather than silently dropped. A scalar
             // payload projection (--value/--print) does compose, and is handled above.
@@ -2075,6 +2172,15 @@ public class ApiCommand
                 var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
                 if (methods.Count > 0)
                 {
+                    if (requestedSections.Contains(SectionNames.BodyShapes))
+                    {
+                        ApiOutputFormatter.PopulateBodyShapes(
+                            view,
+                            mo4.DllPath!,
+                            mo4.PdbPath,
+                            methods,
+                            mo4);
+                    }
                     var analysisInspection = new ApiMemberAnalysisInspection(
                         mo4.DllPath!, methods, requestedSections, mo4.CallerScopeAssemblies, mo4);
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
@@ -2764,6 +2870,15 @@ public class ApiCommand
             effective.RemoveAll(section => section.Equals(
                 SectionNames.SourceFiles, StringComparison.OrdinalIgnoreCase));
         }
+
+        if (options is MemberOptions { BodyKindQuery.HasFilter: false })
+        {
+            effective = effective
+                .Where(section => !section.Equals(
+                    SectionNames.BodyShapes,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
         effective = DiscoverOutput.RestrictToSchemaSections(effective, fullSchema);
         var unprobed = memberPipeline.GetUnprobedSections();
         var bareDiscover = options.Discover is null or { Length: 0 };
@@ -2962,6 +3077,15 @@ public class ApiCommand
                 var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
                 if (methods.Count > 0)
                 {
+                    if (requestedSections.Contains(SectionNames.BodyShapes))
+                    {
+                        ApiOutputFormatter.PopulateBodyShapes(
+                            view,
+                            memberOptions.DllPath!,
+                            memberOptions.PdbPath,
+                            methods,
+                            memberOptions);
+                    }
                     var analysisInspection = new ApiMemberAnalysisInspection(
                         memberOptions.DllPath!, methods, requestedSections,
                         memberOptions.CallerScopeAssemblies, memberOptions);

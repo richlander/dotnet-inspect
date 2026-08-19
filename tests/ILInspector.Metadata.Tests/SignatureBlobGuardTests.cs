@@ -329,6 +329,70 @@ public class SignatureBlobGuardTests
         Assert.False(GuardTypeSpec(blob));
     }
 
+    [Theory]
+    [InlineData(0x06)]
+    [InlineData(0x07)]
+    [InlineData(0x0a)]
+    public void GenericInstanceFunctionPointerWithNonMethodHeader_IsUnsafe(int rawHeader)
+        => Assert.False(GuardTypeSpec([GenericInst, FnPtr, (byte)rawHeader, 0x00]));
+
+    [Fact]
+    public void GenericInstanceSmuggledHugeArrayShape_IsUnsafe()
+        => Assert.False(GuardTypeSpec(
+            [GenericInst, Array, I4, 0x04, 0xdf, 0xff, 0xff, 0xff]));
+
+    [Fact]
+    public void GenericInstanceClassArgument_IsSafe()
+        => Assert.True(GuardTypeSpec([GenericInst, Class, 0x06, 0x01, I4]));
+
+    [Fact]
+    public void StackedGenericInstPrefix_IsUnsafe()
+    {
+        // GENERICINST GENERICINST CLASS token is not a well-formed
+        // II.23.2.12 instantiation. The OneDeeplyNestedTypeSpec bounds
+        // fixture uses this prefix; rejecting it is what stops the
+        // retained-text amplification.
+        var blob = new List<byte>();
+        for (int i = 0; i < 8; i++)
+            blob.Add(GenericInst);
+        blob.Add(Class);
+        blob.Add(0x06);
+        for (int i = 0; i < 8; i++)
+        {
+            blob.Add(0x01);
+            blob.Add(Class);
+            blob.Add(0x06);
+        }
+
+        Assert.False(GuardTypeSpec(blob.ToArray()));
+
+        var field = new BlobBuilder();
+        field.WriteByte(0x06);
+        field.WriteBytes(blob.ToArray());
+        var (reader, handle) = BuildStandaloneSig(field);
+        Assert.False(
+            SignatureBlobGuard.IsSafeToDecode(
+                reader,
+                reader.GetStandaloneSignature(handle).Signature,
+                SignatureBlobGuard.Kind.Field));
+    }
+
+    [Fact]
+    public void MultiByteTypeCodePointerChain_IsUnsafe()
+    {
+        // SRM reads type codes as compressed integers, so 0x80 0x0F is PTR.
+        // A wide GENERICINST argument count would otherwise let the guard treat
+        // each 0x80 as a leaf and miss the nested pointer chain.
+        var blob = new List<byte> { GenericInst, Class, 0x06, 0x04 };
+        for (int i = 0; i < 3; i++)
+        {
+            blob.Add(0x80);
+            blob.Add(Ptr);
+        }
+        blob.Add(I4);
+        Assert.False(GuardTypeSpec(blob.ToArray()));
+    }
+
     static bool GuardTypeSpec(byte[] typeBlob)
     {
         var (reader, handle) = BuildTypeSpec(typeBlob);

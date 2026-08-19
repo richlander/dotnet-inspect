@@ -804,6 +804,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
+            .Add<ApiMemberDetailSectionDescriptors.BodyShapes>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleBodyBackedMember)
@@ -861,6 +862,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Callers>()
             .Add<CallGraph>()
             .Add<UnsafeOperations>()
+            .Add<BodyShapes>()
             .Add<ApiMemberSectionDescriptors.TopLeverage>()
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
             .Add<Facts>()
@@ -1085,6 +1087,21 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+    }
+
+    public sealed class BodyShapes : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.BodyShapes;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1

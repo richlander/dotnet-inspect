@@ -54,9 +54,11 @@ probe budget. Rendering may spend a larger content budget.
 Categories are authored, typed grouping declarations. They are not computed
 from section names.
 
-Every selectable section belongs to at least one authored category. A section
+Most selectable sections belong to at least one authored category. A section
 may belong to more than one category when it is genuine evidence in multiple
-domains.
+domains. A deliberately standalone section may remain uncategorized when no
+category is a coherent promise for it; it remains reachable by exact name,
+explicit wildcard, and structural schema discovery.
 
 Two category roles exist.
 
@@ -98,7 +100,7 @@ The library command currently has these domain categories:
 
 | Category | Purpose |
 | --- | --- |
-| `@Audit` | Safety, portability, and audit evidence |
+| `@Audit` | Portability, interop, and audit evidence |
 | `@Performance` | Static performance findings |
 | `@SourceLink` | Source provenance and source retrieval |
 | `@Integrations` | Framework and ecosystem integrations |
@@ -383,7 +385,7 @@ The library command's current authored ownership is:
 | --- | --- |
 | `@Library` | `Library Info`, `Inspection Failures`, `References`, `Signals`, `Symbols` |
 | `@Surface` | `Async Methods`, `Custom Attributes`, `Extension Methods`, `Resources`, `Switches`, `Type Forwarders`, `Union Types`, `P/Invoke Methods` |
-| `@Audit` | `Unsafe Members`, `P/Invoke Methods`, `Non-normalized Paths`, `SourceLink: Diagnostics`, `Signals`, `Audit: Identifier Confusion`, `Symbols` |
+| `@Audit` | `P/Invoke Methods`, `Non-normalized Paths`, `SourceLink: Diagnostics`, `Signals`, `Audit: Identifier Confusion`, `Symbols` |
 | `@Performance` | All `Performance:*` sections, `Array Pool Escapes`, `Top Leverage` |
 | `@SourceLink` | All `SourceLink:*` sections |
 | `@Integrations` | All integration sections |
@@ -391,7 +393,10 @@ The library command's current authored ownership is:
 | `@Context` | All `Context:*` sections |
 
 `@Library` and `@Surface` are base categories. The remaining categories are
-domains.
+domains. `Unsafe Members` is a standalone section with no category membership;
+select it directly with `-S "Unsafe Members"`. The explicit-only `Body Shapes`
+section is also uncategorized because its required `Kind=...` predicate, rather
+than a category, supplies its scope.
 
 ## Package category map
 
@@ -438,9 +443,11 @@ The section pipeline and derived catalog gates enforce these invariants:
 1. Section names are unique.
 2. Category names are unique and use the `@` prefix.
 3. Every category member names a registered section.
-4. Every selectable section in a curated catalog has authored category
-   ownership. Gates include
-   `LibraryPipeline_EverySelectableSectionBelongsToAnAuthoredCategory` and
+4. Every selectable package section has authored category ownership. Every
+   selectable library section is categorized except the explicitly pinned
+   standalone `Unsafe Members` and coordinate-gated `Body Shapes` sections.
+   Every selectable type section has authored category ownership. Gates:
+   `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`, plus
    `TypePipeline_AuthoredCategoriesOwnEverySection`.
 5. Base categories are explicitly marked; domain categories never enter
