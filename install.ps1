@@ -1,8 +1,8 @@
 # Install script for dotnet-inspect (Windows).
 # Usage: irm https://raw.githubusercontent.com/richlander/dotnet-inspect/main/install.ps1 | iex
 #
-# Installs dotnet-inspect using dotnet-install. If dotnet-install is
-# not available, it is installed temporarily via `dotnet tool install`.
+# Installs dotnet-inspect using dotnet-install. A current copy is installed
+# temporarily when the command is unavailable or DOTNET_INSTALL_DIR is set.
 #
 # Requires the .NET SDK.
 #
