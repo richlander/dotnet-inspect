@@ -90,7 +90,7 @@ evidence unless a category is named.
 | Command | Base categories | Domain categories |
 | ------- | --------------- | ----------------- |
 | `package` | `@Package`, `@Files` | `@Dependencies`, `@Audit`, `@SourceLink` |
-| `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@Decompiler`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
+| `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
