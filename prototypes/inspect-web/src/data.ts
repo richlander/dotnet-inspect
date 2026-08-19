@@ -914,6 +914,21 @@ export function resolveRuntimeGraphTargetCandidate<
     : { status: "missing" };
 }
 
+export function runtimeGraphTargetAssemblyIsResident(
+  pack: ResolvableGraphPackage | null | undefined,
+  target: CallGraphTarget | null | undefined,
+): boolean {
+  if (!pack?.isRuntimePack || !target?.assembly) return false;
+  const targetAssembly = String(target.assembly)
+    .replace(/\.dll$/i, "")
+    .toLowerCase();
+  return (pack.assemblies ?? []).some(assembly =>
+    String(assembly.name ?? "")
+      .replace(/\.dll$/i, "")
+      .toLowerCase() === targetAssembly
+    && callGraphAssemblyIdentityMatches(target, assembly));
+}
+
 export function resolvePlatformGraphTargetType<
   TType extends ResolvableGraphType,
 >(

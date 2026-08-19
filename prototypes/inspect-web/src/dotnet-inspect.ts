@@ -459,7 +459,7 @@ interface PendingGraphMemberDeepLink {
   viewSignature: string;
   type: string;
   member: string;
-  overload: string | null;
+  overload: number | string | null;
   section: string | null;
   target: GraphMemberShareIdentity;
 }
@@ -6942,6 +6942,9 @@ async function restorePendingGraphMember() {
   const type = selectedType();
   if (!pending || !pkg || !type) return;
   const seq = ++state.graphMemberNavigationSeq;
+  state.graphMemberNavigationTitle =
+    `${type.displayName || type.id}.${pending.target.memberName}`;
+  render();
   const restorationIsCurrent = () =>
     seq === state.graphMemberNavigationSeq
     && state.pendingGraphMemberDeepLink === pending
@@ -6952,6 +6955,7 @@ async function restorePendingGraphMember() {
   const discardIfOwned = () => {
     if (state.pendingGraphMemberDeepLink !== pending) return;
     state.pendingGraphMemberDeepLink = null;
+    state.graphMemberNavigationTitle = "";
     render();
   };
   try {
@@ -6974,6 +6978,7 @@ async function restorePendingGraphMember() {
       pending.target,
       staged);
     state.pendingGraphMemberDeepLink = null;
+    state.graphMemberNavigationTitle = "";
     state.selectedMemberKey = selection.group.key;
     state.selectedOverloadIndex = selection.overloadIndex;
     state.memberSection = pending.section
@@ -6993,6 +6998,7 @@ async function restorePendingGraphMember() {
       return;
     }
     state.pendingGraphMemberDeepLink = null;
+    state.graphMemberNavigationTitle = "";
     appendQueryNotice(
       `The graph member could not be restored: ${errorMessage(error)}`);
     render();
@@ -7041,6 +7047,8 @@ function popPlatformDrill() {
 async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   invalidateGraphMemberNavigation();
   const seq = ++state.memberCallGraphSeq;
+  const navigationSeq = state.navigationSeq;
+  const sourceView = viewSignature();
   state.memberCallGraphExpanding = false;
   state.platformDrillLoading = false;
   state.platformDrillError = "";
@@ -7049,10 +7057,25 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
   if (!type || !member || !overload || state.memberSection !== "call-graph") return;
   const originSignature = memberRequestSignature(type, overload, true);
-  const ownsNavigation = () =>
+  const navigationIsCurrent = () =>
     seq === state.memberCallGraphSeq
+    && navigationSeq === state.navigationSeq
+    && sourceView === viewSignature()
     && state.memberSection === "call-graph"
     && memberRequestIsCurrent(originSignature, true);
+  const discardIfStale = (
+    preservedFocus: MemberFocusSnapshot | null = null,
+  ) => {
+    if (navigationIsCurrent()) return false;
+    if (seq === state.memberCallGraphSeq) {
+      state.memberCallGraphExpanding = false;
+      state.platformDrillLoading = false;
+      state.platformDrillError = "";
+      if (preservedFocus) renderPreservingMemberFocus(preservedFocus);
+      else render();
+    }
+    return true;
+  };
   const framework = state.package?.activeFramework || "";
   let pack = runtimePackPackage();
   if (!pack) {
@@ -7081,6 +7104,7 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     }
   }
   let candidate = resolveRuntimeGraphTargetCandidate(pack, node);
+  let assemblyResident = runtimeGraphTargetAssemblyIsResident(pack, node);
   if (candidate.status === "ambiguous") {
     await showPlatformTargetError(
       node,
@@ -7088,8 +7112,8 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     return;
   }
   let selection = findRuntimeMemberSelection(pack, node, candidate);
-  if (!ownsNavigation()) return;
-  if (candidate.status === "missing" && node.assembly) {
+  if (discardIfStale()) return;
+  if (candidate.status === "missing" && !assemblyResident && node.assembly) {
     state.platformDrillLoading = true;
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
@@ -7121,6 +7145,7 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     }
     recordPlatformRecent(node.assembly, targetPack);
     candidate = resolveRuntimeGraphTargetCandidate(pack, node);
+    assemblyResident = runtimeGraphTargetAssemblyIsResident(pack, node);
     if (candidate.status === "ambiguous") {
       await showPlatformTargetError(
         node,
@@ -7129,13 +7154,17 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     }
     selection = findRuntimeMemberSelection(pack, node, candidate);
   }
+  if (candidate.status === "missing" && assemblyResident) {
+    await drillPlatformNode(node);
+    return;
+  }
   if (candidate.status !== "unique") {
     await showPlatformTargetError(
       node,
       "the loaded platform assembly does not contain the exact target identity");
     return;
   }
-  if (!ownsNavigation()) return;
+  if (!navigationIsCurrent()) return;
   if (!selection) {
     await drillPlatformNode(node);
     return;

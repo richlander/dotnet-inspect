@@ -56,6 +56,7 @@ import {
   resolveOpportunitySourceType,
   resolvePlatformGraphTargetType,
   resolveRuntimeGraphTargetCandidate,
+  runtimeGraphTargetAssemblyIsResident,
   runtimeGraphTargetNavigationDisposition,
   shareStateLengthError,
   scopedRequestState,
@@ -3177,7 +3178,7 @@ test("platform graph borders reflect actual resident lookup", () => {
     /const runtimeCandidate = candidate\.status === "missing" && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
   assert.match(
     packageBinding,
-    /runtimeCandidate\.status === "unique"\);\s*if \(disposition === "blocked"/);
+    /const runtimeResident = runtimeCandidate\.status === "unique"\s*\|\| runtimeGraphTargetAssemblyIsResident\(pack, target\);[\s\S]*?if \(disposition === "blocked"/);
   assert.match(
     packageBinding,
     /else if \(disposition === "resident"\) \{\s*if \(resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{\s*startPlatformDrill\(target\)/);
@@ -3229,6 +3230,13 @@ test("runtime graph nodes separate member, drill, and lookup disposition", () =>
       externalTarget,
       false),
     "blocked");
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      { status: "missing" },
+      externalTarget,
+      false,
+      true),
+    "drill");
 
   const runtimeNavigation =
     appSource.match(/function navigateToRuntimeMember[\s\S]*?\n\}/)?.[0]
@@ -3275,6 +3283,15 @@ test("runtime graph identities share and restore through exact resident candidat
     pkg: pack,
     type
   });
+  assert.equal(runtimeGraphTargetAssemblyIsResident(pack, target), true);
+  assert.equal(
+    runtimeGraphTargetAssemblyIsResident({ ...pack, types: [] }, target),
+    true);
+  assert.equal(
+    runtimeGraphTargetAssemblyIsResident(
+      pack,
+      { ...target, assemblyVersion: "10.0.0.1" }),
+    false);
   assert.equal(
     graphTargetNavigationDisposition({ status: "missing" }, target, true),
     "resident");
@@ -3378,8 +3395,32 @@ test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
     navigation,
     /candidate\.status !== "unique"[\s\S]*?loaded platform assembly does not contain the exact target identity/);
   assert.match(
+    navigation,
+    /assemblyResident = runtimeGraphTargetAssemblyIsResident\(pack, node\)[\s\S]*?candidate\.status === "missing" && assemblyResident[\s\S]*?drillPlatformNode\(node\)/);
+  assert.match(
+    navigation,
+    /const navigationSeq = state\.navigationSeq;\s*const sourceView = viewSignature\(\);\s*const navigationIsCurrent = \(\) =>\s*seq === state\.memberCallGraphSeq\s*&& navigationSeq === state\.navigationSeq\s*&& sourceView === viewSignature\(\)/);
+  assert.match(
+    navigation,
+    /const discardIfStale = \(\) => \{[\s\S]*?seq === state\.memberCallGraphSeq[\s\S]*?state\.platformDrillLoading = false;[\s\S]*?render\(\)/);
+  assert.match(
     appSource,
     /if \(disposition === "blocked" \|\| disposition === "none"\) return;/);
+});
+
+test("history rebuilds graph-only members through exact pending identity", () => {
+  const apply =
+    appSource.match(/function applyView[\s\S]*?(?=\nfunction navBack)/)?.[0]
+    ?? "";
+  const restore =
+    appSource.match(/async function restorePendingGraphMember[\s\S]*?(?=\n\})/)?.[0]
+    ?? "";
+  assert.match(
+    apply,
+    /!member[\s\S]*?state\.selectedBodyTarget[\s\S]*?state\.pendingGraphMemberDeepLink = \{[\s\S]*?packageKey: packageIdentityKey\(pkg\)[\s\S]*?member: state\.selectedMemberKey[\s\S]*?target: state\.selectedBodyTarget[\s\S]*?restorePendingGraphMember\(\)/);
+  assert.match(
+    restore,
+    /state\.graphMemberNavigationTitle =[\s\S]*?render\(\);[\s\S]*?loadGraphMemberSurface/);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {
