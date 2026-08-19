@@ -58,6 +58,16 @@ import {
 } from "/src/type-panel.ts";
 import { createPackageBar } from "/src/package-bar.ts";
 import {
+  cssEscape,
+  estimateExplorerPageSize,
+  EXPLORER_PAGE,
+  EXPLORER_ROW_H,
+  heapStreamName,
+  renderMetadataExplorer as renderMetadataExplorerHtml,
+  renderPackageMetadata as renderPackageMetadataHtml,
+  sameFocus,
+} from "/src/metadata-viewer.ts";
+import {
   renderSettingsView,
   renderTastePopover,
 } from "/src/settings-panel.ts";
@@ -2226,88 +2236,19 @@ function maybeAutoLoadPackagePerformance() {
 // NuGet package it describes every active-framework lib/ assembly.
 function renderPackageMetadata() {
   const isPlatform = Boolean(state.package?.isRuntimePack);
-  const scopedLib = scopedPlatformLibrary();
-  const picker = isPlatform ? platformLensPicker("data-platform-metadata-library") : "";
-  if (isPlatform && !scopedLib) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Pick a library to inspect</h2><p>Choose a .NET platform library above to read its metadata image — format version, heaps, tables, and PE/CLI headers.</p></section>`;
-  }
-  const scanScope = isPlatform ? `${escapeHtml(scopedLib)} · ${escapeHtml(state.package.activeFramework)}` : escapeHtml(state.package.activeFramework);
-  const current = packageScopeSignature();
-  const fresh = state.packageMetadataKey === current;
-  if (state.packageMetadataLoading && fresh) {
-    return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Reading metadata…</h2><p>Describing the metadata image — heaps, tables, and headers.</p></section>`;
-  }
-  if (fresh && state.packageMetadataError) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(state.packageMetadataError)}</p></section>`;
-  }
-  const data = fresh ? state.packageMetadata : null;
-  if (!data) {
-    return `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
-  }
-
-  const assemblies = data.assemblies || [];
-  const warning = data.inspectionError
-    ? `<section class="document-section metadata-warning"><strong>⚠ Some assemblies could not be read</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
-    : "";
-
-  if (!assemblies.length) {
-    return `${picker}${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No metadata images</h2><p>None of the assemblies in ${scanScope} carry ECMA-335 metadata (they may be native or resource-only).</p></section>`;
-  }
-
-  const blocks = assemblies.map(renderAssemblyMetadataBlock).join("");
-  const summary = `
-    <section class="document-section">
-      <div class="section-title"><h2>Metadata image</h2><span>${assemblies.length} assembl${assemblies.length === 1 ? "y" : "ies"} · ${scanScope}</span></div>
-      <p class="lens-note">The physical shape of each assembly's metadata — format stamp, heap sizes, populated ECMA-335 tables, and PE/CLI headers. This describes the container, not the API surface.</p>
-    </section>`;
-
-  return `${picker}${warning}${summary}${blocks}`;
-}
-
-function renderAssemblyMetadataBlock(asm) {
-  const heapRows = (asm.heaps || [])
-    .filter(heap => heap.sizeInBytes > 0)
-    .map(heap => `
-      <button type="button" class="meta-heap" data-mde-open-heap="${escapeHtml(asm.assembly)}|${escapeHtml(heap.name)}" title="Browse ${escapeHtml(heapStreamName(heap.name))} in the metadata explorer">
-        <span class="meta-heap-name">${escapeHtml(heapStreamName(heap.name))}</span>
-        <span class="meta-heap-size">${fmtBytes(heap.sizeInBytes)}</span>
-        <span class="meta-heap-addr">${escapeHtml(heap.addressing === "Index" ? "index" : "byte offset")} · max ${heap.maxAddress}</span>
-      </button>`).join("");
-
-  const tables = (asm.tables || []).slice().sort((a, b) => b.rowCount - a.rowCount);
-  const tableRows = tables.map(table => `
-    <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${escapeHtml(asm.assembly)}|${table.index}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
-      <span class="meta-table-name">${escapeHtml(table.name)}</span>
-      <span class="meta-table-count">${table.rowCount.toLocaleString()}</span>
-      <span class="meta-table-go">→</span>
-    </button>`).join("");
-
-  const h = asm.headers || {};
-  const corLine = h.corFlags
-    ? `<span class="meta-fact"><span class="meta-fact-k">CLI</span><span class="meta-fact-v">v${h.majorRuntimeVersion}.${h.minorRuntimeVersion} · ${escapeHtml(h.corFlags)}${h.entryPointToken ? ` · entry 0x${(h.entryPointToken >>> 0).toString(16)}` : ""}</span></span>`
-    : "";
-
-  return `
-    <section class="document-section meta-assembly">
-      <div class="section-title"><h2>${escapeHtml(asm.assembly)}</h2><span>${escapeHtml(asm.kind)}${asm.isAssembly ? " · assembly manifest" : " · module"} · metadata ${fmtBytes(asm.metadataSize)}</span></div>
-      <div class="meta-facts">
-        <span class="meta-fact"><span class="meta-fact-k">Format</span><span class="meta-fact-v">${escapeHtml(asm.metadataVersion)}</span></span>
-        <span class="meta-fact"><span class="meta-fact-k">Machine</span><span class="meta-fact-v">${escapeHtml(h.machine || "—")}${h.isPE32Plus ? " · PE32+" : " · PE32"}</span></span>
-        <span class="meta-fact"><span class="meta-fact-k">Subsystem</span><span class="meta-fact-v">${escapeHtml(h.subsystem || "—")}</span></span>
-        <span class="meta-fact"><span class="meta-fact-k">Tables</span><span class="meta-fact-v">${asm.projectedTableTotal}/${tables.length} populated</span></span>
-        ${corLine}
-      </div>
-      <div class="meta-grid">
-        <div class="meta-col">
-          <h3 class="meta-col-title">Heaps</h3>
-          <div class="meta-heaps">${heapRows || '<div class="meta-empty">No non-empty heaps</div>'}</div>
-        </div>
-        <div class="meta-col">
-          <h3 class="meta-col-title">Tables <span class="meta-col-note">by row count</span></h3>
-          <div class="meta-tables">${tableRows || '<div class="meta-empty">No populated tables</div>'}</div>
-        </div>
-      </div>
-    </section>`;
+  const fresh = state.packageMetadataKey === packageScopeSignature();
+  return renderPackageMetadataHtml({
+    isPlatform,
+    scopedLibrary: scopedPlatformLibrary() || "",
+    activeFramework: state.package?.activeFramework || "",
+    pickerHtml: isPlatform ? platformLensPicker("data-platform-metadata-library") : "",
+    fresh,
+    loading: Boolean(state.packageMetadataLoading),
+    error: state.packageMetadataError || "",
+    metadata: state.packageMetadata || null,
+    escapeHtml,
+    fmtBytes,
+  });
 }
 
 async function loadPackageMetadata() {
@@ -2358,21 +2299,10 @@ function maybeAutoLoadPackageMetadata() {
 // lazy-loads each table's row window on demand, renders cells with their typed values, and
 // turns handle/range cells into ref->def jumps that transport you to the target table+row.
 
-// A conservative fallback page size; the real one adapts to the focus panel's visible height
-// (see estimateExplorerPageSize / syncExplorerPageSize) so a tall panel isn't half-empty.
-const EXPLORER_PAGE = 50;
-const EXPLORER_ROW_H = 18; // approximate grid row height (px) for the pre-render estimate
-
-// Current adaptive page size for the open explorer, falling back to the constant.
+// Current adaptive page size for the open explorer, falling back to the constant owned by
+// metadata-viewer.ts.
 function explorerPageSize() {
   return state.explorer?.pageSize || EXPLORER_PAGE;
-}
-
-// Pre-render estimate from the viewport (chrome above the grid ~ 180px), so the very first window
-// load already roughly fills the panel; syncExplorerPageSize refines it from real measurements.
-function estimateExplorerPageSize() {
-  const grid = Math.max(120, (window.innerHeight || 800) - 180);
-  return Math.max(30, Math.min(400, Math.floor(grid / EXPLORER_ROW_H) + 2));
 }
 
 // Opens the explorer over one assembly, focused on a table (and optionally a row). The table
@@ -2431,29 +2361,13 @@ function buildBaseExplorer(assemblyFileName) {
     history: [],
     historyPos: -1,
     overview: false,
-    pageSize: estimateExplorerPageSize(),
+    pageSize: estimateExplorerPageSize(window.innerHeight || 0),
   };
-}
-
-// ECMA-335 stream name for a HeapKind name, matching the product's spelling.
-function heapStreamName(name) {
-  switch (name) {
-    case "String": return "#Strings";
-    case "Blob": return "#Blob";
-    case "Guid": return "#GUID";
-    case "UserString": return "#US";
-    default: return `#${name}`;
-  }
 }
 
 function closeExplorer() {
   state.explorer = null;
   render();
-}
-
-function explorerTableName(index) {
-  const hit = state.explorer?.directory.find(t => t.index === index);
-  return hit ? hit.name : `#${index}`;
 }
 
 async function loadExplorerWindow(index, startRowId = 1, maxRows = explorerPageSize()) {
@@ -2519,13 +2433,6 @@ async function loadExplorerHeap(heapName) {
 // which otherwise look like "you didn't move").
 function explorerJump(index, rowId) {
   pushExplorerFocus({ index, rowId: rowId || 0 });
-}
-
-// A focus entry is either { index, rowId } (rowId 0 = table, no highlighted row) or { heap }.
-function sameFocus(a, b) {
-  if (!a || !b) return false;
-  if (a.heap != null || b.heap != null) return a.heap === b.heap;
-  return a.index === b.index;
 }
 
 // Move focus to a new entry, truncating any forward history (a fresh branch). Re-selecting the
@@ -2651,284 +2558,15 @@ function syncExplorerPageSize() {
   }
 }
 
-// Attribute-selector-safe heap name (heap names are simple identifiers, but be defensive).
-function cssEscape(value) {  return String(value).replace(/["\\]/g, "\\$&");
-}
-
+// Renders the explorer surface owned by metadata-viewer.ts, then binds its events. The state
+// snapshot is passed explicitly; the module owns markup only.
 function renderMetadataExplorer() {
-  const ex = state.explorer;
-  const chips = ex.directory.map(t => `
-    <button type="button" class="mde-chip ${t.index === ex.focusIndex && !ex.focusHeap ? "active" : ""} ${t.isProjected ? "" : "mde-chip-unprojected"}" data-mde-chip="${t.index}" title="${t.rowCount.toLocaleString()} rows${t.isProjected ? "" : " · not modeled"}">
-      ${escapeHtml(t.name)}<span class="mde-chip-count">${t.rowCount.toLocaleString()}</span>
-    </button>`).join("");
-  const heapChips = (ex.heaps || []).map(h => `
-    <button type="button" class="mde-chip mde-chip-heap ${ex.focusHeap === h.name ? "active" : ""}" data-mde-heap-chip="${escapeHtml(h.name)}" title="${escapeHtml(h.streamName)} · ${fmtBytes(h.sizeInBytes)}">
-      ${escapeHtml(h.streamName)}<span class="mde-chip-count">${fmtBytes(h.sizeInBytes)}</span>
-    </button>`).join("");
-
-  const cards = ex.directory.map(t => renderExplorerCard(t)).join("");
-  const heapCards = (ex.heaps || []).length
-    ? `<div class="mde-heap-divider"><span>heaps</span></div>` + ex.heaps.map(renderHeapCard).join("")
-    : "";
-
-  const canBack = ex.historyPos > 0;
-  const canForward = ex.historyPos < ex.history.length - 1;
-  const focusPanel = ex.overview ? "" : renderExplorerFocusPanel();
-  const note = ex.overview
-    ? `metadata tables · ${ex.directory.length} populated · click a table to focus · Esc to exit`
-    : `metadata tables · ${ex.directory.length} populated · click a ref to jump · Esc / click away for all tables`;
-
-  app.innerHTML = `
-    <div class="metadata-explorer">
-      <header class="mde-bar">
-        <div class="mde-nav" role="group" aria-label="Explorer navigation">
-          <button id="mde-exit" class="mde-navbtn mde-nav-exit" title="Exit the explorer">✕ Exit</button>
-          <button id="mde-hist-back" class="mde-navbtn" ${canBack ? "" : "disabled"} title="Back (Backspace)">← Back</button>
-          <button id="mde-hist-fwd" class="mde-navbtn" ${canForward ? "" : "disabled"} title="Forward (Shift+Backspace)">Forward →</button>
-        </div>
-        <div class="mde-title">
-          <span class="mde-title-asm">${escapeHtml(ex.assemblyFileName)}</span>
-          <span class="mde-title-note">${note}</span>
-        </div>
-      </header>
-      <nav class="mde-chips">${chips}${heapChips ? `<span class="mde-chip-sep"></span>${heapChips}` : ""}</nav>
-      <div class="mde-body">
-        <div class="mde-canvas mde-wall ${ex.overview ? "mde-wall-open" : ""}" id="mde-canvas">${cards}${heapCards}</div>
-        ${focusPanel}
-      </div>
-    </div>`;
+  app.innerHTML = renderMetadataExplorerHtml({
+    explorer: state.explorer,
+    escapeHtml,
+    fmtBytes,
+  });
   bindMetadataExplorerEvents();
-}
-
-// The focus lightbox: the current table (or heap) blown up front-and-center over the dim wall,
-// with the row inspector docked on its right. Corner ✕ buttons (top-right + bottom-right) zoom
-// back out to the all-tables wall. Auto-focus (every ref->def jump lands here) makes this the
-// primary reading surface — the wall behind is spatial context you can click into.
-function renderExplorerFocusPanel() {
-  const ex = state.explorer;
-  const card = ex.focusHeap
-    ? renderHeapCard(ex.heaps.find(h => h.name === ex.focusHeap) || {})
-    : renderExplorerCard(ex.directory.find(t => t.index === ex.focusIndex) || {});
-  const detail = renderExplorerDetail();
-  return `
-    <div class="mde-focus">
-      <div class="mde-focus-inner">
-        <div class="mde-focus-card">${card}</div>
-        ${detail}
-      </div>
-      <button type="button" class="mde-focus-x mde-focus-x-top" data-mde-overview="1" title="Back to all tables (Esc)">✕</button>
-      <button type="button" class="mde-focus-x mde-focus-x-bottom" data-mde-overview="1" title="Back to all tables (Esc)">✕</button>
-    </div>`;
-}
-
-// A heap card: header (stream name, size, coverage badge), a coverage caveat banner, and the
-// listed entries (address · refs · value). The value reuses the same cell renderer as the grid,
-// so a listed #Strings entry and a Name cell pointing at it render identically.
-function renderHeapCard(h) {
-  const ex = state.explorer;
-  const win = ex.heapWindows[h.name];
-  const focused = ex.focusHeap === h.name;
-  let body;
-  if (win?.loading && !win.data) {
-    body = `<div class="mde-card-empty"><span class="loader"></span> Reading ${escapeHtml(h.streamName)}…</div>`;
-  } else if (win?.error) {
-    body = `<div class="mde-card-empty mde-card-error">△ ${escapeHtml(win.error)}</div>`;
-  } else if (win?.data) {
-    body = renderHeapListing(win.data);
-  } else {
-    body = `<div class="mde-card-empty mde-card-lazy" data-mde-heap-needs-load="${escapeHtml(h.name)}"><span class="loader"></span> Loading ${escapeHtml(h.streamName)}…</div>`;
-  }
-  const coverage = win?.data?.coverage;
-  const badge = coverage
-    ? `<span class="mde-cov-badge mde-cov-${coverage.toLowerCase()}">${escapeHtml(coverageLabel(coverage))}</span>`
-    : "";
-  return `
-    <section class="mde-heap-card ${focused ? "mde-card-focus" : ""}" data-mde-heap="${escapeHtml(h.name)}">
-      <div class="mde-card-head">
-        <h3>${escapeHtml(h.streamName)}</h3>
-        <span class="mde-card-meta">heap · ${fmtBytes(h.sizeInBytes)}${badge ? " · " : ""}</span>${badge}
-      </div>
-      ${body}
-    </section>`;
-}
-
-function coverageLabel(coverage) {
-  switch (coverage) {
-    case "Complete": return "every entry";
-    case "ReferencedOnly": return "referenced only";
-    case "NotEnumerable": return "not enumerable";
-    default: return coverage;
-  }
-}
-
-// The listing body: a coverage caveat line, then the entry rows. Coverage is stated as part of
-// the answer so a referenced-only or truncated list is never read as the whole heap.
-function renderHeapListing(data) {
-  const note = heapCoverageNote(data);
-  if (data.coverage === "NotEnumerable" || !(data.entries || []).length) {
-    return `<div class="mde-heap-note">${note}</div>`;
-  }
-  const isIndex = data.heap === "Guid";
-  const sel = state.explorer?.detail;
-  const rows = data.entries.map(entry => {
-    const addr = isIndex ? `#${entry.offset}` : `0x${(entry.offset >>> 0).toString(16)}`;
-    const isSel = sel && sel.heap === data.heap && sel.offset === entry.offset;
-    return `<tr class="mde-heap-row ${isSel ? "mde-heap-row-sel" : ""}" data-mde-heap-row="${escapeHtml(data.heap)}:${entry.offset}">
-      <td class="mde-heap-addr" title="${isIndex ? "GUID index" : "heap byte offset"}">${addr}</td>
-      <td class="mde-heap-val">${renderHeapValueCell(entry.value)}</td>
-      <td class="mde-heap-refs" title="referenced by ${entry.referenceCount} projected cell${entry.referenceCount === 1 ? "" : "s"}">${entry.referenceCount.toLocaleString()}×</td>
-    </tr>`;
-  }).join("");
-  return `
-    <div class="mde-heap-note">${note}</div>
-    <div class="mde-grid-scroll"><table class="mde-grid mde-heap-grid">
-      <thead><tr><th class="mde-heap-addr">addr</th><th>value</th><th class="mde-heap-refs" title="reference count">refs</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>`;
-}
-
-function heapCoverageNote(data) {
-  const parts = [];
-  switch (data.coverage) {
-    case "Complete":
-      parts.push(`Every entry in this heap is listed — the GUID heap is fixed-size records at consecutive indices, so it enumerates exactly.`);
-      break;
-    case "ReferencedOnly":
-      parts.push(`Only entries a projected table row points at are listed — the heap may hold values nothing references, still readable by address.`);
-      break;
-    case "NotEnumerable":
-      parts.push(`No entry can be listed: no ECMA-335 table column points into ${escapeHtml(data.streamName)} — its references are <code>ldstr</code> operands inside method bodies. An empty list here is a blind spot, not an empty heap.`);
-      break;
-    default:
-      break;
-  }
-  if (data.rowsTruncated) parts.push(`Reference scan did not cover every row of every table, so some references are uncounted.`);
-  if (data.entriesTruncated) parts.push(`The entry budget cut the listing short.`);
-  return parts.join(" ");
-}
-
-// A heap entry's value renders exactly like the same heap cell in a grid, minus the jump (a heap
-// value has no ref->def target). Falls back through the flat cell union defensively.
-function renderHeapValueCell(cell) {
-  if (!cell) return `<span class="mde-nil">·</span>`;
-  if (cell.kind === "heap") {
-    const val = cell.text != null ? cell.text : cell.preview;
-    const cls = `mde-cell-heap mde-heap-${(cell.heap || "").toLowerCase()}`;
-    return `<span class="${cls}" title="${cell.length} byte${cell.length === 1 ? "" : "s"}${cell.truncated ? " · truncated" : ""}">${escapeHtml(val ?? "")}${cell.truncated ? "…" : ""}</span>`;
-  }
-  return renderExplorerCell(cell, null);
-}
-
-function renderExplorerCard(t) {
-  const ex = state.explorer;
-  const win = ex.windows[t.index];
-  const focused = t.index === ex.focusIndex;
-  let body;
-  if (!t.isProjected) {
-    body = `<div class="mde-card-empty">This table has ${t.rowCount.toLocaleString()} rows but is not modeled by the projection yet.</div>`;
-  } else if (win?.loading && !win.data) {
-    body = `<div class="mde-card-empty"><span class="loader"></span> Reading rows…</div>`;
-  } else if (win?.error) {
-    body = `<div class="mde-card-empty mde-card-error">△ ${escapeHtml(win.error)}</div>`;
-  } else if (win?.data) {
-    body = renderExplorerGrid(win.data);
-  } else {
-    body = `<div class="mde-card-empty mde-card-lazy" data-mde-needs-load="${t.index}"><span class="loader"></span> Loading ${t.name}…</div>`;
-  }
-
-  const win2 = win?.data;
-  const pager = win2 && win2.rows?.length
-    ? (() => {
-        const from = win2.startRowId;
-        const to = win2.startRowId + win2.rows.length - 1;
-        const hasPrev = from > 1;
-        const hasNext = to < win2.rowCount;
-        return `<div class="mde-pager">
-          <span>rows ${from.toLocaleString()}–${to.toLocaleString()} of ${win2.rowCount.toLocaleString()}</span>
-          <span class="mde-pager-btns">
-            <button type="button" data-mde-page="${t.index}:${Math.max(1, from - win2.rows.length)}" ${hasPrev ? "" : "disabled"}>‹ prev</button>
-            <button type="button" data-mde-page="${t.index}:${to + 1}" ${hasNext ? "" : "disabled"}>next ›</button>
-          </span>
-        </div>`;
-      })()
-    : "";
-
-  return `
-    <section class="mde-card ${focused ? "mde-card-focus" : ""} ${t.isProjected ? "" : "mde-card-dim"}" data-mde-index="${t.index}">
-      <div class="mde-card-head">
-        <h3>${escapeHtml(t.name)}</h3>
-        <span class="mde-card-meta">table ${t.index} · ${t.rowCount.toLocaleString()} row${t.rowCount === 1 ? "" : "s"}</span>
-      </div>
-      ${body}
-      ${pager}
-    </section>`;
-}
-
-function renderExplorerGrid(data) {
-  const ex = state.explorer;
-  const cols = data.columns || [];
-  const header = `<tr><th class="mde-gutter">#</th>${cols.map(c => `<th title="${escapeHtml(c.kind)}${c.candidateTargets?.length ? " → " + c.candidateTargets.map(explorerTableName).join(", ") : ""}">${escapeHtml(c.name)}</th>`).join("")}</tr>`;
-  const rows = (data.rows || []).map(row => {
-    const hot = ex.highlight && ex.highlight.index === data.index && ex.highlight.rowId === row.rowId;
-    const sel = ex.detail && ex.detail.index === data.index && ex.detail.rowId === row.rowId;
-    const cells = row.cells.map((cell, i) => `<td>${renderExplorerCell(cell, cols[i])}</td>`).join("");
-    return `<tr class="mde-row ${hot ? "mde-row-hot" : ""} ${sel ? "mde-row-sel" : ""}" data-mde-row="${data.index}:${row.rowId}"><td class="mde-gutter" title="token 0x${(row.token >>> 0).toString(16)}">${row.rowId}</td>${cells}</tr>`;
-  }).join("");
-  return `<div class="mde-grid-scroll"><table class="mde-grid"><thead>${header}</thead><tbody>${rows}</tbody></table></div>`;
-}
-
-function renderExplorerCell(cell, column) {
-  if (!cell) return "";
-  switch (cell.kind) {
-    case "nil":
-      return `<span class="mde-nil">·</span>`;
-    case "scalar":
-      return `<span class="mde-cell-scalar">${escapeHtml(cell.display ?? String(cell.raw ?? ""))}</span>`;
-    case "flags":
-      return `<span class="mde-cell-flags" title="0x${((cell.raw ?? 0) >>> 0).toString(16)}">${escapeHtml(cell.decoded || String(cell.raw ?? 0))}</span>`;
-    case "heap": {
-      const val = cell.text != null ? cell.text : cell.preview;
-      const cls = `mde-cell-heap mde-heap-${(cell.heap || "").toLowerCase()}`;
-      return `<span class="${cls}" title="#${escapeHtml(cell.heap || "")} @${cell.offset} · ${cell.length} byte${cell.length === 1 ? "" : "s"}">${escapeHtml(val ?? "")}${cell.truncated ? "…" : ""}</span>`;
-    }
-    case "handle": {
-      if (!cell.targetRowId) return `<span class="mde-nil">nil</span>`;
-      const label = cell.display || `${explorerTableName(cell.targetTable)} #${cell.targetRowId}`;
-      return `<button type="button" class="mde-ref" data-mde-jump="${cell.targetTable}:${cell.targetRowId}" title="→ ${escapeHtml(explorerTableName(cell.targetTable))} #${cell.targetRowId}">${escapeHtml(label)}${cell.truncated ? "…" : ""} <span class="mde-ref-arrow">↗</span></button>`;
-    }
-    case "range": {
-      if (!cell.count) return `<span class="mde-nil">empty</span>`;
-      return `<button type="button" class="mde-ref mde-ref-range" data-mde-jump="${cell.targetTable}:${cell.startRowId}" title="→ ${escapeHtml(explorerTableName(cell.targetTable))} rows ${cell.startRowId}‥${cell.endRowId}">${escapeHtml(explorerTableName(cell.targetTable))} #${cell.startRowId}‥${cell.endRowId} <span class="mde-ref-count">${cell.count}</span></button>`;
-    }
-    case "malformed":
-      return `<span class="mde-cell-malformed" title="${escapeHtml(cell.detail || "")}">malformed</span>`;
-    default:
-      return "";
-  }
-}
-
-// The row inspector: the selected row's cells laid out vertically, labeled by column, with
-// handle/range cells still jumpable. A focused "read this one row" companion to the grid.
-function renderExplorerDetail() {
-  const ex = state.explorer;
-  if (!ex.detail) return "";
-  const win = ex.windows[ex.detail.index];
-  const row = win?.data?.rows?.find(r => r.rowId === ex.detail.rowId);
-  if (!row) return "";
-  const cols = win.data.columns || [];
-  const fields = row.cells.map((cell, i) => `
-    <div class="mde-detail-field">
-      <span class="mde-detail-k">${escapeHtml(cols[i]?.name || `col ${i}`)}</span>
-      <span class="mde-detail-v">${renderExplorerCell(cell, cols[i])}</span>
-    </div>`).join("");
-  return `
-    <aside class="mde-detail">
-      <div class="mde-detail-head">
-        <span class="mde-detail-title">${escapeHtml(win.data.name)} #${row.rowId}</span>
-      </div>
-      <div class="mde-detail-token">token 0x${(row.token >>> 0).toString(16)}</div>
-      <div class="mde-detail-fields">${fields}</div>
-    </aside>`;
 }
 
 let explorerObserver = null;
