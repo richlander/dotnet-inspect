@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -20,6 +24,264 @@ public class CrossAssemblyMethodFactsTests
         AssertCallRefKind(source, nameof(CrossAssemblyFixtureMethods.UseOut), "WriteOut", ArgumentRefKind.Out);
         AssertCallRefKind(source, nameof(CrossAssemblyFixtureMethods.UseRef), "Mutate", ArgumentRefKind.Ref);
         AssertCallRefKind(source, nameof(CrossAssemblyFixtureMethods.UseIn), "Read", ArgumentRefKind.In);
+    }
+
+    [Fact]
+    public void VersionDriftedSiblingAssembly_RecoversParameterRefKinds()
+    {
+        using var fixture = CrossAssemblyFixture.Create(versionDrift: true);
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        AssertCallRefKind(source, nameof(CrossAssemblyFixtureMethods.UseExternalOut), "WriteExternalOut", ArgumentRefKind.Out);
+        AssertCallRefKind(source, nameof(CrossAssemblyFixtureMethods.UseExternalRef), "MutateExternal", ArgumentRefKind.Ref);
+        Assert.Contains(
+            "ByRefLibrary.WriteExternalOut(out V_0);",
+            Print(source, CrossAssemblyFixtureMethods.UseExternalOut));
+    }
+
+    [Fact]
+    public void GenericInstantiatedSignatureCollision_UsesDefinitionSignature()
+    {
+        using var fixture = CrossAssemblyFixture.Create(versionDrift: true);
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        AssertCallRefKind(source, "UseGenericOut", "GenericCollision", ArgumentRefKind.Out);
+        Assert.Contains(
+            "ByRefLibrary.GenericCollision<object>(out V_0);",
+            Print(source, "UseGenericOut"));
+    }
+
+    [Fact]
+    public void GenericReturnSignatureCollision_UsesDefinitionReturnType()
+    {
+        using var fixture = MethodCollisionFixture.Create();
+        var objectType = TypeRef.CoreLib("System", "Object");
+        var callee = new MethodRef(
+            fixture.Type("C"),
+            "ReturnCollision",
+            objectType,
+            [],
+            HasThis: false)
+        {
+            TypeArguments = [objectType],
+            DefinitionReturnType = objectType,
+        };
+
+        Assert.False(fixture.Resolve(callee).RequiresUnsafe);
+    }
+
+    [Fact]
+    public void CustomModifierSignatureCollision_UsesExactModifiers()
+    {
+        using var fixture = MethodCollisionFixture.Create();
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var parameter = TypeRef.ByRef(intType)
+            .WithCustomModifier(fixture.Type("Marker"), isRequired: false);
+        var callee = new MethodRef(
+            fixture.Type("C"),
+            "ModifierCollision",
+            TypeRef.CoreLib("System", "Void"),
+            [parameter],
+            HasThis: false);
+
+        Assert.False(fixture.Resolve(callee).RequiresUnsafe);
+    }
+
+    [Fact]
+    public void TypeSpecCustomModifierSignatureCollision_UsesExactModifiers()
+    {
+        using var fixture = MethodCollisionFixture.Create();
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var modifier = TypeRef.GenericInstance(
+            fixture.Type("Marker`1"),
+            [intType]);
+        var parameter = TypeRef.ByRef(intType)
+            .WithCustomModifier(modifier, isRequired: false);
+        var callee = new MethodRef(
+            fixture.Type("C"),
+            "TypeSpecModifierCollision",
+            TypeRef.CoreLib("System", "Void"),
+            [parameter],
+            HasThis: false);
+
+        Assert.True(fixture.Resolve(callee).RequiresUnsafe);
+    }
+
+    [Fact]
+    public void GenericTypeSpecCustomModifier_IsInstantiated()
+    {
+        using var fixture = MethodCollisionFixture.Create();
+        var stringType = TypeRef.CoreLib("System", "String");
+        var modifier = TypeRef.GenericInstance(
+            fixture.Type("Marker`1"),
+            [TypeRef.GenericParameter(0, "T")]);
+        var modified = TypeRef.CoreLib("System", "Int32")
+            .WithCustomModifier(modifier, isRequired: true);
+
+        TypeRef instantiated = modified.Instantiate(
+            [stringType],
+            []);
+
+        var retained = Assert.Single(instantiated.CustomModifiers);
+        Assert.True(retained.IsRequired);
+        Assert.Equal(
+            stringType,
+            Assert.Single(retained.Modifier.TypeArguments));
+    }
+
+    [Fact]
+    public void DefinitionFactStamping_PreservesCustomModifiers()
+    {
+        var modifier = TypeRef.CoreLib(
+            "System.Runtime.InteropServices",
+            "OutAttribute");
+        TypeRef modified = TypeRef.Definition(
+                "External",
+                "N",
+                "C")
+            .WithCustomModifier(
+                modifier,
+                isRequired: true);
+
+        TypeRef withHint = modified.WithValueTypeHint(
+            ValueTypeHint.ReferenceType);
+        TypeRef withInlineArray = modified.WithInlineArrayFact(
+            MetadataFactState.No);
+
+        Assert.Equal(
+            modified.CustomModifiers,
+            withHint.CustomModifiers);
+        Assert.Equal(
+            modified.CustomModifiers,
+            withInlineArray.CustomModifiers);
+    }
+
+    [Fact]
+    public void FunctionPointerInstantiation_RecomputesParameterRefKinds()
+    {
+        var parameter = TypeRef.ByRef(
+                TypeRef.CoreLib("System", "Int32"))
+            .WithCustomModifier(
+                TypeRef.GenericParameter(0, "T"),
+                isRequired: true);
+        TypeRef pointer = TypeRef.FunctionPointer(
+            TypeRef.CoreLib("System", "Void"),
+            [parameter],
+            "");
+
+        TypeRef instantiated = pointer.Instantiate(
+            [
+                TypeRef.CoreLib(
+                    "System.Runtime.InteropServices",
+                    "OutAttribute"),
+            ],
+            []);
+
+        Assert.Equal(
+            [ArgumentRefKind.Out],
+            instantiated.FunctionPointerParameterRefKinds);
+    }
+
+    /// <summary>
+    /// The <c>SuppressGCTransition</c> suffix is derived from a custom modifier
+    /// the return type keeps, so re-deriving the convention during substitution
+    /// must not spell it twice. <see cref="TypeRef.Equals"/> includes the
+    /// calling convention, so a doubled suffix makes the substituted pointer
+    /// unequal to the same closed pointer decoded straight from a signature —
+    /// exactly the identity this PR exists to protect. Fails if
+    /// <c>AddSuppressGcTransition</c> stops being idempotent.
+    /// </summary>
+    [Fact]
+    public void FunctionPointerInstantiation_DoesNotDoubleSuppressGcTransition()
+    {
+        TypeRef modifier = TypeRef.CoreLib(
+            "System.Runtime.CompilerServices",
+            "CallConvSuppressGCTransition");
+        TypeRef intType = TypeRef.CoreLib("System", "Int32");
+        TypeRef openReturn = TypeRef.GenericParameter(0, "T")
+            .WithCustomModifier(modifier, isRequired: false);
+        TypeRef open = TypeRef.FunctionPointer(openReturn, [intType], "");
+
+        TypeRef instantiated = open.Instantiate([intType], []);
+        TypeRef closed = TypeRef.FunctionPointer(
+            intType.WithCustomModifier(modifier, isRequired: false),
+            [intType],
+            "");
+
+        Assert.Equal("unmanaged[SuppressGCTransition]", closed.CallingConvention);
+        Assert.Equal(closed.CallingConvention, instantiated.CallingConvention);
+        Assert.Equal(closed, instantiated);
+        Assert.Equal(closed.GetHashCode(), instantiated.GetHashCode());
+    }
+
+    /// <summary>
+    /// Substitution can turn a representable modifier into an unsupported one.
+    /// Losing that evidence left a type that looked fully supported, so the
+    /// fidelity computation lost the reason it could not be spelled. This is
+    /// the <c>InstantiateCustomModifiers</c> path, which rebuilds the modifier
+    /// list directly and so never reaches <c>WithCustomModifier</c>: it gates
+    /// only the traversal, and fails if <see cref="TypeRef.ContainsUnsupported"/>
+    /// or <c>UnsupportedReasons</c> stop looking at <c>CustomModifiers</c>.
+    /// Retention through <c>WithCustomModifier</c> is gated separately by
+    /// <see cref="SubstitutedModifierOnAGenericParameter_IsNotDiscarded"/>.
+    /// </summary>
+    [Fact]
+    public void SubstitutedUnsupportedModifier_KeepsItsEvidence()
+    {
+        const string reason = "modifier type is unsupported";
+        TypeRef modified = TypeRef.CoreLib("System", "Int32")
+            .WithCustomModifier(
+                TypeRef.GenericParameter(0, "T"),
+                isRequired: true);
+
+        TypeRef instantiated = modified.Instantiate(
+            [TypeRef.Unsupported(reason)],
+            []);
+
+        Assert.Single(instantiated.CustomModifiers);
+        Assert.True(instantiated.ContainsUnsupported);
+        Assert.Contains(reason, instantiated.UnsupportedReasons());
+    }
+
+    /// <summary>
+    /// The same evidence loss, on the path where the modified type is itself
+    /// the generic parameter being substituted: the modifiers ride across onto
+    /// the substituted type. Dropping an unsupported one here returned the bare
+    /// argument, indistinguishable from a type that never carried a modifier.
+    /// Fails if <c>WithCustomModifier</c> goes back to discarding it.
+    /// </summary>
+    [Fact]
+    public void SubstitutedModifierOnAGenericParameter_IsNotDiscarded()
+    {
+        const string reason = "modifier type is unsupported";
+        TypeRef intType = TypeRef.CoreLib("System", "Int32");
+        TypeRef parameter = TypeRef.GenericParameter(0, "T")
+            .WithCustomModifier(
+                TypeRef.GenericParameter(1, "U"),
+                isRequired: true);
+
+        TypeRef instantiated = parameter.Instantiate(
+            [intType, TypeRef.Unsupported(reason)],
+            []);
+
+        Assert.NotSame(intType, instantiated);
+        Assert.Single(instantiated.CustomModifiers);
+        Assert.True(instantiated.ContainsUnsupported);
+        Assert.Contains(reason, instantiated.UnsupportedReasons());
+    }
+
+    [Fact]
+    public void AmbiguousMethodCandidates_KeepFactsUnknown()
+    {
+        using var fixture = MethodCollisionFixture.Create();
+        var callee = new MethodRef(
+            fixture.Type("C"),
+            "DuplicateCollision",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            HasThis: false);
+
+        Assert.False(fixture.Resolve(callee).RequiresUnsafe);
     }
 
     [Fact]
@@ -135,6 +397,82 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void CrossAssemblyDynamicReturns_PreserveReferenceIdentity()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var property = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseDynamicProperty), "get_DynamicValue");
+        var method = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseDynamicMethod), "GetDynamicValue");
+        var byRefMethod = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseByRefDynamicMethod), "GetDynamicReference");
+        var byRefObjectMethod = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseByRefObjectMethod), "GetObjectReference");
+        Assert.Equal(MetadataFactState.Yes, property.Callee.ReturnIsDynamic);
+        Assert.Equal(MetadataFactState.Yes, method.Callee.ReturnIsDynamic);
+        Assert.Equal(MetadataFactState.Yes, byRefMethod.Callee.ReturnIsDynamic);
+        Assert.Equal(MetadataFactState.No, byRefObjectMethod.Callee.ReturnIsDynamic);
+
+        Assert.Contains("(object)library.DynamicValue == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicProperty));
+        Assert.Contains("(object)library.GetDynamicValue() == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicMethod));
+        Assert.Contains("(object)(library.GetDynamicReference()) == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseByRefDynamicMethod));
+        Assert.Contains("(object)(library.DynamicReference) == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseByRefDynamicProperty));
+        Assert.Contains("(object)(library.Reference) == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseGenericByRefDynamicProperty));
+        Assert.DoesNotContain("(object)", PrintRaised(source, CrossAssemblyFixtureMethods.UseByRefObjectMethod));
+    }
+
+    [Fact]
+    public void CrossAssemblyDynamicFields_PreserveReferenceIdentity()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var direct = SingleField(source, nameof(CrossAssemblyFixtureMethods.UseDynamicField), "DynamicField");
+        var generic = SingleField(source, nameof(CrossAssemblyFixtureMethods.UseGenericDynamicField), "Value");
+        var plainObject = SingleField(source, nameof(CrossAssemblyFixtureMethods.UseObjectField), "ObjectField");
+        var byRefDynamic = SingleField(source, nameof(CrossAssemblyFixtureMethods.UseByRefDynamicField), "DynamicField");
+        var byRefObject = SingleField(source, nameof(CrossAssemblyFixtureMethods.UseByRefObjectField), "ObjectField");
+
+        Assert.Equal(MetadataFactState.Yes, direct.Field.DynamicFact);
+        Assert.Equal(MetadataFactState.Unknown, generic.Field.DynamicFact);
+        Assert.Equal(MetadataFactState.No, plainObject.Field.DynamicFact);
+        Assert.Equal(MetadataFactState.Yes, byRefDynamic.Field.DynamicFact);
+        Assert.Equal(MetadataFactState.No, byRefObject.Field.DynamicFact);
+        Assert.Contains("(object)library.DynamicField == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicField));
+        Assert.Contains("(object)library.Value == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseGenericDynamicField));
+        Assert.Contains("return library.ObjectField == right;", PrintRaised(source, CrossAssemblyFixtureMethods.UseObjectField));
+        Assert.Contains("(object)(library.DynamicField) == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseByRefDynamicField));
+        Assert.DoesNotContain("(object)", PrintRaised(source, CrossAssemblyFixtureMethods.UseByRefObjectField));
+    }
+
+    [Fact]
+    public void MissingCrossAssemblyDynamicFacts_DeclineConservatively()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            TestAssemblyReferenceResolvers.None);
+
+        var call = SingleCall(source, nameof(CrossAssemblyFixtureMethods.UseDynamicMethod), "GetDynamicValue");
+        Assert.Equal(MetadataFactState.Unknown, call.Callee.ReturnIsDynamic);
+        Assert.Contains("(object)library.GetDynamicValue() == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicMethod));
+    }
+
+    [Fact]
+    public void MissingCrossAssemblyFieldFacts_DeclineConservatively()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            TestAssemblyReferenceResolvers.None);
+
+        var field = SingleField(source, nameof(CrossAssemblyFixtureMethods.UseDynamicField), "DynamicField");
+        Assert.Equal(MetadataFactState.Unknown, field.Field.DynamicFact);
+        Assert.Contains("(object)library.DynamicField == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseDynamicField));
+        Assert.Contains("(object)new ExternalReference() == (object)right", PrintRaised(source, CrossAssemblyFixtureMethods.UseExternalNewObject));
+    }
+
+    [Fact]
     public void CrossAssemblyInlineArrayHelper_RecoversInlineArrayTypeArgumentFact()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -219,6 +557,13 @@ public class CrossAssemblyMethodFactsTests
         return CSharpPrinter.Print(function).Output ?? "";
     }
 
+    static string PrintRaised(MetadataSource source, string methodName)
+    {
+        var function = ImportFunction(source, methodName);
+        IrPasses.Run(function);
+        return CSharpPrinter.Print(function).Output ?? "";
+    }
+
     static void AssertCallRefKind(MetadataSource source, string methodName, string calleeName, ArgumentRefKind expected)
     {
         var call = SingleCall(source, methodName, calleeName);
@@ -238,12 +583,374 @@ public class CrossAssemblyMethodFactsTests
         return Assert.Single(function.Descendants.OfType<NewObject>());
     }
 
+    static LoadField SingleField(MetadataSource source, string methodName, string fieldName)
+    {
+        var function = ImportFunction(source, methodName);
+        return Assert.Single(function.Descendants.OfType<LoadField>(), field => field.Field.Name == fieldName);
+    }
+
     static IrFunction ImportFunction(MetadataSource source, string methodName)
     {
         var function = IrImporter.Import(source, "ExternalFacts.Consumer", methodName);
         Assert.NotNull(function);
         function.CheckInvariant();
         return function!;
+    }
+
+    sealed class MethodCollisionFixture : IAssemblyReferenceResolver, IDisposable
+    {
+        readonly string _directory;
+        readonly string _library;
+        readonly IAssemblyReferenceResolver _runtime =
+            TestAssemblyReferenceResolvers.RuntimeAssemblies();
+
+        MethodCollisionFixture(string directory, string library)
+        {
+            _directory = directory;
+            _library = library;
+        }
+
+        public static MethodCollisionFixture Create()
+        {
+            string directory = Directory.CreateTempSubdirectory(
+                "dotnet-inspect-method-collisions-").FullName;
+            string library = Path.Combine(
+                directory,
+                "MethodCollisionLib.dll");
+            File.WriteAllBytes(library, BuildMethodCollisionLibrary());
+            return new MethodCollisionFixture(directory, library);
+        }
+
+        public TypeRef Type(string name)
+        {
+            var definitionName = MetadataTypeDefinitionName.Create("", [name]) switch
+            {
+                MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+                _ => throw new InvalidOperationException(
+                    "collision fixture metadata name is invalid"),
+            };
+            return TypeRef.DefinitionWithResolution(
+                "MethodCollisionLib",
+                "",
+                name,
+                ValueTypeHint.ReferenceType,
+                MetadataFactState.Unknown,
+                null,
+                definitionName,
+                new AssemblyReferenceIdentity(
+                    "MethodCollisionLib",
+                    new Version(1, 0, 0, 0),
+                    null,
+                    null));
+        }
+
+        public MethodRef Resolve(MethodRef callee)
+        {
+            using var context = new MetadataContext(this);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                typeof(CrossAssemblyMethodFactsTests).Assembly.Location,
+                this,
+                context);
+            return source.CrossAssembly.Upgrade(
+                callee,
+                resolveRequiresUnsafe: true);
+        }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => identity.Name == "MethodCollisionLib"
+                ? ResolvedAssemblyReference.CreateFromPath(
+                    _library,
+                    AssemblyResolutionProvenance.Local(
+                        "CrossAssemblyMethodFactsTests"))
+                : _runtime.Resolve(identity, scope);
+
+        public void Dispose()
+            => Directory.Delete(_directory, recursive: true);
+
+        static byte[] BuildMethodCollisionLibrary()
+        {
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("MethodCollisionLib.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("MethodCollisionLib"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            var systemRuntime = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                    new byte[]
+                    {
+                        0xb0, 0x3f, 0x5f, 0x7f,
+                        0x11, 0xd5, 0x0a, 0x3a,
+                    }),
+                default,
+                default);
+            var objectType = metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+            var requiresUnsafe = metadata.AddTypeReference(
+                systemRuntime,
+                metadata.GetOrAddString(
+                    "System.Diagnostics.CodeAnalysis"),
+                metadata.GetOrAddString("RequiresUnsafeAttribute"));
+            var attributeConstructor = metadata.AddMemberReference(
+                requiresUnsafe,
+                metadata.GetOrAddString(".ctor"),
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x20, 0x00, 0x01 }));
+            metadata.AddTypeDefinition(
+                default,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            var marker = metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("Marker"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            var genericMarker = metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("Marker`1"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddGenericParameter(
+                genericMarker,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            var otherGenericMarker = metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString("OtherMarker`1"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddGenericParameter(
+                otherGenericMarker,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public
+                    | TypeAttributes.Abstract
+                    | TypeAttributes.Sealed,
+                default,
+                metadata.GetOrAddString("C"),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            var markerOfInt = metadata.AddTypeSpecification(
+                GenericInstanceSignature(
+                    metadata,
+                    genericMarker));
+            var otherMarkerOfInt = metadata.AddTypeSpecification(
+                GenericInstanceSignature(
+                    metadata,
+                    otherGenericMarker));
+
+            var genericReturn = AddMethod(
+                metadata,
+                "ReturnCollision",
+                GenericMethodSignature(
+                    metadata,
+                    returnType: null));
+            metadata.AddGenericParameter(
+                genericReturn,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+            AddRequiresUnsafe(
+                metadata,
+                genericReturn,
+                attributeConstructor);
+            var objectReturn = AddMethod(
+                metadata,
+                "ReturnCollision",
+                GenericMethodSignature(
+                    metadata,
+                    objectType));
+            metadata.AddGenericParameter(
+                objectReturn,
+                GenericParameterAttributes.None,
+                metadata.GetOrAddString("T"),
+                index: 0);
+
+            var unmodified = AddMethod(
+                metadata,
+                "ModifierCollision",
+                ByRefIntSignature(
+                    metadata,
+                    modifier: default));
+            AddRequiresUnsafe(
+                metadata,
+                unmodified,
+                attributeConstructor);
+            AddMethod(
+                metadata,
+                "ModifierCollision",
+                ByRefIntSignature(
+                    metadata,
+                    marker));
+
+            AddMethod(
+                metadata,
+                "TypeSpecModifierCollision",
+                ByRefIntSignature(
+                    metadata,
+                    otherMarkerOfInt));
+            var typeSpecModified = AddMethod(
+                metadata,
+                "TypeSpecModifierCollision",
+                ByRefIntSignature(
+                    metadata,
+                    markerOfInt));
+            AddRequiresUnsafe(
+                metadata,
+                typeSpecModified,
+                attributeConstructor);
+
+            var duplicate = AddMethod(
+                metadata,
+                "DuplicateCollision",
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x00, 0x00, 0x01 }));
+            AddRequiresUnsafe(
+                metadata,
+                duplicate,
+                attributeConstructor);
+            AddMethod(
+                metadata,
+                "DuplicateCollision",
+                metadata.GetOrAddBlob(
+                    new byte[] { 0x00, 0x00, 0x01 }));
+
+            var pe = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                new BlobBuilder(),
+                flags: CorFlags.ILOnly);
+            var image = new BlobBuilder();
+            pe.Serialize(image);
+            return image.ToArray();
+        }
+
+        static MethodDefinitionHandle AddMethod(
+            MetadataBuilder metadata,
+            string name,
+            BlobHandle signature)
+            => metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString(name),
+                signature,
+                bodyOffset: 0,
+                MetadataTokens.ParameterHandle(1));
+
+        static void AddRequiresUnsafe(
+            MetadataBuilder metadata,
+            MethodDefinitionHandle method,
+            MemberReferenceHandle constructor)
+            => metadata.AddCustomAttribute(
+                method,
+                constructor,
+                metadata.GetOrAddBlob(
+                    new byte[] { 1, 0, 0, 0 }));
+
+        static BlobHandle GenericMethodSignature(
+            MetadataBuilder metadata,
+            EntityHandle? returnType)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x10);
+            signature.WriteCompressedInteger(1);
+            signature.WriteCompressedInteger(0);
+            if (returnType is null)
+            {
+                signature.WriteByte(0x1e);
+                signature.WriteCompressedInteger(0);
+            }
+            else
+            {
+                WriteClass(signature, returnType.Value);
+            }
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        static BlobHandle ByRefIntSignature(
+            MetadataBuilder metadata,
+            EntityHandle modifier)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x00);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0x01);
+            if (!modifier.IsNil)
+            {
+                signature.WriteByte(0x20);
+                WriteTypeDefOrRef(signature, modifier);
+            }
+            signature.WriteByte(0x10);
+            signature.WriteByte(0x08);
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        static BlobHandle GenericInstanceSignature(
+            MetadataBuilder metadata,
+            EntityHandle genericType)
+        {
+            var signature = new BlobBuilder();
+            signature.WriteByte(0x15);
+            signature.WriteByte(0x12);
+            WriteTypeDefOrRef(signature, genericType);
+            signature.WriteCompressedInteger(1);
+            signature.WriteByte(0x08);
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        static void WriteClass(
+            BlobBuilder signature,
+            EntityHandle type)
+        {
+            signature.WriteByte(0x12);
+            WriteTypeDefOrRef(signature, type);
+        }
+
+        static void WriteTypeDefOrRef(
+            BlobBuilder signature,
+            EntityHandle type)
+        {
+            int tag = type.Kind switch
+            {
+                HandleKind.TypeDefinition => 0,
+                HandleKind.TypeReference => 1,
+                HandleKind.TypeSpecification => 2,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(type)),
+            };
+            signature.WriteCompressedInteger(
+                (MetadataTokens.GetRowNumber(type) << 2) | tag);
+        }
     }
 
     sealed class CrossAssemblyFixture : IDisposable
@@ -258,16 +965,16 @@ public class CrossAssemblyMethodFactsTests
 
         public string ConsumerPath { get; }
 
-        public static CrossAssemblyFixture Create()
+        public static CrossAssemblyFixture Create(bool versionDrift = false)
         {
             var directory = Directory.CreateTempSubdirectory("dotnet-inspect-method-facts-").FullName;
             try
             {
-                string libraryPath = Emit(
-                    directory,
-                    "ExternalFacts.Library",
-                    """
+                const string librarySource = """
+                    using System.Reflection;
                     using System.Runtime.CompilerServices;
+
+                    [assembly: AssemblyVersion("1.0.0.0")]
 
                     namespace ExternalFacts;
 
@@ -276,6 +983,10 @@ public class CrossAssemblyMethodFactsTests
                         public static void WriteOut(out int value) => value = 42;
                         public static void Mutate(ref int value) => value++;
                         public static void Read(in int value) { _ = value; }
+                        public static void WriteExternalOut(out ExternalReference value) => value = new();
+                        public static void MutateExternal(ref ExternalReference value) => value = new();
+                        public static void GenericCollision<T>(ref object value) { }
+                        public static void GenericCollision<T>(out T value) => value = default!;
                     }
 
                     public delegate int ExternalDelegate(int value);
@@ -295,6 +1006,47 @@ public class CrossAssemblyMethodFactsTests
                     {
                         public PropertyLibrary(int count) => Count = count;
                         public int Count { get; }
+                    }
+
+                    public sealed class DynamicLibrary
+                    {
+                        readonly ExternalNumber _value = new(1);
+                        dynamic _reference = new ExternalNumber(4);
+                        object _objectReference = new ExternalNumber(5);
+                        public dynamic DynamicField = new ExternalNumber(2);
+                        public object ObjectField = new ExternalNumber(3);
+                        public dynamic DynamicValue => _value;
+                        public dynamic GetDynamicValue() => _value;
+                        public ref dynamic GetDynamicReference() => ref _reference;
+                        public ref dynamic DynamicReference => ref _reference;
+                        public ref object GetObjectReference() => ref _objectReference;
+                    }
+
+                    public sealed class GenericDynamicLibrary<T>
+                    {
+                        public T Value = default!;
+                        T _reference = default!;
+                        public ref T Reference => ref _reference;
+                    }
+
+                    public ref struct RefFieldLibrary
+                    {
+                        public ref dynamic DynamicField;
+                        public ref object ObjectField;
+
+                        public RefFieldLibrary(ref dynamic dynamicField, ref object objectField)
+                        {
+                            DynamicField = ref dynamicField;
+                            ObjectField = ref objectField;
+                        }
+                    }
+
+                    public sealed class ExternalReference
+                    {
+                        public static bool operator ==(ExternalReference left, object right) => true;
+                        public static bool operator !=(ExternalReference left, object right) => false;
+                        public override bool Equals(object? obj) => false;
+                        public override int GetHashCode() => 0;
                     }
 
                     public readonly struct ExternalNumber
@@ -322,7 +1074,11 @@ public class CrossAssemblyMethodFactsTests
                     {
                         private int _element0;
                     }
-                    """);
+                    """;
+                string libraryPath = Emit(
+                    directory,
+                    "ExternalFacts.Library",
+                    librarySource);
                 string consumerPath = Emit(
                     directory,
                     "ExternalFacts.Consumer",
@@ -348,6 +1104,24 @@ public class CrossAssemblyMethodFactsTests
                         {
                             int value = 1;
                             ByRefLibrary.Read(in value);
+                        }
+
+                        public static ExternalReference UseExternalOut()
+                        {
+                            ByRefLibrary.WriteExternalOut(out var value);
+                            return value;
+                        }
+
+                        public static ExternalReference UseExternalRef(ExternalReference value)
+                        {
+                            ByRefLibrary.MutateExternal(ref value);
+                            return value;
+                        }
+
+                        public static object UseGenericOut()
+                        {
+                            ByRefLibrary.GenericCollision<object>(out var value);
+                            return value;
                         }
 
                         public static int UseGenerated(int value)
@@ -381,6 +1155,42 @@ public class CrossAssemblyMethodFactsTests
                         public static int UseProperty(PropertyLibrary library)
                             => library.Count;
 
+                        public static bool UseDynamicProperty(DynamicLibrary library, object right)
+                            => (object)library.DynamicValue == right;
+
+                        public static bool UseDynamicMethod(DynamicLibrary library, object right)
+                            => (object)library.GetDynamicValue() == right;
+
+                        public static bool UseByRefDynamicMethod(DynamicLibrary library, object right)
+                            => (object)library.GetDynamicReference() == right;
+
+                        public static bool UseByRefDynamicProperty(DynamicLibrary library, object right)
+                            => (object)library.DynamicReference == right;
+
+                        public static bool UseByRefObjectMethod(DynamicLibrary library, object right)
+                            => (object)library.GetObjectReference() == right;
+
+                        public static bool UseDynamicField(DynamicLibrary library, object right)
+                            => (object)library.DynamicField == right;
+
+                        public static bool UseObjectField(DynamicLibrary library, object right)
+                            => library.ObjectField == right;
+
+                        public static bool UseByRefDynamicField(ref RefFieldLibrary library, object right)
+                            => (object)library.DynamicField == right;
+
+                        public static bool UseByRefObjectField(ref RefFieldLibrary library, object right)
+                            => (object)library.ObjectField == right;
+
+                        public static bool UseGenericDynamicField(GenericDynamicLibrary<dynamic> library, object right)
+                            => (object)library.Value == right;
+
+                        public static bool UseGenericByRefDynamicProperty(GenericDynamicLibrary<dynamic> library, object right)
+                            => (object)library.Reference == right;
+
+                        public static bool UseExternalNewObject(object right)
+                            => (object)new ExternalReference() == right;
+
                         public static bool UseUri(string value)
                             => System.Uri.TryCreate(value, System.UriKind.Absolute, out var uri) && uri is not null;
 
@@ -392,6 +1202,16 @@ public class CrossAssemblyMethodFactsTests
                     }
                     """,
                     [MetadataReference.CreateFromFile(libraryPath)]);
+                if (versionDrift)
+                {
+                    Emit(
+                        directory,
+                        "ExternalFacts.Library",
+                        librarySource.Replace(
+                            """AssemblyVersion("1.0.0.0")""",
+                            """AssemblyVersion("2.0.0.0")""",
+                            StringComparison.Ordinal));
+                }
                 return new CrossAssemblyFixture(directory, consumerPath);
             }
             catch
@@ -434,6 +1254,8 @@ public class CrossAssemblyMethodFactsTests
         public const string UseOut = nameof(UseOut);
         public const string UseRef = nameof(UseRef);
         public const string UseIn = nameof(UseIn);
+        public const string UseExternalOut = nameof(UseExternalOut);
+        public const string UseExternalRef = nameof(UseExternalRef);
         public const string UseGenerated = nameof(UseGenerated);
         public const string UseExternalDelegate = nameof(UseExternalDelegate);
         public const string UseOperatorLikeAddition = nameof(UseOperatorLikeAddition);
@@ -442,6 +1264,18 @@ public class CrossAssemblyMethodFactsTests
         public const string UseExternalRefStruct = nameof(UseExternalRefStruct);
         public const string UseExternalStruct = nameof(UseExternalStruct);
         public const string UseProperty = nameof(UseProperty);
+        public const string UseDynamicProperty = nameof(UseDynamicProperty);
+        public const string UseDynamicMethod = nameof(UseDynamicMethod);
+        public const string UseByRefDynamicMethod = nameof(UseByRefDynamicMethod);
+        public const string UseByRefDynamicProperty = nameof(UseByRefDynamicProperty);
+        public const string UseByRefObjectMethod = nameof(UseByRefObjectMethod);
+        public const string UseDynamicField = nameof(UseDynamicField);
+        public const string UseObjectField = nameof(UseObjectField);
+        public const string UseByRefDynamicField = nameof(UseByRefDynamicField);
+        public const string UseByRefObjectField = nameof(UseByRefObjectField);
+        public const string UseGenericDynamicField = nameof(UseGenericDynamicField);
+        public const string UseGenericByRefDynamicProperty = nameof(UseGenericByRefDynamicProperty);
+        public const string UseExternalNewObject = nameof(UseExternalNewObject);
         public const string UseUri = nameof(UseUri);
         public const string UseExternalInlineArray = nameof(UseExternalInlineArray);
     }
