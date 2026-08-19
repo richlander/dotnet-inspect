@@ -6,15 +6,16 @@ using Xunit;
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Gate for the <c>project</c> channel (issue #3319). The YAML frontmatter this
-/// command reads out of a dependency's <c>AGENTS.md</c> and <c>skills/SKILL.md</c>
-/// is text a package author wrote, and it lands in a Markdown table cell.
+/// Gate for package-authored text read by the <c>project</c> command (issue
+/// #3319). <c>AGENTS.md</c> frontmatter lands in Markdown table cells, while a
+/// noncompliant <c>skills/SKILL.md</c> identity must fail before rendering.
 /// </summary>
 /// <remarks>
 /// The escaper on that path replaced the pipe and folded CR/LF, which keeps a
 /// cell inside its row but does nothing about a vertical tab, an ANSI escape, or
-/// a bidi override. A second writer on the same rows escaped nothing at all, so
-/// containment now lives on the row records and both writers inherit it.
+/// a bidi override. Containment now lives on the row records so all AGENTS.md
+/// writers inherit it. The Skills gate separately proves that a noncompliant
+/// name is rejected without echoing package-authored identity text.
 ///
 /// The fixture is a hand-built package folder plus a <c>project.assets.json</c>
 /// whose library <c>path</c> is relative to a test-owned
@@ -137,21 +138,14 @@ public class UntrustedProjectViewContainmentTests : IDisposable
             """;
     }
 
-    [Theory]
-    [InlineData(true, new[] { "INJECTEDAGENTNAME", "INJECTEDAGENTDESC", "INJECTEDPKGID", "INJECTEDVERSION" })]
-    [InlineData(false, new[]
-    {
-        "INJECTEDSKILLNAME", "INJECTEDSKILLDESC", "INJECTEDPKGID", "INJECTEDVERSION", "INJECTEDSKILLPATH",
-    })]
-    public async Task ProjectFrontmatter_WithHostileText_RendersNoHazard(
-        bool agentsIndex, string[] markers)
+    [Fact]
+    public async Task ProjectAgentsFrontmatter_WithHostileText_RendersNoHazard()
     {
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => ProjectCommand.ExecuteAsync(new ProjectOptions
             {
                 ProjectPath = _assets,
-                AgentsIndex = agentsIndex,
-                Select = agentsIndex ? null : ["Skills"],
+                AgentsIndex = true,
             }));
 
         Assert.Equal(0, exit);
@@ -161,7 +155,7 @@ public class UntrustedProjectViewContainmentTests : IDisposable
         // path arrive from the assets file rather than the frontmatter, so one
         // rendering vouches for none of the others. An earlier version of this
         // gate used benign values for the latter three and passed under tamper.
-        foreach (var marker in markers)
+        foreach (var marker in new[] { "INJECTEDAGENTNAME", "INJECTEDAGENTDESC", "INJECTEDPKGID", "INJECTEDVERSION" })
         {
             Assert.True(
                 output.Contains(marker, StringComparison.Ordinal),
@@ -172,32 +166,21 @@ public class UntrustedProjectViewContainmentTests : IDisposable
     }
 
     [Fact]
-    public async Task ProjectPrint_WithHostileFraming_ContainsMetadataOnly()
+    public async Task ProjectSkillFrontmatter_WithNoncompliantName_IsRejectedWithoutRenderingIt()
     {
         var (exit, output, error) = await ConsoleCapture.RunAsync(
             () => ProjectCommand.ExecuteAsync(new ProjectOptions
             {
                 ProjectPath = _assets,
-                Select = ["Skills"],
-                Print = true,
-                Jsonl = true,
+                Select = ["@All"],
             }));
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-
-        using JsonDocument document = JsonDocument.Parse(output);
-        JsonElement root = document.RootElement;
-        string framing =
-            root.GetProperty("label").GetString()
-            + root.GetProperty("path").GetString();
-        Assert.Contains("INJECTEDPKGID", framing);
-        Assert.Contains("INJECTEDSKILLPATH", framing);
-        HostileOutputAssert.NoRenderingHazard(
-            framing,
-            "UntrustedProjectViewContainmentTests.PrintFraming");
-
-        string content = root.GetProperty("content").GetString()!;
-        Assert.Contains(Bidi, content);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "must declare an Agent Skills-compliant name that matches its containing directory",
+            error);
+        Assert.DoesNotContain("INJECTED", error);
+        HostileOutputAssert.NoRenderingHazard(error, "UntrustedProjectViewContainmentTests");
     }
 }

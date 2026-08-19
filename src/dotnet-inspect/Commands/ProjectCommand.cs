@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using DotnetInspector.Core;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -14,6 +15,13 @@ namespace DotnetInspector.Commands;
 
 public class ProjectCommand
 {
+    enum ProjectSkillReadFailure
+    {
+        None,
+        InvalidName,
+        InvalidDescription,
+    }
+
     public const string Name = "project";
     static readonly string[] ProjectReadmeCandidates = ["README.md", "PROJECT.md"];
     static readonly string[] SkillPatterns = ["skills/SKILL.md", "skills/**/SKILL.md"];
@@ -753,7 +761,7 @@ public class ProjectCommand
                 failures.Add(new ProjectContentFailure(
                     file.PackageName,
                     file.Path,
-                    "the restored assets file declares the skill, but the file is missing"));
+                    "a restored package skill listed in project.assets.json is missing from the package cache"));
                 skills.Add(new ProjectSkillData(
                     file.PackageName,
                     file.Version,
@@ -770,6 +778,26 @@ public class ProjectCommand
             {
                 long knownSize = new FileInfo(file.FullPath).Length;
                 size = knownSize;
+                string content = File.ReadAllText(file.FullPath);
+                IReadOnlyDictionary<string, string> frontmatter =
+                    MarkdownContent.ParseYamlFrontmatter(content);
+                ProjectSkillReadFailure validationFailure =
+                    ValidateSkillMetadata(
+                        file.Path,
+                        frontmatter,
+                        out string skillName,
+                        out string description);
+                if (validationFailure != ProjectSkillReadFailure.None)
+                {
+                    failures.Add(new ProjectContentFailure(
+                        file.PackageName,
+                        file.Path,
+                        validationFailure == ProjectSkillReadFailure.InvalidName
+                            ? "a restored package skill must declare an Agent Skills-compliant name that matches its containing directory"
+                            : "a restored package skill must declare an Agent Skills-compliant description of 1 to 1024 characters"));
+                    continue;
+                }
+
                 if (deferContent)
                 {
                     contentStore.Add(
@@ -782,17 +810,12 @@ public class ProjectCommand
                         file.Version,
                         file.Path,
                         knownSize,
-                        "",
-                        "",
+                        skillName,
+                        description,
                         ""));
                     continue;
                 }
 
-                string content = File.ReadAllText(file.FullPath);
-                IReadOnlyDictionary<string, string> frontmatter =
-                    MarkdownContent.ParseYamlFrontmatter(content);
-                frontmatter.TryGetValue("name", out string? skillName);
-                frontmatter.TryGetValue("description", out string? description);
                 contentStore.Add(
                     ProjectSectionNames.Skills,
                     file.PackageName,
@@ -803,8 +826,8 @@ public class ProjectCommand
                     file.Version,
                     file.Path,
                     knownSize,
-                    skillName ?? "",
-                    description ?? "",
+                    skillName,
+                    description,
                     ""));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -828,6 +851,94 @@ public class ProjectCommand
         }
 
         return ProjectSkillsQuery.Execute(skills, failures);
+    }
+
+    static ProjectSkillReadFailure ValidateSkillMetadata(
+        string packagePath,
+        IReadOnlyDictionary<string, string> frontmatter,
+        out string name,
+        out string description)
+    {
+        if (!TryGetSkillName(packagePath, frontmatter, out name))
+        {
+            description = "";
+            return ProjectSkillReadFailure.InvalidName;
+        }
+
+        frontmatter.TryGetValue("description", out string? candidateDescription);
+        if (!IsAgentSkillDescription(candidateDescription))
+        {
+            description = "";
+            return ProjectSkillReadFailure.InvalidDescription;
+        }
+
+        description = candidateDescription!;
+        return ProjectSkillReadFailure.None;
+    }
+
+    static bool TryGetSkillName(
+        string packagePath,
+        IReadOnlyDictionary<string, string> frontmatter,
+        out string name)
+    {
+        string normalizedPath = packagePath.Replace('\\', '/');
+        int fileSeparator = normalizedPath.LastIndexOf('/');
+        if (fileSeparator <= 0)
+        {
+            name = "";
+            return false;
+        }
+
+        string parentPath = normalizedPath[..fileSeparator].TrimEnd('/');
+        int parentSeparator = parentPath.LastIndexOf('/');
+        string directoryName = parentPath[(parentSeparator + 1)..];
+        if (!frontmatter.TryGetValue("name", out name!))
+            return false;
+
+        return string.Equals(name, directoryName, StringComparison.Ordinal)
+            && IsAgentSkillName(name);
+    }
+
+    static bool IsAgentSkillName(string name)
+    {
+        if (name.Length is < 1 or > 64
+            || name[0] == '-'
+            || name[^1] == '-')
+        {
+            return false;
+        }
+
+        bool previousWasHyphen = false;
+        foreach (char character in name)
+        {
+            bool isHyphen = character == '-';
+            if (!(character is >= 'a' and <= 'z'
+                  || character is >= '0' and <= '9'
+                  || isHyphen)
+                || isHyphen && previousWasHyphen)
+            {
+                return false;
+            }
+
+            previousWasHyphen = isHyphen;
+        }
+
+        return true;
+    }
+
+    static bool IsAgentSkillDescription(string? description)
+    {
+        if (string.IsNullOrEmpty(description))
+            return false;
+
+        int length = 0;
+        foreach (Rune _ in description.EnumerateRunes())
+        {
+            if (++length > 1024)
+                return false;
+        }
+
+        return true;
     }
 
     static ProjectAgentGuidanceResult ReadAgentGuidance(

@@ -47,6 +47,8 @@ public static class ProjectCommandDefinitions
         {
             Description = "Write output to file instead of stdout"
         };
+        outOption.Aliases.Add("--output");
+        outOption.Aliases.Add("-o");
 
         projectCommand.Arguments.Add(pathArg);
         projectCommand.Options.Add(agentsIndexOption);
