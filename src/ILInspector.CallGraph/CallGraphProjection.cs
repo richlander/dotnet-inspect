@@ -60,7 +60,14 @@ public enum CallGraphNodeKind
 /// <param name="DefinitionAssemblyIdentity">
 /// Exact assembly identity of the unambiguous resolved definition site, when catalog evidence
 /// supplied one. <c>CalleeTreeCarriesResolvedDefinitionAssemblyIdentity</c> and
-/// <c>ConflictingDefinitionAssembliesAreWithheld</c> gate preservation and ambiguity.
+/// <c>ConflictingDefinitionAndResolutionAssembliesAreWithheld</c> gate preservation and
+/// ambiguity.
+/// </param>
+/// <param name="ResolutionAssemblyIdentity">
+/// Exact terminal assembly identity observed while resolving the declaring
+/// type. An unresolved value is an acquisition hint, not a definition claim.
+/// <c>ConflictingDefinitionAndResolutionAssembliesAreWithheld</c> gates
+/// conflict withholding.
 /// </param>
 public sealed record CallGraphNode(
     int Id,
@@ -70,7 +77,8 @@ public sealed record CallGraphNode(
     CallGraphNodeKind Kind,
     CallTreePerf? Perf = null,
     ImmutableArray<GraphNodeEvidence> GraphEvidence = default,
-    AssemblyReferenceIdentity? DefinitionAssemblyIdentity = null);
+    AssemblyReferenceIdentity? DefinitionAssemblyIdentity = null,
+    AssemblyReferenceIdentity? ResolutionAssemblyIdentity = null);
 
 /// <summary>The traversal half that first contributed one logical edge.</summary>
 public enum CallGraphEdgeOrigin
@@ -435,7 +443,9 @@ public sealed partial class CallGraphProjection
             calleeRoot?.GraphEvidence,
             callerRoot?.GraphEvidence,
             calleeRoot?.DefinitionAssemblyIdentity,
-            callerRoot?.DefinitionAssemblyIdentity);
+            callerRoot?.DefinitionAssemblyIdentity,
+            calleeRoot?.ResolutionAssemblyIdentity,
+            callerRoot?.ResolutionAssemblyIdentity);
         if (callerRoot is not null)
             builder.WalkCallers(callerRoot, focusId);
         if (calleeRoot is not null)
@@ -487,6 +497,9 @@ public sealed partial class CallGraphProjection
         public AssemblyReferenceIdentity? DefinitionAssemblyIdentity
             { get; set; }
         public bool HasDefinitionAssemblyConflict { get; set; }
+        public AssemblyReferenceIdentity? ResolutionAssemblyIdentity
+            { get; set; }
+        public bool HasResolutionAssemblyConflict { get; set; }
     }
 
     private sealed class Builder(
@@ -529,7 +542,9 @@ public sealed partial class CallGraphProjection
             GraphNodeEvidence? firstEvidence,
             GraphNodeEvidence? secondEvidence,
             AssemblyReferenceIdentity? firstDefinitionAssembly,
-            AssemblyReferenceIdentity? secondDefinitionAssembly)
+            AssemblyReferenceIdentity? secondDefinitionAssembly,
+            AssemblyReferenceIdentity? firstResolutionAssembly,
+            AssemblyReferenceIdentity? secondResolutionAssembly)
         {
             GraphNodeIdentity identity = useGraphEvidence
                 ? (firstEvidence ?? secondEvidence)!.Identity
@@ -540,11 +555,15 @@ public sealed partial class CallGraphProjection
                 CallGraphNodeKind.Focus,
                 perf,
                 firstEvidence,
-                firstDefinitionAssembly);
+                firstDefinitionAssembly,
+                firstResolutionAssembly);
             AddEvidence(_nodes[id], secondEvidence);
             AddDefinitionAssembly(
                 _nodes[id],
                 secondDefinitionAssembly);
+            AddResolutionAssembly(
+                _nodes[id],
+                secondResolutionAssembly);
             return id;
         }
 
@@ -559,7 +578,8 @@ public sealed partial class CallGraphProjection
                     KindFor(child.Status),
                     child.Perf,
                     child.GraphEvidence,
-                    child.DefinitionAssemblyIdentity);
+                    child.DefinitionAssemblyIdentity,
+                    child.ResolutionAssemblyIdentity);
                 AddEdge(
                     childId,
                     nodeId,
@@ -583,7 +603,8 @@ public sealed partial class CallGraphProjection
                     KindFor(child.Status),
                     child.Perf,
                     child.GraphEvidence,
-                    child.DefinitionAssemblyIdentity);
+                    child.DefinitionAssemblyIdentity,
+                    child.ResolutionAssemblyIdentity);
                 AddEdge(
                     nodeId,
                     childId,
@@ -612,7 +633,8 @@ public sealed partial class CallGraphProjection
                         node.Kind,
                         node.Perf,
                         [.. node.GraphEvidence],
-                        node.DefinitionAssemblyIdentity));
+                        node.DefinitionAssemblyIdentity,
+                        node.ResolutionAssemblyIdentity));
             }
             var edges = ImmutableArray.CreateBuilder<CallGraphEdge>(
                 _edges.Count);
@@ -642,7 +664,8 @@ public sealed partial class CallGraphProjection
             CallGraphNodeKind candidate,
             CallTreePerf? perf,
             GraphNodeEvidence? evidence,
-            AssemblyReferenceIdentity? definitionAssemblyIdentity)
+            AssemblyReferenceIdentity? definitionAssemblyIdentity,
+            AssemblyReferenceIdentity? resolutionAssemblyIdentity = null)
         {
             if (!_ids.TryGetValue(identity, out var id))
             {
@@ -659,6 +682,9 @@ public sealed partial class CallGraphProjection
                 AddDefinitionAssembly(
                     node,
                     definitionAssemblyIdentity);
+                AddResolutionAssembly(
+                    node,
+                    resolutionAssemblyIdentity);
                 _nodes.Add(node);
                 return id;
             }
@@ -676,6 +702,9 @@ public sealed partial class CallGraphProjection
             AddDefinitionAssembly(
                 info,
                 definitionAssemblyIdentity);
+            AddResolutionAssembly(
+                info,
+                resolutionAssemblyIdentity);
             return id;
         }
 
@@ -712,6 +741,30 @@ public sealed partial class CallGraphProjection
 
             node.DefinitionAssemblyIdentity = null;
             node.HasDefinitionAssemblyConflict = true;
+        }
+
+        static void AddResolutionAssembly(
+            MutableNode node,
+            AssemblyReferenceIdentity? identity)
+        {
+            if (identity is null
+                || node.HasResolutionAssemblyConflict)
+            {
+                return;
+            }
+            if (node.ResolutionAssemblyIdentity is null)
+            {
+                node.ResolutionAssemblyIdentity = identity;
+                return;
+            }
+            if (node.ResolutionAssemblyIdentity
+                .IsEquivalentTo(identity))
+            {
+                return;
+            }
+
+            node.ResolutionAssemblyIdentity = null;
+            node.HasResolutionAssemblyConflict = true;
         }
 
         private void AddEdge(

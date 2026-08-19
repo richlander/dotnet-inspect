@@ -675,6 +675,26 @@ public sealed class CatalogMemberCorrespondencePlan
             projection.Evidence.ToImmutable());
     }
 
+    internal AssemblyReferenceIdentity?
+        DeclaringTypeResolutionAssemblyIdentity(
+            TypeResolutionContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        PlannedType declaring = _declaringType;
+        while (declaring.Kind == PlannedTypeKind.GenericInstance
+            && declaring.ElementType is not null)
+        {
+            declaring = declaring.ElementType;
+        }
+
+        return declaring.Kind == PlannedTypeKind.Named
+            ? context.Resolve(
+                    Requests[declaring.RequestIndex])
+                .TerminalAssemblyIdentity
+            : null;
+    }
+
     /// <summary>
     /// Compares two complete projections. When resolution is unavailable on
     /// either side, exact assembly-reference or intrinsic-core-library

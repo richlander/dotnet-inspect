@@ -332,6 +332,9 @@ public sealed class CatalogCallGraphScope : IDisposable
         readonly CatalogCallGraphDiagnostics _diagnostics;
         readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredDefinition>>
             _definitionsByIdentity;
+        readonly Dictionary<
+            GraphNodeIdentity,
+            AssemblyReferenceIdentity?> _resolutionAssembliesByIdentity;
         readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredEdge>>
             _forward;
         readonly Dictionary<GraphNodeIdentity, ImmutableArray<StoredEdge>>
@@ -398,6 +401,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         .ThenBy(
                             definition => definition.Method.MetadataToken)
                         .ToImmutableArray());
+            _resolutionAssembliesByIdentity =
+                ResolutionAssemblies(definitions, callSites);
             _forward = edges
                 .GroupBy(edge => edge.Caller.Evidence.Identity)
                 .ToDictionary(
@@ -589,7 +594,13 @@ public sealed class CatalogCallGraphScope : IDisposable
             try
             {
                 foreach (PlanEntry plan in plans.Values)
+                {
                     plan.Projection = plan.Plan.Project(context);
+                    plan.ResolutionAssemblyIdentity =
+                        plan.Plan
+                            .DeclaringTypeResolutionAssemblyIdentity(
+                                context);
+                }
 
                 var storedDefinitions =
                     ImmutableArray.CreateBuilder<StoredDefinition>(
@@ -606,6 +617,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                         Evidence(
                             definition.Storage,
                             definition.Plan.Projection!),
+                        definition.Plan.ResolutionAssemblyIdentity,
                         definition.HasBody,
                         definition.Diagnostic);
                     storedDefinitions.Add(stored);
@@ -625,7 +637,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         callSite.Call,
                         Evidence(
                             callSite.Storage,
-                            callSite.Plan.Projection!));
+                            callSite.Plan.Projection!),
+                        callSite.Plan.ResolutionAssemblyIdentity);
                     storedCallSites.Add(stored);
                     if (definitionLocations.TryGetValue(
                             (
@@ -681,6 +694,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 GraphNodeIdentity identity = evidence.Identity;
                 AssemblyReferenceIdentity? definitionAssemblyIdentity =
                     DefinitionAssemblyIdentityFor(identity);
+                AssemblyReferenceIdentity? resolutionAssemblyIdentity =
+                    ResolutionAssemblyIdentityFor(identity);
                 bool external = !string.Equals(
                     assembly,
                     targetAssembly,
@@ -717,6 +732,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         evidence,
                         definitionAssemblyIdentity:
                             definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         parentEdgeCallSites:
                             parentEdgeCallSites,
                         parentEdgeCallerDefinition:
@@ -754,6 +771,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         evidence,
                         definitionAssemblyIdentity:
                             definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         parentEdgeCallSites:
                             parentEdgeCallSites,
                         parentEdgeCallerDefinition:
@@ -778,6 +797,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         evidence,
                         definitionAssemblyIdentity:
                             definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         parentEdgeCallSites:
                             parentEdgeCallSites,
                         parentEdgeCallerDefinition:
@@ -834,6 +855,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                     evidence,
                     definitionAssemblyIdentity:
                         definitionAssemblyIdentity,
+                    resolutionAssemblyIdentity:
+                        resolutionAssemblyIdentity,
                     parentEdgeCallSites:
                         parentEdgeCallSites,
                     parentEdgeCallerDefinition:
@@ -878,6 +901,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 StoredDefinition? definition = DefinitionFor(identity);
                 AssemblyReferenceIdentity? definitionAssemblyIdentity =
                     DefinitionAssemblyIdentityFor(identity);
+                AssemblyReferenceIdentity? resolutionAssemblyIdentity =
+                    ResolutionAssemblyIdentityFor(identity);
                 string assembly =
                     definition?.Participant.Assembly.Identity.Name
                     ?? member.DeclaringType.Assembly;
@@ -922,6 +947,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         evidence,
                         definitionAssemblyIdentity:
                             definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
                         parentEdgeCallSites,
@@ -948,6 +975,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         evidence,
                         definitionAssemblyIdentity:
                             definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
                         parentEdgeCallSites,
@@ -972,6 +1001,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         evidence,
                         definitionAssemblyIdentity:
                             definitionAssemblyIdentity,
+                        resolutionAssemblyIdentity:
+                            resolutionAssemblyIdentity,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
                         parentEdgeCallSites,
@@ -1046,6 +1077,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                     evidence,
                     definitionAssemblyIdentity:
                         definitionAssemblyIdentity,
+                    resolutionAssemblyIdentity:
+                        resolutionAssemblyIdentity,
                     definition?.Diagnostic,
                     hasUnresolvedDispatch,
                     parentEdgeCallSites,
@@ -1125,6 +1158,50 @@ public sealed class CatalogCallGraphScope : IDisposable
                 ? first
                 : null;
         }
+
+        static Dictionary<
+            GraphNodeIdentity,
+            AssemblyReferenceIdentity?> ResolutionAssemblies(
+                ImmutableArray<StoredDefinition> definitions,
+                ImmutableArray<StoredCallSite> callSites)
+        {
+            var result = new Dictionary<
+                GraphNodeIdentity,
+                AssemblyReferenceIdentity?>();
+            IEnumerable<(
+                GraphNodeIdentity Identity,
+                AssemblyReferenceIdentity? Assembly)> observations =
+                definitions.Select(definition => (
+                    definition.Evidence.Identity,
+                    definition.ResolutionAssemblyIdentity))
+                .Concat(
+                    callSites.Select(callSite => (
+                        callSite.Evidence.Identity,
+                        callSite.ResolutionAssemblyIdentity)));
+            foreach ((GraphNodeIdentity identity,
+                AssemblyReferenceIdentity? assembly) in observations)
+            {
+                if (assembly is null)
+                    continue;
+                if (!result.TryGetValue(
+                        identity,
+                        out AssemblyReferenceIdentity? existing))
+                {
+                    result.Add(identity, assembly);
+                    continue;
+                }
+                if (existing is not null
+                    && !existing.IsEquivalentTo(assembly))
+                {
+                    result[identity] = null;
+                }
+            }
+            return result;
+        }
+
+        AssemblyReferenceIdentity? ResolutionAssemblyIdentityFor(
+            GraphNodeIdentity identity) =>
+            _resolutionAssembliesByIdentity.GetValueOrDefault(identity);
 
         internal CallTreeNode Detach(CallTreeNode root)
         {
@@ -1245,6 +1322,7 @@ public sealed class CatalogCallGraphScope : IDisposable
             CallTreePerf perf,
             GraphNodeEvidence evidence,
             AssemblyReferenceIdentity? definitionAssemblyIdentity = null,
+            AssemblyReferenceIdentity? resolutionAssemblyIdentity = null,
             AnalysisDiagnostic? diagnostic = null,
             bool hasUnresolvedDispatch = false,
             ImmutableArray<DirectCall> parentEdgeCallSites = default,
@@ -1254,6 +1332,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 GraphEvidence = evidence,
                 DefinitionAssemblyIdentity =
                     definitionAssemblyIdentity,
+                ResolutionAssemblyIdentity =
+                    resolutionAssemblyIdentity,
                 Diagnostic = diagnostic,
                 HasUnresolvedDispatch =
                     hasUnresolvedDispatch,
@@ -1300,6 +1380,8 @@ public sealed class CatalogCallGraphScope : IDisposable
             internal CatalogMemberCorrespondencePlan Plan { get; } =
                 plan;
             internal CatalogMemberJoinProjection? Projection { get; set; }
+            internal AssemblyReferenceIdentity?
+                ResolutionAssemblyIdentity { get; set; }
         }
 
         readonly record struct PlanKey(
@@ -1328,6 +1410,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 MethodIdentity method,
                 MemberRef member,
                 GraphNodeEvidence evidence,
+                AssemblyReferenceIdentity?
+                    resolutionAssemblyIdentity,
                 bool hasBody,
                 AnalysisDiagnostic? diagnostic)
             {
@@ -1335,6 +1419,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 Method = method;
                 Member = member;
                 Evidence = evidence;
+                ResolutionAssemblyIdentity =
+                    resolutionAssemblyIdentity;
                 HasBody = hasBody;
                 Diagnostic = diagnostic;
                 Signals = participant.Index.GetMethodSignals()
@@ -1347,6 +1433,8 @@ public sealed class CatalogCallGraphScope : IDisposable
             internal MethodIdentity Method { get; }
             internal MemberRef Member { get; }
             internal GraphNodeEvidence Evidence { get; }
+            internal AssemblyReferenceIdentity?
+                ResolutionAssemblyIdentity { get; }
             internal bool HasBody { get; }
             internal AnalysisDiagnostic? Diagnostic { get; }
             internal MethodSignals Signals { get; }
@@ -1355,7 +1443,9 @@ public sealed class CatalogCallGraphScope : IDisposable
         sealed record StoredCallSite(
             CatalogCallGraphParticipant Participant,
             DirectCall Call,
-            GraphNodeEvidence Evidence);
+            GraphNodeEvidence Evidence,
+            AssemblyReferenceIdentity?
+                ResolutionAssemblyIdentity);
 
         sealed record StoredEdge(
             StoredDefinition Caller,

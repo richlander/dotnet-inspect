@@ -176,7 +176,7 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
-    public void ConflictingDefinitionAssembliesAreWithheld()
+    public void ConflictingDefinitionAndResolutionAssembliesAreWithheld()
     {
         MemberRef repeated = Member("Svc", "Do");
         GraphNodeEvidence repeatedEvidence = Evidence(2);
@@ -198,11 +198,13 @@ public class CallGraphProjectionTests
                 {
                     GraphEvidence = repeatedEvidence,
                     DefinitionAssemblyIdentity = first,
+                    ResolutionAssemblyIdentity = first,
                 },
                 Leaf(repeated) with
                 {
                     GraphEvidence = repeatedEvidence,
                     DefinitionAssemblyIdentity = second,
+                    ResolutionAssemblyIdentity = second,
                 },
             ]) with
         {
@@ -214,6 +216,7 @@ public class CallGraphProjectionTests
             node => node.Member.Name == repeated.Name);
 
         Assert.Null(projected.DefinitionAssemblyIdentity);
+        Assert.Null(projected.ResolutionAssemblyIdentity);
     }
 
     [Fact]

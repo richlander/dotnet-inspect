@@ -107,8 +107,18 @@ The projection owns everything a host must not re-invent in JavaScript:
   A catalog-resolved node also carries the exact defining assembly identity
   when every definition site agrees; call-site storage remains attributed to
   the caller and is not repurposed as defining evidence.
+  Separately, the node carries the terminal assembly identity observed while
+  resolving its declaring type. An unresolved terminal is an acquisition hint,
+  never a definition claim, and conflicting observations are withheld. The
+  Browser platform graph uses that hint only for nodes in its bounded
+  projection, only when an already-authorized platform pack supplies the
+  assembly, then rebuilds against the expanded participant-only workspace
+  before transport. It never substitutes host filesystem probing.
   `CalleeTreeCarriesResolvedDefinitionAssemblyIdentity` and
-  `ConflictingDefinitionAssembliesAreWithheld` gate that separation.
+  `ConflictingDefinitionAndResolutionAssembliesAreWithheld` gate the two typed
+  identities and conflict handling.
+  `PlatformCallGraph_ResolvesDefinitionsBehindFacadesWithoutHostProbing` gates
+  the Browser no-resolver consumer boundary.
   Every product-built tree child also retains all `DirectCall` receipts for its
   parent edge and the acquisition-aware definition storage of their caller.
   `CallGraphProjection.CallSites` deduplicates catalog receipts by that caller

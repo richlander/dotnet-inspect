@@ -1770,70 +1770,101 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void CallGraphTargets_UseDefinitionsBehindPlatformFacades()
+    public async Task PlatformCallGraph_ResolvesDefinitionsBehindFacadesWithoutHostProbing()
     {
-        LibraryBodyIndex console = LibraryBodyIndex.Open(
-            typeof(Console).Assembly.Location);
-        LibraryBodyIndex coreLibrary = LibraryBodyIndex.Open(
-            typeof(object).Assembly.Location);
-        ResolvedAssemblyReference consoleAssembly =
-            ResolvedAssemblyReference.CreateFromPath(
-                console.Path,
-                AssemblyResolutionProvenance.Platform(
-                    "net11.0",
-                    frameworkVersion: null,
-                    resolverSource: "Browser engine test"));
-        ResolvedAssemblyReference coreLibraryAssembly =
-            ResolvedAssemblyReference.CreateFromPath(
-                coreLibrary.Path,
-                AssemblyResolutionProvenance.Platform(
-                    "net11.0",
-                    frameworkVersion: null,
-                    resolverSource: "Browser engine test"));
-        var resolver = new AssemblyDependencyResolver(
-            new AssemblyDependencyResolutionOptions(console.Path)
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.97";
+        const string framework = "net11.0-facade-resolution";
+        string runtimeDirectory =
+            Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)),
+            ("System.Console.dll",
+                File.ReadAllBytes(typeof(Console).Assembly.Location)),
+            ("System.Runtime.dll",
+                File.ReadAllBytes(
+                    Path.Combine(
+                        runtimeDirectory,
+                        "System.Runtime.dll"))));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization(
+                [PackageSource.NuGetOrg]);
+
+        _ = await BrowserPlatformWorkspace.OpenRuntimeAsync(
+            framework,
+            client,
+            authorization,
+            TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        BrowserPlatformScopeResolution console =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework,
+                "System.Console.dll",
+                "netcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        Assert.Equal(2, console.Scope.Members.Length);
+        BrowserPackageSurface surface =
+            Assert.IsType<BrowserPackageSurface>(
+                JsonSerializer.Deserialize(
+                    BrowserInspectionEngine.ProjectPlatformSurface(
+                        console),
+                    BrowserJsonContext.Default.BrowserPackageSurface));
+        BrowserTypeSurface consoleType = Assert.Single(
+            surface.Types,
+            type => type.Namespace == "System"
+                && type.Name == "Console");
+        BrowserMemberSurface writeLine = Assert.Single(
+            consoleType.Api,
+            member => member.Name == "WriteLine"
+                && member.DocumentationId
+                    == "M:System.Console.WriteLine(System.String)");
+        int requestsBeforeGraph = handler.Requests;
+
+        BrowserCallGraph graph =
+            Assert.IsType<BrowserCallGraph>(
+                JsonSerializer.Deserialize(
+                    await BrowserInspectionEngine
+                        .ExpandPlatformCallGraph(
+                            framework,
+                            "System.Console",
+                            "netcore.app",
+                            consoleType.DefinitionId,
+                            writeLine.Name,
+                            writeLine.GraphSelectorKey,
+                            writeLine.MetadataToken!.Value),
+                    BrowserJsonContext.Default.BrowserCallGraph));
+
+        Assert.Equal(requestsBeforeGraph, handler.Requests);
+        Assert.Equal(3, graph.Scope.Assemblies);
+        BrowserCallGraphTarget[] forwarded =
+        [
+            .. graph.Targets.Where(target =>
+                target.TypeDefinitionId == "System.IO.TextWriter"
+                && target.MemberName == "WriteLine"),
+        ];
+        Assert.NotEmpty(forwarded);
+        Assert.All(
+            forwarded,
+            target =>
             {
-                PreferImplementationAssemblies = true,
-                AllowPlatformAssemblyVersionRollForward = true,
+                Assert.Equal(
+                    typeof(object).Assembly.GetName().Name,
+                    target.Assembly);
+                Assert.Equal("netcore.app", target.PlatformPack);
             });
-        using var scope = new CatalogCallGraphScope(
-            resolver,
-            [
-                new(console, consoleAssembly),
-                new(coreLibrary, coreLibraryAssembly),
-            ]);
-        MethodIdentity writeLine = console.DeclaredMethods.Single(method =>
-            method.DeclaringType.Namespace == "System"
-            && method.DeclaringType.Name == "Console"
-            && method.Name == "WriteLine"
-            && method.ParameterTypes.Length == 1
-            && method.ParameterTypes[0].Namespace == "System"
-            && method.ParameterTypes[0].Name == "String");
-        CallGraphProjection projection = CallGraphProjection.FromCallees(
-            scope.BuildCallTree(
-                console,
-                writeLine.MetadataToken,
-                maxDepth: 2,
-                maxNodes: 500));
-        CallGraphNode forwarded = Assert.Single(
-            projection.Nodes,
-            node =>
-                node.Member.DeclaringType.Resolution?.Origin
-                    is TypeReferenceOrigin.AssemblyReference reference
-                && reference.Assembly.Name == "System.Runtime"
-                && node.DefinitionAssemblyIdentity?.Name
-                    == coreLibraryAssembly.Identity.Name);
-
-        BrowserCallGraphTarget target = Assert.Single(
-            BrowserInspectionEngine.Targets(
-                [forwarded],
-                [consoleAssembly.Identity, coreLibraryAssembly.Identity]),
-            candidate => candidate.Id == $"n{forwarded.Id}");
-
-        Assert.Equal(coreLibraryAssembly.Identity.Name, target.Assembly);
-        Assert.Equal(
-            coreLibraryAssembly.Identity.PublicKeyToken,
-            target.AssemblyPublicKeyToken);
+        Assert.DoesNotContain(
+            forwarded,
+            target => target.Assembly == "System.Runtime");
     }
 
     // A package coordinate becomes a flat-container path segment and a cache key. Both halves are

@@ -93,60 +93,18 @@ public static partial class BrowserInspectionEngine
         int metadataToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selectorKey);
-        BrowserPlatformScopeResolution resolution =
-            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+        PlatformGraphBuild build =
+            await BuildPlatformGraphAsync(
                 targetFramework,
-                assembly.EndsWith(
-                    ".dll",
-                    StringComparison.OrdinalIgnoreCase)
-                    ? assembly
-                    : $"{assembly}.dll",
-                pack);
-        AssemblyContextApiSurfaceResult implementation =
-            resolution.Scope.UseParticipant(
-                resolution.Participant,
-                (group, participant) =>
-                    AssemblyContextApiSurfaceQuery.ExecuteBounded(
-                        group,
-                        ApiSurfaceScope.IncludeAll,
-                        BrowserApiSurfacePolicy.Limits,
-                        [participant]));
-        if (implementation.Truncation is { } truncation)
-        {
-            throw new InvalidOperationException(
-                $"The implementation surface for '{typeFullName}' exceeds the "
-                + "browser projection bounds, so the selected body cannot be "
-                + "resolved. "
-                + BrowserApiSurfacePolicy.TruncationNotice(truncation));
-        }
-
-        AssemblyApiSurface surface = BrowserSurfaceProjection.Require(
-            implementation.Assemblies.Assemblies.Single(),
-            $"Implementation surface for '{typeFullName}'");
-        Analysis.CallGraphMemberResolution member =
-            Analysis.CallGraphMemberResolver.ResolveDefinitionIdentity(
-                surface.Surface,
+                assembly,
+                pack,
                 typeFullName,
                 memberName,
                 selectorKey,
-                metadataToken == 0 ? null : metadataToken)
-            ?? throw new InvalidOperationException(
-                $"The implementation of '{typeFullName}.{memberName}' does not "
-                + "contain the selected API body.");
-
-        MemberCallGraphView view = resolution.Scope.Use(group =>
-        {
-            using var session = new MemberCallGraphSession(
-                group,
-                resolution.Participant.Participant.Assembly,
-                member.BodyToken);
-            return session.HasCrossLibraryScope
-                ? session.CrossLibrary()
-                : session.Callers();
-        });
-        CallGraphProjection projection = CallGraphProjection.Create(
-            view.CallerRoot,
-            view.CalleeRoot);
+                metadataToken);
+        BrowserPlatformScopeResolution resolution = build.Resolution;
+        MemberCallGraphView view = build.View;
+        CallGraphProjection projection = build.Projection;
         int callerAssemblies = resolution.Scope.Members
             .Select(candidate =>
                 candidate.Participant.Assembly.Identity.Name)
@@ -177,6 +135,369 @@ public static partial class BrowserInspectionEngine
                     && view.CallerRoot is null),
             BrowserJsonContext.Default.BrowserCallGraph);
     }
+
+    static async Task<PlatformGraphBuild> BuildPlatformGraphAsync(
+        string targetFramework,
+        string assembly,
+        string pack,
+        string typeFullName,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        string assemblyFileName = assembly.EndsWith(
+                ".dll",
+                StringComparison.OrdinalIgnoreCase)
+            ? assembly
+            : $"{assembly}.dll";
+        BrowserPlatformScopeResolution current =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                assemblyFileName,
+                pack);
+        string rootFamily = current.Coordinate.Family;
+        string rootAssembly =
+            current.Participant.Participant.Assembly.Identity.Name;
+
+        for (int expansion = 0;
+            expansion < BrowserInspectionScope.MaxAssembliesPerRole;
+            expansion++)
+        {
+            PlatformMemberFocus focus =
+                await ResolvePlatformMemberAsync(
+                    current,
+                    targetFramework,
+                    rootFamily,
+                    rootAssembly,
+                    typeFullName,
+                    memberName,
+                    selectorKey,
+                    metadataToken);
+            current = focus.Resolution;
+            MemberCallGraphView view = current.Scope.Use(group =>
+            {
+                using var session = new MemberCallGraphSession(
+                    group,
+                    focus.Participant.Participant.Assembly,
+                    focus.Member.BodyToken);
+                return session.HasCrossLibraryScope
+                    ? session.CrossLibrary()
+                    : session.Callers();
+            });
+            CallGraphProjection projection =
+                CallGraphProjection.Create(
+                    view.CallerRoot,
+                    view.CalleeRoot);
+            AssemblyReferenceIdentity[] required =
+                RequiredPlatformAssemblies(
+                    projection,
+                    current.Scope);
+            if (required.Length == 0)
+            {
+                return new PlatformGraphBuild(
+                    current,
+                    view,
+                    projection);
+            }
+
+            foreach (AssemblyReferenceIdentity identity in required)
+            {
+                string targetPack =
+                    current.Scope.PlatformPackForAssembly(
+                        identity.Name)
+                    ?? throw new InvalidOperationException(
+                        $"Platform assembly '{identity.Name}' is required to "
+                        + "resolve a call-graph target, but no authorized "
+                        + "platform pack supplies it.");
+                current =
+                    await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                        targetFramework,
+                        $"{identity.Name}.dll",
+                        targetPack);
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Platform call-graph type resolution exceeded the browser "
+            + "assembly-count limit.");
+    }
+
+    static async Task<PlatformMemberFocus> ResolvePlatformMemberAsync(
+        BrowserPlatformScopeResolution current,
+        string targetFramework,
+        string rootFamily,
+        string rootAssembly,
+        string typeFullName,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        MetadataTypeDefinitionName type =
+            MetadataTypeDefinitionName.ParseSerialized(
+                typeFullName) switch
+            {
+                MetadataTypeDefinitionNameResult.Valid valid =>
+                    valid.Name,
+                MetadataTypeDefinitionNameResult.Rejected =>
+                    throw new InvalidOperationException(
+                        $"Call-graph type identity '{typeFullName}' is invalid."),
+                _ => throw new InvalidOperationException(
+                    "Unknown metadata type-name result."),
+            };
+
+        for (int expansion = 0;
+            expansion < BrowserInspectionScope.MaxAssembliesPerRole;
+            expansion++)
+        {
+            WorkspaceContextMember root =
+                current.Scope.Participant(
+                    rootFamily,
+                    rootAssembly);
+            if (TryResolvePlatformMember(
+                    current.Scope,
+                    root,
+                    typeFullName,
+                    memberName,
+                    selectorKey,
+                    metadataToken)
+                is { } direct)
+            {
+                return new PlatformMemberFocus(
+                    current,
+                    root,
+                    direct);
+            }
+
+            AssemblyContextTypeResolutionResult result =
+                current.Scope.Use(group =>
+                    AssemblyContextTypeResolutionQuery.Execute(
+                        group,
+                        root.Participant,
+                        type,
+                        AssemblyResolutionScope.Platform));
+            TypeResolutionOutcome outcome = result switch
+            {
+                AssemblyContextTypeResolutionResult.Available
+                    available => available.Outcome,
+                AssemblyContextTypeResolutionResult.Rejected rejected =>
+                    throw new InvalidOperationException(
+                        $"Platform assembly "
+                        + $"'{rejected.Assembly.Identity.Name}' could not "
+                        + $"participate in type resolution "
+                        + $"({rejected.Failure.Kind}: "
+                        + $"{rejected.Failure.Detail})."),
+                _ => throw new InvalidOperationException(
+                    "Unknown assembly-context type-resolution result."),
+            };
+            if (outcome
+                is TypeResolutionOutcome.Resolved resolved)
+            {
+                WorkspaceContextMember[] definitions =
+                [
+                    .. current.Scope.Members.Where(candidate =>
+                        candidate.Participant.Assembly.Identity
+                            .IsEquivalentTo(
+                                resolved.Definition.Assembly
+                                    .Assembly.Identity)),
+                ];
+                if (definitions.Length != 1)
+                {
+                    throw new InvalidOperationException(
+                        $"Type '{typeFullName}' resolved to "
+                        + $"'{resolved.Definition.Assembly.Assembly.Identity.Name}', "
+                        + "but the platform workspace did not retain one "
+                        + "unambiguous definition participant.");
+                }
+
+                Analysis.CallGraphMemberResolution? member =
+                    TryResolvePlatformMember(
+                        current.Scope,
+                        definitions[0],
+                        typeFullName,
+                        memberName,
+                        selectorKey,
+                        metadataToken);
+                return member is not null
+                    ? new PlatformMemberFocus(
+                        current,
+                        definitions[0],
+                        member)
+                    : throw new InvalidOperationException(
+                        $"The resolved implementation of "
+                        + $"'{typeFullName}.{memberName}' does not contain "
+                        + "the selected API body.");
+            }
+
+            AssemblyReferenceIdentity? target =
+                outcome.TerminalAssemblyIdentity;
+            if (target is null)
+            {
+                throw new InvalidOperationException(
+                    $"The platform workspace could not resolve "
+                    + $"'{typeFullName}.{memberName}' "
+                    + $"({ResolutionFailure(outcome)}).");
+            }
+            WorkspaceContextMember[] sameName =
+                ResidentAssemblies(
+                    current.Scope,
+                    target.Name);
+            if (sameName.Any(candidate =>
+                    candidate.Participant.Assembly.Identity
+                        .IsEquivalentTo(target)))
+            {
+                throw new InvalidOperationException(
+                    $"The platform workspace could not resolve "
+                    + $"'{typeFullName}.{memberName}' "
+                    + $"({ResolutionFailure(outcome)}).");
+            }
+            ThrowIfIdentityConflict(target, sameName);
+
+            string targetPack =
+                current.Scope.PlatformPackForAssembly(target.Name)
+                ?? throw new InvalidOperationException(
+                    $"Platform assembly '{target.Name}' is required to "
+                    + $"resolve '{typeFullName}', but no authorized "
+                    + "platform pack supplies it.");
+            current =
+                await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    targetFramework,
+                    $"{target.Name}.dll",
+                    targetPack);
+        }
+
+        throw new InvalidOperationException(
+            "Platform member type resolution exceeded the browser "
+            + "assembly-count limit.");
+    }
+
+    static Analysis.CallGraphMemberResolution? TryResolvePlatformMember(
+        BrowserPlatformScope scope,
+        WorkspaceContextMember participant,
+        string typeFullName,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        AssemblyContextApiSurfaceResult implementation =
+            scope.UseParticipant(
+                participant,
+                (group, selected) =>
+                    AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                        group,
+                        ApiSurfaceScope.IncludeAll,
+                        BrowserApiSurfacePolicy.Limits,
+                        [selected]));
+        if (implementation.Truncation is { } truncation)
+        {
+            throw new InvalidOperationException(
+                $"The implementation surface for '{typeFullName}' exceeds the "
+                + "browser projection bounds, so the selected body cannot be "
+                + "resolved. "
+                + BrowserApiSurfacePolicy.TruncationNotice(truncation));
+        }
+
+        AssemblyApiSurface surface = BrowserSurfaceProjection.Require(
+            implementation.Assemblies.Assemblies.Single(),
+            $"Implementation surface for '{typeFullName}'");
+        return Analysis.CallGraphMemberResolver
+            .ResolveDefinitionIdentity(
+                surface.Surface,
+                typeFullName,
+                memberName,
+                selectorKey,
+                metadataToken == 0 ? null : metadataToken);
+    }
+
+    static AssemblyReferenceIdentity[] RequiredPlatformAssemblies(
+        CallGraphProjection projection,
+        BrowserPlatformScope scope)
+    {
+        var required = new List<AssemblyReferenceIdentity>();
+        foreach (CallGraphNode node in projection.Nodes)
+        {
+            AssemblyReferenceIdentity? identity =
+                node.DefinitionAssemblyIdentity is null
+                    ? node.ResolutionAssemblyIdentity
+                    : null;
+            if (identity is null)
+                continue;
+
+            WorkspaceContextMember[] sameName =
+                ResidentAssemblies(scope, identity.Name);
+            if (sameName.Any(candidate =>
+                    candidate.Participant.Assembly.Identity
+                        .IsEquivalentTo(identity)))
+            {
+                continue;
+            }
+            ThrowIfIdentityConflict(identity, sameName);
+            if (scope.PlatformPackForAssembly(identity.Name)
+                    is null
+                || required.Any(candidate =>
+                    candidate.IsEquivalentTo(identity)))
+            {
+                continue;
+            }
+
+            required.Add(identity);
+        }
+        return [.. required];
+    }
+
+    static WorkspaceContextMember[] ResidentAssemblies(
+        BrowserPlatformScope scope,
+        string assembly) =>
+    [
+        .. scope.Members.Where(candidate =>
+            candidate.Participant.Assembly.Identity.Name.Equals(
+                assembly,
+                StringComparison.OrdinalIgnoreCase)),
+    ];
+
+    static void ThrowIfIdentityConflict(
+        AssemblyReferenceIdentity required,
+        WorkspaceContextMember[] residents)
+    {
+        if (residents.Length == 0)
+            return;
+
+        string retained = string.Join(
+            ", ",
+            residents.Select(candidate =>
+                $"{candidate.Participant.Assembly.Identity.Name} "
+                + $"{candidate.Participant.Assembly.Identity.Version}"));
+        throw new InvalidOperationException(
+            $"Platform type resolution requires '{required.Name} "
+            + $"{required.Version}', but the workspace retains "
+            + $"a different identity: {retained}.");
+    }
+
+    static string ResolutionFailure(
+        TypeResolutionOutcome outcome) =>
+        outcome switch
+        {
+            TypeResolutionOutcome.NotFound =>
+                "the acquired assembly does not declare or forward the type",
+            TypeResolutionOutcome.UnboundBinding =>
+                "the next forwarding assembly is not resident",
+            TypeResolutionOutcome.Unavailable =>
+                "a required assembly is unavailable",
+            TypeResolutionOutcome.Ambiguous =>
+                "the definition is ambiguous",
+            TypeResolutionOutcome.Rejected =>
+                "the forwarding relationship was rejected",
+            _ => "type resolution failed",
+        };
+
+    sealed record PlatformMemberFocus(
+        BrowserPlatformScopeResolution Resolution,
+        WorkspaceContextMember Participant,
+        Analysis.CallGraphMemberResolution Member);
+
+    sealed record PlatformGraphBuild(
+        BrowserPlatformScopeResolution Resolution,
+        MemberCallGraphView View,
+        CallGraphProjection Projection);
 
     internal static string ProjectPlatformSurface(
         BrowserPlatformScopeResolution resolution)

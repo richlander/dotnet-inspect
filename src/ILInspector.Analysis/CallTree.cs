@@ -64,6 +64,17 @@ public sealed record CallTreeNode(
     public AssemblyReferenceIdentity? DefinitionAssemblyIdentity { get; init; }
 
     /// <summary>
+    /// Exact terminal assembly identity observed while resolving the declaring
+    /// type. An unresolved value is an acquisition hint, not a definition
+    /// claim.
+    /// </summary>
+    /// <remarks>
+    /// <c>CalleeTreeCarriesResolvedDefinitionAssemblyIdentity</c> gates this
+    /// independently of the definition-site identity.
+    /// </remarks>
+    public AssemblyReferenceIdentity? ResolutionAssemblyIdentity { get; init; }
+
+    /// <summary>
     /// Physical calls supporting the edge between this node and its parent.
     /// Each call retains its semantic caller-to-callee direction regardless of
     /// whether this node belongs to a caller or callee tree. The root has no

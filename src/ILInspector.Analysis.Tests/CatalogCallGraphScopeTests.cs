@@ -142,6 +142,10 @@ public class CatalogCallGraphScopeTests
             Descriptor(target).Identity.IsEquivalentTo(
                 Assert.IsType<AssemblyReferenceIdentity>(
                     callee.DefinitionAssemblyIdentity)));
+        Assert.True(
+            Descriptor(target).Identity.IsEquivalentTo(
+                Assert.IsType<AssemblyReferenceIdentity>(
+                    callee.ResolutionAssemblyIdentity)));
         CallGraphNode projected = Assert.Single(
             CallGraphProjection.FromCallees(tree).Nodes,
             node => node.Member.Name == callee.Member.Name);
@@ -149,6 +153,10 @@ public class CatalogCallGraphScopeTests
             Descriptor(target).Identity.IsEquivalentTo(
                 Assert.IsType<AssemblyReferenceIdentity>(
                     projected.DefinitionAssemblyIdentity)));
+        Assert.True(
+            Descriptor(target).Identity.IsEquivalentTo(
+                Assert.IsType<AssemblyReferenceIdentity>(
+                    projected.ResolutionAssemblyIdentity)));
     }
 
     [Fact]
