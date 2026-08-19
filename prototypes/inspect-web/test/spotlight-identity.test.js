@@ -251,6 +251,26 @@ test("member filters retain accessible controls and focus across rerenders", () 
   assert.match(
     stylesSource,
     /\.type-browser:not\(\.member-nav\) \.namespace-chips, \.pane-footer \{ display: none; \}/);
+  assert.match(
+    appSource,
+    /memberFilter\?\.addEventListener\("input"[\s\S]*renderPreservingMemberFilterFocus\(\)/);
+  assert.match(
+    appSource,
+    /memberFilter\?\.addEventListener\("keydown"[\s\S]*stepMemberNav/);
+});
+
+test("shared member views retain scope and filter state", () => {
+  const encoder = appSource.match(
+    /function encodeShareState\(\)[\s\S]*?\n}\n\nfunction decodeShareState/)?.[0] ?? "";
+  const decoder = appSource.match(
+    /function decodeShareState\([\s\S]*?\n}\n\n\/\/ Maps a view token/)?.[0] ?? "";
+  assert.match(encoder, /packet\.b = 1/);
+  assert.match(encoder, /packet\.q = state\.memberTextFilter/);
+  assert.match(encoder, /packet\.k = state\.memberKindFilter/);
+  assert.match(encoder, /packet\.e = state\.memberAccessibilityFilter/);
+  assert.match(encoder, /packet\.r = state\.memberTraitFilter/);
+  assert.match(decoder, /memberBrowse: raw\.b === 1/);
+  assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {
@@ -458,7 +478,7 @@ test("annotated source request identity includes the selected body", () => {
   assert.equal(
     [...annotatedLoader.matchAll(
       /memberRequestIsCurrent\(signature, true, true\)/g)].length,
-    2);
+    3);
   assert.match(
     annotatedLoader,
     /selectorKey: state\.selectedBodyTarget\?\.selectorKey[\s\S]*?metadataToken: state\.selectedBodyTarget\?\.metadataToken/);

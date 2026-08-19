@@ -208,7 +208,7 @@ export function renderMemberNav(options: MemberNavOptions): string {
           </button>`;
         }).join("") || '<div class="empty-list">No members match these filters.</div>'}
       </div>
-      <footer class="pane-footer"><span>↑↓ members</span><span>←→ sections</span><span>esc types</span></footer>
+      <footer class="pane-footer"><span>↑↓ members</span>${selectedMemberKey ? "<span>←→ sections</span>" : ""}<span>esc types</span></footer>
     </aside>`;
 }
 

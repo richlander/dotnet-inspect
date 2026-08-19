@@ -157,6 +157,25 @@ test("the member nav marks the active group and its selected overload", () => {
     html,
     /data-nav-overload="0" role="option" aria-selected="false"/);
   assert.match(html, /id="member-filters"/);
+  assert.match(html, /←→ sections/);
+});
+
+test("the member nav does not advertise sections without a selected member", () => {
+  const html = renderMemberNav({
+    type: jsonSerializer,
+    entries: [],
+    memberCount: 1,
+    visibleMemberCount: 0,
+    filterControlsHtml: "",
+    selectedMemberKey: "",
+    selectedOverloadIndex: null,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
+
+  assert.doesNotMatch(html, /←→ sections/);
 });
 
 test("the type heading reports the owning package and library", () => {

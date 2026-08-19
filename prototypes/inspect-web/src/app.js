@@ -533,6 +533,7 @@ function base64UrlDecode(value) {
 // terse to keep the encoded string short:
 //   t = tabs [[id, version, framework], …]   a = active tab index   v = view token
 //   y/m/o/c = selected type / member / overload / member section (type view only)
+//   b/q/k/e/r = member browse scope / text / kind / accessibility / trait filters
 function encodeShareState() {
   const packet = {
     t: state.packages.map(item => [item.id, item.version, item.activeFramework || ""]),
@@ -553,6 +554,11 @@ function encodeShareState() {
     if (state.selectedMemberKey) packet.m = state.selectedMemberKey;
     if (state.selectedOverloadIndex != null) packet.o = state.selectedOverloadIndex;
     if (state.memberSection && state.memberSection !== "overview") packet.c = state.memberSection;
+    if (memberScopeIsActive(state, selectedType()?.id)) packet.b = 1;
+    if (state.memberTextFilter) packet.q = state.memberTextFilter;
+    if (state.memberKindFilter !== "all") packet.k = state.memberKindFilter;
+    if (state.memberAccessibilityFilter !== "all") packet.e = state.memberAccessibilityFilter;
+    if (state.memberTraitFilter) packet.r = state.memberTraitFilter;
   }
   return base64UrlEncode(JSON.stringify(packet));
 }
@@ -583,7 +589,12 @@ function decodeShareState(value) {
         member: raw.m != null ? String(raw.m) : null,
         overload: raw.o != null ? String(raw.o) : null,
         section: raw.c != null ? String(raw.c) : null,
-        library: raw.l != null ? String(raw.l) : null
+        library: raw.l != null ? String(raw.l) : null,
+        memberBrowse: raw.b === 1,
+        memberTextFilter: raw.q != null ? String(raw.q) : "",
+        memberKindFilter: raw.k != null ? String(raw.k) : "all",
+        memberAccessibilityFilter: raw.e != null ? String(raw.e) : "all",
+        memberTraitFilter: raw.r != null ? String(raw.r) : ""
       };
     }
     return { error: "The shared workspace state is invalid and was ignored." };
@@ -622,6 +633,11 @@ function parseLocation() {
   let tabs = [];
   let active = 0;
   let library = null;
+  let memberBrowse = false;
+  let memberTextFilter = "";
+  let memberKindFilter = "all";
+  let memberAccessibilityFilter = "all";
+  let memberTraitFilter = "";
   let workspaceNotice = share?.error || "";
 
   if (share && !share.error) {
@@ -637,6 +653,11 @@ function parseLocation() {
       overload = share.overload;
       section = share.section;
       library = share.library;
+      memberBrowse = share.memberBrowse;
+      memberTextFilter = share.memberTextFilter;
+      memberKindFilter = share.memberKindFilter;
+      memberAccessibilityFilter = share.memberAccessibilityFilter;
+      memberTraitFilter = share.memberTraitFilter;
     } else {
       // Legacy array packet carries only the extra tab set; the visible params stay the
       // target. Point the active index at the visible package so it opens focused.
@@ -666,6 +687,11 @@ function parseLocation() {
     tabs,
     active,
     library,
+    memberBrowse,
+    memberTextFilter,
+    memberKindFilter,
+    memberAccessibilityFilter,
+    memberTraitFilter,
     workspaceNotice
   };
 }
@@ -693,7 +719,12 @@ const initialDeepLink = {
   type: initialLocation.type,
   member: initialLocation.member,
   overload: initialLocation.overload,
-  section: initialLocation.section
+  section: initialLocation.section,
+  memberBrowse: initialLocation.memberBrowse,
+  memberTextFilter: initialLocation.memberTextFilter,
+  memberKindFilter: initialLocation.memberKindFilter,
+  memberAccessibilityFilter: initialLocation.memberAccessibilityFilter,
+  memberTraitFilter: initialLocation.memberTraitFilter
 };
 
 const app = document.querySelector("#app");
@@ -1190,7 +1221,10 @@ function scopedPlatformLibrary() {
 function activeLenses() {
   const sc = scope();
   if (sc === "package") return packageLensesFor(state.package);
-  if (sc === "member") return memberSectionsFor(selectedMember(selectedType()));
+  if (sc === "member") {
+    const member = selectedMember(selectedType());
+    return member ? memberSectionsFor(member) : [];
+  }
   return lenses;
 }
 
@@ -1353,6 +1387,7 @@ function stepHorizontal(delta) {
   }
   const type = selectedType();
   const member = state.lens === "api" ? selectedMember(type) : null;
+  if (scope() === "member" && !member) return;
   const overloadOpen = member && !(member.overloads.length > 1 && state.selectedOverloadIndex == null);
   if (overloadOpen) {
     const order = memberSectionsFor(member).map(([id]) => id);
@@ -3559,12 +3594,12 @@ function bindEvents() {
   memberFilter?.addEventListener("input", event => {
     state.memberTextFilter = event.target.value;
     normalizeMemberSelection();
-    render();
-    requestAnimationFrame(() => {
-      const input = document.querySelector("#member-filter");
-      input?.focus();
-      input?.setSelectionRange(state.memberTextFilter.length, state.memberTextFilter.length);
-    });
+    renderPreservingMemberFilterFocus();
+  });
+  memberFilter?.addEventListener("keydown", event => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    stepMemberNav(event.key === "ArrowDown" ? 1 : -1, true);
   });
   document.querySelector("#clear-member-filter")?.addEventListener("click", () => {
     resetMemberFilters();
@@ -5205,6 +5240,19 @@ function applyDeepLink(deep) {
   if (restoreType && deep) {
     const type = pkg.types.find(item => item.id === deep.type);
     const groups = memberGroups(type);
+    const traits = new Set(MEMBER_TRAITS.map(([property]) => property));
+    state.memberTextFilter = deep.memberTextFilter || "";
+    state.memberKindFilter = memberKinds(type).includes(deep.memberKindFilter)
+      ? deep.memberKindFilter
+      : "all";
+    state.memberAccessibilityFilter = memberAccessibilities(type).includes(deep.memberAccessibilityFilter)
+      ? deep.memberAccessibilityFilter
+      : "all";
+    state.memberTraitFilter = traits.has(deep.memberTraitFilter)
+      ? deep.memberTraitFilter
+      : "";
+    if (deep.memberBrowse && groups.length)
+      state.memberBrowseTypeId = type.id;
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
     if (group) {
       state.memberBrowseTypeId = type.id;
@@ -5694,11 +5742,13 @@ async function loadSelectedMemberSource() {
       state.memberSourceError = String(error?.message || error);
     }
   } finally {
-    if (generation === state.sourceRequestGeneration
-      && state.memberSourceKey === signature) {
+    const current = generation === state.sourceRequestGeneration
+      && state.memberSourceKey === signature;
+    if (current) {
       state.memberSourceLoading = false;
+      if (memberRequestIsCurrent(signature, false, true))
+        renderPreservingMemberFilterFocus();
     }
-    render();
   }
 }
 
@@ -5755,9 +5805,11 @@ async function loadSelectedMemberAnnotatedSource() {
       state.memberAnnotatedError = String(error?.message || error);
     }
   } finally {
-    if (state.memberAnnotatedKey === signature)
+    if (state.memberAnnotatedKey === signature) {
       state.memberAnnotatedLoading = false;
-    render();
+      if (memberRequestIsCurrent(signature, true, true))
+        renderPreservingMemberFilterFocus();
+    }
   }
 }
 
@@ -6212,7 +6264,7 @@ async function loadSelectedMemberCallGraph() {
     state.memberCallGraph = local;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = hasOtherLibraries;
-    render();
+    renderPreservingMemberFilterFocus();
     await renderMermaidCallGraph();
 
     if (hasOtherLibraries) {
@@ -6248,11 +6300,11 @@ async function loadSelectedMemberCallGraph() {
     if (state.memberCallGraph) {
       state.memberCallGraphError =
         `Workspace expansion was incomplete: ${String(error?.message || error)}`;
-      render();
+      renderPreservingMemberFilterFocus();
       await renderMermaidCallGraph();
     } else {
       state.memberCallGraphError = String(error?.message || error);
-      render();
+      renderPreservingMemberFilterFocus();
     }
   }
 }
@@ -6283,14 +6335,14 @@ async function loadRuntimeMemberCallGraph(type, overload) {
     state.memberCallGraph = graph;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
-    render();
+    renderPreservingMemberFilterFocus();
     await renderMermaidCallGraph();
   } catch (error) {
     if (seq !== state.memberCallGraphSeq) return;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
     state.memberCallGraphError = String(error?.message || error);
-    render();
+    renderPreservingMemberFilterFocus();
   }
 }
 
@@ -7134,9 +7186,11 @@ async function loadSelectedMemberFacts() {
       state.memberFactsError = String(error?.message || error);
     }
   } finally {
-    if (state.memberFactsKey === signature)
+    if (state.memberFactsKey === signature) {
       state.memberFactsLoading = false;
-    render();
+      if (memberRequestIsCurrent(signature))
+        renderPreservingMemberFilterFocus();
+    }
   }
 }
 
