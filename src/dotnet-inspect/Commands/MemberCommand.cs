@@ -306,6 +306,9 @@ public static class MemberCommand
             if (RejectBodylessFactsRequest(apiType, ref effectiveOptions))
                 return 1;
 
+            if (RejectBodylessBodyShapesRequest(apiType, effectiveOptions))
+                return 1;
+
             bool selectedMemberDefinitelyHasNoBody =
                 SelectedMemberDefinitelyHasNoBody(apiType, effectiveOptions);
             if (selectedMemberDefinitelyHasNoBody)
@@ -723,11 +726,15 @@ public static class MemberCommand
 
         IReadOnlySet<string> renderableSections =
             ResolveBodylessRenderableSections(apiType, requestedSections, ordinal);
-        bool hasOtherRenderableSection = ApiMemberSectionPipelines.Create(options)
-            .GetInspectionViews(apiType, includeInapplicable: true)
-            .Any(view => renderableSections.Contains(view.Id)
-                && !view.Id.Equals(SectionNames.Facts, StringComparison.OrdinalIgnoreCase)
-                && view.CanRender)
+        bool rendersAbstractAccessorAnnotatedSource =
+            ApiOutputFormatter.IsSelectedAbstractAccessor(apiType, ordinal)
+            && renderableSections.Contains(SectionNames.AnnotatedSource);
+        bool hasOtherRenderableSection = rendersAbstractAccessorAnnotatedSource
+            || ApiMemberSectionPipelines.Create(options)
+                .GetInspectionViews(apiType, includeInapplicable: true)
+                .Any(view => renderableSections.Contains(view.Id)
+                    && !view.Id.Equals(SectionNames.Facts, StringComparison.OrdinalIgnoreCase)
+                    && view.CanRender)
             || HasBroadRawDocumentJsonSelection(options);
         string target = accessor is null ? "method" : "accessor";
         if (hasOtherRenderableSection)
@@ -768,6 +775,13 @@ public static class MemberCommand
                     : EmptySections;
 
         HashSet<string> sections = new(bodyTargetSections, StringComparer.OrdinalIgnoreCase);
+        if (ApiOutputFormatter.IsSelectedAbstractAccessor(apiType, ordinal)
+            && requestedSections.Contains(SectionNames.AnnotatedSource))
+        {
+            // Abstract accessors render Annotated Source through the explicit absence path,
+            // rather than entering the decompiler projection.
+            sections.Add(SectionNames.AnnotatedSource);
+        }
         sections.UnionWith(requestedSections.Where(SectionsThatNeedNoBodyTarget.Contains));
         return sections;
     }
@@ -837,7 +851,24 @@ public static class MemberCommand
     private static readonly IReadOnlySet<string> EmptySections =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    private static bool SelectedMemberDefinitelyHasNoBody(
+    private static bool RejectBodylessBodyShapesRequest(
+        ApiType apiType,
+        MemberOptions options)
+    {
+        if (!options.BodyKindQuery.HasFilter
+            || !SelectedMemberDefinitelyHasNoBody(apiType, options))
+        {
+            return false;
+        }
+
+        ApiMember? selected = apiType.Members is [{ } member] ? member : null;
+        ApiMember? accessor = ResolveSourceAccessor(apiType, selected, options.OverloadIndex);
+        CommandError.Write(
+            $"The selected {(accessor is null ? "method" : "accessor")} has no IL body.");
+        return true;
+    }
+
+    internal static bool SelectedMemberDefinitelyHasNoBody(
         ApiType apiType,
         MemberOptions options)
     {

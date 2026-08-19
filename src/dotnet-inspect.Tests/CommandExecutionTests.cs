@@ -7140,6 +7140,29 @@ public partial class CommandExecutionTests
         Assert.Contains(expected, output, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Member_FactsWithAnnotatedSource_BodylessAbstractAccessor_RendersAbsence()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Facts,Annotated Source",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Note: The selected accessor has no IL body.", error);
+        Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
+        Assert.Contains("## Annotated Source", output, StringComparison.Ordinal);
+        Assert.Contains("The selected accessor has no IL body.", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(ILInspector.Decompiler.DiagnosticIds.InternalError, output, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("Facts,Fidelity Causes", "Fidelity Causes")]
     [InlineData("Signature,Fidelity Causes", "Fidelity Causes")]

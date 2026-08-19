@@ -395,6 +395,15 @@ public sealed class MetadataDeclarationQueryTests
             extracted.Members,
             member => member.Kind == "explicit-interface-implementation"
                 && member.Name.EndsWith(".add_Changed", StringComparison.Ordinal));
+
+        var property = Assert.Single(
+            queried.Members,
+            member => member.Kind == "property"
+                && member.Name.EndsWith(".Value", StringComparison.Ordinal));
+        var signatureAccessor = Assert.Single(property.SignatureModel!.Accessors);
+        var factAccessor = Assert.Single(property.AccessorFacts);
+        Assert.Null(signatureAccessor.MethodName);
+        Assert.EndsWith(".get_Value", factAccessor.MethodName, StringComparison.Ordinal);
     }
 
     [Theory]

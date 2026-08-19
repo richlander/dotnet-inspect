@@ -132,6 +132,66 @@ public class InspectionViewDescriptorTests
         Assert.DoesNotContain(SectionNames.SourceLocations, bodylessIds);
     }
 
+    [Fact]
+    public void BodyShapesKnownBodylessGate_PreservesUnknownAccessorEligibility()
+    {
+        var knownBodylessAccessor = new ApiType
+        {
+            Name = "Sample",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    AccessorFacts =
+                    [
+                        new ApiAccessor
+                        {
+                            Kind = "get",
+                            HasMethodBody = false,
+                        },
+                    ],
+                },
+            ],
+        };
+        var unknownLegacyAccessor = new ApiType
+        {
+            Name = "Sample",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    SetterToken = 0x06000002,
+                    HasMethodBody = true,
+                },
+            ],
+        };
+        var executableMethod = new ApiType
+        {
+            Name = "Sample",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Run",
+                    Kind = "method",
+                    MetadataToken = 0x06000003,
+                    HasMethodBody = true,
+                },
+            ],
+        };
+        var options = new MemberOptions { OverloadIndex = 1 };
+
+        Assert.True(MemberCommand.SelectedMemberDefinitelyHasNoBody(knownBodylessAccessor, options));
+        Assert.False(MemberCommand.SelectedMemberDefinitelyHasNoBody(unknownLegacyAccessor, options));
+        Assert.False(MemberCommand.SelectedMemberDefinitelyHasNoBody(executableMethod, options));
+    }
+
     public static TheoryData<ApiMember, bool, bool> BodyAnalysisApplicabilityCases => new()
     {
         {

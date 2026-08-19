@@ -137,6 +137,7 @@ public static class MetadataDeclarationQuery
             {
                 Name = declaration.MetadataName,
                 Kind = "property",
+                ReturnType = declaration.Signature.ReturnType,
                 SignatureModel = declaration.Signature,
                 AccessorFacts =
                 [

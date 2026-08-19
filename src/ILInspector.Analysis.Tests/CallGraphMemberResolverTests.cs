@@ -276,7 +276,7 @@ public sealed class CallGraphMemberResolverTests
                 [
                     new ApiAccessor
                     {
-                        Kind = "set",
+                        Kind = "init",
                         StructuralReturnType = StructuralTypeIdentity.Modified(
                             required: true,
                             "System.Runtime.CompilerServices.IsExternalInit",
@@ -288,7 +288,8 @@ public sealed class CallGraphMemberResolverTests
             [
                 new ApiAccessor
                 {
-                    Kind = "set",
+                    Kind = "init",
+                    MethodName = "set_Value",
                     StructuralReturnType = StructuralTypeIdentity.Modified(
                         required: true,
                         "System.Runtime.CompilerServices.IsExternalInit",
@@ -319,6 +320,7 @@ public sealed class CallGraphMemberResolverTests
             CallGraphMemberResolver.CreateBodySelectors(type, member),
             selector => selector.MemberName == "set_Value");
 
+        Assert.Equal("set_Value", setter.MemberName);
         Assert.Equal(graph.Key, setter.SelectorKey);
 
         var persisted = JsonSerializer.Deserialize<ApiSurface>(
@@ -329,6 +331,7 @@ public sealed class CallGraphMemberResolverTests
             CallGraphMemberResolver.CreateBodySelectors(persistedType, persistedMember),
             selector => selector.MemberName == "set_Value");
 
+        Assert.Equal("set_Value", persistedSetter.MemberName);
         Assert.Equal(graph.Key, persistedSetter.SelectorKey);
         Assert.Equal(
             0x06000002,
@@ -347,6 +350,16 @@ public sealed class CallGraphMemberResolverTests
         ApiMember member = Assert.Single(
             type.Members,
             candidate => candidate.Name == nameof(InitAccessorFixtures.Value));
+        ApiAccessor signatureAccessor = Assert.Single(
+            member.SignatureModel!.Accessors,
+            accessor => accessor.Kind == "set");
+        ApiAccessor factAccessor = Assert.Single(
+            member.AccessorFacts,
+            accessor => accessor.Kind == "set");
+        Assert.Null(signatureAccessor.MethodName);
+        Assert.False(string.IsNullOrEmpty(factAccessor.MethodName));
+        signatureAccessor.Kind = "init";
+        factAccessor.Kind = "init";
         CallGraphMemberBodySelector setter = Assert.Single(
             CallGraphMemberResolver.CreateBodySelectors(type, member),
             selector => selector.MemberName == "set_Value");
@@ -358,6 +371,7 @@ public sealed class CallGraphMemberResolverTests
         CallGraphMemberSelector graph = CallGraphMemberResolver.CreateSelector(reference);
 
         Assert.Equal(graph.Key, setter.SelectorKey);
+        Assert.Equal(reference.Name, setter.MemberName);
         Assert.Contains("IsExternalInit", setter.SelectorKey, StringComparison.Ordinal);
         Assert.Equal(
             setter.BodyToken,
@@ -443,6 +457,52 @@ public sealed class CallGraphMemberResolverTests
         Assert.Equal(
             getter.BodyToken,
             CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.BodyToken);
+    }
+
+    [Fact]
+    public void BodySelectors_UseMetadataDeclarationAccessorFactsBeforeAndAfterRoundTrip()
+    {
+        using var stream = File.OpenRead(typeof(ExplicitAccessorFixtures).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle handle = reader.TypeDefinitions.Single(candidate =>
+            reader.GetString(reader.GetTypeDefinition(candidate).Name)
+            == nameof(ExplicitAccessorFixtures));
+        ApiType type = MetadataDeclarationQuery.GetTypeSurface(
+            reader,
+            handle,
+            includeNonPublicMembers: true);
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Kind == "property"
+            && candidate.Name.EndsWith(
+                $".{nameof(IExplicitAccessor.Value)}",
+                StringComparison.Ordinal));
+        ApiAccessor signatureAccessor = Assert.Single(member.SignatureModel!.Accessors);
+        ApiAccessor accessorFact = Assert.Single(member.AccessorFacts);
+        Assert.Null(signatureAccessor.Name);
+        Assert.Null(signatureAccessor.MethodName);
+        Assert.False(string.IsNullOrEmpty(accessorFact.MethodName));
+
+        CallGraphMemberBodySelector beforeRoundTrip = Assert.Single(
+            CallGraphMemberResolver.CreateBodySelectors(type, member));
+        Assert.Equal(accessorFact.MethodName, beforeRoundTrip.MemberName);
+
+        ApiSurface persisted = JsonSerializer.Deserialize<ApiSurface>(
+            JsonSerializer.Serialize(new ApiSurface { Types = [type] }))!;
+        ApiType persistedType = Assert.Single(persisted.Types);
+        ApiMember persistedMember = Assert.Single(
+            persistedType.Members,
+            candidate => candidate.Kind == "property"
+                && candidate.Name.EndsWith(
+                    $".{nameof(IExplicitAccessor.Value)}",
+                    StringComparison.Ordinal));
+        CallGraphMemberBodySelector afterRoundTrip = Assert.Single(
+            CallGraphMemberResolver.CreateBodySelectors(persistedType, persistedMember));
+
+        Assert.Equal(beforeRoundTrip.MemberName, afterRoundTrip.MemberName);
+        Assert.Equal(beforeRoundTrip.SelectorKey, afterRoundTrip.SelectorKey);
+        Assert.Equal(beforeRoundTrip.BodyToken, afterRoundTrip.BodyToken);
     }
 
     [Fact]

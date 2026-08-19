@@ -448,6 +448,33 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task MemberBodylessBodyShapesSelection_RequiresKindBeforeBodyAnalysis()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    "System.Collections.Generic.ICollection<T>",
+                    "--platform",
+                    "System.Runtime",
+                    "-m",
+                    "Count:1",
+                    "-S",
+                    "Body Shapes",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "requires --where \"Kind=<C# Body Kinds ID>\"",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("has no IL body", result.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MemberBroadSelection_OmitsBodyShapesWithoutKind()
     {
         var root = CommandLineBuilder.CreateRootCommand();
@@ -616,6 +643,58 @@ public sealed class BodyShapesSectionTests
             "No matching body shapes found.",
             result.Output,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_KnownBodylessTargetsFailBeforeSearching()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var abstractAccessor = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    "System.Collections.Generic.ICollection<T>",
+                    "--platform",
+                    "System.Runtime",
+                    "-m",
+                    "Count:1",
+                    "--where",
+                    "Kind=ReturnStatement",
+                ])
+                .InvokeAsync());
+        var concreteAccessor = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    "System.Environment",
+                    "--platform",
+                    "System.Runtime",
+                    "-m",
+                    "ExitCode:1",
+                    "--where",
+                    "Kind=ReturnStatement",
+                ])
+                .InvokeAsync());
+        var pinvoke = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(SamplePInvokeClass).FullName!,
+                    $"{nameof(SamplePInvokeClass.GetCurrentProcessId)}:1",
+                    "--library",
+                    typeof(SamplePInvokeClass).Assembly.Location,
+                    "--where",
+                    "Kind=ReturnStatement",
+                ])
+                .InvokeAsync());
+
+        foreach (var result in new[] { abstractAccessor, concreteAccessor, pinvoke })
+        {
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains("has no IL body", result.Error, StringComparison.Ordinal);
+            Assert.DoesNotContain("No matching body shapes found.", result.Output, StringComparison.Ordinal);
+        }
     }
 
     [Fact]

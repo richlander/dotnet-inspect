@@ -291,22 +291,52 @@ public static class CallGraphMemberResolver
 
     static string AccessorMethodName(ApiMember member, string kind, string fallback)
     {
-        ApiAccessor? accessor = Accessor(member, kind);
-        string? name = accessor?.Name ?? accessor?.MethodName;
+        ApiAccessor? modelAccessor = SignatureAccessor(member, kind);
+        ApiAccessor? factAccessor = AccessorFact(member, kind);
+        string? name = FirstNonEmpty(
+            modelAccessor?.Name,
+            modelAccessor?.MethodName,
+            factAccessor?.Name,
+            factAccessor?.MethodName);
         return string.IsNullOrEmpty(name) ? fallback : name;
     }
 
     static string AccessorStructuralReturn(ApiMember member, string kind, string fallback)
     {
-        string? structural = Accessor(member, kind)?.StructuralReturnType;
+        string? structural = FirstNonEmpty(
+            SignatureAccessor(member, kind)?.StructuralReturnType,
+            AccessorFact(member, kind)?.StructuralReturnType);
         return string.IsNullOrEmpty(structural) ? fallback : structural;
     }
 
-    static ApiAccessor? Accessor(ApiMember member, string kind)
-        => member.SignatureModel?.Accessors.FirstOrDefault(accessor =>
-               string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
-           ?? member.AccessorFacts.FirstOrDefault(accessor =>
-               string.Equals(accessor.Kind, kind, StringComparison.Ordinal));
+    static ApiAccessor? SignatureAccessor(ApiMember member, string kind)
+        => MatchingAccessor(member.SignatureModel?.Accessors, kind);
+
+    static ApiAccessor? AccessorFact(ApiMember member, string kind)
+        => MatchingAccessor(member.AccessorFacts, kind);
+
+    /// <summary>
+    /// A metadata producer may spell an init-only setter as <c>init</c>, while the MethodDef
+    /// and call graph consistently use <c>set_*</c>. Prefer an exact kind when it exists; only a
+    /// setter lookup falls back to the init representation.
+    /// </summary>
+    static ApiAccessor? MatchingAccessor(
+        IEnumerable<ApiAccessor>? accessors,
+        string kind)
+    {
+        if (accessors is null)
+            return null;
+
+        ApiAccessor? exact = accessors.FirstOrDefault(accessor =>
+            string.Equals(accessor.Kind, kind, StringComparison.Ordinal));
+        return exact ?? (kind == "set"
+            ? accessors.FirstOrDefault(accessor =>
+                string.Equals(accessor.Kind, "init", StringComparison.Ordinal))
+            : null);
+    }
+
+    static string? FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrEmpty(value));
 
     static CallGraphMemberSelector CreateSelector(
         string name,

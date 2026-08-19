@@ -904,6 +904,27 @@ public class ApiCommand
     private static IReadOnlyList<ApiMember> TypeScopedMembers(ApiType type)
         => type.DeclaringTypeMembers ?? type.Members;
 
+    /// <summary>
+    /// Expands the complete declaring type's property and event owners to the accessor methods
+    /// whose bodies carry exception clauses. A property/event has no MethodDef of its own, so
+    /// its accessor tokens must be included alongside ordinary method members.
+    /// </summary>
+    private static IEnumerable<ApiMember> TypeScopedExceptionRegionMembers(ApiType type)
+    {
+        var yieldedTokens = new HashSet<int>();
+        foreach (ApiMember member in TypeScopedMembers(type))
+        {
+            IEnumerable<ApiMember> candidates = ApiMemberSectionDescriptors.IsMethodLike(member)
+                ? [member]
+                : ApiOutputFormatter.AccessorMethods(member, type);
+            foreach (ApiMember candidate in candidates)
+            {
+                if (candidate.MetadataToken is { } token && yieldedTokens.Add(token))
+                    yield return candidate;
+            }
+        }
+    }
+
     internal static DocumentSchema GetTypeDocumentSchema(ApiOptions options)
     {
         var schema = MergeSchemas(
@@ -1945,8 +1966,7 @@ public class ApiCommand
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
-                    TypeScopedMembers(type).Where(member => member.MetadataToken is not null
-                        && ApiMemberSectionDescriptors.IsMethodLike(member)));
+                    TypeScopedExceptionRegionMembers(type));
                 ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegions, options.IncludeSections);
             }
 
@@ -2847,8 +2867,7 @@ public class ApiCommand
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
-                    TypeScopedMembers(type).Where(member => member.MetadataToken is not null
-                        && ApiMemberSectionDescriptors.IsMethodLike(member)));
+                    TypeScopedExceptionRegionMembers(type));
                 ApiOutputFormatter.PopulateTypeExceptionRegions(
                     view, type, exceptionRegions, renderOptions.IncludeSections);
             }

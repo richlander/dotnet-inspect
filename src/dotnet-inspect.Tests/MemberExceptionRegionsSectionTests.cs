@@ -146,6 +146,29 @@ public class MemberExceptionRegionsSectionTests
         Assert.Equal(ExceptionRegionsSection(type.Output), ExceptionRegionsSection(member.Output));
     }
 
+    [Fact]
+    public async Task SelectedMemberExceptionRegions_IncludeCompleteTypeAccessorBodies()
+    {
+        var type = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = typeof(MemberExceptionRegionsFixture).FullName,
+            AssemblyPath = typeof(MemberExceptionRegionsFixture).Assembly.Location,
+            IncludeSections = [SectionNames.ExceptionRegions],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+        var member = await RunExceptionRegionsAsync(nameof(MemberExceptionRegionsFixture.NoRegions));
+
+        Assert.Equal(0, type.ExitCode);
+        Assert.Equal(0, member.ExitCode);
+        Assert.Empty(member.Error);
+        Assert.Contains("get_AccessorTryCatch", type.Output, StringComparison.Ordinal);
+        Assert.Contains("add_AccessorTryFinally", type.Output, StringComparison.Ordinal);
+        Assert.Equal(ExceptionRegionsSection(type.Output), ExceptionRegionsSection(member.Output));
+    }
+
     static int CountHeadings(string output, string section)
         => output.Split('\n').Count(line => line == $"## {section}");
 
@@ -177,6 +200,8 @@ public class MemberExceptionRegionsSectionTests
 
 public static class MemberExceptionRegionsFixture
 {
+    static Action? accessorHandlers;
+
     public static int TryCatch(int value)
     {
         try
@@ -202,6 +227,37 @@ public static class MemberExceptionRegionsFixture
     }
 
     public static int NoRegions(int value) => value + 1;
+
+    public static int AccessorTryCatch
+    {
+        get
+        {
+            try
+            {
+                return 100 / DateTime.Now.Millisecond;
+            }
+            catch (DivideByZeroException)
+            {
+                return -1;
+            }
+        }
+    }
+
+    public static event Action? AccessorTryFinally
+    {
+        add
+        {
+            try
+            {
+                accessorHandlers += value;
+            }
+            finally
+            {
+                GC.KeepAlive(value);
+            }
+        }
+        remove => accessorHandlers -= value;
+    }
 }
 
 public static class TypeExceptionRegionsEmptyFixture
