@@ -1,3 +1,5 @@
+using ILInspector.MetadataPrimitives;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -346,6 +348,26 @@ public sealed class AssemblyInspectionSession : IDisposable
     {
         _image.EnsureAlive();
         return _declarationIndex.Value.Probe(name);
+    }
+
+    /// <summary>
+    /// Reports whether this image declares one exact structured extension
+    /// member identity.
+    /// </summary>
+    public bool DeclaresExtensionMember(
+        MetadataTypeDefinitionName declaringType,
+        MemberAnchor member)
+    {
+        ArgumentNullException.ThrowIfNull(declaringType);
+        ArgumentNullException.ThrowIfNull(member);
+        _image.EnsureAlive();
+        return ExtensionMethodScanner.FindAllExtensions(
+                _image.PEReader,
+                includeAll: true)
+            .Any(extension =>
+                extension.GetDeclaringTypeDefinition()
+                    == declaringType
+                && extension.Anchor == member);
     }
 
     public void Dispose() => _image.Dispose();

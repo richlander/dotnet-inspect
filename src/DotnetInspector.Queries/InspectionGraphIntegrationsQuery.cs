@@ -486,10 +486,27 @@ public static class InspectionGraphIntegrationsQuery
 
     public static InspectionGraphDocument Execute(
         WorkspaceContextLoadOutcome.Loaded context,
-        InspectionGraphModeRequest modeRequest)
+        InspectionGraphModeRequest modeRequest) =>
+        Execute(
+            context,
+            modeRequest,
+            recordExecution: null);
+
+    internal static InspectionGraphDocument Execute(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphModeRequest modeRequest,
+        Action<InspectionQueryDefinition, TimeSpan>? recordExecution)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(modeRequest);
+        if (modeRequest.InducedSetRule
+            == InspectionGraphInducedSetRule.ExplicitSubjects)
+        {
+            throw new InspectionQueryException(
+                "Explicit-subject induced mode requires an "
+                + $"{nameof(InspectionGraphInducedSetRequest)}. Use the "
+                + "typed request overload.");
+        }
 
         InspectionQueryResults results = CreateRegistry().Run(
             [
@@ -497,7 +514,8 @@ public static class InspectionGraphIntegrationsQuery
                 AssemblyContextReferencesQuery.Definition,
                 AssemblyContextIntegrationOpportunitiesQuery.Definition,
             ],
-            context.Group);
+            context.Group,
+            recordExecution);
 
         return Create(
             context,
@@ -525,7 +543,42 @@ public static class InspectionGraphIntegrationsQuery
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
-        ValidateRelationships(request);
+        ValidateRelationships(request.Relationships);
+        InspectionQueryResults results = CreateRegistry().Run(
+            Plan(request),
+            context.Group,
+            recordExecution);
+        return Create(context, request, results);
+    }
+
+    static void ValidateSubjects(
+        WorkspaceContextLoadOutcome.Loaded context,
+        ImmutableArray<InspectionGraphSubject> subjects)
+    {
+        var builder = new Builder(
+            context,
+            InspectionGraphPackageBoundary.Create(context));
+        foreach (InspectionGraphSubject subject in subjects)
+            builder.EnsureSubject(subject);
+    }
+
+    public static InspectionGraphDocument Execute(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphInducedSetRequest request) =>
+        Execute(
+            context,
+            request,
+            recordExecution: null);
+
+    internal static InspectionGraphDocument Execute(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphInducedSetRequest request,
+        Action<InspectionQueryDefinition, TimeSpan>? recordExecution)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateRelationships(request.Relationships);
+        ValidateSubjects(context, request.Subjects);
         InspectionQueryResults results = CreateRegistry().Run(
             Plan(request),
             context.Group,
@@ -537,25 +590,39 @@ public static class InspectionGraphIntegrationsQuery
         InspectionGraphNeighborhoodRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ValidateRelationships(request);
+        return Plan(request.Relationships);
+    }
+
+    internal static ImmutableArray<InspectionQueryDefinition> Plan(
+        InspectionGraphInducedSetRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return Plan(request.Relationships);
+    }
+
+    static ImmutableArray<InspectionQueryDefinition> Plan(
+        ImmutableArray<InspectionGraphRelationshipDescriptor>
+            relationships)
+    {
+        ValidateRelationships(relationships);
         var queries =
             ImmutableArray.CreateBuilder<InspectionQueryDefinition>();
-        bool opportunitiesSelected = request.Relationships.Contains(
+        bool opportunitiesSelected = relationships.Contains(
             InspectionGraphIntegrationsCatalog.IntegrationOpportunity);
         if (opportunitiesSelected
-            || request.Relationships.Contains(
+            || relationships.Contains(
                 InspectionGraphIntegrationsCatalog.Extension))
         {
             queries.Add(
                 AssemblyContextExtensionMethodsQuery.Definition);
         }
-        if (request.Relationships.Contains(
+        if (relationships.Contains(
             InspectionGraphIntegrationsCatalog.MetadataReference))
         {
             queries.Add(AssemblyContextReferencesQuery.Definition);
         }
         if (opportunitiesSelected
-            || request.Relationships.Contains(
+            || relationships.Contains(
                 InspectionGraphIntegrationsCatalog.IntegrationObserved))
         {
             queries.Add(AssemblyContextIntegrationsQuery.Definition);
@@ -586,10 +653,10 @@ public static class InspectionGraphIntegrationsQuery
                 AssemblyContextIntegrationsQuery.Definition);
 
     static void ValidateRelationships(
-        InspectionGraphNeighborhoodRequest request)
+        IEnumerable<InspectionGraphRelationshipDescriptor> relationships)
     {
         foreach (InspectionGraphRelationshipDescriptor relationship
-            in request.Relationships)
+            in relationships)
         {
             if (!InspectionGraphIntegrationsCatalog.Relationships.Contains(
                 relationship))
@@ -649,18 +716,59 @@ public static class InspectionGraphIntegrationsQuery
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(results);
-        ValidateRelationships(request);
+        ValidateRelationships(request.Relationships);
 
+        InspectionGraphDocument source = CreateSelectedSource(
+            context,
+            request.ModeRequest,
+            request.Seeds,
+            request.Relationships,
+            results);
+        return InspectionGraphNeighborhoodProjection.Project(
+            source,
+            request);
+    }
+
+    internal static InspectionGraphDocument Create(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphInducedSetRequest request,
+        InspectionQueryResults results)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(results);
+        ValidateRelationships(request.Relationships);
+
+        InspectionGraphDocument source = CreateSelectedSource(
+            context,
+            InspectionGraphModeRequest.InducedSet(
+                InspectionGraphInducedSetRule.WorkspaceParticipants),
+            request.Subjects,
+            request.Relationships,
+            results);
+        return InspectionGraphInducedSetProjection.Project(
+            source,
+            request);
+    }
+
+    static InspectionGraphDocument CreateSelectedSource(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphModeRequest modeRequest,
+        ImmutableArray<InspectionGraphSubject> requestedSubjects,
+        ImmutableArray<InspectionGraphRelationshipDescriptor>
+            relationships,
+        InspectionQueryResults results)
+    {
         InspectionGraphPackageBoundary boundary =
             InspectionGraphPackageBoundary.Create(context);
         var builder = new Builder(context, boundary);
-        bool extensionsSelected = request.Relationships.Contains(
+        bool extensionsSelected = relationships.Contains(
             InspectionGraphIntegrationsCatalog.Extension);
-        bool integrationsSelected = request.Relationships.Contains(
+        bool integrationsSelected = relationships.Contains(
             InspectionGraphIntegrationsCatalog.IntegrationObserved);
-        bool referencesSelected = request.Relationships.Contains(
+        bool referencesSelected = relationships.Contains(
             InspectionGraphIntegrationsCatalog.MetadataReference);
-        bool opportunitiesSelected = request.Relationships.Contains(
+        bool opportunitiesSelected = relationships.Contains(
             InspectionGraphIntegrationsCatalog.IntegrationOpportunity);
         bool extensionsNeeded =
             extensionsSelected || opportunitiesSelected;
@@ -722,14 +830,10 @@ public static class InspectionGraphIntegrationsQuery
             builder.AddReferences(references);
         if (opportunities is not null)
             builder.AddOpportunities(opportunities);
-        foreach (InspectionGraphSubject seed in request.Seeds)
-            builder.EnsureSeed(seed);
+        foreach (InspectionGraphSubject subject in requestedSubjects)
+            builder.EnsureSubject(subject);
 
-        InspectionGraphDocument source =
-            builder.Build(request.ModeRequest);
-        return InspectionGraphNeighborhoodProjection.Project(
-            source,
-            request);
+        return builder.Build(modeRequest);
     }
 
     sealed class Builder
@@ -814,15 +918,162 @@ public static class InspectionGraphIntegrationsQuery
             }
         }
 
-        internal void EnsureSeed(InspectionGraphSubject seed)
+        internal void EnsureSubject(InspectionGraphSubject subject)
         {
-            if (seed is InspectionGraphSubject.PackageSubject)
+            if (subject is InspectionGraphSubject.PackageSubject package)
+            {
+                if (!_packageGroupIds.ContainsKey(package))
+                    throw SubjectNotPresent(subject);
                 return;
+            }
 
-            AssemblyAcquisitionRegistration registration =
-                Registration(seed);
-            if (_participants.ContainsKey(registration))
-                AddNode(seed, registration);
+            if (!TryGetRegistration(subject, out var registration)
+                || !_participants.TryGetValue(
+                    registration,
+                    out var participant))
+            {
+                throw SubjectNotPresent(subject);
+            }
+
+            switch (subject)
+            {
+                case InspectionGraphSubject.AssemblySubject:
+                    if (!_boundary.TryGetAssemblySubject(
+                            registration,
+                            out var exactAssembly)
+                        || exactAssembly != subject)
+                    {
+                        throw SubjectNotPresent(subject);
+                    }
+                    break;
+                case InspectionGraphSubject.TypeSubject
+                {
+                    Identity:
+                        InspectionGraphTypeIdentity.AcquiredDefinition type
+                }:
+                    EnsureDeclared(
+                        participant,
+                        subject,
+                        session =>
+                            DeclarationValidation.From(
+                                session.ProbeDeclaration(type.Type)));
+                    break;
+                case InspectionGraphSubject.MemberSubject
+                {
+                    Identity:
+                        InspectionGraphMemberIdentity.AcquiredApi member
+                }:
+                    EnsureDeclared(
+                        participant,
+                        subject,
+                        session =>
+                            ValidateMemberDeclaration(
+                                session,
+                                member));
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown explicit-subject kind.");
+            }
+
+            AddNode(subject, registration);
+        }
+
+        void EnsureDeclared(
+            AssemblyContextParticipant participant,
+            InspectionGraphSubject subject,
+            Func<
+                AssemblyInspectionSession,
+                DeclarationValidation> predicate)
+        {
+            AssemblyImageAccessResult<DeclarationValidation> access;
+            try
+            {
+                access = _context.Group.UseAssemblySession(
+                    participant.Assembly,
+                    predicate);
+            }
+            catch (Exception ex) when (
+                AssemblyContextQueryExecutor.IsArtifactFailure(ex))
+            {
+                throw new InspectionQueryException(
+                    $"Explicit induced-set subject '{subject}' could not "
+                    + "be validated because decoding its workspace "
+                    + "participant image failed "
+                    + $"({ex.GetType().Name}: {ex.Message}).",
+                    ex);
+            }
+
+            if (access
+                is AssemblyImageAccessResult<
+                    DeclarationValidation>.Rejected rejected)
+            {
+                throw new InspectionQueryException(
+                    $"Explicit induced-set subject '{subject}' could not "
+                    + "be validated because its workspace participant "
+                    + $"image is unavailable ({rejected.Failure.Kind}). "
+                    + "Update the request to use a subject declared by "
+                    + "this workspace.");
+            }
+
+            DeclarationValidation validation =
+                ((AssemblyImageAccessResult<
+                    DeclarationValidation>.Available)access).Value;
+            if (validation
+                is DeclarationValidation.Rejected declarationRejected)
+            {
+                MetadataTypeNameFailure failure =
+                    declarationRejected.Failure;
+                throw new InspectionQueryException(
+                    $"Explicit induced-set subject '{subject}' could not "
+                    + "be validated because its metadata declaration "
+                    + $"was rejected ({failure.Mechanism}/"
+                    + $"{failure.Kind}: {failure.Detail}).");
+            }
+
+            if (validation is not DeclarationValidation.Declared)
+                throw SubjectNotPresent(subject);
+        }
+
+        static DeclarationValidation ValidateMemberDeclaration(
+            AssemblyInspectionSession session,
+            InspectionGraphMemberIdentity.AcquiredApi member)
+        {
+            DeclarationValidation declaration = DeclarationValidation.From(
+                session.ProbeDeclaration(member.DeclaringType));
+            if (declaration is not DeclarationValidation.Declared)
+                return declaration;
+            return session.DeclaresExtensionMember(
+                member.DeclaringType,
+                member.Member)
+                ? new DeclarationValidation.Declared()
+                : new DeclarationValidation.Absent();
+        }
+
+        abstract record DeclarationValidation
+        {
+            private protected DeclarationValidation()
+            {
+            }
+
+            internal static DeclarationValidation From(
+                TypeDeclarationResult declaration) =>
+                declaration switch
+                {
+                    TypeDeclarationResult.Defined =>
+                        new Declared(),
+                    TypeDeclarationResult.Rejected rejected =>
+                        new Rejected(rejected.Rejection),
+                    _ => new Absent(),
+                };
+
+            internal sealed record Declared :
+                DeclarationValidation;
+            internal sealed record Absent :
+                DeclarationValidation;
+            internal sealed record Rejected(
+                MetadataTypeNameFailure Failure) :
+                DeclarationValidation;
         }
 
         internal void AddTypeCurrency(
@@ -872,6 +1123,8 @@ public static class InspectionGraphIntegrationsQuery
                             in available.Value)
                         {
                             if (extension.Anchor is not { } member
+                                || extension.GetDeclaringTypeDefinition()
+                                    is not { } declaringType
                                 || extension.GetExtendedTypeReference()
                                     is not { } extendedType)
                             {
@@ -886,6 +1139,7 @@ public static class InspectionGraphIntegrationsQuery
                             InspectionGraphSubject.MemberSubject source =
                                 MemberSubject(
                                     available.Subject.Registration,
+                                    declaringType,
                                     member);
                             AddNode(
                                 source,
@@ -1008,7 +1262,10 @@ public static class InspectionGraphIntegrationsQuery
                 }
 
                 InspectionGraphSubject.MemberSubject source =
-                    MemberSubject(registration, api.Member);
+                    MemberSubject(
+                        registration,
+                        api.DeclaringType,
+                        api.Member);
                 AddNode(source, registration);
                 if (!TryResolveType(
                         registration,
@@ -1657,10 +1914,12 @@ public static class InspectionGraphIntegrationsQuery
 
         static InspectionGraphSubject.MemberSubject MemberSubject(
             AssemblyAcquisitionRegistration registration,
+            MetadataTypeDefinitionName declaringType,
             MemberAnchor member) =>
             (InspectionGraphSubject.MemberSubject)
                 InspectionGraphSubject.ForAcquiredApiMember(
                     registration,
+                    declaringType,
                     member);
 
         static InspectionGraphSubject.TypeSubject TypeSubject(
@@ -1695,6 +1954,41 @@ public static class InspectionGraphIntegrationsQuery
                     "The Integration graph requires acquisition-bound subjects.",
                     nameof(subject)),
             };
+
+        static bool TryGetRegistration(
+            InspectionGraphSubject subject,
+            out AssemblyAcquisitionRegistration registration)
+        {
+            registration = subject switch
+            {
+                InspectionGraphSubject.MemberSubject
+                {
+                    Identity:
+                        InspectionGraphMemberIdentity.AcquiredApi acquired,
+                } => acquired.Registration,
+                InspectionGraphSubject.TypeSubject
+                {
+                    Identity:
+                        InspectionGraphTypeIdentity.AcquiredDefinition
+                        acquired,
+                } => acquired.Registration,
+                InspectionGraphSubject.AssemblySubject
+                {
+                    Identity:
+                        InspectionGraphAssemblyIdentity.Acquired acquired,
+                } => acquired.Registration,
+                _ => null!,
+            };
+            return registration is not null;
+        }
+
+        static InspectionQueryException SubjectNotPresent(
+            InspectionGraphSubject subject) =>
+            new(
+                $"The requested {subject.Kind.ToString().ToLowerInvariant()} "
+                + "subject is not present in this graph. Add the subject "
+                + "to workspace scope or select a relationship and lens "
+                + "that admit it.");
 
         sealed record EdgeKey(
             int FromNodeId,
