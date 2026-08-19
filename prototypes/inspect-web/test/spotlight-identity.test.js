@@ -612,6 +612,34 @@ test("MethodDef-only member sections are hidden for bodiless APIs", () => {
     ["overview", "call-graph", "facts", "source", "annotated"]);
 });
 
+// Arrowing between members keeps the active section (e.g. Source) sticky, the same way
+// arrowing between types never disturbs the type-level lens. openMemberGroup/openOverload
+// (the two entry points arrow-key nav uses) must clear cached per-member content without
+// resetting memberSection, and only fall back to Overview when the newly selected member
+// doesn't support the section that was showing.
+test("moving between members keeps the active section sticky, falling back to Overview only when unsupported", () => {
+  const openMemberGroupBody =
+    appSource.match(/function openMemberGroup\(key\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.match(openMemberGroupBody, /clearMemberContentCache\(\)/);
+  assert.doesNotMatch(openMemberGroupBody, /resetMemberSectionState\(\)/);
+  assert.match(openMemberGroupBody, /memberSectionIdsFor\(member\)\.includes\(state\.memberSection\)/);
+  assert.match(openMemberGroupBody, /loadMemberSectionContent\(state\.memberSection\)/);
+
+  const openOverloadBody =
+    appSource.match(/function openOverload\(index\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.match(openOverloadBody, /clearMemberContentCache\(\)/);
+  assert.doesNotMatch(openOverloadBody, /resetMemberSectionState\(\)/);
+  assert.match(openOverloadBody, /memberSectionIdsFor\(member\)\.includes\(state\.memberSection\)/);
+  assert.match(openOverloadBody, /loadMemberSectionContent\(state\.memberSection\)/);
+
+  // resetMemberSectionState remains the "true reset" path (new package tab, spotlight
+  // jump) and still lands back on Overview.
+  const resetBody =
+    appSource.match(/function resetMemberSectionState\(\) \{[\s\S]*?\n}\n/)?.[0] ?? "";
+  assert.match(resetBody, /state\.memberSection = "overview"/);
+  assert.match(resetBody, /clearMemberContentCache\(\)/);
+});
+
 test("source requests carry exact type and member identities", () => {
   const memberBridge =
     engineSource.match(/export async function inspectMemberSource\(request\)[\s\S]*?\n}/)?.[0]

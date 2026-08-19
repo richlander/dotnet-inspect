@@ -1045,8 +1045,10 @@ function navMode() {
   return state.lens === "api" && state.selectedMemberKey ? "member" : "type";
 }
 
-function resetMemberSectionState() {
-  state.memberSection = "overview";
+// Drops every cached per-member result (source, call graph, facts, annotated source, the
+// selected call-graph body target) without touching which section is showing. Any move to
+// a different member needs this, whether or not the section itself carries over.
+function clearMemberContentCache() {
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -1063,17 +1065,49 @@ function resetMemberSectionState() {
   state.selectedBodyTarget = null;
 }
 
+// Same cache clear, but also lands back on Overview. Used by genuine context switches
+// (a new package tab, a spotlight jump) where there is no "current section" worth
+// keeping — as opposed to moving among members of the type already open, where the
+// section stays put; see openMemberGroup/openOverload below.
+function resetMemberSectionState() {
+  state.memberSection = "overview";
+  clearMemberContentCache();
+}
+
+// Kicks off the lazy load implied by whatever section is currently showing. Shared by
+// section switches and by member navigation that keeps the section sticky.
+function loadMemberSectionContent(id) {
+  if (id === "source") loadSelectedMemberSource();
+  else if (id === "annotated") loadSelectedMemberAnnotatedSource();
+  else if (id === "call-graph") loadSelectedMemberCallGraph();
+  else if (id === "facts") loadSelectedMemberFacts();
+  else loadSelectedMemberDocumentation();
+}
+
+// Moving among members of the same open type keeps the active section sticky — arrowing
+// through Source (or Call graph/Facts/Annotated) shows each member's version of that same
+// section, mirroring how the type list keeps its lens fixed while arrowing through types.
+// Only falls back to Overview when the new member doesn't support the current section
+// (e.g. a property while Call graph is showing).
 function openMemberGroup(key) {
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = null;
-  resetMemberSectionState();
-  loadSelectedMemberDocumentation();
+  clearMemberContentCache();
+  const member = selectedMember(selectedType());
+  if (member && !memberSectionIdsFor(member).includes(state.memberSection)) {
+    state.memberSection = "overview";
+  }
+  loadMemberSectionContent(state.memberSection);
 }
 
 function openOverload(index) {
   state.selectedOverloadIndex = index;
-  resetMemberSectionState();
-  loadSelectedMemberDocumentation();
+  clearMemberContentCache();
+  const member = selectedMember(selectedType());
+  if (member && !memberSectionIdsFor(member).includes(state.memberSection)) {
+    state.memberSection = "overview";
+  }
+  loadMemberSectionContent(state.memberSection);
 }
 
 // Switch the open member's section (Overview / Call graph / Facts / Source / Annotated) and
@@ -1086,12 +1120,7 @@ function applyMemberSection(id) {
     state.selectedOverloadIndex = 0;
   }
   state.memberSection = id;
-  if (id === "source") loadSelectedMemberSource();
-  else if (id === "annotated") loadSelectedMemberAnnotatedSource();
-  else if (id === "call-graph") loadSelectedMemberCallGraph();
-  else if (id === "facts") loadSelectedMemberFacts();
-  else if (id === "overview") loadSelectedMemberDocumentation();
-  else render();
+  loadMemberSectionContent(id);
 }
 
 // Flattened, ordered nav rows for member mode: every member group, with the active
