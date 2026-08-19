@@ -62,6 +62,28 @@ test("type completion filters package types and caps an open argument list", () 
   );
 });
 
+test("an exact type match sorts ahead of capped partial matches", () => {
+  const types = [
+    ...Array.from({ length: 8 }, (_, index) => ({
+      id: `Example.JsonSerializer${index}`,
+      name: `JsonSerializer${index}`,
+      namespace: "Example",
+      kind: "class",
+    })),
+    {
+      id: "Example.JsonSerializer",
+      name: "JsonSerializer",
+      namespace: "Example",
+      kind: "class",
+    },
+  ];
+
+  assert.equal(
+    commandPaletteResults(commandContext("type JsonSerializer", types), lenses)[0]?.command,
+    "type JsonSerializer",
+  );
+});
+
 test("lens, framework, and type-filter arguments retain command metadata", () => {
   assert.deepEqual(
     commandCompletions(commandContext("show "), lenses),

@@ -144,7 +144,7 @@ export function statusBarHtml(
   const statusLabel = model.statusLabel
     ?? (ready ? "browser wasm ready" : "browser wasm loading");
   const classes = model.variant === "home"
-    ? "statusbar data-bar home-foot"
+    ? "data-bar home-foot"
     : "statusbar data-bar";
   const diagnostics = model.compactDiagnostics && model.diagnostics
     ? `<span class="diag">⚙ ready in ${fmtMs(model.diagnostics.totalMs)}</span>`

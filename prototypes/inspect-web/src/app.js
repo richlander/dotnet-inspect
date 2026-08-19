@@ -648,6 +648,7 @@ let mermaidModule;
 let markdownModule;
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
 let callGraphRenderSeq = 0;
+let spotlightFocusGeneration = 0;
 document.documentElement.dataset.theme = state.theme;
 
 function escapeHtml(value) {
@@ -676,18 +677,33 @@ const spotlight = createSpotlight({
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework || "",
   render,
-  focusAfterDismiss: focusTypeList,
+  focusAfterDismiss: () => focusTypeList(spotlightFocusGeneration),
 });
 
-function focusTypeList() {
-  if (state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen) return;
+function beginSpotlightNavigation() {
+  return ++spotlightFocusGeneration;
+}
+
+function isTextEntry(element = document.activeElement) {
+  return ["INPUT", "SELECT", "TEXTAREA"].includes(element?.tagName)
+    || element?.isContentEditable;
+}
+
+function focusTypeList(generation = spotlightFocusGeneration) {
+  if (generation !== spotlightFocusGeneration
+      || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
+      || isTextEntry()) return;
   requestAnimationFrame(() => {
-    if (state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen) return;
+    if (generation !== spotlightFocusGeneration
+        || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
+        || isTextEntry()) return;
     document.querySelector("#type-list")?.focus();
   });
 }
 
 function openSpotlight(seed = "", scope = "all") {
+  if (state.loading || state.error) return;
+  beginSpotlightNavigation();
   spotlight.open(seed, scope);
 }
 
@@ -4938,9 +4954,10 @@ function pickSpotlightResult(result) {
 }
 
 async function loadPackageFromSpotlight(id, version, framework = "") {
-  closeSpotlight();
+  const focusGeneration = beginSpotlightNavigation();
+  spotlight.reset();
   await loadPackage(id, version, framework);
-  focusTypeList();
+  focusTypeList(focusGeneration);
 }
 
 // Kicks off the runtime-pack load (if not already loaded/loading) and repaints the
@@ -4969,9 +4986,10 @@ function activateRuntimePack() {
 // its type list. The download happens only here, on demand — selecting the Platform scope
 // itself never downloads.
 async function openPlatformLibrary(assembly, pack, options = {}) {
+  const focusGeneration = beginSpotlightNavigation();
   const navigationSeq = options.navigationSeq ?? ++state.navigationSeq;
   if (navigationSeq !== state.navigationSeq) return;
-  closeSpotlight();
+  spotlight.reset();
   const key = (assembly || "").replace(/\.dll$/i, "");
   const fileName = key ? `${key}.dll` : "";
   const tfm = platformScopeTfm();
@@ -5022,12 +5040,13 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
   const selectionData = loadSelectionData();
   render();
   await selectionData;
-  focusTypeList();
+  focusTypeList(focusGeneration);
 }
 
 function pickSpotlightLoadedPackage(pkg) {
   const target = state.packages.find(item => packageIdentityEquals(item, pkg));
   if (!target) { closeSpotlight(); return; }
+  const focusGeneration = beginSpotlightNavigation();
   state.home = false;
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
@@ -5037,13 +5056,14 @@ function pickSpotlightLoadedPackage(pkg) {
   resetMemberSectionState();
   spotlight.reset();
   render();
-  focusTypeList();
+  focusTypeList(focusGeneration);
 }
 
 async function pickSpotlightMember(result) {
   const pkg = state.packages.find(item => packageIdentityEquals(item, result.pkg));
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!type) { closeSpotlight(); return; }
+  const focusGeneration = beginSpotlightNavigation();
   state.home = false;
   activatePackage(pkg);
   state.atPackageRoot = false;
@@ -5059,7 +5079,7 @@ async function pickSpotlightMember(result) {
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
   render();
   await loadSelectedMemberDocumentation();
-  focusTypeList();
+  focusTypeList(focusGeneration);
 }
 
 async function pickSpotlight(packageResult, typeId) {
@@ -5069,6 +5089,7 @@ async function pickSpotlight(packageResult, typeId) {
     closeSpotlight();
     return;
   }
+  const focusGeneration = beginSpotlightNavigation();
   state.home = false;
   activatePackage(pkg);
   state.atPackageRoot = false;
@@ -5093,13 +5114,16 @@ async function pickSpotlight(packageResult, typeId) {
   const selectionData = loadSelectionData();
   render();
   await selectionData;
+  if (focusGeneration !== spotlightFocusGeneration) return;
   requestAnimationFrame(() => {
+    if (focusGeneration !== spotlightFocusGeneration) return;
     document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
   });
-  focusTypeList();
+  focusTypeList(focusGeneration);
 }
 
 function executeCommand(value) {
+  beginSpotlightNavigation();
   const [verb, ...rest] = value.split(/\s+/);
   const argument = rest.join(" ");
   let operation;
@@ -7833,7 +7857,7 @@ document.addEventListener("keydown", event => {
     }
     return;
   }
-  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  const typing = isTextEntry();
   // The home page has its own scoped input handling (search box); global workbench
   // shortcuts assume a loaded package, so stay out of the way here.
   if (state.home) return;
@@ -7858,7 +7882,10 @@ document.addEventListener("keydown", event => {
     return;
   }
   if (state.spotlightOpen) {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSpotlight();
+    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
       openSpotlight("", "commands");
     } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {

@@ -200,6 +200,15 @@ test("global workbench shortcuts respect the topmost modal", () => {
   assert.match(
     appSource,
     /state\.spotlightOpen[\s\S]*event\.key\.toLowerCase\(\) === "f"[\s\S]*event\.preventDefault\(\)/);
+  assert.match(
+    appSource,
+    /state\.spotlightOpen[\s\S]*event\.key === "Escape"[\s\S]*closeSpotlight\(\)/);
+  assert.match(
+    appSource,
+    /function openSpotlight\(seed = "", scope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;/);
+  assert.match(
+    spotlightSource,
+    /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {
@@ -210,13 +219,19 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
   assert.match(selectionLoader, /return loadSelectedTypeMetadata\(\)/);
   assert.match(
     appSource,
-    /async function loadPackageFromSpotlight[\s\S]*await loadPackage\([\s\S]*focusTypeList\(\)/);
+    /async function loadPackageFromSpotlight[\s\S]*await loadPackage\([\s\S]*focusTypeList\(focusGeneration\)/);
   assert.match(
     appSource,
-    /async function openPlatformLibrary[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(\)/);
+    /async function openPlatformLibrary[\s\S]*spotlight\.reset\(\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(focusGeneration\)/);
   assert.match(
     appSource,
-    /async function pickSpotlight\(packageResult, typeId\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(\)/);
+    /async function pickSpotlight\(packageResult, typeId\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(focusGeneration\)/);
+  assert.match(
+    appSource,
+    /let spotlightFocusGeneration = 0[\s\S]*function focusTypeList\(generation = spotlightFocusGeneration\)[\s\S]*generation !== spotlightFocusGeneration[\s\S]*isTextEntry\(\)/);
+  assert.match(
+    spotlightSource,
+    /const generation = interactionGeneration;[\s\S]*Promise\.resolve\(execution\)\.then\(\(\) => \{\s*if \(generation === interactionGeneration\)/);
 });
 
 test("dependency graph render identity includes truncation and navigation", () => {

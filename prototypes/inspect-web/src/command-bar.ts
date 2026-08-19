@@ -99,6 +99,9 @@ export function commandCompletions(
   const needle = tokens.at(-1)?.toLowerCase() || "";
   return entries
     .filter(entry => entry.value.toLowerCase().includes(needle))
+    .sort((left, right) =>
+      Number(right.value.toLowerCase() === needle)
+      - Number(left.value.toLowerCase() === needle))
     .slice(0, 8);
 }
 

@@ -166,6 +166,7 @@ export function nextSpotlightScope(
 
 export function createSpotlight(options: SpotlightOptions) {
   const { state, escapeHtml } = options;
+  let interactionGeneration = 0;
 
   function scopes() {
     return options.commandContext()
@@ -429,6 +430,7 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function open(seed = "", scope = "all"): void {
+    interactionGeneration++;
     options.resetPackageSearch();
     state.spotlightOpen = true;
     state.spotlightQuery = seed;
@@ -462,10 +464,15 @@ export function createSpotlight(options: SpotlightOptions) {
       return;
     }
 
+    const generation = interactionGeneration;
     reset();
     const execution = options.executeCommand(result.command);
     options.render();
-    void Promise.resolve(execution).then(() => options.focusAfterDismiss?.());
+    void Promise.resolve(execution).then(() => {
+      if (generation === interactionGeneration) {
+        options.focusAfterDismiss?.();
+      }
+    });
   }
 
   function highlightSelection(): number {
@@ -633,6 +640,7 @@ export function createSpotlight(options: SpotlightOptions) {
           if (target.id === "spotlight-backdrop") close();
         },
       );
+      focus();
     }
   }
 

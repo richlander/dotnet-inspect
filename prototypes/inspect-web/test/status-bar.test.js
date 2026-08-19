@@ -105,7 +105,8 @@ test("the same data bar component renders home readiness and compact diagnostics
     framework: "net10.0",
   }, escapeHtml);
 
-  assert.match(html, /class="statusbar data-bar home-foot"/);
+  assert.match(html, /class="data-bar home-foot"/);
+  assert.doesNotMatch(html, /class="statusbar/);
   assert.match(html, /class="home-wasm-spinner"/);
   assert.match(html, /browser wasm loading/);
   assert.match(html, /⚙ ready in 1\.25 s/);
