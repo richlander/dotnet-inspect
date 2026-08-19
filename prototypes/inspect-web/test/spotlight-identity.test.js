@@ -260,6 +260,18 @@ test("member filters retain accessible controls and focus across rerenders", () 
   assert.match(
     appSource,
     /active\?\.id === "type-list"[\s\S]*selector = "#type-list"/);
+  const platformDrill =
+    appSource.match(/async function drillPlatformNode\([\s\S]*?\n}\n\nfunction popPlatformDrill/)?.[0]
+    ?? "";
+  assert.equal(
+    [...platformDrill.matchAll(/renderPreservingMemberFocus\(\)/g)].length,
+    2);
+  const platformNavigation =
+    appSource.match(/async function navigateOrDrillPlatform\([\s\S]*?\n}\n\n\/\/ Enter the resident runtime pack/)?.[0]
+    ?? "";
+  assert.match(
+    platformNavigation,
+    /state\.platformDrillError = state\.runtimePackError[\s\S]*renderPreservingMemberFocus\(\)/);
 });
 
 test("shared member views retain scope and filter state", () => {

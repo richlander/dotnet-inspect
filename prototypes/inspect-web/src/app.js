@@ -6696,14 +6696,14 @@ async function drillPlatformNode(node) {
       title: `${stripArity(node.typeFullName.split(".").pop() ?? "")}.${node.memberName}`
     });
     state.platformDrillLoading = false;
-    render();
+    renderPreservingMemberFocus();
     await renderMermaidCallGraph();
   } catch (error) {
     if (seq !== state.memberCallGraphSeq) return;
     state.platformDrillLoading = false;
     state.platformDrillError =
       `Could not descend into ${node.typeFullName}.${node.memberName}: ${String(error?.message || error)}`;
-    render();
+    renderPreservingMemberFocus();
     await renderMermaidCallGraph();
   }
 }
@@ -6738,7 +6738,7 @@ async function navigateOrDrillPlatform(node) {
     state.platformDrillLoading = false;
     if (!pack) {
       state.platformDrillError = state.runtimePackError || "Could not load the .NET runtime pack.";
-      render();
+      renderPreservingMemberFocus();
       await renderMermaidCallGraph();
       return;
     }
