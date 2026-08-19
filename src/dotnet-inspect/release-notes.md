@@ -189,7 +189,7 @@
 - Gives `package` and `library` authored base and domain categories. Package
   exposes `@Package`, `@Files`, `@Dependencies`, `@Audit`, and `@SourceLink`;
   library exposes `@Library`, `@Surface`, `@Audit`, `@Performance`,
-  `@Decompiler`, `@SourceLink`, `@Integrations`, `@Metadata`, and `@Context`
+  `@SourceLink`, `@Integrations`, `@Metadata`, and `@Context`
   (#3838, #4061).
 - Makes discovery distinguish structural membership from effective evidence.
   `-D --schema` reports the static graph, library `--effective` runs full
