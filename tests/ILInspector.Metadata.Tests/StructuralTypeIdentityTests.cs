@@ -162,11 +162,35 @@ public sealed class StructuralTypeIdentityTests
                 "M0@"),
             required.StructuralIdentity());
         Assert.Equal("System.Collections.Generic.List{M0}", list.StructuralIdentity());
+        Assert.Equal("System.Collections.Generic.List<TM0>", list.Render());
         Assert.Equal(
             "Samples.Outer{System.Int32}.Inner{System.String}",
             nested.StructuralIdentity());
+        Assert.Equal("Samples.Outer<int>.Inner<string>", nested.Render());
         Assert.Equal("Samples.Outer{System.Int32,System.String}", flat.StructuralIdentity());
+        Assert.Equal("Samples.Outer<int, string>", flat.Render());
         Assert.NotEqual(nested.StructuralIdentity(), flat.StructuralIdentity());
+
+        TypeNode plusNested = provider.GetGenericInstantiation(
+            new NamedTypeNode("Samples.Outer`1+Inner`1", isReferenceType: true),
+            [
+                provider.GetPrimitiveType(PrimitiveTypeCode.Int32),
+                provider.GetPrimitiveType(PrimitiveTypeCode.String),
+            ]);
+        TypeNode enumerator = provider.GetGenericInstantiation(
+            new NamedTypeNode("System.Collections.Generic.Dictionary`2.Enumerator", isReferenceType: false),
+            [
+                provider.GetPrimitiveType(PrimitiveTypeCode.Int32),
+                provider.GetPrimitiveType(PrimitiveTypeCode.String),
+            ]);
+        Assert.Equal(nested.StructuralIdentity(), plusNested.StructuralIdentity());
+        Assert.Equal("Samples.Outer<int>.Inner<string>", plusNested.Render());
+        Assert.Equal(
+            "System.Collections.Generic.Dictionary<int, string>.Enumerator",
+            enumerator.Render());
+        Assert.Equal(
+            "System.Collections.Generic.Dictionary{System.Int32,System.String}.Enumerator",
+            enumerator.StructuralIdentity());
         Assert.Contains("List{M0}", functionPointer.StructuralIdentity(), StringComparison.Ordinal);
         Assert.DoesNotContain("List{TM0}", functionPointer.StructuralIdentity(), StringComparison.Ordinal);
         Assert.False(list.HasStructuralPayload);
