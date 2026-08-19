@@ -49,7 +49,11 @@ test("style catalog groups escape untrusted tier and option text", () => {
 
   assert.doesNotMatch(html, /<script>/);
   assert.doesNotMatch(html, /<img src=x>/);
+  assert.doesNotMatch(html, /<b>bold<\/b>/);
+  assert.doesNotMatch(html, /<i>italic<\/i>/);
   assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /&lt;b&gt;bold&lt;\/b&gt;/);
+  assert.match(html, /&lt;i&gt;italic&lt;\/i&gt;/);
   assert.match(html, /&amp;/);
 });
 
