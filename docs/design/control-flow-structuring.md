@@ -745,9 +745,12 @@ only when the post-dominator machinery is proven.
    cloned transfer is not over-rejected;
    `LeaveRetryPastRegionExitUsesValidatedCloneAfterHeadDetaches` proves a
    validated leave-retry exit survives build-time detachment;
-   `RetainedBodyMergeWithEmptyLandingPadStaysFlat` and
-   `RetainedBodyMergeNestedBelowItsGotoStaysFlat` prove every surviving goto
-   still has a printable, lexically visible target label;
+   `RetainedBodyMergeWithEmptyLandingPadStaysFlat`,
+   `RetainedBodyMergeNestedBelowItsGotoStaysFlat`, and
+   `RetainedBodyMergeNestedExpressionCannotVouchForHiddenLabel` prove every
+   surviving goto still has a printable, lexically visible target label and
+   that nested expression provenance cannot substitute for statement-level
+   label ownership;
    `RetainedBodyMergeLabelStaysOutsideSynthesizedUnsafeScope` and
    `RetainedBodyMergeLabelSurvivesDownstreamInlining` prove that owner survives
    final emission. `ArrayPin_ExternallyTargetedBodyLabel_StaysLowered`,

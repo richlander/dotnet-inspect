@@ -1372,10 +1372,7 @@ public sealed class StructuringPass : IIrPass
         int stop)
     {
         var survivingLabels = root.DescendantsAndSelfOutsideNestedFunctions
-            .Where(static node =>
-                node.Parent is Block
-                && node.OwnsSourceLabel
-                && node.SourceOffset >= 0)
+            .Where(OwnsPrintableStatementLabel)
             .Select(static node => node.SourceOffset)
             .ToHashSet();
         return root.DescendantsOutsideNestedFunctions
@@ -1393,7 +1390,7 @@ public sealed class StructuringPass : IIrPass
         IReadOnlyList<int> retainedMerges)
     {
         var survivingLabels = root.DescendantsAndSelfOutsideNestedFunctions
-            .Where(static node => node.OwnsSourceLabel && node.SourceOffset >= 0)
+            .Where(OwnsPrintableStatementLabel)
             .GroupBy(static node => node.SourceOffset)
             .ToDictionary(static group => group.Key, static group => group.ToArray());
         var targetOffsets = retainedMerges
@@ -1415,6 +1412,11 @@ public sealed class StructuringPass : IIrPass
                         || !owners.Any(owner => LabelIsVisibleFrom(owner, node, root)));
             });
     }
+
+    static bool OwnsPrintableStatementLabel(IrNode node)
+        => node.Parent is Block
+            && node.OwnsSourceLabel
+            && node.SourceOffset >= 0;
 
     static bool LabelIsVisibleFrom(IrNode labelOwner, IrNode transfer, IrNode root)
     {

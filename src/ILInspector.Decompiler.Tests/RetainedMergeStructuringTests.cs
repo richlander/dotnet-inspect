@@ -261,29 +261,23 @@ public class RetainedMergeStructuringTests
     [Fact]
     public void RetainedBodyMergeNestedBelowItsGotoStaysFlat()
     {
-        var blocks = new[]
-        {
-            Term(0, new Branch(12)),
-            Term(1, Cond(8)),
-            Term(2, Cond(10)),
-            Term(3, Cond(6)),
-            Term(4, Cond(8)),
-            Block(
-                5,
-                new StoreLocal(0, I32, new Constant(5, I32)),
-                new Branch(7)),
-            Term(6, new StoreLocal(0, I32, new Constant(6, I32))),
-            Term(7, new Branch(8)),
-            Term(8, new StoreLocal(0, I32, new Constant(8, I32))),
-            Term(9, new Branch(10)),
-            Term(10, new StoreLocal(0, I32, new Constant(10, I32))),
-            Block(
-                11,
-                new StoreLocal(0, I32, new Constant(11, I32)),
-                Cond(13)),
-            Term(12, Cond(1)),
-            Term(13, new Return(new LoadLocal(0, I32))),
-        };
+        var (function, diagnostics) = Structure(RetainedBodyMergeNestedBelowGotoBlocks());
+
+        Assert.Equal(0, diagnostics.RetainedRegions);
+        Assert.Contains("retained-dangling-merge-label", diagnostics.RetainedDeclines);
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void RetainedBodyMergeNestedExpressionCannotVouchForHiddenLabel()
+    {
+        var blocks = RetainedBodyMergeNestedBelowGotoBlocks();
+        var misleadingOwner = new Constant(0, I32);
+        misleadingOwner.SetSourceOffset(8);
+        blocks[1] = Block(
+            1,
+            new StoreLocal(0, I32, misleadingOwner),
+            Cond(8));
 
         var (function, diagnostics) = Structure(blocks);
 
@@ -699,6 +693,30 @@ public class RetainedMergeStructuringTests
         Term(8, new StoreLocal(0, I32, new Constant(5, I32))),
         Term(9, Cond(1)),
         Term(10, new Return(new LoadLocal(0, I32))),
+    ];
+
+    static Block[] RetainedBodyMergeNestedBelowGotoBlocks() =>
+    [
+        Term(0, new Branch(12)),
+        Term(1, Cond(8)),
+        Term(2, Cond(10)),
+        Term(3, Cond(6)),
+        Term(4, Cond(8)),
+        Block(
+            5,
+            new StoreLocal(0, I32, new Constant(5, I32)),
+            new Branch(7)),
+        Term(6, new StoreLocal(0, I32, new Constant(6, I32))),
+        Term(7, new Branch(8)),
+        Term(8, new StoreLocal(0, I32, new Constant(8, I32))),
+        Term(9, new Branch(10)),
+        Term(10, new StoreLocal(0, I32, new Constant(10, I32))),
+        Block(
+            11,
+            new StoreLocal(0, I32, new Constant(11, I32)),
+            Cond(13)),
+        Term(12, Cond(1)),
+        Term(13, new Return(new LoadLocal(0, I32))),
     ];
 
     static (IrFunction Function, StructuringDiagnostics Diagnostics) Structure(
