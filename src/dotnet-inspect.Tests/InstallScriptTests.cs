@@ -7,14 +7,21 @@ public sealed class InstallScriptTests
 {
     static readonly string RepoRoot = FindRepoRoot();
     static readonly string InstallScript = Path.Combine(RepoRoot, "install.ps1");
-    static readonly string? PowerShellExecutable = FindPowerShell();
+    static readonly IReadOnlyList<string> PowerShellExecutables =
+        FindPowerShellExecutables();
 
     [Fact]
     public async Task MissingInstaller_UsesTemporaryToolAndHonorsInstallDirectory()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "install.ps1 is Windows-only");
-        Assert.SkipUnless(PowerShellExecutable is not null, "pwsh is not available");
+        Assert.SkipUnless(PowerShellExecutables.Count > 0, "PowerShell is not available");
 
+        foreach (string executable in PowerShellExecutables)
+            await VerifyMissingInstallerAsync(executable);
+    }
+
+    static async Task VerifyMissingInstallerAsync(string executable)
+    {
         CancellationToken cancellationToken = TestContext.Current.CancellationToken;
         string directory = CreateTempDirectory();
         try
@@ -61,9 +68,10 @@ public sealed class InstallScriptTests
                 ["TMP"] = directory,
             };
 
-            ProcessResult result = await RunPowerShellAsync(wrapper, environment);
+            ProcessResult result =
+                await RunPowerShellAsync(executable, wrapper, environment);
 
-            Assert.Equal(0, result.ExitCode);
+            AssertSuccessful(executable, result);
             string[] bootstrapArguments =
                 await File.ReadAllLinesAsync(bootstrapLog, cancellationToken);
             Assert.Equal(
@@ -96,8 +104,14 @@ public sealed class InstallScriptTests
     public async Task ExistingInstallerWithoutOverride_UsesDefaultArguments()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "install.ps1 is Windows-only");
-        Assert.SkipUnless(PowerShellExecutable is not null, "pwsh is not available");
+        Assert.SkipUnless(PowerShellExecutables.Count > 0, "PowerShell is not available");
 
+        foreach (string executable in PowerShellExecutables)
+            await VerifyExistingInstallerAsync(executable);
+    }
+
+    static async Task VerifyExistingInstallerAsync(string executable)
+    {
         CancellationToken cancellationToken = TestContext.Current.CancellationToken;
         string directory = CreateTempDirectory();
         try
@@ -128,9 +142,10 @@ public sealed class InstallScriptTests
                 ["DOTNET_INSTALL_DIR"] = null,
             };
 
-            ProcessResult result = await RunPowerShellAsync(wrapper, environment);
+            ProcessResult result =
+                await RunPowerShellAsync(executable, wrapper, environment);
 
-            Assert.Equal(0, result.ExitCode);
+            AssertSuccessful(executable, result);
             Assert.Equal(
                 ["--package", "dotnet-inspect"],
                 await File.ReadAllLinesAsync(installerLog, cancellationToken));
@@ -142,10 +157,11 @@ public sealed class InstallScriptTests
     }
 
     static async Task<ProcessResult> RunPowerShellAsync(
+        string executable,
         string script,
         IReadOnlyDictionary<string, string?> environment)
     {
-        var startInfo = new ProcessStartInfo(PowerShellExecutable!)
+        var startInfo = new ProcessStartInfo(executable)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -190,6 +206,19 @@ public sealed class InstallScriptTests
             await stderr);
     }
 
+    static void AssertSuccessful(string executable, ProcessResult result)
+    {
+        Assert.True(
+            result.ExitCode == 0,
+            $"""
+            {Path.GetFileName(executable)} exited with code {result.ExitCode}.
+            stdout:
+            {result.Stdout}
+            stderr:
+            {result.Stderr}
+            """);
+    }
+
     static string RemoveInstallerDirectoriesFromPath()
     {
         string? path = Environment.GetEnvironmentVariable("PATH");
@@ -204,15 +233,21 @@ public sealed class InstallScriptTests
                     && !File.Exists(Path.Combine(directory, "dotnet-install.exe"))));
     }
 
-    static string? FindPowerShell()
+    static IReadOnlyList<string> FindPowerShellExecutables()
     {
         string? path = Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrEmpty(path))
-            return null;
+            return [];
 
         return path.Split(Path.PathSeparator)
-            .Select(directory => Path.Combine(directory, "pwsh.exe"))
-            .FirstOrDefault(File.Exists);
+            .SelectMany(static directory => new[]
+            {
+                Path.Combine(directory, "powershell.exe"),
+                Path.Combine(directory, "pwsh.exe"),
+            })
+            .Where(File.Exists)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     static string CreateTempDirectory()
