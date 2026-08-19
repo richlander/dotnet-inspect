@@ -22,6 +22,57 @@ public sealed class BrowserEngineBoundaryTests
     const int MiB = 1024 * 1024;
 
     [Fact]
+    public void MemberProjection_CarriesFilterFactsWithoutSignatureParsing()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "Widget",
+            Kind = "class",
+        };
+        var member = new ApiMember
+        {
+            Name = "BuildAsync",
+            Kind = "method",
+            Signature = "protected static async Task BuildAsync()",
+            Accessibility = "protected",
+            IsStatic = true,
+            IsUnsafe = true,
+            IsAsync = true,
+            IsVirtual = true,
+            IsAbstract = true,
+            IsOverride = true,
+            IsExtension = true,
+            IsObsolete = true,
+        };
+
+        BrowserMemberSurface projected = BrowserSurfaceProjection.Member(type, member);
+
+        Assert.Equal("protected", projected.Accessibility);
+        Assert.True(projected.IsStatic);
+        Assert.True(projected.IsUnsafe);
+        Assert.True(projected.IsAsync);
+        Assert.True(projected.IsVirtual);
+        Assert.True(projected.IsAbstract);
+        Assert.True(projected.IsOverride);
+        Assert.True(projected.IsExtension);
+        Assert.True(projected.IsObsolete);
+
+        BrowserMemberSurface ordinary = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "Name",
+                Kind = "property",
+                Signature = "string Name { get; }",
+            });
+
+        Assert.Equal("public", ordinary.Accessibility);
+        Assert.False(ordinary.IsStatic);
+        Assert.False(ordinary.IsObsolete);
+    }
+
+    [Fact]
     public void SourceContexts_UseFreshMemoryOnlyPdbStores()
     {
         AssemblyContextSourceQueryContext first =

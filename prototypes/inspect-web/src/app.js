@@ -41,6 +41,10 @@ import {
   workspaceCoordinatesMatch
 } from "./data.js";
 import {
+  filterMemberGroups,
+  MEMBER_TRAITS
+} from "./member-filtering.js";
+import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
 } from "./graph-mermaid.js";
@@ -222,9 +226,13 @@ const state = {
   requestedFramework: "net10.0",
   selectedTypeId: "",
   selectedMemberKey: "",
+  memberBrowseTypeId: "",
   selectedOverloadIndex: null,
   memberSection: "overview",
   memberKindFilter: "all",
+  memberAccessibilityFilter: "all",
+  memberTraitFilter: "",
+  memberTextFilter: "",
   memberSource: null,
   memberSourceLoading: false,
   memberSourceError: "",
@@ -1008,6 +1016,106 @@ function memberGroups(type) {
   return [...groups.values()];
 }
 
+function memberFilterState() {
+  return {
+    query: state.memberTextFilter,
+    kind: state.memberKindFilter,
+    accessibility: state.memberAccessibilityFilter,
+    trait: state.memberTraitFilter
+  };
+}
+
+function resetMemberFilters() {
+  state.memberKindFilter = "all";
+  state.memberAccessibilityFilter = "all";
+  state.memberTraitFilter = "";
+  state.memberTextFilter = "";
+}
+
+function visibleMemberGroups(type) {
+  return filterMemberGroups(memberGroups(type), memberFilterState());
+}
+
+function memberKinds(type) {
+  return [...new Set(memberGroups(type).map(group => group.kind))];
+}
+
+function memberAccessibilities(type) {
+  const values = new Set((type.api ?? []).map(member => member.accessibility));
+  return ["public", "protected", "internal", "private", "protected internal", "private protected"]
+    .filter(value => values.has(value))
+    .concat([...values].filter(value => value && ![
+      "public", "protected", "internal", "private", "protected internal", "private protected"
+    ].includes(value)).sort());
+}
+
+function availableMemberTraits(type) {
+  return MEMBER_TRAITS.filter(([property]) => (type.api ?? []).some(member => member[property]));
+}
+
+function renderMemberFilterControls(type) {
+  const groups = memberGroups(type);
+  const visible = visibleMemberGroups(type);
+  const kinds = memberKinds(type);
+  const accessibilities = memberAccessibilities(type);
+  const traits = availableMemberTraits(type);
+  return `
+    <label class="type-search member-search">
+      <span>/</span>
+      <input id="member-filter" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
+      <button class="tiny-button" id="clear-member-filter" title="Clear member filters">×</button>
+    </label>
+    <div class="member-filter-stack">
+      <div class="namespace-chips kind-chips" aria-label="Member kind filters">
+        <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all">all kinds</button>
+        ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
+      </div>
+      ${accessibilities.length ? `<div class="namespace-chips access-chips" aria-label="Member accessibility filters">
+        <button class="${state.memberAccessibilityFilter === "all" ? "active" : ""}" data-member-access-filter="all">all access</button>
+        ${accessibilities.map(accessibility => `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}">${escapeHtml(accessibility)}</button>`).join("")}
+      </div>` : ""}
+      ${traits.length ? `<div class="namespace-chips member-trait-chips" aria-label="Member trait filters">
+        <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="">all traits</button>
+        ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}">${label}</button>`).join("")}
+      </div>` : ""}
+    </div>
+    <div class="member-filter-result">${visible.length} of ${groups.length} member groups</div>`;
+}
+
+function compositionFilterButton(count, label, attribute, value, className = "") {
+  return `<button class="composition-filter ${className}" ${attribute}="${escapeHtml(value)}"><strong>${count}</strong><span>${escapeHtml(label)}</span></button>`;
+}
+
+function renderMemberComposition(type) {
+  const members = type.api ?? [];
+  const kinds = memberKinds(type)
+    .map(kind => compositionFilterButton(
+      members.filter(member => member.kind === kind).length,
+      kind.replaceAll("-", " "),
+      "data-member-jump-kind",
+      kind))
+    .join("");
+  const accessibilities = memberAccessibilities(type)
+    .map(accessibility => compositionFilterButton(
+      members.filter(member => member.accessibility === accessibility).length,
+      accessibility,
+      "data-member-jump-access",
+      accessibility))
+    .join("");
+  const traits = availableMemberTraits(type)
+    .map(([property, label]) => compositionFilterButton(
+      members.filter(member => member[property]).length,
+      label,
+      "data-member-jump-trait",
+      property,
+      `flag-${label}`))
+    .join("");
+  return `
+    <div class="composition-filters" aria-label="Browse members by kind">${kinds}</div>
+    ${accessibilities ? `<div class="composition-filters" aria-label="Browse members by accessibility">${accessibilities}</div>` : ""}
+    ${traits ? `<div class="composition-filters" aria-label="Browse members by trait">${traits}</div>` : ""}`;
+}
+
 function selectedMember(type) {
   return memberGroups(type).find(group => group.key === state.selectedMemberKey);
 }
@@ -1017,7 +1125,10 @@ function selectedMember(type) {
 // lens strip, detail pane, and arrow keys all react to the active scope.
 function scope() {
   if (state.atPackageRoot) return "package";
-  return state.lens === "api" && state.selectedMemberKey ? "member" : "type";
+  return state.lens === "api"
+    && (state.selectedMemberKey || state.memberBrowseTypeId === state.selectedTypeId)
+    ? "member"
+    : "type";
 }
 
 // The resident runtime pseudo-package (Microsoft.NETCore.App) has no NuGet nupkg, so the
@@ -1051,7 +1162,10 @@ function activeLenses() {
 // the API lens. Both modes render into #type-list so keyboard/scroll logic is shared.
 function navMode() {
   if (state.atPackageRoot) return "type";
-  return state.lens === "api" && state.selectedMemberKey ? "member" : "type";
+  return state.lens === "api"
+    && (state.selectedMemberKey || state.memberBrowseTypeId === state.selectedTypeId)
+    ? "member"
+    : "type";
 }
 
 function resetMemberSectionState() {
@@ -1073,10 +1187,40 @@ function resetMemberSectionState() {
 }
 
 function openMemberGroup(key) {
+  state.memberBrowseTypeId = state.selectedTypeId;
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
   loadSelectedMemberDocumentation();
+}
+
+function enterMemberScope() {
+  const type = selectedType();
+  if (!type) return;
+  state.atPackageRoot = false;
+  state.lens = "api";
+  state.memberBrowseTypeId = type.id;
+  let visible = visibleMemberGroups(type);
+  if (!visible.length && memberGroups(type).length) {
+    resetMemberFilters();
+    visible = visibleMemberGroups(type);
+  }
+  const selectedIsVisible = visible.some(group => group.key === state.selectedMemberKey);
+  if (!selectedIsVisible && visible.length) openMemberGroup(visible[0].key);
+}
+
+function normalizeMemberSelection() {
+  const type = selectedType();
+  if (!type || !state.selectedMemberKey) return;
+  const visible = visibleMemberGroups(type);
+  if (!visible.some(group => group.key === state.selectedMemberKey)) {
+    if (visible.length) openMemberGroup(visible[0].key);
+    else {
+      state.selectedMemberKey = "";
+      state.selectedOverloadIndex = null;
+      resetMemberSectionState();
+    }
+  }
 }
 
 function openOverload(index) {
@@ -1107,7 +1251,7 @@ function applyMemberSection(id) {
 // group's overloads nested immediately beneath it. This is the exact list ↑/↓ walks.
 function memberNavEntries(type) {
   const entries = [];
-  for (const group of memberGroups(type)) {
+  for (const group of visibleMemberGroups(type)) {
     entries.push({ kind: "member", group });
     if (group.key === state.selectedMemberKey && group.overloads.length > 1) {
       group.overloads.forEach((_, index) => entries.push({ kind: "overload", group, index }));
@@ -1199,10 +1343,8 @@ function drillIn() {
   const type = selectedType();
   if (!type) return;
   if (navMode() === "type") {
-    if (state.lens !== "api") state.lens = "api";
-    const groups = memberGroups(type);
-    if (groups.length) openMemberGroup(groups[0].key);
-    else render();
+    enterMemberScope();
+    if (!state.selectedMemberKey) render();
   } else {
     const member = selectedMember(type);
     if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
@@ -1220,6 +1362,7 @@ function drillOut() {
       state.selectedOverloadIndex = null;
     } else {
       state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
       state.selectedOverloadIndex = null;
     }
     render();
@@ -1496,10 +1639,13 @@ function renderTypeNavPane(current, visible) {
 }
 
 function renderMemberNavPane(type) {
+  const visibleGroups = visibleMemberGroups(type);
   return renderMemberNav({
     type,
     entries: memberNavEntries(type),
     memberCount: memberGroups(type).length,
+    visibleMemberCount: visibleGroups.length,
+    filterControlsHtml: renderMemberFilterControls(type),
     selectedMemberKey: state.selectedMemberKey,
     selectedOverloadIndex: state.selectedOverloadIndex,
     escapeHtml,
@@ -1510,8 +1656,9 @@ function renderMemberNavPane(type) {
 }
 
 // The scope switcher + lens strip. The leading segmented control is the scope ladder —
-// Package (whole package), Types (one public type), and Member (a member of that type,
-// shown only once you drill in). Each segment is selectable and swaps the strip beside it:
+// Package (whole package), Types (one public type), and Member (a member of that type).
+// Member is available as soon as the selected type has members. Each segment is selectable
+// and swaps the strip beside it:
 //   package → package lenses   type → type lenses   member → member sections
 // Keeping all three families of buttons on one strip means the member modes (Overview,
 // Call graph, …) live here too instead of inside the detail pane.
@@ -1523,19 +1670,24 @@ function renderScopeBar() {
   if (sc === "package") {
     strip = packageLensesFor(state.package).map(([id, label], i) => lensButton(id, label, state.packageLens === id, "data-package-lens", i)).join("");
   } else if (sc === "member") {
-    const sections = memberSectionsFor(selectedMember(selectedType()));
-    strip = sections.map(([id, label], i) => lensButton(id, label, state.memberSection === id, "data-member-section", i)).join("");
+    const member = selectedMember(selectedType());
+    const sections = member ? memberSectionsFor(member) : [];
+    strip = sections.length
+      ? sections.map(([id, label], i) => lensButton(id, label, state.memberSection === id, "data-member-section", i)).join("")
+      : '<span class="lens-context">Filtered member list</span>';
   } else {
     strip = lenses.map(([id, label], i) => lensButton(id, label, state.lens === id, "data-lens", i)).join("");
   }
   const seg = (id, label, active) =>
     `<button class="scope-seg ${active ? "active" : ""}" data-scope="${id}" role="tab" aria-selected="${active}">${label}</button>`;
+  const selected = selectedType();
+  const hasMembers = !state.atPackageRoot && selected && memberGroups(selected).length > 0;
   return `
     <nav class="lensbar" aria-label="Scope and lenses">
       <div class="scope-switch" role="tablist" aria-label="Scope">
         ${seg("package", "Package", sc === "package")}
         ${seg("type", "Types", sc === "type")}
-        ${sc === "member" ? seg("member", "Member", true) : ""}
+        ${hasMembers ? seg("member", "Member", sc === "member") : ""}
       </div>
       <span class="lens-separator"></span>
       ${strip}
@@ -3044,7 +3196,7 @@ function drillToPerfMember(token, assembly, typeId) {
   state.atPackageRoot = false;
   state.selectedTypeId = targetType.id;
   state.namespaceFilter = "";
-  state.memberKindFilter = "all";
+  resetMemberFilters();
   state.lens = "api";
   const key = `${member.kind}:${member.name}`;
   state.selectedMemberKey = key;
@@ -3181,7 +3333,15 @@ function typeHeadingHtml(item) {
 }
 
 function renderTypeMetadataHtml(item) {
-  return renderTypeMetadata({ item, packageContext: state.package, metadataState: state, escapeHtml, relatedTypeChip, factRows });
+  return renderTypeMetadata({
+    item,
+    packageContext: state.package,
+    metadataState: state,
+    memberCompositionHtml: renderMemberComposition(item),
+    escapeHtml,
+    relatedTypeChip,
+    factRows,
+  });
 }
 
 function renderTypeSourceHtml(item) {
@@ -3193,6 +3353,15 @@ function renderLens(item) {
   if (state.atPackageRoot) return renderPackageView();
   const member = selectedMember(item);
   if (state.lens === "api" && member) return renderMember(item, member);
+  if (state.lens === "api" && state.memberBrowseTypeId === item.id) {
+    return `
+      ${typeHeadingHtml(item)}
+      <section class="document-section empty-document">
+        <span class="large-glyph">⌕</span>
+        <h2>No member selected</h2>
+        <p>Adjust the member filters or choose a member from the list.</p>
+      </section>`;
+  }
   if (state.lens === "source") {
     return `
       ${typeHeadingHtml(item)}
@@ -3202,27 +3371,18 @@ function renderLens(item) {
     return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
   }
   const groups = memberGroups(item);
-  const kindOrder = ["constructor", "method", "property", "field", "event"];
-  const kindLabels = { constructor: "constructors", method: "methods", property: "properties", field: "fields", event: "events" };
-  const presentKinds = kindOrder.filter(kind => groups.some(group => group.kind === kind));
-  if (state.memberKindFilter !== "all" && !presentKinds.includes(state.memberKindFilter)) state.memberKindFilter = "all";
-  const activeKind = state.memberKindFilter;
-  const visibleGroups = activeKind === "all" ? groups : groups.filter(group => group.kind === activeKind);
-  const filterButtons = [`<button class="member-kind ${activeKind === "all" ? "active" : ""}" data-kind="all">all</button>`]
-    .concat(presentKinds.map(kind =>
-      `<button class="member-kind ${activeKind === kind ? "active" : ""}" data-kind="${kind}">${kindLabels[kind]}</button>`))
-    .join("");
+  const visibleGroups = visibleMemberGroups(item);
   return `
     ${typeHeadingHtml(item)}
     <section class="document-section">
       <div class="section-title"><h2>Public API</h2><span>${groups.length} member groups · ${item.members} overloads</span></div>
-      <div class="member-filter">${filterButtons}</div>
+      <div class="member-browser-controls">${renderMemberFilterControls(item)}</div>
       <div class="api-list">${visibleGroups.map(group => `
         <button class="api-row" data-member="${escapeHtml(group.key)}">
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
           <code>${highlight(group.overloads[0].signature)}</code>
           <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}</small>
-        </button>`).join("") || '<div class="empty-list">No declared public members.</div>'}</div>
+        </button>`).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
     </section>`;
 }
 
@@ -3605,9 +3765,11 @@ function bindEvents() {
         if (first) state.selectedTypeId = first.id;
       }
       state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
       state.selectedOverloadIndex = null;
+    } else if (target === "member") {
+      enterMemberScope();
     }
-    // "member" is only shown while it is already the active scope, so it is a no-op.
     render();
   }));
   document.querySelectorAll("[data-package-lens]").forEach(button => button.addEventListener("click", () => {
@@ -3662,13 +3824,15 @@ function bindEvents() {
   document.querySelectorAll("[data-lens]").forEach(button => button.addEventListener("click", () => {
     state.lens = button.dataset.lens;
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
     render();
   }));
   document.querySelectorAll("[data-type]").forEach(button => button.addEventListener("click", () => {
     state.atPackageRoot = false;
     state.selectedTypeId = button.dataset.type;
     state.selectedMemberKey = "";
-    state.memberKindFilter = "all";
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
     state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
     render();
   }));
@@ -3694,8 +3858,53 @@ function bindEvents() {
   document.querySelectorAll("[data-opp-lookfor]").forEach(button => button.addEventListener("click", () => {
     openSpotlight(button.dataset.oppLookfor);
   }));
-  document.querySelectorAll(".member-filter .member-kind").forEach(button => button.addEventListener("click", () => {
-    state.memberKindFilter = button.dataset.kind;
+  document.querySelectorAll("[data-member-kind-filter]").forEach(button => button.addEventListener("click", () => {
+    state.memberKindFilter = button.dataset.memberKindFilter;
+    normalizeMemberSelection();
+    render();
+  }));
+  document.querySelectorAll("[data-member-access-filter]").forEach(button => button.addEventListener("click", () => {
+    state.memberAccessibilityFilter = button.dataset.memberAccessFilter;
+    normalizeMemberSelection();
+    render();
+  }));
+  document.querySelectorAll("[data-member-trait-filter]").forEach(button => button.addEventListener("click", () => {
+    state.memberTraitFilter = button.dataset.memberTraitFilter;
+    normalizeMemberSelection();
+    render();
+  }));
+  const memberFilter = document.querySelector("#member-filter");
+  memberFilter?.addEventListener("input", event => {
+    state.memberTextFilter = event.target.value;
+    normalizeMemberSelection();
+    render();
+    requestAnimationFrame(() => {
+      const input = document.querySelector("#member-filter");
+      input?.focus();
+      input?.setSelectionRange(state.memberTextFilter.length, state.memberTextFilter.length);
+    });
+  });
+  document.querySelector("#clear-member-filter")?.addEventListener("click", () => {
+    resetMemberFilters();
+    normalizeMemberSelection();
+    render();
+  });
+  document.querySelectorAll("[data-member-jump-kind]").forEach(button => button.addEventListener("click", () => {
+    resetMemberFilters();
+    state.memberKindFilter = button.dataset.memberJumpKind;
+    enterMemberScope();
+    render();
+  }));
+  document.querySelectorAll("[data-member-jump-access]").forEach(button => button.addEventListener("click", () => {
+    resetMemberFilters();
+    state.memberAccessibilityFilter = button.dataset.memberJumpAccess;
+    enterMemberScope();
+    render();
+  }));
+  document.querySelectorAll("[data-member-jump-trait]").forEach(button => button.addEventListener("click", () => {
+    resetMemberFilters();
+    state.memberTraitFilter = button.dataset.memberJumpTrait;
+    enterMemberScope();
     render();
   }));
   document.querySelectorAll("[data-member]").forEach(button => button.addEventListener("click", () => {
@@ -4029,7 +4238,7 @@ function selectTypeByCursor(cursor, items, focusList) {
   state.typeCursor = cursor;
   state.selectedTypeId = items[cursor].id;
   state.selectedMemberKey = "";
-  state.memberKindFilter = "all";
+  resetMemberFilters();
   render();
   requestAnimationFrame(() => {
     if (focusList) document.querySelector("#type-list")?.focus();
@@ -6020,7 +6229,7 @@ function navigateToType(target) {
   }
   state.selectedTypeId = target.id;
   state.selectedMemberKey = "";
-  state.memberKindFilter = "all";
+  resetMemberFilters();
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === target.id);
   render();
 }

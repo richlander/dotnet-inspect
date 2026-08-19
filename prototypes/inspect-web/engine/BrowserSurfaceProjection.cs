@@ -86,6 +86,15 @@ internal static class BrowserSurfaceProjection
             member.Name,
             member.Kind,
             member.Signature ?? member.Name,
+            member.Accessibility ?? "public",
+            member.IsStatic,
+            member.IsUnsafe,
+            member.IsAsync,
+            member.IsVirtual,
+            member.IsAbstract,
+            member.IsOverride,
+            member.IsExtension,
+            member.IsObsolete,
             member.SignatureModel?.TypeParameters.Count ?? 0,
             member.MetadataToken,
             member.SignatureModel?.ReturnType ?? member.ReturnType,
@@ -206,6 +215,7 @@ internal static class BrowserSurfaceProjection
             Retain(member.Name);
             Retain(member.Kind);
             Retain(member.Signature);
+            Retain(member.Accessibility);
             Retain(member.ReturnType);
             Retain(member.DocumentationId);
             Retain(member.Summary);

@@ -139,6 +139,8 @@ test("the member nav marks the active group and its selected overload", () => {
     type: jsonSerializer,
     entries,
     memberCount: 1,
+    visibleMemberCount: 1,
+    filterControlsHtml: '<label id="member-filters">filters</label>',
     selectedMemberKey: "method:Serialize",
     selectedOverloadIndex: 1,
     escapeHtml,
@@ -154,6 +156,7 @@ test("the member nav marks the active group and its selected overload", () => {
   assert.match(
     html,
     /data-nav-overload="0" role="option" aria-selected="false"/);
+  assert.match(html, /id="member-filters"/);
 });
 
 test("the type heading reports the owning package and library", () => {
@@ -213,6 +216,7 @@ test("type metadata renders a loading state while the projection is in flight", 
       typeMetadataError: null,
       typeMetadata: null,
     },
+    memberCompositionHtml: "",
     escapeHtml,
     relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
     factRows,
@@ -241,6 +245,10 @@ test("type metadata renders composition, interfaces, and derived types once load
         composition: { total: 3, methods: 3 },
       },
     },
+    memberCompositionHtml: `
+      <div class="composition-filters">
+        <button data-member-jump-kind="method"><strong>3</strong><span>method</span></button>
+      </div>`,
     escapeHtml,
     relatedTypeChip: name => `<button data-graph-type="${escapeHtml(name)}">${escapeHtml(name)}</button>`,
     factRows,
@@ -249,8 +257,8 @@ test("type metadata renders composition, interfaces, and derived types once load
   assert.match(html, /Implements/);
   assert.match(html, /data-graph-type="System\.IDisposable"/);
   assert.match(html, /Known derived types/);
-  assert.match(html, /Composition/);
-  assert.match(html, /3<\/strong><span>Methods/);
+  assert.match(html, /Members/);
+  assert.match(html, /data-member-jump-kind="method"/);
 });
 
 test("type source renders the provenance and copy action once loaded", () => {
