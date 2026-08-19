@@ -134,6 +134,23 @@ dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
   --where "Finding=analysis.call-site" --json
 ```
 
+To ask which source-facing methods with matching performance evidence also
+contain one rendered C# syntax kind, add a `Kind` predicate and omit `-S`:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll \
+  --where "Kind=InvocationExpression" \
+  --where "Finding=analysis.call-site" \
+  --where "Shape=sync-call-in-async" \
+  --where "Confidence>=medium" --jsonl
+```
+
+This emits `Body Shapes`, not Performance rows. The typed performance
+opportunities narrow source MethodDef bodies before decompilation; run the
+Performance query separately when its candidate, evidence, and IL receipt are
+needed. `--top` and `--order-by` do not compose with Body Shapes; use `--rows`
+to limit rendered syntax matches.
+
 Aggregate rows such as `allocation-hotspot` use `Provenance=aggregate` and have
 a `pt~` candidate id but no exact source Finding, operation, or token.
 `Provenance=unmatched` flags an instruction-level row that did not join to the
