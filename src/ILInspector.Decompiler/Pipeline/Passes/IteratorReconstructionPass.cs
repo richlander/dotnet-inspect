@@ -78,11 +78,7 @@ public sealed class IteratorReconstructionPass : IIrPass
                 var switchStateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
                 context.Stepper.StepOver($"reconstruct switch iterator '{switchStateMachine}' as {statements.Count} statement(s)", handoff);
 
-                function.Body.DetachChildren();
-                var switchBlock = new Block(0);
-                foreach (var statement in statements)
-                    switchBlock.Add(statement);
-                function.Body.Add(switchBlock);
+                ReplaceBody(function, rawSwitchCandidate, statements);
                 return;
             }
             return;  // exact switch shape with unowned code: leave for honest acknowledgment
@@ -105,11 +101,7 @@ public sealed class IteratorReconstructionPass : IIrPass
                 var switchStateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
                 context.Stepper.StepOver($"reconstruct switch iterator '{switchStateMachine}' as {statements.Count} statement(s)", handoff);
 
-                function.Body.DetachChildren();
-                var switchBlock = new Block(0);
-                foreach (var statement in statements)
-                    switchBlock.Add(statement);
-                function.Body.Add(switchBlock);
+                ReplaceBody(function, raw, statements);
                 return;
             }
             if (SwitchIteratorReconstruction.IsCandidate(raw))
@@ -123,11 +115,7 @@ public sealed class IteratorReconstructionPass : IIrPass
                 var loopStateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
                 context.Stepper.StepOver($"reconstruct yield-break loop iterator '{loopStateMachine}' as {statements.Count} statement(s)", handoff);
 
-                function.Body.DetachChildren();
-                var loopBlock = new Block(0);
-                foreach (var statement in statements)
-                    loopBlock.Add(statement);
-                function.Body.Add(loopBlock);
+                ReplaceBody(function, rawYieldBreakLoop, statements);
                 return;
             }
             if (rawYieldBreakLoop is not null && YieldBreakLoopIteratorReconstruction.IsCandidate(rawYieldBreakLoop))
@@ -158,6 +146,12 @@ public sealed class IteratorReconstructionPass : IIrPass
         var stateMachine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
         context.Stepper.StepOver($"reconstruct iterator '{stateMachine}' as {statements.Count} statement(s)", handoff);
 
+        ReplaceBody(function, moveNext, statements);
+    }
+
+    static void ReplaceBody(IrFunction function, IrFunction source, IEnumerable<IrNode> statements)
+    {
+        function.MergeTypeFactsFrom(source);
         function.Body.DetachChildren();
         var block = new Block(0);
         foreach (var statement in statements)
@@ -173,6 +167,7 @@ public sealed class IteratorReconstructionPass : IIrPass
     {
         context.Stepper.StepOver(description, handoff);
 
+        function.MergeTypeFactsFrom(work);
         function.ResetLocals(work.Locals, work.LocalNames, work.EliminatedLocalSlots);
         function.Body.DetachChildren();
         foreach (var block in reconstructed.Blocks.ToList())

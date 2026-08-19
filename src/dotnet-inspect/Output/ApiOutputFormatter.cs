@@ -2363,7 +2363,7 @@ public static class ApiOutputFormatter
                         type))
                     .Where(opportunity => LibraryMetadataService.IncludePerformanceOpportunity(
                         opportunity,
-                        index.GeneratedFrameworkTypeNames))
+                        index.GeneratedFrameworkTypes))
                     .Where(opportunity => memberTokens is null
                         || memberTokens.Contains(
                             (opportunity.SourceOwner ?? opportunity.Method)
@@ -2407,6 +2407,82 @@ public static class ApiOutputFormatter
 
         if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.PerformanceTriage))
             view.OptimizationOpportunityRows = rows;
+    }
+
+    internal static void PopulateBodyShapes(
+        TypeView view,
+        string assemblyPath,
+        string? pdbPath,
+        IReadOnlyList<ApiMember> methods,
+        MemberOptions options)
+    {
+        string kind = options.BodyKindQuery.Kind
+            ?? throw new InvalidOperationException(
+                "The Body Shapes section requires a validated body-kind predicate.");
+        IReadOnlyList<ApiMember> scopedMethods = ResolveBodyShapeMethods(
+            methods,
+            options.OverloadIndex);
+        HashSet<int> methodTokens =
+        [
+            .. scopedMethods
+                .Where(method => method.MetadataToken.HasValue)
+                .Select(method => method.MetadataToken!.Value),
+        ];
+
+        options.RenderConfigWarnings?.EmitOnce();
+        using var source = Decompiler.Pipeline.MetadataSource.Open(
+            assemblyPath,
+            pdbPath,
+            ApiAnalysisInspection.CreateReferenceResolver(
+                assemblyPath,
+                options));
+        Decompiler.BodyShapeSearchResult result =
+            Decompiler.BodyShapeSearch.Search(
+                source,
+                kind,
+                methodTokens,
+                includeAll: options.IncludeAll,
+                printerOptions: options.RenderOptions);
+        view.BodyShapeRows =
+        [
+            .. result.Matches.Select(ApiBodyShapeRow.FromMatch),
+        ];
+
+        if (result.Failures.Count == 0)
+            return;
+
+        if (options.Verbose)
+        {
+            foreach (Decompiler.BodyShapeSearchFailure failure in result.Failures)
+            {
+                CommandError.WriteWarning(
+                    $"Body Shapes skipped {failure.Subject}: {failure.Reason}");
+            }
+        }
+
+        else
+        {
+            CommandError.WriteWarning(
+                $"Body Shapes skipped {result.Failures.Count} candidates; "
+                + "rerun with --verbose for details.");
+        }
+    }
+
+    internal static IReadOnlyList<ApiMember> ResolveBodyShapeMethods(
+        IReadOnlyList<ApiMember> methods,
+        int? overloadIndex)
+    {
+        if (methods.Count <= 1)
+            return methods;
+
+        int index = overloadIndex.GetValueOrDefault() - 1;
+        if ((uint)index >= (uint)methods.Count)
+        {
+            throw new InvalidOperationException(
+                "The selected accessor does not have a matching MethodDef body.");
+        }
+
+        return [methods[index]];
     }
 
     /// <summary>
@@ -2484,7 +2560,7 @@ public static class ApiOutputFormatter
             .Select(entry =>
             {
                 drillByToken.TryGetValue(entry.Method.MetadataToken, out var drill);
-                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, index.GeneratedFrameworkTypeNames);
+                bool generated = LibraryMetadataService.IsGeneratedMethod(entry.Method, index.GeneratedFrameworkTypes);
                 return new TopLeverageRow(
                     MarkoutInline.Code(FormatMember(null, entry.Method.Name, entry.Method.ParameterTypes, [])),
                     entry.DirectCallerCount.ToString(),

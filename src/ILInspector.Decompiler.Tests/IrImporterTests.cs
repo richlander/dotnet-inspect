@@ -3,12 +3,14 @@ using AssemblyName = System.Reflection.AssemblyName;
 using MethodAttributes = System.Reflection.MethodAttributes;
 using ParameterAttributes = System.Reflection.ParameterAttributes;
 using TypeAttributes = System.Reflection.TypeAttributes;
+using System.Reflection.Metadata.Ecma335;
 using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
+using MethodDefinitionHandle = System.Reflection.Metadata.MethodDefinitionHandle;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -2334,6 +2336,69 @@ public class CSharpPrinterTests
 
 public class RaisingPassTests
 {
+    static readonly TypeRef[] Dragon4StableParameters =
+    [
+        TypeRef.CoreLib("System", "UInt64"),
+        TypeRef.CoreLib("System", "Int32"),
+        TypeRef.CoreLib("System", "UInt32"),
+        TypeRef.CoreLib("System", "Boolean"),
+        TypeRef.CoreLib("System", "Int32"),
+        TypeRef.CoreLib("System", "Boolean"),
+        TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Span`1"),
+            [TypeRef.CoreLib("System", "Byte")]),
+        TypeRef.ByRef(TypeRef.CoreLib("System", "Int32")),
+    ];
+
+    static MethodDefinitionHandle ResolveMethodBySignature(
+        MetadataSource source,
+        string typeFullName,
+        string methodName,
+        Func<OverloadInfo, bool> matchesSignature)
+    {
+        var overloads = IrImporter.Overloads(source, typeFullName, methodName);
+        var matches = overloads.Where(matchesSignature).ToArray();
+        Assert.True(
+            matches.Length == 1,
+            $"Expected exactly one {typeFullName}::{methodName} signature match, " +
+            $"found {matches.Length}. Candidates: {string.Join(
+                "; ",
+                overloads.Select(candidate =>
+                    $"{candidate.Index}: {candidate.ReturnType.ToDisplayString()} " +
+                    $"{methodName}{candidate.Describe()}"))}");
+        var overload = matches[0];
+        var handle = IrImporter.ResolveMethodHandle(
+            source.Reader,
+            typeFullName,
+            methodName,
+            overload.Index);
+        Assert.True(handle.HasValue);
+        return handle.Value;
+    }
+
+    static MethodDefinitionHandle ResolveDragon4Method(
+        MetadataSource source,
+        string typeFullName)
+    {
+        var optionalExactnessParameter =
+            TypeRef.ByRef(TypeRef.CoreLib("System", "Boolean"));
+        return ResolveMethodBySignature(
+            source,
+            typeFullName,
+            "Dragon4",
+            candidate =>
+                candidate.ReturnType.Equals(TypeRef.CoreLib("System", "UInt32"))
+                && !candidate.HasThis
+                && candidate.HasBody
+                && candidate.IsPrivate
+                && candidate.ParameterTypes.Length is 8 or 9
+                && candidate.ParameterTypes.Take(Dragon4StableParameters.Length)
+                    .SequenceEqual(Dragon4StableParameters)
+                && (candidate.ParameterTypes.Length == Dragon4StableParameters.Length
+                    || candidate.ParameterTypes[^1]
+                        .Equals(optionalExactnessParameter)));
+    }
+
     static void AssertRefLocalBodyCompiles(string body)
     {
         string source = $$"""
@@ -3868,7 +3933,8 @@ public class RaisingPassTests
     public void Dragon4DoWhileNormalizedAfterEarlyPass_RaisesOnLatePass()
     {
         using var source = MetadataSource.Open(typeof(object).Assembly.Location);
-        var function = IrImporter.Import(source, "System.Number", "Dragon4", overloadIndex: 2);
+        var handle = ResolveDragon4Method(source, "System.Number");
+        var function = IrImporter.Import(source, handle);
         Assert.NotNull(function);
 
         var stages = IrPasses.RunWithStages(function);
@@ -3879,6 +3945,65 @@ public class RaisingPassTests
         Assert.Contains("DoWhileLoop", doWhileStages[1].Projection);
         Assert.NotEmpty(function.Descendants.OfType<DoWhileLoop>());
         function.CheckInvariant();
+    }
+
+    [Fact]
+    public void Dragon4Resolution_DoesNotDependOnPreviewSevenOrdinal()
+    {
+        using var source = MetadataSource.Open(
+            typeof(Dragon4PreviewSixOverloads).Assembly.Location);
+        var handle = ResolveDragon4Method(
+            source,
+            typeof(Dragon4PreviewSixOverloads).FullName!);
+        var expected = typeof(Dragon4PreviewSixOverloads).GetMethod(
+            "Dragon4",
+            System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            [
+                typeof(ulong),
+                typeof(int),
+                typeof(uint),
+                typeof(bool),
+                typeof(int),
+                typeof(bool),
+                typeof(Span<byte>),
+                typeof(int).MakeByRefType(),
+            ],
+            modifiers: null);
+
+        Assert.NotNull(expected);
+        Assert.Equal(expected.MetadataToken, MetadataTokens.GetToken(handle));
+        Assert.Equal(1, IrImporter.Overloads(
+            source,
+            typeof(Dragon4PreviewSixOverloads).FullName!,
+            "Dragon4").Single(candidate => candidate.IsPrivate).Index);
+    }
+
+    [Fact]
+    public void SignatureResolution_SelectsExactPrivateAccessibility()
+    {
+        using var source = MetadataSource.Open(
+            typeof(InterleavedVisibilityOverloads).Assembly.Location);
+        var handle = ResolveMethodBySignature(
+            source,
+            typeof(InterleavedVisibilityOverloads).FullName!,
+            nameof(InterleavedVisibilityOverloads.Marker),
+            candidate =>
+                candidate.ReturnType.Equals(TypeRef.CoreLib("System", "Int32"))
+                && candidate.HasThis
+                && candidate.HasBody
+                && candidate.IsPrivate);
+        var expected = typeof(InterleavedVisibilityOverloads).GetMethod(
+            nameof(InterleavedVisibilityOverloads.Marker),
+            System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.NonPublic,
+            binder: null,
+            [typeof(int)],
+            modifiers: null);
+
+        Assert.NotNull(expected);
+        Assert.Equal(expected.MetadataToken, MetadataTokens.GetToken(handle));
     }
 
     [Fact]

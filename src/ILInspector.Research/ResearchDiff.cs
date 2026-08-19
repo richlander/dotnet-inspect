@@ -542,7 +542,7 @@ public static class ResearchDiff
             bool includeUnsafety)
         {
             var methods = new Dictionary<string, ResearchAnalysisMethod>(StringComparer.Ordinal);
-            var generatedFrameworkTypes = index.GeneratedFrameworkTypeNames;
+            var generatedFrameworkTypes = index.GeneratedFrameworkTypes;
             var signalsByToken = index.GetMethodSignals();
             var allocationsByToken = index.GetAllocationOccurrences();
             var callsByToken = includeCallSites ? index.GetDirectCallsByCaller() : null;
@@ -1567,8 +1567,8 @@ public static class ResearchDiff
         LibraryBodyIndex newIndex,
         IReadOnlySet<string>? memberTargetIdentities = null)
     {
-        var oldGeneratedFrameworkTypes = oldIndex.GeneratedFrameworkTypeNames;
-        var newGeneratedFrameworkTypes = newIndex.GeneratedFrameworkTypeNames;
+        var oldGeneratedFrameworkTypes = oldIndex.GeneratedFrameworkTypes;
+        var newGeneratedFrameworkTypes = newIndex.GeneratedFrameworkTypes;
         return oldIndex.Methods
             .Where(method => !IsGeneratedMethod(method, oldGeneratedFrameworkTypes))
             .Concat(newIndex.Methods.Where(method => !IsGeneratedMethod(method, newGeneratedFrameworkTypes)))
@@ -1764,11 +1764,13 @@ public static class ResearchDiff
                || typeFullName.Contains("." + normalizedFilter + ".", StringComparison.OrdinalIgnoreCase);
     }
 
-    static bool IsGeneratedMethod(MethodIdentity method, IReadOnlySet<string> generatedFrameworkTypes)
+    static bool IsGeneratedMethod(MethodIdentity method, IReadOnlySet<TypeRef> generatedFrameworkTypes)
         => MemberFilters.IsCompilerGenerated(method.Name)
            || TypeFilters.IsCompilerGeneratedNested(method.DeclaringType.Name)
            || IsSystemTextJsonContextGeneratedMethod(method)
-           || generatedFrameworkTypes.Contains(method.DeclaringType.ToQualifiedDisplayString());
+           || LibraryBodyIndex.IsGeneratedFrameworkType(
+               generatedFrameworkTypes,
+               method.DeclaringType);
 
     static bool IsSystemTextJsonContextGeneratedMethod(MethodIdentity method)
         => method.Name is "TryGetTypeInfoForRuntimeCustomConverter"

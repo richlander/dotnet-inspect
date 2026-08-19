@@ -48,25 +48,41 @@ dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S "Decompiled
 
 ## Search rendered body shapes
 
-Use `body-shape` when the question is "which methods contain this C# syntax?"
-The query is exact and assembly-scoped: its positional value is a stable
-rendered-syntax kind such as `ObjectCreationExpression`, `TryStatement`, or
-`ElementAccessExpression`, not an IR class name or text pattern. It returns the
-containing stable member selector and MethodDef token, a one-based start/end
-range, and the exact selected text. Public surface members are searched by
-default; add `--all` for non-public, hidden, and obsolete members. Bodies below
-`Full` fidelity are skipped and reported; add `--verbose` for per-member detail.
+Use the library `Body Shapes` section when the question is "which public API
+methods contain this C# syntax?" The query is exact and assembly-scoped:
+`Kind` accepts a stable ID such as `ObjectCreationExpression`, `TryStatement`,
+or `ElementAccessExpression`, not an IR class name or text pattern. Discover
+the IDs instead of guessing them:
 
 ```bash
-dnx dotnet-inspect -y -- body-shape ObjectCreationExpression --library MyLib.dll
-dnx dotnet-inspect -y -- body-shape TryStatement --library MyLib.dll --all --json
-dnx dotnet-inspect -y -- body-shape ElementAccessExpression --library MyLib.dll --limit 20 --tsv
+dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds"
+dnx dotnet-inspect -y -- library MyLib.dll \
+  --where "Kind=ObjectCreationExpression" --jsonl
+dnx dotnet-inspect -y -- library System.Text.Json \
+  --where "Kind=TryStatement" --columns "Member;Token;Match" --rows 10
+dnx dotnet-inspect -y -- member JsonDocument RootElement:1 \
+  --platform System.Text.Json \
+  --where "Kind=ObjectCreationExpression" --jsonl
 ```
 
-The search runs the decompiler for each candidate body; it is intentionally
-explicit and may be expensive on a large library. `--json` preserves multi-line
-match text and zero-based `extent` coordinates; table and TSV output present
-the same coordinates as one-based line/column fields.
+`Kind=...` auto-selects the explicit-only section when no `-S` selection is
+present. Results include a round-tripping qualified member selector, MethodDef
+token, one-based start/end range, and exact selected text. Bodies below `Full`
+fidelity are skipped and reported; add `--verbose` for per-member detail.
+The search runs the decompiler for each candidate body, so it may be expensive
+on a large library. Member scope requires one exact member name or selector and
+decompiles only that member's MethodDef body. Unambiguous methods and
+single-accessor members are auto-selected; overloaded names require `Name:N`
+or `Name~digest`. A property or event with multiple body accessors requires an
+accessor selector; use `Name~digest:1`/`Name~digest:2` when the owner is
+overloaded. Use `--all` to select a non-public member.
+
+The standalone `body-shape` command remains temporarily while type-scoped
+queries reach parity:
+
+```bash
+dnx dotnet-inspect -y -- body-shape TryStatement --library MyLib.dll --all --json
+```
 
 ### Readability and taste
 

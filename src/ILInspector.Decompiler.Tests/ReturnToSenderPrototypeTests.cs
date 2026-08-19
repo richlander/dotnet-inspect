@@ -8394,6 +8394,244 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesRawReferenceEqualityBesideUserOperator()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(Row left, Row right) => false;
+                public static bool operator !=(Row left, Row right) => true;
+                public static bool SameReference(Row left, Row right, bool useOperator)
+                {
+                    if (useOperator && left == right)
+                        return false;
+                    return (object)left == right;
+                }
+                public override bool Equals(object obj) => false;
+                public override int GetHashCode() => 0;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Row", "SameReference", 0),
+                ]);
+
+            var referenceComparison = Assert.Single(results);
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, referenceComparison.Status);
+            Assert.Contains("return (object)left == (object)right;", referenceComparison.Source);
+            Assert.Contains("left == right", referenceComparison.Source);
+            Assert.Contains("operator ==(", referenceComparison.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesMixedAndUnrelatedReferenceIdentity()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Row
+            {
+                public static bool operator ==(object left, Row right) => false;
+                public static bool operator !=(object left, Row right) => true;
+                public override bool Equals(object obj) => false;
+                public override int GetHashCode() => 0;
+            }
+
+            public sealed class A;
+            public sealed class B;
+
+            public sealed class DynamicCarrier
+            {
+                readonly Row _value = new();
+                dynamic _reference = new Row();
+                object _objectReference = new Row();
+                public dynamic Field = new Row();
+                public dynamic Property => _value;
+                public dynamic Method() => _value;
+                public ref dynamic DynamicReference => ref _reference;
+                public ref dynamic DynamicReferenceMethod() => ref _reference;
+                public ref object ObjectReferenceMethod() => ref _objectReference;
+            }
+
+            public sealed class GenericDynamicCarrier<T>
+            {
+                public T Value { get; init; }
+                public T Slot;
+                T _reference;
+                public ref T Reference => ref _reference;
+            }
+
+            public ref struct RefDynamicFieldCarrier
+            {
+                public ref dynamic Field;
+                public RefDynamicFieldCarrier(ref dynamic field) => Field = ref field;
+            }
+
+            public ref struct RefObjectFieldCarrier
+            {
+                public ref object Field;
+                public RefObjectFieldCarrier(ref object field) => Field = ref field;
+            }
+
+            public static class Cases
+            {
+                public static bool Mixed<T>(T left, Row right) => (object)left == (object)right;
+                public static bool Unrelated(A left, B right) => (object)left == (object)right;
+                public static bool DynamicMember(dynamic value, object right) => (object)value.Member == right;
+                public static bool DynamicProperty(DynamicCarrier carrier, object right) => (object)carrier.Property == right;
+                public static bool DynamicMethod(DynamicCarrier carrier, object right) => (object)carrier.Method() == right;
+                public static bool ByRefDynamicProperty(DynamicCarrier carrier, object right) => (object)carrier.DynamicReference == right;
+                public static bool ByRefDynamicMethod(DynamicCarrier carrier, object right) => (object)carrier.DynamicReferenceMethod() == right;
+                public static bool ByRefObjectMethod(DynamicCarrier carrier, object right) => (object)carrier.ObjectReferenceMethod() == right;
+                public static bool DynamicField(DynamicCarrier carrier, object right) => (object)carrier.Field == right;
+                public static bool ByRefDynamicField(ref RefDynamicFieldCarrier carrier, object right)
+                    => (object)carrier.Field == right;
+                public static bool ByRefObjectField(ref RefObjectFieldCarrier carrier, object right)
+                    => (object)carrier.Field == right;
+                public static bool DynamicConditional(DynamicCarrier carrier, bool choose, object right)
+                    => (object)(choose ? carrier.Property : carrier.Method()) == right;
+                public static bool GenericDynamicProperty(GenericDynamicCarrier<dynamic> carrier, object right)
+                    => (object)carrier.Value == right;
+                public static bool GenericDynamicField(GenericDynamicCarrier<dynamic> carrier, object right)
+                    => (object)carrier.Slot == right;
+                public static bool GenericByRefDynamicProperty(GenericDynamicCarrier<dynamic> carrier, object right)
+                    => (object)carrier.Reference == right;
+                public static bool DynamicArrayElement(dynamic[] values, int index, object right)
+                    => (object)values[index] == right;
+                public static bool ObjectArrayElement(object[] values, int index, object right)
+                    => (object)values[index] == right;
+                public static bool DynamicSwitch(DynamicCarrier carrier, int selector, object right)
+                    => (object)(selector switch
+                    {
+                        0 => carrier.Field,
+                        1 => carrier.Property,
+                        _ => carrier.Method(),
+                    }) == right;
+            }
+            """);
+        try
+        {
+            var results = ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [
+                    new ReturnToSender.RequestedTarget("Cases", "Mixed", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "Unrelated", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicMember", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicProperty", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicMethod", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "ByRefDynamicProperty", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "ByRefDynamicMethod", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "ByRefObjectMethod", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicField", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "ByRefDynamicField", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "ByRefObjectField", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicConditional", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "GenericDynamicProperty", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "GenericDynamicField", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "GenericByRefDynamicProperty", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicArrayElement", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "ObjectArrayElement", 0),
+                    new ReturnToSender.RequestedTarget("Cases", "DynamicSwitch", 0),
+                ]);
+
+            Assert.All(results, result => Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)left == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)(value.Member) == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)carrier.Property == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)carrier.Method() == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)(carrier.DynamicReference) == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)(carrier.DynamicReferenceMethod()) == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (carrier.ObjectReferenceMethod()) == right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)carrier.Slot == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)(carrier.Reference) == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "(object)(choose ? carrier.Property : carrier.Method()) == (object)right",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)carrier.Value == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)carrier.Field == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)(carrier.Field) == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (carrier.Field) == right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return (object)values[index] == (object)right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "return values[index] == right;",
+                StringComparison.Ordinal));
+            Assert.Contains(results, result => result.Source.Contains(
+                "(object)(selector switch { 0 => carrier.Field, 1 => carrier.Property, _ => carrier.Method() }) == (object)right",
+                StringComparison.Ordinal));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_DeepReferenceHierarchyFallsBackConservatively()
+    {
+        string hierarchy = string.Join(
+            Environment.NewLine,
+            Enumerable.Range(0, 300).Select(index =>
+                index == 0
+                    ? "public class C0 { }"
+                    : $"public class C{index} : C{index - 1} {{ }}"));
+        var assemblyPath = CompileFixture($$"""
+            {{hierarchy}}
+
+            public static class Cases
+            {
+                public static bool Same(C299 left, C299 right) => (object)left == right;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Cases", "Same", 0)]));
+
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.Contains("return (object)left == (object)right;", result.Source);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_PreservesRecordGeneratedVirtualHelperShells()
     {
         var assemblyPath = CompileFixture("""

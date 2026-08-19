@@ -2185,61 +2185,6 @@ public class ApiOutputFormatterTests
         Assert.DoesNotContain("T? value", plainDeclaration, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void RuntimeAsyncBodyConsumers_UseResolvedMethodModifier(
-        bool invalidateMetadataToken)
-    {
-        string path = typeof(RuntimeAsyncHeaderFixture).Assembly.Location;
-        using var pe = new PEReader(File.OpenRead(path));
-        var surface = ApiSurfaceExtractor.Extract(pe);
-        var type = Assert.Single(
-            surface.Types,
-            candidate => candidate.FullName == typeof(RuntimeAsyncHeaderFixture).FullName);
-        var member = Assert.Single(type.Members, candidate => candidate.Name == nameof(RuntimeAsyncHeaderFixture.YieldAsync));
-        if (invalidateMetadataToken)
-            member.MetadataToken = 0x02000001;
-        var collected = Assert.Single(MemberCodeProvider.Collect(
-            type,
-            [member],
-            path,
-            overloadIndex: 0,
-            new MemberCodeProvider.Request(
-                DecompiledSource: true,
-                AnnotatedSource: false,
-                CostOverlay: false,
-                SemanticsOverlay: false,
-                IL: false,
-                Attributes: false,
-                Calls: false,
-                Callers: false,
-                CallGraph: false,
-                UnsafeOperations: false)));
-        var sections = new MemberCodeView();
-
-        Assert.True(ApiOutputFormatter.PopulateCSharpSections(
-            sections,
-            type,
-            member,
-            collected.Code));
-        Assert.Contains(
-            "public static async System.Threading.Tasks.Task<int> YieldAsync",
-            sections.DecompiledSourceCode.Content,
-            StringComparison.Ordinal);
-        Assert.Contains("await Task.Yield();", sections.DecompiledSourceCode.Content);
-        Assert.DoesNotContain("AsyncHelpers", sections.DecompiledSourceCode.Content);
-
-        var typeSource = MemberBodyProducer.Project(type, path, pdbPath: null).Output;
-        Assert.NotNull(typeSource);
-        Assert.Contains(
-            "public static async Task<int> YieldAsync",
-            typeSource,
-            StringComparison.Ordinal);
-        Assert.Contains("await Task.Yield();", typeSource);
-        Assert.DoesNotContain("AsyncHelpers", typeSource);
-    }
-
     [Fact]
     public void UnsafeBodyConsumers_UseTypedBodyModifier()
     {

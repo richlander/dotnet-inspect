@@ -90,7 +90,7 @@ evidence unless a category is named.
 | Command | Base categories | Domain categories |
 | ------- | --------------- | ----------------- |
 | `package` | `@Package`, `@Files` | `@Dependencies`, `@Audit`, `@SourceLink` |
-| `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
+| `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@Decompiler`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -111,6 +111,29 @@ Use `library X -D @Performance` or `-D @Metadata`; add `--effective` for
 populated members. Row formats require a concrete section or homogeneous
 family. Heterogeneous categories use Markdown/JSON; `Performance:*` flattens
 kinds and adds `Kind` when multiple kinds have rows.
+
+## Query rendered body shapes
+
+At library scope, select exact rendered C# syntax occurrences with the stable
+IDs from the `C# Body Kinds` vocabulary. A `Kind=...` predicate auto-selects
+the explicit-only `Body Shapes` section when no `-S` selection is present:
+
+```bash
+dnx dotnet-inspect -y -- vocabulary -S "C# Body Kinds"
+dnx dotnet-inspect -y -- library MyLib.dll \
+  --where "Kind=ObjectCreationExpression" --jsonl
+dnx dotnet-inspect -y -- member Widget Render:1 --library MyLib.dll \
+  --where "Kind=InvocationExpression" --jsonl
+```
+
+Member scope requires one exact member name or stable selector and decompiles
+only the selected MethodDef body. An unambiguous method or single-accessor
+member is auto-selected; overloaded names require `Name:N` or `Name~digest`.
+A property or event with multiple body accessors requires an accessor selector;
+use `Name~digest:1`/`Name~digest:2` when the owner is overloaded. The current
+query accepts exactly one case-sensitive equality predicate. It does not
+combine a Body Shapes predicate with Performance Triage filters or
+`--order-by`.
 
 ## Filter and order performance rows
 

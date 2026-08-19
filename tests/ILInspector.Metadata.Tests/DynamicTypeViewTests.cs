@@ -1,3 +1,7 @@
+using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using ILInspector.Metadata;
@@ -382,6 +386,359 @@ public sealed class DynamicTypeViewTests
         int pos = 0;
         node.ApplyDynamic(flags, ref pos);
         Assert.Equal("object[]", node.Render());
+    }
+
+    [Theory]
+    [InlineData(false, new byte[] { 0, 0, 0, 0 })]                         // invalid prolog
+    [InlineData(false, new byte[] { 1, 0, 0 })]                            // truncated marker form
+    [InlineData(false, new byte[] { 1, 0, 1, 0 })]                         // named argument present
+    [InlineData(true, new byte[] { 1, 0, 1, 0, 0, 0, 2, 0, 0 })]           // invalid bool
+    [InlineData(true, new byte[] { 1, 0, 1, 0, 0, 0, 1, 0, 0, 0 })]        // trailing byte
+    public void MalformedAttributeEncoding_ReturnsNoDynamicFlags(
+        bool transformFlagsConstructor,
+        byte[] blob)
+    {
+        Assert.Null(ReadDynamicFlags(blob, transformFlagsConstructor));
+    }
+
+    [Theory]
+    [InlineData(false, new byte[] { 1, 0, 0, 0 }, new byte[] { 1 })]
+    [InlineData(
+        true,
+        new byte[] { 1, 0, 2, 0, 0, 0, 0, 1, 0, 0 },
+        new byte[] { 0, 1 })]
+    public void ValidAttributeEncoding_ReturnsDynamicFlags(
+        bool transformFlagsConstructor,
+        byte[] blob,
+        byte[] expected)
+    {
+        Assert.Equal(expected, ReadDynamicFlags(blob, transformFlagsConstructor));
+    }
+
+    [Fact]
+    public void ConstructorAndPayloadFormsMustAgree()
+    {
+        Assert.Null(ReadDynamicFlags(
+            new byte[] { 1, 0, 2, 0, 0, 0, 0, 1, 0, 0 },
+            transformFlagsConstructor: false));
+        Assert.Null(ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: true));
+    }
+
+    [Fact]
+    public void NamedVoidConstructorReturn_IsRejected()
+    {
+        Assert.Null(ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            namedVoidReturn: true));
+    }
+
+    [Theory]
+    [InlineData(0x25)]
+    [InlineData(0x60)]
+    public void NonDefaultConstructorCallingConvention_IsRejected(
+        byte header)
+    {
+        Assert.Null(ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            constructorSignatureBytes:
+            [
+                header,
+                0x00,
+                0x01,
+            ]));
+    }
+
+    [Fact]
+    public void OversizedConstructorSignature_IsRejectedBeforeNodeMaterialization()
+    {
+        const int parameterCount = 65_534;
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(parameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < parameterCount; i++)
+            signature.WriteByte(0x02);
+
+        long allocated = 0;
+        int observed = 0;
+        byte[]? flags = ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            constructorSignatureBytes: signature.ToArray(),
+            read: (reader, attributes) =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                long before =
+                    GC.GetAllocatedBytesForCurrentThread();
+                byte[]? result = DynamicReader.GetDynamicFlags(
+                    reader,
+                    attributes,
+                    amount => observed += amount);
+                allocated =
+                    GC.GetAllocatedBytesForCurrentThread() - before;
+                return result;
+            });
+
+        Assert.Null(flags);
+        Assert.InRange(observed, 0, 4096);
+        Assert.InRange(allocated, 0, 500_000);
+    }
+
+    /// <summary>
+    /// A constructor returns void. Accepting the header and parameter count but
+    /// letting the return type decode first meant a hostile return type was
+    /// rebuilt in full and only then discarded — and because a nested TypeSpec
+    /// decode gets its own blob budget, that work multiplies far past any
+    /// single-blob bound. Fails if the void-return preflight is removed: the
+    /// return tree is then materialized before rejection.
+    /// </summary>
+    [Fact]
+    public void NonVoidConstructorReturn_IsRejectedBeforeReturnMaterialization()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(0);
+        // A return type that is cheap in depth but expensive in breadth, so the
+        // blob guard's nesting bound does not reject it first: a function
+        // pointer over 20,000 int parameters.
+        const int returnParameterCount = 20_000;
+        signature.WriteByte(0x1b);
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(returnParameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < returnParameterCount; i++)
+            signature.WriteByte(0x08);
+
+        long allocated = 0;
+        int observed = 0;
+        byte[]? flags = ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            constructorSignatureBytes: signature.ToArray(),
+            read: (reader, attributes) =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                long before =
+                    GC.GetAllocatedBytesForCurrentThread();
+                byte[]? result = DynamicReader.GetDynamicFlags(
+                    reader,
+                    attributes,
+                    amount => observed += amount);
+                allocated =
+                    GC.GetAllocatedBytesForCurrentThread() - before;
+                return result;
+            });
+
+        Assert.Null(flags);
+        Assert.InRange(observed, 0, 100);
+        Assert.InRange(allocated, 0, 100_000);
+    }
+
+    /// <summary>
+    /// The same amplification through the parameter position. The one-argument
+    /// form takes <c>bool[]</c>, so validating only the return type left the
+    /// parameter free to carry the hostile tree: it was materialized in full
+    /// and only then rejected for not being <c>bool[]</c>. Fails if the
+    /// parameter preflight is removed.
+    /// </summary>
+    [Fact]
+    public void HostileConstructorParameter_IsRejectedBeforeParameterMaterialization()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        // Cheap in depth, expensive in breadth, exactly as the return-type case:
+        // a function pointer over 20,000 int parameters, in the position where
+        // the supported signature spells bool[].
+        const int hostileParameterCount = 20_000;
+        signature.WriteByte(0x1b);
+        signature.WriteByte(0x00);
+        signature.WriteCompressedInteger(hostileParameterCount);
+        signature.WriteByte(0x01);
+        for (int i = 0; i < hostileParameterCount; i++)
+            signature.WriteByte(0x08);
+
+        long allocated = 0;
+        int observed = 0;
+        byte[]? flags = ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            constructorSignatureBytes: signature.ToArray(),
+            read: (reader, attributes) =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                long before =
+                    GC.GetAllocatedBytesForCurrentThread();
+                byte[]? result = DynamicReader.GetDynamicFlags(
+                    reader,
+                    attributes,
+                    amount => observed += amount);
+                allocated =
+                    GC.GetAllocatedBytesForCurrentThread() - before;
+                return result;
+            });
+
+        Assert.Null(flags);
+        Assert.InRange(observed, 0, 100);
+        Assert.InRange(allocated, 0, 100_000);
+    }
+
+    [Fact]
+    public void TruncatedConstructorSignature_IsRejectedBeforeReturnMaterialization()
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        for (int i = 0; i < 400; i++)
+            signature.WriteByte(0x1d);
+        signature.WriteByte(0x08);
+
+        long allocated = 0;
+        int observed = 0;
+        byte[]? flags = ReadDynamicFlags(
+            new byte[] { 1, 0, 0, 0 },
+            transformFlagsConstructor: false,
+            constructorSignatureBytes: signature.ToArray(),
+            read: (reader, attributes) =>
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                long before =
+                    GC.GetAllocatedBytesForCurrentThread();
+                byte[]? result = DynamicReader.GetDynamicFlags(
+                    reader,
+                    attributes,
+                    amount => observed += amount);
+                allocated =
+                    GC.GetAllocatedBytesForCurrentThread() - before;
+                return result;
+            });
+
+        Assert.Null(flags);
+        Assert.InRange(observed, 0, 4096);
+        Assert.InRange(allocated, 0, 500_000);
+    }
+
+    static byte[]? ReadDynamicFlags(
+        byte[] attributeBlob,
+        bool transformFlagsConstructor,
+        bool namedVoidReturn = false,
+        byte[]? constructorSignatureBytes = null,
+        Func<
+            MetadataReader,
+            CustomAttributeHandleCollection,
+            byte[]?>? read = null)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedDynamic.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedDynamic"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var expressions = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Linq.Expressions"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a }),
+            default,
+            default);
+        var dynamicAttribute = metadata.AddTypeReference(
+            expressions,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("DynamicAttribute"));
+        var namedVoid = namedVoidReturn
+            ? metadata.AddTypeReference(
+                expressions,
+                default,
+                metadata.GetOrAddString("void"))
+            : default;
+        var constructorSignature = new BlobBuilder();
+        if (constructorSignatureBytes is not null)
+        {
+            constructorSignature.WriteBytes(
+                constructorSignatureBytes);
+        }
+        else
+        {
+            constructorSignature.WriteByte(0x20); // instance default calling convention
+            constructorSignature.WriteCompressedInteger(transformFlagsConstructor ? 1 : 0);
+            if (namedVoidReturn)
+            {
+                constructorSignature.WriteByte(0x12); // class
+                constructorSignature.WriteCompressedInteger(
+                    (MetadataTokens.GetRowNumber(namedVoid) << 2) | 1);
+            }
+            else
+            {
+                constructorSignature.WriteByte(0x01); // void
+            }
+            if (transformFlagsConstructor)
+            {
+                constructorSignature.WriteByte(0x1d); // SZArray
+                constructorSignature.WriteByte(0x02); // bool
+            }
+        }
+        var constructor = metadata.AddMemberReference(
+            dynamicAttribute,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(constructorSignature));
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            default,
+            metadata.GetOrAddString("Carrier"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var fieldSignature = new BlobBuilder();
+        fieldSignature.WriteByte(0x06); // field
+        fieldSignature.WriteByte(0x1c); // object
+        var field = metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(fieldSignature));
+        metadata.AddCustomAttribute(
+            field,
+            constructor,
+            metadata.GetOrAddBlob(attributeBlob));
+
+        var image = new BlobBuilder();
+        new MetadataRootBuilder(metadata, suppressValidation: true).Serialize(image, 0, 0);
+        using var provider = MetadataReaderProvider.FromMetadataImage(
+            ImmutableArray.Create(image.ToArray()));
+        var reader = provider.GetMetadataReader();
+
+        var attributes =
+            reader.GetFieldDefinition(field).GetCustomAttributes();
+        return read is null
+            ? DynamicReader.GetDynamicFlags(reader, attributes)
+            : read(reader, attributes);
     }
 
     // --- IsTopLevelDynamic predicate: only the outermost (index-0) position ---
