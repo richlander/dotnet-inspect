@@ -343,7 +343,7 @@ public static partial class BrowserInspectionEngine
         (
             BrowserInspectionScope scope,
             BrowserWorkspaceParticipant participant,
-            int implementationToken
+            Analysis.CallGraphMemberResolution resolution
         ) = await ImplementationMemberAsync(
             packageId,
             version,
@@ -363,7 +363,7 @@ public static partial class BrowserInspectionEngine
                     new AssemblyContextMemberProjectionRequest(
                         typeQueryId,
                         memberName,
-                        MethodToken: implementationToken,
+                        MethodToken: resolution.BodyToken,
                         SourceDocument: true,
                         PrinterOptions: BrowserStyleOptions.Resolve(styleOptionsJson)))),
             $"Annotated source for '{typeQueryId}.{memberName}'");
@@ -736,7 +736,7 @@ public static partial class BrowserInspectionEngine
             scope.Coordinate(resolution.RequestedCoordinates[0]);
         (
             BrowserWorkspaceParticipant participant,
-            int implementationToken
+            Analysis.CallGraphMemberResolution memberResolution
         ) = ResolveImplementationMember(
             scope,
             rootCoordinate,
@@ -751,7 +751,7 @@ public static partial class BrowserInspectionEngine
             using var session = new MemberCallGraphSession(
                 group,
                 participant.Assembly,
-                implementationToken);
+                memberResolution.BodyToken);
             return session.HasCrossLibraryScope ? session.CrossLibrary() : session.Callers();
         });
 
@@ -1014,7 +1014,7 @@ public static partial class BrowserInspectionEngine
     static async Task<(
         BrowserInspectionScope Scope,
         BrowserWorkspaceParticipant Participant,
-        int MethodToken)> ImplementationMemberAsync(
+        Analysis.CallGraphMemberResolution Resolution)> ImplementationMemberAsync(
             string packageId,
             string version,
             string targetFramework,
@@ -1022,16 +1022,19 @@ public static partial class BrowserInspectionEngine
             string typeId,
             string memberName,
             string selectorKey,
-            int metadataToken)
+            int metadataToken,
+            CancellationToken cancellationToken = default)
     {
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-            packageId,
-            version,
-            targetFramework);
+            BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         (
             BrowserWorkspaceParticipant participant,
-            int methodToken
+            Analysis.CallGraphMemberResolution resolution
         ) = ResolveImplementationMember(
             scope,
             coordinate,
@@ -1040,10 +1043,12 @@ public static partial class BrowserInspectionEngine
             memberName,
             selectorKey,
             metadataToken);
-        return (scope, participant, methodToken);
+        return (scope, participant, resolution);
     }
 
-    static (BrowserWorkspaceParticipant Participant, int MethodToken)
+    static (
+        BrowserWorkspaceParticipant Participant,
+        Analysis.CallGraphMemberResolution Resolution)
         ResolveImplementationMember(
             BrowserInspectionScope scope,
             BrowserPackageCoordinate coordinate,
@@ -1091,7 +1096,7 @@ public static partial class BrowserInspectionEngine
             ?? throw new InvalidOperationException(
                 $"The implementation of '{typeId}.{memberName}' does not contain the selected "
                 + "API body.");
-        return (participant, resolution.BodyToken);
+        return (participant, resolution);
     }
 
     /// <summary>
@@ -1133,8 +1138,27 @@ public static partial class BrowserInspectionEngine
     internal static string MermaidLabel(string value)
     {
         var builder = new StringBuilder(value.Length);
-        foreach (char character in value)
+        for (int index = 0; index < value.Length; index++)
         {
+            char character = value[index];
+            if (char.IsHighSurrogate(character)
+                && index + 1 < value.Length
+                && char.IsLowSurrogate(value[index + 1]))
+            {
+                char lowSurrogate = value[++index];
+                var scalar = new Rune(character, lowSurrogate);
+                if (Rune.GetUnicodeCategory(scalar) == UnicodeCategory.Format)
+                {
+                    AppendUnicodeEscape(builder, character);
+                    AppendUnicodeEscape(builder, lowSurrogate);
+                }
+                else
+                {
+                    builder.Append(character).Append(lowSurrogate);
+                }
+                continue;
+            }
+
             switch (character)
             {
                 case '&':
@@ -1154,16 +1178,14 @@ public static partial class BrowserInspectionEngine
                     break;
                 case '\u2028':
                 case '\u2029':
-                    builder.Append("&#92;u")
-                        .Append(((int)character).ToString("X4", CultureInfo.InvariantCulture));
+                    AppendUnicodeEscape(builder, character);
                     break;
                 default:
-                    if (char.IsControl(character))
+                    if (char.IsControl(character)
+                        || char.IsSurrogate(character)
+                        || char.GetUnicodeCategory(character) == UnicodeCategory.Format)
                     {
-                        builder.Append("&#92;u")
-                            .Append(((int)character).ToString(
-                                "X4",
-                                CultureInfo.InvariantCulture));
+                        AppendUnicodeEscape(builder, character);
                     }
                     else
                     {
@@ -1175,6 +1197,10 @@ public static partial class BrowserInspectionEngine
 
         return builder.ToString();
     }
+
+    static void AppendUnicodeEscape(StringBuilder builder, char character) =>
+        builder.Append("&#92;u")
+            .Append(((int)character).ToString("X4", CultureInfo.InvariantCulture));
 
     static BrowserCallGraphTarget Target(
         CallGraphNode node,

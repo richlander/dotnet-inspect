@@ -1,22 +1,25 @@
 import {
+  activeSourceOperationKind,
   assemblyDescriptorForType,
+  authoredSourceLimitationHtml,
+  beginSourceRequestState,
+  cancelSourceRequestState,
   callGraphDiagnosticsMessage,
+  callGraphTargetMatchesType,
   callGraphTargetTypeId,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
   dependencyCoordinateCandidates,
   dependencyGroupSelectionMessage,
   dependencyGraphGroupSelectionIndex,
-  dependencyGraphExternalKey,
-  dependencyGraphPackageKey,
   dependencyGraphRenderSignature,
-  ensureBoundedGraphNode,
   graphTargetNavigationDisposition,
   graphMemberSelection,
   lenses,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
+  memberSectionIdsFor,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
@@ -30,16 +33,24 @@ import {
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
   scopedRequestState,
+  sourceSurfaceIsVisible,
+  sourceReloadKind,
+  sourceRequestNeedsLoad,
   selectedDependencyGroup,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.js";
+import {
+  buildDependencyGraphMermaid,
+  buildTypeGraphMermaid
+} from "./graph-mermaid.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
 
 let initializeEngine;
+let cancelSourceInspection;
 let inspectBuildIdentity;
 let inspectExpandPlatformCallGraph;
 let inspectVocabulary;
@@ -76,6 +87,7 @@ let resolveDependencyVersion;
 
 async function loadEngineModule() {
   ({
+    cancelSourceInspection,
     initializeEngine,
     inspectBuildIdentity,
     inspectExpandPlatformCallGraph,
@@ -208,6 +220,7 @@ const state = {
   memberSourceLoading: false,
   memberSourceError: "",
   memberSourceKey: "",
+  sourceRequestGeneration: 0,
   memberAnnotated: null,
   memberAnnotatedLoading: false,
   memberAnnotatedError: "",
@@ -391,7 +404,12 @@ function applyView(view) {
   state.memberAnnotatedError = "";
   state.selectedBodyTarget = view.bodyTarget ?? null;
   const type = selectedType();
-  if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && selectedMember(type)) {
+  const member = selectedMember(type);
+  if (member
+    && !memberSectionIdsFor(member).includes(state.memberSection)) {
+    state.memberSection = "overview";
+  }
+  if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && member) {
     if (state.memberSection === "source") loadSelectedMemberSource();
     else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
     else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
@@ -437,21 +455,9 @@ const memberSectionDefs = [
   ["annotated", "Annotated source"]
 ];
 
-// Members that are not directly callable have no method-body identity, so the body-dependent
-// sections (Call graph, Facts, Annotated source) don't apply and the engine rejects them.
-// Everything else — methods, constructors, operators, explicit interface method impls — keeps
-// the full strip. Properties/fields/events still get Overview and Source (which read the
-// declaration, not a body).
-const bodilessMemberKinds = new Set(["property", "field", "event", "constant"]);
-
-function memberHasBody(member) {
-  return !!member && !bodilessMemberKinds.has(member.kind);
-}
-
 function memberSectionsFor(member) {
-  return memberHasBody(member)
-    ? memberSectionDefs
-    : memberSectionDefs.filter(([id]) => id === "overview" || id === "source");
+  const allowed = new Set(memberSectionIdsFor(member));
+  return memberSectionDefs.filter(([id]) => allowed.has(id));
 }
 
 // URL-safe base64 over UTF-8 bytes. Used for the opaque share packet so a shared or
@@ -1264,6 +1270,11 @@ function updateCommandSuggestions() {
 }
 
 function render() {
+  if (!sourceSurfaceIsVisible(state)
+    && cancelSourceRequestState(state)) {
+    cancelSourceInspection?.();
+  }
+
   // The Settings page is a modal-style full view layered over whatever the user came from
   // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
   // so it renders first and returns; closeSettings restores the underlying view.
@@ -1448,7 +1459,7 @@ function render() {
   bindEvents();
   recordNav();
   syncUrl();
-  maybeAutoLoadTypeSource();
+  maybeAutoLoadVisibleSource();
   maybeAutoLoadTypeMetadata();
   maybeAutoLoadPackageDependencies();
   maybeAutoLoadPackageIntegrations();
@@ -1462,13 +1473,47 @@ function render() {
   }
 }
 
-function maybeAutoLoadTypeSource() {
-  if (state.lens !== "source") return;
+function maybeAutoLoadVisibleSource() {
+  const kind = activeSourceOperationKind(state);
+  if (kind === "graph") {
+    if (state.graphSourceRequest
+      && sourceRequestNeedsLoad(
+        true,
+        state.graphSourceLoading,
+        state.graphSource,
+        state.graphSourceError)) {
+      openGraphSource(
+        state.graphSourceRequest.request,
+        state.graphSourceRequest.title);
+    }
+    return;
+  }
   const type = selectedType();
   if (!type) return;
-  const signature = typeSourceSignature(type);
-  if (state.typeSourceKey === signature) return;
-  loadSelectedTypeSource();
+  if (kind === "type") {
+    const signature = typeSourceSignature(type);
+    if (sourceRequestNeedsLoad(
+        state.typeSourceKey === signature,
+        state.typeSourceLoading,
+        state.typeSource,
+        state.typeSourceError)) {
+      loadSelectedTypeSource();
+    }
+    return;
+  }
+  if (kind === "member") {
+    const member = selectedMember(type);
+    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+    if (!member || !overload) return;
+    const signature = memberRequestSignature(type, overload, false, true);
+    if (sourceRequestNeedsLoad(
+        state.memberSourceKey === signature,
+        state.memberSourceLoading,
+        state.memberSource,
+        state.memberSourceError)) {
+      loadSelectedMemberSource();
+    }
+  }
 }
 
 function maybeAutoLoadTypeMetadata() {
@@ -3444,7 +3489,7 @@ function renderMember(type, member) {
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`
       : state.memberSource
         ? `<section class="document-section source-result">
-            <div class="source-provenance"><strong>${state.memberSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-source" type="button">copy</button></div>
+            <div class="source-provenance"><strong>${state.memberSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.memberSource)}<button id="copy-source" type="button">copy</button></div>
             <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
@@ -3759,25 +3804,31 @@ function splitSignalName(fullName) {
 }
 
 function typeSourceSignature(item) {
-  return `${state.package.id}@${state.package.version}/${state.package.activeFramework}/${item.assembly}/${item.id}`;
+  return memberRequestKey([
+    state.package.id,
+    state.package.version,
+    state.package.activeFramework,
+    item.assembly,
+    item.definitionId ?? item.id
+  ], state.taste);
 }
 
 function renderTypeSource(item) {
   const current = typeSourceSignature(item);
   const fresh = state.typeSourceKey === current;
   if (state.typeSourceLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Decompiling type…</h2><p>Reconstructing the whole type as C# with dotnet-inspect.</p></section>`;
+    return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
   }
   if (fresh && state.typeSource) {
     return `<section class="document-section source-result">
-        <div class="source-provenance"><strong>Decompiled source</strong><span>${escapeHtml(state.typeSource.provenance)}</span><button id="copy-type-source" type="button">copy</button></div>
+        <div class="source-provenance"><strong>${state.typeSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.typeSource.provenance)}</span>${state.typeSource.url ? `<a href="${escapeHtml(state.typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.typeSource)}<button id="copy-type-source" type="button">copy</button></div>
         <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.typeSource.text)}</code></pre>
       </section>`;
   }
   if (fresh && state.typeSourceError) {
     return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(state.typeSourceError)}</p></section>`;
   }
-  return `<section class="document-section source-progress"><span class="loader"></span><h2>Decompiling type…</h2><p>Reconstructing the whole type as C# with dotnet-inspect.</p></section>`;
+  return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
 }
 
 function kindIcon(kind) {
@@ -5599,7 +5650,10 @@ function applyDeepLink(deep) {
         && overloadIndex < group.overloads.length) {
         state.selectedOverloadIndex = overloadIndex;
       }
-      if (deep.section && memberSections.includes(deep.section)) state.memberSection = deep.section;
+      if (deep.section
+        && memberSectionIdsFor(group).includes(deep.section)) {
+        state.memberSection = deep.section;
+      }
     }
   }
   state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === state.selectedTypeId));
@@ -5919,7 +5973,7 @@ function openPackageFromError(packageId, version) {
 function renderLoading() {
   app.innerHTML = `
     <div class="loading-screen">
-      <div class="loading-brand"><span>◇</span> dotnet-inspect</div>
+      <a class="loading-brand" href="/" aria-label="dotnet inspect home"><span>◇</span> dotnet-inspect</a>
       ${state.error
         ? `<div class="load-error">
              <strong>${escapeHtml(state.errorTitle || "Inspection query failed")}</strong>
@@ -6020,6 +6074,10 @@ async function loadSelectedMemberDocumentation() {
 }
 
 async function loadSelectedMemberSource() {
+  if (activeSourceOperationKind(state) !== "member") {
+    render();
+    return;
+  }
   const type = selectedType();
   const member = selectedMember(type);
   const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
@@ -6029,12 +6087,16 @@ async function loadSelectedMemberSource() {
     return;
   }
   const signature = memberRequestSignature(type, overload, false, true);
-  if (state.memberSourceKey === signature
-    && (state.memberSource || state.memberSourceError)) {
+  if (!sourceRequestNeedsLoad(
+      state.memberSourceKey === signature,
+      state.memberSourceLoading,
+      state.memberSource,
+      state.memberSourceError)) {
     render();
     return;
   }
 
+  const generation = beginSourceRequestState(state);
   state.memberSourceKey = signature;
   state.memberSource = null;
   state.memberSourceLoading = true;
@@ -6047,22 +6109,28 @@ async function loadSelectedMemberSource() {
       framework: state.package.activeFramework,
       assembly: type.assembly,
       type: type.queryId ?? type.id,
+      typeIdentity: type.definitionId ?? type.id,
       member: state.selectedBodyTarget?.memberName ?? overload.name,
-      signature: overload.signature,
+      selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
+      metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (memberRequestIsCurrent(signature, false, true)
+    if (generation === state.sourceRequestGeneration
+      && memberRequestIsCurrent(signature, false, true)
       && state.memberSourceKey === signature) {
       state.memberSource = result;
     }
   } catch (error) {
-    if (memberRequestIsCurrent(signature, false, true)
+    if (generation === state.sourceRequestGeneration
+      && memberRequestIsCurrent(signature, false, true)
       && state.memberSourceKey === signature) {
       state.memberSourceError = String(error?.message || error);
     }
   } finally {
-    if (state.memberSourceKey === signature)
+    if (generation === state.sourceRequestGeneration
+      && state.memberSourceKey === signature) {
       state.memberSourceLoading = false;
+    }
     render();
   }
 }
@@ -6076,9 +6144,12 @@ async function loadSelectedMemberAnnotatedSource() {
     render();
     return;
   }
-  const signature = memberRequestSignature(type, overload, false, true);
-  if (state.memberAnnotatedKey === signature
-    && (state.memberAnnotated || state.memberAnnotatedError)) {
+  const signature = memberRequestSignature(type, overload, true, true);
+  if (!sourceRequestNeedsLoad(
+      state.memberAnnotatedKey === signature,
+      state.memberAnnotatedLoading,
+      state.memberAnnotated,
+      state.memberAnnotatedError)) {
     render();
     return;
   }
@@ -6107,12 +6178,12 @@ async function loadSelectedMemberAnnotatedSource() {
       metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken ?? 0,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (memberRequestIsCurrent(signature, false, true)
+    if (memberRequestIsCurrent(signature, true, true)
       && state.memberAnnotatedKey === signature) {
       state.memberAnnotated = result;
     }
   } catch (error) {
-    if (memberRequestIsCurrent(signature, false, true)
+    if (memberRequestIsCurrent(signature, true, true)
       && state.memberAnnotatedKey === signature) {
       state.memberAnnotatedError = String(error?.message || error);
     }
@@ -6135,6 +6206,7 @@ function memberRequestSignature(
     pkg?.activeFramework,
     type?.assembly,
     type?.queryId ?? type?.id,
+    type?.definitionId ?? type?.id,
     overload?.stableSelector ?? overload?.canonicalSignature ?? overload?.signature
   ];
   if (includeBody) {
@@ -6157,16 +6229,25 @@ function memberRequestIsCurrent(
 }
 
 async function loadSelectedTypeSource() {
+  if (activeSourceOperationKind(state) !== "type") {
+    render();
+    return;
+  }
   const type = selectedType();
   if (!type) {
     render();
     return;
   }
   const signature = typeSourceSignature(type);
-  if (state.typeSourceKey === signature && (state.typeSource || state.typeSourceError)) {
+  if (!sourceRequestNeedsLoad(
+      state.typeSourceKey === signature,
+      state.typeSourceLoading,
+      state.typeSource,
+      state.typeSourceError)) {
     render();
     return;
   }
+  const generation = beginSourceRequestState(state);
   state.typeSourceKey = signature;
   state.typeSource = null;
   state.typeSourceError = "";
@@ -6179,13 +6260,23 @@ async function loadSelectedTypeSource() {
       framework: state.package.activeFramework,
       assembly: type.assembly,
       type: type.queryId ?? type.id,
+      typeIdentity: type.definitionId ?? type.id,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (state.typeSourceKey === signature) state.typeSource = result;
+    if (generation === state.sourceRequestGeneration
+      && state.typeSourceKey === signature) {
+      state.typeSource = result;
+    }
   } catch (error) {
-    if (state.typeSourceKey === signature) state.typeSourceError = String(error?.message || error);
+    if (generation === state.sourceRequestGeneration
+      && state.typeSourceKey === signature) {
+      state.typeSourceError = String(error?.message || error);
+    }
   } finally {
-    if (state.typeSourceKey === signature) state.typeSourceLoading = false;
+    if (generation === state.sourceRequestGeneration
+      && state.typeSourceKey === signature) {
+      state.typeSourceLoading = false;
+    }
     render();
   }
 }
@@ -6226,29 +6317,6 @@ async function loadSelectedTypeMetadata() {
 
 // Projects the neutral type-relationship node/edge model into a Mermaid flowchart so it
 // renders with the same pan/zoom/click affordances as the call graph.
-function buildTypeGraphMermaid(meta) {
-  const nodes = meta.graphNodes || [];
-  const edges = meta.graphEdges || [];
-  if (nodes.length < 2) return null;
-  const idOf = new Map();
-  nodes.forEach((node, index) => idOf.set(node.id, `t${index}`));
-  const lines = ["flowchart TD"];
-  for (const node of nodes) {
-    const label = mermaidLabel(shortTypeName(node.displayName));
-    lines.push(`  ${idOf.get(node.id)}["${label}"]:::${node.role}`);
-  }
-  for (const edge of edges) {
-    const from = idOf.get(edge.fromId);
-    const to = idOf.get(edge.toId);
-    if (from && to) lines.push(`  ${from} --> ${to}`);
-  }
-  lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
-  lines.push("classDef base fill:var(--panel-active),stroke:var(--line-strong),color:var(--text);");
-  lines.push("classDef interface fill:transparent,stroke:var(--line-strong),color:var(--dim);");
-  lines.push("classDef derived fill:var(--panel),stroke:var(--line),color:var(--text);");
-  return lines.join("\n");
-}
-
 async function renderTypeGraph() {
   const container = document.querySelector("#type-graph-diagram");
   if (!container || container.querySelector(".graph-viewport")) return;
@@ -6362,180 +6430,6 @@ function relatedTypeChip(name) {
 // dependency manifests) and three levels of callers (open packages that transitively
 // depend on the centre). Because only opened packages have cached manifests, the graph
 // grows as the user clicks around and opens more of the neighbourhood.
-function buildDependencyGraphMermaid() {
-  const MAX_DEPTH = 3;
-  const MAX_NODES = 80;
-  const nodeInfo = new Map();
-  let truncated = false;
-  const ensureNode = (key, create) => {
-    const result = ensureBoundedGraphNode(
-      nodeInfo,
-      key,
-      create,
-      MAX_NODES);
-    truncated ||= result.truncated;
-    return result.node;
-  };
-  const openPackageNode = (pkg, kind = "open") => {
-    const packageKey = packageIdentityKey(pkg);
-    const key = dependencyGraphPackageKey(pkg);
-    return ensureNode(key, () => {
-      const sameIdCount = state.packages.filter(candidate =>
-        candidate.id.toLowerCase() === pkg.id.toLowerCase()).length;
-      return {
-        key,
-        id: pkg.id,
-        kind,
-        packageKey,
-        versionRange: "",
-        label: sameIdCount > 1
-          ? `${pkg.id}@${pkg.version} · ${pkg.activeFramework}`
-          : pkg.id
-      };
-    });
-  };
-  const dependencyNode = dependency => {
-    const open = uniqueCompatiblePackage(
-      state.packages,
-      dependency.id,
-      dependency.versionRange);
-    if (open) return openPackageNode(open);
-
-    const versionRange = dependency.versionRange || "";
-    const key = dependencyGraphExternalKey(dependency.id, versionRange);
-    return ensureNode(key, () => {
-      return {
-        key,
-        id: dependency.id,
-        kind: "external",
-        packageKey: "",
-        versionRange,
-        label: versionRange
-          ? `${dependency.id} ${versionRange}`
-          : dependency.id
-      };
-    });
-  };
-  openPackageNode(state.package, "self");
-
-  const edgeSet = new Set();
-  const edges = [];
-  const addEdge = (from, to) => {
-    const key = `${from.key}\u0001${to.key}`;
-    if (edgeSet.has(key)) return;
-    edgeSet.add(key);
-    edges.push({ from: from.key, to: to.key });
-  };
-
-  const groupFor = pkg => {
-    if (packageIdentityKey(pkg) === packageIdentityKey(state.package)) {
-      const groups = state.packageDependencies?.dependencyGroups || [];
-      const selectedGroupIndex = dependencyGraphGroupSelectionIndex(
-        state.packageDependencies,
-        state.dependenciesGroupIndex,
-        resolveDependenciesGroupIndex(groups));
-      return selectedDependencyGroup(
-        state.packageDependencies,
-        selectedGroupIndex);
-    }
-
-    const data = state.workspaceDependencies[workspaceDependencyKey(pkg)];
-    return selectedDependencyGroup(data);
-  };
-
-  // Callees: walk the centre's dependencies, expanding any dependency that is itself an
-  // open package (only open packages have cached manifests to walk further).
-  let downFrontier = [state.package];
-  const downVisited = new Set([packageIdentityKey(state.package)]);
-  for (let depth = 0; depth < MAX_DEPTH && downFrontier.length && !truncated; depth++) {
-    const next = [];
-    for (const pkg of downFrontier) {
-      const group = groupFor(pkg);
-      if (!group) continue;
-      const source = openPackageNode(
-        pkg,
-        packageIdentityKey(pkg) === packageIdentityKey(state.package)
-          ? "self"
-          : "open");
-      for (const dependency of group.dependencies || []) {
-        const target = dependencyNode(dependency);
-        if (!target) break;
-        addEdge(source, target);
-        if (target.packageKey && !downVisited.has(target.packageKey)) {
-          downVisited.add(target.packageKey);
-          const open = state.packages.find(candidate =>
-            packageIdentityKey(candidate) === target.packageKey);
-          if (open) next.push(open);
-        }
-        if (truncated) break;
-      }
-    }
-    downFrontier = next;
-  }
-
-  // Callers: open packages that (transitively) declare a dependency on a frontier node.
-  let upFrontier = [state.package];
-  const upVisited = new Set([packageIdentityKey(state.package)]);
-  for (let depth = 0; depth < MAX_DEPTH && upFrontier.length && !truncated; depth++) {
-    const next = [];
-    for (const targetPackage of upFrontier) {
-      const target = openPackageNode(
-        targetPackage,
-        packageIdentityKey(targetPackage) === packageIdentityKey(state.package)
-          ? "self"
-          : "open");
-      if (!target) break;
-      for (const pkg of state.packages) {
-        const pkgKey = packageIdentityKey(pkg);
-        if (pkgKey === target.packageKey) continue;
-        const group = groupFor(pkg);
-        if (!group) continue;
-        if ((group.dependencies || []).some(dependency =>
-          packageIdentityKey(uniqueCompatiblePackage(
-            state.packages,
-            dependency.id,
-            dependency.versionRange)) === target.packageKey)) {
-          const caller = openPackageNode(pkg);
-            if (!caller) break;
-            addEdge(caller, target);
-          if (!upVisited.has(pkgKey)) {
-            upVisited.add(pkgKey);
-            next.push(pkg);
-          }
-        }
-        if (truncated) break;
-      }
-    }
-    upFrontier = next;
-  }
-
-  if (!edges.length) return null;
-
-  const keys = [...nodeInfo.keys()];
-  const idOf = new Map();
-  keys.forEach((key, index) => idOf.set(key, `d${index}`));
-  const lines = ["flowchart TD"];
-  for (const key of keys) {
-    const info = nodeInfo.get(key);
-    const label = mermaidLabel(info.label);
-    lines.push(`  ${idOf.get(key)}["${label}"]:::${info.kind}`);
-  }
-  for (const edge of edges) {
-    lines.push(`  ${idOf.get(edge.from)} --> ${idOf.get(edge.to)}`);
-  }
-  lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
-  lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
-  lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
-  const nodeInfoById = new Map(
-    keys.map(key => [idOf.get(key), nodeInfo.get(key)]));
-  return {
-    definition: lines.join("\n"),
-    nodeInfoById,
-    truncated,
-    nodeLimit: MAX_NODES
-  };
-}
-
 async function renderDependencyGraph() {
   const container = document.querySelector("#dependency-graph-diagram");
   if (!container) return;
@@ -6546,7 +6440,7 @@ async function renderDependencyGraph() {
     pending.invalidate();
     return;
   }
-  const built = buildDependencyGraphMermaid();
+  const built = buildDependencyGraphMermaid(state, uniqueCompatiblePackage);
   if (!built) {
     depGraphRenderSequence.invalidate();
     container.dataset.graphDef = "";
@@ -7263,7 +7157,7 @@ function findRuntimeMemberSelection(pack, node) {
   const typeId = callGraphTargetTypeId(node);
   if (!pack || !typeId) return null;
   const type = pack.types.find(
-    item => (item.metadataId ?? item.queryId ?? item.id) === typeId);
+    item => callGraphTargetMatchesType(node, item));
   if (!type) return null;
   const groups = memberGroups(type);
   if (node.metadataToken != null) {
@@ -7293,6 +7187,7 @@ function stripArity(name) {
 }
 
 async function openGraphSource(request, title) {
+  const generation = beginSourceRequestState(state);
   const seq = ++state.graphSourceSeq;
   state.graphSourceOpen = true;
   state.graphSourceTitle = title;
@@ -7306,19 +7201,26 @@ async function openGraphSource(request, title) {
       ...request,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (seq !== state.graphSourceSeq || !state.graphSourceOpen) return;
+    if (generation !== state.sourceRequestGeneration
+      || seq !== state.graphSourceSeq
+      || !state.graphSourceOpen) return;
     state.graphSource = source;
   } catch (error) {
-    if (seq !== state.graphSourceSeq || !state.graphSourceOpen) return;
+    if (generation !== state.sourceRequestGeneration
+      || seq !== state.graphSourceSeq
+      || !state.graphSourceOpen) return;
     state.graphSourceError = String(error?.message || error);
   } finally {
-    if (seq !== state.graphSourceSeq || !state.graphSourceOpen) return;
+    if (generation !== state.sourceRequestGeneration
+      || seq !== state.graphSourceSeq
+      || !state.graphSourceOpen) return;
     state.graphSourceLoading = false;
     render();
   }
 }
 
 function closeGraphSource() {
+  if (cancelSourceRequestState(state)) cancelSourceInspection?.();
   state.graphSourceSeq++;
   state.graphSourceOpen = false;
   state.graphSource = null;
@@ -7515,13 +7417,23 @@ function invalidateSourceCaches() {
 }
 
 function reloadVisibleSource() {
-  if (state.graphSourceOpen && state.graphSourceRequest) {
-    openGraphSource(state.graphSourceRequest.request, state.graphSourceRequest.title);
-  }
-  if (state.lens === "source") loadSelectedTypeSource();
-  else if (state.selectedMemberKey && state.memberSection === "source") loadSelectedMemberSource();
-  else if (state.selectedMemberKey && state.memberSection === "annotated") {
-    loadSelectedMemberAnnotatedSource();
+  switch (sourceReloadKind(state)) {
+    case "graph":
+      if (state.graphSourceRequest) {
+        openGraphSource(
+          state.graphSourceRequest.request,
+          state.graphSourceRequest.title);
+      }
+      break;
+    case "type":
+      loadSelectedTypeSource();
+      break;
+    case "member":
+      loadSelectedMemberSource();
+      break;
+    case "annotated":
+      loadSelectedMemberAnnotatedSource();
+      break;
   }
 }
 
@@ -7563,6 +7475,7 @@ function openSettings(from) {
 
 function closeSettings() {
   state.settings = false;
+  reloadVisibleSource();
   render();
 }
 
@@ -7628,14 +7541,14 @@ function bindSettingsEvents() {
 
 function renderGraphSource() {
   const body = state.graphSourceLoading
-    ? `<div class="graph-source-status">Decompiling ${escapeHtml(state.graphSourceTitle)}…</div>`
+    ? `<div class="graph-source-status">Resolving source for ${escapeHtml(state.graphSourceTitle)}…</div>`
     : state.graphSource
-      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span></div>
+      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span>${state.graphSource.url ? `<a href="${escapeHtml(state.graphSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.graphSource)}</div>
          <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.graphSource.text)}</code></pre>`
       : `<div class="graph-source-status error">${escapeHtml(state.graphSourceError || "No source was returned.")}</div>`;
   return `
     <div class="graph-source-backdrop" id="graph-source-backdrop">
-      <div class="graph-source" role="dialog" aria-modal="true" aria-label="Decompiled member source">
+      <div class="graph-source" role="dialog" aria-modal="true" aria-label="Member source">
         <div class="graph-source-head">
           <span class="graph-source-title">${escapeHtml(state.graphSourceTitle)}</span>
           <button id="graph-source-close" type="button" aria-label="Close">esc</button>

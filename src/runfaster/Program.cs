@@ -408,7 +408,7 @@ static bool TryLoadTriageFile(string triageFile, CorrelationResult result, out i
                     continue;
 
                 using var document = JsonDocument.Parse(line);
-                AddTriageCandidates(
+                AddTriageDocumentCandidates(
                     document.RootElement,
                     path,
                     defaultAssembly: null,
@@ -434,7 +434,10 @@ static bool TryLoadTriageFile(string triageFile, CorrelationResult result, out i
             new TriageInput(path, rows, loaded, correlatable));
         return true;
     }
-    catch (Exception ex) when (ex is JsonException or IOException)
+    catch (Exception ex) when (
+        ex is JsonException
+            or IOException
+            or InvalidDataException)
     {
         Console.Error.WriteLine($"Error: cannot read triage JSON/JSONL '{triageFile}': {ex.Message}");
         exitCode = 1;
@@ -459,16 +462,15 @@ static void AddTriageDocumentCandidates(
                 defaultAssembly,
                 candidates,
                 ref rows);
+            return;
         }
-        else if (root.TryGetProperty(
-                     "performance",
-                     out var performance)
-                 || root.TryGetProperty(
-                     "Performance",
-                     out performance))
+        foreach (var property in root.EnumerateObject())
         {
+            if (property.Name is not ("performance" or "Performance"))
+                continue;
+
             AddTriageCandidates(
-                performance,
+                property.Value,
                 path,
                 defaultAssembly,
                 candidates,
@@ -508,6 +510,19 @@ static void AddTriageCandidates(
                     out var candidate))
             {
                 candidates.Add(candidate);
+            }
+
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.Name is not ("performance" or "Performance"))
+                    continue;
+
+                AddTriageCandidates(
+                    property.Value,
+                    path,
+                    defaultAssembly,
+                    candidates,
+                    ref rows);
             }
             return;
         }
@@ -617,6 +632,8 @@ static bool TryCreateCandidateFromJson(
         ? parsedOperandToken
         : null;
     int offset = TryParseFlexibleInt(offsetText, out var parsedOffset) ? parsedOffset : -1;
+    Guid? moduleVersionId =
+        ReadOptionalModuleVersionId(element);
 
     if (method is null && methodToken == 0)
         return false;
@@ -632,7 +649,7 @@ static bool TryCreateCandidateFromJson(
         GetJsonString(element, "Assembly", "assembly")
             ?? defaultAssembly
             ?? "",
-        null,
+        moduleVersionId,
         methodToken,
         offset,
         method ?? DisplayHelpers.FormatToken(methodToken),
@@ -656,6 +673,53 @@ static bool TryCreateCandidateFromJson(
         operandToken: operandToken);
     return true;
 }
+
+static Guid? ReadOptionalModuleVersionId(
+    JsonElement element)
+{
+    Guid? result = null;
+    foreach (var property in element.EnumerateObject())
+    {
+        if (!IsModuleVersionIdProperty(
+                property.Name))
+        {
+            continue;
+        }
+
+        if (property.Value.ValueKind !=
+                JsonValueKind.String
+            || !Guid.TryParse(
+                property.Value.GetString(),
+                out var parsed)
+            || parsed == Guid.Empty)
+        {
+            throw new InvalidDataException(
+                $"Invalid module version ID in "
+                + $"'{property.Name}'.");
+        }
+
+        if (result is Guid existing
+            && existing != parsed)
+        {
+            throw new InvalidDataException(
+                "Conflicting module version IDs "
+                + "were supplied.");
+        }
+
+        result = parsed;
+    }
+
+    return result;
+}
+
+static bool IsModuleVersionIdProperty(
+    string name)
+    => name is "Module Version ID"
+        or "module_version_id"
+        or "ModuleVersionId"
+        or "moduleVersionId"
+        or "MVID"
+        or "mvid";
 
 static string? GetJsonString(JsonElement element, params string[] names)
 {
@@ -815,7 +879,7 @@ static bool TryCorrelateNetTrace(
 
             var matchedThisEvent = new HashSet<int>();
             TraceCodeAddress? matchedAddress = null;
-            IReadOnlyList<AllocationCandidate> matchedCandidates = [];
+            AllocationCandidate[] matchedCandidates = [];
             while (stack != null)
             {
                 TraceCodeAddress address = stack.CodeAddress;
@@ -830,31 +894,25 @@ static bool TryCorrelateNetTrace(
                         || candidate.MatchesAllocatedType(
                             data.TypeName))
                     .ToArray();
-                if (matchedCandidates.Any(candidate =>
-                        string.Equals(
-                            candidate.Source,
-                            "triage",
-                            StringComparison.Ordinal)))
+                var supersededLibraries =
+                    ProgramSupport.FindTraceLibrariesSupersededByTriage(
+                        matchedCandidates,
+                        coordinateCandidates,
+                        data.TypeName);
+                if (supersededLibraries.Count > 0)
                 {
-                    foreach (var candidate in coordinateCandidates.Where(candidate =>
-                                 string.Equals(
-                                     candidate.Source,
-                                     "library",
-                                     StringComparison.Ordinal)
-                                 && candidate.MatchesAllocatedType(
-                                     data.TypeName)))
-                    {
+                    var supersededIds = supersededLibraries
+                        .Select(static candidate => candidate.Id)
+                        .ToHashSet();
+                    foreach (var candidate in supersededLibraries)
                         candidate.SupersededByTriage = true;
-                    }
                     matchedCandidates = matchedCandidates
-                        .Where(candidate => string.Equals(
-                            candidate.Source,
-                            "triage",
-                            StringComparison.Ordinal))
+                        .Where(candidate => !supersededIds.Contains(
+                            candidate.Id))
                         .ToArray();
                 }
 
-                if (matchedCandidates.Count > 0)
+                if (matchedCandidates.Length > 0)
                 {
                     matchedAddress = address;
                     break;
@@ -866,15 +924,15 @@ static bool TryCorrelateNetTrace(
                 stack = stack.Caller;
             }
 
-            if (matchedAddress is null || matchedCandidates.Count == 0)
+            if (matchedAddress is null || matchedCandidates.Length == 0)
                 return;
 
-            bool ambiguousIlJoin = matchedCandidates.Count > 1;
+            bool ambiguousIlJoin = matchedCandidates.Length > 1;
             var methodsRecorded = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < matchedCandidates.Count; i++)
+            for (int i = 0; i < matchedCandidates.Length; i++)
             {
                 var candidate = matchedCandidates[i];
-                long candidateBytes = ProgramSupport.AttributedBytesForTest(data.AllocationAmount64, matchedCandidates.Count, i);
+                long candidateBytes = ProgramSupport.AttributedBytesForTest(data.AllocationAmount64, matchedCandidates.Length, i);
 
                 if (methodsRecorded.Add(candidate.Method))
                     result.RecordMethodAllocation(candidate.Method, data.TypeName, data.AllocationAmount64);
@@ -1664,7 +1722,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine("- Runtime weight comes from the supplied diagnostics artifact. `.nettrace` allocation ticks stop at the first frame in a represented assembly and join only that method token and nearest-preceding IL offset; an unexported in-assembly callee is not attributed to its caller.");
     Console.WriteLine("- The kind-first table ranks realized allocation volume by static `AllocationKind`; `EscapeKind` is the static promotion prior for that hot site.");
     Console.WriteLine("- `method-hot` means the runtime artifact observed the method. `il-offset-hot` means a `.nettrace` allocation tick joined to a single nearest-preceding static IL allocation site. `allocation-hot` means raw allocation events occurred with the method on-stack. `shape-hot` means the allocated type matched the static allocation shape. `shape-hot-ambiguous` means multiple same-shape static rows share that evidence. `confirmed-hot` means an exact token+IL coordinate was observed.");
-    Console.WriteLine("- `superseded-by-triage` means the same physical site was observed through a richer shape-compatible triage row; it is not workload-cold.");
+    Console.WriteLine("- `superseded-by-triage` means runtime evidence for the same physical candidate is carried by a richer shape-compatible triage row; it is not workload-cold.");
 }
 
 static void RenderPlainText(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates)
@@ -1808,6 +1866,8 @@ static void WriteCandidateJsonObject(Utf8JsonWriter writer, AllocationCandidate 
     writer.WriteString("source", candidate.Source);
     writer.WriteString("library", candidate.LibraryPath);
     writer.WriteString("assembly", candidate.AssemblyName);
+    if (candidate.ModuleVersionId is Guid moduleVersionId)
+        writer.WriteString("moduleVersionId", moduleVersionId);
     writer.WriteString("method", candidate.Method);
     writer.WriteBoolean(
         "runtimeCorrelatable",
@@ -2127,6 +2187,11 @@ sealed class AllocationCandidate(
     public string LibraryPath { get; } = libraryPath;
     public string AssemblyName { get; } = assemblyName;
     public Guid? ModuleVersionId { get; } = moduleVersionId;
+    public string UnknownLibraryInputIdentity { get; } =
+        source == "library" && moduleVersionId is null
+            ? ProgramSupport.NormalizeLibraryInputIdentity(
+                libraryPath)
+            : "";
     public int MethodToken { get; } = methodToken;
     public int IlOffset { get; } = ilOffset;
     public string? CandidateId { get; } = candidateId;
@@ -2312,7 +2377,9 @@ sealed class AllocationCandidate(
         "library",
         path,
         occurrence.Method.AssemblyName,
-        occurrence.Method.ModuleVersionId,
+        occurrence.Method.ModuleVersionId == Guid.Empty
+            ? null
+            : occurrence.Method.ModuleVersionId,
         occurrence.Method.MetadataToken,
         occurrence.ILOffset,
         DisplayHelpers.MethodDisplay(occurrence.Method),
@@ -2542,48 +2609,28 @@ sealed class CandidateLookup
 
     static IEnumerable<string> CandidateModuleKeys(AllocationCandidate candidate)
     {
-        if (NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
+        if (ProgramSupport.NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
             yield return assembly;
         if (string.Equals(
                 candidate.Source,
                 "library",
                 StringComparison.Ordinal))
         {
-            if (NormalizeModuleKey(candidate.LibraryPath) is { Length: > 0 } path)
+            if (ProgramSupport.NormalizeModuleKey(candidate.LibraryPath) is { Length: > 0 } path)
                 yield return path;
-            if (NormalizeModuleKey(Path.GetFileName(candidate.LibraryPath)) is { Length: > 0 } file)
+            if (ProgramSupport.NormalizeModuleKey(Path.GetFileName(candidate.LibraryPath)) is { Length: > 0 } file)
                 yield return file;
         }
     }
 
     static IEnumerable<string> ModuleLookupKeys(string? modulePath, string? moduleName)
     {
-        if (NormalizeModuleKey(modulePath) is { Length: > 0 } path)
+        if (ProgramSupport.NormalizeModuleKey(modulePath) is { Length: > 0 } path)
             yield return path;
-        if (NormalizeModuleKey(Path.GetFileName(modulePath)) is { Length: > 0 } file)
+        if (ProgramSupport.NormalizeModuleKey(Path.GetFileName(modulePath)) is { Length: > 0 } file)
             yield return file;
-        if (NormalizeModuleKey(moduleName) is { Length: > 0 } name)
+        if (ProgramSupport.NormalizeModuleKey(moduleName) is { Length: > 0 } name)
             yield return name;
-    }
-
-    static string NormalizeModuleKey(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return "";
-
-        value = Path.GetFileName(value.Trim());
-        if (value.EndsWith(".ni.dll", StringComparison.OrdinalIgnoreCase))
-            value = value[..^7];
-        else if (value.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase))
-            value = value[..^7];
-        else if (value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            || value.EndsWith(".ni", StringComparison.OrdinalIgnoreCase))
-        {
-            value = Path.GetFileNameWithoutExtension(value);
-        }
-
-        return value.ToLowerInvariant();
     }
 
     static bool MethodMatches(AllocationCandidate candidate, string? method)
@@ -2655,6 +2702,26 @@ static partial class Patterns
 
 internal static class ProgramSupport
 {
+    public static string NormalizeModuleKey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        value = Path.GetFileName(value.Trim());
+        if (value.EndsWith(".ni.dll", StringComparison.OrdinalIgnoreCase))
+            value = value[..^7];
+        else if (value.EndsWith(".ni.exe", StringComparison.OrdinalIgnoreCase))
+            value = value[..^7];
+        else if (value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith(".ni", StringComparison.OrdinalIgnoreCase))
+        {
+            value = Path.GetFileNameWithoutExtension(value);
+        }
+
+        return value.ToLowerInvariant();
+    }
+
     public static string NormalizeProducerTypeName(string value)
     {
         value = value.Trim();
@@ -2810,15 +2877,264 @@ internal static class ProgramSupport
         {
             if (!runtimeByCanon.TryGetValue(canon, out var volume) || volume < TypeConfirmMinBytes)
                 continue;
-            if (candidates.Count > TypeConfirmMaxSites)
+
+            var plan = PlanTypeConfirmationSites(candidates);
+            if (plan.SiteCount > TypeConfirmMaxSites)
                 continue;
-            foreach (var candidate in candidates)
+
+            foreach (var candidate in plan.SupersededLibraries)
+                candidate.SupersededByTriage = true;
+            foreach (var candidate in plan.Candidates)
             {
                 candidate.TypeConfirmedBytes = volume;
-                candidate.TypeConfirmedSiteCount = candidates.Count;
+                candidate.TypeConfirmedSiteCount = plan.SiteCount;
             }
         }
     }
+
+    static TypeConfirmationSitePlan PlanTypeConfirmationSites(
+        IReadOnlyList<AllocationCandidate> candidates)
+    {
+        var selected = new List<AllocationCandidate>();
+        var supersededLibraries = new List<AllocationCandidate>();
+        int siteCount = 0;
+
+        foreach (var candidate in candidates.Where(static candidate =>
+                     !candidate.HasRuntimeCoordinate))
+        {
+            selected.Add(candidate);
+            siteCount++;
+        }
+
+        foreach (var coordinateGroup in candidates
+                     .Where(static candidate =>
+                         candidate.HasRuntimeCoordinate)
+                     .GroupBy(static candidate => (
+                         Assembly: NormalizeModuleKey(candidate.AssemblyName),
+                         candidate.MethodToken,
+                         candidate.IlOffset)))
+        {
+            var coordinateCandidates = coordinateGroup.ToArray();
+            var supersededAtCoordinate =
+                FindLibrariesSupersededByTriage(
+                    coordinateCandidates);
+            var supersededIds = supersededAtCoordinate
+                .Select(static candidate => candidate.Id)
+                .ToHashSet();
+            supersededLibraries.AddRange(
+                supersededAtCoordinate);
+
+            var triageGroups = coordinateCandidates
+                .Where(static candidate => string.Equals(
+                    candidate.Source,
+                    "triage",
+                    StringComparison.Ordinal))
+                .GroupBy(static candidate =>
+                    candidate.ModuleVersionId)
+                .ToArray();
+            var libraryGroups = coordinateCandidates
+                .Where(candidate => string.Equals(
+                    candidate.Source,
+                    "library",
+                    StringComparison.Ordinal)
+                    && !supersededIds.Contains(candidate.Id))
+                .GroupBy(GetLibraryBuildKey)
+                .ToArray();
+            var otherCandidates = coordinateCandidates
+                .Where(static candidate =>
+                    !string.Equals(
+                        candidate.Source,
+                        "triage",
+                        StringComparison.Ordinal)
+                    && !string.Equals(
+                        candidate.Source,
+                        "library",
+                        StringComparison.Ordinal))
+                .ToArray();
+
+            foreach (var triageGroup in triageGroups)
+            {
+                siteCount++;
+                selected.AddRange(triageGroup);
+            }
+            foreach (var libraryGroup in libraryGroups)
+            {
+                siteCount++;
+                selected.AddRange(libraryGroup);
+            }
+            foreach (var candidate in otherCandidates)
+            {
+                siteCount++;
+                selected.Add(candidate);
+            }
+        }
+
+        return new TypeConfirmationSitePlan(
+            selected,
+            supersededLibraries,
+            siteCount);
+    }
+
+    public static IReadOnlyList<AllocationCandidate>
+        FindLibrariesSupersededByTriage(
+            IReadOnlyList<AllocationCandidate> candidates)
+    {
+        bool hasTriageCandidate = false;
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            if (string.Equals(
+                    candidates[i].Source,
+                    "triage",
+                    StringComparison.Ordinal))
+            {
+                hasTriageCandidate = true;
+                break;
+            }
+        }
+        if (!hasTriageCandidate)
+            return Array.Empty<AllocationCandidate>();
+
+        var triageGroups = candidates
+            .Where(static candidate => string.Equals(
+                candidate.Source,
+                "triage",
+                StringComparison.Ordinal))
+            .GroupBy(static candidate =>
+                candidate.ModuleVersionId)
+            .ToArray();
+        var libraryGroups = candidates
+            .Where(static candidate => string.Equals(
+                candidate.Source,
+                "library",
+                StringComparison.Ordinal))
+            .GroupBy(GetLibraryBuildKey)
+            .ToList();
+        var superseded = new List<AllocationCandidate>();
+
+        foreach (var triageGroup in triageGroups.Where(
+                     static group => group.Key is not null))
+        {
+            int matchingLibrary = libraryGroups.FindIndex(
+                libraryGroup =>
+                    libraryGroup.Key.ModuleVersionId ==
+                        triageGroup.Key);
+            if (matchingLibrary < 0)
+                continue;
+
+            superseded.AddRange(
+                libraryGroups[matchingLibrary]);
+            libraryGroups.RemoveAt(
+                matchingLibrary);
+        }
+
+        bool oneResolvableLegacySite =
+            triageGroups.Length == 1
+            && triageGroups[0].Key is null
+            && libraryGroups.Count == 1
+            && candidates.All(static candidate =>
+                candidate.Source is "triage" or "library");
+        if (oneResolvableLegacySite)
+        {
+            superseded.AddRange(
+                libraryGroups[0]);
+        }
+
+        return superseded;
+    }
+
+    public static IReadOnlyList<AllocationCandidate>
+        FindTraceLibrariesSupersededByTriage(
+            AllocationCandidate[] matchedCandidates,
+            IReadOnlyList<AllocationCandidate> coordinateCandidates,
+            string allocatedType)
+    {
+        bool hasTriageCandidate = false;
+        for (int i = 0; i < matchedCandidates.Length; i++)
+        {
+            if (string.Equals(
+                    matchedCandidates[i].Source,
+                    "triage",
+                    StringComparison.Ordinal))
+            {
+                hasTriageCandidate = true;
+                break;
+            }
+        }
+        if (!hasTriageCandidate)
+            return Array.Empty<AllocationCandidate>();
+
+        bool hasLibraryCandidate = false;
+        for (int i = 0; i < coordinateCandidates.Count; i++)
+        {
+            if (string.Equals(
+                    coordinateCandidates[i].Source,
+                    "library",
+                    StringComparison.Ordinal))
+            {
+                hasLibraryCandidate = true;
+                break;
+            }
+        }
+        if (!hasLibraryCandidate)
+            return Array.Empty<AllocationCandidate>();
+
+        return FindTraceLibrariesSupersededByTriageWithTriage(
+            matchedCandidates,
+            coordinateCandidates,
+            allocatedType);
+    }
+
+    static IReadOnlyList<AllocationCandidate>
+        FindTraceLibrariesSupersededByTriageWithTriage(
+            AllocationCandidate[] matchedCandidates,
+            IReadOnlyList<AllocationCandidate> coordinateCandidates,
+            string allocatedType)
+    {
+        return FindLibrariesSupersededByTriage(
+            matchedCandidates
+                .Where(static candidate => string.Equals(
+                    candidate.Source,
+                    "triage",
+                    StringComparison.Ordinal))
+                .Concat(coordinateCandidates.Where(candidate =>
+                    string.Equals(
+                        candidate.Source,
+                        "library",
+                        StringComparison.Ordinal)
+                    && candidate.MatchesAllocatedType(
+                        allocatedType)))
+                .DistinctBy(static candidate => candidate.Id)
+                .ToArray());
+    }
+
+    static LibraryBuildKey GetLibraryBuildKey(
+        AllocationCandidate candidate)
+    {
+        if (candidate.ModuleVersionId is Guid moduleVersionId)
+            return new(moduleVersionId, "");
+
+        return new(
+            null,
+            candidate.UnknownLibraryInputIdentity);
+    }
+
+    public static string NormalizeLibraryInputIdentity(
+        string libraryPath)
+    {
+        string path = Path.GetFullPath(libraryPath);
+        if (OperatingSystem.IsWindows())
+            path = path.ToUpperInvariant();
+        return path;
+    }
+
+    readonly record struct LibraryBuildKey(
+        Guid? ModuleVersionId,
+        string UnknownInputPath);
+
+    readonly record struct TypeConfirmationSitePlan(
+        IReadOnlyList<AllocationCandidate> Candidates,
+        IReadOnlyList<AllocationCandidate> SupersededLibraries,
+        int SiteCount);
 
     // Canonical type signature: the ordered leaf identifier tokens of a type name, with generic-arity
     // digits and namespaces dropped and C# keyword aliases mapped to CLR simple names. This reconciles

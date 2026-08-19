@@ -5,6 +5,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Vocabulary;
+using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Tests;
@@ -41,6 +42,20 @@ public sealed class VocabularyCommandTests
         Assert.Equal(
             StyleOptionCatalog.Choices.Select(value => value.Id),
             choices.Values.Select(ValueId));
+
+        VocabularySection bodyKinds =
+            VocabularyCatalog.GetById("csharp.body-kinds");
+        Assert.Equal(
+            BodyShapeSearch.SupportedKinds,
+            bodyKinds.Values.Select(ValueId));
+        Assert.Equal(
+            BodyShapeSearch.SupportedKinds.Select(
+                AnnotatedSourceNodeKinds.GetDisplayLabel),
+            bodyKinds.Values.Select(row => row.GetRequired("label").Text));
+        var bodyKindId = Assert.Single(
+            bodyKinds.Fields,
+            field => field.Id == "id");
+        Assert.Equal([VocabularyOperator.Equals], bodyKindId.Operators);
     }
 
     [Fact]
@@ -170,6 +185,7 @@ public sealed class VocabularyCommandTests
             })));
         VocabularySection tiers = VocabularyCatalog.GetById("csharp.style-tiers");
         VocabularySection choices = VocabularyCatalog.GetById("csharp.style-choices");
+        VocabularySection bodyKinds = VocabularyCatalog.GetById("csharp.body-kinds");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -179,6 +195,7 @@ public sealed class VocabularyCommandTests
             | ------- | ----- |
             | C# Style Tiers | {tiers.Values.Length} |
             | C# Style Choices | {choices.Values.Length} |
+            | C# Body Kinds | {bodyKinds.Values.Length} |
             """,
             result.Output.Trim());
     }

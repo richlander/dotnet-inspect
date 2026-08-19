@@ -1,9 +1,11 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using DotnetInspector.Options;
+using DotnetInspector.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
+using ILInspector.Decompiler;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
@@ -496,6 +498,22 @@ public class LibraryInspection
 
     [JsonIgnore]
     public PerformanceTriageOptions PerformanceTriageOptions { get; set; } = PerformanceTriageOptions.Default;
+
+    /// <summary>
+    /// Exact rendered C# syntax matches produced for the selected Body Shapes query.
+    /// </summary>
+    [JsonIgnore]
+    public BodyShapeSearchResult? BodyShapeSearchResult { get; set; }
+
+    [JsonPropertyName("body_shapes")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<BodyShapeJsonMatch>? BodyShapes =>
+        BodyShapeSearchResult?.Matches?
+            .Select(BodyShapeJsonMatch.FromMatch)
+            .ToList();
+
+    [JsonIgnore]
+    public BodyKindQueryOptions BodyKindQueryOptions { get; set; } = BodyKindQueryOptions.Default;
 
     private List<ClassifiedMethodSummary>? _pInvokeMethods;
 
@@ -1226,6 +1244,8 @@ public record class OptimizationOpportunitySummary
     public string Member { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Assembly { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? ModuleVersionId { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? MethodToken { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

@@ -37,6 +37,11 @@ const string Usage =
           does not reconstruct retrieval, normalization, alignment, correspondence, or
           verification.
 
+      --clone-corelib-corpus <assembly> [--corelib-ledger <file>] [--json]
+          Grade product-owned structural-clone retrieval and comparison against the pinned,
+          source-reviewed CoreLib ledger. Every reviewed top-K row has an independent relevance
+          label; precision and recall cover only those labels, not all possible relationships.
+
       --clone-census <assembly> [--seed <0xMethodDef|Type::Method>] [--top N]
           Run bounded product-owned exact discovery over every MethodDef in one assembly.
           Reports exact families, receipts, suppression, and an optional seed-to-family drill-in.
@@ -128,6 +133,10 @@ string? cloneCorpusAssembly = null;
 string? relationshipLedger = null;
 bool cloneCorpusSpecified = false;
 bool relationshipLedgerSpecified = false;
+string? cloneCoreLibCorpusAssembly = null;
+string? coreLibLedger = null;
+bool cloneCoreLibCorpusSpecified = false;
+bool coreLibLedgerSpecified = false;
 string? cloneCensusAssembly = null;
 string? cloneCensusSeed = null;
 bool cloneCensusSpecified = false;
@@ -235,6 +244,23 @@ for (int i = 0; i < args.Length; i++)
                 args,
                 ref i,
                 "--relationship-ledger",
+                missingValueOptions);
+            break;
+        case "--clone-corelib-corpus":
+            selectedModes.Add("--clone-corelib-corpus");
+            cloneCoreLibCorpusSpecified = true;
+            cloneCoreLibCorpusAssembly = NextRequiredValue(
+                args,
+                ref i,
+                "--clone-corelib-corpus",
+                missingValueOptions);
+            break;
+        case "--corelib-ledger":
+            coreLibLedgerSpecified = true;
+            coreLibLedger = NextRequiredValue(
+                args,
+                ref i,
+                "--corelib-ledger",
                 missingValueOptions);
             break;
         case "--clone-census":
@@ -470,6 +496,12 @@ if (relationshipLedgerSpecified && !cloneCorpusSpecified)
         "--relationship-ledger requires --clone-corpus.");
     return 2;
 }
+if (coreLibLedgerSpecified && !cloneCoreLibCorpusSpecified)
+{
+    Console.Error.WriteLine(
+        "--corelib-ledger requires --clone-corelib-corpus.");
+    return 2;
+}
 if ((cloneCensusSeedSpecified || cloneMaximumMethodsSpecified)
     && !cloneCensusSpecified
     && !cloneWorksheetSpecified)
@@ -560,6 +592,12 @@ if (precisionAssembly is not null)
 
 if (cloneCorpusAssembly is not null)
     return RunCloneCorpus(cloneCorpusAssembly, relationshipLedger, json);
+
+if (cloneCoreLibCorpusAssembly is not null)
+    return RunCloneCoreLibCorpus(
+        cloneCoreLibCorpusAssembly,
+        coreLibLedger,
+        json);
 
 if (cloneCensusAssembly is not null)
 {
@@ -673,6 +711,55 @@ static int RunCloneCorpus(
             ? StructuralCloneCorpus.ToJson(report) + Environment.NewLine
             : StructuralCloneCorpus.Format(report));
     return report.Success ? 0 : 1;
+}
+
+static int RunCloneCoreLibCorpus(
+    string assembly,
+    string? coreLibLedger,
+    bool json)
+{
+    if (!File.Exists(assembly))
+    {
+        Console.Error.WriteLine($"Assembly not found: {assembly}");
+        return 2;
+    }
+
+    string ledger =
+        coreLibLedger
+        ?? Path.Combine(
+            AppContext.BaseDirectory,
+            "corpus",
+            "structural-clone-corelib.json");
+    if (!File.Exists(ledger))
+    {
+        Console.Error.WriteLine($"CoreLib ledger not found: {ledger}");
+        return 2;
+    }
+
+    try
+    {
+        StructuralCloneCoreLibCorpusReport report =
+            StructuralCloneCoreLibCorpus.Run(
+                assembly,
+                StructuralCloneCoreLibCorpus.Load(
+                    File.ReadAllText(ledger)));
+        Console.Write(
+            json
+                ? StructuralCloneCoreLibCorpus.ToJson(report)
+                    + Environment.NewLine
+                : StructuralCloneCoreLibCorpus.Format(report));
+        return report.Success ? 0 : 1;
+    }
+    catch (Exception ex) when (
+        ex is InvalidDataException
+            or BadImageFormatException
+            or IOException
+            or UnauthorizedAccessException
+            or System.Text.Json.JsonException)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 2;
+    }
 }
 
 static int RunCloneCensus(
@@ -1056,7 +1143,8 @@ static string? NextRequiredValue(
 static string MissingValueError(string option) =>
     option switch
     {
-        "--clone-corpus" or "--clone-census" or "--clone-worksheet"
+        "--clone-corpus" or "--clone-corelib-corpus"
+            or "--clone-census" or "--clone-worksheet"
             or "--paydirt-recall"
             or "--precision-sample"
             => $"{option} requires an assembly path.",

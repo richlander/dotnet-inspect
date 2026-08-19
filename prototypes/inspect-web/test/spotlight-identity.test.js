@@ -3,9 +3,14 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  activeSourceOperationKind,
   assemblyDescriptorForType,
+  authoredSourceLimitationHtml,
+  beginSourceRequestState,
+  cancelSourceRequestState,
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
+  callGraphTargetMatchesType,
   callGraphTargetTypeId,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
@@ -22,6 +27,7 @@ import {
   MAX_SHARE_STATE_CHARACTERS,
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
+  memberSectionIdsFor,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
@@ -34,11 +40,18 @@ import {
   shareStateLengthError,
   scopedRequestState,
   selectedDependencyGroup,
+  sourceSurfaceIsVisible,
+  sourceReloadKind,
+  sourceRequestNeedsLoad,
   spotlightCandidateKey,
   spotlightCandidateSignature,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "../src/data.js";
+import {
+  buildDependencyGraphMermaid,
+  buildTypeGraphMermaid
+} from "../src/graph-mermaid.js";
 
 const packageAt = (version, framework, types = 1) => ({
   id: "Example.Package",
@@ -107,6 +120,10 @@ test("dependency graph node insertion is bounded", () => {
 });
 
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+const graphSource = readFileSync(
+  new URL("../src/graph-mermaid.js", import.meta.url),
+  "utf8");
+const applicationSources = `${appSource}\n${graphSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const engineSource = readFileSync(
   new URL("../engine/wwwroot/engine.js", import.meta.url),
@@ -206,6 +223,15 @@ test("bare home paints before wasm engine download", () => {
     /#error-package-query[\s\S]*loadPackage\(packageId, version/);
 });
 
+test("loading brand links back to the site root", () => {
+  assert.match(
+    appSource,
+    /<a class="loading-brand" href="\/" aria-label="dotnet inspect home"><span>◇<\/span> dotnet-inspect<\/a>/);
+  assert.match(
+    stylesSource,
+    /\.loading-brand\s*\{[^}]*text-decoration: none;/s);
+});
+
 test("settings keep a viewport-bounded scroll region", () => {
   const settingsPageRule =
     stylesSource.match(/\.settings-page\s*\{([^}]*)\}/s)?.[1] ?? "";
@@ -261,7 +287,7 @@ test("home keeps a viewport-bounded scroll region and reachable footer", () => {
 
 test("all dependency navigation paths use one product-owned coordinate matcher", () => {
   assert.equal(
-    [...appSource.matchAll(/uniqueCompatiblePackage\(/g)].length,
+    [...applicationSources.matchAll(/uniqueCompatiblePackage\(/g)].length,
     5);
   assert.match(
     engineSource,
@@ -303,7 +329,7 @@ test("stale dependency graph cleanup preserves a replacement with the same signa
 
 test("dependency graph binds navigation to generated node identities", () => {
   assert.match(
-    appSource,
+    graphSource,
     /const nodeInfoById = new Map\(\s+keys\.map\(key => \[idOf\.get\(key\), nodeInfo\.get\(key\)\]\)\)/);
   assert.match(
     appSource,
@@ -325,8 +351,8 @@ test("dependency navigation reserves identity and surfaces resolution failures",
     appSource,
     /if \(navigationSeq !== state\.navigationSeq\) return;\s+state\.loading = false;\s+appendQueryNotice/);
   assert.match(
-    appSource,
-    /packageIdentityKey\(uniqueCompatiblePackage\(\s+state\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
+    graphSource,
+    /packageIdentityKey\(uniqueCompatiblePackage\(\s+model\.packages,\s+dependency\.id,\s+dependency\.versionRange\)\) === target\.packageKey/);
   assert.match(
     appSource,
     /matchPackageDependencyCoordinate\(\s+packageId,\s+declaredRange,\s+dependencyCoordinateCandidates\(packages\)\)/);
@@ -378,6 +404,282 @@ test("member source request identity includes decompiler taste", () => {
   assert.notEqual(
     memberRequestKey(request, ["prefer-var"]),
     memberRequestKey(request, ["prefer-explicit-types"]));
+});
+
+test("member request identity distinguishes colliding type queries", () => {
+  const memberSignature =
+    appSource.match(/function memberRequestSignature\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    memberSignature,
+    /type\?\.queryId \?\? type\?\.id,\s+type\?\.definitionId \?\? type\?\.id/);
+
+  const request = [
+    "Example.Package",
+    "1.0.0",
+    "net8.0",
+    "Example.dll",
+    "Example.Outer.Inner"
+  ];
+  assert.notEqual(
+    memberRequestKey([...request, "Example.Outer+Inner", "M:Run"]),
+    memberRequestKey([...request, "Example.Outer\\.Inner", "M:Run"]));
+});
+
+test("annotated source request identity includes the selected body", () => {
+  const annotatedLoader =
+    appSource.match(
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+    ?? "";
+  assert.match(
+    annotatedLoader,
+    /const signature = memberRequestSignature\(type, overload, true, true\)/);
+  assert.equal(
+    [...annotatedLoader.matchAll(
+      /memberRequestIsCurrent\(signature, true, true\)/g)].length,
+    2);
+  assert.match(
+    annotatedLoader,
+    /selectorKey: state\.selectedBodyTarget\?\.selectorKey[\s\S]*?metadataToken: state\.selectedBodyTarget\?\.metadataToken/);
+
+  const request = [
+    "Example.Package",
+    "1.0.0",
+    "net8.0",
+    "Example.dll",
+    "Example.Outer.Inner",
+    "Example.Outer+Inner",
+    "M:Run"
+  ];
+  assert.notEqual(
+    memberRequestKey([...request, 0x06000001, "M:Run"]),
+    memberRequestKey([...request, 0x06000002, "M:<Run>b__0_0"]));
+});
+
+test("type source identity includes decompiler taste", () => {
+  const typeSignature =
+    appSource.match(/function typeSourceSignature\(item\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(typeSignature, /memberRequestKey\(/);
+  assert.match(typeSignature, /state\.taste/);
+});
+
+test("source operations cancel when superseded or hidden", () => {
+  assert.match(
+    engineSource,
+    /cancelSourceQuery = exports\.BrowserInspectionEngine\.CancelSourceQuery/);
+  assert.match(
+    engineSource,
+    /export function cancelSourceInspection\(\)[\s\S]*?cancelSourceQuery\?\.\(\)/);
+
+  const renderBody =
+    appSource.match(/function render\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(renderBody, /sourceSurfaceIsVisible\(state\)/);
+  assert.match(renderBody, /cancelSourceRequestState\(state\)/);
+  assert.match(renderBody, /cancelSourceInspection\?\.\(\)/);
+  const reloadBody =
+    appSource.match(/function reloadVisibleSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(reloadBody, /switch \(sourceReloadKind\(state\)\)/);
+  const autoLoadBody =
+    appSource.match(
+      /function maybeAutoLoadVisibleSource\(\)[\s\S]*?\n}\n\nfunction maybeAutoLoadTypeMetadata/)?.[0]
+    ?? "";
+  assert.match(
+    autoLoadBody,
+    /const kind = activeSourceOperationKind\(state\)/);
+  assert.match(autoLoadBody, /kind === "type"/);
+  assert.match(autoLoadBody, /kind === "member"/);
+  assert.match(autoLoadBody, /kind === "graph"/);
+  assert.match(autoLoadBody, /loadSelectedTypeSource\(\)/);
+  assert.match(autoLoadBody, /loadSelectedMemberSource\(\)/);
+  assert.match(autoLoadBody, /openGraphSource\(/);
+  const annotatedLoader =
+    appSource.match(
+      /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}\n\nfunction memberRequestSignature/)?.[0]
+    ?? "";
+  assert.match(annotatedLoader, /sourceRequestNeedsLoad\(/);
+  assert.match(annotatedLoader, /state\.memberAnnotatedLoading/);
+  assert.match(annotatedLoader, /state\.memberAnnotated/);
+  assert.match(annotatedLoader, /state\.memberAnnotatedError/);
+
+  const visible = {
+    settings: false,
+    explorer: null,
+    loading: false,
+    error: "",
+    home: false,
+    package: {},
+    atPackageRoot: false,
+    graphSourceOpen: false,
+    lens: "source",
+    selectedMemberKey: "",
+    memberSection: "overview"
+  };
+  assert.equal(sourceSurfaceIsVisible(visible), true);
+  for (const hidden of [
+    { home: true },
+    { atPackageRoot: true },
+    { settings: true },
+    { loading: true },
+    { error: "failed" },
+    { explorer: { open: true } },
+    { package: null }
+  ]) {
+    assert.equal(sourceSurfaceIsVisible({ ...visible, ...hidden }), false);
+  }
+  assert.equal(
+    activeSourceOperationKind({
+      ...visible,
+      atPackageRoot: true,
+      graphSourceOpen: true
+    }),
+    "graph");
+  assert.equal(
+    activeSourceOperationKind({
+      ...visible,
+      atPackageRoot: true
+    }),
+    null);
+  assert.equal(
+    sourceReloadKind({
+      ...visible,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "annotated"
+    }),
+    "annotated");
+  assert.equal(
+    sourceReloadKind({
+      ...visible,
+      settings: true,
+      lens: "api",
+      selectedMemberKey: "M",
+      memberSection: "annotated"
+    }),
+    null);
+  assert.equal(
+    sourceRequestNeedsLoad(true, false, null, ""),
+    true);
+  assert.equal(
+    sourceRequestNeedsLoad(true, true, null, ""),
+    false);
+  assert.equal(
+    sourceRequestNeedsLoad(true, false, { text: "source" }, ""),
+    false);
+  assert.equal(
+    sourceRequestNeedsLoad(true, false, null, "failed"),
+    false);
+  assert.equal(
+    sourceRequestNeedsLoad(false, true, { text: "stale" }, ""),
+    true);
+
+  const requestState = {
+    sourceRequestGeneration: 4,
+    memberSourceLoading: true,
+    memberSourceKey: "member",
+    memberSourceError: "",
+    typeSourceLoading: false,
+    typeSourceKey: "",
+    typeSourceError: "",
+    graphSourceLoading: false,
+    graphSourceError: "",
+    graphSourceSeq: 0
+  };
+  assert.equal(beginSourceRequestState(requestState), 5);
+  assert.equal(requestState.memberSourceLoading, false);
+  assert.equal(requestState.memberSourceKey, "");
+  requestState.typeSourceLoading = true;
+  requestState.typeSourceKey = "type";
+  assert.equal(cancelSourceRequestState(requestState), true);
+  assert.equal(requestState.sourceRequestGeneration, 6);
+  assert.equal(requestState.typeSourceLoading, false);
+  assert.equal(requestState.typeSourceKey, "");
+  assert.equal(requestState.typeSourceError, "");
+});
+
+test("MethodDef-only member sections are hidden for bodiless APIs", () => {
+  for (const kind of ["property", "field", "event", "constant"]) {
+    assert.deepEqual(
+      memberSectionIdsFor({ kind }),
+      ["overview"]);
+  }
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method" }),
+    ["overview", "call-graph", "facts", "source", "annotated"]);
+});
+
+test("source requests carry exact type and member identities", () => {
+  const memberBridge =
+    engineSource.match(/export async function inspectMemberSource\(request\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  const memberLoader =
+    appSource.match(/async function loadSelectedMemberSource\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    memberBridge,
+    /request\.typeIdentity \?\? request\.type/);
+  assert.match(memberBridge, /request\.selectorKey \?\? ""/);
+  assert.match(memberBridge, /request\.metadataToken \?\? 0/);
+  assert.match(
+    memberLoader,
+    /typeIdentity: type\.definitionId \?\? type\.id,\s+member:[\s\S]*?selectorKey:[\s\S]*?metadataToken:/);
+  assert.doesNotMatch(memberLoader, /signature:/);
+});
+
+test("call graph source identity prefers the structured type definition", () => {
+  assert.equal(
+    callGraphTargetTypeId({
+      typeDefinitionId: "Example.Outer\\+Literal",
+      typeMetadataId: ""
+    }),
+    "Example.Outer\\+Literal");
+  assert.equal(
+    callGraphTargetTypeId({ typeMetadataId: "Example.Legacy" }),
+    "Example.Legacy");
+
+  const nested = {
+    id: "Example.Outer+Inner",
+    definitionId: "Example.Outer+Inner",
+    metadataId: "Example.Outer+Inner",
+    assembly: "Example"
+  };
+  const literal = {
+    id: "Example.Outer\\+Inner",
+    definitionId: "Example.Outer\\+Inner",
+    metadataId: "Example.Outer+Inner",
+    assembly: "Example"
+  };
+  const target = {
+    assembly: "Example",
+    typeDefinitionId: literal.definitionId
+  };
+  const candidate = resolveLoadedGraphTargetCandidate(
+    [{ id: "Example", types: [nested, literal] }],
+    target);
+  assert.equal(candidate.status, "unique");
+  assert.equal(candidate.type, literal);
+  assert.equal(callGraphTargetMatchesType(target, nested), false);
+  assert.equal(callGraphTargetMatchesType(target, literal), true);
+});
+
+test("decompiled source discloses the authored-source limitation", () => {
+  const html = authoredSourceLimitationHtml({
+    authoredLimitation: "<img src=x onerror=alert(1)>"
+  });
+  assert.match(html, /Original source unavailable:/);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /&lt;img/);
+  assert.match(
+    appSource,
+    /authoredSourceLimitationHtml\(state\.memberSource\)/);
+  assert.match(
+    appSource,
+    /authoredSourceLimitationHtml\(state\.typeSource\)/);
+  assert.match(
+    appSource,
+    /authoredSourceLimitationHtml\(state\.graphSource\)/);
 });
 
 test("history never applies a selection to another coordinate", () => {
@@ -616,21 +918,36 @@ test("relationship navigation rejects ambiguous dotted identities", () => {
   assert.equal(uniqueTypeByQueryId([first, second], "N.T"), null);
 });
 
-test("incomplete call graphs produce a visible diagnostic", () => {
+test("call graph diagnostics distinguish failures from expected bounds", () => {
   assert.equal(callGraphDiagnosticsMessage({
     isIncomplete: true,
     incompleteNodes: 2,
     incompleteEdges: 1,
-    bindingIdentityConflicts: 3
+    bindingIdentityConflicts: 3,
+    hasUnexploredTraversalBoundary: true
   }), "Partial call graph: 2 incomplete nodes, 1 incomplete edge, and 3 binding identity conflicts.");
   assert.equal(callGraphDiagnosticsMessage({
     isIncomplete: true,
     incompleteNodes: 0,
     incompleteEdges: 0,
     bindingIdentityConflicts: 0,
+    hasUnexploredTraversalBoundary: true
+  }), "");
+  assert.equal(callGraphDiagnosticsMessage({
+    isIncomplete: true,
+    incompleteNodes: 0,
+    incompleteEdges: 0,
+    bindingIdentityConflicts: 0,
+    hasAnalysisFailureBoundary: true
+  }), "Partial call graph: one or more method bodies could not be analyzed.");
+  assert.equal(callGraphDiagnosticsMessage({
+    isIncomplete: true,
+    incompleteNodes: 1,
+    incompleteEdges: 0,
+    bindingIdentityConflicts: 0,
     hasUnexploredTraversalBoundary: true,
     hasAnalysisFailureBoundary: true
-  }), "Partial call graph: 0 incomplete nodes, 0 incomplete edges, and 0 binding identity conflicts. Boundaries: unexplored traversal and analysis failure.");
+  }), "Partial call graph: 1 incomplete node and one or more method bodies could not be analyzed.");
   assert.equal(callGraphDiagnosticsMessage({ isIncomplete: false }), "");
 });
 
@@ -858,8 +1175,8 @@ test("dependency graph does not turn display fallback into explicit selection", 
     dependencyGraphGroupSelectionIndex({}, null, 1),
     1);
   assert.match(
-    appSource,
-    /dependencyGraphGroupSelectionIndex\(\s*state\.packageDependencies,\s*state\.dependenciesGroupIndex,\s*resolveDependenciesGroupIndex\(groups\)\)/);
+    graphSource,
+    /dependencyGraphGroupSelectionIndex\(\s*model\.packageDependencies,\s*model\.dependenciesGroupIndex,\s*fallbackGroupIndex\)/);
 });
 
 test("dependency graph uses each cached package's product-selected group", () => {
@@ -889,17 +1206,73 @@ test("dependency graph uses the active package's explicitly selected group", () 
     selectedDependencyGroup(data, 0),
     data.dependencyGroups[0]);
   assert.match(
-    appSource,
-    /selectedDependencyGroup\(\s*state\.packageDependencies,\s*selectedGroupIndex\)/);
+    graphSource,
+    /selectedDependencyGroup\(\s*model\.packageDependencies,\s*selectedGroupIndex\)/);
 });
 
 test("Mermaid labels contain grammar-significant metadata", () => {
-  const encoded = mermaidLabel("A\"B\n<x>&\\\u2028");
+  const encoded = mermaidLabel(
+    "A\"B\n<x>&\\\u2028\u202E\u200D\uD800X\uDC00\u{E0001}-Caf\u00E9\u{1F600}");
 
   assert.equal(
     encoded,
-    "A&quot;B&#92;u000A&lt;x&gt;&amp;&#92;&#92;u2028");
-  for (const character of ['"', "\n", "<", ">", "\\", "\u2028"]) {
+    "A&quot;B&#92;u000A&lt;x&gt;&amp;&#92;&#92;u2028"
+      + "&#92;u202E&#92;u200D&#92;uD800X&#92;uDC00"
+      + "&#92;uDB40&#92;uDC01-Caf\u00E9\u{1F600}");
+  for (const character of [
+    '"', "\n", "<", ">", "\\", "\u2028", "\u202E", "\u200D", "\uD800", "\uDC00"
+  ]) {
     assert.equal(encoded.includes(character), false);
   }
+  assert.equal(encoded.endsWith("-Caf\u00E9\u{1F600}"), true);
+});
+
+test("type graph rendering contains artifact labels", () => {
+  const definition = buildTypeGraphMermaid({
+    graphNodes: [
+      {
+        id: "self",
+        displayName: "Example.A\u202E\uD800-Caf\u00E9\u{1F600}",
+        role: "self"
+      },
+      { id: "base", displayName: "Example.Base", role: "base" }
+    ],
+    graphEdges: [{ fromId: "self", toId: "base" }]
+  });
+
+  assert.match(
+    definition,
+    /t0\["A&#92;u202E&#92;uD800-Café😀"\]:::self/);
+  assert.equal(definition.includes("\u202E"), false);
+  assert.equal(definition.includes("\uD800"), false);
+});
+
+test("dependency graph rendering contains artifact labels", () => {
+  const root = packageAt("1.0.0", "net8.0");
+  const definition = buildDependencyGraphMermaid(
+    {
+      package: root,
+      packages: [root],
+      packageDependencies: {
+        dependencyGroupError: "",
+        dependencyGroups: [{
+          index: 0,
+          framework: "net8.0",
+          isActive: true,
+          dependencies: [{
+            id: "Dependency\u200D\uDC00-Caf\u00E9\u{1F600}",
+            versionRange: ""
+          }]
+        }]
+      },
+      dependenciesGroupIndex: 0,
+      workspaceDependencies: {}
+    },
+    () => null);
+
+  assert.match(
+    definition.definition,
+    /d1\["Dependency&#92;u200D&#92;uDC00-Café😀"\]:::external/);
+  assert.equal(definition.definition.includes("\u200D"), false);
+  assert.equal(definition.definition.includes("\uDC00"), false);
 });

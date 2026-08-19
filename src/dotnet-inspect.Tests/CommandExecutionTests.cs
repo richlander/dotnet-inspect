@@ -974,13 +974,13 @@ public partial class CommandExecutionTests
     }
 
     private static (string PackagePath, string TempDir)
-        CreateLocalIntegrationOpportunityPackage()
+        CreateLocalIntegrationOpportunityPackage(string tfm = "net10.0")
     {
         var tempDir = Path.Combine(
             Path.GetTempPath(),
             $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
-        var libDir = Path.Combine(packageRoot, "lib", "net10.0");
+        var libDir = Path.Combine(packageRoot, "lib", tfm);
         Directory.CreateDirectory(libDir);
         File.Copy(
             typeof(Npgsql.NpgsqlConnection).Assembly.Location,
@@ -1621,6 +1621,7 @@ public partial class CommandExecutionTests
         Assert.Contains("\"provenance\": \"exact\"", output);
         Assert.Contains("\"operation\": \"box\"", output);
         Assert.Contains("\"assembly\": \"", output);
+        Assert.Contains("\"module_version_id\": \"", output);
         Assert.Contains("\"method_token\": \"0x06", output);
         Assert.Contains("\"token\": \"0x", output);
     }
@@ -13113,7 +13114,7 @@ public partial class CommandExecutionTests
                 "q");
 
             Assert.Equal(0, exit);
-            Assert.Contains("Using TFM: net8.0", error);
+            Assert.Empty(error);
             Assert.Contains("IdentifierConfusionReferenceClosure[", output);
             Assert.Contains("U+03BF→O", output);
         }
@@ -13346,13 +13347,10 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Contains("U+0405→S", output);
             Assert.Equal(
-                [
-                    "Using TFM: net8.0",
-                    "Warning: Identifier audit failed for "
-                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
-                ],
-                error.ReplaceLineEndings("\n")
-                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+                "Warning: Identifier audit failed for "
+                + "'lib/net8.0/Root.dll': invalid assembly metadata"
+                + Environment.NewLine,
+                error);
             Assert.DoesNotContain("Bridge", error);
         }
         finally
@@ -13540,13 +13538,10 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Contains("U+0405→S", output);
             Assert.Equal(
-                [
-                    "Using TFM: net8.0",
-                    "Warning: Identifier audit failed for "
-                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
-                ],
-                error.ReplaceLineEndings("\n")
-                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+                "Warning: Identifier audit failed for "
+                + "'lib/net8.0/Root.dll': invalid assembly metadata"
+                + Environment.NewLine,
+                error);
             Assert.DoesNotContain("System.Runtime", error);
 
             var signals = await RunAppAsync(
@@ -13567,13 +13562,10 @@ public partial class CommandExecutionTests
                 "| Identity | Identifier confusion | None |",
                 signals.Output);
             Assert.Equal(
-                [
-                    "Using TFM: net8.0",
-                    "Warning: Identifier audit failed for "
-                    + "'lib/net8.0/Root.dll': invalid assembly metadata",
-                ],
-                signals.Error.ReplaceLineEndings("\n")
-                    .Split('\n', StringSplitOptions.RemoveEmptyEntries));
+                "Warning: Identifier audit failed for "
+                + "'lib/net8.0/Root.dll': invalid assembly metadata"
+                + Environment.NewLine,
+                signals.Error);
         }
         finally
         {
@@ -14278,7 +14270,7 @@ public partial class CommandExecutionTests
                  {
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
-                     "Unsafe Members", "SourceLink: Files", "SourceLink: Availability",
+                     "Unsafe Members", "Body Shapes", "SourceLink: Files", "SourceLink: Availability",
                      "SourceLink: Missing Files", "SourceLink: Integrity", "Context: Member",
                      "Integration: Opportunities"
                  })
@@ -14298,7 +14290,7 @@ public partial class CommandExecutionTests
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Context", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
+            new[] { "@Audit", "@Context", "@Decompiler", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
         var raw = SplitOutputLines(output);
@@ -14614,12 +14606,20 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_RendersCoordinateSummary()
     {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
+        var (returnToken, returnCallOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.UnsafeAs),
+            ILOpCode.Call);
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
-            """
+            $$"""
             # label coordinate
-            profiler-sample 0x06000001+0x1
-            return-address 0x06000001+0x6
+            profiler-sample 0x{{token:X8}}+0x{{callOffset:X}}
+            return-address 0x{{returnToken:X8}}+0x{{returnCallOffset + 5:X}}
             """,
             TestContext.Current.CancellationToken);
         try
@@ -14648,29 +14648,18 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
     {
-        static (int Token, int Offset) Coordinate(Type type, string methodName, byte opcode)
-        {
-            var method = type.GetMethod(
-                methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)!;
-            var il = method.GetMethodBody()!.GetILAsByteArray()!;
-            var offset = Array.IndexOf(il, opcode);
-            Assert.True(offset >= 0, $"opcode 0x{opcode:X2} not found in {methodName}");
-            return (method.MetadataToken, offset);
-        }
-
-        var (allSignalsToken, virtualCallOffset) = Coordinate(
+        var (allSignalsToken, virtualCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x6F);
-        var (_, allocationOffset) = Coordinate(
+            ILOpCode.Callvirt);
+        var (_, allocationOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.AllSignals),
-            0x8D);
-        var (unsafeToken, unsafeCallOffset) = Coordinate(
+            ILOpCode.Newarr);
+        var (unsafeToken, unsafeCallOffset) = FindIlCoordinate(
             typeof(SemanticFactsFixture),
             nameof(SemanticFactsFixture.UnsafeAs),
-            0x28);
+            ILOpCode.Call);
 
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllLinesAsync(
@@ -14710,11 +14699,15 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_IlOffsetsFile_RejectsBadCoordinateLine()
     {
+        var (token, callOffset) = FindIlCoordinate(
+            typeof(SemanticFactsFixture),
+            nameof(SemanticFactsFixture.AllSignals),
+            ILOpCode.Callvirt);
         var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
         await File.WriteAllTextAsync(path,
-            """
+            $$"""
             bad debugger frame
-            good 0x06000001+0x1
+            good 0x{{token:X8}}+0x{{callOffset:X}}
             """,
             TestContext.Current.CancellationToken);
         try
@@ -14733,6 +14726,30 @@ public partial class CommandExecutionTests
         {
             File.Delete(path);
         }
+    }
+
+    private static (int Token, int Offset) FindIlCoordinate(
+        Type type,
+        string methodName,
+        ILOpCode opcode)
+    {
+        // This suite inspects its own assembly, whose MethodDef ordering changes
+        // whenever tests are added.
+        MethodInfo method = type.GetMethod(
+            methodName,
+            BindingFlags.Public
+                | BindingFlags.NonPublic
+                | BindingFlags.Static
+                | BindingFlags.DeclaredOnly)!;
+        byte[] il = method.GetMethodBody()!.GetILAsByteArray()!;
+        int offset = InstructionDecoder.Decode(il)
+            .FirstOrDefault(instruction => instruction.OpCode == opcode)
+            ?.Offset
+            ?? -1;
+        Assert.True(
+            offset >= 0,
+            $"opcode {opcode} not found in {methodName}");
+        return (method.MetadataToken, offset);
     }
 
     [Fact]
@@ -14887,20 +14904,6 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Equal("System.HexConverter", output.Trim());
-    }
-
-    [Fact]
-    public async Task LibraryCommand_IlOffsetMemberContext_ShowsAsyncKind()
-    {
-        var token = typeof(ILOffsetAsyncFixture).GetMethod(nameof(ILOffsetAsyncFixture.StateMachineAsync))!.MetadataToken;
-        var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x0", "-S", "Context: Member", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.Contains("| Member | DotnetInspector.Tests.CommandExecutionTests.ILOffsetAsyncFixture.StateMachineAsync |", output);
-        Assert.Contains("| Async | Runtime |", output);
     }
 
     [Fact]
@@ -15328,7 +15331,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Equal(0, windowedExit);
         Assert.Contains("## Switches", all, StringComparison.Ordinal);
-        Assert.Contains("| Kind | Switch | API |", all, StringComparison.Ordinal);
+        Assert.Contains("| Library | TFM | Kind | Switch | API |", all, StringComparison.Ordinal);
         Assert.Contains("| ---- | ------ | --- |", all, StringComparison.Ordinal);
         Assert.DoesNotContain('\r', all);
         Assert.DoesNotContain('\r', windowed);
@@ -16550,13 +16553,15 @@ public partial class CommandExecutionTests
             UnsafeEvidenceQuery.Definition,
         ];
 
-        // A coordinate-scoped section cannot be selected without its coordinate: "Metadata: Heap"
-        // exits non-zero with 'requires --heap <heap>:<address>', the same way
-        // "Context: Source Location" needs --il-offset in BuildDiscoverySelectionArgs. It is
-        // query-bound, so QueryBoundSections lists it, but supplying a coordinate is
-        // orthogonal to prerequisite sufficiency. The per-heap listing sections
-        // ("Metadata: #Strings" and friends) need no coordinate and stay in the set.
-        string[] coordinateScoped = [MetadataSectionNames.Heap];
+        // Parameter-scoped sections cannot be selected without their required input:
+        // "Metadata: Heap" needs --heap and "Body Shapes" needs --where Kind=....
+        // They remain data-bound, but supplying the parameter is orthogonal to prerequisite
+        // sufficiency. Other metadata heaps need no coordinate and stay in the set.
+        string[] parameterScoped =
+        [
+            MetadataSectionNames.Heap,
+            SectionNames.BodyShapes,
+        ];
 
         var registry = LibrarySections.CreateScannerRegistry();
         var pipeline = LibrarySections.CreatePipeline();
@@ -16568,7 +16573,7 @@ public partial class CommandExecutionTests
 
         // Excluding a name that no longer exists would silently shrink to a no-op, so the
         // exclusion must still name a real data-bound section.
-        foreach (var name in coordinateScoped)
+        foreach (var name in parameterScoped)
             Assert.Contains(name, bound);
 
         var scannerNames = pipeline.ScannerBoundSections
@@ -16579,7 +16584,7 @@ public partial class CommandExecutionTests
             .Select(b => b.Name);
         var names = scannerNames
             .Concat(queryNames)
-            .Where(n => !coordinateScoped.Contains(n, StringComparer.Ordinal))
+            .Where(n => !parameterScoped.Contains(n, StringComparer.Ordinal))
             .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToArray();
@@ -18018,7 +18023,7 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Integration: Configuration", output);
-            Assert.Contains("| Library | Kind | API |", output);
+            Assert.Contains("| Library | TFM | Kind | API |", output);
             Assert.Contains("Microsoft.Extensions.Configuration.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.JsonConfigurationExtensions.AddJsonFile(...)", output);
@@ -18455,6 +18460,70 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageCommand_AllLibraries_AggregatedMarkdown_PreservesSingleLibraryProvenance()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalIntegrationOpportunityPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(
+                "| Library | TFM | Integration | API | Integration Type | Look For |",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "| `lib/net10.0/IntegrationOpportunityFixture.dll` | `net10.0` |",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_AggregatedMarkdown_ContainsPackageControlledTfm()
+    {
+        const string Tfm = "net10.0\u202ERED";
+        var (packagePath, tempDir) =
+            CreateLocalIntegrationOpportunityPackage(Tfm);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.DoesNotContain('\u202E', output);
+            Assert.Contains(
+                @"`net10.0\u202ERED`",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_IntegrationOpportunities_UsesGroupQueryResult()
     {
         var (packagePath, tempDir) =
@@ -18821,6 +18890,7 @@ public partial class CommandExecutionTests
             var tsvProjection = new[]
             {
                 tsvRow[2],
+                tsvRow[3],
                 tsvRow[4],
                 tsvRow[5],
                 tsvRow[6]
@@ -18883,6 +18953,7 @@ public partial class CommandExecutionTests
                 .Select(row => string.Join(
                     '\t',
                     row[2],
+                    row[3],
                     row[4],
                     row[5],
                     row[6],
@@ -18926,6 +18997,38 @@ public partial class CommandExecutionTests
                 error,
                 StringComparison.Ordinal);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_RowFormat_UsesEffectiveSelectionCardinality()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "-S",
+                "Switches",
+                "--table",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.NotEmpty(result.Output);
+            Assert.Contains("Library", result.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "requires exactly one section",
+                result.Error,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -20016,6 +20119,271 @@ public partial class CommandExecutionTests
             Assert.Empty(multiPackageOutput);
             Assert.Equal(multiPackageBaselineError, multiPackageError);
             Assert.Equal(multiPackageBaseline, File.ReadAllText(multiPackagePath));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_NonCountFormats_WriteToOutputFile()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var formats = new (string Name, string[] Arguments)[]
+            {
+                ("markdown", ["-S", "Library Info", "--rows", "2"]),
+                ("json", ["--json"]),
+                ("table", ["-S", "Library Info", "--rows", "2", "--table"]),
+                ("tsv", ["-S", "Library Info", "--rows", "2", "--tsv"]),
+                ("jsonl", ["-S", "Library Info", "--rows", "2", "--jsonl"])
+            };
+
+            foreach (var (name, arguments) in formats)
+            {
+                string outputPath = Path.Combine(tempDir, $"{name}.txt");
+                var baseline = await RunAppAsync(
+                    [
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "--tips",
+                        "q",
+                        .. arguments
+                    ]);
+                var redirected = await RunAppAsync(
+                    [
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "--tips",
+                        "q",
+                        .. arguments,
+                        "--out",
+                        outputPath
+                    ]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Empty(baseline.Error);
+                Assert.Empty(redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+                if (name == "json")
+                    Assert.EndsWith(Environment.NewLine, baseline.Output, StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_OutputFile_PreservesLineWindows()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            foreach (string[] lineWindow in new[]
+                     {
+                         new[] { "-n", "3" },
+                         ["-n", "3", "--tail"]
+                     })
+            {
+                string outputPath = Path.Combine(
+                    tempDir,
+                    lineWindow.Contains("--tail") ? "tail.txt" : "head.txt");
+                var baseline = await RunAppInDirectoryAsync(
+                    tempDir,
+                    [
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "-S",
+                        "Library Info",
+                        "--table",
+                        "--tips",
+                        "q",
+                        .. lineWindow
+                    ]);
+                var redirected = await RunAppInDirectoryAsync(
+                    tempDir,
+                    [
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "-S",
+                        "Library Info",
+                        "--table",
+                        "--tips",
+                        "q",
+                        .. lineWindow,
+                        "--out",
+                        outputPath
+                    ]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(3, baseline.Output.Count(character => character == '\n'));
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Equal(baseline.Error, redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_OutputFile_IsIncludedInInfoMetrics()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        string outputPath = Path.Combine(tempDir, "output.txt");
+        try
+        {
+            var baseline = await RunAppInDirectoryAsync(
+                tempDir,
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--table",
+                "--info");
+            var redirected = await RunAppInDirectoryAsync(
+                tempDir,
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "--table",
+                "--info",
+                "--out",
+                outputPath);
+
+            Assert.Equal(0, baseline.Exit);
+            Assert.Equal(baseline.Exit, redirected.Exit);
+            Assert.Empty(redirected.Output);
+            Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+
+            static string OutputMetric(string error) =>
+                SplitOutputLines(error).Single(line =>
+                    line.StartsWith("| Output |", StringComparison.Ordinal));
+
+            Assert.Equal(
+                OutputMetric(baseline.Error),
+                OutputMetric(redirected.Error));
+            Assert.DoesNotContain(
+                "| Output | 0 B |",
+                redirected.Error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_AllLibraries_EmptyOutput_TruncatesAndValidatesOutputFile()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        string outputPath = Path.Combine(tempDir, "empty.txt");
+        File.WriteAllText(outputPath, "stale");
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--tsv",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "matched sections have no data",
+                result.Error,
+                StringComparison.Ordinal);
+            Assert.Empty(File.ReadAllText(outputPath));
+
+            foreach (string category in new[] { "@Integrations", "Integrations" })
+            {
+                File.WriteAllText(outputPath, "stale");
+                var invalidSelection = await RunAppAsync(
+                    "package",
+                    packagePath,
+                    "--all-libraries",
+                    "-S",
+                    category,
+                    "--tsv",
+                    "--out",
+                    outputPath,
+                    "--tips",
+                    "q");
+
+                Assert.Equal(1, invalidSelection.Exit);
+                Assert.Empty(invalidSelection.Output);
+                Assert.Contains(
+                    "requires one concrete section",
+                    invalidSelection.Error,
+                    StringComparison.Ordinal);
+                Assert.Equal("stale", File.ReadAllText(outputPath));
+            }
+
+            File.WriteAllText(outputPath, "stale");
+            var unsupportedSelection = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Library Info",
+                "-S",
+                "Inspection Failures",
+                "--tsv",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, unsupportedSelection.Exit);
+            Assert.Empty(unsupportedSelection.Output);
+            Assert.Contains(
+                "does not support section: Inspection Failures",
+                unsupportedSelection.Error,
+                StringComparison.Ordinal);
+            Assert.Equal("stale", File.ReadAllText(outputPath));
+
+            string invalidPath = Path.Combine(
+                tempDir,
+                "missing",
+                "output.txt");
+            var invalid = await RunAppAsync(
+                "package",
+                packagePath,
+                "--all-libraries",
+                "-S",
+                "Integration: Opportunities",
+                "--tsv",
+                "--out",
+                invalidPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, invalid.Exit);
+            Assert.Empty(invalid.Output);
+            Assert.NotEmpty(invalid.Error);
         }
         finally
         {

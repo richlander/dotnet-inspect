@@ -286,7 +286,16 @@ export function workspaceCoordinatesMatch(packages, tabs) {
 }
 
 export function callGraphTargetTypeId(target) {
-  return target?.typeMetadataId || "";
+  return target?.typeDefinitionId || target?.typeMetadataId || "";
+}
+
+export function callGraphTargetMatchesType(target, type) {
+  if (target?.typeDefinitionId)
+    return (type?.definitionId ?? type?.id) === target.typeDefinitionId;
+  if (target?.typeMetadataId)
+    return (type?.metadataId ?? type?.queryId ?? type?.id)
+      === target.typeMetadataId;
+  return false;
 }
 
 export function uniqueTypeByQueryId(types, queryId) {
@@ -332,7 +341,7 @@ export function resolveLoadedGraphTargetCandidate(packages, target) {
               === assembly.toLowerCase());
       if (assembly.toLowerCase() === target.assembly.toLowerCase()
           && callGraphAssemblyIdentityMatches(target, descriptor)
-          && (type.metadataId ?? type.queryId ?? type.id) === typeId) {
+          && callGraphTargetMatchesType(target, type)) {
         matches.push({ pkg, type });
         if (matches.length > 1) return { status: "ambiguous" };
       }
@@ -359,17 +368,35 @@ export function graphTargetNavigationDisposition(candidate, target) {
     : "none";
 }
 
+export function authoredSourceLimitationHtml(source) {
+  if (!source?.authoredLimitation) return "";
+  const escaped = String(source.authoredLimitation)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+  return `<span class="graph-source-status">Original source unavailable: ${escaped}</span>`;
+}
+
 export function callGraphDiagnosticsMessage(diagnostics) {
-  if (!diagnostics?.isIncomplete) return "";
-  const boundaries = [];
-  if (diagnostics.hasUnexploredTraversalBoundary)
-    boundaries.push("unexplored traversal");
+  if (!diagnostics) return "";
+  const evidence = [];
+  if (diagnostics.incompleteNodes > 0)
+    evidence.push(`${diagnostics.incompleteNodes} incomplete node${diagnostics.incompleteNodes === 1 ? "" : "s"}`);
+  if (diagnostics.incompleteEdges > 0)
+    evidence.push(`${diagnostics.incompleteEdges} incomplete edge${diagnostics.incompleteEdges === 1 ? "" : "s"}`);
+  if (diagnostics.bindingIdentityConflicts > 0)
+    evidence.push(`${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}`);
   if (diagnostics.hasAnalysisFailureBoundary)
-    boundaries.push("analysis failure");
-  const boundaryText = boundaries.length
-    ? ` Boundaries: ${boundaries.join(" and ")}.`
-    : "";
-  return `Partial call graph: ${diagnostics.incompleteNodes} incomplete node${diagnostics.incompleteNodes === 1 ? "" : "s"}, ${diagnostics.incompleteEdges} incomplete edge${diagnostics.incompleteEdges === 1 ? "" : "s"}, and ${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}.${boundaryText}`;
+    evidence.push("one or more method bodies could not be analyzed");
+  if (!evidence.length) return "";
+  const detail = evidence.length === 1
+    ? evidence[0]
+    : evidence.length === 2
+    ? `${evidence[0]} and ${evidence[1]}`
+    : `${evidence.slice(0, -1).join(", ")}, and ${evidence.at(-1)}`;
+  return `Partial call graph: ${detail}.`;
 }
 
 export function parameterTitleHtml(parameters) {
@@ -429,6 +456,102 @@ export function memberRequestKey(parts, taste = []) {
   return [...parts, ...taste].join("\u0000");
 }
 
+function sourceWorkbenchIsVisible(state) {
+  if (state.settings
+    || state.explorer?.open
+    || state.loading
+    || state.error
+    || state.home
+    || !state.package) {
+    return false;
+  }
+  return true;
+}
+
+export function activeSourceOperationKind(state) {
+  if (!sourceWorkbenchIsVisible(state)) return null;
+  if (state.graphSourceOpen) return "graph";
+  if (state.atPackageRoot) return null;
+  if (state.lens === "source") return "type";
+  if (state.lens === "api"
+    && state.selectedMemberKey
+    && state.memberSection === "source") {
+    return "member";
+  }
+  return null;
+}
+
+export function sourceSurfaceIsVisible(state) {
+  return activeSourceOperationKind(state) !== null;
+}
+
+export function sourceReloadKind(state) {
+  const active = activeSourceOperationKind(state);
+  if (active) return active;
+  if (!sourceWorkbenchIsVisible(state)
+    || state.atPackageRoot
+    || state.graphSourceOpen) {
+    return null;
+  }
+  if (state.lens === "api"
+    && state.selectedMemberKey
+    && state.memberSection === "annotated") {
+    return "annotated";
+  }
+  return null;
+}
+
+export function sourceRequestNeedsLoad(
+  sameRequest,
+  loading,
+  result,
+  error) {
+  return !sameRequest || (!loading && !result && !error);
+}
+
+export function beginSourceRequestState(state) {
+  state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
+  clearInFlightSourceState(state);
+  return state.sourceRequestGeneration;
+}
+
+export function cancelSourceRequestState(state) {
+  if (!state.memberSourceLoading
+    && !state.typeSourceLoading
+    && !state.graphSourceLoading) {
+    return false;
+  }
+  state.sourceRequestGeneration = (state.sourceRequestGeneration ?? 0) + 1;
+  clearInFlightSourceState(state);
+  return true;
+}
+
+function clearInFlightSourceState(state) {
+  if (state.memberSourceLoading) {
+    state.memberSourceLoading = false;
+    state.memberSourceKey = "";
+    state.memberSourceError = "";
+  }
+  if (state.typeSourceLoading) {
+    state.typeSourceLoading = false;
+    state.typeSourceKey = "";
+    state.typeSourceError = "";
+  }
+  if (state.graphSourceLoading) {
+    state.graphSourceLoading = false;
+    state.graphSourceError = "";
+    state.graphSourceSeq++;
+  }
+}
+
+export function memberSectionIdsFor(member) {
+  return ["property", "field", "event", "constant"].includes(member?.kind)
+    ? ["overview"]
+    : ["overview", "call-graph", "facts", "source", "annotated"];
+}
+
+const FORMAT_CHARACTER = /^\p{Cf}$/u;
+
 export function mermaidLabel(value) {
   let encoded = "";
   for (const character of String(value ?? "")) {
@@ -439,8 +562,13 @@ export function mermaidLabel(value) {
     else if (character === '"') encoded += "&quot;";
     else if (character === "\\") encoded += "&#92;";
     else if (scalar < 0x20 || (scalar >= 0x7f && scalar <= 0x9f)
-      || scalar === 0x2028 || scalar === 0x2029) {
-      encoded += `&#92;u${scalar.toString(16).toUpperCase().padStart(4, "0")}`;
+      || scalar === 0x2028 || scalar === 0x2029
+      || (scalar >= 0xd800 && scalar <= 0xdfff)
+      || FORMAT_CHARACTER.test(character)) {
+      for (let index = 0; index < character.length; index++) {
+        encoded += `&#92;u${character.charCodeAt(index)
+          .toString(16).toUpperCase().padStart(4, "0")}`;
+      }
     } else encoded += character;
   }
   return encoded;

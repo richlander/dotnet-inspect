@@ -14,19 +14,22 @@ the owner-issued subjects already present in their graph; a package binds to a
 node or group according to the selected package lens. The Integration query
 also binds mixed peer seeds without selecting a primary and declares its
 request-free workspace projection as an induced set over workspace
-participants.
+participants. An `InspectionGraphInducedSetRequest` now binds a finite,
+immutable set of typed subjects to selected Integration relationships and the
+`BothEndpointsWithinSubjectClosure` admission rule.
 
 The current executable mode slices bind request intent to graph subjects and
 make seed admission a descriptor-owned relationship contract. An
-`InspectionGraphNeighborhoodRequest` now composes one seed with an explicit
-relationship set, semantic traversal direction, and finite edge-depth bound.
+`InspectionGraphNeighborhoodRequest` now composes one or more seeds with an
+explicit relationship set, semantic traversal direction, and finite edge-depth
+bound.
 The Integration query validates that relationship set before execution,
 requests only its required producers and prerequisites, and projects the
 bounded neighborhood without reversing stored edges or changing occurrence
 identity. The call session exposes the same request envelope for an outgoing,
 call-only member neighborhood while retaining its Analysis-owned node budget.
-Peer connecting neighborhoods, induced explicit-subject sets, and
-command/presentation surfaces remain design targets.
+The Integration query also projects explicit-subject induced sets. Command and
+presentation surfaces remain deferred to #3292.
 
 `CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap`,
 `PackageSeed_BindsToNodeOrGroupSelectedByLens`,
@@ -41,8 +44,19 @@ command/presentation surfaces remain design targets.
 `Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
 `Execute_PackageSeedExpandsThroughOwnedSourceSubjects`,
 `Execute_OpportunitySourceTypeUsesOccurrenceAdmission`, and
-`Execute_SelectedRelationshipsControlProducerDemand` gate the first
-load-bearing neighborhood.
+`Execute_SelectedRelationshipsControlProducerDemand` gate single-seed
+neighborhoods. `Execute_PeerNeighborhoodConnectsEqualSeeds`,
+`Execute_ZeroDepthPeerNeighborhoodRetainsEverySeed`, and
+`Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed` gate multi-source
+peer neighborhoods. `Execute_PeerCountDoesNotMultiplyProducerDemand` gates
+that peer count does not multiply producer work.
+`Execute_ExplicitPackageSetInducesOnlyInternalEvidence`,
+`Execute_ExplicitInducedSetRequiresBothEndpointClosures`, and
+`Execute_ExplicitInducedSetRetainsOnlyInClosureFailures` gate explicit
+induction. `Execute_ExplicitInducedSetRetainsIsolatedInput` gates that a valid
+input need not admit a selected relationship. `Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand`
+and `Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance` gate
+preflight and producer planning.
 
 | Mode | Focus | Input | Primary question |
 | --- | --- | --- | --- |
@@ -178,14 +192,56 @@ Peer seeds may share a subject kind or be mixed. For example, the locked demo
 can name `IChatClient` plus OpenAI, Bedrock, and Azure package subjects. Each
 producer still contributes only relationships it owns.
 
+The Integration implementation projects the deterministic union of the finite
+neighborhood rooted at every peer. Every peer must be admitted by at least one
+selected relationship in the requested semantic direction. All peers begin at
+depth zero; reached edges and physical occurrences are deduplicated by their
+existing document identities. The result does not prune disconnected peers or
+discard evidence merely because it does not lie on a shortest path between two
+anchors. Depth zero retains every peer without traversing an edge, and the
+common requested depth is disclosed at each peer target.
+
 ## Induced-set mode
 
 **Required:** a bounded input set of workspace participants or typed subjects.
 
-There is no focus subject. The request admits relationships according to an
-explicit rule, such as all cross-participant edges, all edges among admitted
-subjects, or the union of bounded neighborhoods around resolved entries. The
-result must disclose which rule it used.
+There is no focus subject. Workspace-participant and document-subject rules
+describe existing whole-input projections. The explicit-subject rule carries a
+finite immutable subject set, one or more relationship descriptors, and
+`BothEndpointsWithinSubjectClosure`.
+
+For each physical occurrence, its semantic source and target roles must each
+be admitted by the explicit set. A role is admitted when an input subject is
+the exact logical edge endpoint, the exact original occurrence endpoint, or a
+strict typed owner of either. This is induction, not traversal: there is no
+direction axis, depth, queue, primary seed, or peer role. If only one endpoint
+closure is present, crossing evidence is excluded. Input subjects remain
+represented even when no selected relationship connects them; each input does
+not have to admit one of the selected relationship endpoint kinds.
+
+The projected document retains the typed request and records
+`queries.induced-subject-bound` with the explicit subject count. It assigns new
+dense local ids while preserving retained relationship descriptors, occurrence
+evidence, identity, and semantic direction. A partially retained logical edge
+keeps only admitted physical receipts; aggregate characteristics that described
+the unfiltered edge are dropped rather than presented as complete.
+The mode-only Integration entry point rejects `ExplicitSubjects` before
+producer execution and directs callers to the typed request overload; a mode
+value alone cannot authorize relationship work or supply the subject bound.
+Before producer execution, the Integration query verifies every requested
+subject against the realized workspace. A package or assembly must match its
+exact boundary identity. An acquired type must be an exact definition in its
+registered participant image. An acquired member must name an exact structured
+declaring type and extension-member anchor in that image. A matching
+registration alone cannot manufacture a type or member node. The final
+document independently verifies every retained receipt against both endpoint
+closures and requires exactly one global subject bound whose count matches the
+retained request.
+If retained-image decoding prevents exact declaration validation, preflight
+fails visibly with the artifact failure before producers run; it does not
+misreport the subject as absent or let a raw scanner exception escape.
+A typed metadata declaration rejection likewise retains its mechanism, kind,
+and detail; only a successfully decoded non-definition is reported as absent.
 
 An induced package set is not automatically a package-only lens. It may retain
 member/type evidence, package groups, package endpoints, or a mixed view as the
@@ -217,8 +273,14 @@ seed/direction/relationship combinations fail while constructing the request;
 relationships outside the Integration catalog fail before any producer runs.
 Selected relationships determine registry demand, including declared
 prerequisites. Opportunity demand includes extension and Integration evidence
-because fulfillment suppression composes both before projection. Induced-set
-requests have no seeds and therefore need no seed admission.
+because fulfillment suppression composes both before projection.
+
+Explicit induction does not reuse seed admission. Seed admission controls
+directed traversal entry; induced membership uses exact-or-strictly-owned typed
+endpoint closure on both semantic roles. Relationships outside the Integration
+catalog still fail before producer execution, and selected relationships alone
+determine producer demand. Input count does not multiply producer work.
+Invalid workspace identities fail before that producer plan starts.
 
 ## Shared contract
 
@@ -262,11 +324,14 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
 4. **Implemented:** expose the existing Analysis-owned cross-library callee
    traversal as a finite outgoing member-seeded `call` neighborhood with
    explicit depth and node bounds.
-5. **Partially implemented:** bind peer-seed requests without choosing a hero
-   node. Connecting-neighborhood construction remains.
-6. **Partially implemented:** declare workspace-participant and
-   document-subject induced-set rules. Explicit-subject admission and bounds
-   remain.
+5. **Implemented:** project bounded Integration neighborhoods from every equal
+   peer seed without choosing a hero, while retaining disconnected admissible
+   peers and deduplicating shared reached evidence.
+6. **Implemented:** declare workspace-participant, document-subject, and
+   explicit-subject induced-set rules. Explicit sets retain finite typed input
+   and relationship selections, admit evidence only when both semantic endpoint
+   closures are present, preserve physical receipts without seeds, and disclose
+   the subject bound.
 
 ## Required gates
 
@@ -279,6 +344,8 @@ metadata-reference, and opportunity adapters; no mode turns those into calls.
   invents a package-to-package call;
 - peer seeds remain equally focused;
 - an induced set has no fabricated focus;
+- explicit induction requires both semantic endpoint closures;
+- an explicit input remains represented when it induces no edge;
 - incoming traversal does not reverse semantic edge direction;
 - unsupported seed/relation combinations fail with guidance;
 - failures and traversal limits remain visible in every mode; and

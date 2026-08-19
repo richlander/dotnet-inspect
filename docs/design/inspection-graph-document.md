@@ -509,12 +509,21 @@ expansion but does not change the logical edge's subject kind or direction.
 The single-seed neighborhood requires at least one selected relationship and
 the seed kind and semantic direction must be admitted by at least one of them.
 Integration catalog validation occurs before producer execution and fails with
-the selected relationship id and typed guidance. Induced-set requests carry no
-seeds and bypass that gate.
+the selected relationship id and typed guidance.
+
+Explicit induced-set requests carry no seeds and do not use the directed seed
+admission gate. Their `BothEndpointsWithinSubjectClosure` rule evaluates each
+physical occurrence independently: both semantic roles must be an exact
+logical endpoint, an exact original occurrence endpoint, or strictly owned by
+one of the finite typed input subjects. This preserves roll-up receipts without
+turning induction into a containment traversal. Integration catalog membership
+is still validated before any producer runs.
 `RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions`,
 `AdmissionsMatchDeclaredEndpointDomains`, and
 `RelationshipCatalogsDeclareCurrentSeedAdmissions` gate the implemented
-descriptor contracts.
+descriptor contracts. `InducedSetRequest_ValidatesAndSnapshotsExplicitInputs`
+and `Execute_ExplicitInducedSetRejectsUnsupportedRelationshipFirst` gate the
+separate induced-set contracts.
 
 Each relationship descriptor owns an occurrence-identity projection within one
 document. Projection deduplicates repeated observations by that key before
@@ -728,11 +737,24 @@ automatically. The same relationship, identity, direction, limit, and failure
 contracts apply in every mode.
 
 `InspectionGraphNeighborhoodRequest` is the first composed request over these
-orthogonal axes. It currently requires one seed, one or more typed relationship
-descriptors, semantic traversal direction, and a finite maximum edge depth.
+orthogonal axes. It currently requires one seed or two or more equal peer
+seeds, one or more typed relationship descriptors, semantic traversal
+direction, and a finite maximum edge depth.
 The resulting document retains both its `ModeRequest` and
 `NeighborhoodRequest`; a consumer never has to infer selection or bounds from
 the surviving topology.
+
+`InspectionGraphInducedSetRequest` is the corresponding composed request for
+explicit induction. It retains one or more distinct typed subjects, one or more
+distinct relationship descriptors, and its admission rule. The resulting
+document retains both its `ModeRequest` and `InducedSetRequest`, contains no
+seed bindings, keeps every explicit input as a node or group, and records the
+finite input count as `queries.induced-subject-bound`.
+Construction revalidates that every retained occurrence is admitted on both
+semantic roles and requires exactly one global subject-bound diagnostic whose
+count equals the request. `Document_RetainsExplicitInducedSetRequestWithoutSeeds`
+and `Document_RejectsExplicitOccurrenceOutsideSubjectClosure` gate those
+envelope invariants.
 
 Relationship producers may retain a stricter typed breadth budget alongside
 that shared request. The bounded call neighborhood records
@@ -749,10 +771,26 @@ The Integration implementation validates catalog membership before producer
 execution. Its relationship set drives the deterministic query-registry plan,
 including opportunity's Integration and extension prerequisites for
 fulfillment reconciliation. Projection begins through the selected
-descriptor's exact edge, original-occurrence, or typed owned-subject seed
-admission, then walks logical endpoints for the remaining hops. Incoming
+descriptor's exact edge, original-occurrence, or typed owned-subject admission
+for each seed, then walks logical endpoints for the remaining hops. Incoming
 traversal changes which endpoint is followed, never the stored edge or
-occurrence direction.
+occurrence direction. Peer projection is one deterministic multi-source walk:
+every peer begins at depth zero, reached topology is the union of their bounded
+neighborhoods, and shared edges and occurrences retain one identity. It does
+not fabricate a primary seed or require every peer to be connected.
+
+Explicit-set projection instead tests both semantic endpoint closures for each
+selected physical occurrence. It does not walk from an admitted endpoint.
+Logical edges survive when they retain at least one admitted receipt, and their
+occurrence lists are rebuilt from only those receipts. If that filters a
+multi-occurrence edge, characteristics that directly described the unfiltered
+edge are omitted rather than becoming success-shaped partial aggregates.
+
+Acquisition-bound member subjects retain their structured
+`MetadataTypeDefinitionName` declaring type beside the member anchor. Type-to-
+member ownership compares that typed identity, not the anchor's rendered
+generic spelling. `ProjectionOwnership_UsesStructuredGenericDeclaringType`
+gates the generic-type case.
 
 Projection assigns new dense document-local ids while retaining semantic
 subjects, relationship descriptors, occurrence evidence and occurrence
@@ -761,14 +799,32 @@ composition prerequisites remain visible even when their target is outside
 healthy reached topology. A typed `queries.neighborhood-depth-bound` limit
 records the requested bound, including depth zero. An admissible owner-issued
 seed remains bound even when selected producers emit no relationship evidence.
+For peer requests, the same bound is targeted at every equal seed so no peer's
+completeness is inferred from another's topology.
 `Execute_BoundsMixedRelationshipNeighborhoodByDepth`,
 `Execute_ZeroDepthRetainsSeedWithoutEdges`,
 `Execute_ZeroDepthRetainsAdmissibleSeedWithoutSelectedEvidence`,
+`Execute_PeerNeighborhoodConnectsEqualSeeds`,
+`Execute_ZeroDepthPeerNeighborhoodRetainsEverySeed`,
+`Execute_PeerNeighborhoodRetainsAdmissibleDisconnectedSeed`,
 `Execute_OpportunityNeighborhoodPreservesFulfillmentSuppression`,
 `Execute_NeighborhoodRetainsSelectedProducerFailures`,
 `Execute_OpportunityNeighborhoodRetainsPrerequisiteFailures`, and
 `Execute_RejectsForeignRelationshipBeforeProducerExecution` gate these
 contracts.
+`Execute_ExplicitPackageSetInducesOnlyInternalEvidence`,
+`Execute_ExplicitInducedSetRequiresBothEndpointClosures`,
+`Execute_ModeOnlyExplicitSubjectsRejectsBeforeProducers`,
+`Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance`,
+`Execute_RejectsUndeclaredInScopeTypeBeforeProducerExecution`,
+`Execute_RejectsUndeclaredInScopeMemberBeforeProducerExecution`,
+`Execute_ReportsMemberPreflightDecodeFailureBeforeProducers`,
+`Execute_ReportsTypeDeclarationRejectionBeforeProducers`,
+`Execute_ExplicitInducedSetRetainsIsolatedInput`,
+`Execute_ExplicitInducedSetRetainsDeclaredMemberInput`,
+`Execute_ExplicitInducedSetRetainsOnlyInClosureFailures`, and
+`Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand` gate explicit-set
+projection.
 
 ### Type outward
 

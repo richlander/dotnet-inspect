@@ -33,54 +33,8 @@ public static partial class BrowserInspectionEngine
         "no product acquisition owner produces runtime-pack participants from content, so no "
         + "platform workspace can be opened in a browser";
 
-    const string NoBrowserSourceCapabilities =
-        "the group-scoped source query exists, but the browser workspace does not yet supply "
-        + "symbol and source acquisition capabilities or adapt its typed results";
-
     static NotSupportedException Unavailable(string operation, string capability) =>
         new($"{operation} is not available in this engine build: {capability}");
-
-    /// <summary>
-    /// Authored and decompiled whole-member source. <c>AssemblyContextSourceQuery</c> now owns
-    /// the group participant and pathless acquisition, but this host has not yet supplied its
-    /// Browser HTTP, authorization, PDB-store, source-store, and result-adapter capabilities.
-    /// </summary>
-    [JSExport]
-    public static Task<string> QueryMemberSource(
-        string packageId,
-        string version,
-        string targetFramework,
-        string assemblyName,
-        string typeId,
-        string memberName,
-        string memberSignature,
-        string styleOptionsJson) =>
-        throw Unavailable("Member source", NoBrowserSourceCapabilities);
-
-    /// <inheritdoc cref="QueryMemberSource"/>
-    [JSExport]
-    public static Task<string> QueryTypeSource(
-        string packageId,
-        string version,
-        string targetFramework,
-        string assemblyName,
-        string typeId,
-        string styleOptionsJson) =>
-        throw Unavailable("Type source", NoBrowserSourceCapabilities);
-
-    /// <inheritdoc cref="QueryMemberSource"/>
-    [JSExport]
-    public static Task<string> QueryTypeMemberSource(
-        string packageId,
-        string version,
-        string targetFramework,
-        string assemblyName,
-        string typeName,
-        string memberName,
-        string selectorKey,
-        int metadataToken,
-        string styleOptionsJson) =>
-        throw Unavailable("Type member source", NoBrowserSourceCapabilities);
 
     [JSExport]
     public static Task<string> QueryPlatformIntegrations(
