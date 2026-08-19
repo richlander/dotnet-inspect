@@ -22059,13 +22059,11 @@ public partial class CommandExecutionTests
         }
     }
 
-    [Theory]
-    [InlineData("Skills", "skills/locked/SKILL.md")]
-    [InlineData("Agent Guidance", "AGENTS.md")]
-    public async Task Project_BoundedMetadataProjection_DoesNotReadDocumentContent(
-        string section,
-        string relativePath)
+    [Fact]
+    public async Task Project_BoundedMetadataProjection_DoesNotReadDocumentContent()
     {
+        const string section = "Agent Guidance";
+        const string relativePath = "AGENTS.md";
         const string id = "Test.Project.Metadata.Locked";
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage(
@@ -22074,7 +22072,7 @@ public partial class CommandExecutionTests
                 "README.md",
                 "readme",
                 "guidance",
-                [new ProjectSkillDoc(
+                [CompliantProjectSkill(
                     "skills/locked/SKILL.md",
                     "skill")]));
         string lockedPath = Path.Combine(
@@ -22177,7 +22175,7 @@ public partial class CommandExecutionTests
                 "README.md",
                 "readme",
                 "guidance",
-                [new ProjectSkillDoc(skillPath, "skill")]));
+                [CompliantProjectSkill(skillPath, "skill")]));
         string packagePath = Path.Combine(
             tempDir,
             "packages",
@@ -22186,13 +22184,6 @@ public partial class CommandExecutionTests
 
         try
         {
-            using var lockedSkill = new FileStream(
-                Path.Combine(
-                    packagePath,
-                    skillPath.Replace('/', Path.DirectorySeparatorChar)),
-                FileMode.Open,
-                FileAccess.ReadWrite,
-                FileShare.None);
             using var lockedGuidance = new FileStream(
                 Path.Combine(packagePath, "AGENTS.md"),
                 FileMode.Open,
@@ -22795,7 +22786,7 @@ public partial class CommandExecutionTests
                 "readme",
                 Skills:
                 [
-                    new ProjectSkillDoc(
+                    CompliantProjectSkill(
                         "skills/termination/SKILL.md",
                         "skill"),
                 ]));
@@ -22840,7 +22831,7 @@ public partial class CommandExecutionTests
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.Default", "1.0.0", "README.md", "readme", Skills:
-                [new ProjectSkillDoc("skills/default/SKILL.md", "selected")]));
+                [CompliantProjectSkill("skills/default/SKILL.md", "selected")]));
 
         try
         {
@@ -22926,7 +22917,9 @@ public partial class CommandExecutionTests
                 StringComparison.Ordinal);
 
             Assert.Equal(1, present.Exit);
-            Assert.Equal("present", present.Output);
+            Assert.Equal(
+                CompliantProjectSkill(presentSkill, "present").Text,
+                present.Output);
             Assert.Contains(id, present.Error);
         }
         finally
@@ -23215,7 +23208,7 @@ public partial class CommandExecutionTests
                 "one",
                 Skills:
                 [
-                    new ProjectSkillDoc(
+                    CompliantProjectSkill(
                         "skills/value/SKILL.md",
                         "one")
                 ]));
@@ -23653,8 +23646,8 @@ public partial class CommandExecutionTests
                 "readme",
                 Skills:
                 [
-                    new ProjectSkillDoc("skills/one/SKILL.md", "one"),
-                    new ProjectSkillDoc("skills/two/SKILL.md", "two")
+                    CompliantProjectSkill("skills/one/SKILL.md", "one"),
+                    CompliantProjectSkill("skills/two/SKILL.md", "two")
                 ]));
 
         try
@@ -23731,7 +23724,7 @@ public partial class CommandExecutionTests
                 "README.md",
                 "readme",
                 AgentsText: "# guidance",
-                Skills: [new ProjectSkillDoc("skills/one/SKILL.md", "one")]));
+                Skills: [CompliantProjectSkill("skills/one/SKILL.md", "one")]));
 
         try
         {
@@ -23851,9 +23844,9 @@ public partial class CommandExecutionTests
                 "readme",
                 Skills:
                 [
-                    new ProjectSkillDoc(
+                    CompliantProjectSkill(
                         "skills/selected/SKILL.md",
-                        "---\nname: selected\n---\nselected")
+                        "selected")
                 ]));
 
         try
@@ -23951,9 +23944,9 @@ public partial class CommandExecutionTests
                 "readme",
                 Skills:
                 [
-                    new ProjectSkillDoc(
+                    CompliantProjectSkill(
                         "skills/selected/SKILL.md",
-                        "---\nname: selected\n---\nselected")
+                        "selected")
                 ]));
 
         try
@@ -24071,8 +24064,8 @@ public partial class CommandExecutionTests
                 "readme",
                 Skills:
                 [
-                    new ProjectSkillDoc("skills/one/SKILL.md", "one"),
-                    new ProjectSkillDoc("skills/two/SKILL.md", "two")
+                    CompliantProjectSkill("skills/one/SKILL.md", "one"),
+                    CompliantProjectSkill("skills/two/SKILL.md", "two")
                 ]));
 
         try

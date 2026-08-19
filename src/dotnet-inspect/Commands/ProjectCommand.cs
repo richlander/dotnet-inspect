@@ -735,8 +735,11 @@ public class ProjectCommand
     {
         foreach (ProjectContentFailure failure in failures)
         {
-            CommandError.WriteWarning(
-                $"Could not read '{failure.Package}' file '{failure.Path}': {failure.Reason}");
+            if (failure.RedactIdentity)
+                CommandError.Write(failure.Reason);
+            else
+                CommandError.WriteWarning(
+                    $"Could not read '{failure.Package}' file '{failure.Path}': {failure.Reason}");
         }
     }
 
@@ -794,7 +797,8 @@ public class ProjectCommand
                         file.Path,
                         validationFailure == ProjectSkillReadFailure.InvalidName
                             ? "a restored package skill must declare an Agent Skills-compliant name that matches its containing directory"
-                            : "a restored package skill must declare an Agent Skills-compliant description of 1 to 1024 characters"));
+                            : "a restored package skill must declare an Agent Skills-compliant description of 1 to 1024 characters",
+                        RedactIdentity: true));
                     continue;
                 }
 

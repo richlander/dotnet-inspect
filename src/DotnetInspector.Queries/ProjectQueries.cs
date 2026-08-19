@@ -6,7 +6,8 @@ namespace DotnetInspector.Queries;
 public sealed record ProjectContentFailure(
     string Package,
     string Path,
-    string Reason);
+    string Reason,
+    bool RedactIdentity = false);
 
 /// <summary>One skill declared by a direct project dependency.</summary>
 public sealed record ProjectSkillData(

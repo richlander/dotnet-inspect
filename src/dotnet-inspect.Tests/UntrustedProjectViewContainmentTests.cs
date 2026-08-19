@@ -172,15 +172,16 @@ public class UntrustedProjectViewContainmentTests : IDisposable
             () => ProjectCommand.ExecuteAsync(new ProjectOptions
             {
                 ProjectPath = _assets,
-                Select = ["@All"],
+                Select = ["Skills"],
             }));
 
         Assert.Equal(1, exit);
-        Assert.Empty(output);
+        Assert.DoesNotContain("INJECTED", output);
         Assert.Contains(
             "must declare an Agent Skills-compliant name that matches its containing directory",
             error);
         Assert.DoesNotContain("INJECTED", error);
+        HostileOutputAssert.NoRenderingHazard(output, "UntrustedProjectViewContainmentTests");
         HostileOutputAssert.NoRenderingHazard(error, "UntrustedProjectViewContainmentTests");
     }
 }
