@@ -22,6 +22,9 @@ namespace ILInspector.Analysis;
 /// gates explicit-interface accessor MethodDef names (<c>I.get_P</c>, not <c>get_I.P</c>).
 /// <c>CallGraphMemberResolverTests.Resolve_MatchesCompiledNestedGenericAndByRefAcrossProducers</c>
 /// gates leftover extract display of nested generic arguments and byref <c>@</c> placement.
+/// <c>CallGraphMemberResolverTests.Selector_DistinguishesNestedGenericInsideAnotherGenericArgument</c>
+/// gates a nested suffix inside another generic argument so
+/// <c>List&lt;Outer&lt;int&gt;.Inner&lt;string&gt;&gt;</c> does not alias <c>List&lt;Outer&lt;int&gt;&gt;</c>.
 /// </remarks>
 public static class CallGraphMemberResolver
 {
