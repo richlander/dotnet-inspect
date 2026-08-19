@@ -359,29 +359,46 @@ public class PlantedCoreLibraryIdentityTests
 
 
     /// <summary>
-    /// Every public entry point that turns bytes into a <see cref="MetadataSource"/>
+    /// Every public static factory that produces a <see cref="MetadataSource"/>
     /// must classify the reader it creates. Twice now a hand-maintained list of
     /// those sites has been wrong — round-2 review found
     /// <c>MetadataSource.OpenCore</c> missing while the registry still failed
     /// open, and round-3 review found <c>OpenFromPrefetchedImage</c> missing
     /// once it failed closed. So this gate derives the set by reflection rather
-    /// than restating it: a new <c>Open*</c> overload that forgets to classify
-    /// fails here without anyone remembering to add it.
+    /// than restating it: a new factory that forgets to classify fails here
+    /// without anyone remembering to add it.
     /// <para>
     /// Each entry point is handed a genuine core library, named either by path
     /// (a designation) or by a <see cref="ResolvedAssemblyReference"/> carrying
     /// a designated acquisition, so the expected answer is the same for all of
     /// them: core-library identity is granted.
     /// </para>
+    /// <para>
+    /// Scope, stated precisely because this gate is meant to be trusted instead
+    /// of a hand audit: it proves a grant was not <em>forgotten</em>, not that a
+    /// grant is correctly <em>conditional</em>. Every entry point here is fed a
+    /// trusted acquisition, so a future discovery-style overload could satisfy
+    /// this test with an unconditional grant — which would be the #4411 bug.
+    /// <c>PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity</c>
+    /// and <c>DiscoveredSibling_FollowsTheHostPolicy</c> are what hold the
+    /// conditional half, by driving an untrusted provenance through
+    /// <c>OpenCore(ResolvedAssemblyReference)</c> and asserting denial. A new
+    /// overload that takes a <see cref="ResolvedAssemblyReference"/> needs a
+    /// negative case there as well as passing this.
+    /// </para>
     /// </summary>
     [Fact]
-    public void EveryPublicOpenEntryPoint_ClassifiesTheReaderItCreates()
+    public void EveryPublicFactory_ClassifiesTheReaderItCreates()
     {
         string corelib = typeof(object).Assembly.Location;
+        // Derive on the return type alone. Filtering on an "Open" name prefix
+        // would let a rename drop an entry point out of coverage while the
+        // remaining overloads kept this test green -- round-4 review
+        // demonstrated exactly that by renaming OpenFromPrefetchedImage and
+        // removing its grant without failing the gate.
         var entryPoints = typeof(MetadataSource)
             .GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .Where(m => m.Name.StartsWith("Open", StringComparison.Ordinal)
-                && m.ReturnType == typeof(MetadataSource))
+            .Where(m => m.ReturnType == typeof(MetadataSource))
             .ToList();
 
         Assert.NotEmpty(entryPoints);
