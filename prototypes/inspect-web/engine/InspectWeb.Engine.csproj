@@ -38,6 +38,7 @@
     <ProjectReference Include="..\..\..\src\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <Content Include="..\dist\index.html" Link="wwwroot\index.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+    <Content Include="..\dist\manifest.json" Link="wwwroot\manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\dist\assets\**\*" Link="wwwroot\assets\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\staticwebapp.config.json" Link="wwwroot\staticwebapp.config.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\assets\dotnet-inspect-bot.png" Link="wwwroot\assets\dotnet-inspect-bot.png" CopyToOutputDirectory="PreserveNewest" />
@@ -45,8 +46,9 @@
     <Content Include="..\assets\platform-index.tsv" Link="wwwroot\assets\platform-index.tsv" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <Target Name="RequireInspectWebFrontendBundle" BeforeTargets="PrepareForPublish" Condition="!Exists('..\dist\index.html')">
-    <Error Text="The inspect-web frontend bundle is missing. Run 'npm ci' and 'npm run build' in prototypes/inspect-web before publishing." />
+  <Target Name="ValidateInspectWebFrontendBundle" BeforeTargets="ResolveProjectStaticWebAssets;PrepareForPublish">
+    <Error Condition="!Exists('..\dist\index.html') Or !Exists('..\dist\manifest.json')" Text="The inspect-web frontend bundle is missing. Run 'npm ci' and 'npm run build' in prototypes/inspect-web before building or publishing." />
+    <Exec Command="node &quot;../scripts/verify-site-artifact.js&quot; &quot;../dist&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 
   <Target Name="PublishInspectWebFrontendIndex" AfterTargets="ComputeAndCopyFilesToPublishDirectory">

@@ -24,6 +24,19 @@ internal static class PromotionWorkflowContract
         index="$site/index.html"
         test -f "$index"
         test -f "$site/staticwebapp.config.json"
+        manifest="$site/manifest.json"
+        test -f "$manifest"
+        vite_assets=$(jq -er '[to_entries[].value | .file, (.css[]?), (.assets[]?)] | unique | if length > 0 then join("\n") else error("empty Vite manifest") end' "$manifest")
+        while IFS= read -r asset; do
+          test "${asset#assets/}" != "$asset"
+          test -f "$site/$asset"
+        done <<< "$vite_assets"
+        vite_entry=$(jq -er '.["index.html"].file' "$manifest")
+        grep -Fq "src=\"/$vite_entry\"" "$index"
+        vite_stylesheets=$(jq -er '.["index.html"].css | if length > 0 then join("\n") else error("missing Vite stylesheet") end' "$manifest")
+        while IFS= read -r stylesheet; do
+          grep -Fq "href=\"/$stylesheet\"" "$index"
+        done <<< "$vite_stylesheets"
         dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
         test -n "$dotnet_module"
         test -f "$site/_framework/$dotnet_module"
@@ -38,6 +51,19 @@ internal static class PromotionWorkflowContract
         index="$site/index.html"
         test -f "$index"
         test -f "$site/staticwebapp.config.json"
+        manifest="$site/manifest.json"
+        test -f "$manifest"
+        vite_assets=$(jq -er '[to_entries[].value | .file, (.css[]?), (.assets[]?)] | unique | if length > 0 then join("\n") else error("empty Vite manifest") end' "$manifest")
+        while IFS= read -r asset; do
+          test "${asset#assets/}" != "$asset"
+          test -f "$site/$asset"
+        done <<< "$vite_assets"
+        vite_entry=$(jq -er '.["index.html"].file' "$manifest")
+        grep -Fq "src=\"/$vite_entry\"" "$index"
+        vite_stylesheets=$(jq -er '.["index.html"].css | if length > 0 then join("\n") else error("missing Vite stylesheet") end' "$manifest")
+        while IFS= read -r stylesheet; do
+          grep -Fq "href=\"/$stylesheet\"" "$index"
+        done <<< "$vite_stylesheets"
         dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
         test -n "$dotnet_module"
         test -f "$site/_framework/$dotnet_module"
@@ -157,6 +183,12 @@ internal static class PromotionWorkflowContract
             "          test \"$import_map_line\" -lt \"$module_line\" || true\n",
             ValidateStaging,
             "Staging workflow contract accepted disabled import-map verification.");
+        AssertMutationRejected(
+            stagingWorkflow,
+            "            test -f \"$site/$asset\"\n",
+            "            test -f \"$site/$asset\" || true\n",
+            ValidateStaging,
+            "Staging workflow contract accepted disabled Vite asset verification.");
         AssertMutationRejected(
             stagingWorkflow,
             "          skip_app_build: true\n",

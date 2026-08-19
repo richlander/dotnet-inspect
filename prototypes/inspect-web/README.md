@@ -430,6 +430,7 @@ A payload the model rejects is reported as rejected, not rendered.
 
 ## Run
 
+The frontend requires Node.js 24 or later; `npm ci` enforces that requirement.
 Install the experimental browser workload selected by the repository SDK:
 
 ```bash
@@ -462,10 +463,12 @@ Emscripten `tools` directory.
 ## Test
 
 ```bash
-dotnet run --project prototypes/inspect-web/engine.Tests -c Release
 cd prototypes/inspect-web
 npm ci
+npm run build
 npm test
+cd ../..
+dotnet run --project prototypes/inspect-web/engine.Tests -c Release
 ```
 
 `BrowserEngineBoundaryTests` gates the browser host's aggregate archive budget,
@@ -586,11 +589,12 @@ vendor-controlled deployment dependency is not immutable and remains inside
 the Azure trust boundary. All three workflows disable Azure's own app build
 and require the published artifact to contain `staticwebapp.config.json`.
 Trusted build and deployment steps also verify that Vite preserved the authored
-.NET placeholders, that the SDK injected a mapping to the fingerprinted
-`dotnet.js`, and that the import map precedes the Vite module entry. That
-configuration serves `/` and `/index.html` with `Cache-Control: no-cache,
-no-store, must-revalidate`, so an Azure edge cannot retain an old browser boot
-graph after its fingerprinted Wasm assets rotate.
+.NET placeholders, that every file in Vite's generated manifest exists and is
+loaded by the index where required, that the SDK injected a mapping to the
+fingerprinted `dotnet.js`, and that the import map precedes the Vite module
+entry. That configuration serves `/` and `/index.html` with `Cache-Control:
+no-cache, no-store, must-revalidate`, so an Azure edge cannot retain an old
+browser boot graph after its fingerprinted Wasm assets rotate.
 `BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
 gates the header contract and publish wiring. The staging publish step embeds
 the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
