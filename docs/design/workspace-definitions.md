@@ -9,12 +9,13 @@ grammar for the contract that
 already fixes in prose; that document remains the owner of the bundle
 contract, lifetime rules, and authorization model.
 
-This is a design proposal. Implementation has begun: the `package` and
-`embedded` member coordinates and one loader that realizes a selected context
-into exactly one `AssemblyContextGroup` now exist in product code, with the
-gates listed under [What exists today](#what-exists-today). Every other
-property asserted below is **unverified** until the gates named in
-[Status and gates](#status-and-gates) exist.
+This is a design proposal. Implementation has begun: the `package`,
+`platform`, and `embedded` member coordinates and one loader that realizes a
+selected context into exactly one `AssemblyContextGroup` now exist in product
+code, and the definition-record loader, registry, scenario resolution, and
+product home demos listed under [What exists today](#what-exists-today) are
+gated. Every other property asserted below is **unverified** until the gates
+named in [Status and gates](#status-and-gates) exist.
 
 ## Purpose
 
@@ -782,11 +783,20 @@ Implementation must add, at minimum:
   every record kind, including rejection of duplicate and unknown properties
   at top-level and nested shapes, unknown `schemaVersion` and `kind` values,
   redefinition of well-known group names, and every declared byte, depth,
-  value, coordinate, and cancellation limit;
+  value, coordinate, and cancellation limit —
+  `InspectionDefinitionTests.JsonRoundTrip_PreservesEveryRecordKind`,
+  `Parse_RejectsDuplicateProperties`, `Parse_RejectsUnknownProperties`, and
+  `Parse_RejectsUnknownKindAndSchemaVersion` cover the closed record kinds and
+  hardened bind path; well-known group redefinition, depth/value budgets, and
+  cancellation remain open;
 - a record-separation gate proving scenarios compose peer workspace, query,
   view, and navigation records by id, workspace-free scenarios create no
   assembly group, record count never activates a scenario implicitly, and
-  duplicate, unknown, or cross-kind record references fail visibly;
+  duplicate, unknown, or cross-kind record references fail visibly —
+  `InspectionDefinitionTests.Registry_RejectsDuplicateIdsWithinKind_AndResolvesPeerComposition`,
+  `Registry_UnknownPeerReference_FailsVisibly`,
+  `Registry_WorkspaceFreeScenario_CreatesNoAssemblyGroup`, and
+  `Registry_DoesNotActivateImplicitlyFromRecordCount`;
 - a grammar gate covering recursive catalog paths and composition, plus one
   exact-pin parser exercised through member coordinates, group subscriptions,
   and packet tuples, including rejection of `latest`, ranges, build metadata,
@@ -851,7 +861,12 @@ Implementation must add, at minimum:
   an unknown name a typed outcome there. The gate's concrete form tracks
   the registry-binding open question; and
 - a demo-parity gate showing the previously imperative call-graph demo loads
-  from a definition and lands on the anchor-digest-selected overload.
+  from a definition and lands on the anchor-digest-selected overload —
+  `InspectionDefinitionTests.ProductHomeDemos_ResolveCallGraphByMemberAnchor`
+  (and STJ/platform companions) resolve static product-registry scenarios to
+  `WorkspaceMemberCoordinate` plans and view `memberAnchor` `74b6b4b321`; host
+  acquisition and UI landing remain host work on top of
+  `ProductInspectionDemos` / `ResolvedScenario`.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified
@@ -859,6 +874,24 @@ manually (bash and zsh by transcript; PowerShell and cmd analytically) and
 otherwise falling under this note's blanket unverified marking.
 
 ### What exists today
+
+Definition records and product demos (this slice):
+
+- `DotnetInspector.Queries.Definitions` loads one standalone JSON record through
+  `HardenedJson` then a source-generated context with unmapped members
+  disallowed (`InspectionDefinitionJson`);
+- `InspectionDefinitionRegistry` stores peer records by `(kind, id)`, resolves
+  scenarios by explicit id, and lowers package/platform/embedded coordinates to
+  `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
+  expressions and filesystem coordinates are typed failures in this slice);
+- `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
+  `RendererRegistry` style) of the three home scenarios; listing is metadata-only
+  and `ResolveHomeScenario` allocates only that demo's peer records; JSON remains
+  the portable load path for external definitions; and
+- `InspectionDefinitionTests` is the gate for round-trip, separation,
+  demo-parity, null nested-array rejection, whole-record coordinate budget,
+  dual `rid`/`runtimeIdentifier` rejection, and fail-closed subscribe /
+  filesystem / cross-kind peer resolution.
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates
@@ -1043,10 +1076,13 @@ is not part of runtime-pack acquisition. It supplies:
   so an archive folder whose framework text carries a sign is an ordinary
   unusable folder rather than an exception escaping the loader after commit.
 
-Nothing else on the list above exists yet. There is no record schema or
-serializer, no group catalog or grammar, no packet projection, no `platform`,
-`project`, `local`, or `directory` coordinate, and no preset binding, so every
-property that depends on those remains unverified.
+The residual open items from the list above are: group catalog grammar and
+subscribe lowering, packet projection, filesystem `project` / `local` /
+`directory` coordinate hosts, and preset/query binding. Coordinate kinds
+`package`, `platform`, and `embedded` already lower; the record schema,
+serializer, registry, and product demos are gated by
+`InspectionDefinitionTests`. Every property that still depends on the residual
+items remains unverified.
 
-Until those gates exist, nothing in this note beyond the slice above is a
-behavior claim.
+Until those residual gates exist, nothing in this note beyond the slices above
+is a behavior claim.
