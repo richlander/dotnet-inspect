@@ -226,6 +226,34 @@ public static class LibrarySections
         string kind = context.Model.BodyKindQueryOptions.Kind
             ?? throw new InvalidOperationException(
                 "The Body Shapes scanner requires a validated body-kind predicate.");
+        IReadOnlySet<int>? methodTokens = null;
+        if (context.Model.PerformanceTriageOptions.HasCandidateFilters)
+        {
+            switch (context.Model.OptimizationOpportunitiesQueryResult)
+            {
+                case OptimizationOpportunitiesResult.Available:
+                    methodTokens = LibraryMetadataService.PerformanceSourceMethods(
+                            context.Model.PerformanceTriageOpportunities)
+                        .Select(static method => method.MetadataToken)
+                        .ToHashSet();
+                    break;
+
+                case OptimizationOpportunitiesResult.Failed:
+                case OptimizationOpportunitiesResult.NoMetadata:
+                    return;
+
+                case null:
+                    throw new InvalidOperationException(
+                        "Composed Body Shapes predicates require the typed "
+                        + "Optimization Opportunities query.");
+
+                default:
+                    throw new InvalidOperationException(
+                        "Composed Body Shapes predicates received an unknown "
+                        + "Optimization Opportunities result.");
+            }
+        }
+
         var metadata = context.MetadataContext
             ?? throw new InvalidOperationException(
                 "The Body Shapes scanner requires the command's prefetched PE image.");
@@ -234,22 +262,6 @@ public static class LibrarySections
             metadata.GetPrefetchedImage(),
             metadata.PortablePdbPath,
             context.BodyReferenceResolver);
-        IReadOnlySet<int>? methodTokens = null;
-        if (context.Model.PerformanceTriageOptions.HasCandidateFilters)
-        {
-            if (context.Model.OptimizationOpportunitiesQueryResult is null)
-            {
-                throw new InvalidOperationException(
-                    "Composed Body Shapes predicates require the typed "
-                    + "Optimization Opportunities query.");
-            }
-
-            methodTokens = LibraryMetadataService.PerformanceSourceMethods(
-                    context.Model.PerformanceTriageOpportunities)
-                .Select(static method => method.MetadataToken)
-                .ToHashSet();
-        }
-
         var result = methodTokens is null
             ? BodyShapeSearch.Search(source, kind)
             : BodyShapeSearch.Search(source, kind, methodTokens);

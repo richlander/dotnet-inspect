@@ -476,7 +476,8 @@ public class LibraryCommand
             commandQueryDemand.AddRange(DiscoveryQueries);
         if (options.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
-        if (options.BodyKindQuery.HasFilter
+        if (scanners.Contains(LibrarySections.ScannerBodyShapes)
+            && options.BodyKindQuery.HasFilter
             && options.PerformanceTriage.HasCandidateFilters)
         {
             commandQueryDemand.Add(

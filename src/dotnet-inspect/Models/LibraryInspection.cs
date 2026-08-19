@@ -783,6 +783,14 @@ public class LibraryInspection
                     SectionNames.PerformanceTriage,
                     OptimizationOpportunitiesQuery.Definition.Name,
                     optimizationFailure.Error.Message));
+                if (BodyKindQueryOptions.HasFilter
+                    && PerformanceTriageOptions.HasCandidateFilters)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.BodyShapes,
+                        OptimizationOpportunitiesQuery.Definition.Name,
+                        optimizationFailure.Error.Message));
+                }
             }
             AddFailure(failures, "Extension Methods", ExtensionMemberInspection);
             AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);

@@ -160,6 +160,36 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task CheapDiscovery_DoesNotRunComposedPerformanceQuery()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "-D",
+                    "--where",
+                    "Kind=ArrayCreationExpression",
+                    "--where",
+                    "Shape=small-array",
+                    "--trace",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Inspection Failures",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MemberEffectiveDiscovery_BodyShapeGlobRequiresKind()
     {
         var root = CommandLineBuilder.CreateRootCommand();

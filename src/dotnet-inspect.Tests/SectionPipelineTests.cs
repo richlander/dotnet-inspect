@@ -5259,6 +5259,49 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public async Task ComposedBodyShapes_QueryFailureDoesNotProduceEmptySuccess()
+    {
+        var error = new IOException("body index failed");
+        var registry = new InspectionQueryRegistry<ScannerContext>()
+            .Add(
+                OptimizationOpportunitiesQuery.Definition,
+                _ => new OptimizationOpportunitiesResult.Failed(error));
+        using var httpClient = new HttpClient();
+
+        LibraryInspection inspection = Assert.IsType<LibraryInspection>(
+            await LibraryMetadataService.InspectAsync(
+                typeof(SectionPipelineTests).Assembly.Location,
+                new LibraryOptions
+                {
+                    BodyKindQuery = new BodyKindQueryOptions
+                    {
+                        Kind = "ArrayCreationExpression",
+                    },
+                    PerformanceTriage = new PerformanceTriageOptions
+                    {
+                        Shapes = ["small-array"],
+                    },
+                },
+                new Output.VerboseLogger(false),
+                packageName: null,
+                packageVersion: null,
+                httpClient,
+                scanners: [LibrarySections.ScannerBodyShapes],
+                scannerRegistry: LibrarySections.CreateScannerRegistry(),
+                queries: [OptimizationOpportunitiesQuery.Definition],
+                queryRegistry: registry));
+
+        Assert.Null(inspection.BodyShapeSearchResult);
+        var bodyShapesFailure = Assert.Single(
+            inspection.InspectionFailures!,
+            failure => failure.Section == SectionNames.BodyShapes);
+        Assert.Equal(
+            OptimizationOpportunitiesQuery.Definition.Name,
+            bodyShapesFailure.Finding);
+        Assert.Equal(error.Message, bodyShapesFailure.Reason);
+    }
+
+    [Fact]
     public void OptimizationOpportunitiesQuery_NoMetadataDoesNotProjectFailure()
     {
         var inspection = new LibraryInspection();
