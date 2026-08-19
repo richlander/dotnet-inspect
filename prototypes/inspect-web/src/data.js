@@ -46,6 +46,35 @@ export function assemblyDescriptorForType(assemblies, type) {
     || assembly.name === `${bare}.dll`) ?? null;
 }
 
+export function mergeInspectionErrors(current, next) {
+  const messages = [current, next]
+    .map(value => String(value || "").trim())
+    .filter(Boolean);
+  return [...new Set(messages)].join("; ");
+}
+
+export function platformPackFromProvenance(
+  assembly,
+  exactPack,
+  loadedAssemblies,
+  recent,
+  roster) {
+  if (exactPack === "netcore.app" || exactPack === "aspnetcore.app")
+    return exactPack;
+  const normalized = String(assembly || "").replace(/\.dll$/i, "");
+  const loaded = (loadedAssemblies || []).find(candidate =>
+    String(candidate.name || "").replace(/\.dll$/i, "")
+      .toLowerCase() === normalized.toLowerCase());
+  if (loaded?.platformPack) return loaded.platformPack;
+  const indexed = (roster || []).find(entry =>
+    String(entry.assembly || "").toLowerCase() === normalized.toLowerCase());
+  if (indexed?.pack) return indexed.pack;
+  const remembered = (recent || []).find(entry =>
+    String(entry.assembly || "").toLowerCase() === normalized.toLowerCase());
+  if (remembered?.pack) return remembered.pack;
+  return "netcore.app";
+}
+
 export function dependencyCoordinateCandidates(packages) {
   return packages.map(candidate => ({
     key: packageIdentityKey(candidate),

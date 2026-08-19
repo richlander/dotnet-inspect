@@ -28,12 +28,14 @@ import {
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
   memberSectionIdsFor,
+  mergeInspectionErrors,
   mermaidLabel,
   normalizeShareTabs,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
   parameterTitleHtml,
+  platformPackFromProvenance,
   removeWorkspacePackage,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
@@ -139,9 +141,53 @@ test("platform type and member navigation hides package-only operations", () => 
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {
+  assert.equal(
+    platformPackFromProvenance(
+      "Microsoft.AspNetCore.Http",
+      "aspnetcore.app",
+      [],
+      [],
+      []),
+    "aspnetcore.app");
+  assert.equal(
+    platformPackFromProvenance(
+      "Microsoft.AspNetCore.Http",
+      null,
+      [{
+        name: "Microsoft.AspNetCore.Http",
+        platformPack: "aspnetcore.app"
+      }],
+      [],
+      []),
+    "aspnetcore.app");
   assert.match(
     appSource,
-    /inspectExpandPlatformCallGraph\(\{[\s\S]*?assembly:\s*node\.assembly,[\s\S]*?pack:\s*platformPackForAssembly\(node\.assembly\)/);
+    /inspectExpandPlatformCallGraph\(\{[\s\S]*?assembly:\s*node\.assembly,[\s\S]*?pack:\s*platformPackForAssembly\(node\.assembly,\s*node\.platformPack\)/);
+  assert.match(
+    appSource,
+    /pack:\s*platformPackForAssembly\(type\.assembly,\s*type\.platformPack\)/);
+});
+
+test("platform inspection notices survive cumulative surface loads", () => {
+  assert.equal(
+    mergeInspectionErrors("", "System.Synthetic: omitted 1 metadata row."),
+    "System.Synthetic: omitted 1 metadata row.");
+  assert.equal(
+    mergeInspectionErrors(
+      "First: omitted 1 metadata row.",
+      "Second: omitted 2 metadata rows."),
+    "First: omitted 1 metadata row.; Second: omitted 2 metadata rows.");
+  assert.equal(
+    mergeInspectionErrors(
+      "First: omitted 1 metadata row.",
+      "First: omitted 1 metadata row."),
+    "First: omitted 1 metadata row.");
+  assert.match(
+    appSource,
+    /existing\.inspectionError\s*=\s*mergeInspectionErrors\(/);
+  assert.match(
+    appSource,
+    /inspectionError:\s*result\.inspectionError\s*\|\|\s*""/);
 });
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const engineSource = readFileSync(

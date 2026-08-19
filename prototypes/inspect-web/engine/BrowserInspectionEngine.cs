@@ -1139,7 +1139,8 @@ public static partial class BrowserInspectionEngine
 
     static BrowserCallGraphTarget Target(
         CallGraphNode node,
-        IReadOnlyList<AssemblyReferenceIdentity> loadedIdentities)
+        IReadOnlyList<AssemblyReferenceIdentity> loadedIdentities,
+        Func<string, string?>? platformPackForAssembly)
     {
         Analysis.TypeRef? definition = DeclaringTypeDefinition(node.Member.DeclaringType);
         AssemblyReferenceIdentity? identity =
@@ -1158,9 +1159,14 @@ public static partial class BrowserInspectionEngine
                 identity = matches[0];
             }
         }
+        string assembly =
+            identity?.Name
+            ?? definition?.Assembly
+            ?? node.Member.DeclaringType.Assembly
+            ?? "";
         return new BrowserCallGraphTarget(
             $"n{node.Id}",
-            identity?.Name ?? definition?.Assembly ?? node.Member.DeclaringType.Assembly ?? "",
+            assembly,
             identity?.Version?.ToString(),
             identity?.Culture,
             identity?.PublicKeyToken,
@@ -1173,7 +1179,8 @@ public static partial class BrowserInspectionEngine
             node.Member.GenericArity,
             null,
             Analysis.CallGraphMemberResolver.CreateSelector(node.Member).Key,
-            node.Kind.ToString().ToLowerInvariant());
+            node.Kind.ToString().ToLowerInvariant(),
+            platformPackForAssembly?.Invoke(assembly));
     }
 
     /// <summary>
@@ -1205,11 +1212,19 @@ public static partial class BrowserInspectionEngine
 
     internal static BrowserCallGraphTarget[] Targets(
         IEnumerable<CallGraphNode> nodes,
-        IEnumerable<AssemblyReferenceIdentity>? loadedIdentities = null)
+        IEnumerable<AssemblyReferenceIdentity>? loadedIdentities = null,
+        Func<string, string?>? platformPackForAssembly = null)
     {
         ArgumentNullException.ThrowIfNull(nodes);
         AssemblyReferenceIdentity[] identities = [.. loadedIdentities ?? []];
-        return [.. nodes.Select(node => Target(node, identities))];
+        return
+        [
+            .. nodes.Select(node =>
+                Target(
+                    node,
+                    identities,
+                    platformPackForAssembly)),
+        ];
     }
 
     internal static BrowserCallGraphDiagnostics Diagnostics(

@@ -45,7 +45,8 @@ public sealed record BrowserAssemblySurface(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers);
+    int PublicMembers,
+    string? PlatformPack);
 
 /// <summary>
 /// One type row. <see cref="Id"/> is the browser key, <see cref="DefinitionId"/> is the escaped
@@ -72,7 +73,8 @@ public sealed record BrowserTypeSurface(
     string AssemblyName,
     int Members,
     string Signature,
-    BrowserMemberSurface[] Api);
+    BrowserMemberSurface[] Api,
+    string? PlatformPack);
 
 /// <summary>
 /// One member overload. <see cref="StableSelector"/>, <see cref="AnchorDigest"/>, and
@@ -391,7 +393,8 @@ public sealed record BrowserCallGraphTarget(
     int GenericArity,
     int? MetadataToken,
     string SelectorKey,
-    string Kind);
+    string Kind,
+    string? PlatformPack);
 
 public sealed record BrowserCallGraphNode(
     string Label,

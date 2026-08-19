@@ -17,11 +17,17 @@ namespace InspectWeb.Engine;
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserPlatformScope(
     InspectionWorkspace workspace,
-    WorkspaceContextLoadOutcome.Loaded context) : IDisposable
+    WorkspaceContextLoadOutcome.Loaded context,
+    IReadOnlyDictionary<string, string> platformPacks) : IDisposable
 {
     readonly InspectionWorkspace _workspace = workspace;
+    readonly ImmutableDictionary<string, string> _platformPacks =
+        platformPacks.ToImmutableDictionary(StringComparer.OrdinalIgnoreCase);
+    WorkspaceContextLoadOutcome.Loaded? _context = context;
 
-    internal WorkspaceContextLoadOutcome.Loaded Context { get; } = context;
+    internal WorkspaceContextLoadOutcome.Loaded Context =>
+        _context
+        ?? throw new ObjectDisposedException(nameof(BrowserPlatformScope));
 
     internal ImmutableArray<RealizedMemberCoordinate.Platform> Coordinates { get; } =
     [
@@ -80,7 +86,17 @@ internal sealed class BrowserPlatformScope(
                 $"Platform family '{family}' assembly '{assembly}' is not resident in this workspace.");
     }
 
-    public void Dispose() => _workspace.Dispose();
+    internal string? PlatformPackForAssembly(string assembly) =>
+        _platformPacks.GetValueOrDefault(assembly);
+
+    public void Dispose()
+    {
+        if (_context is null)
+            return;
+
+        _context = null;
+        _workspace.Dispose();
+    }
 }
 
 internal sealed record BrowserPlatformScopeResolution(
@@ -337,7 +353,10 @@ internal static class BrowserPlatformWorkspace
                     Options(store, host, deadline),
                     deadline.Token).ConfigureAwait(false);
             return (
-                Scope(workspace, outcome),
+                Scope(
+                    workspace,
+                    outcome,
+                    store.PlatformPacks),
                 store.PackageKeys);
         }
         catch
@@ -365,7 +384,10 @@ internal static class BrowserPlatformWorkspace
                     Options(store, host, deadline),
                     deadline.Token).ConfigureAwait(false);
             return (
-                Scope(workspace, outcome),
+                Scope(
+                    workspace,
+                    outcome,
+                    store.PlatformPacks),
                 store.PackageKeys);
         }
         catch
@@ -396,11 +418,15 @@ internal static class BrowserPlatformWorkspace
 
     static BrowserPlatformScope Scope(
         InspectionWorkspace workspace,
-        WorkspaceContextLoadOutcome outcome) =>
+        WorkspaceContextLoadOutcome outcome,
+        IReadOnlyDictionary<string, string> platformPacks) =>
         outcome switch
         {
             WorkspaceContextLoadOutcome.Loaded loaded =>
-                new BrowserPlatformScope(workspace, loaded),
+                new BrowserPlatformScope(
+                    workspace,
+                    loaded,
+                    platformPacks),
             WorkspaceContextLoadOutcome.Failed failed =>
                 throw Failure(failed),
             _ => throw new InvalidOperationException(
@@ -529,6 +555,15 @@ internal static class BrowserPlatformWorkspace
                 $"Platform pack '{pack}' is not supported."),
         };
 
+    internal static string Pack(string family) =>
+        family switch
+        {
+            RuntimeFamily => RuntimePack,
+            AspNetCoreFamily => AspNetCorePack,
+            _ => throw new InvalidOperationException(
+                $"Platform family '{family}' is not supported."),
+        };
+
     static string AssemblySimpleName(string assemblyFileName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyFileName);
@@ -604,9 +639,19 @@ internal static class BrowserPlatformWorkspace
     {
         readonly ImmutableHashSet<string>.Builder _packageKeys =
             ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
+        readonly HashSet<string> _recordedPackageKeys =
+            new(StringComparer.Ordinal);
+        readonly Dictionary<string, string> _platformPacks =
+            new(StringComparer.OrdinalIgnoreCase);
+        readonly HashSet<string> _ambiguousAssemblies =
+            new(StringComparer.OrdinalIgnoreCase);
 
         internal ImmutableHashSet<string> PackageKeys =>
             _packageKeys.ToImmutable();
+
+        internal ImmutableDictionary<string, string> PlatformPacks =>
+            _platformPacks.ToImmutableDictionary(
+                StringComparer.OrdinalIgnoreCase);
 
         public IPackageContent? TryGetCached(
             string packageName,
@@ -622,10 +667,14 @@ internal static class BrowserPlatformWorkspace
                     log);
             if (content is not null)
             {
-                _packageKeys.Add(
-                    BrowserPackageWorkspace.PackageKey(
-                        packageName,
-                        version));
+                string packageKey = BrowserPackageWorkspace.PackageKey(
+                    packageName,
+                    version);
+                _packageKeys.Add(packageKey);
+                RecordPlatformAssemblies(
+                    packageKey,
+                    packageName,
+                    content);
             }
 
             return content;
@@ -645,15 +694,78 @@ internal static class BrowserPlatformWorkspace
                     sourceKey,
                     nupkg,
                     cancellationToken).ConfigureAwait(false);
-            _packageKeys.Add(
-                BrowserPackageWorkspace.PackageKey(
-                    packageName,
-                    version));
+            string packageKey = BrowserPackageWorkspace.PackageKey(
+                packageName,
+                version);
+            _packageKeys.Add(packageKey);
+            RecordPlatformAssemblies(
+                packageKey,
+                packageName,
+                content);
             return content;
         }
 
         public IPackagePayloadReservation Reserve(
             PackagePayloadTransfer transfer) =>
             BrowserPackageWorkspace.PackageTransferPolicy.Reserve(transfer);
+
+        void RecordPlatformAssemblies(
+            string packageKey,
+            string packageName,
+            IPackageContent content)
+        {
+            if (!_recordedPackageKeys.Add(packageKey))
+                return;
+
+            string? pack = packageName.StartsWith(
+                    "microsoft.netcore.app.runtime.",
+                    StringComparison.OrdinalIgnoreCase)
+                ? RuntimePack
+                : packageName.StartsWith(
+                    "microsoft.aspnetcore.app.runtime.",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? AspNetCorePack
+                    : null;
+            if (pack is null)
+                return;
+
+            foreach (string path in content.EnumerateEntries())
+            {
+                if (!path.StartsWith(
+                        "runtimes/",
+                        StringComparison.OrdinalIgnoreCase)
+                    || !path.Contains(
+                        "/lib/",
+                        StringComparison.OrdinalIgnoreCase)
+                    || !path.EndsWith(
+                        ".dll",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                int separator = path.LastIndexOf('/');
+                string assembly = path[(separator + 1)..^4];
+                if (!RealizedMemberCoordinate.IsAssemblySimpleName(assembly)
+                    || _ambiguousAssemblies.Contains(assembly))
+                {
+                    continue;
+                }
+
+                if (_platformPacks.TryGetValue(
+                        assembly,
+                        out string? existing)
+                    && !existing.Equals(
+                        pack,
+                        StringComparison.Ordinal))
+                {
+                    _platformPacks.Remove(assembly);
+                    _ambiguousAssemblies.Add(assembly);
+                    continue;
+                }
+
+                _platformPacks[assembly] = pack;
+            }
+        }
     }
 }

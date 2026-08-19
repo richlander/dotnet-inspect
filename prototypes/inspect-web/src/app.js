@@ -18,6 +18,7 @@ import {
   lenses,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
+  mergeInspectionErrors,
   memberRequestKey,
   memberSectionIdsFor,
   mermaidLabel,
@@ -27,6 +28,7 @@ import {
   packageIdentityKey,
   packageLenses,
   parameterTitleHtml,
+  platformPackFromProvenance,
   removeWorkspacePackage,
   retainWorkspacePackage,
   rootCommands,
@@ -4622,12 +4624,17 @@ function platformLibraryRoster(query) {
   return rows;
 }
 
-// Which shared framework an assembly ships in, resolved from the static index
-// roster (defaulting to CoreCLR). Used when recording a recent library from a
-// context that does not already carry the pack token.
-function platformPackForAssembly(key) {
-  const hit = platformLibraryRoster("").find(lib => lib.assembly === key);
-  return hit ? hit.pack : "netcore.app";
+// Which shared framework an assembly ships in. Product-supplied provenance from
+// a surface or graph target wins, followed by the resident model, current index,
+// and recent history; CoreCLR remains the last compatibility fallback.
+function platformPackForAssembly(key, exactPack) {
+  const resident = runtimePackPackage();
+  return platformPackFromProvenance(
+    key,
+    exactPack,
+    resident?.assemblies,
+    state.platformRecent,
+    platformLibraryRoster(""));
 }
 
 // Remember an opened platform library at the front of the recent list (most-recent
@@ -6727,7 +6734,7 @@ async function loadRuntimeMemberCallGraph(type, overload) {
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      pack: platformPackForAssembly(type.assembly),
+      pack: platformPackForAssembly(type.assembly, type.platformPack),
       type: type.metadataId ?? type.queryId ?? type.id,
       member: state.selectedBodyTarget?.memberName ?? overload.name,
       selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
@@ -7075,7 +7082,7 @@ async function drillPlatformNode(node) {
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
       assembly: node.assembly,
-      pack: platformPackForAssembly(node.assembly),
+      pack: platformPackForAssembly(node.assembly, node.platformPack),
       type: callGraphTargetTypeId(node),
       member: node.memberName,
       selectorKey: node.selectorKey,
@@ -7140,7 +7147,8 @@ async function navigateOrDrillPlatform(node) {
     state.platformDrillLoading = true;
     state.platformDrillError = "";
     render();
-    const targetPack = platformPackForAssembly(node.assembly);
+    const targetPack =
+      platformPackForAssembly(node.assembly, node.platformPack);
     pack = await loadRuntimePackAssembly(
       framework,
       node.assembly.endsWith(".dll")
@@ -7949,6 +7957,7 @@ async function loadRuntimePack(framework, isCurrent = () => true) {
       totalTypes: types.length,
       totalMembers: result.totalMembers,
       documents: result.documents ?? [],
+      inspectionError: result.inspectionError || "",
       isRuntimePack: true
     };
     retainPackageModel(packageModel, existing);
@@ -8030,6 +8039,9 @@ async function loadRuntimePackAssembly(
         .sort((left, right) => left.order - right.order);
       existing.totalTypes = existing.types.length;
       existing.totalMembers = (existing.totalMembers || 0) + (result.totalMembers || 0);
+      existing.inspectionError = mergeInspectionErrors(
+        existing.inspectionError,
+        result.inspectionError);
       return existing;
     }
     const packageModel = {
@@ -8046,6 +8058,7 @@ async function loadRuntimePackAssembly(
       totalTypes: newTypes.length,
       totalMembers: result.totalMembers,
       documents: result.documents ?? [],
+      inspectionError: result.inspectionError || "",
       isRuntimePack: true
     };
     retainPackageModel(packageModel, existing);

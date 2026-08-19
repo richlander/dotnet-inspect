@@ -166,7 +166,8 @@ public static partial class BrowserInspectionEngine
                 Targets(
                     projection.Nodes,
                     resolution.Scope.Members.Select(candidate =>
-                        candidate.Participant.Assembly.Identity)),
+                        candidate.Participant.Assembly.Identity),
+                    resolution.Scope.PlatformPackForAssembly),
                 Diagnostics(
                     view.Diagnostics,
                     projection.HasUnexploredTraversalBoundary,
@@ -201,7 +202,10 @@ public static partial class BrowserInspectionEngine
                         assembly,
                         $"{assembly}.dll"),
                 ],
-                qualifyTypeIds: true);
+                qualifyTypeIds: true,
+                platformPack:
+                    BrowserPlatformWorkspace.Pack(
+                        resolution.Coordinate.Family));
         if (projected.Assemblies.Length == 0
             && !projected.IsTruncated)
         {

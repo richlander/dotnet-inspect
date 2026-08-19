@@ -127,6 +127,75 @@ public sealed class BrowserEngineBoundaryTests
         Assert.InRange(BrowserPackageWorkspace.Stats().Workspaces, 1, 4);
     }
 
+    [Fact]
+    public async Task PlatformWorkspace_CarriesAspNetPackWithoutStaticIndex()
+    {
+        const string packageId =
+            "microsoft.aspnetcore.app.runtime.linux-x64";
+        const string version = "11.0.0";
+        byte[] nupkg = PlatformPackage(
+            ("InspectWeb.Engine.Tests.dll",
+                File.ReadAllBytes(
+                    typeof(BrowserEngineBoundaryTests).Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0-ios",
+                "InspectWeb.Engine.Tests.dll",
+                "aspnetcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
+            JsonSerializer.Deserialize(
+                BrowserInspectionEngine.ProjectPlatformSurface(resolution),
+                BrowserJsonContext.Default.BrowserPackageSurface));
+
+        Assert.Equal(
+            "aspnetcore.app",
+            Assert.Single(surface.Assemblies).PlatformPack);
+        Assert.All(
+            surface.Types,
+            type => Assert.Equal("aspnetcore.app", type.PlatformPack));
+
+        var selected = surface.Types
+            .SelectMany(type =>
+                type.Api.Select(member => (Type: type, Member: member)))
+            .First(candidate =>
+                candidate.Member.MetadataToken is > 0
+                && candidate.Member.BodySelectors.Length > 0);
+        BrowserCallGraph graph = Assert.IsType<BrowserCallGraph>(
+            JsonSerializer.Deserialize(
+                await BrowserInspectionEngine.ExpandPlatformCallGraph(
+                    "net11.0-ios",
+                    "InspectWeb.Engine.Tests",
+                    "aspnetcore.app",
+                    selected.Type.MetadataId,
+                    selected.Member.Name,
+                    selected.Member.GraphSelectorKey,
+                    selected.Member.MetadataToken!.Value),
+                BrowserJsonContext.Default.BrowserCallGraph));
+        BrowserCallGraphTarget[] ownTargets =
+        [
+            .. graph.Targets.Where(target =>
+                target.Assembly == "InspectWeb.Engine.Tests"),
+        ];
+        Assert.NotEmpty(ownTargets);
+        Assert.All(
+            ownTargets,
+            target => Assert.Equal(
+                "aspnetcore.app",
+                target.PlatformPack));
+    }
+
     [Theory]
     [InlineData("https://raw.githubusercontent.com/org/repo/commit/A.cs", true)]
     [InlineData("https://dev.azure.com/org/project/_apis/git/A.cs", true)]
@@ -367,6 +436,12 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal("System.Private.CoreLib", surface.DefaultAssemblyId);
         Assert.Single(surface.Assemblies);
         Assert.NotEmpty(surface.Types);
+        Assert.Equal(
+            "netcore.app",
+            Assert.Single(surface.Assemblies).PlatformPack);
+        Assert.All(
+            surface.Types,
+            type => Assert.Equal("netcore.app", type.PlatformPack));
         BrowserPlatformScopeResolution reused =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
                 "net11.0",
@@ -451,6 +526,16 @@ public sealed class BrowserEngineBoundaryTests
                 BrowserJsonContext.Default.BrowserCallGraph));
         Assert.Equal(0, graph.Scope.Packages);
         Assert.Equal(2, graph.Scope.Assemblies);
+        BrowserCallGraphTarget[] attributedTargets =
+        [
+            .. graph.Targets.Where(target =>
+                target.Assembly is "System.Private.CoreLib"
+                    or "InspectWeb.Engine.Tests"),
+        ];
+        Assert.NotEmpty(attributedTargets);
+        Assert.All(
+            attributedTargets,
+            target => Assert.Equal("netcore.app", target.PlatformPack));
 
         BrowserPlatformScopeResolution qualifiedRuntime =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
@@ -481,6 +566,8 @@ public sealed class BrowserEngineBoundaryTests
             Assert.False(
                 BrowserPackageWorkspace.IsScopeRetained(expanded.Scope));
         }
+        Assert.Throws<ObjectDisposedException>(
+            () => expanded.Scope.Members);
     }
 
     [Theory]

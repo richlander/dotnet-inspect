@@ -90,10 +90,16 @@ version and producer. Later lazy selections re-acquire from that pin and
 replace the old scope with one cumulative binding-consistent group, so runtime
 and ASP.NET Core libraries never drift across versions or feeds and call
 graphs can lazily acquire a selected target and see every resident platform
-assembly. Reuse updates both the shared scope LRU and its archive recency. The
-Platform workspace admits at most 256 selected assemblies and retains at most
-64 MB of opened images.
+assembly. Surfaces and graph targets carry the pack membership recorded from
+those acquired implementation archives, so navigation does not depend on the
+optional static index knowing the active framework. Reuse updates both the
+shared scope LRU and its archive recency. Eviction severs the disposed scope's
+loaded context as well as removing it from the registry, releasing the package
+content closures whose archives leave cache accounting. The Platform workspace
+admits at most 256 selected assemblies and retains at most 64 MB of opened
+images.
 `BrowserEngineBoundaryTests.PlatformWorkspace_PinsAndAccumulatesSelectedAssemblies`,
+`PlatformWorkspace_CarriesAspNetPackWithoutStaticIndex`,
 `PlatformWorkspace_ReuseTouchesTheSharedScopeLru`,
 `PlatformWorkspace_CanceledQueueEntryPreservesSerialization`,
 `PlatformWorkspace_RejectsInvalidSelectionsBeforeNetwork`, and

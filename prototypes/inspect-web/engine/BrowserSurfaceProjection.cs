@@ -37,7 +37,8 @@ internal static class BrowserSurfaceProjection
     internal static Surface Project(
         AssemblyContextApiSurfaceResult surfaces,
         IReadOnlyList<Participant> requested,
-        bool qualifyTypeIds = false)
+        bool qualifyTypeIds = false,
+        string? platformPack = null)
     {
         ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(requested);
@@ -99,7 +100,8 @@ internal static class BrowserSurfaceProjection
                             transportTextBudget,
                             qualifyTypeIds
                             || duplicateTypeKeys.Contains(
-                                TypeCollisionKey.Create(type)))),
+                                TypeCollisionKey.Create(type)),
+                            platformPack)),
                 ];
                 transportTextBudget.CommitParticipant();
             }
@@ -130,7 +132,8 @@ internal static class BrowserSurfaceProjection
                 identity.PublicKeyToken,
                 participant.Asset,
                 publicTypes.Length,
-                publicTypes.Sum(type => type.Members)));
+                publicTypes.Sum(type => type.Members),
+                platformPack));
             types.AddRange(assemblyTypes);
         }
 
@@ -169,7 +172,8 @@ internal static class BrowserSurfaceProjection
         string assemblyId,
         string assemblyName,
         BrowserSurfaceTextBudget? textBudget = null,
-        bool qualifyId = false)
+        bool qualifyId = false,
+        string? platformPack = null)
     {
         textBudget?.EnsureCanProject(
             type,
@@ -213,7 +217,8 @@ internal static class BrowserSurfaceProjection
             assemblyName,
             members.Length,
             string.Join(' ', modifiers),
-            members);
+            members,
+            platformPack);
         textBudget?.Retain(projected);
         return projected;
     }
