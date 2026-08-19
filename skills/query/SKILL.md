@@ -90,7 +90,7 @@ evidence unless a category is named.
 | Command | Base categories | Domain categories |
 | ------- | --------------- | ----------------- |
 | `package` | `@Package`, `@Files` | `@Dependencies`, `@Audit`, `@SourceLink` |
-| `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@Decompiler`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
+| `library` | `@Library`, `@Surface` | `@Audit`, `@Performance`, `@SourceLink`, `@Integrations`, `@Metadata`, `@Context` |
 
 `@Package` groups `Package Info`, `Signals`, `Statistics`, `Target Frameworks`,
 `Signature`, `Dependencies`, `Vulnerabilities`, `Manifest`, `Runtime
@@ -98,6 +98,10 @@ Dependencies`, and the unbounded `Package files` listing. `@Files` groups the
 curated nuspec, README, and skill-file sections. Other commands expose
 categories such as member `@Source`; `Switches` is a section. There are no
 user-facing `@All`, `@Default`, or `@Hidden` categories.
+
+Library `Unsafe Members` is intentionally standalone rather than category
+owned. Select it directly with `-S "Unsafe Members"`; use `-D "Unsafe Members"`
+for its fields or `-D --schema` to find it in the complete static graph.
 
 Bare `-S` returns high-value, fixed-length, network-free sections from the
 package or library base categories. Sections without evidence are omitted.

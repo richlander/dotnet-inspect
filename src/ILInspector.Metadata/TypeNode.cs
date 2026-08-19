@@ -350,8 +350,16 @@ internal sealed class GenericTypeNode(
             return IsReferenceType && IsNullableAnnotated ? $"{tuple}?" : tuple;
         }
 
-        var argsStr = string.Join(", ", arguments.Select(a => a.Render(canonicalTuples)));
-        var result = $"{baseName}<{argsStr}>{nestedSuffix}";
+        // Outer`1.Inner`1 must render as Outer<int>.Inner<string>, not
+        // Outer<int, string>.Inner<T>. ApplyGenericArguments owns that split.
+        string[] renderedArguments = [.. arguments.Select(argument => argument.Render(canonicalTuples))];
+        string result = metadataName is { Length: > 0 }
+            ? TypeResolver.ApplyGenericArguments(
+                metadataName.Replace('+', '.'),
+                renderedArguments)
+            : arguments.Length == 0
+                ? $"{baseName}{nestedSuffix}"
+                : $"{baseName}<{string.Join(", ", renderedArguments)}>{nestedSuffix}";
         return IsReferenceType && IsNullableAnnotated ? $"{result}?" : result;
     }
 
