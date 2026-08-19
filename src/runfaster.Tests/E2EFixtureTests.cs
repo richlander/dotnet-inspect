@@ -941,6 +941,59 @@ public class E2EFixtureTests
         }
     }
 
+    [Fact]
+    public void Correlate_ProfileWeightIsFullForDistinctFrames()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string speedscopePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-{Guid.NewGuid():N}.speedscope.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"objects":[{"member":"Fixture.Type.First()","assembly":"Fixture","method_token":"0x06000001","shape":"object-allocation","il":"IL_0005","allocation":"System.Object"},{"member":"Fixture.Type.Second()","assembly":"Fixture","method_token":"0x06000002","shape":"object-allocation","il":"IL_0005","allocation":"System.String"}]}}
+                """);
+            File.WriteAllText(
+                speedscopePath,
+                """
+                {"shared":{"frames":[{"name":"Fixture.Type.First()"},{"name":"Fixture.Type.Second()"}]},"profiles":[{"type":"sampled","samples":[[0,1]],"weights":[100]}]}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--input",
+                speedscopePath,
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            var candidates = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .ToArray();
+            Assert.Equal(2, candidates.Length);
+            Assert.All(
+                candidates,
+                candidate =>
+                    Assert.Equal(
+                        100,
+                        candidate.GetProperty(
+                            "runtimeWeight").GetDouble()));
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(speedscopePath);
+        }
+    }
+
     [Theory]
     [InlineData("-1 bytes")]
     [InlineData(

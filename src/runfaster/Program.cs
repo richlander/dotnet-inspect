@@ -1429,31 +1429,54 @@ static void AccumulateFrameObservation(
     if (weight <= 0)
         return;
 
-    var candidates = frameIndices
-        .SelectMany(frame =>
-            candidatesByFrame.TryGetValue(
+    var observationWeights =
+        new Dictionary<
+            int,
+            (AllocationCandidate Candidate, double Weight)>();
+    foreach (int frame in frameIndices.Distinct())
+    {
+        if (!candidatesByFrame.TryGetValue(
                 frame,
                 out var candidates)
-                ? candidates
-                : [])
-        .DistinctBy(static candidate =>
-            candidate.Id)
-        .OrderBy(static candidate =>
-            candidate.Id)
-        .ToArray();
-    foreach (var candidate in candidates)
+            || candidates.Count == 0)
+        {
+            continue;
+        }
+
+        double frameWeight =
+            weight / candidates.Count;
+        foreach (var candidate in candidates)
+        {
+            double priorWeight =
+                observationWeights.TryGetValue(
+                    candidate.Id,
+                    out var prior)
+                ? prior.Weight
+                : 0;
+            observationWeights[candidate.Id] =
+                (
+                    candidate,
+                    Math.Max(
+                        priorWeight,
+                        frameWeight));
+        }
+    }
+
+    foreach (var (_, observation)
+             in observationWeights)
     {
         double accumulatedWeight =
             weightsByCandidate.TryGetValue(
-                candidate.Id,
+                observation.Candidate.Id,
                 out var accumulated)
             ? accumulated.Weight
             : 0;
-        weightsByCandidate[candidate.Id] =
+        weightsByCandidate[
+            observation.Candidate.Id] =
             (
-                candidate,
+                observation.Candidate,
                 accumulatedWeight
-                    + weight / candidates.Length);
+                    + observation.Weight);
     }
 }
 
@@ -2791,13 +2814,17 @@ readonly record struct MethodTextMatch(
 
 sealed class CandidateLookup
 {
+    const int ByteRemainderSlotCount = 4096;
     readonly Dictionary<(int Token, int Offset), List<AllocationCandidate>> _byTokenOffset;
     readonly Dictionary<(int Token, int Offset), AllocationCandidate[]> _rejectedByTokenOffset;
     readonly Dictionary<(string Module, int Token), List<AllocationCandidate>> _byModuleMethodToken;
     readonly HashSet<string> _candidateModules;
-    readonly Dictionary<string, int>
-        _byteRemainderOffsets = new(
-            StringComparer.Ordinal);
+    readonly Dictionary<int, string>
+        _stableAttributionKeys = [];
+    readonly (ulong Hash, int Offset, bool Used)[]
+        _byteRemainderSlots =
+            new (ulong, int, bool)[
+                ByteRemainderSlotCount];
     readonly List<(
         string Fragment,
         AllocationCandidate Candidate,
@@ -3004,6 +3031,10 @@ sealed class CandidateLookup
                             ?? candidate
                                 .UnknownLibraryInputIdentity,
                          candidate.RuntimeMethodToken,
+                         MethodWithoutToken:
+                            candidate.RuntimeMethodToken == 0
+                                ? candidate.Method
+                                : "",
                          candidate.AllocationKind)))
         {
             int count = group.Count();
@@ -3089,7 +3120,7 @@ sealed class CandidateLookup
             long totalBytes)
     {
         var ordered = candidates
-            .OrderBy(StableAttributionKey,
+            .OrderBy(GetStableAttributionKey,
                 StringComparer.Ordinal)
             .ThenBy(static candidate =>
                 candidate.Id)
@@ -3114,20 +3145,21 @@ sealed class CandidateLookup
                 baseBytes;
         }
 
-        string groupKey = string.Join(
-            "",
-            ordered.Select(candidate =>
-            {
-                string key =
-                    StableAttributionKey(candidate);
-                return string.Concat(
-                    key.Length.ToString(
-                        CultureInfo.InvariantCulture),
-                    ":",
-                    key);
-            }));
-        int start = _byteRemainderOffsets
-            .GetValueOrDefault(groupKey);
+        if (remainder == 0)
+            return result;
+
+        ulong groupHash =
+            ComputeAttributionGroupHash(
+                ordered);
+        int slotIndex = (int)(
+            groupHash
+            % ByteRemainderSlotCount);
+        ref var slot =
+            ref _byteRemainderSlots[slotIndex];
+        int start = slot.Used
+            && slot.Hash == groupHash
+            ? slot.Offset
+            : 0;
         for (int index = 0;
              index < remainder;
              index++)
@@ -3137,9 +3169,11 @@ sealed class CandidateLookup
                 % ordered.Length;
             result[ordered[recipient].Id]++;
         }
-        _byteRemainderOffsets[groupKey] =
+        slot = (
+            groupHash,
             (start + remainder)
-            % ordered.Length;
+                % ordered.Length,
+            true);
         return result;
     }
 
@@ -3267,6 +3301,23 @@ sealed class CandidateLookup
                 || method.Contains(candidate.Method, StringComparison.Ordinal));
     }
 
+    string GetStableAttributionKey(
+        AllocationCandidate candidate)
+    {
+        if (_stableAttributionKeys.TryGetValue(
+                candidate.Id,
+                out var key))
+        {
+            return key;
+        }
+
+        key = StableAttributionKey(candidate);
+        _stableAttributionKeys.Add(
+            candidate.Id,
+            key);
+        return key;
+    }
+
     static string StableAttributionKey(
         AllocationCandidate candidate)
         => string.Concat(
@@ -3281,6 +3332,13 @@ sealed class CandidateLookup
                     .ToString(
                         "X8",
                         CultureInfo.InvariantCulture)),
+            EncodeAttributionPart(
+                candidate.MethodToken.ToString(
+                    "X8",
+                    CultureInfo.InvariantCulture)),
+            EncodeAttributionPart(
+                candidate
+                    .UnknownLibraryInputIdentity),
             EncodeAttributionPart(
                 candidate.IlOffset.ToString(
                     "X8",
@@ -3304,6 +3362,27 @@ sealed class CandidateLookup
                 CultureInfo.InvariantCulture),
             ":",
             value);
+
+    static ulong ComputeAttributionGroupHash(
+        IReadOnlyList<AllocationCandidate> candidates)
+    {
+        const ulong offsetBasis =
+            14695981039346656037UL;
+        const ulong prime = 1099511628211UL;
+        ulong hash = offsetBasis;
+        foreach (var candidate in candidates)
+        {
+            uint id = unchecked((uint)candidate.Id);
+            for (int shift = 0;
+                 shift < 32;
+                 shift += 8)
+            {
+                hash ^= (byte)(id >> shift);
+                hash *= prime;
+            }
+        }
+        return hash;
+    }
 
     static bool HasAmbiguousTextCoordinateIdentity(
         IReadOnlyList<AllocationCandidate> candidates)
@@ -3653,12 +3732,17 @@ internal static class ProgramSupport
         var observedCanons = new HashSet<string>(StringComparer.Ordinal);
         foreach (var candidate in result.Candidates)
         {
-            if (!candidate.IsObserved || candidate.PredictedType is not { Length: > 0 } type)
+            if (!candidate.IsObserved)
                 continue;
-            var canon = CanonicalTypeSignature(
-                NormalizeProducerTypeName(type));
-            if (canon.Length != 0)
-                observedCanons.Add(canon);
+
+            AddObservedType(
+                candidate.PredictedType);
+            foreach (var projectedLibrary
+                     in candidate.ProjectedLibraries)
+            {
+                AddObservedType(
+                    projectedLibrary.PredictedType);
+            }
         }
 
         var byCanon = new Dictionary<string, List<AllocationCandidate>>(StringComparer.Ordinal);
@@ -3666,18 +3750,19 @@ internal static class ProgramSupport
         {
             if (candidate.IsObserved
                 || candidate.SupersededByTriage
-                || candidate.PredictedType is not { Length: > 0 } type)
+                || candidate.ProjectedByTriage)
                 continue;
-            var canon = CanonicalTypeSignature(
-                NormalizeProducerTypeName(type));
-            if (canon.Length == 0 || observedCanons.Contains(canon))
-                continue;
-            if (!byCanon.TryGetValue(canon, out var list))
+
+            AddCandidateForType(
+                candidate,
+                candidate.PredictedType);
+            foreach (var projectedLibrary
+                     in candidate.ProjectedLibraries)
             {
-                list = [];
-                byCanon[canon] = list;
+                AddCandidateForType(
+                    candidate,
+                    projectedLibrary.PredictedType);
             }
-            list.Add(candidate);
         }
 
         foreach (var (canon, candidates) in byCanon)
@@ -3693,11 +3778,55 @@ internal static class ProgramSupport
                 candidate.SupersededByTriage = true;
             foreach (var candidate in plan.Candidates)
             {
-                candidate.TypeConfirmedBytes = volume;
-                candidate.TypeConfirmedSiteCount = plan.SiteCount;
+                candidate.TypeConfirmedBytes = Math.Max(
+                    candidate.TypeConfirmedBytes,
+                    volume);
+                candidate.TypeConfirmedSiteCount =
+                    Math.Max(
+                        candidate.TypeConfirmedSiteCount,
+                        plan.SiteCount);
                 candidate
                     .MarkProjectedLibrariesSuperseded();
             }
+        }
+
+        void AddCandidateForType(
+            AllocationCandidate candidate,
+            string? type)
+        {
+            if (type is not { Length: > 0 })
+                return;
+
+            var canon = CanonicalTypeSignature(
+                NormalizeProducerTypeName(type));
+            if (canon.Length == 0
+                || observedCanons.Contains(canon))
+            {
+                return;
+            }
+            if (!byCanon.TryGetValue(
+                    canon,
+                    out var list))
+            {
+                list = [];
+                byCanon[canon] = list;
+            }
+            if (!list.Any(existing =>
+                    existing.Id == candidate.Id))
+            {
+                list.Add(candidate);
+            }
+        }
+
+        void AddObservedType(string? type)
+        {
+            if (type is not { Length: > 0 })
+                return;
+
+            var canon = CanonicalTypeSignature(
+                NormalizeProducerTypeName(type));
+            if (canon.Length != 0)
+                observedCanons.Add(canon);
         }
     }
 

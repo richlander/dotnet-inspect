@@ -254,7 +254,7 @@ public class TypeConfirmationTests
         result.Candidates.Add(library);
         result.Candidates.Add(triage);
         result.RecordTypeVolume(
-            "System.Object",
+            "Fixture.Specific",
             ProgramSupport.TypeConfirmMinBytes);
 
         ProgramSupport.ApplyTypeConfirmation(result);

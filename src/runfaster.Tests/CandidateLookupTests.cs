@@ -352,6 +352,26 @@ public class CandidateLookupTests
     }
 
     [Fact]
+    public void Create_ScopesTokenlessAmbiguityByMethod()
+    {
+        var first = Candidate(
+            id: 1,
+            methodToken: 0,
+            ilOffset: -1,
+            method: "Fixture.Type.First()");
+        var second = Candidate(
+            id: 2,
+            methodToken: 0,
+            ilOffset: -1,
+            method: "Fixture.Type.Second()");
+
+        CandidateLookup.Create([first, second]);
+
+        Assert.Equal(1, first.SameMethodShapeRows);
+        Assert.Equal(1, second.SameMethodShapeRows);
+    }
+
+    [Fact]
     public void AttributeBytes_IsStableAndRotatesRemainders()
     {
         var objectRow = Candidate(
@@ -456,6 +476,53 @@ public class CandidateLookupTests
             ilOffset: 0x0010,
             method: "Fixture.Type.M()",
             kind: "Y\u001fZ");
+        var reversedLookup = CandidateLookup.Create(
+            [reversedSecond, reversedFirst]);
+        var reversed = reversedLookup.AttributeBytes(
+            [reversedFirst, reversedSecond],
+            1);
+
+        Assert.Equal(
+            attributed[first.Id],
+            reversed[reversedFirst.Id]);
+        Assert.Equal(
+            attributed[second.Id],
+            reversed[reversedSecond.Id]);
+    }
+
+    [Fact]
+    public void AttributeBytes_IncludesSourceTokenAndUnknownBuild()
+    {
+        var first = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            libraryPath: "/tmp/First/Fixture.dll",
+            evidenceMethodToken: 0x06000003);
+        var second = Candidate(
+            id: 2,
+            methodToken: 0x06000002,
+            ilOffset: 0x0010,
+            libraryPath: "/tmp/Second/Fixture.dll",
+            evidenceMethodToken: 0x06000003);
+        var lookup = CandidateLookup.Create(
+            [first, second]);
+        var attributed = lookup.AttributeBytes(
+            [first, second],
+            1);
+
+        var reversedFirst = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            libraryPath: "/tmp/First/Fixture.dll",
+            evidenceMethodToken: 0x06000003);
+        var reversedSecond = Candidate(
+            id: 1,
+            methodToken: 0x06000002,
+            ilOffset: 0x0010,
+            libraryPath: "/tmp/Second/Fixture.dll",
+            evidenceMethodToken: 0x06000003);
         var reversedLookup = CandidateLookup.Create(
             [reversedSecond, reversedFirst]);
         var reversed = reversedLookup.AttributeBytes(
