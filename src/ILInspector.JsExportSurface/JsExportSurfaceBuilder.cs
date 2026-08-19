@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface;
@@ -33,7 +32,15 @@ public static class JsExportSurfaceBuilder
 
     public static JsExportSurface Build(ApiSurface surface)
     {
-        var typesByName = surface.Types.ToDictionary(t => t.Name, StringComparer.Ordinal);
+        // Keyed by simple (last-dotted-segment) name, since that's what's recoverable from
+        // signature text alone (see remarks above). Two distinct types sharing a simple name in
+        // different namespaces are ambiguous under this scheme; rather than throwing (which would
+        // fail discovery for an assembly's entire surface over an unrelated collision), such names
+        // are dropped from the lookup so they simply fail to resolve as a known record.
+        var typesByName = surface.Types
+            .GroupBy(t => t.Name, StringComparer.Ordinal)
+            .Where(g => g.Count() == 1)
+            .ToDictionary(g => g.Key, g => g.Single(), StringComparer.Ordinal);
 
         var functions = new List<JsExportFunction>();
         foreach (ApiType type in surface.Types)
@@ -140,11 +147,6 @@ public static class JsExportSurfaceBuilder
     static bool HasJsExportAttribute(ApiMember member) =>
         member.Attributes.Any(a => a == JsExportAttributeName || a.EndsWith(".JSExport", StringComparison.Ordinal));
 
-    // A local type name referenced from a signature: a leading identifier, optionally
-    // dotted/nested, ignoring array/nullable/generic decoration. Matches simple record-style
-    // names such as "BrowserTypeMetadata" or "BrowserTypeGraphNode[]" -> "BrowserTypeGraphNode".
-    static readonly Regex TypeNamePattern = new(@"^[A-Za-z_][A-Za-z0-9_.]*", RegexOptions.Compiled);
-
     static IEnumerable<string> ExtractCandidateTypeNames(JsExportFunction function)
     {
         foreach (string name in ExtractCandidateTypeNames(function.ReturnType))
@@ -168,26 +170,64 @@ public static class JsExportSurfaceBuilder
             yield break;
         }
 
-        foreach (Match match in TypeNamePattern.Matches(signatureText))
+        string trimmed = signatureText.Trim();
+        // Strip array/nullable decoration before extracting the leading name, so e.g.
+        // "WidgetOwner[]" and "WidgetOwner?" both still yield "WidgetOwner".
+        while (trimmed.EndsWith("[]", StringComparison.Ordinal) || trimmed.EndsWith("?", StringComparison.Ordinal))
         {
-            string name = match.Value;
-            int lastDot = name.LastIndexOf('.');
-            yield return lastDot >= 0 ? name[(lastDot + 1)..] : name;
+            trimmed = trimmed.EndsWith("[]", StringComparison.Ordinal) ? trimmed[..^2] : trimmed[..^1];
         }
 
-        // Also walk inside a generic argument list, e.g. Task<BrowserTypeMetadata>.
-        int genericStart = signatureText.IndexOf('<');
-        if (genericStart >= 0)
+        int genericStart = trimmed.IndexOf('<');
+        // The leading type name: everything before the generic argument list, or the whole text
+        // when there isn't one (e.g. a bare "BrowserTypeMetadata" or "Dictionary").
+        string leading = genericStart >= 0 ? trimmed[..genericStart] : trimmed;
+        int lastDot = leading.LastIndexOf('.');
+        yield return lastDot >= 0 ? leading[(lastDot + 1)..] : leading;
+
+        if (genericStart < 0)
         {
-            int genericEnd = signatureText.LastIndexOf('>');
-            if (genericEnd > genericStart)
+            yield break;
+        }
+
+        int genericEnd = trimmed.LastIndexOf('>');
+        if (genericEnd <= genericStart)
+        {
+            yield break;
+        }
+
+        // Recurse into every top-level comma-separated generic argument, not just the first
+        // (e.g. both "string" and "WidgetOwner" in Dictionary<string, WidgetOwner>). Nesting depth
+        // is tracked so a comma inside a nested generic argument (e.g.
+        // Dictionary<string, List<Widget>>) doesn't split that argument in two.
+        string inner = trimmed[(genericStart + 1)..genericEnd];
+        int depth = 0;
+        int segmentStart = 0;
+        for (int i = 0; i < inner.Length; i++)
+        {
+            char c = inner[i];
+            if (c == '<')
             {
-                string inner = signatureText[(genericStart + 1)..genericEnd];
-                foreach (string name in ExtractCandidateTypeNames(inner))
+                depth++;
+            }
+            else if (c == '>')
+            {
+                depth--;
+            }
+            else if (c == ',' && depth == 0)
+            {
+                foreach (string name in ExtractCandidateTypeNames(inner[segmentStart..i]))
                 {
                     yield return name;
                 }
+
+                segmentStart = i + 1;
             }
+        }
+
+        foreach (string name in ExtractCandidateTypeNames(inner[segmentStart..]))
+        {
+            yield return name;
         }
     }
 }

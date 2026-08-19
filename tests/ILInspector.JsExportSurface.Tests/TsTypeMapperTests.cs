@@ -82,4 +82,37 @@ public sealed class TsTypeMapperTests
     {
         Assert.Equal("unknown", TsTypeMapper.MapParameterType("SomeUnmappedType", RecordNames));
     }
+
+    [Fact]
+    public void Map_ArrayOfNullableRecordParenthesizesTheUnion()
+    {
+        // "WidgetDto | null[]" would bind as "WidgetDto | (null[])" in TS; the array of a union
+        // must be parenthesized: "(WidgetDto | null)[]".
+        Assert.Equal("(WidgetDto | null)[]", TsTypeMapper.MapParameterType("WidgetDto?[]", RecordNames));
+    }
+
+    [Fact]
+    public void Map_NullableValueTypeUnwrapsSystemNullable()
+    {
+        // Nullable<T> value types (e.g. `int?`) surface in signature text as "System.Nullable<T>",
+        // not the "T?" suffix form used for nullable reference types.
+        Assert.Equal("number | null", TsTypeMapper.MapParameterType("System.Nullable<int>", RecordNames));
+        Assert.Equal("number | null", TsTypeMapper.MapParameterType("Nullable<int>", RecordNames));
+    }
+
+    [Theory]
+    [InlineData("byte", "number")]
+    [InlineData("sbyte", "number")]
+    [InlineData("short", "number")]
+    [InlineData("ushort", "number")]
+    [InlineData("uint", "number")]
+    [InlineData("long", "number")]
+    [InlineData("ulong", "number")]
+    [InlineData("float", "number")]
+    [InlineData("decimal", "number")]
+    [InlineData("char", "string")]
+    public void Map_MapsAllCommonCSharpPrimitives(string csharpType, string expected)
+    {
+        Assert.Equal(expected, TsTypeMapper.MapParameterType(csharpType, RecordNames));
+    }
 }

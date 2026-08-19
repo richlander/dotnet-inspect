@@ -46,13 +46,25 @@ static class TsTypeMapper
         if (trimmed.EndsWith("[]", StringComparison.Ordinal))
         {
             string element = trimmed[..^2];
-            return $"{Map(element, recordNames)}[]";
+            string mappedElement = Map(element, recordNames);
+            // Parenthesize a union element (e.g. "T | null") before appending "[]": TS applies
+            // "[]" tighter than "|", so an unparenthesized "T | null[]" means "T, or an array of
+            // null" rather than the intended "an array of (T or null)".
+            return mappedElement.Contains(" | ", StringComparison.Ordinal)
+                ? $"({mappedElement})[]"
+                : $"{mappedElement}[]";
         }
 
         if (trimmed.EndsWith("?", StringComparison.Ordinal))
         {
             string inner = trimmed[..^1];
             return $"{Map(inner, recordNames)} | null";
+        }
+
+        if (TryUnwrapGeneric(trimmed, "System.Nullable", out string? nullableArg)
+            || TryUnwrapGeneric(trimmed, "Nullable", out nullableArg))
+        {
+            return $"{Map(nullableArg!, recordNames)} | null";
         }
 
         string simpleName = LastSegment(trimmed);
@@ -64,11 +76,14 @@ static class TsTypeMapper
 
         return trimmed switch
         {
-            "string" or "System.String" => "string",
+            "string" or "System.String" or "char" or "System.Char" => "string",
             "bool" or "System.Boolean" => "boolean",
-            "int" or "System.Int32" or "long" or "System.Int64"
-                or "short" or "System.Int16" or "double" or "System.Double"
-                or "float" or "System.Single" => "number",
+            "byte" or "System.Byte" or "sbyte" or "System.SByte"
+                or "short" or "System.Int16" or "ushort" or "System.UInt16"
+                or "int" or "System.Int32" or "uint" or "System.UInt32"
+                or "long" or "System.Int64" or "ulong" or "System.UInt64"
+                or "double" or "System.Double" or "float" or "System.Single"
+                or "decimal" or "System.Decimal" => "number",
             "void" or "System.Void" => "void",
             _ => "unknown",
         };

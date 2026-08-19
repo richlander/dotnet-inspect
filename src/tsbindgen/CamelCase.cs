@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace tsbindgen;
 
 /// <summary>
@@ -7,18 +9,8 @@ namespace tsbindgen;
 /// </summary>
 static class CamelCase
 {
-    public static string FromPascalCase(string name)
-    {
-        if (string.IsNullOrEmpty(name))
-        {
-            return name;
-        }
-
-        if (name.Length == 1)
-        {
-            return name.ToLowerInvariant();
-        }
-
-        return char.ToLowerInvariant(name[0]) + name[1..];
-    }
+    // Delegates to the exact runtime policy System.Text.Json applies (rather than a naive
+    // "lowercase the first character" rule) so acronym-prefixed names such as "URLValue" convert
+    // to "urlValue" here too, matching the actual wire property name instead of "uRLValue".
+    public static string FromPascalCase(string name) => JsonNamingPolicy.CamelCase.ConvertName(name);
 }

@@ -53,14 +53,27 @@ public sealed class JsExportSurfaceBuilderTests
     [Fact]
     public void Build_DiscoversJsonSerializerContextRootAndItsTransitiveNestedRecord()
     {
-        // WidgetDto is the sole JsonSerializable root on FixtureJsonContext; WidgetOwner is only
-        // reachable transitively, through WidgetDto's Owner property.
+        // WidgetDto and WidgetCatalog are the JsonSerializable roots on FixtureJsonContext;
+        // WidgetOwner is only reachable transitively (through WidgetDto's Owner property and
+        // WidgetCatalog's OwnersByKey dictionary value type).
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(2, surface.Records.Count);
+        Assert.Equal(3, surface.Records.Count);
         Assert.Contains("WidgetDto", recordNames);
         Assert.Contains("WidgetOwner", recordNames);
+        Assert.Contains("WidgetCatalog", recordNames);
+    }
+
+    [Fact]
+    public void Build_DiscoversRecordNestedInsideANonFirstGenericArgument()
+    {
+        // WidgetCatalog.OwnersByKey is a Dictionary<string, WidgetOwner>: WidgetOwner is the
+        // second, not first, generic type argument. Verifies ExtractCandidateTypeNames walks
+        // every top-level comma-separated generic argument, not just the leading one.
+        ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
+
+        Assert.Contains(surface.Records, r => r.Name == "WidgetOwner");
     }
 
     [Fact]
@@ -87,5 +100,51 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.Contains("Count", propertyNames);
         Assert.Contains("Tags", propertyNames);
         Assert.Contains("Owner", propertyNames);
+    }
+
+    [Fact]
+    public void Build_DoesNotThrow_WhenTwoDistinctTypesShareASimpleName()
+    {
+        // Two types in different namespaces sharing a simple name ("Result") are ambiguous under
+        // the simple-name lookup this builder uses (see remarks on JsExportSurfaceBuilder). Build
+        // must not throw over an unrelated collision elsewhere in the assembly; the ambiguous name
+        // simply fails to resolve as a known record.
+        var jsonContextType = new ApiType
+        {
+            Name = "SurfaceJsonContext",
+            BaseType = "System.Text.Json.Serialization.JsonSerializerContext",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Widget",
+                    Kind = "property",
+                    ReturnType = "System.Text.Json.Serialization.Metadata.JsonTypeInfo<Widget>",
+                },
+            ],
+        };
+
+        var widgetType = new ApiType
+        {
+            Name = "Widget",
+            Members =
+            [
+                new ApiMember { Name = "Value", Kind = "property", ReturnType = "Result" },
+            ],
+        };
+
+        var resultInNamespaceA = new ApiType { Namespace = "A", Name = "Result" };
+        var resultInNamespaceB = new ApiType { Namespace = "B", Name = "Result" };
+
+        var apiSurface = new ApiSurface
+        {
+            Types = [jsonContextType, widgetType, resultInNamespaceA, resultInNamespaceB],
+        };
+
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface);
+
+        Assert.Contains(surface.Records, r => r.Name == "Widget");
+        Assert.DoesNotContain(surface.Records, r => r.Name == "Result");
     }
 }

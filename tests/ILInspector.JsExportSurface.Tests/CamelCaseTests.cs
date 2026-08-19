@@ -11,8 +11,12 @@ public sealed class CamelCaseTests
     [InlineData("GetWidgetAsync", "getWidgetAsync")]
     [InlineData("A", "a")]
     [InlineData("", "")]
-    public void FromPascalCase_ConvertsFirstCharacterToLowercase(string input, string expected)
+    [InlineData("URLValue", "urlValue")]
+    public void FromPascalCase_MatchesJsonNamingPolicyCamelCase(string input, string expected)
     {
         Assert.Equal(expected, CamelCase.FromPascalCase(input));
+        Assert.Equal(
+            System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(input),
+            CamelCase.FromPascalCase(input));
     }
 }

@@ -99,4 +99,28 @@ public sealed class TsBindGenCommandTests
         Assert.Equal(1, exitCode);
         Assert.Contains("--diff-against file not found", error.ToString(), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Invoke_WithMalformedAssembly_ReturnsOneAndReportsErrorInsteadOfCrashing()
+    {
+        // A file that exists but is not a valid PE image must fail cleanly, not throw an
+        // unhandled BadImageFormatException out of the CLI.
+        string notAnAssembly = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(notAnAssembly, "this is not a .NET assembly");
+
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsBindGenCommand.Invoke([notAnAssembly], output, error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("could not read", error.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(notAnAssembly);
+        }
+    }
 }

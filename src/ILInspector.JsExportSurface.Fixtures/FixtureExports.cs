@@ -40,6 +40,12 @@ public sealed record WidgetDto(string Name, int Count, int[] Tags, WidgetOwner? 
 
 public sealed record WidgetOwner(string DisplayName);
 
+// Exercises multi-argument generic extraction (a JSON-map shape whose value type is a locally
+// declared record, not the first type argument) — see JsExportSurfaceBuilder's
+// ExtractCandidateTypeNames, which must walk every top-level generic argument, not just the first.
+public sealed record WidgetCatalog(Dictionary<string, WidgetOwner> OwnersByKey);
+
 [JsonSerializable(typeof(WidgetDto))]
+[JsonSerializable(typeof(WidgetCatalog))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class FixtureJsonContext : JsonSerializerContext;

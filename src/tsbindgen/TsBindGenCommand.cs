@@ -48,9 +48,19 @@ public static class TsBindGenCommand
                 return 1;
             }
 
-            using FileStream stream = File.OpenRead(assemblyPath);
-            using var peReader = new PEReader(stream);
-            ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+            ApiSurface apiSurface;
+            try
+            {
+                using FileStream stream = File.OpenRead(assemblyPath);
+                using var peReader = new PEReader(stream);
+                apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException or IOException or UnauthorizedAccessException)
+            {
+                stderr.WriteLine($"tsbindgen: could not read '{assemblyPath}' as a .NET assembly: {ex.Message}");
+                return 1;
+            }
 
             global::ILInspector.JsExportSurface.JsExportSurface jsExportSurface =
                 JsExportSurfaceBuilder.Build(apiSurface);
