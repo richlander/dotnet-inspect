@@ -122,7 +122,10 @@ const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8"
 const graphSource = readFileSync(
   new URL("../src/graph-mermaid.js", import.meta.url),
   "utf8");
-const applicationSources = `${appSource}\n${graphSource}`;
+const packageBarSource = readFileSync(
+  new URL("../src/package-bar.ts", import.meta.url),
+  "utf8");
+const applicationSources = `${appSource}\n${graphSource}\n${packageBarSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const engineSource = readFileSync(
   new URL("../engine/wwwroot/engine.js", import.meta.url),
@@ -1074,11 +1077,11 @@ test("workspace UI routes replacements and restore notices through bounded paths
     appSource,
     /appendQueryNotice\(\s+friendly\.message,\s+options\.retryAction/);
   assert.match(
-    appSource,
+    packageBarSource,
     /data-package-close=/);
   assert.match(
-    appSource,
-    /closePackageTab\(button\.dataset\.packageClose\)/);
+    packageBarSource,
+    /closePackageTab\(key\)/);
   assert.match(
     appSource,
     /const key = assemblyId \|\| `legacy:\$\{asm\}`/);
