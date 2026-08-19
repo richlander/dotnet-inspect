@@ -25,6 +25,25 @@ public class PdbContextDescriptorTests
     }
 
     [Fact]
+    public void DescriptorMetadataOnlyAndEmbeddedOnly_KeepTheirPdbAcquisitionBoundaries()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        AssemblyReferenceIdentity identity = ReadIdentity(image);
+
+        using PdbContext metadataOnly =
+            PdbContext.OpenMetadataOnly(CreateDescriptor(image, identity));
+        Assert.True(metadataOnly.HasEmbeddedPdb);
+        Assert.False(metadataOnly.HasPdb);
+
+        using PdbContext embeddedOnly =
+            PdbContext.OpenEmbeddedPdbOnly(CreateDescriptor(image, identity));
+        Assert.True(embeddedOnly.HasEmbeddedPdb);
+        Assert.True(embeddedOnly.HasPdb);
+        Assert.Equal("Embedded", embeddedOnly.PdbLocation);
+    }
+
+    [Fact]
     public void OpenDescriptor_UsesAuthoritativeStreamInsteadOfPath()
     {
         string authoritativePath = typeof(PdbContextDescriptorTests).Assembly.Location;
@@ -293,6 +312,15 @@ public class PdbContextDescriptorTests
         return AssemblyReferenceIdentity.FromAssemblyDefinition(
             peReader.GetMetadataReader());
     }
+
+    static ResolvedAssemblyReference CreateDescriptor(
+        byte[] image,
+        AssemblyReferenceIdentity identity)
+        => ResolvedAssemblyReference.Create(
+            identity,
+            path: null,
+            () => new MemoryStream(image, writable: false),
+            AssemblyResolutionProvenance.Local("test"));
 
     static byte[] BuildNestedForwarderAssembly()
     {

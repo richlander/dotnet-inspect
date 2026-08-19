@@ -1491,7 +1491,7 @@ public sealed class AssemblyContextSourceQueryTests
                     "corrupt embedded PDB fixture"));
 
         Assert.Throws<BadImageFormatException>(
-            () => PdbContext.OpenMetadataOnly(
+            () => PdbContext.OpenEmbeddedPdbOnly(
                 descriptor));
 
         Assert.Equal(1, stream.DisposeCount);

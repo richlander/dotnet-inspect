@@ -171,6 +171,23 @@ public sealed class SourceLinkService : IDisposable
         Action<string>? log = null)
         => new(PdbContext.OpenEmbeddedPdbOnly(assemblyPath, log), DefaultCache, log);
 
+    public static SourceLinkService OpenEmbeddedPdbOnly(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+        => new(
+            PdbContext.OpenEmbeddedPdbOnly(assembly, log),
+            DefaultCache,
+            log);
+
+    public static SourceLinkService OpenEmbeddedPdbOnly(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log,
+        ISourceLinkIndexCache? cache)
+        => new(
+            PdbContext.OpenEmbeddedPdbOnly(assembly, log),
+            cache,
+            log);
+
     public static SourceLinkService OpenMetadataOnly(
         ResolvedAssemblyReference assembly,
         Action<string>? log = null)

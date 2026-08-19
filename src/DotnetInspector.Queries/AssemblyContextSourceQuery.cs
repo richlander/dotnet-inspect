@@ -737,7 +737,7 @@ public static class AssemblyContextSourceQuery
         try
         {
             source =
-                SourceLinkService.OpenMetadataOnly(
+                SourceLinkService.OpenEmbeddedPdbOnly(
                     retained,
                     context.Log,
                     context.SourceLinkCache);

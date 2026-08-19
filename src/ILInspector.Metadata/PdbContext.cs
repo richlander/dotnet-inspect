@@ -324,6 +324,26 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
+    /// Opens descriptor-owned PE metadata and an embedded portable PDB, but
+    /// never probes an adjacent PDB.
+    /// </summary>
+    public static PdbContext OpenEmbeddedPdbOnly(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.Default,
+            assembly.LastWriteTimeUtc,
+            loadLocalPdb: false,
+            loadEmbeddedPdb: true);
+    }
+
+    /// <summary>
     /// Opens an acquisition descriptor through its authoritative stream factory.
     /// The optional path is used only for adjacent PDB discovery.
     /// </summary>
