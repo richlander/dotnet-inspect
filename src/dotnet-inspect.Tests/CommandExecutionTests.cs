@@ -24505,10 +24505,10 @@ public partial class CommandExecutionTests
             Assert.Equal(0, singleCount.Exit);
             Assert.Equal(0, rows.Exit);
             Assert.Equal(0, count.Exit);
-            Assert.Contains("Using TFM:", allRows.Error);
-            Assert.Contains("Using TFM:", allCount.Error);
-            Assert.Contains("Using TFM:", rows.Error);
-            Assert.Contains("Using TFM:", count.Error);
+            Assert.Empty(allRows.Error);
+            Assert.Empty(allCount.Error);
+            Assert.Empty(rows.Error);
+            Assert.Empty(count.Error);
             Assert.Empty(singleCount.Error);
             string[] all = allRows.Output.Split(
                 '\n',
