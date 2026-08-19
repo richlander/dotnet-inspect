@@ -467,7 +467,7 @@ public static class OutputFormatter
 
         if (options.Tree && options.Discover == null)
         {
-            WriteReferenceTree(inspection);
+            WriteReferenceTree(inspection, options.OutputPath);
             return;
         }
 
@@ -539,11 +539,28 @@ public static class OutputFormatter
             : plainText;
     }
 
-    private static void WriteReferenceTree(LibraryInspection inspection)
+    private static void WriteReferenceTree(
+        LibraryInspection inspection,
+        string? outputPath)
+    {
+        if (string.IsNullOrWhiteSpace(outputPath))
+        {
+            WriteReferenceTree(inspection, Console.Out);
+            return;
+        }
+
+        using var output = File.CreateText(outputPath);
+        output.NewLine = Console.Out.NewLine;
+        WriteReferenceTree(inspection, output);
+    }
+
+    private static void WriteReferenceTree(
+        LibraryInspection inspection,
+        TextWriter output)
     {
         var references = inspection.AssemblyInfo?.TransitiveReferences ?? [];
         var tree = LibraryInspectionView.BuildNestedReferenceTree(references);
-        var writer = MarkoutWriter.Create(Console.Out, new MarkdownFormatter());
+        var writer = MarkoutWriter.Create(output, new MarkdownFormatter());
         writer.WriteHeading(1, LibraryViewText.Contain(inspection.FileName) ?? string.Empty);
         writer.WriteHeading(2, SectionNames.References);
         writer.WriteTree([.. tree]);

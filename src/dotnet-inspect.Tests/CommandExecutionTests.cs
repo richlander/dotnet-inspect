@@ -17290,6 +17290,19 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_StaticSchemaDiscovery_HonorsBareSelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "-D", "--schema", "-S", "--tree", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("Package Info", output);
+        Assert.DoesNotContain("Dependencies", output);
+        Assert.DoesNotContain("Manifest", output);
+    }
+
+    [Fact]
     public async Task Package_StaticDiscovery_SelectionPreservesCatalogBehavior()
     {
         var unselected = await RunAppAsync("package", "-D", "--tips", "q");
@@ -17368,6 +17381,35 @@ public partial class CommandExecutionTests
             Assert.Empty(output);
             Assert.Contains("--dependencies cannot be combined with row projections or non-Markdown formats", error);
             Assert.DoesNotContain("-S/--select", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencyTree_ProgrammaticSelectionRejectsLens()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var rendered = await ConsoleCapture.RunAsync(
+                () => PackageCommand.ExecuteAsync(
+                    new InspectionOptions
+                    {
+                        PackageArgs = [packagePath],
+                        Tree = true,
+                        IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            PackageSections.Dependencies,
+                        },
+                        ListLayout = true,
+                    }));
+
+            Assert.Equal(1, rendered.ExitCode);
+            Assert.Empty(rendered.Output);
+            Assert.Contains("--tree cannot be combined with --layout", rendered.Error);
         }
         finally
         {
@@ -17491,6 +17533,7 @@ public partial class CommandExecutionTests
     {
         var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
         var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        var outputPath = Path.Combine(tempDir, "references.md");
         try
         {
             Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
@@ -17500,6 +17543,13 @@ public partial class CommandExecutionTests
             var explicitMarkdown = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
                 "-S", "References", "--tree", "--markdown", "--tips", "q");
+            var bare = await RunAppAsync(
+                "package", packagePath, "--library", "Test.Primary.dll",
+                "-S", "References", "--tree", "--bare", "--markdown", "--tips", "q");
+            var file = await RunAppAsync(
+                "package", packagePath, "--library", "Test.Primary.dll",
+                "-S", "References", "--tree", "--markdown",
+                "--out", outputPath, "--tips", "q");
 
             Assert.Equal(1, environment.Exit);
             Assert.Empty(environment.Output);
@@ -17507,6 +17557,13 @@ public partial class CommandExecutionTests
             Assert.Equal(0, explicitMarkdown.Exit);
             Assert.Empty(explicitMarkdown.Error);
             Assert.Contains("## References", explicitMarkdown.Output);
+            Assert.Equal(1, bare.Exit);
+            Assert.Empty(bare.Output);
+            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", bare.Error);
+            Assert.Equal(0, file.Exit);
+            Assert.Empty(file.Output);
+            Assert.Empty(file.Error);
+            Assert.Contains("## References", File.ReadAllText(outputPath));
         }
         finally
         {

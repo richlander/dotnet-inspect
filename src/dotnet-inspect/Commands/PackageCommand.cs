@@ -74,14 +74,14 @@ public class PackageCommand
                         options.IncludeSections,
                         StringComparer.OrdinalIgnoreCase)
                     : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                if (options.Select is { Length: > 0 })
+                if (options.Select is { Length: > 0 } || options.SelectDefault)
                 {
                     var selectResult = SelectResolver.ResolveSelectAsSections(
                         options.Select,
                         sectionNames,
                         pipeline.InfoSectionNames,
                         pipeline.GetCategoryMap(),
-                        selectDefault: false);
+                        selectDefault: options.SelectDefault);
                     if (SelectOutput.WriteUnresolved(selectResult))
                         return 1;
                     if (selectResult.Sections is { Count: > 0 })
@@ -142,6 +142,10 @@ public class PackageCommand
             // rejected outright below rather than silently dropped.
             var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
                 || options.ShowContent;
+            var dependencyTreeProjection = options.Tree
+                && options.Discover == null
+                && options.IncludeSections is { Count: 1 }
+                && options.IncludeSections.Contains(PackageSections.Dependencies);
             // Discovery also renders its own payload, so it is exempt from the single-section
             // requirement below. It is deliberately not part of lensMode: unlike the lenses, -S
             // is meaningful with -D, which restricts discovery to the selected sections.
@@ -150,7 +154,10 @@ public class PackageCommand
             // and rejecting that would break the lens modes' normal use. The refusal is
             // unconditional rather than excusing --print: the lens prints its own document
             // without a selection, so accepting -S there would silently ignore it.
-            if (lensMode && (options.SelectExplicitlySet || options.ShowDependencies))
+            if (lensMode
+                && (options.SelectExplicitlySet
+                    || options.ShowDependencies
+                    || dependencyTreeProjection))
             {
                 var lensName = options.ListVersions ? "--versions"
                     : options.ListLayout ? "--layout"
@@ -158,6 +165,8 @@ public class PackageCommand
                     : "--content";
                 if (options.ShowDependencies)
                     CommandError.Write($"--dependencies cannot be combined with {lensName}.");
+                else if (dependencyTreeProjection && !options.SelectExplicitlySet)
+                    CommandError.Write($"--tree cannot be combined with {lensName}.");
                 else
                     CommandError.Write(
                         $"-S/--select is not available with {lensName}, which renders its own payload rather than sections.");
@@ -3377,7 +3386,7 @@ public class PackageCommand
     {
         if (options.Tree
             && options.Discover == null
-            && options.Format != OutputFormat.Markdown)
+            && (options.Format != OutputFormat.Markdown || options.Bare))
         {
             CommandError.Write("--tree cannot be combined with row projections or non-Markdown formats.");
             return false;
