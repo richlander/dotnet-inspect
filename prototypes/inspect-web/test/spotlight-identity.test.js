@@ -175,6 +175,22 @@ test("leaving package search clears its pending loading state", () => {
     /event\.key === "Escape" && !event\.defaultPrevented && !typing/);
 });
 
+test("Spotlight async work is generation-gated and refreshes either mounted surface", () => {
+  assert.match(appSource, /let spotlightPkgGeneration = 0/);
+  assert.match(
+    appSource,
+    /generation !== spotlightPkgGeneration[\s\S]*state\.spotlightQuery\.trim\(\) !== query/);
+  assert.match(
+    appSource,
+    /if \(!state\.spotlightOpen && !state\.home\) return;[\s\S]*spotlight\.refresh\(\)/);
+});
+
+test("global workbench shortcuts stay behind the Spotlight modal", () => {
+  assert.match(
+    appSource,
+    /if \(state\.home\) return;\s*if \(state\.spotlightOpen\) return;/);
+});
+
 test("dependency graph render identity includes truncation and navigation", () => {
   const graph = {
     definition: "flowchart TD\n  d0[Example]",

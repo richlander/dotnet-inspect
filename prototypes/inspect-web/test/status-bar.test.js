@@ -35,6 +35,9 @@ test("package sources disclose file, gallery, feed host, or platform provenance"
   assert.equal(packageSourceLabel({ kind: "platform" }), "Platform");
   assert.equal(packageSourceLabel({ kind: "unknown" }), "Unknown");
   assert.equal(packageSourceLabel(), "Unknown");
+  assert.equal(packageSourceLabel({ kind: "feed" }), "Unknown");
+  assert.equal(packageSourceLabel({ kind: "feed", host: "   " }), "Unknown");
+  assert.equal(packageSourceLabel({ kind: "other" }), "Unknown");
 });
 
 test("build identity keeps provenance linked and inert", () => {
@@ -97,6 +100,9 @@ test("the same data bar component renders home readiness and compact diagnostics
       totalMs: 1250,
     },
     compactDiagnostics: true,
+    source: { kind: "feed", host: "packages.example.test" },
+    assembly: "Should.Not.Render.dll",
+    framework: "net10.0",
   }, escapeHtml);
 
   assert.match(html, /class="statusbar data-bar home-foot"/);

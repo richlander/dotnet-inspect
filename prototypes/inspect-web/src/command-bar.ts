@@ -142,7 +142,14 @@ export function commandPaletteResults(
           command,
           action: "execute",
         }]
-      : [];
+      : [{
+          kind: "command",
+          value: root[0],
+          hint: "enter search text",
+          category: "command",
+          command: root[0],
+          action: "complete",
+        }];
   }
 
   const completingRoot = tokens.length < 2 && !input.endsWith(" ");

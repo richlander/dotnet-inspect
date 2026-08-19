@@ -112,18 +112,26 @@ function packageCacheHtml(
       <span class="diag" title="${title}">◇ ${cache.packages} package${packagePlural} · ${cache.resident} resident in cache · ${cache.workspaces} workspace${workspacePlural}</span>`;
 }
 
-export function packageSourceLabel(source?: PackageSource): string {
-  if (!source) return "Unknown";
+export function packageSourceLabel(source: unknown): string {
+  if (!source || typeof source !== "object" || !("kind" in source)) {
+    return "Unknown";
+  }
   switch (source.kind) {
     case "file":
       return "File";
     case "nuget.org":
       return "NuGet.org";
     case "feed":
-      return source.host;
+      return "host" in source
+        && typeof source.host === "string"
+        && source.host.trim()
+        ? source.host.trim()
+        : "Unknown";
     case "platform":
       return "Platform";
     case "unknown":
+      return "Unknown";
+    default:
       return "Unknown";
   }
 }
@@ -141,7 +149,7 @@ export function statusBarHtml(
   const diagnostics = model.compactDiagnostics && model.diagnostics
     ? `<span class="diag">⚙ ready in ${fmtMs(model.diagnostics.totalMs)}</span>`
     : diagnosticsHtml(model.diagnostics);
-  const tail = model.assembly && model.framework
+  const tail = model.variant !== "home" && model.assembly && model.framework
     ? `
       <span class="status-spacer"></span>
       <span>Source: ${escapeHtml(packageSourceLabel(model.source))}</span>

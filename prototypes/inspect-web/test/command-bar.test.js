@@ -138,7 +138,17 @@ test("free-text find commands remain executable after moving into search", () =>
       action: "execute",
     }],
   );
-  assert.deepEqual(commandPaletteResults(commandContext("find "), lenses), []);
+  assert.deepEqual(
+    commandPaletteResults(commandContext("find "), lenses),
+    [{
+      kind: "command",
+      value: "find",
+      hint: "enter search text",
+      category: "command",
+      command: "find",
+      action: "complete",
+    }],
+  );
 });
 
 test("command result markup keeps command text and metadata inert", () => {

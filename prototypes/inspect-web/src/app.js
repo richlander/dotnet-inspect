@@ -677,8 +677,12 @@ const spotlight = createSpotlight({
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework || "",
   render,
-  focusAfterDismiss: () => document.querySelector("#type-list")?.focus(),
+  focusAfterDismiss: focusTypeList,
 });
+
+function focusTypeList() {
+  requestAnimationFrame(() => document.querySelector("#type-list")?.focus());
+}
 
 function openSpotlight(seed = "", scope = "all") {
   spotlight.open(seed, scope);
@@ -4656,8 +4660,10 @@ function spotlightResults() {
 // Debounced client-side NuGet discovery. Guards against stale queries via spotlightPkgQuery
 // and refreshes results only when the resolved query still matches the input.
 let spotlightPkgTimer = null;
+let spotlightPkgGeneration = 0;
 
 function resetSpotlightPackageSearch() {
+  spotlightPkgGeneration++;
   if (spotlightPkgTimer) clearTimeout(spotlightPkgTimer);
   spotlightPkgTimer = null;
   state.spotlightPkgHits = [];
@@ -4672,30 +4678,34 @@ function scheduleSpotlightPackageFetch() {
     spotlightPkgTimer = null;
   }
   if (state.spotlightScope !== "all" && state.spotlightScope !== "packages") {
+    spotlightPkgGeneration++;
     state.spotlightPkgLoading = false;
     return;
   }
   if (query.length < 2) {
+    spotlightPkgGeneration++;
     state.spotlightPkgHits = [];
     state.spotlightPkgQuery = "";
     state.spotlightPkgLoading = false;
     return;
   }
   if (query === state.spotlightPkgQuery) return;
+  const generation = ++spotlightPkgGeneration;
   state.spotlightPkgLoading = true;
   spotlightPkgTimer = setTimeout(() => {
     spotlightPkgTimer = null;
-    fetchSpotlightPackages(query);
+    fetchSpotlightPackages(query, generation);
   }, 220);
 }
 
-async function fetchSpotlightPackages(query) {
+async function fetchSpotlightPackages(query, generation) {
   const url = `https://azuresearch-usnc.nuget.org/query?q=${encodeURIComponent(query)}&take=8&prerelease=true&semVerLevel=2.0.0`;
   try {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
-    if (state.spotlightQuery.trim() !== query) return; // stale
+    if (generation !== spotlightPkgGeneration
+      || state.spotlightQuery.trim() !== query) return;
     state.spotlightPkgHits = (payload.data || []).map(item => ({
       id: item.id,
       version: item.version,
@@ -4703,11 +4713,13 @@ async function fetchSpotlightPackages(query) {
     }));
     state.spotlightPkgQuery = query;
   } catch (error) {
-    if (state.spotlightQuery.trim() !== query) return;
+    if (generation !== spotlightPkgGeneration
+      || state.spotlightQuery.trim() !== query) return;
     state.spotlightPkgHits = [];
     state.spotlightPkgQuery = query;
   } finally {
-    if (state.spotlightQuery.trim() === query) {
+    if (generation === spotlightPkgGeneration
+      && state.spotlightQuery.trim() === query) {
       state.spotlightPkgLoading = false;
       spotlight.updateResults();
     }
@@ -4908,14 +4920,20 @@ function pickSpotlightResult(result) {
   if (!result) { closeSpotlight(); return; }
   switch (result.kind) {
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
-    case "pkg-nuget": closeSpotlight(); loadPackage(result.hit.id, result.hit.version); break;
-    case "pkg-recent": closeSpotlight(); loadPackage(result.entry.id, result.entry.version, result.entry.framework); break;
+    case "pkg-nuget": loadPackageFromSpotlight(result.hit.id, result.hit.version); break;
+    case "pkg-recent": loadPackageFromSpotlight(result.entry.id, result.entry.version, result.entry.framework); break;
     case "member": pickSpotlightMember(result); break;
     case "rtpack-suggest": state.spotlightScope = "runtime"; state.spotlightIndex = 0; activateRuntimePack(); break;
     case "platform-lib": openPlatformLibrary(result.assembly, result.pack); break;
     case "rtpack-status": break;
     default: pickSpotlight(result.pkg, result.type.id); break;
   }
+}
+
+async function loadPackageFromSpotlight(id, version, framework = "") {
+  closeSpotlight();
+  await loadPackage(id, version, framework);
+  focusTypeList();
 }
 
 // Kicks off the runtime-pack load (if not already loaded/loading) and repaints the
@@ -4933,7 +4951,7 @@ function activateRuntimePack() {
     () => navigationSeq === state.navigationSeq); // sets runtimePackLoading synchronously
   spotlight.refresh();
   pending.then(() => {
-    if (!state.spotlightOpen) return;
+    if (!state.spotlightOpen && !state.home) return;
     spotlight.refresh();
   });
 }
@@ -4996,6 +5014,7 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
   state.selectedOverloadIndex = null;
   render();
   loadSelectionData();
+  focusTypeList();
 }
 
 function pickSpotlightLoadedPackage(pkg) {
@@ -5010,9 +5029,10 @@ function pickSpotlightLoadedPackage(pkg) {
   resetMemberSectionState();
   spotlight.reset();
   render();
+  focusTypeList();
 }
 
-function pickSpotlightMember(result) {
+async function pickSpotlightMember(result) {
   const pkg = state.packages.find(item => packageIdentityEquals(item, result.pkg));
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!type) { closeSpotlight(); return; }
@@ -5030,7 +5050,8 @@ function pickSpotlightMember(result) {
   resetMemberSectionState();
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
   render();
-  loadSelectedMemberDocumentation();
+  await loadSelectedMemberDocumentation();
+  focusTypeList();
 }
 
 function pickSpotlight(packageResult, typeId) {
@@ -5064,12 +5085,14 @@ function pickSpotlight(packageResult, typeId) {
   render();
   requestAnimationFrame(() => {
     document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
+    document.querySelector("#type-list")?.focus();
   });
 }
 
 function executeCommand(value) {
   const [verb, ...rest] = value.split(/\s+/);
   const argument = rest.join(" ");
+  let operation;
   if (verb === "type") {
     const match = state.package.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
       || state.package.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
@@ -5081,10 +5104,10 @@ function executeCommand(value) {
     const match = lenses.find(([id, label]) => id === argument.toLowerCase() || label.toLowerCase() === argument.toLowerCase());
     if (match) state.lens = match[0];
   } else if (verb === "framework" && state.package.frameworks.includes(argument)) {
-    switchPackageFramework(argument);
+    operation = switchPackageFramework(argument);
   } else if (verb === "package") {
     const [id, version = "latest"] = argument.split("@");
-    if (id) loadPackage(id, version, "");
+    if (id) operation = loadPackage(id, version, "");
   } else if (verb === "clear") {
     state.typeFilter = "";
     state.namespaceFilter = "";
@@ -5095,6 +5118,7 @@ function executeCommand(value) {
     share();
   }
   state.history = [value, ...state.history.filter(item => item !== value)].slice(0, 5);
+  return operation;
 }
 
 function focusFilter() {
@@ -7800,6 +7824,7 @@ document.addEventListener("keydown", event => {
   // The home page has its own scoped input handling (search box); global workbench
   // shortcuts assume a loaded package, so stay out of the way here.
   if (state.home) return;
+  if (state.spotlightOpen) return;
   if (event.key === "Escape" && state.tasteOpen) {
     event.preventDefault();
     state.tasteOpen = false;

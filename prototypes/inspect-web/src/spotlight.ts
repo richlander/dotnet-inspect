@@ -107,7 +107,7 @@ interface SpotlightOptions {
   kindIcon: (kind: string) => string;
   searchResults: () => SpotlightResult[];
   pickResult: (result: SpotlightResult) => void;
-  executeCommand: (command: string) => void;
+  executeCommand: (command: string) => unknown;
   commandContext: () => CommandContext | null;
   schedulePackageFetch: () => void;
   resetPackageSearch: () => void;
@@ -463,9 +463,9 @@ export function createSpotlight(options: SpotlightOptions) {
     }
 
     reset();
-    options.executeCommand(result.command);
+    const execution = options.executeCommand(result.command);
     options.render();
-    options.focusAfterDismiss?.();
+    void Promise.resolve(execution).then(() => options.focusAfterDismiss?.());
   }
 
   function highlightSelection(): number {
