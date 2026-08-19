@@ -18,6 +18,13 @@ namespace ILInspector.Analysis;
 /// gates modifier, pinned, and function-pointer header identity across both producers.
 /// <c>CallGraphMemberResolverTests.Resolve_MatchesCompiledInitSetterAcrossProducers</c>
 /// gates <c>init</c> setter <c>modreq(IsExternalInit)</c> identity from extract through MemberRef.
+/// <c>CallGraphMemberResolverTests.Resolve_MatchesCompiledExplicitInterfaceAccessorAcrossProducers</c>
+/// gates explicit-interface accessor MethodDef names (<c>I.get_P</c>, not <c>get_I.P</c>).
+/// <c>CallGraphMemberResolverTests.Resolve_MatchesCompiledNestedGenericAndByRefAcrossProducers</c>
+/// gates leftover extract display of nested generic arguments and byref <c>@</c> placement.
+/// <c>CallGraphMemberResolverTests.Selector_DistinguishesNestedGenericInsideAnotherGenericArgument</c>
+/// gates a nested suffix inside another generic argument so
+/// <c>List&lt;Outer&lt;int&gt;.Inner&lt;string&gt;&gt;</c> does not alias <c>List&lt;Outer&lt;int&gt;&gt;</c>.
 /// </remarks>
 public static class CallGraphMemberResolver
 {
@@ -175,7 +182,9 @@ public static class CallGraphMemberResolver
 
     /// <summary>
     /// Resolves an exact method or accessor. A MethodDef token wins within the already
-    /// selected type; structural fallback succeeds only for one unique candidate.
+    /// selected type; structural fallback succeeds only for one unique body. An
+    /// explicit-interface accessor may appear as both a method row and a property
+    /// accessor; those are one body, not a conflict.
     /// </summary>
     public static CallGraphMemberResolution? Resolve(
         ApiType type,
@@ -196,8 +205,8 @@ public static class CallGraphMemberResolver
                     && string.Equals(candidate.MemberName, memberName, StringComparison.Ordinal)
                     && string.Equals(candidate.SelectorKey, selectorKey, StringComparison.Ordinal))
                 .ToArray();
-            if (tokenMatches.Length == 1)
-                return tokenMatches[0].Resolution;
+            if (UniqueBody(tokenMatches) is { } tokenResolution)
+                return tokenResolution;
         }
 
         var matches = type.Members
@@ -206,7 +215,22 @@ public static class CallGraphMemberResolver
                 string.Equals(candidate.MemberName, memberName, StringComparison.Ordinal)
                 && string.Equals(candidate.SelectorKey, selectorKey, StringComparison.Ordinal))
             .ToArray();
-        return matches.Length == 1 ? matches[0].Resolution : null;
+        return UniqueBody(matches);
+    }
+
+    static CallGraphMemberResolution? UniqueBody(AccessorCandidate[] matches)
+    {
+        if (matches.Length == 0)
+            return null;
+
+        int token = matches[0].Resolution.BodyToken;
+        if (matches.Any(match => match.Resolution.BodyToken != token))
+            return null;
+
+        return matches
+            .FirstOrDefault(match => match.Resolution.Member.MetadataToken == token)
+            ?.Resolution
+            ?? matches[0].Resolution;
     }
 
     static IEnumerable<AccessorCandidate> CandidateBodies(ApiType type, ApiMember member)
@@ -220,7 +244,7 @@ public static class CallGraphMemberResolver
         if (member.GetterToken is int getter)
         {
             var selector = CreateSelector(
-                $"get_{member.Name}",
+                AccessorMethodName(member, "get", $"get_{member.Name}"),
                 0,
                 !member.IsStatic,
                 owner.ParameterTypes,
@@ -233,7 +257,7 @@ public static class CallGraphMemberResolver
         if (member.SetterToken is int setter)
         {
             var selector = CreateSelector(
-                $"set_{member.Name}",
+                AccessorMethodName(member, "set", $"set_{member.Name}"),
                 0,
                 !member.IsStatic,
                 owner.ParameterTypes.Append(owner.ReturnType),
@@ -246,7 +270,7 @@ public static class CallGraphMemberResolver
         if (member.AdderToken is int adder)
         {
             var selector = CreateSelector(
-                $"add_{member.Name}",
+                AccessorMethodName(member, "add", $"add_{member.Name}"),
                 0,
                 !member.IsStatic,
                 [owner.ReturnType],
@@ -259,7 +283,7 @@ public static class CallGraphMemberResolver
         if (member.RemoverToken is int remover)
         {
             var selector = CreateSelector(
-                $"remove_{member.Name}",
+                AccessorMethodName(member, "remove", $"remove_{member.Name}"),
                 0,
                 !member.IsStatic,
                 [owner.ReturnType],
@@ -268,6 +292,15 @@ public static class CallGraphMemberResolver
                 AccessorStructuralReturn(member, "remove", "System.Void"));
             yield return new(selector.Name, selector.Key, new(type, member, remover));
         }
+    }
+
+    static string AccessorMethodName(ApiMember member, string kind, string fallback)
+    {
+        string? name = member.SignatureModel?.Accessors
+            .FirstOrDefault(accessor =>
+                string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
+            ?.Name;
+        return string.IsNullOrEmpty(name) ? fallback : name;
     }
 
     static string AccessorStructuralReturn(ApiMember member, string kind, string fallback)
@@ -379,14 +412,39 @@ public static class CallGraphMemberResolver
         IReadOnlyDictionary<string, int> typeParameters,
         IReadOnlyDictionary<string, int> methodParameters)
     {
-        if (!value.Contains(">.", StringComparison.Ordinal))
+        bool isByRef = false;
+        string type = value;
+        foreach (string prefix in (string[])["ref readonly ", "ref ", "out ", "in "])
         {
-            return XmlDocumentationNotation.NormalizeParameterType(
-                value,
-                typeParameters,
-                methodParameters);
+            if (type.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                isByRef = true;
+                type = type[prefix.Length..].TrimStart();
+                break;
+            }
         }
 
+        if (type.EndsWith('@'))
+        {
+            isByRef = true;
+            type = type.TrimEnd('@');
+        }
+
+        string normalized = type.Contains(">.", StringComparison.Ordinal)
+            || type.Contains(">+", StringComparison.Ordinal)
+            ? NormalizeNestedGenericDisplay(type, typeParameters, methodParameters)
+            : XmlDocumentationNotation.NormalizeParameterType(
+                type,
+                typeParameters,
+                methodParameters);
+        return isByRef ? $"{normalized}@" : normalized;
+    }
+
+    static string NormalizeNestedGenericDisplay(
+        string value,
+        IReadOnlyDictionary<string, int> typeParameters,
+        IReadOnlyDictionary<string, int> methodParameters)
+    {
         var segments = new List<string>();
         int start = 0;
         int depth = 0;
@@ -398,12 +456,13 @@ public static class CallGraphMemberResolver
                 '>' => -1,
                 _ => 0,
             };
-            if (value[index] == '.' && depth == 0)
+            if (depth == 0 && value[index] is '.' or '+')
             {
                 segments.Add(value[start..index]);
                 start = index + 1;
             }
         }
+
         segments.Add(value[start..]);
         return string.Join(
             '.',
