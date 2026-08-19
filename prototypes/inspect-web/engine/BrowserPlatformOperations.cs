@@ -17,7 +17,7 @@ public static partial class BrowserInspectionEngine
     public static async Task<string> LoadRuntimePack(
         string targetFramework)
     {
-        BrowserPlatformScopeResolution resolution =
+        using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
                 targetFramework);
         return ProjectPlatformSurface(resolution);
@@ -29,7 +29,7 @@ public static partial class BrowserInspectionEngine
         string assemblyFileName,
         string pack)
     {
-        BrowserPlatformScopeResolution resolution =
+        using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 assemblyFileName,
@@ -43,7 +43,7 @@ public static partial class BrowserInspectionEngine
         string assemblyFileName,
         string pack)
     {
-        BrowserPlatformScopeResolution resolution =
+        using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 assemblyFileName,
@@ -65,7 +65,7 @@ public static partial class BrowserInspectionEngine
         string assemblyFileName,
         string pack)
     {
-        BrowserPlatformScopeResolution resolution =
+        using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 assemblyFileName,
@@ -93,7 +93,7 @@ public static partial class BrowserInspectionEngine
         int metadataToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selectorKey);
-        PlatformGraphBuild build =
+        using PlatformGraphBuild build =
             await BuildPlatformGraphAsync(
                 targetFramework,
                 assembly,
@@ -150,14 +150,14 @@ public static partial class BrowserInspectionEngine
                 StringComparison.OrdinalIgnoreCase)
             ? assembly
             : $"{assembly}.dll";
-        BrowserPlatformScopeResolution current =
+        using var owner = new PlatformScopeOwner(
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 assemblyFileName,
-                pack);
-        string rootFamily = current.Coordinate.Family;
+                pack));
+        string rootFamily = owner.Current.Coordinate.Family;
         string rootAssembly =
-            current.Participant.Participant.Assembly.Identity.Name;
+            owner.Current.Participant.Participant.Assembly.Identity.Name;
 
         for (int expansion = 0;
             expansion < BrowserInspectionScope.MaxAssembliesPerRole;
@@ -165,7 +165,7 @@ public static partial class BrowserInspectionEngine
         {
             PlatformMemberFocus focus =
                 await ResolvePlatformMemberAsync(
-                    current,
+                    owner,
                     targetFramework,
                     rootFamily,
                     rootAssembly,
@@ -173,7 +173,7 @@ public static partial class BrowserInspectionEngine
                     memberName,
                     selectorKey,
                     metadataToken);
-            current = focus.Resolution;
+            BrowserPlatformScopeResolution current = owner.Current;
             MemberCallGraphView view = current.Scope.Use(group =>
             {
                 using var session = new MemberCallGraphSession(
@@ -195,7 +195,7 @@ public static partial class BrowserInspectionEngine
             if (required.Length == 0)
             {
                 return new PlatformGraphBuild(
-                    current,
+                    owner.Detach(),
                     view,
                     projection);
             }
@@ -209,11 +209,12 @@ public static partial class BrowserInspectionEngine
                         $"Platform assembly '{identity.Name}' is required to "
                         + "resolve a call-graph target, but no authorized "
                         + "platform pack supplies it.");
-                current =
+                owner.Replace(
                     await BrowserPlatformWorkspace.OpenAssemblyAsync(
                         targetFramework,
                         $"{identity.Name}.dll",
-                        targetPack);
+                        targetPack));
+                current = owner.Current;
             }
         }
 
@@ -223,7 +224,7 @@ public static partial class BrowserInspectionEngine
     }
 
     static async Task<PlatformMemberFocus> ResolvePlatformMemberAsync(
-        BrowserPlatformScopeResolution current,
+        PlatformScopeOwner owner,
         string targetFramework,
         string rootFamily,
         string rootAssembly,
@@ -249,6 +250,7 @@ public static partial class BrowserInspectionEngine
             expansion < BrowserInspectionScope.MaxAssembliesPerRole;
             expansion++)
         {
+            BrowserPlatformScopeResolution current = owner.Current;
             WorkspaceContextMember root =
                 current.Scope.Participant(
                     rootFamily,
@@ -263,7 +265,6 @@ public static partial class BrowserInspectionEngine
                 is { } direct)
             {
                 return new PlatformMemberFocus(
-                    current,
                     root,
                     direct);
             }
@@ -317,15 +318,17 @@ public static partial class BrowserInspectionEngine
                         memberName,
                         selectorKey,
                         metadataToken);
-                return member is not null
-                    ? new PlatformMemberFocus(
-                        current,
-                        definitions[0],
-                        member)
-                    : throw new InvalidOperationException(
+                if (member is null)
+                {
+                    throw new InvalidOperationException(
                         $"The resolved implementation of "
                         + $"'{typeFullName}.{memberName}' does not contain "
                         + "the selected API body.");
+                }
+
+                return new PlatformMemberFocus(
+                    definitions[0],
+                    member);
             }
 
             AssemblyReferenceIdentity? target =
@@ -358,11 +361,11 @@ public static partial class BrowserInspectionEngine
                     $"Platform assembly '{target.Name}' is required to "
                     + $"resolve '{typeFullName}', but no authorized "
                     + "platform pack supplies it.");
-            current =
+            owner.Replace(
                 await BrowserPlatformWorkspace.OpenAssemblyAsync(
                     targetFramework,
                     $"{target.Name}.dll",
-                    targetPack);
+                    targetPack));
         }
 
         throw new InvalidOperationException(
@@ -490,14 +493,49 @@ public static partial class BrowserInspectionEngine
         };
 
     sealed record PlatformMemberFocus(
-        BrowserPlatformScopeResolution Resolution,
         WorkspaceContextMember Participant,
         Analysis.CallGraphMemberResolution Member);
+
+    sealed class PlatformScopeOwner(
+        BrowserPlatformScopeResolution current) : IDisposable
+    {
+        BrowserPlatformScopeResolution? _current = current;
+
+        internal BrowserPlatformScopeResolution Current =>
+            _current
+            ?? throw new ObjectDisposedException(nameof(PlatformScopeOwner));
+
+        internal void Replace(
+            BrowserPlatformScopeResolution replacement)
+        {
+            ArgumentNullException.ThrowIfNull(replacement);
+            BrowserPlatformScopeResolution previous = Current;
+            _current = replacement;
+            previous.Dispose();
+        }
+
+        internal BrowserPlatformScopeResolution Detach()
+        {
+            BrowserPlatformScopeResolution result = Current;
+            _current = null;
+            return result;
+        }
+
+        public void Dispose()
+        {
+            BrowserPlatformScopeResolution? current = _current;
+            _current = null;
+            current?.Dispose();
+        }
+    }
 
     sealed record PlatformGraphBuild(
         BrowserPlatformScopeResolution Resolution,
         MemberCallGraphView View,
-        CallGraphProjection Projection);
+        CallGraphProjection Projection) : IDisposable
+    {
+        public void Dispose() => Resolution.Dispose();
+    }
 
     internal static string ProjectPlatformSurface(
         BrowserPlatformScopeResolution resolution)

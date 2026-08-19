@@ -113,7 +113,7 @@ public sealed class BrowserEngineBoundaryTests
             Package(image, "lib/net11.0/Active.Source.dll"));
         BrowserInspectionScope active = BrowserPackageWorkspace.OpenScope(
             [activeCoordinate]);
-        using BrowserInspectionScopeLease lease =
+        using BrowserScopeLease<BrowserInspectionScope> lease =
             BrowserPackageWorkspace.LeaseScope(active);
 
         foreach (string id in new[] { "Lease.B", "Lease.C", "Lease.D", "Lease.E" })
@@ -146,7 +146,7 @@ public sealed class BrowserEngineBoundaryTests
         var authorization =
             new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
 
-        BrowserPlatformScopeResolution resolution =
+        using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 "net11.0-ios",
                 "InspectWeb.Engine.Tests.dll",
@@ -223,13 +223,15 @@ public sealed class BrowserEngineBoundaryTests
         var authorization =
             new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
 
-        _ = await BrowserPlatformWorkspace.OpenRuntimeAsync(
-            "net11.0-tvos",
-            client,
-            authorization,
-            TimeSpan.FromSeconds(5),
-            TestContext.Current.CancellationToken);
-        BrowserPlatformScopeResolution initial =
+        BrowserPlatformScopeResolution runtime =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0-tvos",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        runtime.Dispose();
+        using BrowserPlatformScopeResolution initial =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 "net11.0-tvos",
                 "InspectWeb.Engine.Tests.dll",
@@ -239,6 +241,7 @@ public sealed class BrowserEngineBoundaryTests
                 TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken);
         Assert.Equal(2, initial.Scope.Members.Length);
+        initial.Dispose();
 
         using (BrowserPackageWorkspace.ReservePackageDownload(
             "platform.lease.evict@1.0.0",
@@ -272,7 +275,7 @@ public sealed class BrowserEngineBoundaryTests
             }
         };
 
-        BrowserPlatformScopeResolution reacquired =
+        using BrowserPlatformScopeResolution reacquired =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 "net11.0-tvos",
                 "InspectWeb.Engine.Tests.dll",
@@ -285,6 +288,65 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(2, reacquisitionDownloads);
         Assert.True(pressureBlocked);
         Assert.Equal(2, reacquired.Scope.Members.Length);
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_ReplacementDefersDisposalUntilLastLeaseEnds()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.3";
+        byte[] nupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)),
+            ("InspectWeb.Engine.Tests.dll",
+                File.ReadAllBytes(
+                    typeof(BrowserEngineBoundaryTests).Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            nupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+        using BrowserPlatformScopeResolution first =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0-lease-replacement",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        using BrowserPlatformScopeResolution secondLease =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0-lease-replacement",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        using BrowserPlatformScopeResolution replacement =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                "net11.0-lease-replacement",
+                "InspectWeb.Engine.Tests.dll",
+                "netcore.app",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.NotSame(first.Scope, replacement.Scope);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(first.Scope));
+        Assert.Single(first.Scope.Members);
+
+        first.Dispose();
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(secondLease.Scope));
+        Assert.Single(secondLease.Scope.Members);
+
+        secondLease.Dispose();
+        Assert.False(BrowserPackageWorkspace.IsScopeRetained(first.Scope));
+        Assert.Throws<ObjectDisposedException>(() => first.Scope.Members);
+
+        replacement.Dispose();
     }
 
     [Theory]
@@ -510,7 +572,7 @@ public sealed class BrowserEngineBoundaryTests
         var authorization =
             new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
 
-        BrowserPlatformScopeResolution initial =
+        using BrowserPlatformScopeResolution initial =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
                 "net11.0",
                 client,
@@ -534,7 +596,7 @@ public sealed class BrowserEngineBoundaryTests
             surface.Types,
             type => Assert.Equal("netcore.app", type.PlatformPack));
         int requestsAfterInitialLoad = handler.Requests;
-        BrowserPlatformScopeResolution reused =
+        using BrowserPlatformScopeResolution reused =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
                 "net11.0",
                 client,
@@ -544,7 +606,7 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Same(initial.Scope, reused.Scope);
         Assert.Equal(requestsAfterInitialLoad, handler.Requests);
 
-        BrowserPlatformScopeResolution expanded =
+        using BrowserPlatformScopeResolution expanded =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 "net11.0",
                 "InspectWeb.Engine.Tests.dll",
@@ -564,11 +626,18 @@ public sealed class BrowserEngineBoundaryTests
                     NuGetCache.GetSourceKey(PackageSource.NuGetOrg.Url),
                     coordinate.Producer);
             });
-        Assert.False(
+        Assert.True(
             BrowserPackageWorkspace.IsScopeRetained(initial.Scope));
+        Assert.Single(initial.Scope.Members);
         Assert.True(
             BrowserPackageWorkspace.IsScopeRetained(expanded.Scope));
         Assert.Equal(requestsAfterInitialLoad, handler.Requests);
+        reused.Dispose();
+        Assert.True(
+            BrowserPackageWorkspace.IsScopeRetained(initial.Scope));
+        initial.Dispose();
+        Assert.False(
+            BrowserPackageWorkspace.IsScopeRetained(initial.Scope));
 
         BrowserPackageSurface siblingSurface =
             Assert.IsType<BrowserPackageSurface>(
@@ -629,7 +698,7 @@ public sealed class BrowserEngineBoundaryTests
             attributedTargets,
             target => Assert.Equal("netcore.app", target.PlatformPack));
 
-        BrowserPlatformScopeResolution qualifiedRuntime =
+        using BrowserPlatformScopeResolution qualifiedRuntime =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
                 "net11.0-browser",
                 client,
@@ -651,6 +720,8 @@ public sealed class BrowserEngineBoundaryTests
                     BrowserJsonContext.Default.BrowserCallGraph));
         Assert.Equal(2, lazySelectorGraph.Scope.Assemblies);
 
+        qualifiedRuntime.Dispose();
+        expanded.Dispose();
         using (BrowserPackageWorkspace.ReservePackageDownload(
             "platform.eviction@1.0.0",
             128L * MiB))
@@ -724,7 +795,7 @@ public sealed class BrowserEngineBoundaryTests
         using var client = new HttpClient(handler);
         var authorization =
             new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
-        BrowserPlatformScopeResolution platform =
+        using BrowserPlatformScopeResolution platform =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
                 "net11.0-android",
                 client,
@@ -745,7 +816,7 @@ public sealed class BrowserEngineBoundaryTests
                 "Platform.Lru.C",
                 Package(image, "lib/net11.0/Platform.Lru.C.dll"))]);
 
-        BrowserPlatformScopeResolution reused =
+        using BrowserPlatformScopeResolution reused =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
                 "net11.0-android",
                 client,
@@ -1797,13 +1868,15 @@ public sealed class BrowserEngineBoundaryTests
             new UniformPackageSourceAuthorization(
                 [PackageSource.NuGetOrg]);
 
-        _ = await BrowserPlatformWorkspace.OpenRuntimeAsync(
-            framework,
-            client,
-            authorization,
-            TimeSpan.FromSeconds(5),
-            TestContext.Current.CancellationToken);
-        BrowserPlatformScopeResolution console =
+        BrowserPlatformScopeResolution runtime =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                framework,
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        runtime.Dispose();
+        using BrowserPlatformScopeResolution console =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 framework,
                 "System.Console.dll",
@@ -1845,6 +1918,9 @@ public sealed class BrowserEngineBoundaryTests
                     BrowserJsonContext.Default.BrowserCallGraph));
 
         Assert.Equal(requestsBeforeGraph, handler.Requests);
+        Assert.Equal(2, console.Scope.Members.Length);
+        Assert.True(
+            BrowserPackageWorkspace.IsScopeRetained(console.Scope));
         Assert.Equal(3, graph.Scope.Assemblies);
         BrowserCallGraphTarget[] forwarded =
         [

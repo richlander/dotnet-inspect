@@ -102,7 +102,11 @@ internal sealed class BrowserPlatformScope(
 internal sealed record BrowserPlatformScopeResolution(
     BrowserPlatformScope Scope,
     WorkspaceContextMember Participant,
-    RealizedMemberCoordinate.Platform Coordinate);
+    RealizedMemberCoordinate.Platform Coordinate,
+    BrowserScopeLease<BrowserPlatformScope> ScopeLease) : IDisposable
+{
+    public void Dispose() => ScopeLease.Dispose();
+}
 
 /// <summary>
 /// Browser adapter over <see cref="WorkspaceContextLoader"/> for lazily selected
@@ -112,9 +116,13 @@ internal sealed record BrowserPlatformScopeResolution(
 /// One state entry per target framework accumulates selected assemblies. The
 /// first load of each family records the exact version and producer; later
 /// assemblies are re-acquired from that coordinate, and every successful
-/// expansion replaces the old group atomically. The shared package registry
-/// accounts the retained archives and evicts this scope under the same
-/// four-workspace bound as package scopes.
+/// expansion replaces the old group atomically. Each returned resolution pins
+/// its scope until disposed; replacement defers old-scope disposal until every
+/// in-flight operation releases that pin. The shared package registry accounts
+/// the retained archives and evicts this scope under the same four-workspace
+/// bound as package scopes.
+/// <c>BrowserEngineBoundaryTests.PlatformWorkspace_ReplacementDefersDisposalUntilLastLeaseEnds</c>
+/// gates the replacement lifetime.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal static class BrowserPlatformWorkspace
@@ -235,10 +243,15 @@ internal static class BrowserPlatformWorkspace
             && BrowserPackageWorkspace.IsScopeRetained(retained))
         {
             BrowserPackageWorkspace.TouchScope(retained);
+            WorkspaceContextMember retainedParticipant =
+                retained.Participant(family, assembly);
+            BrowserScopeLease<BrowserPlatformScope> retainedLease =
+                BrowserPackageWorkspace.LeaseScope(retained);
             return new BrowserPlatformScopeResolution(
                 retained,
-                retained.Participant(family, assembly),
-                requested);
+                retainedParticipant,
+                requested,
+                retainedLease);
         }
 
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
@@ -312,6 +325,10 @@ internal static class BrowserPlatformWorkspace
                 scopeKey,
                 candidate,
                 packageKeys);
+        WorkspaceContextMember participant =
+            registered.Participant(family, assembly);
+        BrowserScopeLease<BrowserPlatformScope> lease =
+            BrowserPackageWorkspace.LeaseScope(registered);
         BrowserPlatformScope? previous = state.Scope;
         state.Coordinates = coordinates;
         state.Scope = registered;
@@ -324,8 +341,9 @@ internal static class BrowserPlatformWorkspace
 
         return new BrowserPlatformScopeResolution(
             registered,
-            registered.Participant(family, assembly),
-            requested);
+            participant,
+            requested,
+            lease);
     }
 
     static async Task<(

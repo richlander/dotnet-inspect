@@ -109,7 +109,8 @@ internal static class BrowserPackageWorkspace
         IDisposable Scope,
         ImmutableHashSet<string> PackageKeys,
         long LastAccess,
-        int ActiveLeases);
+        int ActiveLeases,
+        bool RemovalRequested);
 
     public static BrowserPackageCacheStats Stats() =>
         new(
@@ -355,6 +356,13 @@ internal static class BrowserPackageWorkspace
             }
 
             Scopes[key] = retained with { LastAccess = ++_clock };
+            if (retained.RemovalRequested)
+            {
+                Scopes[key] = Scopes[key] with
+                {
+                    RemovalRequested = false,
+                };
+            }
             TouchPackages(retained.PackageKeys);
             return typed;
         }
@@ -380,7 +388,8 @@ internal static class BrowserPackageWorkspace
             scope,
             packageKeys,
             ++_clock,
-            ActiveLeases: 0);
+            ActiveLeases: 0,
+            RemovalRequested: false);
         return scope;
     }
 
@@ -417,8 +426,11 @@ internal static class BrowserPackageWorkspace
             return;
         if (registered.Value.ActiveLeases != 0)
         {
-            throw new InvalidOperationException(
-                "An active browser inspection scope cannot be removed.");
+            Scopes[registered.Key] = registered.Value with
+            {
+                RemovalRequested = true,
+            };
+            return;
         }
 
         registered.Value.Scope.Dispose();
@@ -428,8 +440,9 @@ internal static class BrowserPackageWorkspace
     /// <summary>
     /// Pins a registry-owned scope and its package archives for one asynchronous inspection.
     /// </summary>
-    internal static BrowserInspectionScopeLease LeaseScope(
-        BrowserInspectionScope scope)
+    internal static BrowserScopeLease<TScope> LeaseScope<TScope>(
+        TScope scope)
+        where TScope : class, IDisposable
     {
         ArgumentNullException.ThrowIfNull(scope);
         KeyValuePair<string, ScopeEntry> registered = Scopes
@@ -447,14 +460,14 @@ internal static class BrowserPackageWorkspace
             LastAccess = ++_clock,
             ActiveLeases = registered.Value.ActiveLeases + 1,
         };
-        return new BrowserInspectionScopeLease(
+        return new BrowserScopeLease<TScope>(
             scope,
             () => ReleaseScopeLease(registered.Key, scope));
     }
 
     static void ReleaseScopeLease(
         string scopeKey,
-        BrowserInspectionScope scope)
+        IDisposable scope)
     {
         if (!Scopes.TryGetValue(scopeKey, out ScopeEntry? entry)
             || !ReferenceEquals(entry.Scope, scope)
@@ -464,10 +477,19 @@ internal static class BrowserPackageWorkspace
                 "The browser inspection scope lease is not active.");
         }
 
-        Scopes[scopeKey] = entry with
+        int activeLeases = entry.ActiveLeases - 1;
+        if (activeLeases == 0 && entry.RemovalRequested)
         {
-            ActiveLeases = entry.ActiveLeases - 1,
-        };
+            entry.Scope.Dispose();
+            Scopes.Remove(scopeKey);
+        }
+        else
+        {
+            Scopes[scopeKey] = entry with
+            {
+                ActiveLeases = activeLeases,
+            };
+        }
         foreach (string packageKey in entry.PackageKeys)
             ReleasePackageLease(packageKey);
     }
