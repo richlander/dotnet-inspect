@@ -28,8 +28,11 @@ requests only its required producers and prerequisites, and projects the
 bounded neighborhood without reversing stored edges or changing occurrence
 identity. The call session exposes the same request envelope for an outgoing,
 call-only member neighborhood while retaining its Analysis-owned node budget.
-The Integration query also projects explicit-subject induced sets. Command and
-presentation surfaces remain deferred to #3292.
+The Integration query also projects explicit-subject induced sets.
+`graph integrations` is the first command surface: it realizes repeated package
+coordinates into one context, turns their exact realized package identities
+into the explicit subject set, and renders the selected logical edges without
+adding traversal semantics.
 
 `CallAdapter_PreservesTypedTopologyAndDisclosesEvidenceGap`,
 `PackageSeed_BindsToNodeOrGroupSelectedByLens`,
@@ -247,9 +250,20 @@ An induced package set is not automatically a package-only lens. It may retain
 member/type evidence, package groups, package endpoints, or a mixed view as the
 request declares.
 
-The command entry point remains deferred to #3292. It may be a distinct command
-or an explicit lens if adding it to a subject command would obscure the
-single-seed default.
+The command entry point is `graph integrations`. It is a distinct command so
+the finite package set, shared target, relationship selection, and graph
+renderers do not widen a single-subject command. Its default relationship
+family is `api.extension`, `integration.observed`, and
+`integration.opportunity`; `--relationship` selects exact catalog ids.
+`--package` supplies the finite induced subjects and `--tfm` the one shared
+acquisition target. Direction and depth are deliberately absent because this
+mode performs both-endpoint induction rather than traversal.
+
+`InspectionGraphCommandTests.ExecuteAsync_UsesExactPackageSetAndStructuredRequest`
+gates the package-coordinate-to-typed-request composition, and
+`IntegrationsCommand_ExposesInducedSetInputsWithoutTraversal` gates the command
+surface. Query-level induced-set gates remain authoritative for admission and
+producer planning.
 
 ## Relationship-specific admission
 

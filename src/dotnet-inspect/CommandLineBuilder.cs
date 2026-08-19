@@ -178,6 +178,10 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateDiffCommand(opts));
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateTimelineCommand(opts));
 
+        // Inspection graph command
+        rootCommand.Subcommands.Add(
+            InspectionGraphCommandDefinitions.CreateGraphCommand(opts));
+
         // Depends command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateDependsCommand(opts));
 

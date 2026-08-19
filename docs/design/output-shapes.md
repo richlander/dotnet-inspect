@@ -42,6 +42,11 @@ declared row unit is a directed edge: `--count` counts relationships, and
 `--rows` selects the same ordered relationships whether the graph is rendered
 as a Markdown edge table, standalone tree, standalone Mermaid diagram, or
 tabular stream. Tree nodes are presentation context, not additional rows.
+`graph integrations` uses the same row contract: one row is one directed
+logical relationship. Its package groups and finer member/type nodes are
+presentation context, while `--count` and `--rows` count or select logical
+edges consistently across Markdown, tree, Mermaid, tabular, and structured
+output.
 
 ## Flag families
 

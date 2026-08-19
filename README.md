@@ -173,7 +173,7 @@ reported on stderr rather than mixed into structured output.
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
-| Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
+| Relationships | `graph`, `depends`, `extensions`, `implements` | Explicit package-set Integration graphs, type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors, and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, checksum-verified source fetching with final-origin redirect validation, token+IL-offset to source-line resolution. |
 | Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"`; `library X --where "Kind=ObjectCreationExpression"`; `body-shape Kind --library path/to.dll` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, searches one assembly for exact stable rendered-syntax kinds and ranges, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
@@ -193,6 +193,7 @@ reported on stderr rather than mixed into structured output.
 | `vocabulary` | Discover product-owned query vocabularies; select sections such as `Accessibility`, `C# Style Choices`, or `C# Body Kinds` to enumerate their legal values. |
 | `body-shape X` | Search one library's full-fidelity bodies for an exact stable rendered-syntax kind, returning the containing member, MethodDef token, exact range, and selected text. |
 | `diff X` | Compare API surfaces by default; opt into analysis or peer decompiled C#, IL, and checksum-verified authored Source implementation evidence. |
+| `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit, binding-consistent package set. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
@@ -203,6 +204,28 @@ Remote dependency trees requested with `depends --package` or the legacy
 `package --dependencies` option resolve from nuspec manifests without
 downloading package archives. Local `.nupkg` inputs, wildcard selectors, and
 .NET tool redirects retain archive acquisition.
+
+`graph integrations` is the first generic inspection-graph command. Repeat
+`--package name[@version]` to declare the finite induced set and supply one
+shared `--tfm`. The command does not traverse: there is no direction or depth,
+and only relationships whose semantic endpoints are both inside the package
+subject closure enter the graph. Its default relationship family is
+`api.extension`, `integration.observed`, and `integration.opportunity`; repeat
+`--relationship <id>` to select an exact subset. Markdown renders an edge table
+by default; `--tree`, `--mermaid`, `--table`, `--tsv`, `--jsonl`, `--json`,
+`--count`, and `--rows` address the same ordered logical-edge rows. Missing
+peer packages remain visible as typed binding failures and make the command
+exit nonzero rather than silently shortening the graph.
+
+```bash
+dotnet-inspect graph integrations \
+  --package Microsoft.Extensions.DependencyInjection.Abstractions@10.0.0 \
+  --package Microsoft.Extensions.Logging.Abstractions@10.0.0 \
+  --package Microsoft.Extensions.Logging@10.0.0 \
+  --package Microsoft.Extensions.Http@10.0.0 \
+  --tfm net10.0 \
+  --relationship integration.observed
+```
 
 Single-type `type X` output is tree-shaped by default. Use `-v:n` or `-v:d`
 to grow that tree to overload leaves; use `--markdown -v:q` when you want the
