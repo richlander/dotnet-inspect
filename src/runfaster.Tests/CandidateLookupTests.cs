@@ -289,6 +289,69 @@ public class CandidateLookupTests
     }
 
     [Fact]
+    public void Create_ProjectsLegacyRowWithinMatchingAssembly()
+    {
+        var matchingLibrary = Candidate(
+            id: 1,
+            methodToken: 0x06000003,
+            ilOffset: 0x0010,
+            assemblyName: "AssemblyA");
+        var triage = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            assemblyName: "AssemblyA",
+            evidenceMethodToken: 0x06000003,
+            source: "triage");
+        var unrelatedLibrary = Candidate(
+            id: 3,
+            methodToken: 0x06000003,
+            ilOffset: 0x0010,
+            assemblyName: "AssemblyB");
+
+        CandidateLookup.Create(
+            [
+                matchingLibrary,
+                triage,
+                unrelatedLibrary
+            ]);
+
+        Assert.True(
+            matchingLibrary.ProjectedByTriage);
+        Assert.False(
+            unrelatedLibrary.ProjectedByTriage);
+    }
+
+    [Fact]
+    public void Create_ScopesShapeAmbiguityToActivePhysicalMethod()
+    {
+        var library = Candidate(
+            id: 1,
+            methodToken: 0x06000003,
+            ilOffset: 0x0010);
+        var triage = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            evidenceMethodToken: 0x06000003,
+            source: "triage");
+        var otherAssembly = Candidate(
+            id: 3,
+            methodToken: 0x06000003,
+            ilOffset: 0x0010,
+            assemblyName: "OtherAssembly");
+
+        CandidateLookup.Create(
+            [library, triage, otherAssembly]);
+
+        Assert.True(library.ProjectedByTriage);
+        Assert.Equal(1, triage.SameMethodShapeRows);
+        Assert.Equal(
+            1,
+            otherAssembly.SameMethodShapeRows);
+    }
+
+    [Fact]
     public void AttributeBytes_IsStableAndRotatesRemainders()
     {
         var objectRow = Candidate(
@@ -358,6 +421,53 @@ public class CandidateLookupTests
             first[delegateRow.Id],
             reorderedFirst[
                 reversedDelegate.Id]);
+    }
+
+    [Fact]
+    public void AttributeBytes_LengthPrefixesUserControlledIdentity()
+    {
+        var first = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            method: "Fixture.Type.M()\u001fY",
+            kind: "Z");
+        var second = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            method: "Fixture.Type.M()",
+            kind: "Y\u001fZ");
+        var lookup = CandidateLookup.Create(
+            [first, second]);
+        var attributed = lookup.AttributeBytes(
+            [first, second],
+            1);
+
+        var reversedFirst = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            method: "Fixture.Type.M()\u001fY",
+            kind: "Z");
+        var reversedSecond = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            method: "Fixture.Type.M()",
+            kind: "Y\u001fZ");
+        var reversedLookup = CandidateLookup.Create(
+            [reversedSecond, reversedFirst]);
+        var reversed = reversedLookup.AttributeBytes(
+            [reversedFirst, reversedSecond],
+            1);
+
+        Assert.Equal(
+            attributed[first.Id],
+            reversed[reversedFirst.Id]);
+        Assert.Equal(
+            attributed[second.Id],
+            reversed[reversedSecond.Id]);
     }
 
     [Fact]

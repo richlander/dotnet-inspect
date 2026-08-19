@@ -890,6 +890,144 @@ public class E2EFixtureTests
     }
 
     [Fact]
+    public void Correlate_ChromiumTraceSupportsSparseFrameIds()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string tracePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-{Guid.NewGuid():N}.chromium.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"objects":[{"member":"Ns.Alpha.Hot(System.String)","assembly":"Fixture","method_token":"0x06000001","shape":"object-allocation","il":"IL_0005","allocation":"System.Object"}]}}
+                """);
+            File.WriteAllText(
+                tracePath,
+                """
+                {"stackFrames":{"1":{"name":"Ns.Alpha.Hot(System.String)"},"3":{"name":"Other.Noise()"}},"traceEvents":[{"ph":"B","sf":1,"ts":0},{"ph":"E","sf":1,"ts":50}]}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                tracePath,
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                1,
+                output.RootElement.GetProperty(
+                    "observedCandidates").GetInt32());
+            var candidate = Assert.Single(
+                output.RootElement.GetProperty(
+                    "candidates").EnumerateArray());
+            Assert.Equal(
+                50,
+                candidate.GetProperty(
+                    "runtimeWeight").GetDouble());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(tracePath);
+        }
+    }
+
+    [Theory]
+    [InlineData("-1 bytes")]
+    [InlineData(
+        "999999999999999999999999999999999999999999999 bytes")]
+    public void Correlate_RejectsInvalidTextByteValues(
+        string byteText)
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"objects":[{"member":"Fixture.Type.M()","assembly":"Fixture","method_token":"0x06000001","shape":"object-allocation","il":"IL_0005","allocation":"System.Object"}]}}
+                """);
+            File.WriteAllText(
+                logPath,
+                $"Fixture.Type.M() {byteText}");
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "byte value",
+                result.Error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_RejectsCumulativeTextByteOverflow()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"objects":[{"member":"Fixture.Type.M()","assembly":"Fixture","method_token":"0x06000001","shape":"object-allocation","il":"IL_0005","allocation":"System.Object"}]}}
+                """);
+            File.WriteAllText(
+                logPath,
+                "Fixture.Type.M() 9223372036854775807 bytes"
+                + Environment.NewLine
+                + "Fixture.Type.M() 1 bytes");
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "overflow",
+                result.Error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
+        }
+    }
+
+    [Fact]
     public void Correlate_MissingSourceTokenDoesNotRelaxOffsetMatch()
     {
         string triagePath = Path.Combine(

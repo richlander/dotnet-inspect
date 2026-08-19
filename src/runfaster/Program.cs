@@ -913,7 +913,10 @@ static bool TryCorrelateInput(
         result.DiagnosticInputs.Add(summary);
         return true;
     }
-    catch (IOException ex)
+    catch (Exception ex) when (
+        ex is IOException
+        or InvalidDataException
+        or OverflowException)
     {
         Console.Error.WriteLine($"Error: cannot read diagnostic input '{input.Path}': {ex.Message}");
         exitCode = 1;
@@ -1022,7 +1025,9 @@ static bool TryCorrelateNetTrace(
             }
 
             matchedEvents++;
-            allocationBytes += data.AllocationAmount64;
+            allocationBytes = checked(
+                allocationBytes
+                    + data.AllocationAmount64);
             foreach (var id in matchedThisEvent)
                 matchedRows.Add(id);
         };
@@ -1035,7 +1040,7 @@ static bool TryCorrelateNetTrace(
             : $"matched {matchedEvents.ToString(CultureInfo.InvariantCulture)} allocation tick(s) by nearest preceding IL offset, sampled bytes {FormatBytes(allocationBytes)}");
         return true;
     }
-    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or FormatException or InvalidOperationException or NotSupportedException)
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or FormatException or InvalidOperationException or NotSupportedException or OverflowException)
     {
         Console.Error.WriteLine($"Error: cannot read nettrace '{path}': {ex.Message}");
         exitCode = 1;
@@ -1065,8 +1070,13 @@ static bool TryCorrelateSpeedscope(
     }
 
     var frames = framesElement.EnumerateArray()
-        .Select(frame => frame.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "")
-        .ToArray();
+        .Select((frame, index) => (
+            Index: index,
+            Name: frame.TryGetProperty(
+                "name",
+                out var name)
+                ? name.GetString() ?? ""
+                : ""));
     var candidatesByFrame =
         BuildFrameCandidateIndex(
             frames,
@@ -1163,10 +1173,14 @@ static bool TryCorrelateChromiumTrace(
         return false;
     }
 
-    var frames = ReadChromiumFrames(stackFramesElement);
+    var frames = ReadChromiumFrames(
+        stackFramesElement);
     var candidatesByFrame =
         BuildFrameCandidateIndex(
-            frames,
+            frames.Select(static frame =>
+                (
+                    Index: frame.Key,
+                    Name: frame.Value)),
             lookup);
     var stack = new List<int>();
     var weightsByCandidate =
@@ -1236,7 +1250,9 @@ static bool TryCorrelateChromiumTrace(
     return true;
 }
 
-static string[] ReadChromiumFrames(JsonElement stackFramesElement)
+static IReadOnlyDictionary<int, string>
+    ReadChromiumFrames(
+        JsonElement stackFramesElement)
 {
     var frames = new Dictionary<int, string>();
     foreach (var property in stackFramesElement.EnumerateObject())
@@ -1249,13 +1265,7 @@ static string[] ReadChromiumFrames(JsonElement stackFramesElement)
             : "";
     }
 
-    if (frames.Count == 0)
-        return [];
-
-    var result = new string[frames.Keys.Max() + 1];
-    foreach (var (id, name) in frames)
-        result[id] = name;
-    return result;
+    return frames;
 }
 
 static int TryReadFrameId(JsonElement element)
@@ -1272,7 +1282,9 @@ static int TryReadFrameId(JsonElement element)
 
 static int CorrelateEventedSpeedscopeProfile(
     JsonElement profile,
-    IReadOnlyList<AllocationCandidate>[]
+    IReadOnlyDictionary<
+        int,
+        IReadOnlyList<AllocationCandidate>>
         candidatesByFrame,
     string sourceKind)
 {
@@ -1338,7 +1350,9 @@ static int CorrelateEventedSpeedscopeProfile(
 
 static int CorrelateSampledSpeedscopeProfile(
     JsonElement profile,
-    IReadOnlyList<AllocationCandidate>[]
+    IReadOnlyDictionary<
+        int,
+        IReadOnlyList<AllocationCandidate>>
         candidatesByFrame,
     string sourceKind)
 {
@@ -1376,14 +1390,21 @@ static int CorrelateSampledSpeedscopeProfile(
         sourceKind);
 }
 
-static IReadOnlyList<AllocationCandidate>[]
+static IReadOnlyDictionary<
+    int,
+    IReadOnlyList<AllocationCandidate>>
     BuildFrameCandidateIndex(
-        string[] frames,
+        IEnumerable<(int Index, string Name)> frames,
         CandidateLookup lookup)
     => frames
-        .Select(frame =>
-            (IReadOnlyList<AllocationCandidate>)
-            [.. lookup.FindByMethodText(frame)
+        .Where(static frame =>
+            !string.IsNullOrEmpty(frame.Name))
+        .ToDictionary(
+            static frame =>
+                frame.Index,
+            frame =>
+                (IReadOnlyList<AllocationCandidate>)
+                [.. lookup.FindByMethodText(frame.Name)
                 .Select(static match =>
                     match.Candidate)
                 .Where(static candidate =>
@@ -1391,12 +1412,13 @@ static IReadOnlyList<AllocationCandidate>[]
                 .DistinctBy(static candidate =>
                     candidate.Id)
                 .OrderBy(static candidate =>
-                    candidate.Id)])
-        .ToArray();
+                    candidate.Id)]);
 
 static void AccumulateFrameObservation(
     IEnumerable<int> frameIndices,
-    IReadOnlyList<AllocationCandidate>[]
+    IReadOnlyDictionary<
+        int,
+        IReadOnlyList<AllocationCandidate>>
         candidatesByFrame,
     double weight,
     Dictionary<
@@ -1408,11 +1430,12 @@ static void AccumulateFrameObservation(
         return;
 
     var candidates = frameIndices
-        .Where(frame =>
-            frame >= 0
-            && frame < candidatesByFrame.Length)
         .SelectMany(frame =>
-            candidatesByFrame[frame])
+            candidatesByFrame.TryGetValue(
+                frame,
+                out var candidates)
+                ? candidates
+                : [])
         .DistinctBy(static candidate =>
             candidate.Id)
         .OrderBy(static candidate =>
@@ -1598,15 +1621,13 @@ static void MarkHit(AllocationCandidate candidate, HashSet<int> matchedIds, stri
     candidate.RuntimeHits++;
     candidate.RuntimeWeight += weight;
     if (bytes is long value)
-        candidate.RuntimeBytes += value;
+    {
+        candidate.RuntimeBytes = checked(
+            candidate.RuntimeBytes + value);
+    }
     candidate.ObservedSources.Add(sourceKind);
     candidate.ExactOffsetObserved |= exactOffset;
-    foreach (var projectedLibrary
-             in candidate.ProjectedLibraries)
-    {
-        projectedLibrary.SupersededByTriage =
-            true;
-    }
+    candidate.MarkProjectedLibrariesSuperseded();
 }
 
 static void MarkAllocationHit(
@@ -1626,11 +1647,18 @@ static long? TryReadBytes(string line)
     if (!match.Success)
         return null;
 
-    if (!double.TryParse(match.Groups["value"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
-        return null;
+    if (!decimal.TryParse(
+            match.Groups["value"].Value,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out var value))
+    {
+        throw new InvalidDataException(
+            $"invalid byte value '{match.Groups["value"].Value}'");
+    }
 
     var unit = match.Groups["unit"].Value.ToLowerInvariant();
-    double multiplier = unit switch
+    decimal multiplier = unit switch
     {
         "b" or "byte" or "bytes" => 1,
         "kb" or "kib" => 1024,
@@ -1639,7 +1667,21 @@ static long? TryReadBytes(string line)
         _ => 1
     };
 
-    return (long)Math.Round(value * multiplier);
+    if (value < 0
+        || value > long.MaxValue / multiplier)
+    {
+        throw new InvalidDataException(
+            $"byte value '{match.Value}' is outside the supported range");
+    }
+
+    decimal rounded = decimal.Round(
+        value * multiplier);
+    if (rounded > long.MaxValue)
+    {
+        throw new InvalidDataException(
+            $"byte value '{match.Value}' is outside the supported range");
+    }
+    return checked((long)rounded);
 }
 
 static bool IsTextLike(string path)
@@ -2547,6 +2589,15 @@ sealed class AllocationCandidate(
     public List<AllocationCandidate> ProjectedLibraries
         { get; } = [];
     public bool SupersededByTriage { get; set; }
+    public void MarkProjectedLibrariesSuperseded()
+    {
+        foreach (var projectedLibrary
+                 in ProjectedLibraries)
+        {
+            projectedLibrary.SupersededByTriage =
+                true;
+        }
+    }
     public bool RowAmbiguous => AmbiguousIlOffsetJoin || (ShapeMatched && SameMethodShapeRows > 1 && !ExactOffsetObserved);
     public bool UnambiguousIlOffsetJoinObserved => IlOffsetJoinObserved && !AmbiguousIlOffsetJoin;
     public HashSet<string> ObservedSources { get; } = new(StringComparer.Ordinal);
@@ -2778,13 +2829,6 @@ sealed class CandidateLookup
             string Fragment,
             AllocationCandidate Candidate,
             bool IsRuntimeBody)>();
-        foreach (var group in candidates.GroupBy(static c => (c.Method, c.AllocationKind)))
-        {
-            int count = group.Count();
-            foreach (var candidate in group)
-                candidate.SameMethodShapeRows = count;
-        }
-
         foreach (var candidate in candidates)
         {
             if (candidate.HasRuntimeCoordinate)
@@ -2949,6 +2993,24 @@ sealed class CandidateLookup
                 .ToList();
         }
 
+        foreach (var group in candidates
+                     .Where(static candidate =>
+                         !candidate.ProjectedByTriage)
+                     .GroupBy(static candidate => (
+                         candidate.AssemblyModuleKey,
+                         BuildIdentity:
+                            candidate.ModuleVersionId
+                                ?.ToString("D")
+                            ?? candidate
+                                .UnknownLibraryInputIdentity,
+                         candidate.RuntimeMethodToken,
+                         candidate.AllocationKind)))
+        {
+            int count = group.Count();
+            foreach (var candidate in group)
+                candidate.SameMethodShapeRows = count;
+        }
+
         var rejectedByTokenOffset =
             new Dictionary<
                 (int Token, int Offset),
@@ -3053,9 +3115,17 @@ sealed class CandidateLookup
         }
 
         string groupKey = string.Join(
-            '\u001e',
-            ordered.Select(
-                StableAttributionKey));
+            "",
+            ordered.Select(candidate =>
+            {
+                string key =
+                    StableAttributionKey(candidate);
+                return string.Concat(
+                    key.Length.ToString(
+                        CultureInfo.InvariantCulture),
+                    ":",
+                    key);
+            }));
         int start = _byteRemainderOffsets
             .GetValueOrDefault(groupKey);
         for (int index = 0;
@@ -3199,23 +3269,41 @@ sealed class CandidateLookup
 
     static string StableAttributionKey(
         AllocationCandidate candidate)
-        => string.Join(
-            '\u001f',
-            candidate.AssemblyModuleKey,
-            candidate.ModuleVersionId?.ToString("D")
-                ?? "",
-            candidate.RuntimeMethodToken.ToString(
-                "X8",
+        => string.Concat(
+            EncodeAttributionPart(
+                candidate.AssemblyModuleKey),
+            EncodeAttributionPart(
+                candidate.ModuleVersionId
+                    ?.ToString("D")
+                ?? ""),
+            EncodeAttributionPart(
+                candidate.RuntimeMethodToken
+                    .ToString(
+                        "X8",
+                        CultureInfo.InvariantCulture)),
+            EncodeAttributionPart(
+                candidate.IlOffset.ToString(
+                    "X8",
+                    CultureInfo.InvariantCulture)),
+            EncodeAttributionPart(
+                candidate.Source),
+            EncodeAttributionPart(
+                candidate.Method),
+            EncodeAttributionPart(
+                candidate.AllocationKind),
+            EncodeAttributionPart(
+                candidate.PredictedType ?? ""),
+            EncodeAttributionPart(
+                candidate.CandidateId ?? ""),
+            EncodeAttributionPart(
+                candidate.Provenance ?? ""));
+
+    static string EncodeAttributionPart(string value)
+        => string.Concat(
+            value.Length.ToString(
                 CultureInfo.InvariantCulture),
-            candidate.IlOffset.ToString(
-                "X8",
-                CultureInfo.InvariantCulture),
-            candidate.Source,
-            candidate.Method,
-            candidate.AllocationKind,
-            candidate.PredictedType ?? "",
-            candidate.CandidateId ?? "",
-            candidate.Provenance ?? "");
+            ":",
+            value);
 
     static bool HasAmbiguousTextCoordinateIdentity(
         IReadOnlyList<AllocationCandidate> candidates)
@@ -3247,12 +3335,6 @@ sealed class CandidateLookup
     static TextSupersession[] PlanTextSupersessions(
         IReadOnlyList<AllocationCandidate> candidates)
     {
-        var supersededLibraries = ProgramSupport
-            .FindLibrariesSupersededByTriage(
-                candidates);
-        if (supersededLibraries.Count == 0)
-            return [];
-
         var triageCandidates = candidates
             .Where(static candidate => string.Equals(
                 candidate.Source,
@@ -3260,7 +3342,11 @@ sealed class CandidateLookup
                 StringComparison.Ordinal))
             .ToArray();
         var result = new List<TextSupersession>();
-        foreach (var library in supersededLibraries)
+        foreach (var library in candidates.Where(
+                     static candidate => string.Equals(
+                         candidate.Source,
+                         "library",
+                         StringComparison.Ordinal)))
         {
             var compatibleTriage = triageCandidates
                 .Where(triage =>
@@ -3275,7 +3361,7 @@ sealed class CandidateLookup
             if (compatibleTriage.Length == 0)
                 continue;
 
-            AllocationCandidate[] buildTriage = [];
+            AllocationCandidate[] buildTriage;
             if (library.ModuleVersionId is Guid moduleVersionId)
             {
                 buildTriage = compatibleTriage
@@ -3283,15 +3369,49 @@ sealed class CandidateLookup
                         triage.ModuleVersionId
                             == moduleVersionId)
                     .ToArray();
+                if (buildTriage.Length > 0)
+                {
+                    result.Add(
+                        new TextSupersession(
+                            library,
+                            buildTriage));
+                    continue;
+                }
             }
+
+            buildTriage = compatibleTriage
+                .Where(static triage =>
+                    triage.ModuleVersionId is null)
+                .ToArray();
             if (buildTriage.Length == 0)
-            {
-                buildTriage = compatibleTriage
-                    .Where(static triage =>
-                        triage.ModuleVersionId is null)
-                    .ToArray();
-            }
-            if (buildTriage.Length > 0)
+                continue;
+
+            int compatibleLibraryBuilds =
+                candidates
+                    .Where(candidate =>
+                        string.Equals(
+                            candidate.Source,
+                            "library",
+                            StringComparison.Ordinal)
+                        && string.Equals(
+                            candidate.AssemblyModuleKey,
+                            library.AssemblyModuleKey,
+                            StringComparison
+                                .OrdinalIgnoreCase)
+                        && buildTriage.Any(triage =>
+                            PredictedTypesCompatible(
+                                candidate,
+                                triage)))
+                    .Select(static candidate =>
+                        candidate.ModuleVersionId
+                            is Guid candidateMvid
+                            ? $"mvid:{candidateMvid:D}"
+                            : $"path:{candidate.UnknownLibraryInputIdentity}")
+                    .Distinct(
+                        StringComparer.Ordinal)
+                    .Take(2)
+                    .Count();
+            if (compatibleLibraryBuilds == 1)
             {
                 result.Add(
                     new TextSupersession(
@@ -3372,7 +3492,7 @@ static partial class Patterns
     [GeneratedRegex(@"\bIL[_ ]?(?:0x)?(?<offset>[0-9a-fA-F]{1,6})\b", RegexOptions.CultureInvariant)]
     public static partial Regex IlOffset();
 
-    [GeneratedRegex(@"\b(?<value>\d+(?:\.\d+)?)\s*(?<unit>bytes?|b|kb|kib|mb|mib|gb|gib)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?<![\w.])(?<value>[+-]?\d+(?:\.\d+)?)\s*(?<unit>bytes?|b|kb|kib|mb|mib|gb|gib)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     public static partial Regex Bytes();
 }
 
@@ -3469,18 +3589,15 @@ internal static class ProgramSupport
             return;
 
         candidate.AllocationHits++;
-        candidate.AllocationBytes += sampledBytes;
+        candidate.AllocationBytes = checked(
+            candidate.AllocationBytes
+                + sampledBytes);
         candidate.RuntimeWeight += sampledBytes;
         candidate.ObservedSources.Add(sourceKind);
         candidate.IlOffsetJoinObserved |= ilOffsetJoin;
         candidate.ExactOffsetObserved |= exactOffset;
         candidate.AmbiguousIlOffsetJoin |= ambiguousIlJoin;
-        foreach (var projectedLibrary
-                 in candidate.ProjectedLibraries)
-        {
-            projectedLibrary.SupersededByTriage =
-                true;
-        }
+        candidate.MarkProjectedLibrariesSuperseded();
         if (!string.IsNullOrWhiteSpace(allocatedType))
         {
             candidate.ObservedAllocatedTypes[allocatedType] = candidate.ObservedAllocatedTypes.GetValueOrDefault(allocatedType) + sampledBytes;
@@ -3488,7 +3605,9 @@ internal static class ProgramSupport
             {
                 candidate.ShapeMatched = true;
                 candidate.ShapeAllocationHits++;
-                candidate.ShapeAllocationBytes += sampledBytes;
+                candidate.ShapeAllocationBytes = checked(
+                    candidate.ShapeAllocationBytes
+                        + sampledBytes);
             }
         }
     }
@@ -3576,6 +3695,8 @@ internal static class ProgramSupport
             {
                 candidate.TypeConfirmedBytes = volume;
                 candidate.TypeConfirmedSiteCount = plan.SiteCount;
+                candidate
+                    .MarkProjectedLibrariesSuperseded();
             }
         }
     }

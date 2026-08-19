@@ -236,6 +236,37 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_PropagatesToProjectedPhysicalRow()
+    {
+        var library = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "Fixture.Specific",
+            source: "library");
+        var triage = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.Object",
+            source: "triage");
+        library.ProjectedByTriage = true;
+        triage.ProjectedLibraries.Add(library);
+        var result = new CorrelationResult();
+        result.Candidates.Add(library);
+        result.Candidates.Add(triage);
+        result.RecordTypeVolume(
+            "System.Object",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(triage.TypeConfirmed);
+        Assert.True(library.SupersededByTriage);
+        Assert.Equal(
+            "superseded-by-triage",
+            library.Status);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_CollapsesSharedEvidenceBody()
     {
         var first = CandidateWithType(
