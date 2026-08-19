@@ -45,6 +45,7 @@ import {
   sourceRequestNeedsLoad,
   spotlightCandidateKey,
   spotlightCandidateSignature,
+  typeLensesFor,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "../src/data.js";
@@ -124,6 +125,24 @@ const graphSource = readFileSync(
   new URL("../src/graph-mermaid.js", import.meta.url),
   "utf8");
 const applicationSources = `${appSource}\n${graphSource}`;
+
+test("platform type and member navigation hides package-only operations", () => {
+  assert.deepEqual(
+    typeLensesFor({ isRuntimePack: true }).map(([id]) => id),
+    ["api"]);
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method" }, true),
+    ["overview", "call-graph", "facts"]);
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "method" }, false),
+    ["overview", "call-graph", "facts", "source", "annotated"]);
+});
+
+test("platform call graphs carry the target pack into lazy acquisition", () => {
+  assert.match(
+    appSource,
+    /inspectExpandPlatformCallGraph\(\{[\s\S]*?assembly:\s*node\.assembly,[\s\S]*?pack:\s*platformPackForAssembly\(node\.assembly\)/);
+});
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const engineSource = readFileSync(
   new URL("../engine/wwwroot/engine.js", import.meta.url),

@@ -31,7 +31,8 @@ internal static class BrowserSurfaceProjection
         BrowserTypeSurface[] Types,
         BrowserAccessibilityDescriptor[] Accessibility,
         int TotalMembers,
-        string? InspectionError);
+        string? InspectionError,
+        bool IsTruncated);
 
     internal static Surface Project(
         AssemblyContextApiSurfaceResult surfaces,
@@ -158,7 +159,8 @@ internal static class BrowserSurfaceProjection
             identified
                 .Where(type => IsDefaultBucket(surfaces, type))
                 .Sum(type => type.Members),
-            notice);
+            notice,
+            truncation is not null);
     }
 
     internal static BrowserTypeSurface Type(

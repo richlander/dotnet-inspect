@@ -300,6 +300,37 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryPackage_AllSelectedFailuresPreserveTheTypedDiagnosis()
+    {
+        const string packageId = "Malformed.Surface";
+        const string version = "1.0.0";
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                packageId,
+                version,
+                Package(
+                    [0x01, 0x02, 0x03],
+                    $"lib/net11.0/{packageId}.dll"),
+                fromCache: false));
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => BrowserInspectionEngine.QueryPackage(
+                    packageId,
+                    version,
+                    "net11.0"));
+
+        Assert.Contains(
+            "InvalidImage",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "invalid metadata",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task PlatformWorkspace_PinsAndAccumulatesSelectedAssemblies()
     {
         const string packageId =
@@ -412,6 +443,7 @@ public sealed class BrowserEngineBoundaryTests
                 await BrowserInspectionEngine.ExpandPlatformCallGraph(
                     "net11.0",
                     "InspectWeb.Engine.Tests",
+                    "netcore.app",
                     selected.Type.MetadataId,
                     selected.Member.Name,
                     selected.Member.GraphSelectorKey,
@@ -419,6 +451,28 @@ public sealed class BrowserEngineBoundaryTests
                 BrowserJsonContext.Default.BrowserCallGraph));
         Assert.Equal(0, graph.Scope.Packages);
         Assert.Equal(2, graph.Scope.Assemblies);
+
+        BrowserPlatformScopeResolution qualifiedRuntime =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0-browser",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        Assert.Single(qualifiedRuntime.Scope.Members);
+        BrowserCallGraph lazySelectorGraph =
+            Assert.IsType<BrowserCallGraph>(
+                JsonSerializer.Deserialize(
+                    await BrowserInspectionEngine.ExpandPlatformCallGraph(
+                        "net11.0-browser",
+                        "InspectWeb.Engine.Tests",
+                        "netcore.app",
+                        selected.Type.MetadataId,
+                        selected.Member.Name,
+                        selected.Member.GraphSelectorKey,
+                        metadataToken: 0),
+                    BrowserJsonContext.Default.BrowserCallGraph));
+        Assert.Equal(2, lazySelectorGraph.Scope.Assemblies);
 
         using (BrowserPackageWorkspace.ReservePackageDownload(
             "platform.eviction@1.0.0",
@@ -471,6 +525,116 @@ public sealed class BrowserEngineBoundaryTests
             "assembly-count limit",
             failure.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_ReuseTouchesTheSharedScopeLru()
+    {
+        const string packageId =
+            "microsoft.netcore.app.runtime.linux-x64";
+        const string version = "11.0.1";
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] platformNupkg = PlatformPackage(
+            ("System.Private.CoreLib.dll",
+                File.ReadAllBytes(typeof(object).Assembly.Location)));
+        var handler = new PlatformVersionHandler(
+            packageId,
+            version,
+            platformNupkg);
+        using var client = new HttpClient(handler);
+        var authorization =
+            new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+        BrowserPlatformScopeResolution platform =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0-android",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        BrowserInspectionScope firstPackage = BrowserPackageWorkspace.OpenScope(
+            [Coordinate(
+                "Platform.Lru.A",
+                Package(image, "lib/net11.0/Platform.Lru.A.dll"))]);
+        BrowserInspectionScope secondPackage = BrowserPackageWorkspace.OpenScope(
+            [Coordinate(
+                "Platform.Lru.B",
+                Package(image, "lib/net11.0/Platform.Lru.B.dll"))]);
+        BrowserInspectionScope thirdPackage = BrowserPackageWorkspace.OpenScope(
+            [Coordinate(
+                "Platform.Lru.C",
+                Package(image, "lib/net11.0/Platform.Lru.C.dll"))]);
+
+        BrowserPlatformScopeResolution reused =
+            await BrowserPlatformWorkspace.OpenRuntimeAsync(
+                "net11.0-android",
+                client,
+                authorization,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+        Assert.Same(platform.Scope, reused.Scope);
+        _ = BrowserPackageWorkspace.OpenScope(
+            [Coordinate(
+                "Platform.Lru.D",
+                Package(image, "lib/net11.0/Platform.Lru.D.dll"))]);
+
+        Assert.True(
+            BrowserPackageWorkspace.IsScopeRetained(platform.Scope));
+        Assert.False(
+            BrowserPackageWorkspace.IsScopeRetained(firstPackage));
+        Assert.True(
+            BrowserPackageWorkspace.IsScopeRetained(secondPackage));
+        Assert.True(
+            BrowserPackageWorkspace.IsScopeRetained(thirdPackage));
+    }
+
+    [Fact]
+    public async Task PlatformWorkspace_CanceledQueueEntryPreservesSerialization()
+    {
+        string key = $"cancellation-{Guid.NewGuid():N}";
+        var firstGate =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstStarted =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        var thirdStarted =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<int> first = BrowserPlatformWorkspace.EnqueueAsync(
+            key,
+            async () =>
+            {
+                firstStarted.SetResult();
+                await firstGate.Task;
+                return 1;
+            },
+            CancellationToken.None);
+        await firstStarted.Task;
+
+        using var cancellation = new CancellationTokenSource();
+        Task<int> second = BrowserPlatformWorkspace.EnqueueAsync(
+            key,
+            () => Task.FromResult(2),
+            cancellation.Token);
+        Task<int> third = BrowserPlatformWorkspace.EnqueueAsync(
+            key,
+            () =>
+            {
+                thirdStarted.SetResult();
+                return Task.FromResult(3);
+            },
+            CancellationToken.None);
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => second);
+        Assert.False(thirdStarted.Task.IsCompleted);
+
+        firstGate.SetResult();
+        Assert.Equal(1, await first);
+        Assert.Equal(3, await third);
     }
 
     [Fact]

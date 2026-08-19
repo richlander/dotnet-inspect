@@ -390,6 +390,24 @@ internal static class BrowserPackageWorkspace
         return Scopes.Values.Any(entry => ReferenceEquals(entry.Scope, scope));
     }
 
+    internal static void TouchScope(IDisposable scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        KeyValuePair<string, ScopeEntry> registered = Scopes
+            .SingleOrDefault(candidate => ReferenceEquals(candidate.Value.Scope, scope));
+        if (registered.Value is null)
+        {
+            throw new InvalidOperationException(
+                "The browser inspection scope is no longer retained.");
+        }
+
+        Scopes[registered.Key] = registered.Value with
+        {
+            LastAccess = ++_clock,
+        };
+        TouchPackages(registered.Value.PackageKeys);
+    }
+
     internal static void RemoveScope(IDisposable scope)
     {
         ArgumentNullException.ThrowIfNull(scope);

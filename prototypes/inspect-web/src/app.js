@@ -39,6 +39,7 @@ import {
   selectedDependencyGroup,
   spotlightCandidateKey,
   spotlightCandidateSignature,
+  typeLensesFor,
   uniqueTypeByQueryId,
   workspaceCoordinatesMatch
 } from "./data.js";
@@ -406,7 +407,9 @@ function applyView(view) {
   const type = selectedType();
   const member = selectedMember(type);
   if (member
-    && !memberSectionIdsFor(member).includes(state.memberSection)) {
+    && !memberSectionIdsFor(
+      member,
+      state.package?.isRuntimePack).includes(state.memberSection)) {
     state.memberSection = "overview";
   }
   if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && member) {
@@ -456,7 +459,10 @@ const memberSectionDefs = [
 ];
 
 function memberSectionsFor(member) {
-  const allowed = new Set(memberSectionIdsFor(member));
+  const allowed = new Set(
+    memberSectionIdsFor(
+      member,
+      state.package?.isRuntimePack));
   return memberSectionDefs.filter(([id]) => allowed.has(id));
 }
 
@@ -1013,7 +1019,7 @@ function activeLenses() {
   const sc = scope();
   if (sc === "package") return packageLensesFor(state.package);
   if (sc === "member") return memberSectionsFor(selectedMember(selectedType()));
-  return lenses;
+  return typeLensesFor(state.package);
 }
 
 // The nav pane reacts to context: types at the top level, or the current type's
@@ -1153,8 +1159,10 @@ function stepHorizontal(delta) {
     else if (state.memberSection === "facts") loadSelectedMemberFacts();
     else loadSelectedMemberDocumentation();
   } else {
-    const index = lenses.findIndex(([id]) => id === state.lens);
-    state.lens = lenses[(index + delta + lenses.length) % lenses.length][0];
+    const available = typeLensesFor(state.package);
+    const index = available.findIndex(([id]) => id === state.lens);
+    state.lens = available[
+      (index + delta + available.length) % available.length][0];
     render();
   }
 }
@@ -1224,7 +1232,8 @@ function completions() {
       kind: item.kind
     }));
   } else if (tokens[0] === "show") {
-    entries = lenses.map(([value, label]) => ({ value, hint: `${label} lens`, kind: "lens" }));
+    entries = typeLensesFor(state.package)
+      .map(([value, label]) => ({ value, hint: `${label} lens`, kind: "lens" }));
   } else if (tokens[0] === "framework") {
     entries = state.package.frameworks.map(value => ({ value, hint: "compile assets", kind: "framework" }));
   } else if (tokens[0] === "types") {
@@ -1319,6 +1328,11 @@ function render() {
   // URL or stale selection can neither render nor auto-load a lens that fetches a missing nupkg.
   if (state.atPackageRoot && !packageLensesFor(state.package).some(([id]) => id === state.packageLens)) {
     state.packageLens = "overview";
+  }
+  if (!state.atPackageRoot
+    && scope() === "type"
+    && !typeLensesFor(state.package).some(([id]) => id === state.lens)) {
+    state.lens = "api";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
   const suggestions = completions();
@@ -1549,7 +1563,10 @@ function renderScopeBar() {
     const sections = memberSectionsFor(selectedMember(selectedType()));
     strip = sections.map(([id, label], i) => lensButton(id, label, state.memberSection === id, "data-member-section", i)).join("");
   } else {
-    strip = lenses.map(([id, label], i) => lensButton(id, label, state.lens === id, "data-lens", i)).join("");
+    strip = typeLensesFor(state.package)
+      .map(([id, label], i) =>
+        lensButton(id, label, state.lens === id, "data-lens", i))
+      .join("");
   }
   const seg = (id, label, active) =>
     `<button class="scope-seg ${active ? "active" : ""}" data-scope="${id}" role="tab" aria-selected="${active}">${label}</button>`;
@@ -5531,7 +5548,10 @@ function executeCommand() {
       state.selectedMemberKey = "";
     }
   } else if (verb === "show") {
-    const match = lenses.find(([id, label]) => id === argument.toLowerCase() || label.toLowerCase() === argument.toLowerCase());
+    const match = typeLensesFor(state.package)
+      .find(([id, label]) =>
+        id === argument.toLowerCase()
+        || label.toLowerCase() === argument.toLowerCase());
     if (match) state.lens = match[0];
   } else if (verb === "framework" && state.package.frameworks.includes(argument)) {
     switchPackageFramework(argument);
@@ -5651,7 +5671,9 @@ function applyDeepLink(deep) {
         state.selectedOverloadIndex = overloadIndex;
       }
       if (deep.section
-        && memberSectionIdsFor(group).includes(deep.section)) {
+        && memberSectionIdsFor(
+          group,
+          state.package?.isRuntimePack).includes(deep.section)) {
         state.memberSection = deep.section;
       }
     }
@@ -6705,6 +6727,7 @@ async function loadRuntimeMemberCallGraph(type, overload) {
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
       assembly: type.assembly,
+      pack: platformPackForAssembly(type.assembly),
       type: type.metadataId ?? type.queryId ?? type.id,
       member: state.selectedBodyTarget?.memberName ?? overload.name,
       selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
@@ -7052,6 +7075,7 @@ async function drillPlatformNode(node) {
     const graph = await inspectExpandPlatformCallGraph({
       framework: state.package.activeFramework,
       assembly: node.assembly,
+      pack: platformPackForAssembly(node.assembly),
       type: callGraphTargetTypeId(node),
       member: node.memberName,
       selectorKey: node.selectorKey,
@@ -7086,9 +7110,9 @@ function popPlatformDrill() {
 // A clicked platform (BCL) call-graph node should land the user *inside* the resident
 // runtime pack at that member — a first-class, refreshable location with its own header,
 // member list, breadcrumb, and URL — rather than an in-place descent that stays pinned to
-// the workspace package. The runtime pack is loaded on demand (its System.Private.CoreLib
-// types are resident); if the clicked type lives in a not-yet-resident sibling assembly we
-// fall back to the lightweight in-place descent so the callees still appear.
+// the workspace package. A not-yet-resident sibling assembly is acquired first so its
+// surface can resolve the target; selector-only in-place descent remains the fallback when
+// that surface has no unique member match.
 async function navigateOrDrillPlatform(node) {
   if (state.platformDrillLoading) return;
   const seq = state.memberCallGraphSeq;
@@ -7110,8 +7134,33 @@ async function navigateOrDrillPlatform(node) {
       return;
     }
   }
-  const selection = findRuntimeMemberSelection(pack, node);
+  let selection = findRuntimeMemberSelection(pack, node);
   if (seq !== state.memberCallGraphSeq) return;
+  if (!selection && node.assembly) {
+    state.platformDrillLoading = true;
+    state.platformDrillError = "";
+    render();
+    const targetPack = platformPackForAssembly(node.assembly);
+    pack = await loadRuntimePackAssembly(
+      framework,
+      node.assembly.endsWith(".dll")
+        ? node.assembly
+        : `${node.assembly}.dll`,
+      targetPack,
+      () => seq === state.memberCallGraphSeq);
+    if (seq !== state.memberCallGraphSeq) return;
+    state.platformDrillLoading = false;
+    if (!pack) {
+      state.platformDrillError =
+        state.runtimePackError
+        || `Could not load platform assembly ${node.assembly}.`;
+      render();
+      await renderMermaidCallGraph();
+      return;
+    }
+    recordPlatformRecent(node.assembly, targetPack);
+    selection = findRuntimeMemberSelection(pack, node);
+  }
   if (!selection) {
     await drillPlatformNode(node);
     return;
@@ -7882,7 +7931,9 @@ async function loadRuntimePack(framework, isCurrent = () => true) {
     const defaultAssembly = (result.assemblies ?? [])
       .find(assembly => assembly.id === result.defaultAssemblyId);
     if (!defaultAssembly) {
-      throw new Error("The platform query did not return its selected assembly descriptor.");
+      throw new Error(
+        result.inspectionError
+        || "The platform query did not return its selected assembly descriptor.");
     }
     const packageModel = {
       id: result.package,
@@ -7932,12 +7983,14 @@ async function loadRuntimePackAssembly(
   if (runtimePackLoadPromise) await waitForRuntimePackLoad();
   if (!isCurrent()) return null;
   const requestedFramework = framework || "";
+  const requestedAssembly = String(assemblyFileName)
+    .replace(/\.dll$/i, "");
   const resident = runtimePackPackage();
   if (resident
     && (!requestedFramework
       || resident.activeFramework.toLowerCase() === requestedFramework.toLowerCase())
     && (resident.assemblies || []).some(assembly =>
-      assembly.name.toLowerCase() === String(assemblyFileName).toLowerCase())) {
+      assembly.name.toLowerCase() === requestedAssembly.toLowerCase())) {
     return resident;
   }
 
@@ -7950,6 +8003,12 @@ async function loadRuntimePackAssembly(
       pack || "");
     if (!isCurrent()) return null;
     refreshPackageStats();
+    const resultAssemblies = result.assemblies ?? [];
+    if (resultAssemblies.length === 0) {
+      throw new Error(
+        result.inspectionError
+        || `The platform query returned no descriptor for ${requestedAssembly}.`);
+    }
     const newTypes = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
     const existing = runtimePackPackage();
     if (existing
@@ -7958,7 +8017,7 @@ async function loadRuntimePackAssembly(
       const seenTypes = new Set(existing.types.map(type => type.id));
       for (const type of newTypes) if (!seenTypes.has(type.id)) existing.types.push(type);
       const seenAsm = new Set((existing.assemblies || []).map(item => item.name));
-      for (const asm of (result.assemblies ?? [])) if (!seenAsm.has(asm.name)) existing.assemblies.push(asm);
+      for (const asm of resultAssemblies) if (!seenAsm.has(asm.name)) existing.assemblies.push(asm);
       const descriptors = new Map(
         (existing.accessibility || []).map(descriptor => [descriptor.id, descriptor]));
       for (const descriptor of (result.accessibility ?? [])) {
@@ -7978,10 +8037,10 @@ async function loadRuntimePackAssembly(
       version: result.version,
       frameworks: result.frameworks ?? [],
       activeFramework: result.activeFramework,
-      assembly: result.assemblies[0].name,
+      assembly: resultAssemblies[0].name,
       assemblyId: result.defaultAssemblyId,
-      assemblyAsset: result.assemblies[0].asset,
-      assemblies: result.assemblies ?? [],
+      assemblyAsset: resultAssemblies[0].asset,
+      assemblies: resultAssemblies,
       types: newTypes,
       accessibility: result.accessibility ?? [],
       totalTypes: newTypes.length,

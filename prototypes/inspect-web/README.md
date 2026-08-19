@@ -89,9 +89,13 @@ assembly for a target framework and platform family records the exact pack
 version and producer. Later lazy selections re-acquire from that pin and
 replace the old scope with one cumulative binding-consistent group, so runtime
 and ASP.NET Core libraries never drift across versions or feeds and call
-graphs can see every resident platform assembly. The Platform workspace admits
-at most 256 selected assemblies and retains at most 64 MB of opened images.
+graphs can lazily acquire a selected target and see every resident platform
+assembly. Reuse updates both the shared scope LRU and its archive recency. The
+Platform workspace admits at most 256 selected assemblies and retains at most
+64 MB of opened images.
 `BrowserEngineBoundaryTests.PlatformWorkspace_PinsAndAccumulatesSelectedAssemblies`,
+`PlatformWorkspace_ReuseTouchesTheSharedScopeLru`,
+`PlatformWorkspace_CanceledQueueEntryPreservesSerialization`,
 `PlatformWorkspace_RejectsInvalidSelectionsBeforeNetwork`, and
 `PlatformWorkspace_RejectsAssemblyCountAboveBrowserBound` gate those host
 contracts.
@@ -234,7 +238,7 @@ the full budget.
 | `LoadRuntimePack`, `LoadRuntimePackAssembly` | selected platform assemblies accumulated per target framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryPlatformIntegrations` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
 | `QueryPlatformOpportunities` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
-| `ExpandPlatformCallGraph` | cumulative runtime and ASP.NET Core platform group | `MemberCallGraphSession` |
+| `ExpandPlatformCallGraph` | lazily acquired target in the cumulative runtime and ASP.NET Core platform group | `MemberCallGraphSession` |
 
 `QueryPackage` is the site's default path. It runs against the product-selected
 compile assets, so `ref/` assemblies remain authoritative when the package ships
@@ -422,6 +426,12 @@ rather than fixture results or success-shaped empty output.
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
 | `QueryPlatformMetadata`, `QueryPlatformMetadataTable`, `QueryPlatformHeapEntries` | the same missing group-scoped metadata image, table, and heap projections as the package exports |
 | `QueryPlatformPerformance` | the same missing assembly-wide Analysis ranking query as the package export |
+
+Package-backed type Metadata/Source and member Source/Annotated Source exports
+do not accept platform coordinates. The Platform UI therefore withholds those
+type lenses and member sections rather than routing `Microsoft.NETCore.App`
+through NuGet package acquisition. Platform call graphs and the explicit
+method-Facts refusal remain available.
 
 `ResolvedAssemblyReference.CreateFromStreamIfManaged` owns pathless identity
 decoding, so Browser acquisition does not reconstruct assembly identity.

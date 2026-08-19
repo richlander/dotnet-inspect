@@ -86,22 +86,22 @@ public static partial class BrowserInspectionEngine
     public static async Task<string> ExpandPlatformCallGraph(
         string targetFramework,
         string assembly,
+        string pack,
         string typeFullName,
         string memberName,
         string selectorKey,
         int metadataToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selectorKey);
-        if (metadataToken == 0)
-        {
-            throw new InvalidOperationException(
-                "A call graph needs the selected overload's method-body token.");
-        }
-
         BrowserPlatformScopeResolution resolution =
-            await BrowserPlatformWorkspace.OpenMemberAsync(
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
-                assembly);
+                assembly.EndsWith(
+                    ".dll",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? assembly
+                    : $"{assembly}.dll",
+                pack);
         AssemblyContextApiSurfaceResult implementation =
             resolution.Scope.UseParticipant(
                 resolution.Participant,
@@ -129,7 +129,7 @@ public static partial class BrowserInspectionEngine
                 typeFullName,
                 memberName,
                 selectorKey,
-                metadataToken)
+                metadataToken == 0 ? null : metadataToken)
             ?? throw new InvalidOperationException(
                 $"The implementation of '{typeFullName}.{memberName}' does not "
                 + "contain the selected API body.");
@@ -203,11 +203,12 @@ public static partial class BrowserInspectionEngine
                 ],
                 qualifyTypeIds: true);
         if (projected.Assemblies.Length == 0
-            && projected.InspectionError is null)
+            && !projected.IsTruncated)
         {
             throw new InvalidOperationException(
                 $"Platform assembly '{assembly}' produced no API surface. "
-                + "The workspace reported no failure.");
+                + (projected.InspectionError
+                    ?? "The workspace reported no failure."));
         }
 
         return JsonSerializer.Serialize(

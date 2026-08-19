@@ -537,10 +537,18 @@ function clearInFlightSourceState(state) {
   }
 }
 
-export function memberSectionIdsFor(member) {
-  return ["property", "field", "event", "constant"].includes(member?.kind)
-    ? ["overview"]
+export function memberSectionIdsFor(member, isRuntimePack = false) {
+  if (["property", "field", "event", "constant"].includes(member?.kind))
+    return ["overview"];
+  return isRuntimePack
+    ? ["overview", "call-graph", "facts"]
     : ["overview", "call-graph", "facts", "source", "annotated"];
+}
+
+export function typeLensesFor(pkg) {
+  return pkg?.isRuntimePack
+    ? lenses.filter(([id]) => id === "api")
+    : lenses;
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;

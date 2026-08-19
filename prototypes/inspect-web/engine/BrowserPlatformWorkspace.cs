@@ -168,39 +168,6 @@ internal static class BrowserPlatformWorkspace
             operationTimeout,
             cancellationToken);
 
-    internal static Task<BrowserPlatformScopeResolution> OpenMemberAsync(
-        string targetFramework,
-        string assembly,
-        CancellationToken cancellationToken = default)
-    {
-        string simpleName = AssemblySimpleName(
-            assembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-                ? assembly
-                : $"{assembly}.dll");
-        string key = TargetKey(targetFramework);
-        if (!Targets.TryGetValue(key, out TargetState? state))
-        {
-            throw new InvalidOperationException(
-                $"No platform workspace is resident for target framework '{targetFramework}'.");
-        }
-
-        RealizedMemberCoordinate.Platform coordinate =
-            state.Coordinates.FirstOrDefault(candidate =>
-                string.Equals(
-                    candidate.Assembly,
-                    simpleName,
-                    StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException(
-                $"Platform assembly '{simpleName}' is not resident for target framework '{targetFramework}'.");
-        return OpenAsync(
-            targetFramework,
-            coordinate.Family,
-            simpleName,
-            ProductionHost,
-            BrowserPackageWorkspace.PackageOperationTimeout,
-            cancellationToken);
-    }
-
     static Task<BrowserPlatformScopeResolution> OpenAsync(
         string targetFramework,
         string family,
@@ -249,6 +216,7 @@ internal static class BrowserPlatformWorkspace
             && state.Scope is { } retained
             && BrowserPackageWorkspace.IsScopeRetained(retained))
         {
+            BrowserPackageWorkspace.TouchScope(retained);
             return new BrowserPlatformScopeResolution(
                 retained,
                 retained.Participant(family, assembly),
@@ -467,18 +435,24 @@ internal static class BrowserPlatformWorkspace
                 "Platform acquisition did not realize exactly the selected assembly coordinate.");
     }
 
-    static async Task<T> EnqueueAsync<T>(
+    internal static async Task<T> EnqueueAsync<T>(
         string key,
         Func<Task<T>> operation,
         CancellationToken cancellationToken)
     {
-        Task predecessor = TargetTails.TryGetValue(key, out Task? pending)
-            ? pending
-            : Task.CompletedTask;
+        Task predecessor;
         var completion =
             new TaskCompletionSource(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-        TargetTails[key] = completion.Task;
+        lock (TargetTails)
+        {
+            predecessor = TargetTails.TryGetValue(key, out Task? pending)
+                ? pending
+                : Task.CompletedTask;
+            TargetTails[key] = completion.Task;
+        }
+
+        bool completionDeferred = false;
         try
         {
             try
@@ -489,6 +463,11 @@ internal static class BrowserPlatformWorkspace
             catch (OperationCanceledException)
                 when (cancellationToken.IsCancellationRequested)
             {
+                completionDeferred = true;
+                _ = CompleteAfterPredecessorAsync(
+                    key,
+                    predecessor,
+                    completion);
                 throw;
             }
             catch
@@ -499,7 +478,40 @@ internal static class BrowserPlatformWorkspace
         }
         finally
         {
-            completion.TrySetResult();
+            if (!completionDeferred)
+            {
+                CompleteTail(
+                    key,
+                    completion);
+            }
+        }
+    }
+
+    static async Task CompleteAfterPredecessorAsync(
+        string key,
+        Task predecessor,
+        TaskCompletionSource completion)
+    {
+        try
+        {
+            await predecessor.ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+
+        CompleteTail(
+            key,
+            completion);
+    }
+
+    static void CompleteTail(
+        string key,
+        TaskCompletionSource completion)
+    {
+        completion.TrySetResult();
+        lock (TargetTails)
+        {
             if (TargetTails.TryGetValue(key, out Task? current)
                 && ReferenceEquals(current, completion.Task))
             {

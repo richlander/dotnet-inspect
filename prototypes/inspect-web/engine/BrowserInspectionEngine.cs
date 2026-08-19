@@ -88,7 +88,7 @@ public static partial class BrowserInspectionEngine
                             participant.Asset.Path)),
                 ]);
         if (projected.Assemblies.Length == 0
-            && projected.InspectionError is null)
+            && !projected.IsTruncated)
         {
             throw new InvalidOperationException(
                 $"No assembly of {coordinate.PackageId} {coordinate.Version} for "
