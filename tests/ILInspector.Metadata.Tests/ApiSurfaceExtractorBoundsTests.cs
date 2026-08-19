@@ -732,7 +732,11 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [Fact]
     public void OneDeeplyNestedTypeSpec_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        // Stacked GENERICINST prefixes are not ECMA-335 II.23.2.12 (the first
+        // slot must be CLASS|VALUETYPE). SignatureBlobGuard rejects the field
+        // before SRM can expand the long argument name, so the retained-text
+        // bound is not the tripwire. The allocation bound still is.
+        AssertRejectedSignatureDoesNotAmplify(
             BuildNestedTypeSpecFieldImage(depth: 500, nameLength: 3_900));
     }
 
@@ -1271,6 +1275,37 @@ public sealed class ApiSurfaceExtractorBoundsTests
             ApiSurfaceExtractionScope.Public,
             bounds,
             typesOnly);
+    }
+
+    static void AssertRejectedSignatureDoesNotAmplify(byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 100_000,
+                maxMembers: 1_000_000,
+                maxInspectionFailures: 1_024,
+                maxTypeForwarders: 100_000,
+                maxMetadataRows: 250_000,
+                maxRetainedTextCharacters: 8_000_000));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+        Assert.True(
+            allocated < 64L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
+        ApiMember field = Assert.Single(
+            extracted.Surface.Types.SelectMany(type => type.Members),
+            member => member.Name == "Value");
+        Assert.Equal(SignatureDecodeStatus.Degraded, field.SignatureDecodeStatus);
+        Assert.True(
+            (field.ReturnType?.Length ?? 0) < 64,
+            $"rejected field still retained {field.ReturnType?.Length:N0} characters");
     }
 
     static void AssertTextAmplificationIsBounded(byte[] image)

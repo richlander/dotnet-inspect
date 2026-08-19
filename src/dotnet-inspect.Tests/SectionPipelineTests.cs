@@ -387,8 +387,8 @@ public class SectionPipelineTests
         foreach (var name in visible)
             Assert.DoesNotContain(name, hidden);
 
-        // Performance, integrations, SourceLink, audit-only, and coordinate context sections are
-        // domain-owned and therefore hidden from the flat base catalog.
+        // Performance, integrations, SourceLink, audit-only, exact-only, and coordinate context
+        // sections are outside the base scope and therefore hidden from the flat base catalog.
         foreach (var kind in PerformanceKinds.Sections)
             Assert.Contains(kind, hidden);
         foreach (var integration in LibraryIntegrationCatalog.CategorySections.Append(IntegrationSectionNames.Opportunities))
@@ -411,7 +411,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_EverySelectableSectionBelongsToAnAuthoredCategory()
+    public void LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var categories = pipeline.GetCategoryMap()
@@ -426,9 +426,7 @@ public class SectionPipelineTests
             .Where(name => !categorized.Contains(name))
             .ToArray();
 
-        Assert.True(
-            uncategorized.Length == 0,
-            $"Library section(s) have no authored category: {string.Join(", ", uncategorized)}");
+        Assert.Equal([SectionNames.UnsafeMembers, SectionNames.BodyShapes], uncategorized);
     }
 
     [Fact]
@@ -495,7 +493,7 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_ExplicitDomainSelectionStillRequestsItsScanners()
+    public void LibraryPipeline_ExplicitDomainOrDirectSelectionStillRequestsItsScanners()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var performance = pipeline.GetCategoryMap()[SectionCategoryNames.Performance]
@@ -509,12 +507,14 @@ public class SectionPipelineTests
             TopLeverageQuery.Definition,
             pipeline.GetRequiredQueries(Verbosity.Minimal, performance));
 
-        var decompiler = pipeline.GetCategoryMap()[SectionCategoryNames.Decompiler]
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        Assert.Equal([SectionNames.BodyShapes], decompiler);
         Assert.Contains(
             LibrarySections.ScannerBodyShapes,
-            pipeline.GetRequiredScanners(Verbosity.Minimal, decompiler));
+            pipeline.GetRequiredScanners(
+                Verbosity.Minimal,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    SectionNames.BodyShapes,
+                }));
     }
 
     [Fact]
@@ -1358,7 +1358,6 @@ public class SectionPipelineTests
         Assert.True(categories.TryGetValue(SectionCategoryNames.Audit, out var sections));
         Assert.Equal(
             [
-                SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
                 SectionNames.SourceLinkDiagnostics,
