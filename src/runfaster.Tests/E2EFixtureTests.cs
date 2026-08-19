@@ -2698,6 +2698,56 @@ public class E2EFixtureTests
         }
     }
 
+    [Fact]
+    public void Correlate_MarkdownSummariesIncludeObservedRowsBeyondTop()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            const string row = """
+                {"candidate_id":"duplicate","member":"Fixture.Type.M()","assembly":"Fixture","method_token":"0x06000001","shape":"object-allocation","operation":"newobj","token":"0x0A000001","il":"IL_0005","allocation":"System.Object","provenance":"exact"}
+                """;
+            File.WriteAllText(
+                triagePath,
+                """{"performance":{"objects":["""
+                + string.Join(
+                    ",",
+                    Enumerable.Repeat(row, 26))
+                + "]}}");
+            File.WriteAllText(
+                logPath,
+                "0x06000001+0005 Fixture.Type.M() 26 bytes");
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            Assert.Contains(
+                "Runtime-observed candidates: 26",
+                result.Output);
+            Assert.Contains(
+                "| object-allocation | 26 B |",
+                result.Output);
+            Assert.Contains(
+                "| sample weight 1 / 26 B | `Fixture.Type.M()` | 26 |",
+                result.Output);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
+        }
+    }
+
     static (int ExitCode, string Output, string Error) RunCorrelate(
         params string[] arguments)
     {

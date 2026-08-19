@@ -828,6 +828,64 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void FindTraceLibrariesSupersededByTriage_PreservesDifferentNearestOffsets()
+    {
+        var triage = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage",
+            ilOffset: 0x0010,
+            libraryPath: "/tmp/triage.json");
+        var library = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            ilOffset: 0x0020,
+            moduleVersionId: Guid.Parse(
+                "22222222-2222-2222-2222-222222222222"));
+
+        var superseded =
+            ProgramSupport.FindTraceLibrariesSupersededByTriage(
+                [triage, library],
+                [triage, library],
+                "System.String");
+
+        Assert.Empty(superseded);
+    }
+
+    [Fact]
+    public void FindTraceLibrariesSupersededByTriage_CollapsesSameNearestOffset()
+    {
+        var triage = CandidateWithType(
+            1,
+            "Fixture.A.M()",
+            "System.String",
+            source: "triage",
+            ilOffset: 0x0010,
+            libraryPath: "/tmp/triage.json");
+        var library = CandidateWithType(
+            2,
+            "Fixture.A.M()",
+            "System.String",
+            source: "library",
+            ilOffset: 0x0010,
+            moduleVersionId: Guid.Parse(
+                "22222222-2222-2222-2222-222222222222"));
+
+        var superseded =
+            ProgramSupport.FindTraceLibrariesSupersededByTriage(
+                [triage, library],
+                [triage, library],
+                "System.String");
+
+        Assert.Collection(
+            superseded,
+            candidate => Assert.Same(library, candidate));
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_CollapsesOnlyMatchingTriageModuleVersion()
     {
         Guid firstMvid = Guid.Parse(

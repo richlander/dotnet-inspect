@@ -1866,7 +1866,7 @@ static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<Allocatio
 
 static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates, CorrelateOptions options)
 {
-    var observed = candidates.Where(c => c.IsObserved).ToArray();
+    var observed = result.Candidates.Where(c => c.IsObserved).ToArray();
     var cold = result.Candidates
         .Where(c => !c.IsObserved
             && !c.TypeConfirmed
@@ -4407,6 +4407,13 @@ internal static class ProgramSupport
                         candidate.Source,
                         "library",
                         StringComparison.Ordinal)
+                    && matchedCandidates.Any(triage =>
+                        string.Equals(
+                            triage.Source,
+                            "triage",
+                            StringComparison.Ordinal)
+                        && triage.IlOffset ==
+                            candidate.IlOffset)
                     && candidate.MatchesAllocatedType(
                         allocatedType)))
                 .DistinctBy(static candidate => candidate.Id)
