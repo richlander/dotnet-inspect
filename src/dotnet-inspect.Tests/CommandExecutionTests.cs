@@ -6854,6 +6854,40 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData("@Source", false)]
+    [InlineData("@All", false)]
+    [InlineData("*", false)]
+    [InlineData("PDB Source", true)]
+    [InlineData("Source Diff", true)]
+    [InlineData("Original Source", true)]
+    public async Task Member_PdbSourceFailureUnderDocumentJsonHonorsExactSelection(
+        string selector,
+        bool exact)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "DiffFixtureSample.BodyStateSample", ".ctor:1",
+            "--library", FixtureCatalog.DiffPair.OldAssemblyPath(), "--all",
+            "-S", selector, "--json", "--tips", "q");
+
+        if (exact)
+        {
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(ApiCommand.NoPdbSourceMappingReason, error);
+            Assert.Contains("cannot represent this code-section failure", error);
+        }
+        else
+        {
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                "BodyStateSample",
+                document.RootElement.GetProperty("name").GetString());
+        }
+    }
+
+    [Theory]
     [InlineData(SectionNames.PdbSource, false, "lexical complexity limit")]
     [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
     [InlineData(SectionNames.PdbSource, true, "sequence-point coordinates")]

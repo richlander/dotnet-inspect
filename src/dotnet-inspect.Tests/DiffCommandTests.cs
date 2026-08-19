@@ -2026,7 +2026,7 @@ public class DiffCommandTests
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
         Assert.Contains(
-            "--pdb-source requires the Implementation Diff section",
+            "PDB source acquisition requires the Implementation Diff section",
             error,
             StringComparison.Ordinal);
     }

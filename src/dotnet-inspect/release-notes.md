@@ -28,7 +28,9 @@
 - Renames `Original Source` to `PDB Source` and the Implementation Diff
   `--authored-source` flag to `--pdb-source`, reflecting that checksum and
   SourceLink origin evidence do not independently prove build provenance.
-  Both old spellings remain accepted as hidden compatibility aliases (#4381).
+  Both old spellings remain accepted as hidden compatibility aliases. The
+  Implementation Diff `Mechanism` row value likewise changes from `Source` to
+  `PDB Source` in table, TSV, and JSONL output (#4381).
 
 ### NuGet acquisition
 

@@ -113,7 +113,13 @@ public static class MemberCommand
                 if (SelectOutput.WriteUnresolved(actualSelect))
                     return 1;
                 if (actualSelect.Sections != null)
-                    options = options with { IncludeSections = actualSelect.Sections };
+                {
+                    options = options with
+                    {
+                        IncludeSections = actualSelect.Sections,
+                        ExactIncludeSectionsOverride = actualSelect.ExactSections,
+                    };
+                }
             }
 
             if (options.BodyKindQuery.HasFilter

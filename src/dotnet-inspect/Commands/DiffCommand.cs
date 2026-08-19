@@ -70,7 +70,7 @@ public class DiffCommand
         if (options.IncludePdbSource && !SelectsImplementationDiff(options))
         {
             CommandError.Write(
-                "--pdb-source requires the Implementation Diff section.");
+                "PDB source acquisition requires the Implementation Diff section.");
             return 1;
         }
 

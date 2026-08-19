@@ -50,6 +50,7 @@ public class ApiCommand
             MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
+            ExactIncludeSectionsOverride = options.ExactIncludeSectionsOverride,
             Print = options.Print, PrintRow = options.PrintRow,
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, SelectDefault = options.SelectDefault,
@@ -106,7 +107,12 @@ public class ApiCommand
             return null;
 
         var listingOptions = selectResult.Sections != null
-            ? options with { IncludeSections = selectResult.Sections, SelectDeferredToListing = false }
+            ? options with
+            {
+                IncludeSections = selectResult.Sections,
+                ExactIncludeSectionsOverride = selectResult.ExactSections,
+                SelectDeferredToListing = false
+            }
             : options with { SelectDeferredToListing = false };
 
         // The preamble skips the selection-arity checks for a deferred select because it cannot yet
@@ -312,7 +318,13 @@ public class ApiCommand
                 return (null!, 1);
             }
             if (selectResult.Sections != null)
-                options = options with { IncludeSections = selectResult.Sections };
+            {
+                options = options with
+                {
+                    IncludeSections = selectResult.Sections,
+                    ExactIncludeSectionsOverride = selectResult.ExactSections,
+                };
+            }
         }
         if (options is MemberOptions
             {
@@ -1734,7 +1746,7 @@ public class ApiCommand
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
         bool sourceSectionExplicitlySelected =
-            options.IncludeSections?
+            options.ExactIncludeSections?
                 .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]) == true;
         if (options is MemberOptions memberOptions
             && !memberOptions.MemberHasNoBody
