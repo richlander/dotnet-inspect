@@ -1314,7 +1314,7 @@ path finding. This does not classify the mapping as malicious; the existing
 provenance boundary above remains responsible for canonicalizing resolved URLs
 before attribution. Neither audit section is the scalar-by-scalar refusal
 survey mode described below, and neither changes acceptance policy. Document payloads are
-encoded on stdout; exact bytes require `--out`.
+encoded on stdout; exact bytes require `--out` with a single-file selection.
 `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
 and `Package_MultiplePackages_SignalsIncludePackageFileConcerns` gate the
 summary across single-package and survey modes;

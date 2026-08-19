@@ -68,12 +68,108 @@ public sealed class SourceLinkService : IDisposable
         => new(PdbContext.Open(assemblyPath, log), cache ?? DefaultCache, log);
 
     /// <summary>
+    /// Inspects SourceLink text carried by a standalone portable PDB without associating the PDB
+    /// with an assembly. Package-content audit uses this path to cover every package-local PDB;
+    /// method/document mapping still requires the identity-checked assembly path.
+    /// </summary>
+    public static SourceLinkMapAudit InspectPortablePdb(
+        string pdbPath,
+        int maxEncodedBytes = int.MaxValue)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxEncodedBytes);
+        PdbCustomDebugInformationResult sourceLink =
+            PdbContext.ReadPortablePdbModuleCustomDebugInformation(
+                pdbPath,
+                SourceLinkKind);
+        if (sourceLink.Status == PdbCustomDebugInformationStatus.Absent)
+            return new SourceLinkMapAudit(SourceLinkMapInspection.Absent, [], 0);
+
+        if (sourceLink.Status == PdbCustomDebugInformationStatus.Duplicate)
+        {
+            return new SourceLinkMapAudit(
+                new SourceLinkMapInspection(
+                    SourceLinkMapStatus.Unusable,
+                    "the PDB carries multiple SourceLink custom debug information records",
+                    [],
+                    []),
+                [],
+                0);
+        }
+
+        if (sourceLink.Value is null)
+        {
+            return new SourceLinkMapAudit(
+                new SourceLinkMapInspection(
+                    SourceLinkMapStatus.Unusable,
+                    sourceLink.Error is null
+                        ? "the SourceLink custom debug information could not be read"
+                        : $"the SourceLink custom debug information could not be read: {sourceLink.Error}",
+                    [],
+                    []),
+                [],
+                0);
+        }
+
+        if (sourceLink.Value.Length > maxEncodedBytes)
+        {
+            return new SourceLinkMapAudit(
+                new SourceLinkMapInspection(
+                    SourceLinkMapStatus.Unusable,
+                    "the SourceLink map exceeded the caller's encoded-byte limit",
+                    [],
+                    []),
+                [],
+                sourceLink.Value.Length,
+                LimitExceeded: true);
+        }
+
+        try
+        {
+            string json = StrictUtf8.GetString(sourceLink.Value);
+            SLF.SourceLinkResolver map = SLF.SourceLinkResolver.Parse(json);
+            SourceLinkMapInspection inspection = CreateMapInspection(map);
+            SourceLinkMapEntry[] entries =
+            [
+                .. map.DocumentMappings.Select(static mapping =>
+                    new SourceLinkMapEntry(mapping.Document, mapping.Url)),
+            ];
+            return new SourceLinkMapAudit(
+                inspection,
+                entries,
+                sourceLink.Value.Length);
+        }
+        catch (DecoderFallbackException ex)
+        {
+            return new SourceLinkMapAudit(
+                new SourceLinkMapInspection(
+                    SourceLinkMapStatus.Unusable,
+                    $"the SourceLink custom debug information could not be read: {ex.Message}",
+                    [],
+                    []),
+                [],
+                sourceLink.Value.Length);
+        }
+    }
+
+    /// <summary>
     /// Opens only the PE metadata and debug directory. Embedded and adjacent PDBs are not loaded.
     /// </summary>
     public static SourceLinkService OpenMetadataOnly(
         string assemblyPath,
         Action<string>? log = null)
         => new(PdbContext.OpenMetadataOnly(assemblyPath, log), DefaultCache, log);
+
+    /// <summary>
+    /// Opens PE metadata and an embedded portable PDB without probing an adjacent PDB.
+    /// </summary>
+    /// <remarks>
+    /// <c>PdbContextDescriptorTests.MetadataOnlyAndEmbeddedOnly_KeepTheirPdbAcquisitionBoundaries</c>
+    /// gates the underlying acquisition boundary.
+    /// </remarks>
+    public static SourceLinkService OpenEmbeddedPdbOnly(
+        string assemblyPath,
+        Action<string>? log = null)
+        => new(PdbContext.OpenEmbeddedPdbOnly(assemblyPath, log), DefaultCache, log);
 
     public static SourceLinkService OpenMetadataOnly(
         ResolvedAssemblyReference assembly,
@@ -163,31 +259,7 @@ public sealed class SourceLinkService : IDisposable
                     []);
             }
 
-            if (_map.ParseError is not null)
-            {
-                return new SourceLinkMapInspection(
-                    SourceLinkMapStatus.Unusable,
-                    _map.ParseError,
-                    _map.DocumentKeys,
-                    _map.RejectedKeys);
-            }
-
-            if (_map.IsEmpty)
-            {
-                return new SourceLinkMapInspection(
-                    SourceLinkMapStatus.Unusable,
-                    "the SourceLink map contains no usable document mappings",
-                    _map.DocumentKeys,
-                    _map.RejectedKeys);
-            }
-
-            return new SourceLinkMapInspection(
-                _map.RejectedKeys.Count > 0
-                    ? SourceLinkMapStatus.PartiallyUsable
-                    : SourceLinkMapStatus.Usable,
-                null,
-                _map.DocumentKeys,
-                _map.RejectedKeys);
+            return CreateMapInspection(_map);
         }
     }
     public string? RepositoryUrl => Provenance().Origin?.RepositoryUrl;
@@ -376,6 +448,35 @@ public sealed class SourceLinkService : IDisposable
     {
         if (_observedPdbVersion != _context.PdbVersion)
             RefreshPdbState();
+    }
+
+    static SourceLinkMapInspection CreateMapInspection(SLF.SourceLinkResolver map)
+    {
+        if (map.ParseError is not null)
+        {
+            return new SourceLinkMapInspection(
+                SourceLinkMapStatus.Unusable,
+                map.ParseError,
+                map.DocumentKeys,
+                map.RejectedKeys);
+        }
+
+        if (map.IsEmpty)
+        {
+            return new SourceLinkMapInspection(
+                SourceLinkMapStatus.Unusable,
+                "the SourceLink map contains no usable document mappings",
+                map.DocumentKeys,
+                map.RejectedKeys);
+        }
+
+        return new SourceLinkMapInspection(
+            map.RejectedKeys.Count > 0
+                ? SourceLinkMapStatus.PartiallyUsable
+                : SourceLinkMapStatus.Usable,
+            null,
+            map.DocumentKeys,
+            map.RejectedKeys);
     }
 
     Dictionary<string, string[]> GetOrBuildTypeFileIndex()

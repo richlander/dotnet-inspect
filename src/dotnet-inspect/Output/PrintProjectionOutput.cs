@@ -32,6 +32,10 @@ public sealed record PrintProjectionOptions(
     bool Bare,
     string? OutputPath);
 
+public sealed record PrintableContent(
+    string Content,
+    byte[]? ExactBytes = null);
+
 public static class PrintProjectionOutput
 {
     public static int Write(IReadOnlyList<PrintableDocument> documents, PrintProjectionOptions options)
@@ -59,6 +63,15 @@ public static class PrintProjectionOutput
     public static int Write(
         IReadOnlyList<PrintableRow> rows,
         Func<PrintableRow, string> readContent,
+        PrintProjectionOptions options)
+        => Write(
+            rows,
+            row => new PrintableContent(readContent(row)),
+            options);
+
+    public static int Write(
+        IReadOnlyList<PrintableRow> rows,
+        Func<PrintableRow, PrintableContent> readContent,
         PrintProjectionOptions options)
     {
         ProjectionAudit.MarkHonored(ProjectionAudit.Print);
@@ -97,13 +110,14 @@ public static class PrintProjectionOutput
             selectedRow = rows[0];
         }
 
+        PrintableContent payload = readContent(selectedRow);
         var selected = new PrintableDocument(
             selectedRow.Row,
             selectedRow.Section,
             selectedRow.Label,
             selectedRow.Path,
             selectedRow.Url,
-            readContent(selectedRow));
+            payload.Content);
 
         if (options.Jsonl)
         {
@@ -125,16 +139,23 @@ public static class PrintProjectionOutput
             return 0;
         }
 
-        WriteContentOutput(selected.Content, options.OutputPath);
+        WriteContentOutput(payload, options.OutputPath);
         return 0;
     }
 
-    private static void WriteContentOutput(string output, string? outputPath)
+    private static void WriteContentOutput(PrintableContent output, string? outputPath)
     {
         if (!string.IsNullOrWhiteSpace(outputPath))
-            File.WriteAllText(outputPath, output);
+        {
+            if (output.ExactBytes is { } bytes)
+                File.WriteAllBytes(outputPath, bytes);
+            else
+                File.WriteAllText(outputPath, output.Content);
+        }
         else
-            Console.Write(new InertString(TextPolicy.Prose, output));
+        {
+            Console.Write(new InertString(TextPolicy.Prose, output.Content));
+        }
     }
 
     private static void WriteOutput(string output, string? outputPath)

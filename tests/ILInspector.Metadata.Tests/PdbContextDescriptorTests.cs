@@ -2,12 +2,28 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Queries.EmbeddedFixtures;
 using ILInspector.Findings;
 
 namespace ILInspector.Metadata.Tests;
 
 public class PdbContextDescriptorTests
 {
+    [Fact]
+    public void MetadataOnlyAndEmbeddedOnly_KeepTheirPdbAcquisitionBoundaries()
+    {
+        string path = typeof(EmbeddedSourceFixture).Assembly.Location;
+
+        using PdbContext metadataOnly = PdbContext.OpenMetadataOnly(path);
+        Assert.True(metadataOnly.HasEmbeddedPdb);
+        Assert.False(metadataOnly.HasPdb);
+
+        using PdbContext embeddedOnly = PdbContext.OpenEmbeddedPdbOnly(path);
+        Assert.True(embeddedOnly.HasEmbeddedPdb);
+        Assert.True(embeddedOnly.HasPdb);
+        Assert.Equal("Embedded", embeddedOnly.PdbLocation);
+    }
+
     [Fact]
     public void OpenDescriptor_UsesAuthoritativeStreamInsteadOfPath()
     {

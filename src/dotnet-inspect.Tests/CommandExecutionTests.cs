@@ -20771,7 +20771,7 @@ public partial class CommandExecutionTests
         var packageRoot = Path.Combine(tempDir, "content");
         Directory.CreateDirectory(packageRoot);
         var nuspec = """
-            <?xml version="1.0" encoding="utf-8"?>
+            <?xml version="1.0" encoding="utf-16"?>
             <package>
               <metadata>
                 <id>Test.Bom.Nuspec</id>
@@ -20781,7 +20781,10 @@ public partial class CommandExecutionTests
               </metadata>
             </package>
             """;
-        var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
+        var encoding = new UnicodeEncoding(
+            bigEndian: false,
+            byteOrderMark: true,
+            throwOnInvalidBytes: true);
         var shipped = (byte[])[.. encoding.GetPreamble(), .. encoding.GetBytes(nuspec)];
         File.WriteAllBytes(Path.Combine(packageRoot, "Test.Bom.Nuspec.nuspec"), shipped);
         var packagePath = Path.Combine(tempDir, "Test.Bom.Nuspec.1.0.0.nupkg");
@@ -20789,7 +20792,7 @@ public partial class CommandExecutionTests
 
         try
         {
-            Assert.Equal(0xEF, shipped[0]);
+            Assert.Equal(0xFF, shipped[0]);
 
             var (exit, output, error) = await RunAppAsync(
                 "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
@@ -23969,15 +23972,113 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageAudit_InspectsStandalonePackagePdbWithoutAnAssembly()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.StandalonePdbAudit",
+            "README.md",
+            "readme");
+        try
+        {
+            string hostileAssembly = FixtureCatalog.HostileLiterals.AssemblyPath();
+            using (ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Update))
+            {
+                archive.CreateEntryFromFile(
+                    Path.ChangeExtension(hostileAssembly, ".pdb"),
+                    "symbols/AuditCanary.PDB");
+            }
+
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                $"Signals,{PackageSections.AuditFindings}",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("| Audit | Findings | Detected | 2 findings", result.Output);
+            Assert.Contains("1 SourceLink map", result.Output);
+            Assert.Contains(
+                "| symbols/AuditCanary.PDB | SourceLink control (Cc), format/bidi (Cf) |",
+                result.Output);
+            Assert.Contains(
+                "| symbols/AuditCanary.PDB | SourceLink parent path segment |",
+                result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageAudit_MalformedStandaloneSourceLinkMapReportsPartial()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.MalformedStandalonePdbAudit",
+            "README.md",
+            "readme");
+        try
+        {
+            using (ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Update))
+            {
+                archive.CreateEntryFromFile(
+                    Path.ChangeExtension(
+                        FixtureCatalog.SourceLinkMalformed.AssemblyPath(),
+                        ".pdb"),
+                    "symbols/Malformed.pdb");
+            }
+
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "-S",
+                $"Signals,{PackageSections.AuditFindings}",
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("| Audit | Findings | Partial |", result.Output);
+            Assert.Contains(
+                "| symbols/Malformed.pdb | invalid SourceLink map |",
+                result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport()
     {
-        const string Hostile = "prefix\u202E\u001B]52;c;QQ==\u0007suffix\n";
+        const string Hostile = "prefix\u202E\u001B]52;c;QQ==\u0007suffix";
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.PackageContentOutput",
             "README.md",
             "readme",
             extraFiles: [("content/INSTRUCTIONS.md", Hostile)]);
-        string outputPath = Path.Combine(tempDir, "exported.txt");
+        var encoding = new UnicodeEncoding(
+            bigEndian: false,
+            byteOrderMark: true,
+            throwOnInvalidBytes: true);
+        byte[] shipped = [.. encoding.GetPreamble(), .. encoding.GetBytes(Hostile)];
+        using (ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Update))
+        {
+            ZipArchiveEntry entry = Assert.Single(
+                archive.Entries,
+                value => value.FullName == "content/INSTRUCTIONS.md");
+            entry.Delete();
+            ZipArchiveEntry replacement = archive.CreateEntry("content/INSTRUCTIONS.md");
+            using Stream stream = replacement.Open();
+            stream.Write(shipped);
+        }
+
+        string bareOutputPath = Path.Combine(tempDir, "exported-bare.txt");
+        string blockOutputPath = Path.Combine(tempDir, "exported-block.txt");
         try
         {
             var stdout = await RunAppAsync(
@@ -24005,14 +24106,30 @@ public partial class CommandExecutionTests
                 "--content",
                 "--bare",
                 "--out",
-                outputPath,
+                bareOutputPath,
                 "--tips",
                 "q");
 
             Assert.Equal(0, export.Exit);
             Assert.Empty(export.Output);
             Assert.Empty(export.Error);
-            Assert.Equal(Hostile, File.ReadAllText(outputPath));
+            Assert.Equal(shipped, File.ReadAllBytes(bareOutputPath));
+
+            var blockExport = await RunAppAsync(
+                "package",
+                packagePath,
+                "--path",
+                "content/INSTRUCTIONS.md",
+                "--content",
+                "--out",
+                blockOutputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, blockExport.Exit);
+            Assert.Empty(blockExport.Output);
+            Assert.Empty(blockExport.Error);
+            Assert.Equal(shipped, File.ReadAllBytes(blockOutputPath));
         }
         finally
         {

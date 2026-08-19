@@ -179,6 +179,125 @@ public sealed class PackageContentAuditTests
         }
     }
 
+    [Fact]
+    public void CaseDistinctPackagePaths_AreNotDeduplicated()
+    {
+        string[] paths = PackageContentAudit.NormalizePackagePaths(
+            ["content/NOTES.md", "content/notes.md"]);
+
+        Assert.Equal(["content/NOTES.md", "content/notes.md"], paths);
+    }
+
+    [Fact]
+    public void FindingLimit_StopsPathologicalLineCardinalityAndMarksPartial()
+    {
+        string root = CreateRoot();
+        try
+        {
+            Write(
+                root,
+                "README.md",
+                string.Join('\n', Enumerable.Repeat("\u001B", PackageContentAudit.MaxFindings * 2)));
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(root, ["README.md"]);
+
+            Assert.False(result.Complete);
+            Assert.Equal(PackageContentAudit.MaxFindings, result.Findings.Count);
+            Assert.Equal(
+                PackageContentFindingKind.ScanLimit,
+                result.Findings[^1].Kind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void MinifiedNuGetConfiguration_BoundsEverySemanticRow()
+    {
+        string root = CreateRoot();
+        try
+        {
+            string sources = string.Concat(
+                Enumerable.Range(0, 100).Select(index =>
+                    $"<add key=\"source-{index}\" value=\"https://example.test/{new string('a', 600)}\"/>"));
+            Write(
+                root,
+                "build/nuget.config",
+                $"<configuration><packageSources><clear/>{sources}</packageSources></configuration>");
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                ["build/nuget.config"]);
+
+            Assert.True(result.Complete);
+            Assert.Equal(101, result.Findings.Count);
+            Assert.All(
+                result.Findings,
+                finding => Assert.True(finding.EncodedText.Length <= 514));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LongHostileLine_AfterLiteralBackslashesKeepsTheConcernInEvidence()
+    {
+        string root = CreateRoot();
+        try
+        {
+            Write(
+                root,
+                "README.md",
+                @"C:\build\obj\" + new string('a', 900) + "\u202Ehidden");
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(root, ["README.md"]);
+
+            PackageContentAuditFinding finding = Assert.Single(result.Findings);
+            Assert.Contains(@"\u202E", finding.EncodedText.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SourceLinkEvidence_UsesSingleFieldControlPolicy()
+    {
+        InertString encoded = PackageContentAudit.EncodeSourceLinkEvidence(
+            "document\nkey => https://example.test/\tpath");
+
+        Assert.Equal(TextConcern.Control, encoded.Concerns);
+        Assert.Contains(@"\^J", encoded.ToString(), StringComparison.Ordinal);
+        Assert.Contains(@"\^I", encoded.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InvalidPortablePdb_RemainsVisibleAndMarksAuditIncomplete()
+    {
+        string root = CreateRoot();
+        try
+        {
+            WriteBytes(root, "lib/net11.0/broken.pdb", [.. "BSJB"u8, 0, 0, 0, 0]);
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                ["lib/net11.0/broken.pdb"]);
+
+            Assert.False(result.Complete);
+            PackageContentAuditFinding finding = Assert.Single(result.Findings);
+            Assert.Equal(PackageContentFindingKind.InvalidSourceLinkMap, finding.Kind);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CreateRoot()
     {
         string root = Path.Combine(Path.GetTempPath(), $"package-content-audit-{Guid.NewGuid():N}");

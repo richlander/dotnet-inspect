@@ -378,9 +378,12 @@ fence, a tree gutter, or a diagnostic line (issue #3319).
 
 Printing a document (`-S "Package README file" --print`) and `--content`
 visually encode rendering hazards on stdout. Exact payload transfer is an
-explicit file operation: add `--out <path>`. The file export preserves the
-payload exactly, including line endings; terminal-facing output never emits a
-live control or bidi scalar from package content.
+explicit file operation: add `--out <path>` to a selection that resolves one
+payload. An unscoped file export preserves the package bytes exactly, including
+encoding, byte order mark, and line endings; a Markdown scope exports that
+projected text. Terminal-facing output never emits a live control or bidi scalar
+from package content. Multi-file `--content --out` is refused unless `--jsonl`
+selects the structured table shape; narrow it with `--path` for exact transfer.
 
 Tool-authored companion sections still use the stream split: for example,
 `package X -S "Package README file" --print --info` writes the encoded document
@@ -400,7 +403,8 @@ These are gated by `PayloadLensContainmentTests`, which runs the built CLI over
 a package whose README carries bidi, ESC, and LS hazards and asserts encoded
 stdout, contained stderr, parsed JSON payload fidelity, and exact `--out`
 export. `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
-gates the focused `--content --bare` path.
+gates both framed and `--bare` single-file content export with a UTF-16 payload
+that has no trailing newline.
 
 Discovery (`-D`/`--discover`) is a lens for the projections above but not for
 `-S`, which legitimately narrows what discovery reports. Its own `--count` must

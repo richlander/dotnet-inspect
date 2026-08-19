@@ -300,6 +300,20 @@ public readonly struct InertString : IEquatable<InertString>
     public int IndexOfFirstEncoded() =>
         Forms == VisualForm.None ? -1 : Text.IndexOf('\\');
 
+    /// <summary>
+    /// The position of the first spelling that represents a rendering concern, or <c>-1</c>
+    /// when this value carries no concern.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="IndexOfFirstEncoded"/>, this skips spellings introduced only to keep a
+    /// literal backslash invertible. It is the anchor for evidence windows that must include the
+    /// first control, format, surrogate, line-separator, or paragraph-separator concern.
+    /// </remarks>
+    public int IndexOfFirstConcern() =>
+        Concerns == TextConcern.None
+            ? -1
+            : VisualEncoder.IndexOfFirstConcern(Text);
+
     /// <summary>Whether any scalar was encoded on the way in.</summary>
     /// <remarks>
     /// Reports what was <em>done</em> to this value, never what it <em>satisfies</em>. It is not

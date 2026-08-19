@@ -284,7 +284,9 @@ public sealed record PackageFileContent(
     string Content,
     // Carried so consumers can tell a document's kind by role rather than by extension: the
     // package readme is Markdown because the manifest declared it as the readme.
-    [property: JsonIgnore] bool IsReadme = false);
+    [property: JsonIgnore] bool IsReadme = false,
+    // Full-payload export writes the package bytes rather than round-tripping decoded text.
+    [property: JsonIgnore] byte[]? ExactContent = null);
 
 public sealed record PackageSourceFileInfo(
     string Library,

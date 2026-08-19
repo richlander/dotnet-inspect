@@ -1675,13 +1675,17 @@ public class PackageCommand
 
         return PrintProjectionOutput.Write(
             printableRows,
-            row => ReadPackageFileContent(
-                extractPath,
-                result.PackageName ?? string.Empty,
-                result.Version ?? string.Empty,
-                sourceByRow[row],
-                options.ContentScope,
-                normalizeGithubLinksToRaw: !options.BrowsableUrls).Content,
+            row =>
+            {
+                PackageFileContent content = ReadPackageFileContent(
+                    extractPath,
+                    result.PackageName ?? string.Empty,
+                    result.Version ?? string.Empty,
+                    sourceByRow[row],
+                    options.ContentScope,
+                    normalizeGithubLinksToRaw: !options.BrowsableUrls);
+                return new PrintableContent(content.Content, content.ExactContent);
+            },
             new PrintProjectionOptions(
                 options.PrintRow,
                 options.JsonOutput,
@@ -2490,6 +2494,7 @@ public class PackageCommand
         bool normalizeGithubLinksToRaw)
     {
         var fullPath = Path.Combine(extractPath, file.Path.Replace('/', Path.DirectorySeparatorChar));
+        byte[] exactContent = File.ReadAllBytes(fullPath);
 
         // Scoping and link rewriting are Markdown conventions. Applied to anything else they
         // corrupt the document the package shipped rather than presenting it, and the caller
@@ -2497,13 +2502,33 @@ public class PackageCommand
         // other kind is passed through exactly as shipped -- including its byte order mark,
         // which ReadAllText would otherwise consume and silently shorten the document by.
         if (!IsMarkdownDocument(file.Path, file.IsReadme))
-            return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, ReadTextPreservingPreamble(fullPath), file.IsReadme);
+        {
+            return new PackageFileContent(
+                packageName,
+                version,
+                file.Path,
+                file.Size,
+                Found: true,
+                ReadTextPreservingPreamble(exactContent),
+                file.IsReadme,
+                scope == PackageFileContentScope.Full ? exactContent : null);
+        }
 
-        var content = MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope);
+        var content = MarkdownContent.ApplyScope(
+            ReadText(exactContent),
+            scope);
         if (normalizeGithubLinksToRaw)
             content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
 
-        return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, content, file.IsReadme);
+        return new PackageFileContent(
+            packageName,
+            version,
+            file.Path,
+            file.Size,
+            Found: true,
+            content,
+            file.IsReadme,
+            scope == PackageFileContentScope.Full ? exactContent : null);
     }
 
     /// <summary>
@@ -2512,16 +2537,27 @@ public class PackageCommand
     /// as a character so a verbatim document round-trips through the text pipeline with the same
     /// bytes it shipped with rather than three fewer.
     /// </summary>
-    private static string ReadTextPreservingPreamble(string fullPath)
+    private static string ReadTextPreservingPreamble(byte[] content)
     {
-        var content = File.ReadAllText(fullPath);
+        string text = ReadText(content);
+        ReadOnlySpan<byte> bytes = content;
+        bool hasPreamble =
+            bytes.StartsWith(Encoding.UTF8.Preamble)
+            || bytes.StartsWith(Encoding.Unicode.Preamble)
+            || bytes.StartsWith(Encoding.BigEndianUnicode.Preamble)
+            || bytes.StartsWith(Encoding.UTF32.Preamble)
+            || bytes.StartsWith(new byte[] { 0x00, 0x00, 0xFE, 0xFF });
+        return hasPreamble ? '\uFEFF' + text : text;
+    }
 
-        Span<byte> head = stackalloc byte[3];
-        using var stream = File.OpenRead(fullPath);
-        var read = stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
-        var hasUtf8Preamble = read == 3 && head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF;
-
-        return hasUtf8Preamble ? '\uFEFF' + content : content;
+    private static string ReadText(byte[] content)
+    {
+        using var stream = new MemoryStream(content, writable: false);
+        using var reader = new StreamReader(
+            stream,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
     }
 
     private static int PrintPackageFileContents(IReadOnlyList<PackageFileContentSet> results, InspectionOptions options)
@@ -2551,6 +2587,20 @@ public class PackageCommand
         if (options.Bare)
             return PrintBarePackageFileContentRows(rows, options.OutputPath);
 
+        if (!string.IsNullOrEmpty(options.OutputPath) && !options.Jsonl)
+        {
+            List<PackageFileContent> found = rows.Where(row => row.Found).ToList();
+            if (found.Count != 1)
+            {
+                CommandError.Write(
+                    $"--content --out requires exactly one selected package content file; found {found.Count}.");
+                return 1;
+            }
+
+            WritePackageFileExport(found[0], options.OutputPath);
+            return 0;
+        }
+
         var textRows = rows.Select(PackageFileContentText.Create).ToList();
         var output = options.Jsonl
             ? RenderPackageFileContentJsonl(textRows)
@@ -2575,7 +2625,13 @@ public class PackageCommand
             return 1;
         }
 
-        return WriteBarePackageText(found[0].Content, outputPath);
+        if (!string.IsNullOrEmpty(outputPath))
+        {
+            WritePackageFileExport(found[0], outputPath);
+            return 0;
+        }
+
+        return WriteBarePackageText(found[0].Content, outputPath: null);
     }
 
     private static IEnumerable<PackageFileContent> FlattenPackageFileContentRows(
@@ -3061,7 +3117,13 @@ public class PackageCommand
             files[0],
             PackageFileContentScope.Full,
             normalizeGithubLinksToRaw: !options.BrowsableUrls);
-        return WriteBarePackageText(content.Content, options.OutputPath);
+        if (!string.IsNullOrEmpty(options.OutputPath))
+        {
+            WritePackageFileExport(content, options.OutputPath);
+            return 0;
+        }
+
+        return WriteBarePackageText(content.Content, outputPath: null);
     }
 
     private static int PrintBarePackageUrlColumn(IEnumerable<string?>? urls, string section, string? outputPath)
@@ -3086,6 +3148,16 @@ public class PackageCommand
         else
             Console.Write(new InertString(TextPolicy.Prose, output));
         return 0;
+    }
+
+    private static void WritePackageFileExport(
+        PackageFileContent content,
+        string outputPath)
+    {
+        if (content.ExactContent is { } exact)
+            File.WriteAllBytes(outputPath, exact);
+        else
+            File.WriteAllText(outputPath, content.Content);
     }
 
     private static List<PackageFile> GetPackageFileRows(InspectionResult result, string section)

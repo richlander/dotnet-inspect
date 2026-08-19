@@ -85,7 +85,16 @@ excluded from the text pass. That pass is limited to 4 MiB per file and 32 MiB
 per package, uses strict UTF-8/UTF-16/UTF-32 decoding, and reports read,
 encoding, configuration, and limit failures instead of treating an incomplete
 scan as clean. The local PDB pass reuses the product SourceLink parser and does
-not acquire symbols or source over the network.
+not acquire symbols or source over the network. It scans package-local portable
+PDBs directly and embedded PDBs through managed `.dll` and `.exe` carriers.
+Standalone PDB text is audited without claiming that it matches any package
+assembly; identity remains mandatory for method/source mapping.
+
+Retained output is capped at 4,096 findings and 2 MiB of encoded evidence.
+SourceLink inspection is additionally capped at 4 MiB per decoded map, 32 MiB
+of maps per package, 16,384 decoded mappings, 64 MiB per PE/PDB carrier, and
+256 MiB of carriers per package. Reaching any cap adds one `scan limit` row and
+makes the result `Partial`.
 
 The detail table has exactly `Path`, `Kind`, and `Encoded Text`. A source line
 produces one rendering finding containing all Unicode concern kinds on that
@@ -111,12 +120,17 @@ dotnet-inspect package X -S @Audit
 ```
 
 `PackageContentAuditTests` gates bidi, OSC 52, NuGet configuration, strict
-decoding, BOM, binary-file, bounded-evidence, resource-limit, and literal
-parent-path cases, including close negatives.
+decoding, BOM, binary-file, case-distinct paths, bounded evidence and
+cardinality, resource limits, and literal parent-path cases, including close
+negatives.
 `PackageAudit_RendersContentAndSourceLinkFindings` gates the
 three-column Markdown and JSONL contract with a compiler-produced hostile
-SourceLink PDB. `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
-gates encoded stdout and exact `--out` export.
+SourceLink PDB.
+`PackageAudit_InspectsStandalonePackagePdbWithoutAnAssembly` and
+`PackageAudit_MalformedStandaloneSourceLinkMapReportsPartial` gate the
+package-local PDB census and visible incompleteness.
+`PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
+gates encoded stdout and byte-exact `--out` export.
 
 ## Identifier confusion
 

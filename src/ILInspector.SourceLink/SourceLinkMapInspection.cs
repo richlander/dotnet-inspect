@@ -16,6 +16,15 @@ public enum SourceLinkMapStatus
 public sealed record SourceLinkMapEntry(string Document, string? Url);
 
 /// <summary>
+/// SourceLink map facts read directly from one portable PDB without claiming assembly identity.
+/// </summary>
+public sealed record SourceLinkMapAudit(
+    SourceLinkMapInspection Map,
+    IReadOnlyList<SourceLinkMapEntry> Entries,
+    int EncodedBytes,
+    bool LimitExceeded = false);
+
+/// <summary>
 /// Parse and entry-validation facts for one SourceLink document map.
 /// </summary>
 /// <param name="Status">Whether the map is absent, fully usable, partially usable, or unusable.</param>

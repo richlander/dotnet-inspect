@@ -80,6 +80,13 @@ public static class PackageContentAudit
 {
     internal const int MaxFileBytes = 4 * 1024 * 1024;
     internal const int MaxTotalBytes = 32 * 1024 * 1024;
+    internal const int MaxFindings = 4096;
+    internal const int MaxEvidenceCharacters = 2 * 1024 * 1024;
+    internal const int MaxSourceLinkMappings = 16 * 1024;
+    internal const int MaxSourceLinkMapBytes = 4 * 1024 * 1024;
+    internal const int MaxTotalSourceLinkMapBytes = 32 * 1024 * 1024;
+    internal const long MaxSourceLinkCarrierBytes = 64L * 1024 * 1024;
+    internal const long MaxTotalSourceLinkCarrierBytes = 256L * 1024 * 1024;
     private const int MaxEncodedTextLength = 512;
 
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -112,21 +119,18 @@ public static class PackageContentAudit
         ArgumentNullException.ThrowIfNull(packageRelativePaths);
 
         string root = Path.GetFullPath(extractPath);
-        var findings = new List<PackageContentAuditFinding>();
+        var collector = new FindingCollector();
         int eligibleFiles = 0;
         int scannedFiles = 0;
         long scannedBytes = 0;
-        bool complete = true;
 
         string[] paths =
-        [
-            .. packageRelativePaths
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Order(StringComparer.Ordinal),
-        ];
+            NormalizePackagePaths(packageRelativePaths);
 
         foreach (string relativePath in paths)
         {
+            if (collector.Saturated)
+                break;
             if (!IsTextBearingPath(relativePath))
                 continue;
 
@@ -138,73 +142,57 @@ public static class PackageContentAudit
             }
             catch (ArgumentException)
             {
-                complete = false;
-                findings.Add(ToolFinding(
+                collector.AddIncomplete(ToolFinding(
                     relativePath,
                     PackageContentFindingKind.ReadFailure,
                     "Path could not be resolved beneath the extracted package."));
                 continue;
             }
 
-            long length;
-            try
-            {
-                length = new FileInfo(fullPath).Length;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                complete = false;
-                findings.Add(ToolFinding(
-                    relativePath,
-                    PackageContentFindingKind.ReadFailure,
-                    "File metadata could not be read."));
-                continue;
-            }
-
-            if (length > MaxFileBytes || scannedBytes + length > MaxTotalBytes)
-            {
-                complete = false;
-                findings.Add(ToolFinding(
-                    relativePath,
-                    PackageContentFindingKind.ScanLimit,
-                    length > MaxFileBytes
-                        ? $"File exceeds the {MaxFileBytes / (1024 * 1024)} MiB per-file audit limit."
-                        : $"Package exceeds the {MaxTotalBytes / (1024 * 1024)} MiB aggregate audit limit."));
-                continue;
-            }
-
             byte[] bytes;
             try
             {
-                bytes = File.ReadAllBytes(fullPath);
+                using FileStream stream = new(
+                    fullPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read);
+                long length = stream.Length;
+                if (length > MaxFileBytes || scannedBytes + length > MaxTotalBytes)
+                {
+                    collector.AddIncomplete(ToolFinding(
+                        relativePath,
+                        PackageContentFindingKind.ScanLimit,
+                        length > MaxFileBytes
+                            ? $"File exceeds the {MaxFileBytes / (1024 * 1024)} MiB per-file audit limit."
+                            : $"Package exceeds the {MaxTotalBytes / (1024 * 1024)} MiB aggregate audit limit."));
+                    continue;
+                }
+
+                bytes = GC.AllocateUninitializedArray<byte>((int)length);
+                stream.ReadExactly(bytes);
+                if (stream.ReadByte() >= 0)
+                {
+                    collector.AddIncomplete(ToolFinding(
+                        relativePath,
+                        PackageContentFindingKind.ScanLimit,
+                        "File grew while it was being read and exceeded its bounded audit snapshot."));
+                    continue;
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                complete = false;
-                findings.Add(ToolFinding(
+                collector.AddIncomplete(ToolFinding(
                     relativePath,
                     PackageContentFindingKind.ReadFailure,
                     "File content could not be read."));
                 continue;
             }
 
-            if (bytes.Length > MaxFileBytes || scannedBytes + bytes.Length > MaxTotalBytes)
-            {
-                complete = false;
-                findings.Add(ToolFinding(
-                    relativePath,
-                    PackageContentFindingKind.ScanLimit,
-                    bytes.Length > MaxFileBytes
-                        ? $"File exceeds the {MaxFileBytes / (1024 * 1024)} MiB per-file audit limit."
-                        : $"Package exceeds the {MaxTotalBytes / (1024 * 1024)} MiB aggregate audit limit."));
-                continue;
-            }
-
             scannedBytes += bytes.Length;
             if (!TryDecode(bytes, out string? content))
             {
-                complete = false;
-                findings.Add(ToolFinding(
+                collector.AddIncomplete(ToolFinding(
                     relativePath,
                     PackageContentFindingKind.InvalidTextEncoding,
                     "Text-bearing file is not valid UTF-8, UTF-16, or UTF-32."));
@@ -212,125 +200,324 @@ public static class PackageContentAudit
             }
 
             scannedFiles++;
-            string[] lines = content!.Split(["\r\n", "\n", "\r"], StringSplitOptions.None);
-            for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+            using var lineReader = new StringReader(content!);
+            int lineNumber = 0;
+            while (!collector.Saturated && lineReader.ReadLine() is { } line)
             {
-                InertString encoded = new(TextPolicy.Prose, lines[lineIndex]);
+                lineNumber++;
+                InertString encoded = new(TextPolicy.Prose, line);
                 if (!encoded.RequiredContainment)
                     continue;
 
-                findings.Add(new PackageContentAuditFinding(
+                collector.TryAdd(new PackageContentAuditFinding(
                     relativePath,
                     PackageContentFindingKind.NonGraphicText,
                     encoded.Concerns,
-                    BoundAroundFirstEncoding(encoded),
-                    lineIndex + 1));
+                    BoundAroundFirstConcern(encoded),
+                    lineNumber));
             }
 
-            if (IsNuGetConfig(relativePath))
-                AddNuGetConfigurationFindings(relativePath, content, lines, findings, ref complete);
+            if (IsNuGetConfig(relativePath) && !collector.Saturated)
+                AddNuGetConfigurationFindings(relativePath, content!, collector);
         }
 
         int scannedSourceLinkMaps = AddSourceLinkFindings(
             root,
             paths,
-            findings,
-            ref complete);
+            collector);
 
         return new PackageContentAuditResult(
-            findings,
+            collector.Findings,
             eligibleFiles,
             scannedFiles,
             scannedBytes,
-            complete,
+            collector.Complete,
             scannedSourceLinkMaps);
     }
 
     private static int AddSourceLinkFindings(
         string root,
         IReadOnlyList<string> packagePaths,
-        List<PackageContentAuditFinding> findings,
-        ref bool complete)
+        FindingCollector collector)
     {
-        var paths = packagePaths.ToHashSet(StringComparer.OrdinalIgnoreCase);
         int scannedMaps = 0;
-        foreach (string assemblyPath in packagePaths.Where(static path =>
-            Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase)))
-        {
-            string fullAssemblyPath;
-            try
-            {
-                fullAssemblyPath = ResolveBeneath(root, assemblyPath);
-            }
-            catch (ArgumentException)
-            {
-                continue;
-            }
+        int scannedMappings = 0;
+        int scannedMapBytes = 0;
+        long scannedCarrierBytes = 0;
 
-            string pdbPath = Path.ChangeExtension(assemblyPath, ".pdb").Replace('\\', '/');
-            string evidencePath = paths.Contains(pdbPath) ? pdbPath : assemblyPath;
+        foreach (string assemblyPath in packagePaths.Where(static path =>
+            Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase)
+            || Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (collector.Saturated)
+                break;
+            if (!TryResolveAndAccountSourceLinkCarrier(
+                    root,
+                    assemblyPath,
+                    collector,
+                    ref scannedCarrierBytes,
+                    out string? fullAssemblyPath))
+                continue;
+            if (!HasPeHeader(fullAssemblyPath, assemblyPath, collector))
+                continue;
+
             try
             {
-                using SourceLinkService source = SourceLinkService.Open(fullAssemblyPath);
-                SourceLinkMapInspection map = source.SourceLinkMap;
-                if (!map.IsPresent)
+                using SourceLinkService source = SourceLinkService.OpenEmbeddedPdbOnly(fullAssemblyPath);
+                if (!source.Context.HasMetadata || !source.Context.HasEmbeddedPdb)
                     continue;
 
-                scannedMaps++;
-                if (map.Error is { } error)
-                {
-                    findings.Add(ToolFinding(
-                        evidencePath,
-                        PackageContentFindingKind.InvalidSourceLinkMap,
-                        error));
-                }
-
-                var rejected = map.RejectedKeys.ToHashSet(StringComparer.Ordinal);
-                foreach (SourceLinkMapEntry mapping in source.SourceLinkMapEntries)
-                {
-                    string evidence = mapping.Url is null
-                        ? mapping.Document
-                        : $"{mapping.Document} => {mapping.Url}";
-                    InertString encoded = new(TextPolicy.Prose, evidence);
-                    if (encoded.RequiredContainment)
-                    {
-                        findings.Add(new PackageContentAuditFinding(
-                            evidencePath,
-                            PackageContentFindingKind.NonGraphicSourceLinkText,
-                            encoded.Concerns,
-                            BoundAroundFirstEncoding(encoded)));
-                    }
-
-                    if (ContainsParentPathReference(mapping.Document)
-                        || ContainsParentPathReference(mapping.Url))
-                    {
-                        findings.Add(new PackageContentAuditFinding(
-                            evidencePath,
-                            PackageContentFindingKind.SourceLinkParentPathSegment,
-                            TextConcern.None,
-                            BoundAroundLiteral(encoded, "../")));
-                    }
-
-                    if (rejected.Contains(mapping.Document))
-                    {
-                        findings.Add(new PackageContentAuditFinding(
-                            evidencePath,
-                            PackageContentFindingKind.RejectedSourceLinkMapping,
-                            TextConcern.None,
-                            BoundAroundFirstEncoding(encoded)));
-                    }
-                }
+                SourceLinkMapInspection map = source.SourceLinkMap;
+                var audit = new SourceLinkMapAudit(
+                    map,
+                    source.SourceLinkMapEntries,
+                    source.SourceLinkJson is { } json ? Encoding.UTF8.GetByteCount(json) : 0);
+                if (!AddSourceLinkMapFindings(
+                        assemblyPath,
+                        audit,
+                        collector,
+                        ref scannedMaps,
+                        ref scannedMappings,
+                        ref scannedMapBytes))
+                    break;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (
+                ex is IOException
+                    or UnauthorizedAccessException
+                    or BadImageFormatException
+                    or InvalidOperationException
+                    or ArgumentException
+                    or ArgumentOutOfRangeException)
             {
-                // Not every .dll-named package asset is a managed PE. This audit owns decoded
-                // SourceLink content, not binary validity, so a file that cannot expose a PDB is
-                // outside its census. Once SourceLink is present, SourceLinkService retains map
-                // read/parse failures as typed map evidence above rather than throwing them here.
+                collector.AddIncomplete(ToolFinding(
+                    assemblyPath,
+                    PackageContentFindingKind.ReadFailure,
+                    "Managed PE content could not be opened for embedded SourceLink inspection."));
+            }
+        }
+
+        foreach (string pdbPath in packagePaths.Where(static path =>
+            Path.GetExtension(path).Equals(".pdb", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (collector.Saturated)
+                break;
+            if (!TryResolveAndAccountSourceLinkCarrier(
+                    root,
+                    pdbPath,
+                    collector,
+                    ref scannedCarrierBytes,
+                    out string? fullPdbPath))
+                continue;
+            if (!IsPortablePdb(fullPdbPath, pdbPath, collector))
+                continue;
+
+            try
+            {
+                SourceLinkMapAudit audit = SourceLinkService.InspectPortablePdb(
+                    fullPdbPath,
+                    MaxSourceLinkMapBytes);
+                if (!AddSourceLinkMapFindings(
+                        pdbPath,
+                        audit,
+                        collector,
+                        ref scannedMaps,
+                        ref scannedMappings,
+                        ref scannedMapBytes))
+                    break;
+            }
+            catch (Exception ex) when (
+                ex is IOException
+                    or UnauthorizedAccessException
+                    or BadImageFormatException
+                    or InvalidOperationException
+                    or ArgumentException
+                    or ArgumentOutOfRangeException)
+            {
+                collector.AddIncomplete(ToolFinding(
+                    pdbPath,
+                    PackageContentFindingKind.InvalidSourceLinkMap,
+                    "Portable PDB content could not be read for SourceLink inspection."));
             }
         }
 
         return scannedMaps;
+    }
+
+    private static bool AddSourceLinkMapFindings(
+        string evidencePath,
+        SourceLinkMapAudit audit,
+        FindingCollector collector,
+        ref int scannedMaps,
+        ref int scannedMappings,
+        ref int scannedMapBytes)
+    {
+        if (!audit.Map.IsPresent)
+            return true;
+
+        scannedMaps++;
+        if (audit.LimitExceeded
+            || audit.EncodedBytes > MaxSourceLinkMapBytes
+            || scannedMapBytes + audit.EncodedBytes > MaxTotalSourceLinkMapBytes)
+        {
+            collector.AddIncomplete(ToolFinding(
+                evidencePath,
+                PackageContentFindingKind.ScanLimit,
+                audit.EncodedBytes > MaxSourceLinkMapBytes
+                    ? $"SourceLink map exceeds the {MaxSourceLinkMapBytes / (1024 * 1024)} MiB per-map audit limit."
+                    : $"SourceLink maps exceed the {MaxTotalSourceLinkMapBytes / (1024 * 1024)} MiB aggregate audit limit."));
+            return true;
+        }
+        scannedMapBytes += audit.EncodedBytes;
+
+        if (audit.Map.Error is { } error)
+        {
+            collector.AddIncomplete(ToolFinding(
+                evidencePath,
+                PackageContentFindingKind.InvalidSourceLinkMap,
+                error));
+        }
+
+        var rejected = audit.Map.RejectedKeys.ToHashSet(StringComparer.Ordinal);
+        foreach (SourceLinkMapEntry mapping in audit.Entries)
+        {
+            if (scannedMappings >= MaxSourceLinkMappings)
+            {
+                collector.AddLimit(
+                    evidencePath,
+                    $"SourceLink audit exceeded the {MaxSourceLinkMappings} mapping limit.");
+                return false;
+            }
+            scannedMappings++;
+
+            string evidence = mapping.Url is null
+                ? mapping.Document
+                : $"{mapping.Document} => {mapping.Url}";
+            InertString encoded = EncodeSourceLinkEvidence(evidence);
+            if (encoded.RequiredContainment)
+            {
+                collector.TryAdd(new PackageContentAuditFinding(
+                    evidencePath,
+                    PackageContentFindingKind.NonGraphicSourceLinkText,
+                    encoded.Concerns,
+                    BoundAroundFirstConcern(encoded)));
+            }
+
+            if (ContainsParentPathReference(mapping.Document)
+                || ContainsParentPathReference(mapping.Url))
+            {
+                collector.TryAdd(new PackageContentAuditFinding(
+                    evidencePath,
+                    PackageContentFindingKind.SourceLinkParentPathSegment,
+                    TextConcern.None,
+                    BoundAroundLiteral(encoded, "../")));
+            }
+
+            if (rejected.Contains(mapping.Document))
+            {
+                collector.TryAdd(new PackageContentAuditFinding(
+                    evidencePath,
+                    PackageContentFindingKind.RejectedSourceLinkMapping,
+                    TextConcern.None,
+                    BoundAroundFirstConcern(encoded)));
+            }
+
+            if (collector.Saturated)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryResolveAndAccountSourceLinkCarrier(
+        string root,
+        string relativePath,
+        FindingCollector collector,
+        ref long scannedCarrierBytes,
+        out string fullPath)
+    {
+        try
+        {
+            fullPath = ResolveBeneath(root, relativePath);
+            long length = new FileInfo(fullPath).Length;
+            if (length > MaxSourceLinkCarrierBytes
+                || scannedCarrierBytes + length > MaxTotalSourceLinkCarrierBytes)
+            {
+                collector.AddIncomplete(ToolFinding(
+                    relativePath,
+                    PackageContentFindingKind.ScanLimit,
+                    length > MaxSourceLinkCarrierBytes
+                        ? $"SourceLink carrier exceeds the {MaxSourceLinkCarrierBytes / (1024 * 1024)} MiB per-file audit limit."
+                        : $"SourceLink carriers exceed the {MaxTotalSourceLinkCarrierBytes / (1024 * 1024)} MiB aggregate audit limit."));
+                return false;
+            }
+
+            scannedCarrierBytes += length;
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            fullPath = string.Empty;
+            collector.AddIncomplete(ToolFinding(
+                relativePath,
+                PackageContentFindingKind.ReadFailure,
+                "SourceLink carrier could not be resolved or measured."));
+            return false;
+        }
+    }
+
+    private static bool IsPortablePdb(
+        string fullPath,
+        string relativePath,
+        FindingCollector collector)
+    {
+        try
+        {
+            Span<byte> header = stackalloc byte[4];
+            using FileStream stream = File.OpenRead(fullPath);
+            if (stream.ReadAtLeast(
+                    header,
+                    header.Length,
+                    throwOnEndOfStream: false) < header.Length)
+                return false;
+
+            return header.SequenceEqual("BSJB"u8);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            collector.AddIncomplete(ToolFinding(
+                relativePath,
+                PackageContentFindingKind.ReadFailure,
+                "PDB header could not be read."));
+            return false;
+        }
+    }
+
+    private static bool HasPeHeader(
+        string fullPath,
+        string relativePath,
+        FindingCollector collector)
+    {
+        try
+        {
+            Span<byte> header = stackalloc byte[2];
+            using FileStream stream = File.OpenRead(fullPath);
+            int read = stream.ReadAtLeast(
+                header,
+                header.Length,
+                throwOnEndOfStream: false);
+            return read == header.Length
+                && header[0] == (byte)'M'
+                && header[1] == (byte)'Z';
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            collector.AddIncomplete(ToolFinding(
+                relativePath,
+                PackageContentFindingKind.ReadFailure,
+                "PE header could not be read."));
+            return false;
+        }
     }
 
     /// <summary>
@@ -343,6 +530,17 @@ public static class PackageContentAudit
     /// </remarks>
     internal static bool ContainsParentPathReference(string? text)
         => text?.Contains("../", StringComparison.Ordinal) == true;
+
+    internal static string[] NormalizePackagePaths(IEnumerable<string> paths)
+        =>
+        [
+            .. paths
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+
+    internal static InertString EncodeSourceLinkEvidence(string evidence)
+        => new(TextPolicy.Field, evidence);
 
     private static bool IsTextBearingPath(string path)
     {
@@ -426,8 +624,8 @@ public static class PackageContentAudit
         }
     }
 
-    private static InertString BoundAroundFirstEncoding(InertString encoded)
-        => BoundAroundIndex(encoded, Math.Max(0, encoded.IndexOfFirstEncoded()));
+    private static InertString BoundAroundFirstConcern(InertString encoded)
+        => BoundAroundIndex(encoded, Math.Max(0, encoded.IndexOfFirstConcern()));
 
     private static InertString BoundAroundLiteral(InertString encoded, string literal)
         => BoundAroundIndex(
@@ -456,9 +654,7 @@ public static class PackageContentAudit
     private static void AddNuGetConfigurationFindings(
         string path,
         string content,
-        string[] lines,
-        List<PackageContentAuditFinding> findings,
-        ref bool complete)
+        FindingCollector collector)
     {
         try
         {
@@ -479,6 +675,9 @@ public static class PackageContentAudit
             {
                 foreach (XElement child in packageSources.Elements())
                 {
+                    if (collector.Saturated)
+                        return;
+
                     PackageContentFindingKind? kind = child.Name.LocalName switch
                     {
                         var name when name.Equals("clear", StringComparison.OrdinalIgnoreCase) =>
@@ -493,25 +692,83 @@ public static class PackageContentAudit
                     int line = (child as IXmlLineInfo)?.HasLineInfo() == true
                         ? ((IXmlLineInfo)child).LineNumber
                         : 0;
-                    string evidence = line > 0 && line <= lines.Length
-                        ? lines[line - 1].Trim()
-                        : child.ToString(SaveOptions.DisableFormatting);
-                    findings.Add(new PackageContentAuditFinding(
+                    InertString evidence = new(
+                        TextPolicy.Prose,
+                        child.ToString(SaveOptions.DisableFormatting));
+                    collector.TryAdd(new PackageContentAuditFinding(
                         path,
                         kind.Value,
                         TextConcern.None,
-                        new InertString(TextPolicy.Prose, evidence),
+                        BoundAroundFirstConcern(evidence),
                         line > 0 ? line : null));
                 }
             }
         }
         catch (XmlException)
         {
-            complete = false;
-            findings.Add(ToolFinding(
+            collector.AddIncomplete(ToolFinding(
                 path,
                 PackageContentFindingKind.InvalidNuGetConfiguration,
                 "NuGet configuration could not be parsed as XML."));
+        }
+    }
+
+    private sealed class FindingCollector
+    {
+        private int _evidenceCharacters;
+        private bool _limitReported;
+
+        public List<PackageContentAuditFinding> Findings { get; } = [];
+        public bool Complete { get; private set; } = true;
+        public bool Saturated => _limitReported;
+
+        public bool TryAdd(PackageContentAuditFinding finding)
+        {
+            if (_limitReported)
+                return false;
+
+            int evidenceLength = finding.EncodedText.Length;
+            if (Findings.Count >= MaxFindings - 1
+                || _evidenceCharacters + evidenceLength > MaxEvidenceCharacters)
+            {
+                AddLimit(
+                    finding.Path,
+                    $"Audit output exceeded the {MaxFindings} finding or {MaxEvidenceCharacters} encoded-character limit.");
+                return false;
+            }
+
+            Findings.Add(finding);
+            _evidenceCharacters += evidenceLength;
+            return true;
+        }
+
+        public void AddIncomplete(PackageContentAuditFinding finding)
+        {
+            Complete = false;
+            TryAdd(finding);
+        }
+
+        public void AddLimit(string path, string text)
+        {
+            Complete = false;
+            if (_limitReported)
+                return;
+
+            _limitReported = true;
+            PackageContentAuditFinding limit = ToolFinding(
+                path,
+                PackageContentFindingKind.ScanLimit,
+                text);
+            while (Findings.Count >= MaxFindings
+                || _evidenceCharacters + limit.EncodedText.Length > MaxEvidenceCharacters)
+            {
+                PackageContentAuditFinding removed = Findings[^1];
+                Findings.RemoveAt(Findings.Count - 1);
+                _evidenceCharacters -= removed.EncodedText.Length;
+            }
+
+            Findings.Add(limit);
+            _evidenceCharacters += limit.EncodedText.Length;
         }
     }
 

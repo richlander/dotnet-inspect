@@ -279,7 +279,29 @@ public class PdbContext : IDisposable
     /// PDB. Used by latency-bounded metadata discovery that does not need source documents.
     /// </summary>
     public static PdbContext OpenMetadataOnly(string assemblyPath, Action<string>? log = null)
-        => Open(assemblyPath, log, PEStreamOptions.Default, loadLocalPdb: false);
+        => Open(
+            assemblyPath,
+            log,
+            PEStreamOptions.Default,
+            loadLocalPdb: false,
+            loadEmbeddedPdb: false);
+
+    /// <summary>
+    /// Opens PE metadata and an embedded portable PDB, but never probes an adjacent PDB.
+    /// </summary>
+    /// <remarks>
+    /// <c>PdbContextDescriptorTests.MetadataOnlyAndEmbeddedOnly_KeepTheirPdbAcquisitionBoundaries</c>
+    /// gates the embedded-only acquisition boundary and the metadata-only close negative.
+    /// </remarks>
+    public static PdbContext OpenEmbeddedPdbOnly(
+        string assemblyPath,
+        Action<string>? log = null)
+        => Open(
+            assemblyPath,
+            log,
+            PEStreamOptions.Default,
+            loadLocalPdb: false,
+            loadEmbeddedPdb: true);
 
     /// <summary>
     /// Opens descriptor-owned PE metadata without loading an embedded or
@@ -297,7 +319,8 @@ public class PdbContext : IDisposable
             log,
             PEStreamOptions.Default,
             assembly.LastWriteTimeUtc,
-            loadLocalPdb: false);
+            loadLocalPdb: false,
+            loadEmbeddedPdb: false);
     }
 
     /// <summary>
@@ -375,7 +398,8 @@ public class PdbContext : IDisposable
         string assemblyPath,
         Action<string>? log,
         PEStreamOptions streamOptions,
-        bool loadLocalPdb = true)
+        bool loadLocalPdb = true,
+        bool loadEmbeddedPdb = true)
         => Open(
             File.OpenRead(assemblyPath),
             assemblyPath,
@@ -383,7 +407,8 @@ public class PdbContext : IDisposable
             log,
             streamOptions,
             lastWriteTimeUtc: null,
-            loadLocalPdb);
+            loadLocalPdb,
+            loadEmbeddedPdb);
 
     static PdbContext Open(
         Stream stream,
@@ -392,7 +417,8 @@ public class PdbContext : IDisposable
         Action<string>? log,
         PEStreamOptions streamOptions,
         DateTime? lastWriteTimeUtc,
-        bool loadLocalPdb = true)
+        bool loadLocalPdb = true,
+        bool loadEmbeddedPdb = true)
     {
         PEReader? peReader = null;
         PdbContext? context = null;
@@ -413,7 +439,7 @@ public class PdbContext : IDisposable
             if (!peReader.HasMetadata)
                 return context;
 
-            context.ReadDebugDirectory();
+            context.ReadDebugDirectory(loadEmbeddedPdb);
             if (loadLocalPdb)
                 context.TryLoadLocalPdb();
 
@@ -1295,6 +1321,28 @@ public class PdbContext : IDisposable
         => ReadCustomDebugInformation(EntityHandle.ModuleDefinition, kind);
 
     /// <summary>
+    /// Reads one module custom-debug-information value directly from a standalone portable PDB.
+    /// This path deliberately does not claim assembly identity: consumers use it to inspect
+    /// package-local authored PDB content, not to map methods or source documents to an assembly.
+    /// </summary>
+    public static PdbCustomDebugInformationResult ReadPortablePdbModuleCustomDebugInformation(
+        string pdbPath,
+        Guid kind)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pdbPath);
+
+        using FileStream stream = File.OpenRead(pdbPath);
+        using MetadataReaderProvider provider = MetadataReaderProvider.FromPortablePdbStream(
+            stream,
+            MetadataStreamOptions.PrefetchMetadata);
+        MetadataReader reader = provider.GetMetadataReader();
+        return ReadCustomDebugInformation(
+            reader,
+            EntityHandle.ModuleDefinition,
+            kind);
+    }
+
+    /// <summary>
     /// Reads the unique document custom-debug-information value having
     /// <paramref name="kind"/>.
     /// </summary>
@@ -1344,18 +1392,26 @@ public class PdbContext : IDisposable
         if (_pdbReader == null)
             return new(PdbCustomDebugInformationStatus.Absent, null);
 
+        return ReadCustomDebugInformation(_pdbReader, parent, kind);
+    }
+
+    static PdbCustomDebugInformationResult ReadCustomDebugInformation(
+        MetadataReader pdbReader,
+        EntityHandle parent,
+        Guid kind)
+    {
         BlobHandle value = default;
         bool found = false;
         Exception? scanError = null;
         try
         {
-            foreach (var handle in _pdbReader.GetCustomDebugInformation(parent))
+            foreach (var handle in pdbReader.GetCustomDebugInformation(parent))
             {
                 CustomDebugInformation info;
                 try
                 {
-                    info = _pdbReader.GetCustomDebugInformation(handle);
-                    if (_pdbReader.GetGuid(info.Kind) != kind)
+                    info = pdbReader.GetCustomDebugInformation(handle);
+                    if (pdbReader.GetGuid(info.Kind) != kind)
                         continue;
                 }
                 catch (Exception ex) when (IsCustomDebugInformationReadFailure(ex))
@@ -1396,7 +1452,7 @@ public class PdbContext : IDisposable
         {
             return new(
                 PdbCustomDebugInformationStatus.Present,
-                _pdbReader.GetBlobBytes(value));
+                pdbReader.GetBlobBytes(value));
         }
         catch (Exception ex) when (IsCustomDebugInformationReadFailure(ex))
         {
@@ -1580,7 +1636,7 @@ public class PdbContext : IDisposable
 
     // --- Private implementation ---
 
-    private void ReadDebugDirectory()
+    private void ReadDebugDirectory(bool loadEmbeddedPdb)
     {
         CodeViewDebugDirectoryData? portableCodeView = null;
         CodeViewDebugDirectoryData? windowsCodeView = null;
@@ -1640,6 +1696,9 @@ public class PdbContext : IDisposable
             if (entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb)
             {
                 HasEmbeddedPdb = true;
+                if (!loadEmbeddedPdb)
+                    continue;
+
                 PdbFormat = "Portable";
                 PdbLocation = "Embedded";
 
