@@ -363,6 +363,17 @@ test("heap, flags, and malformed cells escape their projected text", () => {
   assert.match(malformed, /bad blob/);
 });
 
+test("flags cells coerce a non-numeric raw value the same way the prior bitwise cast did", () => {
+  const ctx = context();
+  // raw as a numeric string (e.g. round-tripped through JSON) must hex-format identically to
+  // the equivalent number, matching the ">>> 0" coercion this replaced.
+  assert.match(renderExplorerCell({ kind: "flags", raw: "255", decoded: "Public" }, null, ctx), /0xff/);
+  // A missing raw value falls back to 0 rather than throwing or printing "NaN"/"undefined".
+  const missing = renderExplorerCell({ kind: "flags", decoded: "None" }, null, ctx);
+  assert.match(missing, /0x0/);
+  assert.doesNotMatch(missing, /NaN|undefined/);
+});
+
 test("a heap listing addresses #GUID by index and other heaps by byte offset", () => {
   const ctx = context();
   const guid = renderHeapListing({
