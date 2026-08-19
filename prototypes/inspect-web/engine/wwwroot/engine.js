@@ -6,6 +6,7 @@ let resolvePackageDependencyVersion;
 let matchPackageDependencyCoordinateExport;
 let getPackageDocument;
 let queryMemberSource;
+let cancelSourceQuery;
 let queryMemberAnnotatedSource;
 let queryTypeProjection;
 let queryPackageDependencies;
@@ -45,6 +46,7 @@ export async function initializeEngine(onStatus = () => {}) {
   matchPackageDependencyCoordinateExport = exports.BrowserInspectionEngine.MatchPackageDependencyCoordinate;
   getPackageDocument = exports.BrowserInspectionEngine.GetPackageDocument;
   queryMemberSource = exports.BrowserInspectionEngine.QueryMemberSource;
+  cancelSourceQuery = exports.BrowserInspectionEngine.CancelSourceQuery;
   queryMemberAnnotatedSource = exports.BrowserInspectionEngine.QueryMemberAnnotatedSource;
   queryTypeProjection = exports.BrowserInspectionEngine.QueryTypeProjection;
   queryPackageDependencies = exports.BrowserInspectionEngine.QueryPackageDependencies;
@@ -101,11 +103,16 @@ export async function inspectMemberSource(request) {
     request.version,
     request.framework,
     request.assembly,
-    request.type,
+    request.typeIdentity ?? request.type,
     request.member,
-    request.signature,
+    request.selectorKey ?? "",
+    request.metadataToken ?? 0,
     request.styleOptionsJson ?? "[]");
   return JSON.parse(json);
+}
+
+export function cancelSourceInspection() {
+  cancelSourceQuery?.();
 }
 
 export async function inspectMemberAnnotatedSource(request) {
@@ -300,7 +307,7 @@ export async function inspectTypeSource(request) {
     request.version,
     request.framework,
     request.assembly,
-    request.type,
+    request.typeIdentity ?? request.type,
     request.styleOptionsJson ?? "[]");
   return JSON.parse(json);
 }

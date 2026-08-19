@@ -48,6 +48,27 @@ catalog generations, `CoreCache`, typed provenance and resolution currencies,
 and `InertString`; the remaining workspace model describes how those pieces
 will be composed.
 
+The Integration graph now accepts finite explicit-subject induced-set requests
+over one realized context group. Workspace scope still decides which
+participants may contribute. The request independently selects typed subjects,
+relationship producers, and the both-endpoint subject-closure rule; it does not
+create seeds or widen acquisition. Subject identities and workspace membership
+are validated before the selected producers run. Exact package and assembly
+identities are checked against the realized boundary; acquired types and
+members are checked against definitions and structured extension-member
+anchors in the retained participant image. A registration match alone is not
+membership. The selected relationship set then drives one deterministic
+registry plan regardless of input count, and the existing sequential group
+executor remains the Browser/Wasm-compatible baseline.
+`Execute_ExplicitSubjectCountDoesNotMultiplyProducerDemand` gates that planning
+contract; `Execute_RejectsExplicitSubjectOutsideWorkspaceWithGuidance`,
+`Execute_RejectsUndeclaredInScopeTypeBeforeProducerExecution`, and
+`Execute_RejectsUndeclaredInScopeMemberBeforeProducerExecution` gate exact
+membership; `Execute_ReportsMemberPreflightDecodeFailureBeforeProducers` gates
+visible artifact failure, and
+`Execute_ReportsTypeDeclarationRejectionBeforeProducers` gates typed metadata
+rejection at the preflight boundary.
+
 Mechanism-specific documents remain authoritative for the current behavior,
 target design, and verification they own. In particular:
 
@@ -317,6 +338,37 @@ all-group cleanup after an owned-resource failure, and
 `InspectionWorkspaceTests.CallbackFailure_IsPreservedWhenDeferredDisposalAlsoFails`
 gates preservation of an in-flight callback failure when deferred cleanup also
 fails.
+`WorkspaceContextLoader` now realizes package, platform, and embedded
+coordinates without requiring a filesystem. A platform coordinate maps the
+`runtime` or `aspnetcore` family to its product-owned implementation-pack
+coordinate, selects the latest authorized version on the target framework's
+major/minor release line unless exactly pinned, and mints pathless participants
+with `PlatformAsset` provenance. A platform-qualified target such as
+`net10.0-browser` uses its `net10.0` base release line, and one family cannot
+mix versions or producers inside a group. Floating selection retains only the
+authorized producers that reported the selected version. Every authorized
+HTTP producer must first return an authoritative listing or prove the package
+absent; a failed producer makes the floating result unavailable rather than
+silently narrowing the candidate set. Local-folder and `file://` sources remain
+outside this remote listing evidence set. The implementation-pack RID is `linux-x64`
+because the assemblies are inspected as representative CoreCLR IL and never
+executed; the workspace target RID remains the caller's independent binding
+constraint. `WorkspaceContextLoaderTests.PlatformMember_ResolvesFrameworkMatchedVersionAndRealizesContentParticipants`
+gates version selection, pathless platform provenance, and in-group platform
+binding; `PlatformMember_PlatformQualifiedTargetUsesBaseReleaseLine` gates
+qualified targets, `FloatingPlatformMember_AcquiresOnlyFromVersionReporters`
+gates source correspondence, and
+`FloatingPlatformMember_HttpSourceFailureIsUnavailable` with
+`FloatingPlatformMember_AuthoritativeAbsenceDoesNotHideReporter` gates the
+failure-versus-absence distinction. `InvalidPlatformCoordinate_UsesPlatformDiagnostic`
+gates the platform-owned public diagnostic boundary while retaining package
+detail in host logging, and
+`RealizedPlatformCoordinate_ReacquiresRecordedProducer` gates exact
+producer-bound transport.
+`FloatingPlatformMember_MixedMalformedCriticalResourceIsUnavailable` prevents
+a valid service-index sibling from masking a malformed critical resource, and
+`PackageCoordinateResolverTests.FloatingCoordinate_SkipsNonHttpSource` gates
+the same non-HTTP exclusion for floating package members.
 Portable-PDB acquisition now follows the same content-shaped boundary:
 `AcquiredPortablePdb` opens repeatable content from a host-supplied `IPdbStore`,
 and `PdbAcquisitionService` can load it for a pathless
