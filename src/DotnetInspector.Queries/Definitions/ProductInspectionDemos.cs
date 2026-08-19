@@ -1,26 +1,22 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace DotnetInspector.Queries.Definitions;
 
 /// <summary>
-/// Static product registry of inspection demos. Same shape as
-/// <c>VocabularyCatalog</c> / Markout <c>FormatterRegistry</c>: typed entries
-/// captured at initialization, hosts resolve by id, JSON is only for portable
-/// external definitions via <see cref="InspectionDefinitionJson"/>.
+/// Product home-demo registry in the smooth-markdown-table
+/// <c>RendererRegistry</c> style: a static table of id → factory. Listing is
+/// metadata-only; peer definition records for a demo are allocated only when
+/// that demo is resolved. Portable external definitions still use
+/// <see cref="InspectionDefinitionJson"/>.
 /// </summary>
 public static class ProductInspectionDemos
 {
-    private static readonly InspectionDefinitionRecord[] s_records = CreateRecords();
-
-    private static readonly InspectionDefinitionRegistry s_registry = CreateRegistryCore(s_records);
-
-    /// <summary>
-    /// Stable scenario ids for the three workbench home demos, in display order.
-    /// </summary>
-    public static IReadOnlyList<string> HomeScenarioIds { get; } =
-    [
-        StjSerializerScenarioId,
-        ExtensionsCallGraphScenarioId,
-        PlatformListScenarioId,
-    ];
+    /// <summary>One home-demo catalog entry: stable id, labels, and a factory.</summary>
+    public readonly record struct Entry(
+        string Id,
+        string Title,
+        string Summary,
+        Func<InspectionDefinitionRecord[]> CreateRecords);
 
     public const string StjSerializerScenarioId = "stj-serializer";
 
@@ -28,35 +24,101 @@ public static class ProductInspectionDemos
 
     public const string PlatformListScenarioId = "platform-list";
 
-    /// <summary>Every product-owned definition record backing the home demos.</summary>
-    public static IReadOnlyList<InspectionDefinitionRecord> Records { get; } = s_records;
+    private static readonly Entry[] s_entries =
+    [
+        new(
+            StjSerializerScenarioId,
+            "System.Text.Json",
+            "Browse a real package API",
+            CreateStjSerializerRecords),
+        new(
+            ExtensionsCallGraphScenarioId,
+            "Cross-package call graph",
+            "Trace calls across three packages",
+            CreateExtensionsCallGraphRecords),
+        new(
+            PlatformListScenarioId,
+            ".NET Platform",
+            "Inspect platform BCL types",
+            CreatePlatformListRecords),
+    ];
 
     /// <summary>
-    /// Shared registry of <see cref="Records"/>. Hosts may resolve against this
-    /// instance; do not mutate it.
+    /// Home demo ids in display order. Enumerating this does not build demo graphs.
     /// </summary>
-    public static InspectionDefinitionRegistry Registry => s_registry;
+    public static IReadOnlyList<string> HomeScenarioIds { get; } =
+        Array.ConvertAll(s_entries, static e => e.Id);
 
     /// <summary>
-    /// Builds a fresh registry containing the product demo records. Prefer
-    /// <see cref="Registry"/> when mutation is not required.
+    /// Catalog metadata for hosts (menus, help). Does not allocate demo records.
     /// </summary>
-    public static InspectionDefinitionRegistry CreateRegistry() => CreateRegistryCore(s_records);
+    public static IReadOnlyList<Entry> Entries => s_entries;
 
-    /// <summary>Resolves one product home demo scenario by id.</summary>
+    /// <summary>Returns whether <paramref name="scenarioId"/> is a product home demo.</summary>
+    public static bool HasScenario(string scenarioId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scenarioId);
+        return TryGetEntry(scenarioId, out _);
+    }
+
+    /// <summary>
+    /// Resolves one home demo. Allocates only that demo's peer definition records.
+    /// </summary>
     public static ResolvedScenario ResolveHomeScenario(string scenarioId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(scenarioId);
-        if (!HomeScenarioIds.Contains(scenarioId, StringComparer.Ordinal))
+        if (!TryGetEntry(scenarioId, out var entry))
         {
             throw new InspectionDefinitionException(
                 $"Unknown product home demo scenario '{scenarioId}'.");
         }
 
-        return s_registry.ResolveScenario(scenarioId);
+        return CreateRegistry(entry.CreateRecords()).ResolveScenario(entry.Id);
     }
 
-    private static InspectionDefinitionRegistry CreateRegistryCore(
+    /// <summary>
+    /// Tries to resolve one home demo without throwing on unknown ids.
+    /// </summary>
+    public static bool TryResolveHomeScenario(
+        string scenarioId,
+        [NotNullWhen(true)] out ResolvedScenario? resolved)
+    {
+        resolved = null;
+        if (string.IsNullOrWhiteSpace(scenarioId) || !TryGetEntry(scenarioId, out var entry))
+            return false;
+
+        resolved = CreateRegistry(entry.CreateRecords()).ResolveScenario(entry.Id);
+        return true;
+    }
+
+    /// <summary>
+    /// Builds a registry containing every home demo. Allocates all demos — use
+    /// <see cref="ResolveHomeScenario"/> when only one is needed.
+    /// </summary>
+    public static InspectionDefinitionRegistry CreateRegistry()
+    {
+        var records = new List<InspectionDefinitionRecord>();
+        foreach (var entry in s_entries)
+            records.AddRange(entry.CreateRecords());
+        return CreateRegistry(records);
+    }
+
+    private static bool TryGetEntry(string scenarioId, out Entry entry)
+    {
+        foreach (ref readonly var candidate in s_entries.AsSpan())
+        {
+            if (string.Equals(candidate.Id, scenarioId, StringComparison.Ordinal))
+            {
+                entry = candidate;
+                return true;
+            }
+        }
+
+        entry = default;
+        return false;
+    }
+
+    private static InspectionDefinitionRegistry CreateRegistry(
         IReadOnlyList<InspectionDefinitionRecord> records)
     {
         var registry = new InspectionDefinitionRegistry();
@@ -65,35 +127,12 @@ public static class ProductInspectionDemos
         return registry;
     }
 
-    private static InspectionDefinitionRecord[] CreateRecords()
+    private static InspectionDefinitionRecord[] CreateStjSerializerRecords()
     {
         const int v = InspectionDefinitionJson.CurrentSchemaVersion;
-
-        var stjPackage = new DefinitionMemberCoordinate.PackageCoordinate(
-            "System.Text.Json",
-            "10.0.0",
-            "net10.0");
-        var runtimePlatform = new DefinitionMemberCoordinate.PlatformCoordinate(
-            "runtime",
-            null,
-            "10.0.10",
-            "net10.0");
-        var diAbstractions = new DefinitionMemberCoordinate.PackageCoordinate(
-            "Microsoft.Extensions.DependencyInjection.Abstractions",
-            "10.0.0",
-            "net10.0");
-        var logging = new DefinitionMemberCoordinate.PackageCoordinate(
-            "Microsoft.Extensions.Logging",
-            "10.0.0",
-            "net10.0");
-        var http = new DefinitionMemberCoordinate.PackageCoordinate(
-            "Microsoft.Extensions.Http",
-            "10.0.0",
-            "net10.0");
-
+        var stjPackage = Package("System.Text.Json", "10.0.0", "net10.0");
         return
         [
-            // --- System.Text.Json ---
             new WorkspaceDefinition(
                 v,
                 "stj-serializer-tour",
@@ -123,8 +162,20 @@ public static class ProductInspectionDemos
                 context: "stj",
                 view: "stj-serializer-view",
                 navigation: "stj-navigation"),
+        ];
+    }
 
-            // --- Cross-package call graph ---
+    private static InspectionDefinitionRecord[] CreateExtensionsCallGraphRecords()
+    {
+        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        var diAbstractions = Package(
+            "Microsoft.Extensions.DependencyInjection.Abstractions",
+            "10.0.0",
+            "net10.0");
+        var logging = Package("Microsoft.Extensions.Logging", "10.0.0", "net10.0");
+        var http = Package("Microsoft.Extensions.Http", "10.0.0", "net10.0");
+        return
+        [
             new WorkspaceDefinition(
                 v,
                 "extensions-callgraph",
@@ -161,8 +212,20 @@ public static class ProductInspectionDemos
                 context: "extensions",
                 view: "try-add-enumerable-call-graph",
                 navigation: "extensions-callgraph-navigation"),
+        ];
+    }
 
-            // --- .NET Platform ---
+    private static InspectionDefinitionRecord[] CreatePlatformListRecords()
+    {
+        const int v = InspectionDefinitionJson.CurrentSchemaVersion;
+        var stjPackage = Package("System.Text.Json", "10.0.0", "net10.0");
+        var runtimePlatform = new DefinitionMemberCoordinate.PlatformCoordinate(
+            "runtime",
+            null,
+            "10.0.10",
+            "net10.0");
+        return
+        [
             new WorkspaceDefinition(
                 v,
                 "platform-list-tour",
@@ -198,4 +261,10 @@ public static class ProductInspectionDemos
                 navigation: "platform-navigation"),
         ];
     }
+
+    private static DefinitionMemberCoordinate.PackageCoordinate Package(
+        string id,
+        string version,
+        string framework) =>
+        new(id, version, framework);
 }

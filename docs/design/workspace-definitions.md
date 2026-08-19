@@ -884,11 +884,10 @@ Definition records and product demos (this slice):
   scenarios by explicit id, and lowers package/platform/embedded coordinates to
   `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
   expressions and filesystem coordinates are typed failures in this slice);
-- `ProductInspectionDemos` is a static API registry (same pattern as
-  `VocabularyCatalog` / Markout `FormatterRegistry`) of the three home
-  scenarios (`stj-serializer`, `extensions-callgraph`, `platform-list`); JSON
-  remains the portable load path for external definitions, not the product
-  demo source of truth; and
+- `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
+  `RendererRegistry` style) of the three home scenarios; listing is metadata-only
+  and `ResolveHomeScenario` allocates only that demo's peer records; JSON remains
+  the portable load path for external definitions; and
 - `InspectionDefinitionTests` is the gate for round-trip, separation, and
   demo-parity claims above.
 

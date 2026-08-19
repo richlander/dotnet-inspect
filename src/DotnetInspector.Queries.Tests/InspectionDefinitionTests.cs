@@ -187,15 +187,14 @@ public class InspectionDefinitionTests
     [Fact]
     public void ProductHomeDemos_ResolveCallGraphByMemberAnchor()
     {
-        var registry = ProductInspectionDemos.CreateRegistry();
         Assert.Equal(
             ["stj-serializer", "extensions-callgraph", "platform-list"],
             ProductInspectionDemos.HomeScenarioIds);
+        Assert.Equal(3, ProductInspectionDemos.Entries.Count);
+        Assert.True(ProductInspectionDemos.HasScenario("extensions-callgraph"));
 
-        foreach (var id in ProductInspectionDemos.HomeScenarioIds)
-            Assert.Contains(registry.Scenarios, scenario => scenario.Id == id);
-
-        var callGraph = registry.ResolveScenario("extensions-callgraph");
+        // Per-demo resolve — does not require materializing the other home demos.
+        var callGraph = ProductInspectionDemos.ResolveHomeScenario("extensions-callgraph");
         Assert.Equal("Cross-package call graph", callGraph.Title);
         Assert.True(callGraph.CreatesAssemblyContextGroup);
         Assert.Equal(3, callGraph.SelectedContext!.Members.Count);
@@ -224,15 +223,13 @@ public class InspectionDefinitionTests
     [Fact]
     public void ProductHomeDemos_StjAndPlatformSelections()
     {
-        var registry = ProductInspectionDemos.CreateRegistry();
-
-        var stj = registry.ResolveScenario("stj-serializer");
+        var stj = ProductInspectionDemos.ResolveHomeScenario("stj-serializer");
         Assert.Equal("System.Text.Json.JsonSerializer", stj.View!.Type);
         var stjPackage = Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
             stj.SelectedContext!.Members[0]);
         Assert.Equal("System.Text.Json", stjPackage.PackageId);
 
-        var platform = registry.ResolveScenario("platform-list");
+        var platform = ProductInspectionDemos.ResolveHomeScenario("platform-list");
         Assert.Equal("System.Collections.Generic.List`1", platform.View!.Type);
         Assert.Equal("System.Private.CoreLib", platform.View.Library);
         Assert.Equal(2, platform.SelectedContext!.Members.Count);
@@ -247,24 +244,42 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
-    public void ProductHomeDemos_StaticRegistry_IsCompleteAndStable()
+    public void ProductHomeDemos_FactoryRegistry_IsMetadataOnlyUntilResolved()
     {
-        // 4 records × 3 demos = 12; static registry is the product source of truth.
-        Assert.Equal(12, ProductInspectionDemos.Records.Count);
-        Assert.Equal(12, ProductInspectionDemos.Registry.Records.Count);
-        Assert.Same(ProductInspectionDemos.Registry, ProductInspectionDemos.Registry);
+        // Catalog surface is three entries; factories are not invoked by listing.
+        Assert.Equal(3, ProductInspectionDemos.Entries.Count);
+        Assert.All(
+            ProductInspectionDemos.Entries,
+            entry =>
+            {
+                Assert.False(string.IsNullOrWhiteSpace(entry.Id));
+                Assert.False(string.IsNullOrWhiteSpace(entry.Title));
+                Assert.NotNull(entry.CreateRecords);
+            });
 
-        var fresh = ProductInspectionDemos.CreateRegistry();
-        Assert.Equal(12, fresh.Records.Count);
-        Assert.NotSame(ProductInspectionDemos.Registry, fresh);
+        // Full materialization is opt-in (4 records × 3 demos).
+        var all = ProductInspectionDemos.CreateRegistry();
+        Assert.Equal(12, all.Records.Count);
 
-        // Round-trip every static record through the portable JSON path.
-        foreach (var record in ProductInspectionDemos.Records)
+        // Each factory owns exactly one scenario composition.
+        foreach (var entry in ProductInspectionDemos.Entries)
         {
-            var json = InspectionDefinitionJson.Serialize(record);
-            var parsed = InspectionDefinitionJson.Parse(json);
-            Assert.Equal(record.Kind, parsed.Kind);
-            Assert.Equal(record.Id, parsed.Id);
+            var records = entry.CreateRecords();
+            Assert.Equal(4, records.Length);
+            Assert.Contains(records, record =>
+                record is ScenarioDefinition scenario && scenario.Id == entry.Id);
+
+            foreach (var record in records)
+            {
+                var json = InspectionDefinitionJson.Serialize(record);
+                var parsed = InspectionDefinitionJson.Parse(json);
+                Assert.Equal(record.Kind, parsed.Kind);
+                Assert.Equal(record.Id, parsed.Id);
+            }
         }
+
+        Assert.False(ProductInspectionDemos.TryResolveHomeScenario("missing", out _));
+        Assert.True(ProductInspectionDemos.TryResolveHomeScenario("stj-serializer", out var resolved));
+        Assert.Equal("stj-serializer", resolved.ScenarioId);
     }
 }
