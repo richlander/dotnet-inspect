@@ -115,15 +115,17 @@ Exact rows retain machine-readable provenance from the native Analysis
 producer in structured JSON:
 `Candidate`, `Finding` (`analysis.allocation` or `analysis.call-site`),
 `Provenance=exact`,
-`Assembly`, `MethodToken`, `Operation`, `Token`, `EvidenceMethod`, and `IL`.
+`Assembly`, `ModuleVersionId`, `MethodToken`, `Operation`, `Token`,
+`EvidenceMethod`, and `IL`.
 `MethodToken` identifies the source-facing member, while `EvidenceMethod`
 is present when the instruction is mapped to a separate MethodDef; for an async
 source member, it can name the generated `MoveNext` body whose offset appears in
 `IL`. The exact body coordinate is `Assembly` + (`EvidenceMethod` when present,
-otherwise `MethodToken`) + `IL`, and `Token` is the operand of `Operation`. Use
-these fields for runtime/static joins or to carry one triage row into the
-matching `diff`/`timeline` confirmation workflow without parsing `Evidence`
-text:
+otherwise `MethodToken`) + `IL`; `ModuleVersionId` distinguishes physical
+module builds when static inputs carry it, and `Token` is the operand of
+`Operation`. Use these fields for runtime/static joins or to carry one triage
+row into the matching `diff`/`timeline` confirmation workflow
+without parsing `Evidence` text:
 
 ```bash
 dnx dotnet-inspect -y -- library MyLib.dll -S "Performance:*" \
@@ -157,7 +159,10 @@ and credit an outer caller. If `--library` and `--triage` name the same physical
 candidate, the shape-compatible triage row carries the runtime evidence.
 The raw library row is marked `superseded-by-triage`, not workload-cold.
 Type-level ambiguity and its site cap count the shared coordinate once unless
-several library MVIDs make the triage row's module version ambiguous.
+several library MVIDs make an older MVID-less triage row's module version
+ambiguous.
+Triage and library inputs from different builds retain distinct MVIDs and can
+therefore increase ambiguity or exceed the type-confirmation site cap.
 
 ## Select direct caller-loop repetition
 
