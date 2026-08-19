@@ -49,6 +49,8 @@ public class PackageCommand
         var queryRegistry = catalog.QueryRegistry;
         var sectionNames = pipeline.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
+        if (!packageLibraryMode)
+            options = NormalizeDependencyProjection(options);
 
         if (packageArgs.Length > 1
             && !ValidateMultiPackageMode(options))
@@ -202,6 +204,9 @@ public class PackageCommand
                 if (requiredVerbosity > options.Verbosity)
                     options = options with { Verbosity = requiredVerbosity };
             }
+
+            if (!ValidateDependencyTreeProjection(options))
+                return 1;
 
             if (!ValidatePackageProjection(
                     options,
@@ -566,9 +571,10 @@ public class PackageCommand
             version.Length > 0 ? $"package {packageName}@{version}" : $"package {packageName}",
             "package inspect");
 
-        if (options.ShowDependencies)
+        if (options.Tree && options.Discover == null && !packageLibraryMode)
         {
-            CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
+            if (options.ShowDependencies)
+                CommandError.WriteLine("Tip: use 'depends --package' for dependency trees.");
             string packageReference = target.IsLocalFile
                 ? target.OriginalArgument
                 : version.Length > 0
@@ -1458,6 +1464,7 @@ public class PackageCommand
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
+        else if (options.Tree && options.Discover == null) conflicts.Add("--tree");
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.Discover != null) conflicts.Add("-D/--discover");
@@ -1473,13 +1480,6 @@ public class PackageCommand
     private static bool ValidatePackageContentMode(InspectionOptions options)
     {
         bool scopedContent = options.ContentScope != PackageFileContentScope.Full;
-        if (options.Tree && options.Discover == null)
-        {
-            CommandError.Write("package --tree is discovery-tree output and requires -D/--discover.");
-            CommandError.WriteLine("Use --layout to show the package file tree.");
-            return false;
-        }
-
         if (options.FrontmatterRequested && options.BodyRequested)
         {
             CommandError.Write("--frontmatter/--yaml-header cannot be combined with --body.");
@@ -1549,6 +1549,54 @@ public class PackageCommand
                 CommandError.Write($"--content cannot be combined with {string.Join(", ", conflicts)}.");
                 return false;
             }
+        }
+
+        return true;
+    }
+
+    private static InspectionOptions NormalizeDependencyProjection(InspectionOptions options)
+    {
+        if (options.Discover != null || !options.ShowDependencies)
+            return options;
+
+        var select = options.Select?.ToList() ?? [];
+        if (!select.Contains(PackageSections.Dependencies, StringComparer.OrdinalIgnoreCase))
+            select.Add(PackageSections.Dependencies);
+
+        return options with
+        {
+            Select = [.. select],
+            SelectDefault = false,
+            Tree = true,
+        };
+    }
+
+    private static bool ValidateDependencyTreeProjection(InspectionOptions options)
+    {
+        if (!options.Tree || options.Discover != null)
+            return true;
+
+        if (options.IncludeSections is not { Count: 1 }
+            || !options.IncludeSections.Contains(PackageSections.Dependencies))
+        {
+            CommandError.Write("--tree requires exactly one tree-shaped section (-S Dependencies).");
+            return false;
+        }
+
+        if (options.Count
+            || options.Print
+            || options.Value
+            || options.Urls
+            || options.Paths
+            || options.Columns is { Length: > 0 }
+            || options.Fields is { Length: > 0 }
+            || options.Rows is not null
+            || options.Bare
+            || options.JsonOutput
+            || options.TabularExplicitlySet)
+        {
+            CommandError.Write("--tree cannot be combined with row projections or non-Markdown formats.");
+            return false;
         }
 
         return true;

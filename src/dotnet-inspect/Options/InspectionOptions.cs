@@ -19,7 +19,7 @@ public record InspectionOptions : IProjectionOptions
     public string? ExplicitVersion { get; init; }
 
     /// <summary>
-    /// Show package dependencies as a tree view with transitive resolution.
+    /// Legacy alias for selecting the package Dependencies section as a tree.
     /// </summary>
     public bool ShowDependencies { get; init; }
 

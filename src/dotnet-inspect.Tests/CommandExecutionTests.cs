@@ -17082,7 +17082,32 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_TreeWithoutDiscovery_ReportsLayoutAlternative()
+    public async Task Package_DependencySection_TreeRendersTheLegacyTransitiveProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var selected = await RunAppAsync(
+                "package", packagePath, "-S", "Dependencies", "--tree", "--tfm", "net9.0", "--tips", "q");
+            var legacy = await RunAppAsync(
+                "package", packagePath, "--dependencies", "--tfm", "net9.0", "--tips", "q");
+
+            Assert.Equal(0, selected.Exit);
+            Assert.Empty(selected.Error);
+            Assert.Equal(0, legacy.Exit);
+            Assert.Equal(legacy.Output, selected.Output);
+            Assert.Contains("Test.Dependency.One", selected.Output);
+            Assert.Contains("Test.Dependency.Two", selected.Output);
+            Assert.DoesNotContain("## Dependencies", selected.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_TreeRequiresDependenciesSelection()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
             "Test.TreeAlias",
@@ -17091,10 +17116,34 @@ public partial class CommandExecutionTests
         try
         {
             var (exit, _, error) = await RunAppAsync("package", packagePath, "--tree", "--tips", "q");
+            var (categoryExit, _, categoryError) = await RunAppAsync(
+                "package", packagePath, "-S", "@Dependencies", "--tree", "--tips", "q");
 
             Assert.Equal(1, exit);
-            Assert.Contains("requires -D/--discover", error);
-            Assert.Contains("Use --layout", error);
+            Assert.Contains("--tree requires exactly one tree-shaped section (-S Dependencies)", error);
+            Assert.DoesNotContain("--layout", error);
+            Assert.Equal(1, categoryExit);
+            Assert.Contains("--tree requires exactly one tree-shaped section (-S Dependencies)", categoryError);
+            Assert.DoesNotContain("--layout", categoryError);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencyTree_RejectsRowProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Dependencies", "--tree", "--count", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", error);
         }
         finally
         {

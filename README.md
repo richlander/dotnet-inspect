@@ -199,10 +199,11 @@ reported on stderr rather than mixed into structured output.
 | `cache` | Inspect or clear dotnet-inspect caches. |
 | `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill source`, `skill performance`). |
 
-Remote dependency trees requested with `depends --package` or the legacy
-`package --dependencies` option resolve from nuspec manifests without
-downloading package archives. Local `.nupkg` inputs, wildcard selectors, and
-.NET tool redirects retain archive acquisition.
+Remote dependency trees requested with `depends --package`,
+`package -S Dependencies --tree`, or the legacy `package --dependencies` alias
+resolve from nuspec manifests without downloading package archives. Local
+`.nupkg` inputs, wildcard selectors, and .NET tool redirects retain archive
+acquisition.
 
 Single-type `type X` output is tree-shaped by default. Use `-v:n` or `-v:d`
 to grow that tree to overload leaves; use `--markdown -v:q` when you want the
