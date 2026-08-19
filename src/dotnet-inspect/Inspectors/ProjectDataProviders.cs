@@ -86,7 +86,8 @@ internal sealed class ProjectSkillsProvider
                         file.Path,
                         validationFailure == SkillReadFailure.InvalidName
                             ? "a restored package skill must declare an Agent Skills-compliant name that matches its containing directory"
-                            : "a restored package skill must declare an Agent Skills-compliant description of 1 to 1024 characters"));
+                            : "a restored package skill must declare an Agent Skills-compliant description of 1 to 1024 characters",
+                        RedactIdentity: true));
                     continue;
                 }
 

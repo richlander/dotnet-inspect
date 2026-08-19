@@ -723,8 +723,11 @@ public class ProjectCommand
     {
         foreach (ProjectContentFailure failure in failures)
         {
-            CommandError.WriteWarning(
-                $"Could not read '{failure.Package}' file '{failure.Path}': {failure.Reason}");
+            if (failure.RedactIdentity)
+                CommandError.Write(failure.Reason);
+            else
+                CommandError.WriteWarning(
+                    $"Could not read '{failure.Package}' file '{failure.Path}': {failure.Reason}");
         }
     }
 
