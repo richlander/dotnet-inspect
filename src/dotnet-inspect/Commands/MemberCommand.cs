@@ -215,6 +215,16 @@ public static class MemberCommand
                 return ApiCommand.ExecuteStructuralTypeDiscovery(options, memberPipeline);
             }
 
+            if (options.BodyKindQuery.HasFilter
+                && (options.MemberFilter.Count != 1
+                    || options.MemberFilter.Any(MemberFilterHasWildcard)))
+            {
+                CommandError.Write(
+                    "--where Kind=... requires one exact member name or selector "
+                    + "(for example, Name:1 or Name~digest).");
+                return 1;
+            }
+
             if (options.MemberSelectionDeferredToLookup)
             {
                 if (ApiCommand.ReresolveSectionsForMemberLookup(options) is not { } resolved)
@@ -236,15 +246,6 @@ public static class MemberCommand
             else
                 return 1;
 
-            if (options.BodyKindQuery.HasFilter
-                && (options.MemberFilter.Count != 1
-                    || options.MemberFilter.Any(MemberFilterHasWildcard)))
-            {
-                CommandError.Write(
-                    "--where Kind=... requires one exact member name or selector "
-                    + "(for example, Name:1 or Name~digest).");
-                return 1;
-            }
             if (options.BodyKindQuery.HasFilter
                 && options.IncludeSections is null
                 && options.Discover is null)
