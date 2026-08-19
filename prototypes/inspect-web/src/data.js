@@ -53,14 +53,20 @@ export function mergeInspectionErrors(current, next) {
   return [...new Set(messages)].join("; ");
 }
 
+export function platformPackToken(value) {
+  return value === "netcore.app" || value === "aspnetcore.app"
+    ? value
+    : null;
+}
+
 export function platformPackFromProvenance(
   assembly,
   exactPack,
   loadedAssemblies,
   recent,
   roster) {
-  if (exactPack === "netcore.app" || exactPack === "aspnetcore.app")
-    return exactPack;
+  const exact = platformPackToken(exactPack);
+  if (exact) return exact;
   const normalized = String(assembly || "").replace(/\.dll$/i, "");
   const loaded = (loadedAssemblies || []).find(candidate =>
     String(candidate.name || "").replace(/\.dll$/i, "")

@@ -218,6 +218,8 @@ internal static class BrowserPlatformWorkspace
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
     {
         deadline.Token.ThrowIfCancellationRequested();
+        using var packageLeases =
+            new BrowserPackageWorkspace.PackageLeaseSet();
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
 
@@ -257,7 +259,8 @@ internal static class BrowserPlatformWorkspace
                         family,
                         assembly,
                         host,
-                        deadline).ConfigureAwait(false);
+                        deadline,
+                        packageLeases).ConfigureAwait(false);
                 try
                 {
                     requested = AssertSingleCoordinate(
@@ -299,7 +302,8 @@ internal static class BrowserPlatformWorkspace
                 await LoadRealizedAsync(
                     coordinates,
                     host,
-                    deadline).ConfigureAwait(false);
+                    deadline,
+                    packageLeases).ConfigureAwait(false);
         }
 
         string scopeKey = ScopeKey(coordinates);
@@ -331,10 +335,11 @@ internal static class BrowserPlatformWorkspace
         string family,
         string assembly,
         Host host,
-        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
+        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
+        BrowserPackageWorkspace.PackageLeaseSet packageLeases)
     {
         var workspace = new InspectionWorkspace();
-        var store = new TrackingPackageStore();
+        var store = new TrackingPackageStore(packageLeases);
         try
         {
             WorkspaceContextLoadOutcome outcome =
@@ -371,10 +376,11 @@ internal static class BrowserPlatformWorkspace
         ImmutableHashSet<string> PackageKeys)> LoadRealizedAsync(
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates,
         Host host,
-        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
+        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
+        BrowserPackageWorkspace.PackageLeaseSet packageLeases)
     {
         var workspace = new InspectionWorkspace();
-        var store = new TrackingPackageStore();
+        var store = new TrackingPackageStore(packageLeases);
         try
         {
             WorkspaceContextLoadOutcome outcome =
@@ -634,7 +640,8 @@ internal static class BrowserPlatformWorkspace
         HttpClient Client,
         IPackageSourceAuthorization SourceAuthorization);
 
-    sealed class TrackingPackageStore
+    sealed class TrackingPackageStore(
+        BrowserPackageWorkspace.PackageLeaseSet packageLeases)
         : IPackageStore, IPackagePayloadTransferPolicy
     {
         readonly ImmutableHashSet<string>.Builder _packageKeys =
@@ -671,6 +678,7 @@ internal static class BrowserPlatformWorkspace
                     packageName,
                     version);
                 _packageKeys.Add(packageKey);
+                packageLeases.Lease(packageKey);
                 RecordPlatformAssemblies(
                     packageKey,
                     packageName,
@@ -706,8 +714,16 @@ internal static class BrowserPlatformWorkspace
         }
 
         public IPackagePayloadReservation Reserve(
-            PackagePayloadTransfer transfer) =>
-            BrowserPackageWorkspace.PackageTransferPolicy.Reserve(transfer);
+            PackagePayloadTransfer transfer)
+        {
+            ArgumentNullException.ThrowIfNull(transfer);
+            return new LeasingPackageReservation(
+                BrowserPackageWorkspace.PackageTransferPolicy.Reserve(transfer),
+                BrowserPackageWorkspace.PackageKey(
+                    transfer.Coordinate.PackageId,
+                    transfer.Coordinate.Version),
+                packageLeases);
+        }
 
         void RecordPlatformAssemblies(
             string packageKey,
@@ -766,6 +782,21 @@ internal static class BrowserPlatformWorkspace
 
                 _platformPacks[assembly] = pack;
             }
+        }
+
+        sealed class LeasingPackageReservation(
+            IPackagePayloadReservation inner,
+            string packageKey,
+            BrowserPackageWorkspace.PackageLeaseSet packageLeases)
+            : IPackagePayloadReservation
+        {
+            public void Complete()
+            {
+                inner.Complete();
+                packageLeases.Lease(packageKey);
+            }
+
+            public void Dispose() => inner.Dispose();
         }
     }
 }

@@ -36,6 +36,7 @@ import {
   packageIdentityKey,
   parameterTitleHtml,
   platformPackFromProvenance,
+  platformPackToken,
   removeWorkspacePackage,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
@@ -166,6 +167,24 @@ test("platform call graphs carry the target pack into lazy acquisition", () => {
   assert.match(
     appSource,
     /pack:\s*platformPackForAssembly\(type\.assembly,\s*type\.platformPack\)/);
+  assert.match(
+    appSource,
+    /type:\s*type\.definitionId\s*\?\?\s*type\.metadataId/);
+});
+
+test("shared platform state preserves an exact pack token", () => {
+  assert.equal(platformPackToken("aspnetcore.app"), "aspnetcore.app");
+  assert.equal(platformPackToken("netcore.app"), "netcore.app");
+  assert.equal(platformPackToken("unknown.app"), null);
+  assert.match(
+    appSource,
+    /packet\.p\s*=\s*platformPackForAssembly\(packet\.l\)/);
+  assert.match(
+    appSource,
+    /libraryPack:\s*platformPackToken\(raw\.p\)/);
+  assert.match(
+    appSource,
+    /platformPackForAssembly\(key,\s*libraryPack\)/);
 });
 
 test("platform inspection notices survive cumulative surface loads", () => {

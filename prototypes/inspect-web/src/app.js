@@ -29,6 +29,7 @@ import {
   packageLenses,
   parameterTitleHtml,
   platformPackFromProvenance,
+  platformPackToken,
   removeWorkspacePackage,
   retainWorkspacePackage,
   rootCommands,
@@ -490,6 +491,7 @@ function base64UrlDecode(value) {
 // type/member — so the visible query stays down to a human-readable ?package=<id>. Keys are
 // terse to keep the encoded string short:
 //   t = tabs [[id, version, framework], …]   a = active tab index   v = view token
+//   l/p = selected Platform library / exact shared-framework pack
 //   y/m/o/c = selected type / member / overload / member section (type view only)
 function encodeShareState() {
   const packet = {
@@ -500,6 +502,7 @@ function encodeShareState() {
   // capture it so refresh/back/share land on that library instead of the aggregate platform.
   if (isRuntimePackId(state.package.id) && state.libraryScope && state.libraryScope.size === 1) {
     packet.l = [...state.libraryScope][0];
+    packet.p = platformPackForAssembly(packet.l);
   }
   if (state.atPackageRoot) {
     packet.v = state.packageLens && state.packageLens !== "overview" ? `pkg:${state.packageLens}` : "pkg";
@@ -525,7 +528,7 @@ function decodeShareState(value) {
     if (Array.isArray(raw)) {
       const normalized = normalizeShareTabs(raw);
       if (normalized.error) return { error: normalized.error };
-      return { tabs: normalized.tabs, active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, library: null };
+      return { tabs: normalized.tabs, active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, library: null, libraryPack: null };
     }
     if (raw && Array.isArray(raw.t)) {
       const normalized = normalizeShareTabs(raw.t);
@@ -541,7 +544,8 @@ function decodeShareState(value) {
         member: raw.m != null ? String(raw.m) : null,
         overload: raw.o != null ? String(raw.o) : null,
         section: raw.c != null ? String(raw.c) : null,
-        library: raw.l != null ? String(raw.l) : null
+        library: raw.l != null ? String(raw.l) : null,
+        libraryPack: platformPackToken(raw.p)
       };
     }
     return { error: "The shared workspace state is invalid and was ignored." };
@@ -580,6 +584,7 @@ function parseLocation() {
   let tabs = [];
   let active = 0;
   let library = null;
+  let libraryPack = null;
   let workspaceNotice = share?.error || "";
 
   if (share && !share.error) {
@@ -595,6 +600,7 @@ function parseLocation() {
       overload = share.overload;
       section = share.section;
       library = share.library;
+      libraryPack = share.libraryPack;
     } else {
       // Legacy array packet carries only the extra tab set; the visible params stay the
       // target. Point the active index at the visible package so it opens focused.
@@ -624,6 +630,7 @@ function parseLocation() {
     tabs,
     active,
     library,
+    libraryPack,
     workspaceNotice
   };
 }
@@ -6735,7 +6742,7 @@ async function loadRuntimeMemberCallGraph(type, overload) {
       framework: state.package.activeFramework,
       assembly: type.assembly,
       pack: platformPackForAssembly(type.assembly, type.platformPack),
-      type: type.metadataId ?? type.queryId ?? type.id,
+      type: type.definitionId ?? type.metadataId ?? type.queryId ?? type.id,
       member: state.selectedBodyTarget?.memberName ?? overload.name,
       selectorKey: state.selectedBodyTarget?.selectorKey ?? overload.graphSelectorKey,
       metadataToken: state.selectedBodyTarget?.metadataToken ?? overload.metadataToken
@@ -8223,6 +8230,7 @@ async function restoreWorkspaceFromLocation(
     if (isRuntimePackId(targetModel.id) && loc.library) {
       await applyPlatformLibraryScope(
         loc.library,
+        loc.libraryPack,
         navigationSeq,
         () => restoreWorkspaceFromLocation(loc, deep));
       if (navigationSeq !== state.navigationSeq) return;
@@ -8577,6 +8585,7 @@ window.addEventListener("popstate", () => {
 async function restorePlatformScopeThenDeepLink(loc, navigationSeq) {
   await applyPlatformLibraryScope(
     loc.library,
+    loc.libraryPack,
     navigationSeq,
     () => restorePlatformScopeThenDeepLink(loc, state.navigationSeq));
   if (navigationSeq !== state.navigationSeq) return;
@@ -8589,6 +8598,7 @@ async function restorePlatformScopeThenDeepLink(loc, navigationSeq) {
 // openPlatformLibrary so a restored view matches clicking the library in the selector.
 async function applyPlatformLibraryScope(
   libraryKey,
+  libraryPack = null,
   navigationSeq = null,
   retryAction = null) {
   if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
@@ -8602,7 +8612,7 @@ async function applyPlatformLibraryScope(
   if (navigationSeq != null && navigationSeq !== state.navigationSeq) return;
   await openPlatformLibrary(
     key,
-    platformPackForAssembly(key),
+    platformPackForAssembly(key, libraryPack),
     { navigationSeq, retryAction });
 }
 
@@ -8620,6 +8630,7 @@ async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
     if (loc.library) {
       await applyPlatformLibraryScope(
         loc.library,
+        loc.libraryPack,
         navigationSeq,
         () => restoreRuntimePackFromHistory(
           loc,

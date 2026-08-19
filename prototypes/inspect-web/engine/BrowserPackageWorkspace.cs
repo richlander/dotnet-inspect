@@ -966,6 +966,39 @@ internal static class BrowserPackageWorkspace
             Leases[packageKey] = count - 1;
     }
 
+    internal sealed class PackageLeaseSet : IDisposable
+    {
+        HashSet<string>? _packageKeys = new(StringComparer.Ordinal);
+
+        internal void Lease(string packageKey)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(packageKey);
+            ObjectDisposedException.ThrowIf(_packageKeys is null, this);
+            if (!_packageKeys.Add(packageKey))
+                return;
+
+            try
+            {
+                LeasePackage(packageKey);
+            }
+            catch
+            {
+                _packageKeys.Remove(packageKey);
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_packageKeys is not { } packageKeys)
+                return;
+
+            _packageKeys = null;
+            foreach (string packageKey in packageKeys)
+                ReleasePackageLease(packageKey);
+        }
+    }
+
     internal static void RegisterAcquiredPackage(BrowserPackage package)
     {
         ArgumentNullException.ThrowIfNull(package);

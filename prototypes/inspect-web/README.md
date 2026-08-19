@@ -95,11 +95,17 @@ those acquired implementation archives, so navigation does not depend on the
 optional static index knowing the active framework. Reuse updates both the
 shared scope LRU and its archive recency. Eviction severs the disposed scope's
 loaded context as well as removing it from the registry, releasing the package
-content closures whose archives leave cache accounting. The Platform workspace
+content closures whose archives leave cache accounting. Every archive is
+temporarily leased as soon as acquisition returns it and until the cumulative
+candidate is registered or abandoned, so a later family download cannot evict
+bytes that the unregistered candidate still holds. Shared links carry the
+selected library's exact pack token, and initial member graphs use the same
+escaped definition identity as subsequent graph descent. The Platform workspace
 admits at most 256 selected assemblies and retains at most 64 MB of opened
 images.
 `BrowserEngineBoundaryTests.PlatformWorkspace_PinsAndAccumulatesSelectedAssemblies`,
 `PlatformWorkspace_CarriesAspNetPackWithoutStaticIndex`,
+`PlatformWorkspace_LeasesArchivesUntilCandidateRegistration`,
 `PlatformWorkspace_ReuseTouchesTheSharedScopeLru`,
 `PlatformWorkspace_CanceledQueueEntryPreservesSerialization`,
 `PlatformWorkspace_RejectsInvalidSelectionsBeforeNetwork`, and
