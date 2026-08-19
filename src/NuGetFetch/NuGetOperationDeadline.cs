@@ -47,6 +47,19 @@ internal sealed class NuGetOperationDeadline : IDisposable
             ThrowTranslated(ex, requestCancellation, requestStarted);
             throw;
         }
+        catch (NuGetMetadataBodyTimeoutException ex)
+            when (_callerToken.IsCancellationRequested
+                || IsOperationExpired())
+        {
+            ThrowTranslated(
+                new OperationCanceledException(
+                    "NuGet metadata body deadline expired after an outer deadline.",
+                    ex,
+                    requestCancellation.Token),
+                requestCancellation,
+                requestStarted);
+            throw;
+        }
         catch (Exception ex)
             when (IsDeadlineAbort(ex)
                 && IsAnyDeadlineExpired(requestStarted, requestCancellation))

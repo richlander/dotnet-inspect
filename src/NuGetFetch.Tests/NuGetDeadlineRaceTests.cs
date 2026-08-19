@@ -137,6 +137,48 @@ public sealed class NuGetDeadlineRaceTests
             });
     }
 
+    [Theory]
+    [InlineData(40, 80)]
+    [InlineData(120, 80)]
+    public async Task OperationCeiling_OutranksMetadataBodyDeadlineWhenTimerCallbackIsDelayed(
+        int operationTimeoutMilliseconds,
+        int bodyTimeoutMilliseconds)
+    {
+        await WithDelayedTimerCallbacksAsync(
+            async () =>
+            {
+                var options = new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(5),
+                    OperationTimeout =
+                        TimeSpan.FromMilliseconds(operationTimeoutMilliseconds),
+                    MetadataBodyTimeout =
+                        TimeSpan.FromMilliseconds(bodyTimeoutMilliseconds),
+                };
+                using var operation = new NuGetOperationDeadline(
+                    options,
+                    Timeout.InfiniteTimeSpan,
+                    TestContext.Current.CancellationToken);
+                await using var stream = new MemoryStream();
+
+                NuGetOperationTimeoutException error =
+                    await Assert.ThrowsAsync<NuGetOperationTimeoutException>(
+                        () => operation.RunRequestAsync(
+                            token => NuGetMetadataReader.ReadStreamAsync(
+                                stream,
+                                static (_, _) =>
+                                {
+                                    Thread.Sleep(
+                                        TimeSpan.FromMilliseconds(250));
+                                    return ValueTask.FromResult(42);
+                                },
+                                options,
+                                token).AsTask()));
+
+                Assert.Equal(options.OperationTimeout, error.Timeout);
+            });
+    }
+
     private static NuGetOperationDeadline CreateOperation() =>
         new(
             CreateOptions(),
