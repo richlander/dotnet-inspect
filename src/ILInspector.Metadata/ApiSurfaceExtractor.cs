@@ -2046,6 +2046,7 @@ public static class ApiSurfaceExtractor
             {
                 continue;
             }
+
             if ((accessorMethods.Contains(methodHandle) && !isRetainedExplicitImplementation)
                 || methodName.StartsWith('<'))
             {
@@ -3236,7 +3237,6 @@ public static class ApiSurfaceExtractor
                     owningTypeDefinition: owningTypeDefinition);
             }
         }
-        return implementations;
         return implementations;
     }
 
