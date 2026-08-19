@@ -180,7 +180,6 @@ public static class LibrarySections
                 SectionNames.UnionTypes,
                 SectionNames.PInvokeMethods)
             .AddCategory(SectionCategoryNames.Audit,
-                SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
                 SectionNames.NonNormalizedPaths,
                 SectionNames.SourceLinkDiagnostics,
