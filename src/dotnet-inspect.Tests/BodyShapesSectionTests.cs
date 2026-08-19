@@ -438,6 +438,31 @@ public sealed class BodyShapesSectionTests
             result.Output,
             StringComparison.Ordinal);
         Assert.DoesNotContain("PrivateCreation", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(BodyShapeFixtureExtensions.ProjectedCreation),
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TypeBodyShapeTokens_ExcludeProjectedExtensionMethods()
+    {
+        using var source = MetadataSource.Open(FixturePath);
+        var surface = source.ExtractApiSurface(includeAll: false);
+        var type = Assert.Single(surface.Types, candidate =>
+            candidate.FullName == typeof(BodyShapeFixture).FullName);
+        var projectedExtension = Assert.Single(type.Members, member =>
+            member.Kind == "extension-method"
+            && member.Name == nameof(BodyShapeFixtureExtensions.ProjectedCreation));
+
+        var tokens = ApiOutputFormatter.ResolveTypeBodyShapeMethodTokens(type);
+
+        Assert.DoesNotContain(projectedExtension.MetadataToken!.Value, tokens);
+        Assert.Contains(
+            typeof(BodyShapeFixture)
+                .GetMethod(nameof(BodyShapeFixture.PublicCreation))!
+                .MetadataToken,
+            tokens);
     }
 
     [Fact]

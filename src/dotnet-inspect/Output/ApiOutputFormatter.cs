@@ -2487,6 +2487,12 @@ public static class ApiOutputFormatter
         var tokens = new HashSet<int>();
         foreach (var member in type.Members)
         {
+            if (member.DeclaringType is { Length: > 0 } declaringType
+                && !string.Equals(declaringType, type.FullName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             if (ApiMemberSectionDescriptors.IsMethodLike(member)
                 && member.MetadataToken is { } methodToken)
             {
