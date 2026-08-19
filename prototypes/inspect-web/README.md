@@ -554,6 +554,15 @@ style catalog's tier grouping, byte-divergent badges, and checked state; the
 taste popover's active/default states; and the Settings page's theme segment,
 close-button label, and active-style-count states.
 
+`src/scope-bar.ts` owns the scope switcher and lens strip (the segmented
+Package/Types/Member control and the buttons beside it for the active scope's
+lenses or member sections) as a pure, dependency-injected render function.
+`app.js` still owns the current scope, the package/type/member lens
+definitions, and the active lens/section per scope, and passes each computed
+slice in explicitly. `test/scope-bar.test.js` gates the active scope segment,
+the active lens/section marking per scope, keyboard-shortcut indices, and
+label escaping.
+
 - `Cmd/Ctrl+K` focuses the persistent command prompt.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
 - Arrow keys select a completion, `Tab` accepts it, and `Enter` runs it.
