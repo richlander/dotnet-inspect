@@ -20,10 +20,17 @@ namespace ILInspector.Metadata;
 /// </remarks>
 public static class DynamicReader
 {
+    enum ConstructorKind
+    {
+        Marker,
+        TransformFlags,
+    }
+
     /// <summary>
     /// Gets the DynamicAttribute transform-flags array (0 = object, 1 = dynamic)
-    /// from custom attributes. Returns null when the attribute is not present.
-    /// The no-argument marker form returns a one-element array.
+    /// from custom attributes. Returns null when the attribute is not present or
+    /// its custom-attribute encoding is malformed. The no-argument marker form
+    /// returns a one-element array.
     /// </summary>
     public static byte[]? GetDynamicFlags(
         MetadataReader reader,
@@ -38,33 +45,160 @@ public static class DynamicReader
                 attr.Constructor,
                 beforeMaterialize);
             if (attrTypeName != KnownAttributeNames.DynamicAttribute) continue;
+            if (GetConstructorKind(
+                    reader,
+                    attr.Constructor,
+                    beforeMaterialize) is not { } constructorKind)
+                return null;
 
             var blob = reader.GetBlobReader(attr.Value);
             if (blob.Length < 2) return null;
-            blob.ReadUInt16(); // prolog
+            if (blob.ReadUInt16() != 1) return null;
 
             // DynamicAttribute():        prolog(2) + namedArgs(2) = 4          -> marker form
             // DynamicAttribute(bool[]):  prolog(2) + count(4) + N bytes + namedArgs(2) = 8+N
-            if (blob.RemainingBytes == 2)
+            if (constructorKind == ConstructorKind.Marker && blob.RemainingBytes == 2)
             {
                 // Marker form: the whole (bare object) type is dynamic.
-                return [1];
+                return blob.ReadUInt16() == 0 ? [1] : null;
             }
 
-            if (blob.RemainingBytes >= 6)
+            if (constructorKind == ConstructorKind.TransformFlags && blob.RemainingBytes >= 6)
             {
                 int count = blob.ReadInt32();
-                if (count < 0 || count > blob.RemainingBytes - 2) return null;
+                if (count < 0 || blob.RemainingBytes != count + 2) return null;
                 beforeMaterialize?.Invoke(blob.Length);
                 var flags = new byte[count];
                 for (int i = 0; i < count; i++)
-                    flags[i] = (byte)(blob.ReadByte() != 0 ? 1 : 0);
-                return flags;
+                {
+                    byte flag = blob.ReadByte();
+                    if (flag > 1) return null;
+                    flags[i] = flag;
+                }
+                return blob.ReadUInt16() == 0 ? flags : null;
             }
 
             return null;
         }
         return null;
+    }
+
+    static ConstructorKind? GetConstructorKind(
+        MetadataReader reader,
+        EntityHandle constructor,
+        Action<int>? beforeMaterialize)
+    {
+        try
+        {
+            MethodSignature<TypeNode> signature;
+            switch (constructor.Kind)
+            {
+                case HandleKind.MethodDefinition:
+                {
+                    var method = reader.GetMethodDefinition((MethodDefinitionHandle)constructor);
+                    if (!reader.StringComparer.Equals(method.Name, ".ctor"))
+                        return null;
+                    if (!IsSupportedConstructorSignature(
+                        reader,
+                        method.Signature))
+                        return null;
+                    if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                        reader,
+                        method.Signature,
+                        SignatureBlobGuard.Kind.Method))
+                        return null;
+                    signature = method.DecodeSignature(
+                        new TypeNodeProvider(
+                            beforeMaterialize: beforeMaterialize),
+                        genericContext: null);
+                    break;
+                }
+                case HandleKind.MemberReference:
+                {
+                    var member = reader.GetMemberReference((MemberReferenceHandle)constructor);
+                    if (!reader.StringComparer.Equals(member.Name, ".ctor"))
+                        return null;
+                    if (!IsSupportedConstructorSignature(
+                        reader,
+                        member.Signature))
+                        return null;
+                    if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
+                        reader,
+                        member.Signature,
+                        SignatureBlobGuard.Kind.Method))
+                        return null;
+                    signature = member.DecodeMethodSignature(
+                        new TypeNodeProvider(
+                            beforeMaterialize: beforeMaterialize),
+                        genericContext: null);
+                    break;
+                }
+                default:
+                    return null;
+            }
+
+            if (!signature.Header.IsInstance
+                || signature.GenericParameterCount != 0
+                || signature.ReturnType is not PrimitiveTypeNode { Name: "void" })
+            {
+                return null;
+            }
+            return signature.ParameterTypes switch
+            {
+                [] => ConstructorKind.Marker,
+                [SZArrayTypeNode { ElementType: PrimitiveTypeNode { Name: "bool" } }]
+                    => ConstructorKind.TransformFlags,
+                _ => null,
+            };
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+    }
+
+    static bool IsSupportedConstructorSignature(
+        MetadataReader reader,
+        BlobHandle signatureHandle)
+    {
+        var blob = reader.GetBlobReader(signatureHandle);
+        SignatureHeader header = blob.ReadSignatureHeader();
+        if (header.Kind != SignatureKind.Method
+            || header.CallingConvention
+                != SignatureCallingConvention.Default
+            || !header.IsInstance
+            || header.HasExplicitThis
+            || header.IsGeneric)
+        {
+            return false;
+        }
+
+        int parameterCount = blob.ReadCompressedInteger();
+        if (parameterCount is not (0 or 1))
+            return false;
+
+        // Only two signatures are supported, and both are fully spelled out
+        // here: `void .ctor()` and `void .ctor(bool[])`. Matching the whole
+        // encoding — before a provider ever materializes any part of it — is
+        // what keeps a hostile signature from being decoded in full only to be
+        // discarded. Nested TypeSpec decodes each get their own blob budget, so
+        // a type carrying thousands of modifier arguments that all point at one
+        // shallow TypeSpec multiplies out far past any single-blob bound.
+        // Checking the return type alone is not enough: the parameter position
+        // of the one-argument form reaches the same materialization.
+        const byte ElementTypeVoid = 0x01;
+        const byte ElementTypeBoolean = 0x02;
+        const byte ElementTypeSzArray = 0x1d;
+        if (blob.RemainingBytes == 0 || blob.ReadByte() != ElementTypeVoid)
+            return false;
+        if (parameterCount == 1
+            && !(blob.RemainingBytes >= 2
+                && blob.ReadByte() == ElementTypeSzArray
+                && blob.ReadByte() == ElementTypeBoolean))
+        {
+            return false;
+        }
+        return blob.RemainingBytes == 0;
     }
 
     /// <summary>
@@ -89,6 +223,13 @@ public static class DynamicReader
     /// is a plain object.
     /// </summary>
     public static bool IsByRefElementDynamic(byte[]? dynamicFlags)
+        => dynamicFlags is { Length: > 1 } flags && flags[1] == 1;
+
+    /// <summary>
+    /// True when a transform-flags array marks the element of an array type as
+    /// <c>dynamic</c>. The array occupies index 0 and its element index 1.
+    /// </summary>
+    public static bool IsArrayElementDynamic(byte[]? dynamicFlags)
         => dynamicFlags is { Length: > 1 } flags && flags[1] == 1;
 
     /// <summary>
