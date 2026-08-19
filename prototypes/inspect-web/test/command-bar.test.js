@@ -84,6 +84,31 @@ test("an exact type match sorts ahead of capped partial matches", () => {
   );
 });
 
+test("duplicate type names retain the selected type identity", () => {
+  const results = commandPaletteResults(commandContext("type Widget", [
+    {
+      id: "A.Widget",
+      name: "Widget",
+      namespace: "A",
+      kind: "class",
+    },
+    {
+      id: "B.Widget",
+      name: "Widget",
+      namespace: "B",
+      kind: "class",
+    },
+  ]), lenses);
+
+  assert.deepEqual(
+    results.map(result => [result.command, result.hint, result.targetTypeId]),
+    [
+      ["type Widget", "A", "A.Widget"],
+      ["type Widget", "B", "B.Widget"],
+    ],
+  );
+});
+
 test("lens, framework, and type-filter arguments retain command metadata", () => {
   assert.deepEqual(
     commandCompletions(commandContext("show "), lenses),
@@ -184,6 +209,7 @@ test("command result markup keeps command text and metadata inert", () => {
   }, 2, true, escapeHtml);
 
   assert.match(html, /class="spotlight-item selected"/);
+  assert.match(html, /id="spotlight-result-2"/);
   assert.match(html, /data-sl-index="2"/);
   assert.match(html, /show &quot;&lt;source&gt;&quot;/);
   assert.match(html, /A&amp;B · lens/);

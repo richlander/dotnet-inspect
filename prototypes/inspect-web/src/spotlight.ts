@@ -107,7 +107,10 @@ interface SpotlightOptions {
   kindIcon: (kind: string) => string;
   searchResults: () => SpotlightResult[];
   pickResult: (result: SpotlightResult) => void;
-  executeCommand: (command: string) => unknown;
+  executeCommand: (
+    command: string,
+    result: CommandPaletteResult,
+  ) => unknown;
   commandContext: () => CommandContext | null;
   schedulePackageFetch: () => void;
   resetPackageSearch: () => void;
@@ -191,7 +194,7 @@ export function createSpotlight(options: SpotlightOptions) {
     }
 
     const selectedClass = selected ? "selected" : "";
-    const base = `class="spotlight-item ${selectedClass}" role="option" aria-selected="${selected}" data-sl-index="${index}"`;
+    const base = `id="spotlight-result-${index}" class="spotlight-item ${selectedClass}" role="option" aria-selected="${selected}" data-sl-index="${index}"`;
     if (result.kind === "pkg-loaded") {
       return `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
         <span class="kind-icon sl-pkg">▣</span>
@@ -228,7 +231,7 @@ export function createSpotlight(options: SpotlightOptions) {
       const text = result.loading
         ? "Loading .NET runtime pack — this can take a while…"
         : `Runtime pack failed: ${result.error || "unknown error"}`;
-      return `<div class="spotlight-item spotlight-status ${selectedClass}" data-sl-index="${index}">
+      return `<div id="spotlight-result-${index}" class="spotlight-item spotlight-status ${selectedClass}" role="option" aria-selected="${selected}" aria-disabled="true" data-sl-index="${index}">
         <span class="kind-icon">${result.loading ? "◔" : "⚠"}</span>
         <span class="spotlight-item-name">${escapeHtml(text)}</span>
       </div>`;
@@ -319,6 +322,25 @@ export function createSpotlight(options: SpotlightOptions) {
     );
   }
 
+  function activeDescendantAttribute(items: readonly SpotlightResult[]): string {
+    return items.length
+      ? ` aria-activedescendant="spotlight-result-${state.spotlightIndex}"`
+      : "";
+  }
+
+  function syncActiveDescendant(count: number): void {
+    const input = document.querySelector<HTMLInputElement>("#spotlight-input");
+    if (!input) return;
+    if (count > 0) {
+      input.setAttribute(
+        "aria-activedescendant",
+        `spotlight-result-${state.spotlightIndex}`,
+      );
+    } else {
+      input.removeAttribute("aria-activedescendant");
+    }
+  }
+
   function modalHtml(): string {
     const items = results();
     clampSelection(items);
@@ -328,7 +350,7 @@ export function createSpotlight(options: SpotlightOptions) {
         <div class="spotlight" role="dialog" aria-modal="true" aria-label="${commands ? "Run a command" : "Go to anything"}">
           <div class="spotlight-search">
             <span class="spotlight-glyph">${commands ? "›" : "⌕"}</span>
-            <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="${commands ? "Run a command…" : "Go to anything…  package, type, or member"}" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" />
+            <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="${commands ? "Run a command…" : "Go to anything…  package, type, or member"}" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results"${activeDescendantAttribute(items)} />
             <kbd>esc</kbd>
           </div>
           <div class="spotlight-chips" id="spotlight-chips">${chipsHtml()}</div>
@@ -345,7 +367,7 @@ export function createSpotlight(options: SpotlightOptions) {
       <div class="home-search-content" ${disabled ? "inert" : ""}>
         <div class="home-search-box">
           <span class="spotlight-glyph">⌕</span>
-          <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Search NuGet — a package, type, or member…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" ${disabled ? "disabled" : ""} />
+          <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Search NuGet — a package, type, or member…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results"${activeDescendantAttribute(items)} ${disabled ? "disabled" : ""} />
         </div>
         <div class="spotlight-chips" id="spotlight-chips">${chipsHtml()}</div>
         <div class="spotlight-results home-results" id="spotlight-results" role="listbox">${resultsHtml(items)}</div>
@@ -394,6 +416,7 @@ export function createSpotlight(options: SpotlightOptions) {
     clampSelection(items);
     container.innerHTML = resultsHtml(items);
     bindResultClicks(container);
+    syncActiveDescendant(items.length);
     container.querySelector(".spotlight-item.selected")
       ?.scrollIntoView({ block: "nearest" });
   }
@@ -466,7 +489,7 @@ export function createSpotlight(options: SpotlightOptions) {
 
     const generation = interactionGeneration;
     reset();
-    const execution = options.executeCommand(result.command);
+    const execution = options.executeCommand(result.command, result);
     options.render();
     void Promise.resolve(execution).then(() => {
       if (generation === interactionGeneration) {
@@ -484,6 +507,7 @@ export function createSpotlight(options: SpotlightOptions) {
       element.classList.toggle("selected", selected);
       element.setAttribute("aria-selected", selected ? "true" : "false");
     });
+    syncActiveDescendant(items.length);
     items[state.spotlightIndex]?.scrollIntoView({ block: "nearest" });
     return items.length;
   }

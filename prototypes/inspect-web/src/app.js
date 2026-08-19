@@ -699,6 +699,11 @@ function isTextEntry(element = document.activeElement) {
     || element?.isContentEditable;
 }
 
+function isContainedBrowserShortcut(event) {
+  return (event.metaKey || event.ctrlKey)
+    && ["f", "k", "p"].includes(event.key.toLowerCase());
+}
+
 function focusTypeList(generation = spotlightFocusGeneration) {
   if (generation !== spotlightFocusGeneration
       || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
@@ -4880,14 +4885,16 @@ async function pickSpotlight(packageResult, typeId) {
   focusTypeList(focusGeneration);
 }
 
-function executeCommand(value) {
+function executeCommand(value, result = null) {
   beginSpotlightNavigation();
   const [verb, ...rest] = value.split(/\s+/);
   const argument = rest.join(" ");
   let operation;
   if (verb === "type") {
-    const match = state.package.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
-      || state.package.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
+    const match = result?.targetTypeId
+      ? state.package.types.find(item => item.id === result.targetTypeId)
+      : state.package.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
+        || state.package.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
     if (match) {
       state.selectedTypeId = match.id;
       state.selectedMemberKey = "";
@@ -7587,6 +7594,8 @@ document.addEventListener("keydown", event => {
       event.preventDefault();
       if (event.shiftKey) explorerHistoryForward();
       else explorerHistoryBack();
+    } else if (isContainedBrowserShortcut(event)) {
+      event.preventDefault();
     }
     return;
   }
@@ -7596,6 +7605,8 @@ document.addEventListener("keydown", event => {
     if (event.key === "Escape") {
       event.preventDefault();
       closeSettings();
+    } else if (isContainedBrowserShortcut(event)) {
+      event.preventDefault();
     }
     return;
   }
@@ -7607,8 +7618,7 @@ document.addEventListener("keydown", event => {
     if (event.key === "Escape") {
       event.preventDefault();
       closeGraphSource();
-    } else if ((event.metaKey || event.ctrlKey)
-        && ["f", "k", "p"].includes(event.key.toLowerCase())) {
+    } else if (isContainedBrowserShortcut(event)) {
       event.preventDefault();
     }
     return;
@@ -7617,8 +7627,7 @@ document.addEventListener("keydown", event => {
     if (event.key === "Escape") {
       event.preventDefault();
       closeDocViewer();
-    } else if ((event.metaKey || event.ctrlKey)
-        && ["f", "k", "p"].includes(event.key.toLowerCase())) {
+    } else if (isContainedBrowserShortcut(event)) {
       event.preventDefault();
     }
     return;

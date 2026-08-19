@@ -28,6 +28,7 @@ export interface CommandSuggestion {
   value: string;
   hint: string;
   category: string;
+  targetTypeId?: string;
 }
 
 export interface CommandPaletteResult {
@@ -37,6 +38,7 @@ export interface CommandPaletteResult {
   category: string;
   command: string;
   action: "complete" | "execute";
+  targetTypeId?: string;
 }
 
 const ROOT_COMMANDS: readonly CommandDefinition[] = [
@@ -68,6 +70,7 @@ export function commandCompletions(
       value: item.name,
       hint: item.namespace,
       category: item.kind,
+      targetTypeId: item.id,
     }));
   } else if (tokens[0] === "show") {
     entries = lenses.map(([value, label]) => ({
@@ -183,7 +186,7 @@ export function commandPaletteRowHtml(
   selected: boolean,
   escapeHtml: (value: unknown) => string,
 ): string {
-  const base = `class="spotlight-item ${selected ? "selected" : ""}" role="option" aria-selected="${selected}" data-sl-index="${index}"`;
+  const base = `id="spotlight-result-${index}" class="spotlight-item ${selected ? "selected" : ""}" role="option" aria-selected="${selected}" data-sl-index="${index}"`;
   return `<button ${base}>
     <span class="kind-icon sl-command">›</span>
     <span class="spotlight-item-name">${escapeHtml(result.command)}</span>

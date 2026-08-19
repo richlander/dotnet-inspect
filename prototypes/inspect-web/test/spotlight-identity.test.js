@@ -215,6 +215,15 @@ test("global workbench shortcuts respect the topmost modal", () => {
   assert.match(
     spotlightSource,
     /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
+  assert.match(
+    appSource,
+    /if \(state\.explorer\?\.open\)[\s\S]*isContainedBrowserShortcut\(event\)[\s\S]*event\.preventDefault\(\)/);
+  assert.match(
+    appSource,
+    /if \(state\.settings\)[\s\S]*isContainedBrowserShortcut\(event\)[\s\S]*event\.preventDefault\(\)/);
+  assert.match(
+    spotlightSource,
+    /aria-activedescendant="spotlight-result-\$\{state\.spotlightIndex\}"[\s\S]*syncActiveDescendant\(items\.length\)/);
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {
