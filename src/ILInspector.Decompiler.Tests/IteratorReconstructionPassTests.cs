@@ -28,6 +28,15 @@ public class IteratorReconstructionPassTests
     static int CountOccurrences(string text, string value)
         => (text.Length - text.Replace(value, "", StringComparison.Ordinal).Length) / value.Length;
 
+    [Fact]
+    public void BodyOnlyInterfaceFact_ReachesReconstructedIterator()
+    {
+        string output = Print(nameof(CfgSampleClass.YieldInterfaceValue));
+
+        Assert.Contains("yield return ((CfgDimFace)consumer).Value();", output);
+        Assert.DoesNotContain("yield return (consumer).Value();", output);
+    }
+
     static (IrFunction Function, string Output) RaisedFrom(MetadataSource source, string typeName, string methodName)
     {
         var function = IrImporter.Import(source, typeName, methodName);
