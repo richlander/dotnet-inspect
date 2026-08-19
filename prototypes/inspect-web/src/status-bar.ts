@@ -22,6 +22,13 @@ export interface PackageCacheStats {
   workspaces: number;
 }
 
+export type PackageSource =
+  | { kind: "file" }
+  | { kind: "nuget.org" }
+  | { kind: "feed"; host: string }
+  | { kind: "platform" }
+  | { kind: "unknown" };
+
 export interface StatusBarModel {
   variant?: "workspace" | "home";
   ready?: boolean;
@@ -30,6 +37,7 @@ export interface StatusBarModel {
   diagnostics?: BrowserDiagnostics | null;
   compactDiagnostics?: boolean;
   packageCache?: PackageCacheStats | null;
+  source?: PackageSource;
   assembly?: string;
   framework?: string;
 }
@@ -104,6 +112,22 @@ function packageCacheHtml(
       <span class="diag" title="${title}">◇ ${cache.packages} package${packagePlural} · ${cache.resident} resident in cache · ${cache.workspaces} workspace${workspacePlural}</span>`;
 }
 
+export function packageSourceLabel(source?: PackageSource): string {
+  if (!source) return "Unknown";
+  switch (source.kind) {
+    case "file":
+      return "File";
+    case "nuget.org":
+      return "NuGet.org";
+    case "feed":
+      return source.host;
+    case "platform":
+      return "Platform";
+    case "unknown":
+      return "Unknown";
+  }
+}
+
 export function statusBarHtml(
   model: StatusBarModel,
   escapeHtml: (value: unknown) => string,
@@ -120,6 +144,7 @@ export function statusBarHtml(
   const tail = model.assembly && model.framework
     ? `
       <span class="status-spacer"></span>
+      <span>Source: ${escapeHtml(packageSourceLabel(model.source))}</span>
       <span>${escapeHtml(model.assembly)}</span>
       <span>${escapeHtml(model.framework)}</span>
       <span>public API surface</span>`

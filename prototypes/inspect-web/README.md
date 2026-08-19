@@ -531,7 +531,10 @@ command metadata, and escaping.
 The typed `src/status-bar.ts` component renders both the full-width workspace
 data bar and the home readiness bar. The workspace bar occupies the bottom row
 formerly used by the persistent command prompt, giving diagnostics, cache
-state, active assembly, and framework the full viewport width.
+state, package source, active assembly, and framework the full viewport width.
+Package source is shown only in a workspace and distinguishes a local file,
+NuGet.org, a custom feed host, and the .NET platform. Missing provenance is
+shown as `Unknown` rather than omitted so acquisition failures stay diagnosable.
 
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.

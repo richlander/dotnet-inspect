@@ -119,6 +119,17 @@ export function commandPaletteResults(
   const tokens = input.split(/\s+/).filter(Boolean);
   const root = ROOT_COMMANDS.find(([value]) => value === tokens[0]);
 
+  if (root && tokens.length === 1 && !input.endsWith(" ")) {
+    return [{
+      kind: "command",
+      value: root[0],
+      hint: root[1],
+      category: "command",
+      command: root[0],
+      action: root[2] === "none" ? "execute" : "complete",
+    }];
+  }
+
   if (root?.[2] === "text" && input.includes(" ")) {
     const command = input.trim();
     const argument = command.slice(root[0].length).trim();

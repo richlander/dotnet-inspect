@@ -156,6 +156,13 @@ test("typed Spotlight owns search presentation and hosts commands", () => {
   assert.match(commandBarSource, /export function commandPaletteResults\(/);
 });
 
+test("workspace data bar receives package acquisition provenance", () => {
+  assert.match(appSource, /source: state\.package\.source/);
+  assert.match(appSource, /source: \{ kind: "nuget\.org" \}/);
+  assert.match(appSource, /source: \{ kind: "platform" \}/);
+  assert.match(statusBarSource, /Source: \$\{escapeHtml\(packageSourceLabel\(model\.source\)\)\}/);
+});
+
 test("leaving package search clears its pending loading state", () => {
   const scheduler =
     appSource.match(/function scheduleSpotlightPackageFetch\(\)[\s\S]*?\n}\n\nasync function fetchSpotlightPackages/)?.[0]

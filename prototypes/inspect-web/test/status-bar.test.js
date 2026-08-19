@@ -4,6 +4,7 @@ import {
   buildIdentityHtml,
   fmtBytes,
   fmtMs,
+  packageSourceLabel,
   statusBarHtml,
 } from "../src/status-bar.ts";
 
@@ -22,6 +23,18 @@ test("status values use stable compact units", () => {
   assert.equal(fmtBytes(0), "—");
   assert.equal(fmtBytes(1536), "1.5 KB");
   assert.equal(fmtBytes(8 * 1024 * 1024), "8.0 MB");
+});
+
+test("package sources disclose file, gallery, feed host, or platform provenance", () => {
+  assert.equal(packageSourceLabel({ kind: "file" }), "File");
+  assert.equal(packageSourceLabel({ kind: "nuget.org" }), "NuGet.org");
+  assert.equal(
+    packageSourceLabel({ kind: "feed", host: "packages.example.test" }),
+    "packages.example.test",
+  );
+  assert.equal(packageSourceLabel({ kind: "platform" }), "Platform");
+  assert.equal(packageSourceLabel({ kind: "unknown" }), "Unknown");
+  assert.equal(packageSourceLabel(), "Unknown");
 });
 
 test("build identity keeps provenance linked and inert", () => {
@@ -56,6 +69,7 @@ test("the data bar renders the complete workspace status at full-bar ownership",
       residentBytes: 5 * 1048576,
       workspaces: 1,
     },
+    source: { kind: "feed", host: 'packages."<example>' },
     assembly: 'Example"<Assembly>',
     framework: "net10.0",
   }, escapeHtml);
@@ -64,6 +78,7 @@ test("the data bar renders the complete workspace status at full-bar ownership",
   assert.match(html, /browser wasm ready/);
   assert.match(html, /↓ download 20 ms · 1\.0 KB → 2\.0 KB/);
   assert.match(html, /3 packages · 2 resident in cache · 1 workspace/);
+  assert.match(html, /Source: packages\.&quot;&lt;example&gt;/);
   assert.match(html, /Example&quot;&lt;Assembly&gt;/);
   assert.match(html, /net10\.0/);
 });
@@ -88,5 +103,15 @@ test("the same data bar component renders home readiness and compact diagnostics
   assert.match(html, /class="home-wasm-spinner"/);
   assert.match(html, /browser wasm loading/);
   assert.match(html, /⚙ ready in 1\.25 s/);
+  assert.doesNotMatch(html, /Source:/);
   assert.doesNotMatch(html, /public API surface/);
+});
+
+test("workspace source failures remain visible as unknown provenance", () => {
+  const html = statusBarHtml({
+    assembly: "Example.dll",
+    framework: "net10.0",
+  }, escapeHtml);
+
+  assert.match(html, /Source: Unknown/);
 });

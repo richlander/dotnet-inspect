@@ -115,6 +115,7 @@ interface SpotlightOptions {
   packageCount: () => number;
   activeFramework: () => string;
   render: () => void;
+  focusAfterDismiss?: () => void;
 }
 
 const BASE_SCOPES = [
@@ -424,6 +425,7 @@ export function createSpotlight(options: SpotlightOptions) {
   function close(): void {
     reset();
     options.render();
+    options.focusAfterDismiss?.();
   }
 
   function open(seed = "", scope = "all"): void {
@@ -463,6 +465,7 @@ export function createSpotlight(options: SpotlightOptions) {
     reset();
     options.executeCommand(result.command);
     options.render();
+    options.focusAfterDismiss?.();
   }
 
   function highlightSelection(): number {

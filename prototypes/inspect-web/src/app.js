@@ -677,6 +677,7 @@ const spotlight = createSpotlight({
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework || "",
   render,
+  focusAfterDismiss: () => document.querySelector("#type-list")?.focus(),
 });
 
 function openSpotlight(seed = "", scope = "all") {
@@ -1391,6 +1392,7 @@ function render() {
         buildIdentity: state.buildIdentity,
         diagnostics: state.diag,
         packageCache: state.packageCacheStats,
+        source: state.package.source,
         assembly: current?.assembly ?? state.package.assembly,
         framework: state.package.activeFramework,
       }, escapeHtml)}
@@ -7162,6 +7164,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
       assembly: defaultAssembly.name,
       assemblyId: defaultAssembly.id,
       assemblyAsset: defaultAssembly.asset,
+      source: { kind: "nuget.org" },
       assemblies: result.assemblies ?? [],
       types,
       accessibility: result.accessibility ?? [],
@@ -7377,6 +7380,7 @@ async function loadRuntimePack(framework, isCurrent = () => true) {
       assembly: defaultAssembly.name,
       assemblyId: defaultAssembly.id,
       assemblyAsset: defaultAssembly.asset,
+      source: { kind: "platform" },
       assemblies: result.assemblies ?? [],
       types,
       accessibility: result.accessibility ?? [],
@@ -7466,6 +7470,7 @@ async function loadRuntimePackAssembly(
       assembly: result.assemblies[0].name,
       assemblyId: result.defaultAssemblyId,
       assemblyAsset: result.assemblies[0].asset,
+      source: { kind: "platform" },
       assemblies: result.assemblies ?? [],
       types: newTypes,
       accessibility: result.accessibility ?? [],

@@ -111,6 +111,21 @@ test("command palette results distinguish completion from execution", () => {
   );
 });
 
+test("an exact root verb advances to its arguments without dropping the verb", () => {
+  for (const verb of ["type", "types", "show", "framework", "find"]) {
+    assert.deepEqual(
+      commandPaletteResults(commandContext(verb), lenses)
+        .map(result => [result.command, result.action]),
+      [[verb, "complete"]],
+    );
+  }
+  assert.deepEqual(
+    commandPaletteResults(commandContext("clear"), lenses)
+      .map(result => [result.command, result.action]),
+    [["clear", "execute"]],
+  );
+});
+
 test("free-text find commands remain executable after moving into search", () => {
   assert.deepEqual(
     commandPaletteResults(commandContext("find JsonSerializer"), lenses),

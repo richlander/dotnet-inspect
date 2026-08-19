@@ -15,7 +15,12 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function createHarness({ scope = "all", query = "", commandContext = null } = {}) {
+function createHarness({
+  scope = "all",
+  query = "",
+  commandContext = null,
+  focusAfterDismiss = () => {},
+} = {}) {
   const state = {
     spotlightOpen: false,
     spotlightQuery: query,
@@ -40,6 +45,7 @@ function createHarness({ scope = "all", query = "", commandContext = null } = {}
     packageCount: () => 1,
     activeFramework: () => "net10.0",
     render: () => {},
+    focusAfterDismiss,
   });
   return { spotlight, state };
 }
@@ -63,6 +69,21 @@ test("Spotlight selection clamps without wrapping and scope cycling wraps", () =
   assert.equal(nextSpotlightSelection(0, 1, 0), null);
   assert.equal(nextSpotlightScope(4, 5, false), 0);
   assert.equal(nextSpotlightScope(0, 5, true), 4);
+});
+
+test("closing Spotlight restores focus through the application boundary", () => {
+  let restored = false;
+  const { spotlight, state } = createHarness({
+    focusAfterDismiss: () => { restored = true; },
+  });
+  state.spotlightOpen = true;
+  state.spotlightQuery = "Json";
+
+  spotlight.close();
+
+  assert.equal(restored, true);
+  assert.equal(state.spotlightOpen, false);
+  assert.equal(state.spotlightQuery, "");
 });
 
 test("workspace Spotlight exposes commands as a dedicated scope", () => {
