@@ -371,7 +371,7 @@ scenario explicitly.
 ### Member coordinates
 
 Each member names an acquisition location with a `kind` discriminator mapping
-onto the current `AssemblyResolutionProvenance` hierarchy, plus one new case:
+onto the current `AssemblyResolutionProvenance` hierarchy:
 
 | `kind` | Current provenance | Coordinate fields |
 | --- | --- | --- |
@@ -380,7 +380,7 @@ onto the current `AssemblyResolutionProvenance` hierarchy, plus one new case:
 | `project` | `ProjectAsset` | `path`; optional `framework` and `rid` |
 | `local` | `LocalAsset` | `path` |
 | `directory` | `LocalAsset` | `path`; optional `framework` and `rid` |
-| `embedded` | bundle content | `contentRef`, `digest`, `declaredName` |
+| `embedded` | `EmbeddedAsset` | `contentRef`, `digest`, `declaredName` |
 
 Coordinates are loader inputs that *produce* provenance, not serializations
 of the provenance records. The records carry loader-supplied fields the

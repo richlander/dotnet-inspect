@@ -674,6 +674,12 @@ context its operation declares; no assembly registration, group, or catalog is
 implied. A persistent host may retain a resulting workspace afterward under the
 normal lifetime and budget rules.
 
+The target
+[artifact acquisition design](design/artifact-acquisition-and-workspaces.md)
+names the owner-issued access for that first projection the admission lease.
+Later queries receive separate query leases and must reauthorize the retained
+catalog generation before participant selection.
+
 Hosts statically register the bundles they choose to ship. Excluded bundles and
 their definitions and embedded artifact bytes do not enter the build. Included
 bundles require no runtime plugin discovery or reflection loading. A

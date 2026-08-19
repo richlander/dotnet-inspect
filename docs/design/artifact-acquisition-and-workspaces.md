@@ -208,7 +208,8 @@ different source-neutral access leases:
 
 - an **admission lease** authorizes the context loader to project sealed
   artifacts into assembly identities and participants while constructing the
-  group;
+  group. It is issued under the first authorized query plan that demands that
+  context; loading an inert definition alone cannot obtain one;
 - a **query lease** revalidates the current query plan's capabilities and
   source policy before it can select participants, observe binding or
   correspondence answers, receive content, or use a retained snapshot.
@@ -497,16 +498,21 @@ match those source-specific provenance variants.
 ## Workspace and query boundary
 
 The workspace owns one or more artifact set sessions and one or more assembly
-context groups. A context loader constructs and seals a session from all
-required acquisitions for that context, then creates its group. Retained hosts
-may repeat that operation to add contexts. Groups compose projected assembly
-participants under one binding policy and may span artifact sources within
-their session.
+context groups. When an authorized query plan first demands a context, the
+artifact owner issues its admission lease; the context loader constructs and
+seals a session from all required acquisitions for that context, then creates
+its group. Loading a definition alone performs none of that work. Retained hosts
+may repeat the authorized operation to add contexts. Groups compose projected
+assembly participants under one binding policy and may span artifact sources
+within their session.
 
 The execution path is:
 
 ```text
 workspace
+  -> plan demands an unrealized context
+  -> artifact owner authorizes admission for that plan
+  -> context loader seals artifact session and creates group
   -> execute typed query
   -> artifact owner authorizes this query plan and retained catalog generation
   -> owner issues query access lease
