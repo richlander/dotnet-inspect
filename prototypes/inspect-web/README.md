@@ -184,10 +184,18 @@ withholds it otherwise — `CallGraphMemberResolver.UnambiguousMetadataIdentity`
 owns that decision, and `DefinitionIdentity` is the injective identity the same
 resolver matches on the other side.
 `CallGraphTargets_DistinguishNestedFromLiteralPlusDeclaringTypes` gates the
-distinction at the browser boundary. Constructed generic nodes recover assembly
-identity from their definition. Synthetic array and function-pointer nodes remain visible but carry
-no navigable definition identity. Accessor nodes resolve through their opaque
-body selector even when the graph has no `MethodDef` token.
+distinction at the browser boundary. A graph click on a non-public member of a
+public type lazily projects that exact member through the same product resolver
+and opens the ordinary member page; the shared URL retains the opaque target so
+refresh does not fall back to a source modal. `graph-only members open through
+the typed member surface` and `graph-only member targets round-trip through
+shared URLs` gate that path. Constructed generic nodes recover assembly identity
+from their definition. Synthetic array and function-pointer nodes remain
+visible but carry no navigable definition identity. Accessor nodes resolve
+through their opaque body selector even when the graph has no `MethodDef` token.
+The call-graph legend explains the independent border vocabulary: solid nodes
+belong to loaded packages, while dashed nodes are .NET platform members loaded
+on click.
 
 [#3932]: https://github.com/richlander/dotnet-inspect/pull/3932
 

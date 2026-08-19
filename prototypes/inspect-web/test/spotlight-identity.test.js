@@ -27,7 +27,9 @@ import {
   dependencyGraphRenderSignature,
   ensureBoundedGraphNode,
   graphTargetNavigationDisposition,
+  graphMemberShareTarget,
   graphMemberSelection,
+  graphMemberTargetFromShare,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_SHARE_STATE_CHARACTERS,
   MAX_WORKSPACE_PACKAGES,
@@ -2880,6 +2882,54 @@ test("call graph navigation resolves accessor body selectors without a token", (
       selectorKey: "getter-selector"
     }),
     { groupIndex: 0, overloadIndex: 0 });
+});
+
+test("graph-only member targets round-trip through shared URLs", () => {
+  const target = {
+    assembly: "Example",
+    assemblyVersion: "1.2.3.4",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "0011223344556677",
+    typeDefinitionId: "Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "Run",
+    selectorKey: "opaque-selector",
+    metadataToken: 0x06000001
+  };
+  const encoded = graphMemberShareTarget(target);
+
+  assert.deepEqual(graphMemberTargetFromShare(encoded), target);
+  assert.equal(graphMemberShareTarget({
+    ...target,
+    typeDefinitionId: ""
+  }), null);
+  assert.equal(graphMemberTargetFromShare([
+    "Example",
+    "1.2.3.4",
+    null,
+    "0011223344556677",
+    "Example.Widget",
+    "Example.Widget",
+    "Run",
+    "opaque-selector",
+    "not-a-token"
+  ]), null);
+});
+
+test("graph-only members open through the typed member surface", () => {
+  const binding =
+    appSource.match(/if \(bindCallGraphNodes\)[\s\S]*?\n  fit\(\);/)?.[0]
+    ?? "";
+  assert.match(binding, /navigateToGraphMember\(loaded, target\)/);
+  assert.doesNotMatch(binding, /openGraphSource\(/);
+  assert.match(
+    engineSource,
+    /queryGraphMemberSurface = exports\.BrowserInspectionEngine\.QueryGraphMemberSurface/);
+  assert.match(
+    engineSource,
+    /export async function inspectGraphMemberSurface\(request\)/);
+  assert.match(appSource, /solid border: loaded package/);
+  assert.match(appSource, /dashed border: \.NET platform \(loaded on click\)/);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {

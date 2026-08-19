@@ -468,6 +468,7 @@ public sealed record BrowserWorkspacePackage(
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
+[JsonSerializable(typeof(BrowserMemberSurface))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]

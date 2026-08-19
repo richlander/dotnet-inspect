@@ -751,6 +751,37 @@ public static partial class InspectionEngine
     }
 
     /// <summary>
+    /// The exact API member selected by a call-graph target. Package surfaces keep public types
+    /// lean by omitting their non-public members; a graph click is the explicit gesture that
+    /// projects one such member from the already bounded implementation surface.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryGraphMemberSurface(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        (_, _, Analysis.CallGraphMemberResolution resolution) =
+            await ImplementationMemberAsync(
+                packageId,
+                version,
+                targetFramework,
+                assemblyName,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken);
+        return JsonSerializer.Serialize(
+            BrowserSurfaceProjection.Member(resolution.Type, resolution.Member),
+            BrowserJsonContext.Default.BrowserMemberSurface);
+    }
+
+    /// <summary>
     /// The UTF-8 text of one package-shipped Markdown document, identified by its exact package
     /// entry path. Only paths the package's own document manifest lists are served. This reads
     /// package content and inspects no assembly, so it opens no group.

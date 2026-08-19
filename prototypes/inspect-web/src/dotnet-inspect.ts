@@ -10,6 +10,7 @@ import {
   dependencyGroupSelectionMessage,
   dependencyGraphRenderSignature,
   graphTargetNavigationDisposition,
+  graphMemberShareTarget,
   graphMemberSelection,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_WORKSPACE_PACKAGES,
@@ -34,6 +35,7 @@ import {
   spotlightCandidateSignature,
   typeLensesFor,
   type DependencyGroupData,
+  type GraphMemberShareIdentity,
   type PackageIdentity,
   type PlatformPack,
   type WorkspaceTab,
@@ -235,6 +237,7 @@ type EngineModule = typeof import("./inspect-web-engine.d.ts");
 let initializeEngine: EngineModule["initializeEngine"];
 let cancelSourceInspection: EngineModule["cancelSourceQuery"];
 let inspectExpandPlatformCallGraph: EngineModule["expandPlatformCallGraph"];
+let inspectGraphMemberSurface: EngineModule["queryGraphMemberSurface"];
 let inspectVocabulary: EngineModule["listVocabulary"];
 let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
@@ -282,6 +285,7 @@ async function loadEngineModule() {
     packageCacheStats: inspectPackageCacheStats,
     queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
     queryMemberCallGraph: inspectMemberCallGraph,
+    queryGraphMemberSurface: inspectGraphMemberSurface,
     queryMemberDocumentation: inspectMemberDocumentation,
     queryMemberFacts: inspectMemberFacts,
     queryMemberSource: inspectMemberSource,
@@ -346,6 +350,7 @@ interface AppMemberGroup {
 
 interface AppMemberSurface extends BrowserMemberSurface {
   documentationLoaded?: boolean;
+  graphOnly?: boolean;
 }
 
 function loadStoredTaste() {
@@ -438,6 +443,14 @@ interface SpotlightMemberCache {
 interface PlatformRecent {
   assembly: string;
   pack: string;
+}
+
+interface PendingGraphMemberDeepLink {
+  type: string;
+  member: string;
+  overload: string | null;
+  section: string | null;
+  target: NonNullable<ReturnType<typeof graphMemberTargetFromShare>>;
 }
 
 interface RecentPackage {
@@ -544,6 +557,9 @@ const initialState = {
   memberCallGraphKey: "",
   memberCallGraphExpanding: false,
   memberCallGraphSeq: 0,
+  graphMemberNavigationSeq: 0,
+  graphMemberNavigationTitle: "",
+  pendingGraphMemberDeepLink: null,
   platformStack: [],
   platformDrillLoading: false,
   platformDrillError: "",
@@ -641,6 +657,7 @@ interface StateOverrides {
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
   memberCallGraph: BrowserCallGraph | null;
+  pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
   dotnetReleases: DotnetRelease[] | null;
   memberFacts: MemberFacts | null;
@@ -1012,7 +1029,8 @@ const initialDeepLink = {
   memberTextFilter: initialLocation.memberTextFilter,
   memberKindFilter: initialLocation.memberKindFilter,
   memberAccessibilityFilter: initialLocation.memberAccessibilityFilter,
-  memberTraitFilter: initialLocation.memberTraitFilter
+  memberTraitFilter: initialLocation.memberTraitFilter,
+  graphTarget: initialLocation.graphTarget
 };
 
 function requireElement(selector: string): HTMLElement {
@@ -3545,6 +3563,9 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
             ${state.memberCallGraphExpanding
               ? `<div class="graph-expanding"><span class="loader"></span> Scanning ${otherWorkspaceLibraries} other librar${otherWorkspaceLibraries === 1 ? "y" : "ies"} for callers…</div>`
               : ""}
+            ${state.graphMemberNavigationTitle
+              ? `<div class="graph-expanding"><span class="loader"></span> Opening ${escapeHtml(state.graphMemberNavigationTitle)}…</div>`
+              : ""}
             ${state.memberCallGraphError
               ? `<div class="graph-drill-error">${escapeHtml(state.memberCallGraphError)}</div>`
               : ""}
@@ -3555,7 +3576,9 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
               <span><i class="legend-swatch target"></i>target member</span>
               <span><i class="legend-swatch same-type"></i>same declaring type</span>
               <span><i class="legend-swatch different-type"></i>different type, same assembly</span>
-              <span><i class="legend-swatch different-assembly"></i>different assembly (click to descend)</span>
+              <span><i class="legend-swatch different-assembly"></i>different assembly</span>
+              <span><i class="legend-swatch loaded-node"></i>solid border: loaded package</span>
+              <span><i class="legend-swatch platform-node"></i>dashed border: .NET platform (loaded on click)</span>
             </div>
             <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>${escapeHtml(active.mermaid)}</code></pre></details>
           </section>`
@@ -5485,6 +5508,10 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberCallGraphKey = "";
   state.memberCallGraphExpanding = false;
   state.memberCallGraphSeq++;
+  state.graphMemberNavigationSeq++;
+  state.graphMemberNavigationTitle = "";
+  state.pendingGraphMemberDeepLink = null;
+  state.selectedBodyTarget = null;
   state.platformStack = [];
   state.platformDrillLoading = false;
   state.platformDrillError = "";
@@ -5569,6 +5596,17 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
         state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : -1)];
       if (bodyTargetMatchesOverload(deep.bodyTarget, group, restoredOverload)) {
         state.selectedBodyTarget = deep.bodyTarget ?? null;
+      }
+    } else if (deep.member && deep.graphTarget) {
+      const candidate = resolveLoadedGraphTargetCandidate([pkg], deep.graphTarget);
+      if (candidate.status === "unique" && candidate.type === type) {
+        state.pendingGraphMemberDeepLink = {
+          type: deep.type ?? type.id,
+          member: deep.member,
+          overload: deep.overload ?? null,
+          section: deep.section ?? null,
+          target: deep.graphTarget
+        };
       }
     }
   }
@@ -6625,7 +6663,7 @@ function platformCrumbTrail() {
 }
 
 function resolveLoadedGraphTarget(
-  target: BrowserCallGraphTarget,
+  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
   candidate: {
     status: "unique";
     pkg: AppPackage;
@@ -6656,7 +6694,7 @@ function resolveLoadedGraphTarget(
 
 function findGraphMemberSelection(
   type: BrowserTypeSurface,
-  target: BrowserCallGraphTarget,
+  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
 ) {
   const groups = memberGroups(type);
   const selection = graphMemberSelection(groups, target);
@@ -6666,6 +6704,123 @@ function findGraphMemberSelection(
         overloadIndex: selection.overloadIndex
       }
     : null;
+}
+
+async function loadGraphMemberSelection(
+  pkg: AppPackage,
+  type: BrowserTypeSurface,
+  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+) {
+  const surface = await inspectGraphMemberSurface(
+    pkg.id,
+    pkg.version,
+    pkg.activeFramework,
+    type.assembly,
+    target.typeDefinitionId ?? "",
+    target.memberName,
+    target.selectorKey,
+    target.metadataToken ?? 0);
+  let member: AppMemberSurface | undefined = (type.api ?? []).find(candidate =>
+    candidate.stableSelector === surface.stableSelector
+    && candidate.canonicalSignature === surface.canonicalSignature);
+  if (!member) {
+    member = { ...surface, graphOnly: true };
+    type.api ??= [];
+    type.api.push(member);
+  }
+  const selection = resolveLoadedGraphTarget(
+    target,
+    { status: "unique", pkg, type });
+  if (!selection.group) {
+    throw new Error(
+      `The graph target '${target.memberName}' did not resolve to the projected member.`);
+  }
+  return selection;
+}
+
+async function navigateToGraphMember(
+  loaded: ReturnType<typeof resolveLoadedGraphTarget>,
+  target: BrowserCallGraphTarget,
+) {
+  if (loaded.group) {
+    navigateToMember(
+      loaded.pkg,
+      loaded.type,
+      loaded.group,
+      loaded.overloadIndex,
+      target);
+    return;
+  }
+
+  const seq = ++state.graphMemberNavigationSeq;
+  const packageKey = packageIdentityKey(loaded.pkg);
+  const sourceView = viewSignature();
+  state.graphMemberNavigationTitle = loaded.title;
+  state.memberCallGraphError = "";
+  render();
+  try {
+    const selection = await loadGraphMemberSelection(
+      loaded.pkg,
+      loaded.type,
+      target);
+    if (seq !== state.graphMemberNavigationSeq
+      || viewSignature() !== sourceView
+      || !state.packages.some(pkg => packageIdentityKey(pkg) === packageKey)) {
+      return;
+    }
+    state.graphMemberNavigationTitle = "";
+    navigateToMember(
+      selection.pkg,
+      selection.type,
+      selection.group,
+      selection.overloadIndex,
+      target);
+  } catch (error) {
+    if (seq !== state.graphMemberNavigationSeq) return;
+    state.graphMemberNavigationTitle = "";
+    state.memberCallGraphError =
+      `Could not open ${loaded.title}: ${errorMessage(error)}`;
+    render();
+  }
+}
+
+async function restorePendingGraphMember() {
+  const pending = state.pendingGraphMemberDeepLink;
+  const pkg = state.package;
+  const type = selectedType();
+  if (!pending || !pkg || !type) return;
+  const seq = ++state.graphMemberNavigationSeq;
+  try {
+    const selection = await loadGraphMemberSelection(pkg, type, pending.target);
+    if (seq !== state.graphMemberNavigationSeq
+      || state.pendingGraphMemberDeepLink !== pending) {
+      return;
+    }
+    if (selection.group.key !== pending.member)
+      throw new Error("The shared member identity does not match the graph target.");
+    state.pendingGraphMemberDeepLink = null;
+    state.selectedMemberKey = selection.group.key;
+    state.selectedOverloadIndex = selection.overloadIndex;
+    state.memberSection = pending.section
+      && isMemberSection(pending.section)
+      && memberSectionIdsFor(
+        selection.group,
+        state.package?.isRuntimePack).includes(pending.section)
+      ? pending.section
+      : "overview";
+    state.selectedBodyTarget = pending.target;
+    render();
+    loadSelectionData();
+  } catch (error) {
+    if (seq !== state.graphMemberNavigationSeq
+      || state.pendingGraphMemberDeepLink !== pending) {
+      return;
+    }
+    state.pendingGraphMemberDeepLink = null;
+    appendQueryNotice(
+      `The graph member could not be restored: ${errorMessage(error)}`);
+    render();
+  }
 }
 
 async function drillPlatformNode(node: BrowserCallGraphTarget) {

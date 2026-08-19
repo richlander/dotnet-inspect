@@ -557,6 +557,9 @@ export interface CallGraphTarget {
   assemblyVersion?: string | null;
   assemblyCulture?: string | null;
   assemblyPublicKeyToken?: string | null;
+  memberName?: string | null;
+  selectorKey?: string | null;
+  metadataToken?: number | null;
   kind?: string | null;
 }
 
@@ -581,6 +584,77 @@ export function callGraphTargetMatchesType(
     return (type?.metadataId ?? type?.queryId ?? type?.id)
       === target.typeMetadataId;
   return false;
+}
+
+export type GraphMemberShareTarget = readonly [
+  assembly: string,
+  assemblyVersion: string | null,
+  assemblyCulture: string | null,
+  assemblyPublicKeyToken: string | null,
+  typeDefinitionId: string,
+  typeMetadataId: string,
+  memberName: string,
+  selectorKey: string,
+  metadataToken: number | null,
+];
+
+export interface GraphMemberShareIdentity extends CallGraphTarget {
+  assembly: string;
+  typeDefinitionId: string;
+  memberName: string;
+  selectorKey: string;
+  metadataToken: number | null;
+}
+
+export function graphMemberShareTarget(
+  target: CallGraphTarget | null | undefined,
+): GraphMemberShareTarget | null {
+  if (!target?.assembly
+    || !target.typeDefinitionId
+    || !target.memberName
+    || !target.selectorKey
+    || (target.metadataToken != null && !Number.isInteger(target.metadataToken))) {
+    return null;
+  }
+  return [
+    target.assembly,
+    target.assemblyVersion ?? null,
+    target.assemblyCulture ?? null,
+    target.assemblyPublicKeyToken ?? null,
+    target.typeDefinitionId,
+    target.typeMetadataId ?? "",
+    target.memberName,
+    target.selectorKey,
+    target.metadataToken ?? null
+  ];
+}
+
+export function graphMemberTargetFromShare(
+  value: unknown,
+): GraphMemberShareIdentity | null {
+  if (!Array.isArray(value)
+    || value.length !== 9
+    || typeof value[0] !== "string"
+    || value.slice(1, 4).some(item => item != null && typeof item !== "string")
+    || value.slice(4, 8).some(item => typeof item !== "string")
+    || value[0].length === 0
+    || value[4].length === 0
+    || value[6].length === 0
+    || value[7].length === 0
+    || (value[8] != null && !Number.isInteger(value[8]))) {
+    return null;
+  }
+  return {
+    assembly: value[0],
+    assemblyVersion: value[1],
+    assemblyCulture: value[2],
+    assemblyPublicKeyToken: value[3],
+    typeDefinitionId: value[4],
+    typeMetadataId: value[5] || null,
+    memberName: value[6],
+    selectorKey: value[7],
+    metadataToken: value[8]
+  };
 }
 
 export interface QueryIdentifiedType {
