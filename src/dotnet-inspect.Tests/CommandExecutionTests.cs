@@ -17381,12 +17381,17 @@ public partial class CommandExecutionTests
             {
                 var noDependencies = await RunAppAsync(
                     "package", noDependenciesPath, "-S", "Dependencies", "--tree",
-                    "--out", outputPath, "--tips", "q");
+                    "--out", outputPath, "--tips", "q",
+                    "-n", "2", "--tail");
 
                 Assert.Equal(0, noDependencies.Exit);
                 Assert.Empty(noDependencies.Output);
                 Assert.Empty(noDependencies.Error);
                 Assert.Contains("No dependencies declared in package", File.ReadAllText(outputPath));
+                Assert.Equal(
+                    -1,
+                    File.ReadAllBytes(outputPath).AsSpan().IndexOf(
+                        new byte[] { 0x0D, 0x0D, 0x0A }));
             }
             finally
             {

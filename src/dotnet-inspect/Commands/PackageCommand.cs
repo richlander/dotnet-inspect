@@ -4840,10 +4840,10 @@ public class PackageCommand
             OutputDestination.Write(
                 options.OutputPath,
                 options.Rows,
-                writer => writer.WriteLine(
-                    MarkoutSerializer.Serialize(
-                        emptyView,
-                        InspectionContext.Default)));
+                writer => MarkoutSerializer.Serialize(
+                    emptyView,
+                    writer,
+                    InspectionContext.Default));
             return 0;
         }
 
