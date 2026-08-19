@@ -29,7 +29,6 @@ import {
   parameterTitleHtml,
   removeWorkspacePackage,
   retainWorkspacePackage,
-  rootCommands,
   resolveLoadedGraphTargetCandidate,
   shareStateLengthError,
   scopedRequestState,
@@ -47,6 +46,7 @@ import {
   buildTypeGraphMermaid
 } from "./graph-mermaid.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.ts";
+import { createCommandBar } from "/src/command-bar.ts";
 import { loadPlatformIndex } from "/src/platform-index.js";
 
 let initializeEngine;
@@ -661,6 +661,15 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+const commandBar = createCommandBar({
+  state,
+  lenses,
+  escapeHtml,
+  execute: executeCommand,
+  render,
+  focusAfterDismiss: () => document.querySelector("#type-list").focus(),
+});
+
 function selectedType() {
   if (!state.package) return null;
   return state.package.types.find(item => item.id === state.selectedTypeId) || filteredTypes()[0] || state.package.types[0];
@@ -1210,65 +1219,6 @@ function typeDisplayName(item) {
   return item?.displayName || item?.name || "";
 }
 
-function completions() {
-  const input = state.command.trimStart();
-  const tokens = input.split(/\s+/).filter(Boolean);
-  let entries;
-
-  if (!tokens.length) {
-    entries = rootCommands.map(([value, hint]) => ({ value, hint, kind: "command" }));
-  } else if (tokens[0] === "type") {
-    entries = state.package.types.map(item => ({
-      value: item.name,
-      hint: item.namespace,
-      kind: item.kind
-    }));
-  } else if (tokens[0] === "show") {
-    entries = lenses.map(([value, label]) => ({ value, hint: `${label} lens`, kind: "lens" }));
-  } else if (tokens[0] === "framework") {
-    entries = state.package.frameworks.map(value => ({ value, hint: "compile assets", kind: "framework" }));
-  } else if (tokens[0] === "types") {
-    entries = [
-      { value: "public", hint: "public surface (default)", kind: "filter" },
-      { value: "namespace", hint: "filter to a namespace", kind: "filter" },
-      { value: "kind", hint: "filter by class, struct, interface, or enum", kind: "filter" }
-    ];
-  } else {
-    entries = rootCommands.map(([value, hint]) => ({ value, hint, kind: "command" }));
-  }
-
-  if (input.endsWith(" ")) return entries.slice(0, 8);
-  const needle = tokens.at(-1)?.toLowerCase() || "";
-  return entries.filter(entry => entry.value.toLowerCase().includes(needle)).slice(0, 8);
-}
-
-function commandSuggestionsHtml(items) {
-  return `${items.map((item, index) => `
-      <button class="suggestion ${index === state.completionIndex ? "selected" : ""}" data-completion="${escapeHtml(item.value)}">
-        <strong>${escapeHtml(item.value)}</strong><span>${escapeHtml(item.hint)}</span><small>${escapeHtml(item.kind)}</small>
-      </button>`).join("")}
-      <div class="suggestion-help"><span>↑↓ select</span><span>tab complete</span><span>enter run</span><span>esc dismiss</span></div>`;
-}
-
-function bindCommandCompletionClicks(root) {
-  root.querySelectorAll("[data-completion]").forEach(button => button.addEventListener("mousedown", event => {
-    event.preventDefault();
-    applyCompletion(button.dataset.completion);
-  }));
-}
-
-// Repaint just the completion list. The command <input> is left untouched so the caret
-// and native editing state survive (a full render() forced the caret to the end every
-// keystroke), and nothing outside the command panel is rebuilt.
-function updateCommandSuggestions() {
-  const container = document.querySelector("#command-suggestions");
-  if (!container) return;
-  state.completionIndex = Math.min(state.completionIndex, Math.max(completions().length - 1, 0));
-  container.innerHTML = commandSuggestionsHtml(completions());
-  bindCommandCompletionClicks(container);
-  container.querySelector(".suggestion.selected")?.scrollIntoView({ block: "nearest" });
-}
-
 function render() {
   if (!sourceSurfaceIsVisible(state)
     && cancelSourceRequestState(state)) {
@@ -1321,8 +1271,6 @@ function render() {
     state.packageLens = "overview";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
-  const suggestions = completions();
-  state.completionIndex = Math.min(state.completionIndex, Math.max(suggestions.length - 1, 0));
 
   app.innerHTML = `
     <div class="workbench">
@@ -1437,19 +1385,7 @@ function render() {
         </section>
       </main>
 
-      <section class="command-area">
-        <div class="command-panel ${state.promptOpen ? "open" : ""}">
-          <div class="suggestions" id="command-suggestions" role="listbox">
-            ${commandSuggestionsHtml(suggestions)}
-          </div>
-          <div class="command-line">
-            <span class="command-scope">${escapeHtml(state.package.id)}:${escapeHtml(state.package.activeFramework)}</span>
-            <span class="prompt">›</span>
-            <input id="command" value="${escapeHtml(state.command)}" placeholder="type a command…  try “type JsonSerializer”" autocomplete="off" spellcheck="false" />
-            <kbd>⌘K</kbd>
-          </div>
-        </div>
-      </section>
+      ${commandBar.html()}
       ${state.spotlightOpen ? renderSpotlight() : ""}
       ${state.graphSourceOpen ? renderGraphSource() : ""}
       ${state.docViewerOpen ? renderDocViewer() : ""}
@@ -4165,7 +4101,7 @@ function bindEvents() {
       const [assembly, heapName] = btn.dataset.mdeOpenHeap.split("|");
       openExplorerHeap(assembly, heapName);
     }));
-  bindCommandCompletionClicks(document);
+  commandBar.bind(document);
 
   document.querySelector("#framework").addEventListener("change", event => {
     switchPackageFramework(event.target.value);
@@ -4243,18 +4179,6 @@ function bindEvents() {
     focusFilter();
   });
 
-  const command = document.querySelector("#command");
-  command.addEventListener("focus", () => {
-    state.promptOpen = true;
-    document.querySelector(".command-panel").classList.add("open");
-  });
-  command.addEventListener("input", event => {
-    state.command = event.target.value;
-    state.promptOpen = true;
-    state.completionIndex = 0;
-    updateCommandSuggestions();
-  });
-  command.addEventListener("keydown", handleCommandKeys);
   document.querySelector("#package-query").addEventListener("submit", event => {
     event.preventDefault();
     const value = document.querySelector("#package-query-input").value.trim();
@@ -5476,51 +5400,7 @@ function handleSpotlightKeys(event) {
   }
 }
 
-function handleCommandKeys(event) {
-  const items = completions();
-  if (event.key === "ArrowDown") {
-    event.preventDefault();
-    state.completionIndex = (state.completionIndex + 1) % Math.max(1, items.length);
-    updateCommandSuggestions();
-  } else if (event.key === "ArrowUp") {
-    event.preventDefault();
-    state.completionIndex = (state.completionIndex - 1 + Math.max(1, items.length)) % Math.max(1, items.length);
-    updateCommandSuggestions();
-  } else if (event.key === "Tab" && items.length) {
-    event.preventDefault();
-    applyCompletion(items[state.completionIndex].value);
-  } else if (event.key === "Enter") {
-    event.preventDefault();
-    executeCommand();
-  } else if (event.key === "Escape") {
-    state.promptOpen = false;
-    state.command = "";
-    render();
-    document.querySelector("#type-list").focus();
-  }
-}
-
-function applyCompletion(value) {
-  const tokens = state.command.trim().split(/\s+/).filter(Boolean);
-  if (!tokens.length) state.command = `${value} `;
-  else if (state.command.endsWith(" ")) state.command += `${value} `;
-  else {
-    tokens[tokens.length - 1] = value;
-    state.command = `${tokens.join(" ")} `;
-  }
-  state.completionIndex = 0;
-  state.promptOpen = true;
-  // We rewrote the command programmatically, so push it into the live input and
-  // repaint only the suggestion list (no full render / caret reset needed elsewhere).
-  const input = document.querySelector("#command");
-  if (input) input.value = state.command;
-  updateCommandSuggestions();
-  focusCommand();
-}
-
-function executeCommand() {
-  const value = state.command.trim();
-  if (!value) return;
+function executeCommand(value) {
   const [verb, ...rest] = value.split(/\s+/);
   const argument = rest.join(" ");
   if (verb === "type") {
@@ -5548,24 +5428,6 @@ function executeCommand() {
     share();
   }
   state.history = [value, ...state.history.filter(item => item !== value)].slice(0, 5);
-  state.command = "";
-  state.promptOpen = false;
-  render();
-}
-
-function openCommand(value = "") {
-  state.command = value;
-  state.promptOpen = true;
-  render();
-  focusCommand();
-}
-
-function focusCommand() {
-  requestAnimationFrame(() => {
-    const input = document.querySelector("#command");
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
-  });
 }
 
 function focusFilter() {
@@ -8366,7 +8228,7 @@ document.addEventListener("keydown", event => {
     drillOut();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
-    openCommand();
+    commandBar.open();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
     event.preventDefault();
     openSpotlight();
