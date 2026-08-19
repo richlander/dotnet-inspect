@@ -282,12 +282,15 @@ public static class SharedParsers
             var kindQualified = TryParseKindQualifiedMember(members[i], out _, out _);
 
             // Check for dotted syntax (Type.Member)
-            if (!kindQualified && inferDottedTypeFilter)
+            if (!kindQualified)
             {
                 var (typeFilter, dottedMemberName) = ParseDottedMember(members[i]);
-                if (typeFilter != null)
+                if (typeFilter != null
+                    && (inferDottedTypeFilter
+                        || FqnParser.LastTopLevelDot(typeFilter) < 0))
                 {
-                    dottedTypeFilter = typeFilter;
+                    if (inferDottedTypeFilter)
+                        dottedTypeFilter = typeFilter;
                     members[i] = dottedMemberName;
                 }
             }

@@ -324,6 +324,20 @@ public class SharedParsersTests
     }
 
     [Fact]
+    public void ProcessMemberArguments_SuppliedTypeStripsSimpleTypeQualifier()
+    {
+        var members = new[] { "JsonElement.GetProperty" };
+
+        var (typeFilter, _, _, _, _, _) =
+            SharedParsers.ProcessMemberArguments(
+                members,
+                inferDottedTypeFilter: false);
+
+        Assert.Null(typeFilter);
+        Assert.Equal("GetProperty", members[0]);
+    }
+
+    [Fact]
     public void ProcessMemberArguments_SuppliedTypeRetainsQualifiedMember()
     {
         var members =
