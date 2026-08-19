@@ -198,8 +198,11 @@ public static class LibrarySections
     {
         return new ScannerRegistry()
             .Add(ScannerOptimizationOpportunities, SectionCost.Unbounded, ctx =>
+            {
                 ctx.Model.OptimizationOpportunities = LibraryMetadataService.ScanOptimizationOpportunities(
-                    ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions))
+                    ctx.BodyIndex, ctx.AssemblyPath, ctx.Logger, ctx.Model.PerformanceTriageOptions);
+                ctx.Model.PerformanceDiagnosticsReported = true;
+            })
             .Add(ScannerResourceTriage, SectionCost.Unbounded, ctx =>
                 ctx.Model.Apply(LibraryMetadataService.ScanResourceTriage(
                     ctx.BodyIndex,
@@ -227,7 +230,11 @@ public static class LibrarySections
         if (context.Model.PerformanceTriageOptions.HasCandidateFilters)
         {
             var index = context.BodyIndex();
-            LibraryMetadataService.ReportOptimizationDiagnostics(index);
+            if (!context.Model.PerformanceDiagnosticsReported)
+            {
+                LibraryMetadataService.ReportOptimizationDiagnostics(index);
+                context.Model.PerformanceDiagnosticsReported = true;
+            }
             methodTokens = LibraryMetadataService.PerformanceSourceMethods(
                     LibraryMetadataService.FilterPerformanceOpportunities(
                         index,

@@ -12,6 +12,12 @@ public sealed class BodyShapeFixture : IBodyShapeValue
 
     public static int[] PublicSmallArray() => new int[3];
 
+    public static bool PublicLocalFunctionBox<T>(T left, T right)
+    {
+        return EqualsCore(left, right);
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
     private static object PrivateCreation() => new Version(1, 2);
 
     object IBodyShapeValue.Value => new object();

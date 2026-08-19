@@ -306,6 +306,35 @@ public sealed class BodyShapesSectionTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task LibraryKindPredicate_MapsLiftedBodyToSourceOwner()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "--where",
+                    "Kind=InvocationExpression",
+                    "--where",
+                    "Shape=generic-parameter-object-box",
+                    "--jsonl",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            nameof(BodyShapeFixture.PublicLocalFunctionBox),
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "<PublicLocalFunctionBox>",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("--top", "1")]
     [InlineData("--order-by", "Confidence desc")]
