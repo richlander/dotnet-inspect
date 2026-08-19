@@ -61,6 +61,8 @@ dotnet publish prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj \
 ```
 
 The staging, CoreCLR, and promotion workflows deploy that artifact through
-`api_location` with Azure's app and API builds disabled. No Container App,
-container registry, linked backend, CORS configuration, or separate Azure
-resource is required.
+`api_location` with Azure's app and API builds disabled. Artifact upload
+explicitly includes the hidden `.azurefunctions` runtime dependencies, and
+every post-download deployment check requires the generated extension loader.
+No Container App, container registry, linked backend, CORS configuration, or
+separate Azure resource is required.

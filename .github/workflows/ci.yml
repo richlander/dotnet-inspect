@@ -212,6 +212,7 @@ jobs:
           test -f "$api/host.json"
           test -f "$api/functions.metadata"
           test -f "$api/worker.config.json"
+          test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
           jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
           manifest="$site/manifest.json"
           test -f "$manifest"

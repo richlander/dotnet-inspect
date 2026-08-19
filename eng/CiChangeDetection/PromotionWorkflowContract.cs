@@ -28,6 +28,7 @@ internal static class PromotionWorkflowContract
         test -f "$api/host.json"
         test -f "$api/functions.metadata"
         test -f "$api/worker.config.json"
+        test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
         jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
         manifest="$site/manifest.json"
         test -f "$manifest"
@@ -61,6 +62,7 @@ internal static class PromotionWorkflowContract
         test -f "$api/host.json"
         test -f "$api/functions.metadata"
         test -f "$api/worker.config.json"
+        test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
         jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
         manifest="$site/manifest.json"
         test -f "$manifest"
@@ -758,6 +760,7 @@ internal static class PromotionWorkflowContract
                 ["path"] = "artifacts/inspect-web-publish",
                 ["if-no-files-found"] = "error",
                 ["retention-days"] = "30",
+                ["include-hidden-files"] = "true",
             },
             "staging artifact upload step.with");
 
@@ -1112,6 +1115,7 @@ internal static class PromotionWorkflowContract
                 ["path"] = "artifacts/inspect-web-coreclr-publish",
                 ["if-no-files-found"] = "error",
                 ["retention-days"] = "30",
+                ["include-hidden-files"] = "true",
             },
             "CoreCLR staging artifact upload step.with");
 
