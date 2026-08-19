@@ -90,11 +90,12 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         : base(schemaVersion, id)
     {
         ArgumentNullException.ThrowIfNull(contexts);
-        if (contexts.Count == 0)
+
+        // Freeze first, then validate the retained snapshot (emptiness and uniqueness).
+        var frozenContexts = DefinitionCollections.Freeze(contexts);
+        if (frozenContexts.Count == 0)
             throw new ArgumentException("A workspace definition requires at least one context.", nameof(contexts));
 
-        // Freeze first, then validate the retained snapshot so uniqueness cannot disagree with storage.
-        var frozenContexts = DefinitionCollections.Freeze(contexts);
         var contextNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var context in frozenContexts)
         {
@@ -263,10 +264,14 @@ public sealed record NavigationDefinition : InspectionDefinitionRecord
         : base(schemaVersion, id)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(focus);
-        if (tabs is null || tabs.Count == 0)
+        ArgumentNullException.ThrowIfNull(tabs);
+
+        // Freeze first, then validate emptiness and focus against the retained snapshot.
+        var frozenTabs = DefinitionCollections.Freeze(tabs);
+        if (frozenTabs.Count == 0)
             throw new ArgumentException("A navigation preset requires at least one tab.", nameof(tabs));
 
-        Tabs = DefinitionCollections.Freeze(tabs);
+        Tabs = frozenTabs;
         Focus = focus;
 
         if (Tabs.All(tab => tab.Id != Focus))

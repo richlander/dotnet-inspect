@@ -674,6 +674,24 @@ public class InspectionDefinitionTests
         Assert.Contains("Duplicate", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void WorkspaceDefinition_ValidatesNonEmptyOnFrozenContexts()
+    {
+        // Source reports Count == 1 before freeze, then empty during Freeze's Count read.
+        var lying = new ShrinkingCountContextList();
+        var ex = Assert.Throws<ArgumentException>(() => new WorkspaceDefinition(1, "ws", lying));
+        Assert.Contains("at least one context", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void NavigationDefinition_ValidatesNonEmptyOnFrozenTabs()
+    {
+        var lying = new ShrinkingCountTabList();
+        var ex = Assert.Throws<ArgumentException>(
+            () => new NavigationDefinition(1, "n", lying, focus: "t"));
+        Assert.Contains("at least one tab", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class IndexerOnlyMemberList : IReadOnlyList<DefinitionMemberCoordinate>
     {
         private readonly DefinitionMemberCoordinate _item;
@@ -713,6 +731,42 @@ public class InspectionDefinitionTests
 
         public IEnumerator<WorkspaceContextDefinition> GetEnumerator() =>
             ((IEnumerable<WorkspaceContextDefinition>)_enumerate).GetEnumerator();
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
+    }
+
+    private sealed class ShrinkingCountContextList : IReadOnlyList<WorkspaceContextDefinition>
+    {
+        private int _countReads;
+
+        public int Count => _countReads++ == 0 ? 1 : 0;
+
+        public WorkspaceContextDefinition this[int index] =>
+            throw new InvalidOperationException("Indexer must not run after Count collapses to empty.");
+
+        public IEnumerator<WorkspaceContextDefinition> GetEnumerator()
+        {
+            yield break;
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
+    }
+
+    private sealed class ShrinkingCountTabList : IReadOnlyList<NavigationTabDefinition>
+    {
+        private int _countReads;
+
+        public int Count => _countReads++ == 0 ? 1 : 0;
+
+        public NavigationTabDefinition this[int index] =>
+            throw new InvalidOperationException("Indexer must not run after Count collapses to empty.");
+
+        public IEnumerator<NavigationTabDefinition> GetEnumerator()
+        {
+            yield break;
+        }
 
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
             GetEnumerator();
