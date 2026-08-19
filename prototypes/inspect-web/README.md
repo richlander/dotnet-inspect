@@ -545,7 +545,6 @@ opening a package or the runtime pack — so the component acquires no engine or
 workspace authority. `test/package-bar.test.js` gates tab markup, active/close
 state, escaping, and open-package query parsing.
 
-
 - `Cmd/Ctrl+K` focuses the persistent command prompt.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
 - Arrow keys select a completion, `Tab` accepts it, and `Enter` runs it.
