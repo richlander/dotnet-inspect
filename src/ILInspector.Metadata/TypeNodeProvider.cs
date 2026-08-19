@@ -291,7 +291,8 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                 node = new GenericTypeNode(
                     rawName,
                     genericType.IsReferenceType,
-                    typeArguments);
+                    typeArguments,
+                    structuralMetadataName: rawName);
             }
             else
             {
@@ -303,7 +304,8 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
                     genericType.IsReferenceType,
                     typeArguments,
                     nestedSuffix,
-                    genericType.IsDegraded);
+                    genericType.IsDegraded,
+                    structuralMetadataName: rawName);
             }
         }
 

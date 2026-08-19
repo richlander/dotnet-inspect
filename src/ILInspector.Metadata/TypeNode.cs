@@ -307,7 +307,8 @@ internal sealed class GenericTypeNode(
     ImmutableArray<TypeNode> arguments,
     string nestedSuffix = "",
     bool degradedGenericType = false,
-    MetadataTypeNameParts? metadataName = null) : TypeNode
+    MetadataTypeNameParts? metadataName = null,
+    string? structuralMetadataName = null) : TypeNode
 {
     readonly long estimatedRenderedLength =
         EstimateRenderedLength(baseName, arguments, nestedSuffix);
@@ -321,7 +322,7 @@ internal sealed class GenericTypeNode(
     internal override string StructuralIdentity()
         => metadataName is null
             ? StructuralTypeIdentity.Generic(
-                baseName,
+                structuralMetadataName ?? baseName,
                 arguments.Select(argument => argument.StructuralIdentity()))
             : StructuralTypeIdentity.Generic(
                 metadataName.Namespace,
