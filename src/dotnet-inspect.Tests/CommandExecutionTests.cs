@@ -3180,6 +3180,20 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_AmbiguousPlatformMemberFind_ReportsAmbiguity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "Timer.Start", "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Type 'Timer' matched multiple platform types.",
+            error);
+        Assert.DoesNotContain("No members matched", error);
+    }
+
+    [Fact]
     public async Task Router_BareGenericTypeMiss_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -3606,6 +3620,147 @@ public partial class CommandExecutionTests
         Assert.Contains("Select value 'DefinitelyNotASection' not found.", direct.Error);
         Assert.Contains("Select value 'DefinitelyNotASection' not found.", deferred.Error);
         Assert.DoesNotContain("File not found", deferred.Error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredPartialSectionDiagnosticIsEmittedOnce()
+    {
+        string[] arguments =
+        [
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform",
+            "System.Collections.Immutable",
+            "-S",
+            "Methods,DefinitelyNotASection",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Equal(
+            1,
+            deferred.Error.Split('\n').Count(
+                static line => line.Contains(
+                    "Select value 'DefinitelyNotASection' not found.",
+                    StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Router_DeferredOptionShapeRejectsBeforeAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        string[] arguments =
+        [
+            "Missing.Generic<T>",
+            "--library",
+            missingAssembly,
+            "--json-array",
+            "--json",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(deferred.Output);
+        Assert.Contains(
+            "--json-array requires --value, --urls, --paths, or --print.",
+            deferred.Error);
+        Assert.DoesNotContain("File not found", deferred.Error);
+    }
+
+    [Fact]
+    public async Task Router_DottedOverloadStaticDiscoveryUsesDetailPipeline()
+    {
+        string[] arguments =
+        [
+            "List<T>.Add:1",
+            "--platform",
+            "System.Collections",
+            "-D",
+            "Signature",
+            "--schema",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "List<T>",
+                "--platform",
+                "System.Collections",
+                "-m",
+                "Add:1",
+                .. arguments[3..]
+            ]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Contains("| Signature | column |", deferred.Output);
+    }
+
+    [Fact]
+    public async Task Router_DottedDigestStaticDiscoveryUsesDetailPipeline()
+    {
+        const string typeName =
+            "DotnetInspector.Tests.Operators<T>";
+        var inventory = await RunAppAsync(
+            "member",
+            typeName,
+            "--library",
+            TestAssemblyPath,
+            "-m",
+            "Convert",
+            "-S",
+            "Member Index",
+            "--columns",
+            "Stable",
+            "--tsv",
+            "--tips",
+            "q");
+        Assert.Equal(0, inventory.Exit);
+        var stableSelector = inventory.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Skip(1)
+            .First();
+
+        string[] discovery =
+        [
+            "-D",
+            "Signature",
+            "--schema",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                typeName,
+                "--library",
+                TestAssemblyPath,
+                "-m",
+                stableSelector,
+                .. discovery
+            ]);
+        var deferred = await RunAppAsync(
+            [
+                $"{typeName}.{stableSelector}",
+                "--library",
+                TestAssemblyPath,
+                .. discovery
+            ]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Contains("| Signature | column |", deferred.Output);
     }
 
     [Fact]

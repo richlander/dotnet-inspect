@@ -160,7 +160,9 @@ public class ApiCommand
             infoSections: [],
             categories,
             selectDefault: false);
-        return SelectOutput.WriteUnresolved(result);
+        bool totalFailure = result.Unresolved.Count > 0
+            && result.Sections is null or { Count: 0 };
+        return totalFailure && SelectOutput.WriteUnresolved(result);
 
         void AddCategories(
             IReadOnlyDictionary<string, string[]> additions)
@@ -176,6 +178,19 @@ public class ApiCommand
                     : sections;
             }
         }
+    }
+
+    internal static bool RejectRouteIndependentOptionShape(
+        MemberOptions options)
+    {
+        if (!options.RouterDeferredTypeOrMember
+            || (options.Discover is not null
+                && !options.EffectiveDiscovery))
+        {
+            return false;
+        }
+
+        return !ValidateRouteIndependentOptionShape(options);
     }
 
     /// <summary>
@@ -324,14 +339,20 @@ public class ApiCommand
     internal static (PreambleResult Result, int? Error) RunPreamble(ApiOptions options)
     {
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
-        var memberPipeline = ApiMemberSectionPipelines.Create(options);
+        var structuralDetailOptions = options.Discover is not null
+                                      && !options.EffectiveDiscovery
+            ? TryGetDottedDetailDiscoveryOptions(options)
+            : null;
+        var memberPipeline = ApiMemberSectionPipelines.Create(
+            structuralDetailOptions ?? options);
         bool hasTypeName = !string.IsNullOrWhiteSpace(options.TypeName);
         bool typeNameIsGlob =
             hasTypeName
             && TypeMatcher.IsTypeGlobPattern(options.TypeName!);
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
         var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
-        if (options is MemberOptions memberOptions
+        if (structuralDetailOptions is null
+            && options is MemberOptions memberOptions
             && memberOptions.MemberFilter.Count == 0
             && MightPeelDottedGenericMemberSelector(memberOptions.TypeName))
         {
@@ -345,15 +366,17 @@ public class ApiCommand
         // default; --schema opts out to the cheap, offline static schema listing.
         if (options.Discover != null && !options.EffectiveDiscovery)
         {
+            var structuralOptions =
+                (ApiOptions?)structuralDetailOptions ?? options;
             var schema = singleTypeMode
-                ? GetTypeDocumentSchema(options)
+                ? GetTypeDocumentSchema(structuralOptions)
                 : ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
 
             // Restrict plain discovery to columns/sections queryable under the active options.
             if (singleTypeMode)
             {
                 schema = RestrictSchemaToSections(schema, knownSections);
-                schema = ToQueryableSchema(schema, options);
+                schema = ToQueryableSchema(schema, structuralOptions);
             }
 
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
@@ -459,11 +482,8 @@ public class ApiCommand
             return (null!, 1);
 
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
-        if (shapeCount > 1)
-        {
-            CommandError.Write("specify only one of --value, --urls, or --paths.");
+        if (!ValidateActiveShapeCount(shapeCount))
             return (null!, 1);
-        }
 
         if (shapeCount == 1)
         {
@@ -473,45 +493,16 @@ public class ApiCommand
             if (options.Discover == null && !options.SelectDeferredToListing
                 && !ShapeProjectionOutput.ValidateSingleSection(selectionSections, optionName))
                 return (null!, 1);
-            if (options.Count || options.Print)
-            {
-                CommandError.Write($"{optionName} cannot be combined with --count or --print.");
+            if (!ValidateShapeProjectionModifiers(options, optionName))
                 return (null!, 1);
-            }
-            if (options.Rows is not null)
-            {
-                CommandError.Write($"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
-                return (null!, 1);
-            }
         }
 
-        if (options.JsonArray && shapeCount == 0 && !options.Print)
-        {
-            CommandError.Write("--json-array requires --value, --urls, --paths, or --print.");
+        if (!ValidateProjectionModifiers(options, shapeCount))
             return (null!, 1);
-        }
-
-        if (options.JsonArray && (options.JsonOutput || options.Jsonl))
-        {
-            CommandError.Write("--json-array cannot be combined with --json or --jsonl.");
-            return (null!, 1);
-        }
 
         if (options.Print && options.Discover == null && !options.SelectDeferredToListing
             && !ValidateApiPrintSelection(selectionSections))
             return (null!, 1);
-
-        if (options.Print && options.Rows is not null)
-        {
-            CommandError.Write("--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
-            return (null!, 1);
-        }
-
-        if (options.PrintRow is not null && !options.Print && shapeCount == 0)
-        {
-            CommandError.Write("--row requires --print, --value, --urls, or --paths.");
-            return (null!, 1);
-        }
 
         if (!options.SelectDeferredToListing
             && !OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, selectionSections))
@@ -725,6 +716,136 @@ public class ApiCommand
             return false;
 
         return MemberTargetSelector.Parse(typeName[(lastDot + 1)..]).GenericArity.HasValue;
+    }
+
+    static MemberOptions? TryGetDottedDetailDiscoveryOptions(
+        ApiOptions options)
+    {
+        if (options is not MemberOptions
+            {
+                MemberFilter.Count: 0,
+                TypeName: { } typeName
+            } memberOptions)
+        {
+            return null;
+        }
+
+        var lastDot = FqnParser.LastTopLevelDot(typeName);
+        if (lastDot <= 0 || lastDot == typeName.Length - 1)
+            return null;
+
+        var selector =
+            MemberTargetSelector.Parse(typeName[(lastDot + 1)..]);
+        if (!selector.OverloadIndex.HasValue
+            && string.IsNullOrWhiteSpace(selector.DigestPrefix))
+        {
+            return null;
+        }
+
+        return memberOptions with
+        {
+            MemberFilter = new HashSet<string>(
+                [selector.Name],
+                StringComparer.OrdinalIgnoreCase),
+            OverloadIndex = selector.OverloadIndex,
+            MemberDigest = selector.DigestPrefix,
+            MemberGenericArity = selector.GenericArity,
+        };
+    }
+
+    private static bool ValidateRouteIndependentOptionShape(
+        ApiOptions options,
+        int? activeShapeCount = null)
+    {
+        var shapeCount = activeShapeCount
+            ?? ShapeProjectionOutput.ActiveShapeCount(
+                options.Value,
+                options.Urls,
+                options.Paths);
+        if (!ValidateActiveShapeCount(shapeCount))
+            return false;
+
+        if (shapeCount == 1)
+        {
+            var optionName = options.Value
+                ? "--value"
+                : options.Urls
+                    ? "--urls"
+                    : "--paths";
+            if (!ValidateShapeProjectionModifiers(options, optionName))
+                return false;
+        }
+
+        return ValidateProjectionModifiers(options, shapeCount);
+    }
+
+    private static bool ValidateActiveShapeCount(int shapeCount)
+    {
+        if (shapeCount > 1)
+        {
+            CommandError.Write(
+                "specify only one of --value, --urls, or --paths.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ValidateShapeProjectionModifiers(
+        ApiOptions options,
+        string optionName)
+    {
+        if (options.Count || options.Print)
+        {
+            CommandError.Write(
+                $"{optionName} cannot be combined with --count or --print.");
+            return false;
+        }
+        if (options.Rows is not null)
+        {
+            CommandError.Write(
+                $"--rows cannot be combined with {optionName}; use -n N to limit projected output lines or --row N|first|last to select a projected row.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ValidateProjectionModifiers(
+        ApiOptions options,
+        int shapeCount)
+    {
+        if (options.JsonArray && shapeCount == 0 && !options.Print)
+        {
+            CommandError.Write(
+                "--json-array requires --value, --urls, --paths, or --print.");
+            return false;
+        }
+
+        if (options.JsonArray && (options.JsonOutput || options.Jsonl))
+        {
+            CommandError.Write(
+                "--json-array cannot be combined with --json or --jsonl.");
+            return false;
+        }
+
+        if (options.Print && options.Rows is not null)
+        {
+            CommandError.Write(
+                "--rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
+            return false;
+        }
+
+        if (options.PrintRow is not null
+            && !options.Print
+            && shapeCount == 0)
+        {
+            CommandError.Write(
+                "--row requires --print, --value, --urls, or --paths.");
+            return false;
+        }
+
+        return true;
     }
 
     private static bool ValidateApiPrintSelection(HashSet<string>? includeSections)

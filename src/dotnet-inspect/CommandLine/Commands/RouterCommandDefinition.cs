@@ -358,16 +358,14 @@ public static class RouterCommandDefinition
                 }
             }
 
-            if (memberSplit != null)
+            if (memberSplit is { Probe.Kind: not SourceResolver.LocalSourceKind.Platform })
             {
                 var probe = memberSplit.Value.Probe;
                 RequestTelemetry.Breadcrumb(
                     "qualified-member",
                     $"{target} -> source={probe.SourceName}; type={probe.Remainder}; member={memberSplit.Value.MemberName}");
 
-                return probe.Kind == SourceResolver.LocalSourceKind.Platform
-                    ? ["member", probe.Remainder, "--platform", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail]
-                    : ["member", probe.Remainder, "--package", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail];
+                return ["member", probe.Remainder, "--package", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail];
             }
 
             // Runtime-catalog fallback can be ambiguous for types owned by another
@@ -382,6 +380,21 @@ public static class RouterCommandDefinition
             {
                 var match = memberFind.TypeResolution.Match!;
                 return ["member", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), "-m", memberFind.MemberSelector, .. tail];
+            }
+            if (memberFind.Status == TypeFindIfMissStatus.Ambiguous)
+            {
+                memberFind.WriteAmbiguousError();
+                return tokens;
+            }
+
+            if (memberSplit != null)
+            {
+                var probe = memberSplit.Value.Probe;
+                RequestTelemetry.Breadcrumb(
+                    "qualified-member",
+                    $"{target} -> source={probe.SourceName}; type={probe.Remainder}; member={memberSplit.Value.MemberName}");
+
+                return ["member", probe.Remainder, "--platform", probe.SourceName, "-m", memberSplit.Value.MemberName, .. tail];
             }
 
             var typeProbe = SourceResolver.TryResolveQualifiedTypeName(

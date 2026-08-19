@@ -33,6 +33,8 @@ public static class MemberCommand
 
         if (ApiCommand.RejectUniversallyInvalidDeferredSelect(options))
             return 1;
+        if (ApiCommand.RejectRouteIndependentOptionShape(options))
+            return 1;
 
         var unresolvedOptions = options;
         if (!options.RouterDeferredTypeOrMember)
