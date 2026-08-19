@@ -47,6 +47,7 @@ import {
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.ts";
 import { createCommandBar } from "/src/command-bar.ts";
 import { renderScopeBar as renderScopeBarPure } from "/src/scope-bar.ts";
+import { renderDocViewer as renderDocViewerPure } from "/src/doc-viewer.ts";
 import {
   renderMemberNav,
   renderTypeMetadata,
@@ -6597,31 +6598,14 @@ function closeDocViewer() {
 }
 
 function renderDocViewer() {
-  const doc = state.docViewer;
-  const title = doc ? `${doc.name}` : "Document";
-  const subtitle = doc ? doc.path : "";
-  const meta = state.docViewerMeta;
-  const metaCard = meta
-    ? `<div class="doc-frontmatter">
-        <div class="doc-fm-head"><strong>${escapeHtml(meta.name)}</strong>${meta.version ? `<span class="doc-fm-version">v${escapeHtml(meta.version)}</span>` : ""}</div>
-        ${meta.descriptionHtml ? `<p class="doc-fm-desc">${meta.descriptionHtml}</p>` : ""}
-      </div>`
-    : "";
-  const body = state.docViewerLoading
-    ? `<div class="doc-viewer-status">Loading ${escapeHtml(title)}…</div>`
-    : state.docViewerError
-      ? `<div class="doc-viewer-status error">${escapeHtml(state.docViewerError)}</div>`
-      : `${metaCard}<article class="markdown-body">${state.docViewerHtml}</article>`;
-  return `
-    <div class="doc-viewer-backdrop" id="doc-viewer-backdrop">
-      <div class="doc-viewer" role="dialog" aria-modal="true" aria-label="Package document">
-        <div class="doc-viewer-head">
-          <span class="doc-viewer-title">${escapeHtml(title)}<small>${escapeHtml(subtitle)}</small></span>
-          <button id="doc-viewer-close" type="button" aria-label="Close">esc</button>
-        </div>
-        <div class="doc-viewer-body">${body}</div>
-      </div>
-    </div>`;
+  return renderDocViewerPure({
+    doc: state.docViewer,
+    meta: state.docViewerMeta,
+    loading: state.docViewerLoading,
+    error: state.docViewerError,
+    html: state.docViewerHtml,
+    escapeHtml,
+  });
 }
 
 // The decompiler style ("taste") catalog, grouped by tier, as checkbox rows. Shared by the
