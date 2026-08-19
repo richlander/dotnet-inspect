@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyCommandCompletion,
-  commandBarHtml,
   commandCompletions,
-  commandSuggestionsHtml,
+  commandPaletteResults,
+  commandPaletteRowHtml,
 } from "../src/command-bar.ts";
 
 const lenses = [
@@ -13,11 +13,9 @@ const lenses = [
   ["source", "Source"],
 ];
 
-function commandState(command, types = []) {
+function commandContext(command, types = []) {
   return {
     command,
-    completionIndex: 0,
-    promptOpen: true,
     package: {
       id: "System.Text.Json",
       activeFramework: "net10.0",
@@ -35,14 +33,14 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-test("the empty command bar offers the root command grammar", () => {
-  const items = commandCompletions(commandState(""), lenses);
+test("the empty command scope offers the root command grammar", () => {
+  const items = commandCompletions(commandContext(""), lenses);
 
   assert.deepEqual(
     items.map(item => item.value),
     ["type", "types", "show", "framework", "find", "clear", "share"],
   );
-  assert.ok(items.every(item => item.kind === "command"));
+  assert.ok(items.every(item => item.category === "command"));
 });
 
 test("type completion filters package types and caps an open argument list", () => {
@@ -54,36 +52,36 @@ test("type completion filters package types and caps an open argument list", () 
   }));
 
   assert.deepEqual(
-    commandCompletions(commandState("type json", types), lenses)
+    commandCompletions(commandContext("type json", types), lenses)
       .map(item => item.value),
     ["JsonSerializer"],
   );
   assert.equal(
-    commandCompletions(commandState("type ", types), lenses).length,
+    commandCompletions(commandContext("type ", types), lenses).length,
     8,
   );
 });
 
-test("lens, framework, and type-filter arguments retain their command-specific metadata", () => {
+test("lens, framework, and type-filter arguments retain command metadata", () => {
   assert.deepEqual(
-    commandCompletions(commandState("show "), lenses),
+    commandCompletions(commandContext("show "), lenses),
     [
-      { value: "api", hint: "API lens", kind: "lens" },
-      { value: "metadata", hint: "Metadata lens", kind: "lens" },
-      { value: "source", hint: "Source lens", kind: "lens" },
+      { value: "api", hint: "API lens", category: "lens" },
+      { value: "metadata", hint: "Metadata lens", category: "lens" },
+      { value: "source", hint: "Source lens", category: "lens" },
     ],
   );
   assert.deepEqual(
-    commandCompletions(commandState("framework net9"), lenses),
-    [{ value: "net9.0", hint: "compile assets", kind: "framework" }],
+    commandCompletions(commandContext("framework net9"), lenses),
+    [{ value: "net9.0", hint: "compile assets", category: "framework" }],
   );
   assert.deepEqual(
-    commandCompletions(commandState("types kind"), lenses),
-    [{ value: "kind", hint: "filter by class, struct, interface, or enum", kind: "filter" }],
+    commandCompletions(commandContext("types kind"), lenses),
+    [{ value: "kind", hint: "filter by class, struct, interface, or enum", category: "filter" }],
   );
 });
 
-test("completion replaces the active token and preserves the existing append behavior", () => {
+test("completion replaces the active token and preserves append behavior", () => {
   assert.equal(applyCommandCompletion("", "type"), "type ");
   assert.equal(
     applyCommandCompletion("type Json", "JsonSerializer"),
@@ -95,29 +93,51 @@ test("completion replaces the active token and preserves the existing append beh
   );
 });
 
-test("suggestion markup escapes values and marks only the selected row", () => {
-  const html = commandSuggestionsHtml(
-    [
-      { value: 'Type"<T>', hint: "A&B", kind: "class" },
-      { value: "Other", hint: "Example", kind: "struct" },
-    ],
-    1,
-    escapeHtml,
+test("command palette results distinguish completion from execution", () => {
+  assert.deepEqual(
+    commandPaletteResults(commandContext("ty"), lenses)
+      .map(result => [result.command, result.action]),
+    [["type", "complete"], ["types", "complete"]],
   );
-
-  assert.match(html, /data-completion="Type&quot;&lt;T&gt;"/);
-  assert.match(html, /<span>A&amp;B<\/span>/);
-  assert.equal(html.match(/suggestion selected/g)?.length, 1);
-  assert.match(html, /suggestion selected[^>]*data-completion="Other"/);
+  assert.deepEqual(
+    commandPaletteResults(commandContext("cl"), lenses)
+      .map(result => [result.command, result.action]),
+    [["clear", "execute"]],
+  );
+  assert.deepEqual(
+    commandPaletteResults(commandContext("show met"), lenses)
+      .map(result => [result.command, result.action]),
+    [["show metadata", "execute"]],
+  );
 });
 
-test("command bar markup keeps package scope, command text, and open state inert", () => {
-  const state = commandState('type Type"<T>');
-  state.package.id = "Example&Package";
-  const html = commandBarHtml(state, [], escapeHtml);
+test("free-text find commands remain executable after moving into search", () => {
+  assert.deepEqual(
+    commandPaletteResults(commandContext("find JsonSerializer"), lenses),
+    [{
+      kind: "command",
+      value: "find JsonSerializer",
+      hint: "search the current package",
+      category: "command",
+      command: "find JsonSerializer",
+      action: "execute",
+    }],
+  );
+  assert.deepEqual(commandPaletteResults(commandContext("find "), lenses), []);
+});
 
-  assert.match(html, /class="command-panel open"/);
-  assert.match(html, /Example&amp;Package:net10\.0/);
-  assert.match(html, /value="type Type&quot;&lt;T&gt;"/);
-  assert.doesNotMatch(html, /value="type Type"<T>"/);
+test("command result markup keeps command text and metadata inert", () => {
+  const html = commandPaletteRowHtml({
+    kind: "command",
+    value: 'show "<source>"',
+    hint: "A&B",
+    category: "lens",
+    command: 'show "<source>"',
+    action: "execute",
+  }, 2, true, escapeHtml);
+
+  assert.match(html, /class="spotlight-item selected"/);
+  assert.match(html, /data-sl-index="2"/);
+  assert.match(html, /show &quot;&lt;source&gt;&quot;/);
+  assert.match(html, /A&amp;B · lens/);
 });

@@ -519,15 +519,25 @@ Package tabs and the framework selector are workspace identity, not display
 state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
-`src/command-bar.ts` owns command completion, suggestion rendering, editing,
-and keyboard interaction. `app.js` supplies the package-navigation effects so
-the component does not acquire engine or workspace authority.
-`test/command-bar.test.js` gates the completion grammar, replacement behavior,
-bounded suggestions, command metadata, selection, and escaping.
+`src/spotlight.ts` owns the modal workbench search, embedded home search,
+scope/result rendering, selection, and keyboard interaction.
+`src/command-bar.ts` supplies its typed Commands-scope grammar and results;
+`app.js` retains package queries, navigation, network acquisition, and command
+effects so the components do not acquire engine or workspace authority.
+`test/spotlight.test.js` and `test/command-bar.test.js` gate both presentation
+modes, scope ownership, completion and replacement behavior, bounded results,
+command metadata, and escaping.
 
-- `Cmd/Ctrl+K` focuses the persistent command prompt.
+The typed `src/status-bar.ts` component renders both the full-width workspace
+data bar and the home readiness bar. The workspace bar occupies the bottom row
+formerly used by the persistent command prompt, giving diagnostics, cache
+state, active assembly, and framework the full viewport width.
+
+- `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
+- `Cmd/Ctrl+P` opens Spotlight in the All scope.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
-- Arrow keys select a completion, `Tab` accepts it, and `Enter` runs it.
+- Arrow keys select a Spotlight result, `Tab` cycles scopes, and `Enter`
+  completes or runs a command.
 - Arrow keys or `j`/`k` navigate the type index.
 - Number keys switch the active scope's lenses when an input is not focused.
 - `share` copies the package, version, framework, type, and lens selection.

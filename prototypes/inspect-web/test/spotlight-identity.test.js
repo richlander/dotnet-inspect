@@ -131,6 +131,42 @@ const engineSource = readFileSync(
 const deploySource = readFileSync(
   new URL("../../../.github/workflows/deploy-inspect-web.yml", import.meta.url),
   "utf8");
+const statusBarSource = readFileSync(
+  new URL("../src/status-bar.ts", import.meta.url),
+  "utf8");
+const spotlightSource = readFileSync(
+  new URL("../src/spotlight.ts", import.meta.url),
+  "utf8");
+const commandBarSource = readFileSync(
+  new URL("../src/command-bar.ts", import.meta.url),
+  "utf8");
+
+test("typed Spotlight owns search presentation and hosts commands", () => {
+  assert.match(appSource, /import \{ createSpotlight \} from "\/src\/spotlight\.ts"/);
+  assert.match(appSource, /openSpotlight\("", "commands"\)/);
+  assert.match(appSource, /state\.spotlightOpen \? spotlight\.modalHtml\(\)/);
+  assert.match(appSource, /spotlight\.inlineHtml\(enginePending\)/);
+  assert.doesNotMatch(appSource, /function renderSpotlight\(/);
+  assert.doesNotMatch(appSource, /commandBar\.html\(\)/);
+  assert.match(spotlightSource, /const COMMAND_SCOPE = \{ id: "commands"/);
+  assert.match(
+    spotlightSource,
+    /type HighlightRange = readonly \[start: number, end: number\]/);
+  assert.match(spotlightSource, /function handleModalKeys\(event: KeyboardEvent\)/);
+  assert.match(commandBarSource, /export function commandPaletteResults\(/);
+});
+
+test("leaving package search clears its pending loading state", () => {
+  const scheduler =
+    appSource.match(/function scheduleSpotlightPackageFetch\(\)[\s\S]*?\n}\n\nasync function fetchSpotlightPackages/)?.[0]
+    ?? "";
+  assert.match(
+    scheduler,
+    /state\.spotlightScope !== "all"[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
+  assert.match(
+    appSource,
+    /event\.key === "Escape" && !event\.defaultPrevented && !typing/);
+});
 
 test("dependency graph render identity includes truncation and navigation", () => {
   const graph = {
@@ -170,14 +206,16 @@ test("ready status shows versioned linked build provenance", () => {
   assert.match(appSource, /state\.buildIdentity = inspectBuildIdentity\(\)/);
   assert.match(
     appSource,
-    /class="statusbar"[\s\S]{0,200}\$\{buildIdentityHtml\(\)\}/);
+    /<\/main>[\s\S]{0,700}\$\{statusBarHtml\(\{/);
+  assert.match(statusBarSource, /"statusbar data-bar"/);
+  assert.match(statusBarSource, /buildIdentityHtml\(model\.buildIdentity/);
   assert.match(
     appSource,
-    /class="home-foot"[\s\S]{0,500}\$\{buildIdentityHtml\(\)\}/);
+    /variant: "home"[\s\S]{0,200}buildIdentity: state\.buildIdentity/);
   assert.match(
-    appSource,
+    statusBarSource,
     /identity\.commitUrl[\s\S]*target="_blank" rel="noopener noreferrer"/);
-  assert.match(appSource, /built \$\{escapeHtml\(builtAt\)\} UTC/);
+  assert.match(statusBarSource, /built \$\{escapeHtml\(builtAt\)\} UTC/);
   assert.match(
     deploySource,
     /-getProperty:VersionPrefix[\s\S]*-p:VersionPrefix="\$version"[\s\S]*-p:SourceRevisionId="\$GITHUB_SHA"[\s\S]*-p:BuildTimestampUtc="\$built_at"/);
@@ -207,7 +245,7 @@ test("bare home paints before wasm engine download", () => {
     appSource,
     /class="home-search \$\{enginePending[\s\S]*class="home-engine-status"/);
   assert.match(
-    appSource,
+    `${appSource}\n${statusBarSource}`,
     /state\.engineReady[\s\S]*browser wasm ready[\s\S]*browser wasm loading/);
   assert.match(
     appSource,
