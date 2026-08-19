@@ -1734,9 +1734,11 @@ public class ApiCommand
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
         if (options is MemberOptions memberOptions
+            && !memberOptions.MemberHasNoBody
             && (memberOptions.MemberSourceTooComplex
                 || memberOptions.MemberSourceCoordinatesInvalid
-                || memberOptions.PdbSourceUnavailableReason is { Length: > 0 })
+                || (!memberOptions.MemberHasNoPdbDeclaration
+                    && memberOptions.PdbSourceUnavailableReason is { Length: > 0 }))
             && !IsProjectionRequested(options)
             && !barePayloadRenderer
             && (options.Count
@@ -1755,7 +1757,7 @@ public class ApiCommand
                             ? "--table"
                             : "Document --json";
             string guidance = options.Count
-                ? "Remove --count to render the section failure."
+                ? "Use Markdown/plaintext without --count, or replace --count with --print."
                 : "Use Markdown/plaintext output, or add --print to project the section payload.";
             string failure = memberOptions.MemberSourceTooComplex
                 ? "PDB source extraction stopped because the source exceeds the lexical "

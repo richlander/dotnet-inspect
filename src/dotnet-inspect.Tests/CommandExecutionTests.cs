@@ -6682,6 +6682,115 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData(SectionNames.PdbSource, true)]
+    [InlineData(SectionNames.SourceDiff, true)]
+    [InlineData(SectionNames.PdbSource, false)]
+    [InlineData(SectionNames.SourceDiff, false)]
+    public async Task Member_InformationalSourceStateInNonCodeFormatsDoesNotBecomeFailure(
+        string section,
+        bool bodyless)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Count = true },
+            new MemberOptions { Tabular = true },
+            new MemberOptions { Tabular = true, Tsv = true },
+            new MemberOptions { Tabular = true, Jsonl = true },
+            new MemberOptions { JsonOutput = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                MemberHasNoBody = bodyless,
+                MemberHasNoPdbDeclaration = !bodyless,
+                PdbSourceUnavailableReason = ApiCommand.NoPdbSourceMappingReason,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { section },
+            };
+
+            var (exit, _, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+        }
+    }
+
+    [Fact]
+    public async Task Member_SourceFailureUnderCountWithAnotherFormatGivesExecutableGuidance()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Count = true, JsonOutput = true },
+            new MemberOptions { Count = true, Tabular = true },
+            new MemberOptions { Count = true, Tabular = true, Tsv = true },
+            new MemberOptions { Count = true, Tabular = true, Jsonl = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                PdbSourceUnavailableReason = ApiCommand.NoMatchingPdbSourceReason,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { SectionNames.PdbSource },
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("replace --count with --print", error);
+
+            var printable = options with { Count = false, Print = true };
+            var (printExit, printOutput, printError) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    printable));
+
+            Assert.Equal(0, printExit);
+            Assert.Empty(printError);
+            Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, printOutput);
+        }
+    }
+
+    [Theory]
     [InlineData(SectionNames.PdbSource, false, "lexical complexity limit")]
     [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
     [InlineData(SectionNames.PdbSource, true, "sequence-point coordinates")]
