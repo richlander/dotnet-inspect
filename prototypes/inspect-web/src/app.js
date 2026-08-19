@@ -173,6 +173,9 @@ const state = {
   packageVersions: {},
   packageVersionsLoading: {},
   packageSource: DEFAULT_PACKAGE_SOURCE,
+  // Non-null when a shared/history link applied a mirror for this session only.
+  // Keep persists it; dismiss clears the offer without changing the active engine source.
+  sharedMirrorOffer: null,
   runtimePackLoading: false,
   runtimePackError: "",
   graphSourceOpen: false,
@@ -1191,7 +1194,14 @@ function render() {
         </div>
       </header>
 
-      ${state.queryNotice
+      ${state.sharedMirrorOffer
+        ? `<div class="query-notice query-notice-info" role="status">
+            <span class="query-notice-glyph">ℹ</span>
+            <span class="query-notice-text">This link uses NuGet mirror <strong>${escapeHtml(state.sharedMirrorOffer.host)}</strong> for this session only. Package content comes from that source.</span>
+            <button id="keep-shared-mirror" type="button">Keep</button>
+            <button id="dismiss-shared-mirror" type="button" aria-label="Dismiss">×</button>
+          </div>`
+        : state.queryNotice
         ? `<div class="query-notice" role="alert">
             <span class="query-notice-glyph">⚠</span>
             <span class="query-notice-text">${escapeHtml(state.queryNotice)}</span>
@@ -3894,6 +3904,10 @@ function bindEvents() {
     state.queryNotice = "";
     render();
   });
+  document.querySelector("#keep-shared-mirror")?.addEventListener("click", () => {
+    void keepSharedNuGetMirror();
+  });
+  document.querySelector("#dismiss-shared-mirror")?.addEventListener("click", dismissSharedNuGetMirrorOffer);
   document.querySelector("#nav-back")?.addEventListener("click", navBack);
   document.querySelector("#nav-forward")?.addEventListener("click", navForward);
   document.querySelector("#go-home").addEventListener("click", goHome);
@@ -5377,31 +5391,77 @@ async function restorePackageSource(previousSource) {
   }
 }
 
-async function configureNuGetMirror(serviceIndexUrl) {
+// Apply a validated NuGet service index for this session. Persistence is opt-in:
+// Settings and an explicit "Keep" on a shared link write localStorage; history and
+// cold shared-link open only switch the engine so Back cannot re-persist a rejected mirror.
+async function applyNuGetMirror(serviceIndexUrl, { persist = false, resetWorkspace = true } = {}) {
   const previousSource = state.packageSource;
   const configuration = await inspectConfigurePackageSource(serviceIndexUrl);
-  try {
-    localStorage.setItem(NUGET_MIRROR_STORAGE_KEY, configuration.serviceIndexUrl);
-  } catch (error) {
-    // Engine already switched; restore the prior source and keep the workbench.
-    // Do not clear packages — that strands the UI on a permanent loading screen.
-    await restorePackageSource(previousSource);
-    throw new Error(
-      `Mirror validated but could not be stored in this browser: ${String(error?.message || error)}`);
+  if (persist) {
+    try {
+      localStorage.setItem(NUGET_MIRROR_STORAGE_KEY, configuration.serviceIndexUrl);
+    } catch (error) {
+      // Engine already switched; restore the prior source and keep the workbench.
+      // Do not clear packages — that strands the UI on a permanent loading screen.
+      await restorePackageSource(previousSource);
+      throw new Error(
+        `Mirror validated but could not be stored in this browser: ${String(error?.message || error)}`);
+    }
   }
   state.packageSource = configuration;
   bumpPackageSourceGeneration();
-  resetSourceScopedWorkspace();
+  if (resetWorkspace) resetSourceScopedWorkspace();
   return configuration;
 }
 
+async function configureNuGetMirror(serviceIndexUrl) {
+  state.sharedMirrorOffer = null;
+  return applyNuGetMirror(serviceIndexUrl, { persist: true, resetWorkspace: true });
+}
+
 function useDefaultNuGetSource() {
+  state.sharedMirrorOffer = null;
   const configuration = inspectUseDefaultPackageSource();
   clearPersistedNuGetMirror();
   state.packageSource = configuration;
   bumpPackageSourceGeneration();
   resetSourceScopedWorkspace();
   return configuration;
+}
+
+function sharedMirrorHost(serviceIndexUrl) {
+  try { return new URL(serviceIndexUrl).host; } catch { return serviceIndexUrl; }
+}
+
+function offerSharedMirrorKeep(serviceIndexUrl) {
+  // Only offer Keep when the validated shared source is not already the stored preference.
+  const stored = loadStoredNuGetMirror();
+  if (stored && packageSourceUrlsMatch(stored, serviceIndexUrl)) {
+    state.sharedMirrorOffer = null;
+    return;
+  }
+  state.sharedMirrorOffer = {
+    serviceIndexUrl,
+    host: sharedMirrorHost(serviceIndexUrl)
+  };
+}
+
+async function keepSharedNuGetMirror() {
+  const offer = state.sharedMirrorOffer;
+  if (!offer?.serviceIndexUrl) return;
+  try {
+    localStorage.setItem(NUGET_MIRROR_STORAGE_KEY, offer.serviceIndexUrl);
+    state.sharedMirrorOffer = null;
+    showToast(`Kept NuGet mirror ${offer.host}`, 4000);
+    render();
+  } catch (error) {
+    showToast(`Could not store mirror: ${String(error?.message || error)}`, 6000);
+  }
+}
+
+function dismissSharedNuGetMirrorOffer() {
+  state.sharedMirrorOffer = null;
+  render();
 }
 
 async function promptForNuGetMirror() {
@@ -7754,7 +7814,8 @@ async function bootstrap() {
       render();
     });
     const tEngine = performance.now();
-    // Share-envelope mirror wins over localStorage so a received link can pre-set the feed.
+    // Share-envelope mirror wins over localStorage for this session so a received link can
+    // pre-set the feed, but does not persist until the user clicks Keep (or Settings).
     // Absence of `n` does not clear a stored mirror — default shares must not wipe a
     // recipient's corporate source. Validation is the same path Settings uses.
     const sharedMirror = initialLocation.nugetMirror || "";
@@ -7763,7 +7824,8 @@ async function bootstrap() {
       state.loadingMessage = "Connecting to shared NuGet mirror…";
       render();
       try {
-        await configureNuGetMirror(sharedMirror);
+        await applyNuGetMirror(sharedMirror, { persist: false, resetWorkspace: true });
+        offerSharedMirrorKeep(sharedMirror);
       } catch (error) {
         // Fall through to the stored mirror (if any) so a bad shared URL does not
         // permanently block a recipient who already has a working source.
@@ -7979,49 +8041,67 @@ document.addEventListener("mousedown", event => {
 // Re-apply state when the address bar changes underneath us (browser back/forward, or a
 // hand-edited URL). Within the loaded package we mutate selection directly; a different
 // package is (re)loaded with the URL selection queued as a deep link.
-// Serialize handlers: configureNuGetMirror has side effects (engine source + localStorage),
-// so overlapping popstates must not complete out of order against a newer address bar.
+// Serialize handlers and stamp a generation so a stale turn cannot render/syncUrl over a
+// newer address bar after an await (queue alone is not enough once syncUrl rewrites history).
 let popStateQueue = Promise.resolve();
+let popStateGeneration = 0;
 window.addEventListener("popstate", () => {
-  popStateQueue = popStateQueue.then(() => handlePopState()).catch(() => {});
+  const generation = ++popStateGeneration;
+  popStateQueue = popStateQueue
+    .then(() => handlePopState(generation))
+    .catch(error => {
+      console.error("popstate restore failed", error);
+      if (generation === popStateGeneration) {
+        state.loading = false;
+        state.error = state.error || "Couldn’t restore that history entry.";
+        render();
+      }
+    });
 });
 
-async function handlePopState() {
+async function handlePopState(generation) {
+  const isCurrent = () => generation === popStateGeneration;
   if (!state.package && !state.home) return;
   // Read location at the start of this serialized turn so we apply the latest bar state.
   const loc = parseLocation();
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
   if (bareHome) {
     // Navigated back to the bare root — show the intro/home page (engine stays warm).
+    if (!isCurrent()) return;
     state.home = true;
     render();
     return;
   }
+  if (!isCurrent()) return;
   state.home = false;
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
   state.packageLens = loc.packageLens || "overview";
-  // History may land on a share packet that named a different mirror. Apply it before
-  // package fetch so back/forward keeps the feed that produced that view. Missing `n`
-  // leaves the current source alone (same rule as cold bootstrap). Switching mirrors
-  // clears the workspace, so force a full multi-tab restore afterward.
+  // History may land on a share packet that named a different mirror. Apply session-only
+  // (no localStorage write) so Back cannot re-persist a mirror the user cleared in Settings.
+  // Missing `n` leaves the current source alone. Switching mirrors clears the workspace,
+  // so force a full multi-tab restore afterward.
   let mirrorSwitched = false;
   let mirrorNotice = "";
   if (loc.nugetMirror
       && (state.packageSource.isDefault
         || !packageSourceUrlsMatch(state.packageSource.serviceIndexUrl, loc.nugetMirror))) {
     try {
-      await configureNuGetMirror(loc.nugetMirror);
+      await applyNuGetMirror(loc.nugetMirror, { persist: false, resetWorkspace: true });
+      if (!isCurrent()) return;
       mirrorSwitched = true;
+      offerSharedMirrorKeep(loc.nugetMirror);
     } catch (error) {
+      if (!isCurrent()) return;
       mirrorNotice = `Shared NuGet mirror could not be used: ${String(error?.message || error)}`;
       state.queryNotice = mirrorNotice;
     }
   }
+  if (!isCurrent()) return;
   const deep = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
   if (mirrorSwitched) {
     await restoreWorkspaceFromLocation(loc, deep);
-    if (mirrorNotice) state.queryNotice = mirrorNotice;
+    if (!isCurrent()) return;
     render();
     return;
   }
@@ -8037,8 +8117,10 @@ async function handlePopState() {
       // Back/forward within the platform: re-scope to the target library (or the
       // aggregate) before restoring selection, since scope is part of the view.
       await restorePlatformScopeThenDeepLink(loc);
+      if (!isCurrent()) return;
     } else {
       applyDeepLink(loc);
+      if (!isCurrent()) return;
       render();
       loadSelectionData();
     }
@@ -8047,13 +8129,19 @@ async function handlePopState() {
     // on a NuGet fetch when back/forward lands on a platform state.
     pendingDeepLink = deep;
     await restoreRuntimePackFromHistory(loc);
+    if (!isCurrent()) return;
   } else if (loc.package) {
     pendingDeepLink = deep;
     await loadPackage(loc.package, loc.version || "latest", loc.framework || "", {
       keepQueryNotice: Boolean(mirrorNotice)
     });
-    if (mirrorNotice) {
+    if (!isCurrent()) return;
+    // Prefer a package-load failure notice over the mirror preamble when both fire.
+    if (mirrorNotice && !state.queryNotice) {
       state.queryNotice = mirrorNotice;
+      render();
+    } else if (mirrorNotice && state.queryNotice && state.queryNotice !== mirrorNotice) {
+      state.queryNotice = `${mirrorNotice} ${state.queryNotice}`;
       render();
     }
   }

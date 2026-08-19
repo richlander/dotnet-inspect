@@ -66,12 +66,15 @@ NuGet.org capability because `PackageBaseAddress` does not serve `.snupkg`
 payloads; when that endpoint is blocked, Source falls back to decompilation.
 
 When a non-default mirror is active, the opaque share packet (`w`) includes its
-service-index URL (`n`). Opening that link validates the same way Settings does,
-persists the mirror on success, and loads packages from it. Shares from nuget.org
-omit `n` so they do not wipe a recipient's stored corporate mirror. A shared
-mirror that fails validation falls back to the recipient's stored source (if
-any) and surfaces a notice. Settings rewrite the address-bar packet before
-reload so "Use nuget.org" or switching mirrors is not undone by a stale `n`.
+service-index URL (`n`). Opening that link validates the same way Settings does
+and applies the mirror for **this session only**, with a banner to **Keep** it in
+local storage or dismiss the offer. History back/forward may re-apply a packet
+mirror in-session but does not rewrite local storage, so Settings → Use nuget.org
+stays durable across Back. Shares from nuget.org omit `n` so they do not wipe a
+recipient's stored corporate mirror. A shared mirror that fails validation falls
+back to the recipient's stored source (if any) and surfaces a notice. Settings
+rewrite the address-bar packet before reload so a stale `n` is not the active
+entry after a source change.
 
 ## Run the .NET 11 browser-WASM prototype
 
