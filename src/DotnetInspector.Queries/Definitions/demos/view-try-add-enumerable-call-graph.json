@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "kind": "view",
-  "id": "try-add-enumerable-call-graph",
-  "type": "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions",
-  "memberKey": "method:TryAddEnumerable",
-  "memberAnchor": "74b6b4b321",
-  "section": "call-graph"
-}

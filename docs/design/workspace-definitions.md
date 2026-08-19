@@ -863,7 +863,7 @@ Implementation must add, at minimum:
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
   `InspectionDefinitionTests.ProductHomeDemos_ResolveCallGraphByMemberAnchor`
-  (and STJ/platform companions) resolve product-embedded scenarios to
+  (and STJ/platform companions) resolve static product-registry scenarios to
   `WorkspaceMemberCoordinate` plans and view `memberAnchor` `74b6b4b321`; host
   acquisition and UI landing remain host work on top of
   `ProductInspectionDemos` / `ResolvedScenario`.
@@ -884,10 +884,11 @@ Definition records and product demos (this slice):
   scenarios by explicit id, and lowers package/platform/embedded coordinates to
   `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
   expressions and filesystem coordinates are typed failures in this slice);
-- `ProductInspectionDemos` embeds the three home scenarios
-  (`stj-serializer`, `extensions-callgraph`, `platform-list`) as product
-  resources under `Definitions/demos/`, so CLI and inspect-web can share one
-  registry rather than host-local catalogs; and
+- `ProductInspectionDemos` is a static API registry (same pattern as
+  `VocabularyCatalog` / Markout `FormatterRegistry`) of the three home
+  scenarios (`stj-serializer`, `extensions-callgraph`, `platform-list`); JSON
+  remains the portable load path for external definitions, not the product
+  demo source of truth; and
 - `InspectionDefinitionTests` is the gate for round-trip, separation, and
   demo-parity claims above.
 

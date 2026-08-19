@@ -35,7 +35,4 @@
     <InternalsVisibleTo Include="DotnetInspector.ResearchQueries" />
   </ItemGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="Definitions\demos\*.json" />
-  </ItemGroup>
 </Project>

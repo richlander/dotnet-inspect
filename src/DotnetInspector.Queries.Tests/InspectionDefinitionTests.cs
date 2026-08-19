@@ -247,10 +247,24 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
-    public void ProductHomeDemos_EmbeddedResources_AreComplete()
+    public void ProductHomeDemos_StaticRegistry_IsCompleteAndStable()
     {
-        var registry = ProductInspectionDemos.CreateRegistry();
-        // 4 records × 3 demos = 12
-        Assert.Equal(12, registry.Records.Count);
+        // 4 records × 3 demos = 12; static registry is the product source of truth.
+        Assert.Equal(12, ProductInspectionDemos.Records.Count);
+        Assert.Equal(12, ProductInspectionDemos.Registry.Records.Count);
+        Assert.Same(ProductInspectionDemos.Registry, ProductInspectionDemos.Registry);
+
+        var fresh = ProductInspectionDemos.CreateRegistry();
+        Assert.Equal(12, fresh.Records.Count);
+        Assert.NotSame(ProductInspectionDemos.Registry, fresh);
+
+        // Round-trip every static record through the portable JSON path.
+        foreach (var record in ProductInspectionDemos.Records)
+        {
+            var json = InspectionDefinitionJson.Serialize(record);
+            var parsed = InspectionDefinitionJson.Parse(json);
+            Assert.Equal(record.Kind, parsed.Kind);
+            Assert.Equal(record.Id, parsed.Id);
+        }
     }
 }
