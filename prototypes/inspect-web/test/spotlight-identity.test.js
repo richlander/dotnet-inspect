@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { parseSync, visitorKeys } from "oxc-parser";
 
 import {
+  accessibilityFilterIncludingType,
   activeSourceOperationKind,
   assemblyDescriptorForType,
   pdbSourceLimitationHtml,
@@ -3165,12 +3166,21 @@ test("platform graph borders reflect actual resident lookup", () => {
   const binding =
     appSource.match(/if \(bindCallGraphNodes\)[\s\S]*?\n  fit\(\);/)?.[0]
     ?? "";
+  const packageBinding = binding.slice(binding.indexOf("const packages ="));
 
   assert.match(binding, /resolveRuntimeGraphTargetCandidate\(pack, target\)/);
   assert.match(binding, /if \(disposition === "lookup"\) node\.classList\.add\("platform-node"\)/);
   assert.match(binding, /if \(disposition === "member"\) \{\s*navigateToRuntimeMember\(/);
   assert.match(binding, /else \{\s*drillPlatformNode\(target\)/);
-  assert.match(binding, /disposition === "resident"/);
+  assert.match(
+    packageBinding,
+    /const runtimeCandidate = candidate\.status === "missing" && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
+  assert.match(
+    packageBinding,
+    /runtimeCandidate\.status === "unique"\);\s*if \(disposition === "blocked"/);
+  assert.match(
+    packageBinding,
+    /else if \(disposition === "resident"\) \{\s*if \(resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{\s*drillPlatformNode\(target\)/);
 });
 
 test("runtime graph nodes separate member, drill, and lookup disposition", () => {
@@ -3308,7 +3318,29 @@ test("graph navigation restores scope and supersedes local drills", () => {
     /state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.libraryScope = null;/);
   assert.match(
     navigation,
-    /state\.accessibilityFilter\.add\(type\.accessibilityId\)/);
+    /state\.accessibilityFilter = accessibilityFilterIncludingType\(\s*state\.accessibilityFilter,\s*type\)/);
+});
+
+test("restored selections reveal their accessibility bucket", () => {
+  const original = new Set(["public"]);
+  const revealed = accessibilityFilterIncludingType(
+    original,
+    { accessibilityId: "private" });
+  assert.deepEqual([...original], ["public"]);
+  assert.deepEqual([...revealed], ["public", "private"]);
+
+  const apply =
+    appSource.match(/function applyView[\s\S]*?(?=\nfunction navBack)/)?.[0]
+    ?? "";
+  const deepLink =
+    appSource.match(/function applyDeepLink\(deep\) \{[\s\S]*?(?=\n\})/)?.[0]
+    ?? "";
+  assert.match(
+    apply,
+    /const restoredType = pkg\.types\.find[\s\S]*?accessibilityFilterIncludingType\(\s*state\.accessibilityFilter,\s*restoredType\)[\s\S]*?const type = selectedType\(\)/);
+  assert.match(
+    deepLink,
+    /const type = pkg\.types\.find[\s\S]*?accessibilityFilterIncludingType\(\s*state\.accessibilityFilter,\s*type\)[\s\S]*?state\.typeCursor = Math\.max/);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {

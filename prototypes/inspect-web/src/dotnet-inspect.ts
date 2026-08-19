@@ -1,4 +1,5 @@
 import {
+  accessibilityFilterIncludingType,
   activeSourceOperationKind,
   assemblyDescriptorForType,
   pdbSourceLimitationHtml,
@@ -5599,6 +5600,9 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   } else if (restoreType && deep) {
     const type = pkg.types.find(item => item.id === deep.type);
     if (!type) return;
+    state.accessibilityFilter = accessibilityFilterIncludingType(
+      state.accessibilityFilter,
+      type);
     const groups = memberGroups(type);
     state.memberTextFilter = deep.memberTextFilter || "";
     state.memberKindFilter = deep.memberKindFilter
@@ -6306,12 +6310,9 @@ function navigateToType(target: BrowserTypeSurface) {
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
   // being filtered out by the public-by-default view.
-  const bucket = target.accessibilityId;
-  if (!state.accessibilityFilter.has(bucket)) {
-    const next = new Set(state.accessibilityFilter);
-    next.add(bucket);
-    state.accessibilityFilter = next;
-  }
+  state.accessibilityFilter = accessibilityFilterIncludingType(
+    state.accessibilityFilter,
+    target);
   state.selectedTypeId = target.id;
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
@@ -7116,8 +7117,9 @@ function navigateToRuntimeMember(
   activatePackage(pack);
   const targetLibrary = libraryKey(type);
   state.libraryScope = targetLibrary ? new Set([targetLibrary]) : null;
-  if (type.accessibilityId)
-    state.accessibilityFilter.add(type.accessibilityId);
+  state.accessibilityFilter = accessibilityFilterIncludingType(
+    state.accessibilityFilter,
+    type);
   state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
@@ -7371,8 +7373,9 @@ function navigateToMember(
   state.namespaceFilter = "";
   state.kindFilter = "";
   state.libraryScope = null;
-  if (type.accessibilityId)
-    state.accessibilityFilter.add(type.accessibilityId);
+  state.accessibilityFilter = accessibilityFilterIncludingType(
+    state.accessibilityFilter,
+    type);
   state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
