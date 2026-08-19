@@ -6628,9 +6628,11 @@ public partial class CommandExecutionTests
     [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
     [InlineData(SectionNames.PdbSource, true, "sequence-point coordinates")]
     [InlineData(SectionNames.SourceDiff, true, "sequence-point coordinates")]
+    [InlineData(SectionNames.PdbSource, null, ApiCommand.NoMatchingPdbSourceReason)]
+    [InlineData(SectionNames.SourceDiff, null, ApiCommand.NoMatchingPdbSourceReason)]
     public async Task Member_SourceFailureInNonCodeFormatsFailsVisibly(
         string section,
-        bool coordinatesInvalid,
+        bool? coordinatesInvalid,
         string expectedFailure)
     {
         var type = new ApiType
@@ -6653,8 +6655,11 @@ public partial class CommandExecutionTests
         {
             var options = candidate with
             {
-                MemberSourceTooComplex = !coordinatesInvalid,
-                MemberSourceCoordinatesInvalid = coordinatesInvalid,
+                MemberSourceTooComplex = coordinatesInvalid == false,
+                MemberSourceCoordinatesInvalid = coordinatesInvalid == true,
+                PdbSourceUnavailableReason = coordinatesInvalid is null
+                    ? ApiCommand.NoMatchingPdbSourceReason
+                    : null,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                     { section },
             };

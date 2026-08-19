@@ -1735,7 +1735,8 @@ public class ApiCommand
             options.Bare && !options.Count && !options.JsonOutput;
         if (options is MemberOptions memberOptions
             && (memberOptions.MemberSourceTooComplex
-                || memberOptions.MemberSourceCoordinatesInvalid)
+                || memberOptions.MemberSourceCoordinatesInvalid
+                || memberOptions.PdbSourceUnavailableReason is { Length: > 0 })
             && !IsProjectionRequested(options)
             && !barePayloadRenderer
             && (options.Count
@@ -1759,8 +1760,10 @@ public class ApiCommand
             string failure = memberOptions.MemberSourceTooComplex
                 ? "PDB source extraction stopped because the source exceeds the lexical "
                     + "complexity limit."
-                : "PDB source extraction stopped because the portable-PDB sequence-point "
-                    + "coordinates cannot address the verified source.";
+                : memberOptions.MemberSourceCoordinatesInvalid
+                    ? "PDB source extraction stopped because the portable-PDB sequence-point "
+                        + "coordinates cannot address the verified source."
+                    : memberOptions.PdbSourceUnavailableReason!;
             CommandError.Write(
                 failure + $" {format} cannot represent this code-section "
                 + "failure. " + guidance);
