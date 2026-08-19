@@ -497,6 +497,40 @@ public sealed class CSharpTypePrinterTests
         Assert.Contains("remove", result.Source, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void RegularRemoveOnlyEvent_FailsVisibly()
+    {
+        var type = CreateEmptyType("Samples", "Widget");
+        var removeOnlyEvent = new ApiMember
+        {
+            Name = "Changed",
+            Kind = "event",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "System.EventHandler",
+                MemberName = "Changed",
+                Accessors = [new ApiAccessor { Kind = "remove" }]
+            }
+        };
+        type.Members.Add(removeOnlyEvent);
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => _printer.Print(new CSharpTypePrintRequest(type)));
+
+        Assert.Contains("Changed", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("remove", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("'add'", exception.Message, StringComparison.Ordinal);
+
+        removeOnlyEvent.SignatureModel!.Accessors =
+        [
+            new ApiAccessor { Kind = "add" },
+            new ApiAccessor { Kind = "remove" }
+        ];
+        var result = _printer.Print(new CSharpTypePrintRequest(type));
+
+        Assert.Contains("event EventHandler Changed;", result.Source, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Abstractness belongs to the member outside an interface, so a class aggregate whose
     /// accessors disagree has no legal C# spelling and must not be rendered as the concrete

@@ -179,6 +179,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         ExplicitInterfaceTypeIdentity elementType,
         ArrayShape shape)
     {
+        ObserveWork((int)Math.Min(16L + Math.Max(shape.Rank, 0), int.MaxValue));
         string suffix = shape.Rank == 1
             ? "[*]"
             : $"[{new string(',', Math.Max(shape.Rank - 1, 0))}]";

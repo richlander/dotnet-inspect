@@ -925,6 +925,13 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void ExplicitInterfaceMethodImplHugeArrayRank_StopsBeforeLargeAllocationAmplification()
+    {
+        AssertTextAmplificationIsBounded(
+            BuildMethodImplArrayRankImage(rank: 40_000_000));
+    }
+
+    [Fact]
     public void DiscardedMethodImplBodies_DoNotSpendProjectionBudget()
     {
         using var stream = new MemoryStream(
@@ -1347,6 +1354,94 @@ public sealed class ApiSurfaceExtractorBoundsTests
             BuildRepeatedFinalizerImage(
                 typeCount: 64,
                 publicKeyLength: 2_100_000));
+    }
+
+    [Theory]
+    [InlineData(
+        FinalizerSignatureShape.InstanceVoid,
+        FinalizerSignatureShape.InstanceVoid,
+        true)]
+    [InlineData(
+        FinalizerSignatureShape.StaticVoid,
+        FinalizerSignatureShape.InstanceVoid,
+        false)]
+    [InlineData(
+        FinalizerSignatureShape.StaticAttributeInstanceVoid,
+        FinalizerSignatureShape.InstanceVoid,
+        false)]
+    [InlineData(
+        FinalizerSignatureShape.InstanceVoidInt32,
+        FinalizerSignatureShape.InstanceVoid,
+        false)]
+    [InlineData(
+        FinalizerSignatureShape.InstanceVoid,
+        FinalizerSignatureShape.InstanceVoidInt32,
+        false)]
+    [InlineData(
+        FinalizerSignatureShape.InstanceVoid,
+        FinalizerSignatureShape.StaticVoid,
+        false)]
+    [InlineData(
+        FinalizerSignatureShape.InstanceVoid,
+        FinalizerSignatureShape.Malformed,
+        false)]
+    public void ExplicitObjectFinalizeMethodImpl_RequiresInstanceVoidSignatures(
+        FinalizerSignatureShape bodyShape,
+        FinalizerSignatureShape declarationShape,
+        bool isFinalizer)
+    {
+        using var stream = new MemoryStream(
+            BuildObjectFinalizeMethodImplImage(bodyShape, declarationShape),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle type = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == "FinalizerMethodImplHost");
+        MethodDefinitionHandle method = Assert.Single(
+            reader.GetTypeDefinition(type).GetMethods());
+
+        Assert.Equal(
+            isFinalizer,
+            ApiSurfaceExtractor.IsFinalizerMethod(reader, method));
+
+        if (isFinalizer)
+        {
+            ApiType publicSurface = Assert.Single(
+                ApiSurfaceExtractor.Extract(peReader).Types,
+                candidate => candidate.Name == "FinalizerMethodImplHost");
+            Assert.Contains(
+                publicSurface.Members,
+                candidate => candidate is { Name: "Finalize", Kind: "finalizer" });
+        }
+
+        ApiType extracted = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader, includeAll: true).Types,
+            candidate => candidate.Name == "FinalizerMethodImplHost");
+        ApiMember member = Assert.Single(
+            extracted.Members,
+            candidate => candidate.Name == "Finalize");
+        Assert.Equal(isFinalizer, member.IsFinalizer);
+        Assert.Equal(isFinalizer ? "finalizer" : "method", member.Kind);
+    }
+
+    [Fact]
+    public void ExplicitObjectFinalizeMethodImpl_WithMalformedBodySignatureIsNotFinalizer()
+    {
+        using var stream = new MemoryStream(
+            BuildObjectFinalizeMethodImplImage(
+                FinalizerSignatureShape.Malformed,
+                FinalizerSignatureShape.InstanceVoid),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle type = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name)
+                == "FinalizerMethodImplHost");
+        MethodDefinitionHandle method = Assert.Single(
+            reader.GetTypeDefinition(type).GetMethods());
+
+        Assert.False(ApiSurfaceExtractor.IsFinalizerMethod(reader, method));
     }
 
     [Fact]
@@ -4079,6 +4174,79 @@ public sealed class ApiSurfaceExtractorBoundsTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildObjectFinalizeMethodImplImage(
+        FinalizerSignatureShape bodyShape,
+        FinalizerSignatureShape declarationShape)
+    {
+        var metadata = Metadata("ObjectFinalizeMethodImpl");
+        AssemblyReferenceHandle coreLibrary = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Private.CoreLib"),
+            new Version(11, 0, 0, 0),
+            default,
+            metadata.GetOrAddBlob(new byte[]
+            {
+                0x7c, 0xec, 0x85, 0xd7,
+                0xbe, 0xa7, 0x79, 0x8e
+            }),
+            default,
+            default);
+        TypeReferenceHandle objectType = metadata.AddTypeReference(
+            coreLibrary,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "FinalizerMethodImplHost",
+            TypeAttributes.Public);
+        BlobHandle bodySignature = AddFinalizeSignature(metadata, bodyShape);
+        BlobHandle declarationSignature = AddFinalizeSignature(metadata, declarationShape);
+        MethodAttributes attributes = MethodAttributes.Private | MethodAttributes.HideBySig;
+        attributes |= bodyShape is FinalizerSignatureShape.StaticVoid
+                or FinalizerSignatureShape.StaticAttributeInstanceVoid
+            ? MethodAttributes.Static
+            : MethodAttributes.Virtual;
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Finalize"),
+            bodySignature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle declaration = metadata.AddMemberReference(
+            objectType,
+            metadata.GetOrAddString("Finalize"),
+            declarationSignature);
+        metadata.AddMethodImplementation(type, body, declaration);
+        return Serialize(metadata);
+    }
+
+    static BlobHandle AddFinalizeSignature(
+        MetadataBuilder metadata,
+        FinalizerSignatureShape shape)
+    {
+        var signature = new BlobBuilder();
+        if (shape == FinalizerSignatureShape.Malformed)
+        {
+            signature.WriteByte(0x20); // HASTHIS without the required parameter count or return type
+            return metadata.GetOrAddBlob(signature);
+        }
+
+        bool isInstance = shape != FinalizerSignatureShape.StaticVoid;
+        bool hasParameter = shape == FinalizerSignatureShape.InstanceVoidInt32;
+        new BlobEncoder(signature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: isInstance).Parameters(
+            hasParameter ? 1 : 0,
+            returnType => returnType.Void(),
+            parameters =>
+            {
+                if (hasParameter)
+                    parameters.AddParameter().Type().Int32();
+            });
+        return metadata.GetOrAddBlob(signature);
+    }
+
     static byte[] BuildForwarderImage(string typeName, string assemblyName)
     {
         var metadata = Metadata("ForwarderBomb");
@@ -4519,6 +4687,15 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Dynamic,
     }
 
+    public enum FinalizerSignatureShape
+    {
+        InstanceVoid,
+        StaticVoid,
+        StaticAttributeInstanceVoid,
+        InstanceVoidInt32,
+        Malformed,
+    }
+
     static MetadataBuilder Metadata(
         string assemblyName,
         byte[]? publicKey = null)
@@ -4575,5 +4752,52 @@ public sealed class ApiSurfaceExtractorBoundsTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    static byte[] BuildMethodImplArrayRankImage(int rank)
+    {
+        var metadata = Metadata("MethodImplArrayRank");
+        AssemblyReferenceHandle contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle interfaceType = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("IRank"));
+        TypeDefinitionHandle type = AddModuleAndPublicType(metadata, "RankImplementer");
+        metadata.AddInterfaceImplementation(type, interfaceType);
+
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20); // HASTHIS
+        signature.WriteByte(0x01); // parameter count
+        signature.WriteByte(0x01); // ELEMENT_TYPE_VOID
+        signature.WriteByte(0x14); // ELEMENT_TYPE_ARRAY
+        signature.WriteByte(0x08); // ELEMENT_TYPE_I4
+        signature.WriteCompressedInteger(rank);
+        signature.WriteCompressedInteger(0); // sizes
+        signature.WriteCompressedInteger(0); // lower bounds
+        BlobHandle signatureHandle = metadata.GetOrAddBlob(signature);
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Virtual
+                | MethodAttributes.Final
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            signatureHandle,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle declaration = metadata.AddMemberReference(
+            interfaceType,
+            metadata.GetOrAddString("M"),
+            signatureHandle);
+        metadata.AddMethodImplementation(type, body, declaration);
+
+        return Serialize(metadata);
     }
 }

@@ -1186,10 +1186,12 @@ public sealed class CSharpTypePrinter
                 $"Member '{member.Name}' has accessors that disagree about abstractness, "
                 + "which C# cannot represent outside an interface.");
         }
-        if (IsExplicitInterfaceEvent(member) && !HasBothEventAccessors(member))
+        if (IsEvent(member)
+            && member.SignatureModel?.Accessors is { Count: > 0 }
+            && !HasBothEventAccessors(member))
         {
             throw new NotSupportedException(
-                $"Explicit interface event '{member.Name}' declares only "
+                $"Event '{member.Name}' declares only "
                 + $"'{string.Join("', '", member.SignatureModel!.Accessors.Select(accessor => accessor.Kind))}'; "
                 + "C# requires both an add and a remove accessor.");
         }
@@ -1229,14 +1231,14 @@ public sealed class CSharpTypePrinter
             && accessors.Any(accessor => accessor.IsAbstract == false);
 
     /// <summary>
-    /// True when an explicit interface event carries both of the accessors C# requires.
+    /// True when an event carries both of the accessors C# requires.
     /// </summary>
     /// <remarks>
-    /// An explicit interface event is projected with add/remove bodies, and both are written
-    /// unconditionally. A malformed or hostile Event row that declares only a remover has no
-    /// legal C# spelling, so it must fail rather than be completed with an adder metadata never
-    /// declared. Gated by
-    /// <c>CSharpTypePrinterTests.ExplicitInterfaceEvent_WithoutBothAccessors_FailsVisibly</c>.
+    /// An event with declared accessors is projected with C# event syntax. A malformed or hostile
+    /// Event row that declares only a remover has no legal C# spelling, so it must fail rather than
+    /// be completed with an adder metadata never declared. Gated by
+    /// <c>CSharpTypePrinterTests.ExplicitInterfaceEvent_WithoutBothAccessors_FailsVisibly</c> and
+    /// <c>CSharpTypePrinterTests.RegularRemoveOnlyEvent_FailsVisibly</c>.
     /// </remarks>
     static bool HasBothEventAccessors(ApiMember member)
         => member.SignatureModel?.Accessors is { } accessors

@@ -771,13 +771,25 @@ public static class ApiSurfaceExtractor
                             $"The method has an unknown accessibility value 0x{(int)methodAccess:X}."));
                     continue;
                 }
-                var isExplicitInterfaceImplementation =
-                    methodImplementations.ContainsBody(methodHandle);
-                if (methodAccess != MethodAttributes.Public && !includeAll && !isExplicitInterfaceImplementation)
-                    continue;
-
                 // Skip compiler-generated methods (lambdas, state machines, etc.)
                 if (methodName.StartsWith("<"))
+                    continue;
+
+                var isExplicitInterfaceImplementation =
+                    methodImplementations.HasExplicitInterfaceTargets(methodHandle);
+                var isFinalizer = apiType.Kind == "class"
+                    && method.GetGenericParameters().Count == 0
+                    && string.Equals(methodName, "Finalize", StringComparison.Ordinal)
+                    && (methodImplementations.OverridesObjectFinalize(methodHandle)
+                        || IsImplicitObjectFinalizeOverride(
+                            reader,
+                            typeDefHandle,
+                            method,
+                            observeDecodeWork));
+                if (methodAccess != MethodAttributes.Public
+                    && !includeAll
+                    && !isExplicitInterfaceImplementation
+                    && !isFinalizer)
                     continue;
 
                 bool isNormallySkippedAccessor =
@@ -855,15 +867,6 @@ public static class ApiSurfaceExtractor
                 // A finalizer is never generic, so a method that overrides
                 // object.Finalize while declaring its own type parameters is still
                 // rejected — rendering it `~Type()` would erase `<T>`.
-                var isFinalizer = apiType.Kind == "class"
-                    && method.GetGenericParameters().Count == 0
-                    && (methodImplementations.OverridesObjectFinalize(methodHandle)
-                        || IsImplicitObjectFinalizeOverride(
-                            reader,
-                            typeDefHandle,
-                            method,
-                            observeDecodeWork));
-
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -1779,12 +1782,13 @@ public static class ApiSurfaceExtractor
         {
             var method = reader.GetMethodDefinition(methodHandle);
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-            bool isExplicitImplementation =
-                methodImplementations.ContainsBody(methodHandle);
-            if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
-                continue;
             string methodName = reader.GetString(method.Name);
             if (methodName.StartsWith('<'))
+                continue;
+
+            bool isExplicitImplementation =
+                methodImplementations.HasExplicitInterfaceTargets(methodHandle);
+            if (methodAccess != MethodAttributes.Public && !isExplicitImplementation)
                 continue;
 
             bool isNormallySkippedAccessor =
@@ -1913,11 +1917,29 @@ public static class ApiSurfaceExtractor
         {
             var evt = reader.GetEventDefinition(eventHandle);
             var accessors = evt.GetAccessors();
-            if (accessors.Adder.IsNil)
+            if (accessors.Adder.IsNil && accessors.Remover.IsNil)
                 continue;
 
-            var adder = reader.GetMethodDefinition(accessors.Adder);
-            if ((adder.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public
+            MethodAttributes bestAccess = 0;
+            bool malformedAccessibility = false;
+            foreach (var accessorHandle in new[] { accessors.Adder, accessors.Remover })
+            {
+                if (accessorHandle.IsNil)
+                    continue;
+
+                var access = reader.GetMethodDefinition(accessorHandle).Attributes
+                    & MethodAttributes.MemberAccessMask;
+                if (!MetadataAccessibility.TryGet(access, out _))
+                {
+                    malformedAccessibility = true;
+                    break;
+                }
+                if (access > bestAccess)
+                    bestAccess = access;
+            }
+
+            if (malformedAccessibility
+                || bestAccess != MethodAttributes.Public
                 || AttributeReader.HasEditorBrowsableNeverAttribute(reader, evt.GetCustomAttributes()))
             {
                 continue;
@@ -2358,9 +2380,6 @@ public static class ApiSurfaceExtractor
         public IEnumerable<MethodDefinitionHandle> Bodies =>
             declarationsByBody.Keys;
 
-        public bool ContainsBody(MethodDefinitionHandle body) =>
-            declarationsByBody.ContainsKey(body);
-
         public bool HasExplicitInterfaceTargets(MethodDefinitionHandle body) =>
             GetExplicitInterfaceTargets(body).Count > 0;
 
@@ -2432,6 +2451,9 @@ public static class ApiSurfaceExtractor
 
             bool result =
                 declarationsByBody.TryGetValue(body, out var declarations)
+                && HasVoidNullaryInstanceSignature(
+                    reader,
+                    reader.GetMethodDefinition(body))
                 && declarations.Any(declaration =>
                     ReferencesObjectFinalize(
                         reader,
@@ -2968,6 +2990,8 @@ public static class ApiSurfaceExtractor
             return false;
         if (method.GetGenericParameters().Count != 0)
             return false;
+        if (!HasVoidNullaryInstanceSignature(reader, method))
+            return false;
 
         var typeHandle = method.GetDeclaringType();
         var typeDef = reader.GetTypeDefinition(typeHandle);
@@ -3126,10 +3150,14 @@ public static class ApiSurfaceExtractor
     /// as a non-match (returns false) rather than throwing.
     /// </summary>
     private static bool HasVoidNullaryInstanceSignature(MetadataReader reader, MethodDefinition method)
+        => (method.Attributes & MethodAttributes.Static) == 0
+            && HasVoidNullaryInstanceSignature(reader, method.Signature);
+
+    private static bool HasVoidNullaryInstanceSignature(MetadataReader reader, BlobHandle signature)
     {
         try
         {
-            var blob = reader.GetBlobReader(method.Signature);
+            var blob = reader.GetBlobReader(signature);
             var header = blob.ReadSignatureHeader();
             // object.Finalize is `instance void ()` with the default managed calling convention.
             // Reject anything else: field/property sigs, vararg/unmanaged conventions, generic
@@ -3144,7 +3172,8 @@ public static class ApiSurfaceExtractor
                 return false;
             // Return type: a plain ELEMENT_TYPE_VOID. Any leading custom modifier or by-ref token is
             // read here instead of Void and correctly rejects.
-            return blob.ReadSignatureTypeCode() == SignatureTypeCode.Void;
+            return blob.ReadSignatureTypeCode() == SignatureTypeCode.Void
+                && blob.RemainingBytes == 0;
         }
         catch (BadImageFormatException)
         {
@@ -3154,10 +3183,13 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// <c>.override</c> MethodImpl) names <c>Finalize</c> on <c>System.Object</c>.
+    /// True when an explicit <c>.override</c> MethodImpl targets the exact
+    /// <c>instance void System.Object::Finalize()</c> slot.
     /// The target is a <see cref="MemberReferenceHandle"/> in the common case
     /// (object lives in another assembly) and a <see cref="MethodDefinitionHandle"/>
     /// only when inspecting the assembly that defines <c>System.Object</c>.
+    /// Gated by
+    /// <c>ApiSurfaceExtractorBoundsTests.ExplicitObjectFinalizeMethodImpl_RequiresInstanceVoidSignatures</c>.
     /// </summary>
     private static bool ReferencesObjectFinalize(
         MetadataReader reader,
@@ -3172,6 +3204,7 @@ public static class ApiSurfaceExtractor
                         DecodeString(reader, memberRef.Name, beforeDecodeWork),
                         "Finalize",
                         StringComparison.Ordinal)
+                    && HasVoidNullaryInstanceSignature(reader, memberRef.Signature)
                     && IsSystemObjectType(
                         reader,
                         memberRef.Parent,
@@ -3182,6 +3215,7 @@ public static class ApiSurfaceExtractor
                         DecodeString(reader, methodDef.Name, beforeDecodeWork),
                         "Finalize",
                         StringComparison.Ordinal)
+                    && HasVoidNullaryInstanceSignature(reader, methodDef)
                     && IsSystemObjectType(
                         reader,
                         methodDef.GetDeclaringType(),

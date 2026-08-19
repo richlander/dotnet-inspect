@@ -853,6 +853,14 @@ public sealed class MetadataDeclarationQueryTests
                 ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(reader, typeDef),
                 (accessors.Adder, "add_"),
                 (accessors.Remover, "remove_")));
+
+            ApiType extracted = Assert.Single(
+                ApiSurfaceExtractor.Extract(peReader).Types,
+                candidate => candidate.Name == "DerivedEvent");
+            Assert.DoesNotContain(
+                extracted.Members,
+                member => member.Name is "add_BaseChanged" or "remove_BaseChanged"
+                    || member.Kind == "explicit-interface-implementation");
         }
         finally
         {

@@ -517,6 +517,15 @@ public class ApiInventoryQueryTests
         Assert.Null(brokenMember.AdderToken);
         Assert.NotNull(brokenMember.RemoverToken);
         Assert.Empty(surface.InspectionFailures);
+
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(peReader);
+        ApiType summarized = Assert.Single(
+            summary.Types,
+            candidate => candidate.Name == "EventAccessibilityHost");
+        Assert.Contains(summarized.Members, member => member is { Name: "Changed", Kind: "event" });
+        Assert.Contains(summarized.Members, member => member is { Name: "Broken", Kind: "event" });
+        Assert.Equal(2, summary.PublicEventCount);
+
         MetadataReader reader = peReader.GetMetadataReader();
         EventDefinitionHandle broken = reader.GetTypeDefinition(
                 reader.TypeDefinitions.Single(handle =>
