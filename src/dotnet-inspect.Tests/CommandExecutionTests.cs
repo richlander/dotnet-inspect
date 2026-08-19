@@ -17267,6 +17267,41 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_StaticSchemaDiscovery_HonorsProgrammaticSelection()
+    {
+        var rendered = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(
+                new InspectionOptions
+                {
+                    Discover = [],
+                    Schema = true,
+                    Tree = true,
+                    IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        PackageSections.Dependencies,
+                    },
+                }));
+
+        Assert.Equal(0, rendered.ExitCode);
+        Assert.Empty(rendered.Error);
+        Assert.Contains("Dependencies", rendered.Output);
+        Assert.DoesNotContain("Manifest", rendered.Output);
+        Assert.DoesNotContain("Package Info", rendered.Output);
+    }
+
+    [Fact]
+    public async Task Package_StaticDiscovery_SelectionPreservesCatalogBehavior()
+    {
+        var unselected = await RunAppAsync("package", "-D", "--tips", "q");
+        var selected = await RunAppAsync(
+            "package", "-D", "-S", PackageSections.SourceLinkFiles, "--tips", "q");
+
+        Assert.Equal(0, unselected.Exit);
+        Assert.Empty(unselected.Error);
+        Assert.Equal(unselected, selected);
+    }
+
+    [Fact]
     public async Task Package_DependencyTree_HonorsOutputPath()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
@@ -17292,6 +17327,27 @@ public partial class CommandExecutionTests
             Assert.Empty(empty.Output);
             Assert.Empty(empty.Error);
             Assert.Contains("No additional dependencies for net10.0", File.ReadAllText(outputPath));
+
+            var (noDependenciesPath, noDependenciesTempDir) =
+                CreateLocalReadmePackage(
+                    "Test.NoDependencies",
+                    "README.md",
+                    "readme");
+            try
+            {
+                var noDependencies = await RunAppAsync(
+                    "package", noDependenciesPath, "-S", "Dependencies", "--tree",
+                    "--out", outputPath, "--tips", "q");
+
+                Assert.Equal(0, noDependencies.Exit);
+                Assert.Empty(noDependencies.Output);
+                Assert.Empty(noDependencies.Error);
+                Assert.Contains("No dependencies declared in package", File.ReadAllText(outputPath));
+            }
+            finally
+            {
+                Directory.Delete(noDependenciesTempDir, recursive: true);
+            }
         }
         finally
         {
@@ -17426,6 +17482,35 @@ public partial class CommandExecutionTests
         }
         finally
         {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_LibraryFlag_ReferenceTreeRejectsNonMarkdownFormat()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        var (packagePath, tempDir) = CreateLocalPrimaryLibPackage();
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "mermaid");
+            var environment = await RunAppAsync(
+                "package", packagePath, "--library", "Test.Primary.dll",
+                "-S", "References", "--tree", "--tips", "q");
+            var explicitMarkdown = await RunAppAsync(
+                "package", packagePath, "--library", "Test.Primary.dll",
+                "-S", "References", "--tree", "--markdown", "--tips", "q");
+
+            Assert.Equal(1, environment.Exit);
+            Assert.Empty(environment.Output);
+            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", environment.Error);
+            Assert.Equal(0, explicitMarkdown.Exit);
+            Assert.Empty(explicitMarkdown.Error);
+            Assert.Contains("## References", explicitMarkdown.Output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
             Directory.Delete(tempDir, recursive: true);
         }
     }

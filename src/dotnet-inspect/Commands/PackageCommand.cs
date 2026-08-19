@@ -67,18 +67,29 @@ public class PackageCommand
         if (!packageLibraryMode && options.Discover != null && (options.Schema || packageArgs.Length < 1))
         {
             var schemaMap = PackageDiscoverySchema();
-            if (options.Select is { Length: > 0 })
+            if (options.Schema)
             {
-                var selectResult = SelectResolver.ResolveSelectAsSections(
-                    options.Select,
-                    sectionNames,
-                    pipeline.InfoSectionNames,
-                    pipeline.GetCategoryMap(),
-                    selectDefault: false);
-                if (SelectOutput.WriteUnresolved(selectResult))
-                    return 1;
-                if (selectResult.Sections is { Count: > 0 })
-                    schemaMap = FilterDiscoverySchema(schemaMap, selectResult.Sections);
+                var selectedSections = options.IncludeSections is { Count: > 0 }
+                    ? new HashSet<string>(
+                        options.IncludeSections,
+                        StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (options.Select is { Length: > 0 })
+                {
+                    var selectResult = SelectResolver.ResolveSelectAsSections(
+                        options.Select,
+                        sectionNames,
+                        pipeline.InfoSectionNames,
+                        pipeline.GetCategoryMap(),
+                        selectDefault: false);
+                    if (SelectOutput.WriteUnresolved(selectResult))
+                        return 1;
+                    if (selectResult.Sections is { Count: > 0 })
+                        selectedSections.UnionWith(selectResult.Sections);
+                }
+
+                if (selectedSections.Count > 0)
+                    schemaMap = FilterDiscoverySchema(schemaMap, selectedSections);
             }
 
             return DiscoverOutput.Execute(options.Discover, schemaMap,
@@ -3364,6 +3375,14 @@ public class PackageCommand
 
     private static bool ValidatePackageLibraryMode(InspectionOptions options)
     {
+        if (options.Tree
+            && options.Discover == null
+            && options.Format != OutputFormat.Markdown)
+        {
+            CommandError.Write("--tree cannot be combined with row projections or non-Markdown formats.");
+            return false;
+        }
+
         List<string> conflicts = [];
         if (options.AllLibraries) conflicts.Add("--all-libraries");
         if (options.ListLayout) conflicts.Add("--layout");
@@ -3945,16 +3964,13 @@ public class PackageCommand
             TypeFilter = options.TypeFilter,
             BrowsableUrls = options.BrowsableUrls,
             JsonOutput = options.JsonOutput,
+            PlainText = options.Format == OutputFormat.PlainText,
             Tabular = options.Tabular,
             Tsv = options.Tsv,
             Jsonl = options.Jsonl,
             TabularExplicitlySet = options.TabularExplicitlySet,
             FormatExplicitlySet = options.FormatExplicitlySet,
-            Format = options.JsonOutput ? OutputFormat.Json
-                : options.Jsonl ? OutputFormat.Jsonl
-                : options.Tsv ? OutputFormat.Tsv
-                : options.Tabular ? OutputFormat.Table
-                : OutputFormat.Markdown,
+            Format = options.Format,
             Verbose = options.Verbose,
             Verbosity = options.Verbosity,
             IncludeSections = options.IncludeSections,
@@ -4847,13 +4863,6 @@ public class PackageCommand
 
         if (result is PackageDependencyGraphResult.Empty empty)
         {
-            if (empty.Kind
-                == PackageDependencyGraphResult.EmptyKind.NoDependencyGroups)
-            {
-                CommandError.WriteLine(empty.Message);
-                return 0;
-            }
-
             var packageName =
                 new InertString(
                     TextPolicy.Field,
