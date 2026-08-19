@@ -36,17 +36,23 @@ public sealed class InspectionDefinitionRegistry
         where TRecord : InspectionDefinitionRecord
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        TRecord? match = null;
         foreach (var candidate in _records.Values)
         {
-            if (candidate is TRecord typed && typed.Id == id)
+            if (candidate is not TRecord typed || typed.Id != id)
+                continue;
+            if (match is not null)
             {
-                record = typed;
-                return true;
+                // Cross-kind id reuse is legal; untyped/base lookup must not pick by registration order.
+                record = null;
+                return false;
             }
+
+            match = typed;
         }
 
-        record = null;
-        return false;
+        record = match;
+        return match is not null;
     }
 
     public bool TryGet(InspectionDefinitionKind kind, string id, [NotNullWhen(true)] out InspectionDefinitionRecord? record)

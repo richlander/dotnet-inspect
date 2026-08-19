@@ -23,6 +23,13 @@ public static class InspectionDefinitionJson
     public static InspectionDefinitionRecord Parse(string json)
     {
         ArgumentException.ThrowIfNullOrEmpty(json);
+        var byteCount = Encoding.UTF8.GetByteCount(json);
+        if (byteCount > MaxUtf8ByteLength)
+        {
+            throw new InspectionDefinitionException(
+                $"Definition JSON exceeds the {MaxUtf8ByteLength}-byte limit.");
+        }
+
         var utf8 = Encoding.UTF8.GetBytes(json);
         return Parse(utf8);
     }
@@ -63,6 +70,8 @@ public static class InspectionDefinitionJson
         if (root.ValueKind != JsonValueKind.Object)
             throw new InspectionDefinitionException("Definition JSON must be a single object.");
 
+        ValidateRecordShape(root);
+
         InspectionDefinitionDto dto;
         try
         {
@@ -77,6 +86,176 @@ public static class InspectionDefinitionJson
         return FromDto(dto);
     }
 
+    private static void ValidateRecordShape(JsonElement root)
+    {
+        if (!TryGetExactString(root, "kind", out var kind))
+            throw new InspectionDefinitionException("Definition record requires kind.");
+
+        HashSet<string> allowed = kind switch
+        {
+            "catalog" => ["schemaVersion", "kind", "id", "groups"],
+            "workspace" => ["schemaVersion", "kind", "id", "title", "description", "contexts", "groups"],
+            "query" => ["schemaVersion", "kind", "id", "queryId"],
+            "view" =>
+            [
+                "schemaVersion", "kind", "id", "lens", "type", "memberAnchor", "memberSignature",
+                "memberKey", "section", "library",
+            ],
+            "navigation" => ["schemaVersion", "kind", "id", "tabs", "focus"],
+            "scenario" =>
+            [
+                "schemaVersion", "kind", "id", "title", "description", "workspace", "context",
+                "input", "query", "view", "navigation",
+            ],
+            _ => throw new InspectionDefinitionException($"Unknown definition kind '{kind}'."),
+        };
+
+        RejectUnknownProperties(root, allowed, $"{kind} definition");
+
+        if (root.TryGetProperty("groups", out var groups))
+            ValidateGroups(groups, "groups");
+        if (root.TryGetProperty("contexts", out var contexts))
+            ValidateContexts(contexts);
+        if (root.TryGetProperty("tabs", out var tabs))
+            ValidateTabs(tabs);
+    }
+
+    private static void ValidateGroups(JsonElement groups, string path)
+    {
+        if (groups.ValueKind != JsonValueKind.Array)
+            throw new InspectionDefinitionException($"{path} must be an array.");
+
+        foreach (var group in groups.EnumerateArray())
+        {
+            if (group.ValueKind == JsonValueKind.Null)
+                throw new InspectionDefinitionException("Catalog group entry must not be null.");
+            if (group.ValueKind != JsonValueKind.Object)
+                throw new InspectionDefinitionException("Catalog group entry must be an object.");
+
+            RejectUnknownProperties(
+                group,
+                ["name", "members", "children"],
+                "Catalog group");
+            if (group.TryGetProperty("members", out var members))
+                ValidateCoordinates(members, "members");
+            if (group.TryGetProperty("children", out var children))
+                ValidateGroups(children, "children");
+        }
+    }
+
+    private static void ValidateContexts(JsonElement contexts)
+    {
+        if (contexts.ValueKind != JsonValueKind.Array)
+            throw new InspectionDefinitionException("contexts must be an array.");
+
+        foreach (var context in contexts.EnumerateArray())
+        {
+            if (context.ValueKind == JsonValueKind.Null)
+                throw new InspectionDefinitionException("Workspace context entry must not be null.");
+            if (context.ValueKind != JsonValueKind.Object)
+                throw new InspectionDefinitionException("Workspace context entry must be an object.");
+
+            RejectUnknownProperties(
+                context,
+                ["name", "framework", "rid", "runtimeIdentifier", "subscribe", "members"],
+                "Workspace context");
+            RejectDualRuntimeIdentifierProperties(context, "Workspace context");
+            if (context.TryGetProperty("members", out var members))
+                ValidateCoordinates(members, "members");
+        }
+    }
+
+    private static void ValidateTabs(JsonElement tabs)
+    {
+        if (tabs.ValueKind != JsonValueKind.Array)
+            throw new InspectionDefinitionException("tabs must be an array.");
+
+        foreach (var tab in tabs.EnumerateArray())
+        {
+            if (tab.ValueKind == JsonValueKind.Null)
+                throw new InspectionDefinitionException("Navigation tab entry must not be null.");
+            if (tab.ValueKind != JsonValueKind.Object)
+                throw new InspectionDefinitionException("Navigation tab entry must be an object.");
+
+            RejectUnknownProperties(
+                tab,
+                ["id", "coordinate", "subscribe", "framework", "rid", "runtimeIdentifier"],
+                "Navigation tab");
+            RejectDualRuntimeIdentifierProperties(tab, "Navigation tab");
+            if (tab.TryGetProperty("coordinate", out var coordinate))
+            {
+                if (coordinate.ValueKind == JsonValueKind.Null)
+                    throw new InspectionDefinitionException("Navigation tab coordinate must not be null.");
+                ValidateCoordinateObject(coordinate, "Navigation tab coordinate");
+            }
+        }
+    }
+
+    private static void ValidateCoordinates(JsonElement members, string path)
+    {
+        if (members.ValueKind != JsonValueKind.Array)
+            throw new InspectionDefinitionException($"{path} must be an array.");
+
+        foreach (var member in members.EnumerateArray())
+        {
+            if (member.ValueKind == JsonValueKind.Null)
+                throw new InspectionDefinitionException("Member coordinate entry must not be null.");
+            ValidateCoordinateObject(member, "Member coordinate");
+        }
+    }
+
+    private static void ValidateCoordinateObject(JsonElement coordinate, string owner)
+    {
+        if (coordinate.ValueKind != JsonValueKind.Object)
+            throw new InspectionDefinitionException($"{owner} must be an object.");
+        if (!TryGetExactString(coordinate, "kind", out var kind))
+            throw new InspectionDefinitionException($"{owner} requires kind.");
+
+        HashSet<string> allowed = kind switch
+        {
+            "package" => ["kind", "id", "version", "framework", "rid", "runtimeIdentifier"],
+            "platform" => ["kind", "family", "assembly", "version", "framework"],
+            "embedded" => ["kind", "contentRef", "digest", "declaredName"],
+            "project" => ["kind", "path", "framework", "rid", "runtimeIdentifier"],
+            "local" => ["kind", "path"],
+            "directory" => ["kind", "path", "framework", "rid", "runtimeIdentifier"],
+            _ => throw new InspectionDefinitionException($"Unknown member coordinate kind '{kind}'."),
+        };
+
+        RejectUnknownProperties(coordinate, allowed, $"{kind} coordinate");
+        RejectDualRuntimeIdentifierProperties(coordinate, $"{kind} coordinate");
+    }
+
+    private static void RejectDualRuntimeIdentifierProperties(JsonElement obj, string owner)
+    {
+        if (obj.TryGetProperty("rid", out _) && obj.TryGetProperty("runtimeIdentifier", out _))
+        {
+            throw new InspectionDefinitionException(
+                $"{owner} specifies both rid and runtimeIdentifier; use only one spelling.");
+        }
+    }
+
+    private static void RejectUnknownProperties(JsonElement obj, HashSet<string> allowed, string owner)
+    {
+        foreach (var property in obj.EnumerateObject())
+        {
+            if (!allowed.Contains(property.Name))
+            {
+                throw new InspectionDefinitionException(
+                    $"{owner} must not set '{property.Name}'.");
+            }
+        }
+    }
+
+    private static bool TryGetExactString(JsonElement obj, string name, out string value)
+    {
+        value = "";
+        if (!obj.TryGetProperty(name, out var property) || property.ValueKind != JsonValueKind.String)
+            return false;
+        value = property.GetString() ?? "";
+        return value.Length > 0;
+    }
+
     internal static InspectionDefinitionRecord FromDto(InspectionDefinitionDto dto)
     {
         if (dto.SchemaVersion != CurrentSchemaVersion)
@@ -85,12 +264,13 @@ public static class InspectionDefinitionJson
                 $"Unsupported definition schema version {dto.SchemaVersion}; expected {CurrentSchemaVersion}.");
         }
 
-        if (string.IsNullOrWhiteSpace(dto.Kind))
+        if (string.IsNullOrEmpty(dto.Kind))
             throw new InspectionDefinitionException("Definition record requires kind.");
         if (string.IsNullOrWhiteSpace(dto.Id))
             throw new InspectionDefinitionException("Definition record requires id.");
 
-        var kind = dto.Kind.Trim().ToLowerInvariant();
+        // Kind spelling is closed by ValidateRecordShape (exact ordinal match).
+        var kind = dto.Kind;
         var coordinateCount = 0;
         try
         {
@@ -534,10 +714,10 @@ public static class InspectionDefinitionJson
                 $"Definition exceeds the {MaxCoordinatesPerRecord}-coordinate limit.");
         }
 
-        if (string.IsNullOrWhiteSpace(dto.Kind))
+        if (string.IsNullOrEmpty(dto.Kind))
             throw new InspectionDefinitionException("Member coordinate requires kind.");
 
-        var kind = dto.Kind.Trim().ToLowerInvariant();
+        var kind = dto.Kind;
         return kind switch
         {
             "package" => CreatePackageCoordinate(dto),

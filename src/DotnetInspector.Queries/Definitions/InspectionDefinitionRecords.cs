@@ -274,8 +274,15 @@ public sealed record NavigationTabDefinition
         string? runtimeIdentifier = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
+        if (subscribe is not null && string.IsNullOrWhiteSpace(subscribe))
+        {
+            throw new ArgumentException(
+                "A navigation tab subscribe must not be blank.",
+                nameof(subscribe));
+        }
+
         var hasCoordinate = coordinate is not null;
-        var hasSubscribe = !string.IsNullOrWhiteSpace(subscribe);
+        var hasSubscribe = subscribe is not null;
         if (hasCoordinate == hasSubscribe)
         {
             throw new ArgumentException(
@@ -317,14 +324,27 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
         string? navigation = null)
         : base(schemaVersion, id)
     {
-        if (string.IsNullOrWhiteSpace(workspace) && string.IsNullOrWhiteSpace(input))
+        var hasWorkspace = !string.IsNullOrWhiteSpace(workspace);
+        var hasInput = !string.IsNullOrWhiteSpace(input);
+        if (!hasWorkspace && !hasInput)
         {
-            // Workspace-free scenarios name an input; assembly-backed scenarios name a workspace.
-            // Both may be omitted only when the host supplies runtime input elsewhere — not for
-            // product demos. Require one for now so empty compositions fail closed.
             throw new ArgumentException(
-                "A scenario requires workspace or input.",
+                "A scenario requires exactly one of workspace or input.",
                 nameof(workspace));
+        }
+
+        if (hasWorkspace && hasInput)
+        {
+            throw new ArgumentException(
+                "A scenario cannot set both workspace and input.",
+                nameof(input));
+        }
+
+        if (!hasWorkspace && !string.IsNullOrWhiteSpace(context))
+        {
+            throw new ArgumentException(
+                "A scenario context requires workspace.",
+                nameof(context));
         }
 
         Title = title;

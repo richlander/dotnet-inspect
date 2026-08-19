@@ -401,6 +401,103 @@ public class InspectionDefinitionTests
         Assert.Equal("stj-serializer", ProductInspectionDemos.Entries[0].Id);
     }
 
+
+    [Fact]
+    public void Parse_RejectsExplicitNullForeignFieldsAndNonCanonicalKinds()
+    {
+        var nullForeign = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "query", "id": "q", "queryId": "surface", "workspace": null }
+            """));
+        Assert.Contains("must not set 'workspace'", nullForeign.Message, StringComparison.Ordinal);
+
+        var kindCase = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "QUERY", "id": "q", "queryId": "surface" }
+            """));
+        Assert.Contains("Unknown definition kind", kindCase.Message, StringComparison.Ordinal);
+
+        var kindPad = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": " query ", "id": "q", "queryId": "surface" }
+            """));
+        Assert.Contains("Unknown definition kind", kindPad.Message, StringComparison.Ordinal);
+
+        var dualRidNull = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            {
+              "schemaVersion": 1,
+              "kind": "workspace",
+              "id": "ws",
+              "contexts": [
+                {
+                  "name": "c",
+                  "rid": "win-x64",
+                  "runtimeIdentifier": null,
+                  "members": [ { "kind": "package", "id": "P", "version": "1.0.0", "framework": "net10.0" } ]
+                }
+              ]
+            }
+            """));
+        Assert.Contains("rid and runtimeIdentifier", dualRidNull.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_RejectsBlankNavigationSubscribeWithCoordinate()
+    {
+        var ex = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            {
+              "schemaVersion": 1,
+              "kind": "navigation",
+              "id": "n",
+              "focus": "t",
+              "tabs": [
+                {
+                  "id": "t",
+                  "subscribe": "   ",
+                  "coordinate": { "kind": "package", "id": "P", "version": "1.0.0", "framework": "net10.0" }
+                }
+              ]
+            }
+            """));
+        Assert.Contains("subscribe", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Scenario_RequiresExactlyOneSource_AndContextNeedsWorkspace()
+    {
+        Assert.Throws<ArgumentException>(() => new ScenarioDefinition(
+            1, "s", workspace: "ws", input: "x"));
+        Assert.Throws<ArgumentException>(() => new ScenarioDefinition(
+            1, "s", input: "x", context: "c"));
+        Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "scenario", "id": "s", "workspace": "ws", "input": "x" }
+            """));
+    }
+
+    [Fact]
+    public void Parse_StringOverload_EnforcesByteBudgetBeforeDecodeWork()
+    {
+        // Over-budget UTF-8 length must fail closed on the string overload.
+        var oversize = new string('x', InspectionDefinitionJson.MaxUtf8ByteLength + 8);
+        var ex = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(oversize));
+        Assert.Contains("byte limit", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Registry_UntypedTryGet_IsAmbiguousAcrossKinds()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new ViewDefinition(1, "same", type: "T"));
+        registry.Add(new QueryDefinition(1, "same", queryId: "surface"));
+
+        Assert.True(registry.TryGet<ViewDefinition>("same", out _));
+        Assert.True(registry.TryGet<QueryDefinition>("same", out _));
+        Assert.False(registry.TryGet<InspectionDefinitionRecord>("same", out _));
+    }
+
     [Fact]
     public void ProductHomeDemos_ResolveCallGraphByMemberAnchor()
     {
