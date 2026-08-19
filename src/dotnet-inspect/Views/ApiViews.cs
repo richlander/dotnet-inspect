@@ -16,6 +16,7 @@ internal static class ApiSectionEmptyText
     internal const string TypeCostFacts = "No cost facts found for this type.";
     internal const string TopLeverage = "No intra-assembly call-graph leverage found for this type.";
     internal const string TypePerformanceTriage = "No optimization opportunities were found for this type.";
+    internal const string BodyShapes = "No matching body shapes found.";
     internal const string TypeSourceFiles = "No SourceLink source files found for this type.";
     internal const string SourceLocations = "No SourceLink source locations found for the selected member(s).";
     internal const string AppliedTaste = "No recorded style choices were applied to this member.";
@@ -38,6 +39,7 @@ internal static class ApiSectionEmptyText
             or (SectionNames.CostFacts, TypeCostFacts or MemberCostFacts)
             or ("Top Leverage", TopLeverage)
             or (SectionNames.PerformanceTriage, TypePerformanceTriage)
+            or (SectionNames.BodyShapes, BodyShapes)
             or ("Source Files", TypeSourceFiles)
             or (SectionNames.SourceLocations, SourceLocations)
             or (SectionNames.AppliedTaste, AppliedTaste)
@@ -311,7 +313,7 @@ public class TypeView
     [JsonIgnore]
     public List<OptimizationOpportunityRow>? OptimizationOpportunityRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.BodyShapes, EmptyText = "No matching body shapes found.")]
+    [MarkoutSection(Name = SectionNames.BodyShapes, EmptyText = ApiSectionEmptyText.BodyShapes)]
     [JsonIgnore]
     public List<ApiBodyShapeRow>? BodyShapeRows { get; set; }
 

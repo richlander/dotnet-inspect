@@ -7652,6 +7652,30 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task EmptyBodyShapesUnderProjectedJsonReturnsEmptyDocument()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(BodyShapeFixture).FullName!,
+            "--library",
+            typeof(BodyShapeFixture).Assembly.Location,
+            nameof(BodyShapeFixture.PublicCreation) + ":1",
+            "-S",
+            "Body Shapes",
+            "--where",
+            "Kind=AwaitExpression",
+            "--columns",
+            "Kind",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal("{}", output.Trim());
+        Assert.Contains("1 column has no data: Kind", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task UnsupportedCallGraphUnderProjectedJsonFailsAtomically()
     {
         var (exit, output, error) = await RunAppAsync(
