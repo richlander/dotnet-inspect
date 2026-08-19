@@ -216,6 +216,12 @@ internal static class PromotionWorkflowContract
             ValidateStaging,
             "Staging workflow contract accepted Azure app build.");
         AssertMutationRejected(
+            stagingWorkflow,
+            "          include-hidden-files: true\n",
+            "",
+            ValidateStaging,
+            "Staging workflow contract accepted an artifact without hidden Function dependencies.");
+        AssertMutationRejected(
             coreClrStagingWorkflow,
             "            -p:Features=runtime-async=on \\\n",
             "",
@@ -245,6 +251,18 @@ internal static class PromotionWorkflowContract
             "secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_STAGING",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted the Mono staging credential.");
+        AssertMutationRejected(
+            coreClrStagingWorkflow,
+            "          include-hidden-files: true\n",
+            "",
+            ValidateCoreClrStaging,
+            "CoreCLR staging contract accepted an artifact without hidden Function dependencies.");
+        AssertMutationRejected(
+            promotionWorkflow,
+            "          test -f \"$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll\"\n",
+            "",
+            ValidatePromotion,
+            "Promotion workflow contract accepted an artifact without the Function extension loader.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
             "          skip_app_build: true\n",
