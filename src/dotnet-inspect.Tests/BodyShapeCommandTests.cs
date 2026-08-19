@@ -50,6 +50,28 @@ public sealed class BodyShapeCommandTests
     }
 
     [Fact]
+    public void Search_MethodTokenScope_InspectsOnlyRequestedBodies()
+    {
+        using var source = MetadataSource.Open(FixturePath);
+        var surface = source.ExtractApiSurface(includeAll: false);
+        var type = Assert.Single(surface.Types, candidate =>
+            candidate.FullName == typeof(BodyShapeFixture).FullName);
+        var member = Assert.Single(type.Members, candidate =>
+            candidate.Name == nameof(BodyShapeFixture.PublicCreation));
+        int methodToken = Assert.IsType<int>(member.MetadataToken);
+
+        var result = BodyShapeSearch.Search(
+            source,
+            "ObjectCreationExpression",
+            new HashSet<int> { methodToken },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var match = Assert.Single(result.Matches);
+        Assert.Equal(methodToken, match.MethodToken);
+        Assert.Equal(1, result.MethodsInspected);
+    }
+
+    [Fact]
     public void MetadataSource_PrefetchedImageDoesNotRequireOriginalPath()
     {
         using var service =

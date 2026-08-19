@@ -267,9 +267,26 @@ public static class MemberOptionsParser
         var select = opts.ParseSelect(parseResult);
         var selectDefault = opts.ParseSelectDefault(parseResult);
         bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
-        var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
+        var whereExpressions = parseResult.GetValue(opts.RowWhere) ?? [];
+        if (!BodyKindQueryOptions.TryExtract(
+                whereExpressions,
+                out var bodyKindQuery,
+                out var performanceWhere,
+                out var bodyKindError))
+        {
+            return new VersionError(bodyKindError);
+        }
+        var performanceTriage = opts.ParsePerformanceTriageOptions(
+            parseResult,
+            performanceWhere);
         if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             return new VersionError(triageShapeError);
+        if (bodyKindQuery.HasFilter && performanceTriage.HasFilters)
+        {
+            return new VersionError(
+                "A Body Shapes predicate cannot yet be combined with Performance Triage "
+                + "filters or --order-by in one query.");
+        }
         // Only surface Performance Triage from row filters when the user did not select sections
         // with -S; an explicit selection must not silently gain a second section.
         if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
@@ -351,6 +368,7 @@ public static class MemberOptionsParser
             Count = parseResult.GetValue(opts.Count),
             Rows = opts.ParseRows(parseResult),
             PerformanceTriage = performanceTriage,
+            BodyKindQuery = bodyKindQuery,
             Schema = opts.ParseSchema(parseResult),
             Verbose = parseResult.GetValue(opts.Verbose),
             Verbosity = opts.ParseVerbosity(parseResult),

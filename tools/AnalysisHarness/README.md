@@ -91,6 +91,59 @@ the exact-only comparator path, so near cases in the population remain outside
 exact clusters. Seeded fuzzy retrieval is independently graded and does not
 establish a relation.
 
+The real-artifact corpus grades retrieval against independently source-reviewed
+CoreLib labels:
+
+```bash
+dotnet "$DLL" --clone-corelib-corpus \
+  <dotnet-root>/shared/Microsoft.NETCore.App/11.0.0-preview.7.26381.103/System.Private.CoreLib.dll
+dotnet "$DLL" --clone-corelib-corpus System.Private.CoreLib.dll --json
+```
+
+The committed `corpus/structural-clone-corelib.json` ledger pins the artifact
+SHA-256 and MVID plus the corresponding
+`https://github.com/dotnet/dotnet` source commit. MethodDef token is artifact
+identity; type, name, signature, source path, and line are audit fields. The
+harness mechanically verifies token/type/name against the artifact. Source
+paths, lines, rationales, and relevance labels record the independent source
+review and are not inferred or fetched by the harness.
+
+Each query labels every actual top-K row as `Relevant`, `HardNegative`,
+`OrdinaryNegative`, or `SemanticHazard`. Relevant labels outside K remain
+explicit misses. The harness calls product `RetrieveSimilar` over the full
+MethodDef population, calls `Compare` independently for every label, and grades
+rank bounds, strict score contrasts, relation expectations, labeled precision,
+and labeled recall. It does not reconstruct similarity, promote `Exact` or
+`Near` to relevance, or treat unlabeled CoreLib methods as negatives.
+If a returned top-K method is missing a label, the query fails, the method is
+retained as `Unreviewed` in text and structured output, and precision is
+reported as unavailable.
+Aggregate output reports actual reviewed rows separately from requested review
+slots, so a partial retrieval never counts a suppressed or absent row as
+reviewed or negative.
+If partial retrieval returns a nonempty fully labeled prefix, precision remains
+available over those actual rows; completion still fails and recall remains
+unavailable.
+
+The pinned six-query card passes with 16 relevant rows among 27 reviewed rows
+(59.25% labeled precision) and recovers 16 of 20 declared relevant labels
+(80.00% labeled recall). It includes four known misses, two top-K hard
+negatives, and nine `Unsafe` intrinsic stubs whose placeholder bodies compare
+`Exact` but whose operations are semantic hazards. These are metrics over this
+source-reviewed ledger only, not broad CoreLib precision or recall estimates.
+`StructuralCloneCoreLibCorpusTests.CommittedCorpus_GradesPinnedCoreLib` gates
+the artifact, coverage, metric, miss, contrast, and hazard card.
+
+The real-artifact tests search the current .NET installation and
+`DOTNET_INSPECT_CORELIB_CORPUS_ARTIFACT` for the pinned SHA-256. They explicitly
+skip the product run when that external artifact is absent rather than binding
+the byte-pinned ledger to CI's floating preview runtime. The always-running
+`CommittedCorpus_PinsNonVacuousReviewCoverage` test still gates the ledger's
+artifact/source pins, method inventory, query count, reviewed K, label count,
+and relevant-label count. The harness maintainer who re-pins this corpus owns
+updating the artifact/source declaration, source review, expected card, and
+these coverage counts together.
+
 The worksheet projects one product-owned ranking for source review:
 
 ```bash

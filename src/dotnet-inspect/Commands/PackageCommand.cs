@@ -3656,11 +3656,51 @@ public class PackageCommand
 
         if (libraryOptions.JsonOutput && !libraryOptions.Count)
         {
-            Console.WriteLine(JsonSerializer.Serialize(inspections.ToArray(), JsonContext.Default.LibraryInspectionArray));
+            string json = JsonSerializer.Serialize(
+                inspections.ToArray(),
+                JsonContext.Default.LibraryInspectionArray);
+            WriteAllLibrariesOutput(
+                libraryOptions.OutputPath,
+                libraryOptions.Rows,
+                writer => writer.WriteLine(json));
             return completionExitCode;
         }
 
         var sections = GetAllLibrariesSections(inspections, libraryOptions, pipeline);
+        bool tabularOutput =
+            libraryOptions.TabularExplicitlySet
+            && !libraryOptions.Count;
+        if (tabularOutput
+            && libraryOptions.Select?.Any(
+                value => SelectResolver.TryResolveCategory(
+                    value,
+                    pipeline.GetCategoryMap(),
+                    pipeline.SelectableSectionNames,
+                    out _,
+                    out _)) == true)
+        {
+            CommandError.Write($"--all-libraries row output requires one concrete section; category selectors such as {SectionCategoryNames.Integrations} produce multi-section documents.");
+            CommandError.WriteLine("Use Markdown output for categories, or select a section such as \"Integration: Configuration\" or Library Info.");
+            return 1;
+        }
+
+        if (tabularOutput
+            && libraryOptions.IncludeSections is { Count: > 0 })
+        {
+            var candidateSections = pipeline.GetCandidateSections(
+                libraryOptions.Verbosity,
+                libraryOptions.IncludeSections,
+                libraryOptions.FixedOverview);
+            string? unsupportedSection = candidateSections.FirstOrDefault(
+                section => !SupportsAllLibrariesTableSection(section));
+            if (unsupportedSection is not null)
+            {
+                CommandError.Write($"--all-libraries row output does not support section: {unsupportedSection}.");
+                CommandError.WriteLine("Use Markdown output, or select Library Info, Switches, Integration: Opportunities, or a focused Integration: section.");
+                return 1;
+            }
+        }
+
         if (libraryOptions.Count)
         {
             if (sections.Count == 0)
@@ -3678,25 +3718,39 @@ public class PackageCommand
                 ordered,
                 libraryOptions.Format,
                 libraryOptions.NoHeader,
-                options.OutputPath);
+                libraryOptions.OutputPath);
             return completionExitCode;
         }
 
         if (sections.Count == 0)
         {
             CommandError.WriteNote("matched sections have no data across all libraries.");
+            WriteAllLibrariesOutput(
+                libraryOptions.OutputPath,
+                libraryOptions.Rows,
+                static _ => { });
             return completionExitCode;
         }
 
-        if (libraryOptions.TabularExplicitlySet && !libraryOptions.Count)
+        if (tabularOutput)
         {
-            if (!WriteAllLibrariesTable(packageName, version, inspections, sections, libraryOptions))
+            if (!WriteAllLibrariesTable(
+                    packageName,
+                    version,
+                    inspections,
+                    sections,
+                    libraryOptions))
+            {
                 return 1;
+            }
             return completionExitCode;
         }
 
         var markdown = RenderAllLibrariesMarkdown(packageName, version, inspections, sections, libraryOptions, pipeline);
-        OutputFormatter.WriteLfLine(Console.Out, markdown);
+        WriteAllLibrariesOutput(
+            libraryOptions.OutputPath,
+            libraryOptions.Rows,
+            writer => OutputFormatter.WriteLfLine(writer, markdown));
         return completionExitCode;
     }
 
@@ -3950,9 +4004,6 @@ public class PackageCommand
             return null;
         }
 
-        if (resolution.Tfm != null && string.IsNullOrWhiteSpace(options.Tfm))
-            CommandError.WriteLine($"Using TFM: {resolution.Tfm}");
-
         return resolution.Paths
             .Select(path => new PackageLibrarySelection(path))
             .ToList();
@@ -4005,13 +4056,6 @@ public class PackageCommand
         List<string> sections,
         LibraryOptions options)
     {
-        if (options.Select?.Any(value => value.StartsWith("@", StringComparison.Ordinal)) == true)
-        {
-            CommandError.Write($"--all-libraries row output requires one concrete section; category selectors such as {SectionCategoryNames.Integrations} produce multi-section documents.");
-            CommandError.WriteLine("Use Markdown output for categories, or select a section such as \"Integration: Configuration\" or Library Info.");
-            return false;
-        }
-
         if (sections.Count != 1)
         {
             CommandError.Write($"--all-libraries row output requires exactly one section; matched {sections.Count}: {string.Join(", ", sections)}.");
@@ -4036,17 +4080,97 @@ public class PackageCommand
         if (!table.HasRowsBeforeWindow)
         {
             CommandError.WriteNote("matched section has no row data across all libraries.");
+            WriteAllLibrariesOutput(
+                options.OutputPath,
+                options.Rows,
+                static _ => { });
             return true;
         }
 
-        OutputFormatter.WriteTable(Console.Out, !options.NoHeader, (writer, formatter) =>
+        WriteAllLibrariesOutput(options.OutputPath, options.Rows, output =>
         {
-            var writerOptions = OutputFormatter.CreateTableWriterOptions(options.Tsv, options.Jsonl);
-            var markoutWriter = new MarkoutWriter(writer, formatter, writerOptions);
-            markoutWriter.WriteTable(table.Headers, table.StableHeaders, table.Rows);
-            markoutWriter.Flush();
+            OutputFormatter.WriteTable(output, !options.NoHeader, (writer, formatter) =>
+            {
+                var writerOptions = OutputFormatter.CreateTableWriterOptions(
+                    options.Tsv,
+                    options.Jsonl);
+                var markoutWriter = new MarkoutWriter(
+                    writer,
+                    formatter,
+                    writerOptions);
+                markoutWriter.WriteTable(
+                    table.Headers,
+                    table.StableHeaders,
+                    table.Rows);
+                markoutWriter.Flush();
+            });
         });
         return true;
+    }
+
+    private static void WriteAllLibrariesOutput(
+        string? outputPath,
+        RowWindow? rowWindow,
+        Action<TextWriter> write)
+    {
+        if (string.IsNullOrEmpty(outputPath))
+        {
+            write(Console.Out);
+            return;
+        }
+
+        using var output = new StreamWriter(
+            outputPath,
+            append: false,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
+        {
+            NewLine = Console.Out.NewLine
+        };
+        CountingTextWriter? countingWriter = null;
+        TextWriter destination = output;
+        if (InfoTracker.Enabled)
+        {
+            countingWriter = new CountingTextWriter(output);
+            destination = countingWriter;
+        }
+
+        TailLineLimitingTextWriter? tailWriter = null;
+        bool hasLineWindow = false;
+        if (rowWindow is null
+            && CommandLineBuilder.HeadLines is int headLines)
+        {
+            destination = new LineLimitingTextWriter(
+                destination,
+                headLines);
+            hasLineWindow = true;
+        }
+
+        if (rowWindow is null
+            && CommandLineBuilder.TailLines is int tailLines)
+        {
+            tailWriter = new TailLineLimitingTextWriter(
+                destination,
+                tailLines);
+            destination = tailWriter;
+            hasLineWindow = true;
+        }
+
+        // Console.SetOut exposes its writer through a synchronized wrapper. Mirror that
+        // composition so formatters take the same streaming path for stdout and files.
+        if (hasLineWindow)
+            destination = TextWriter.Synchronized(destination);
+
+        try
+        {
+            write(destination);
+            tailWriter?.FlushTail();
+            destination.Flush();
+        }
+        finally
+        {
+            if (countingWriter is not null)
+                InfoTracker.RecordOutputChars(countingWriter.CharCount);
+        }
     }
 
     private sealed record AllLibrariesTable(
@@ -4054,6 +4178,17 @@ public class PackageCommand
         string[] StableHeaders,
         string[][] Rows,
         bool HasRowsBeforeWindow);
+
+    private static bool SupportsAllLibrariesTableSection(string section) =>
+        section.Equals("Library Info", StringComparison.OrdinalIgnoreCase)
+        || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
+        || section.Equals(
+            IntegrationSectionNames.Opportunities,
+            StringComparison.OrdinalIgnoreCase)
+        || LibraryIntegrationCatalog.All.Any(
+            descriptor => descriptor.SectionName.Equals(
+                section,
+                StringComparison.OrdinalIgnoreCase));
 
     private static AllLibrariesTable? BuildAllLibrariesTable(
         string packageName,
@@ -4325,6 +4460,7 @@ public class PackageCommand
                     .Select(row => new
                     {
                         Library = inspection.FileName,
+                        Tfm = inspection.Tfm ?? "",
                         row.Integration,
                         Api = CodeCell(row.Api),
                         row.IntegrationType,
@@ -4336,12 +4472,17 @@ public class PackageCommand
             if (opportunityRows.Count == 0)
                 return null;
 
-            var includeLibrary = opportunityRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
             return CreateAggregatedSection(section, new MarkoutTable(
-                includeLibrary ? ["Library", "Integration", "API", "Integration Type", "Look For"] : ["Integration", "API", "Integration Type", "Look For"],
-                opportunityRows.Select(row => includeLibrary
-                    ? new[] { CodeCell(row.Library), row.Integration, row.Api, row.IntegrationType, row.LookFor }
-                    : [row.Integration, row.Api, row.IntegrationType, row.LookFor]).ToList()));
+                ["Library", "TFM", "Integration", "API", "Integration Type", "Look For"],
+                opportunityRows.Select(row => new[]
+                {
+                    CodeCell(row.Library),
+                    CodeCell(row.Tfm),
+                    row.Integration,
+                    row.Api,
+                    row.IntegrationType,
+                    row.LookFor
+                }).ToList()));
         }
 
         if (section.Equals("Switches", StringComparison.OrdinalIgnoreCase))
@@ -4351,6 +4492,7 @@ public class PackageCommand
                     .Select(row => new
                     {
                         Library = inspection.FileName,
+                        Tfm = inspection.Tfm ?? "",
                         row.Kind,
                         Switch = CodeCell(row.Switch),
                         Api = CodeCell(row.Api)
@@ -4361,12 +4503,16 @@ public class PackageCommand
             if (switchRows.Count == 0)
                 return null;
 
-            var includeLibrary = switchRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
             return CreateAggregatedSection(section, new MarkoutTable(
-                includeLibrary ? ["Library", "Kind", "Switch", "API"] : ["Kind", "Switch", "API"],
-                switchRows.Select(row => includeLibrary
-                    ? new[] { CodeCell(row.Library), row.Kind, row.Switch, row.Api }
-                    : [row.Kind, row.Switch, row.Api]).ToList()));
+                ["Library", "TFM", "Kind", "Switch", "API"],
+                switchRows.Select(row => new[]
+                {
+                    CodeCell(row.Library),
+                    CodeCell(row.Tfm),
+                    row.Kind,
+                    row.Switch,
+                    row.Api
+                }).ToList()));
         }
 
         var descriptor = LibraryIntegrationCatalog.All.FirstOrDefault(d =>
@@ -4376,7 +4522,12 @@ public class PackageCommand
 
         var signals = inspections
             .SelectMany(inspection => descriptor.GetSignals(inspection)
-                .Select(signal => new { Library = inspection.FileName, Signal = signal }))
+                .Select(signal => new
+                {
+                    Library = inspection.FileName,
+                    Tfm = inspection.Tfm ?? "",
+                    Signal = signal
+                }))
             .ToList();
         if (signals.Count == 0)
             return null;
@@ -4391,19 +4542,16 @@ public class PackageCommand
         if (focusedRows.Count == 0)
             return null;
 
-        var includeLibraryColumn = focusedRows.Select(row => row.Library).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
         var includeKindColumn = focusedRows.Select(row => row.Signal.Kind).Distinct(StringComparer.Ordinal).Count() > 1;
         var valueColumn = hasApis ? "API" : "Type";
 
-        List<string> headers = [];
-        if (includeLibraryColumn) headers.Add("Library");
+        List<string> headers = ["Library", "TFM"];
         if (includeKindColumn) headers.Add("Kind");
         headers.Add(valueColumn);
 
         return CreateAggregatedSection(section, new MarkoutTable(headers, focusedRows.Select(row =>
         {
-            List<string> values = [];
-            if (includeLibraryColumn) values.Add(CodeCell(row.Library));
+            List<string> values = [CodeCell(row.Library), CodeCell(row.Tfm)];
             if (includeKindColumn) values.Add(row.Signal.Kind);
             values.Add(CodeCell(row.Signal.Name));
             return values.ToArray();

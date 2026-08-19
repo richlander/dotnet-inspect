@@ -1,6 +1,8 @@
 using System.Linq;
 using System.Reflection.Metadata;
 
+using ILInspector.MetadataPrimitives;
+
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
@@ -54,6 +56,36 @@ public class AssemblyInspectionSessionTests
         Assert.NotNull(session.EcosystemIntegrations());
         Assert.NotNull(session.AuditMetadata());
         Assert.NotNull(session.ExtensionMethods().ToList());
+    }
+
+    [Fact]
+    public void DeclaresExtensionMember_RequiresExactStructuredIdentity()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+        ExtensionMethodInfo declared = session
+            .ExtensionMethods(includeAll: true)
+            .First();
+        MetadataTypeDefinitionName declaringType =
+            declared.GetDeclaringTypeDefinition()
+            ?? throw new InvalidOperationException(
+                "Fixture extension has no declaring type.");
+        MemberAnchor anchor = declared.Anchor
+            ?? throw new InvalidOperationException(
+                "Fixture extension has no member anchor.");
+
+        Assert.True(
+            session.DeclaresExtensionMember(
+                declaringType,
+                anchor));
+        Assert.False(
+            session.DeclaresExtensionMember(
+                declaringType,
+                new MemberAnchor(
+                    "M~0000000000",
+                    $"{declaringType}.NotDeclared()",
+                    "0000000000",
+                    "Missing.Explicit.Subject",
+                    "NotDeclared")));
     }
 
     [Fact]

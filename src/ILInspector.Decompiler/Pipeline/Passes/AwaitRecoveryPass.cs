@@ -29,7 +29,10 @@ public sealed class AwaitRecoveryPass : IIrPass
                 continue;
 
             var operand = (IrExpression)call.DetachChildren()[0];
-            var await = new AwaitExpression(operand, call.Callee.ReturnType);
+            var await = new AwaitExpression(
+                operand,
+                call.Callee.ReturnType,
+                call.Callee.ReturnIsDynamic);
             await.InheritSourceOffset(call);
             context.Stepper.StepOver("recover await from AsyncHelpers.Await call", call);
             call.ReplaceWith(await);
