@@ -84,7 +84,11 @@ public static class SignatureVerifier
             {
                 StatusMessage = $"Verification failed: {result.Reason}"
             },
-            SignatureStatus.Valid => ValidResult(result),
+            SignatureStatus.Valid when result.PackageContentVerified => ValidResult(result),
+            SignatureStatus.Valid => new SignatureVerificationResult
+            {
+                StatusMessage = "Signature identity is valid, but the package content hash was not verified."
+            },
             _ => new SignatureVerificationResult
             {
                 StatusMessage = "Unknown verification result"

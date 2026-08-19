@@ -1,6 +1,5 @@
 using System.Text;
 using System.Xml;
-using System.Xml.Linq;
 using ILInspector.Metadata;
 using InertText;
 
@@ -94,6 +93,7 @@ public static class PackageContentAudit
     internal const long MaxSourceLinkCarrierBytes = 64L * 1024 * 1024;
     internal const long MaxTotalSourceLinkCarrierBytes = 256L * 1024 * 1024;
     private const int MaxEncodedTextLength = 512;
+    private const int MaxNuGetConfigurationDepth = 64;
 
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -829,40 +829,81 @@ public static class PackageContentAudit
             };
             using var stringReader = new StringReader(content);
             using var reader = XmlReader.Create(stringReader, settings);
-            XDocument document = XDocument.Load(reader, LoadOptions.SetLineInfo);
-            foreach (XElement packageSources in document
-                .Descendants()
-                .Where(element => element.Name.LocalName.Equals(
-                    "packageSources",
-                    StringComparison.OrdinalIgnoreCase)))
+            bool rootSeen = false;
+            bool insidePackageSources = false;
+            while (reader.Read())
             {
-                foreach (XElement child in packageSources.Elements())
+                if (reader.Depth > MaxNuGetConfigurationDepth)
                 {
-                    if (collector.Saturated)
-                        return;
-
-                    PackageContentFindingKind? kind = child.Name.LocalName switch
-                    {
-                        var name when name.Equals("clear", StringComparison.OrdinalIgnoreCase) =>
-                            PackageContentFindingKind.RestoreSourcesCleared,
-                        var name when name.Equals("add", StringComparison.OrdinalIgnoreCase) =>
-                            PackageContentFindingKind.PackageSourceDeclared,
-                        _ => null,
-                    };
-                    if (kind is null)
-                        continue;
-
-                    int line = (child as IXmlLineInfo)?.HasLineInfo() == true
-                        ? ((IXmlLineInfo)child).LineNumber
-                        : 0;
-                    InertString evidence = EncodeNuGetConfigurationEvidence(child);
-                    collector.TryAdd(new PackageContentAuditFinding(
+                    collector.AddLimit(
                         path,
-                        kind.Value,
-                        TextConcern.None,
-                        BoundAroundFirstConcern(evidence),
-                        line > 0 ? line : null));
+                        $"NuGet configuration exceeded the {MaxNuGetConfigurationDepth}-level XML depth limit.");
+                    return;
                 }
+
+                if (reader.NodeType == XmlNodeType.Element && reader.Depth == 0)
+                {
+                    rootSeen = true;
+                    if (!reader.LocalName.Equals("configuration", StringComparison.OrdinalIgnoreCase))
+                    {
+                        collector.AddIncomplete(ToolFinding(
+                            path,
+                            PackageContentFindingKind.InvalidNuGetConfiguration,
+                            "NuGet configuration does not have a configuration root element."));
+                        return;
+                    }
+                }
+
+                if (!rootSeen)
+                    continue;
+
+                if (reader.NodeType == XmlNodeType.Element
+                    && reader.Depth == 1
+                    && reader.LocalName.Equals("packageSources", StringComparison.Ordinal))
+                {
+                    insidePackageSources = !reader.IsEmptyElement;
+                    continue;
+                }
+
+                if (reader.NodeType == XmlNodeType.EndElement
+                    && reader.Depth == 1
+                    && reader.LocalName.Equals("packageSources", StringComparison.Ordinal))
+                {
+                    insidePackageSources = false;
+                    continue;
+                }
+
+                if (!insidePackageSources
+                    || reader.NodeType != XmlNodeType.Element
+                    || reader.Depth != 2)
+                {
+                    continue;
+                }
+
+                if (collector.Saturated)
+                    return;
+
+                PackageContentFindingKind? kind = reader.LocalName switch
+                {
+                    var name when name.Equals("clear", StringComparison.OrdinalIgnoreCase) =>
+                        PackageContentFindingKind.RestoreSourcesCleared,
+                    var name when name.Equals("add", StringComparison.OrdinalIgnoreCase) =>
+                        PackageContentFindingKind.PackageSourceDeclared,
+                    _ => null,
+                };
+                if (kind is null)
+                    continue;
+
+                int line = (reader as IXmlLineInfo)?.HasLineInfo() == true
+                    ? ((IXmlLineInfo)reader).LineNumber
+                    : 0;
+                InertString evidence = EncodeNuGetConfigurationEvidence(reader);
+                collector.TryAdd(new PackageContentAuditFinding(
+                    path,
+                    kind.Value,
+                    TextConcern.None,
+                    BoundAroundFirstConcern(evidence),
+                    line > 0 ? line : null));
             }
         }
         catch (XmlException)
@@ -874,27 +915,30 @@ public static class PackageContentAudit
         }
     }
 
-    private static InertString EncodeNuGetConfigurationEvidence(XElement element)
+    private static InertString EncodeNuGetConfigurationEvidence(XmlReader reader)
     {
         var evidence = new StringBuilder(MaxEncodedTextLength);
         bool complete = AppendEvidenceToken(evidence, "<")
-            && AppendEvidenceToken(evidence, element.Name.LocalName);
-        foreach (XAttribute attribute in element.Attributes())
+            && AppendEvidenceToken(evidence, reader.LocalName);
+        if (reader.MoveToFirstAttribute())
         {
-            if (attribute.IsNamespaceDeclaration
-                || attribute.Name.Namespace != XNamespace.None)
+            do
             {
-                continue;
-            }
+                if (reader.NamespaceURI.Length > 0)
+                    continue;
 
-            complete = complete
-                && AppendEvidenceToken(evidence, " ")
-                && AppendEvidenceToken(evidence, attribute.Name.LocalName)
-                && AppendEvidenceToken(evidence, "=\"")
-                && AppendXmlAttributeValue(evidence, attribute.Value)
-                && AppendEvidenceToken(evidence, "\"");
-            if (!complete)
-                break;
+                complete = complete
+                    && AppendEvidenceToken(evidence, " ")
+                    && AppendEvidenceToken(evidence, reader.LocalName)
+                    && AppendEvidenceToken(evidence, "=\"")
+                    && AppendXmlAttributeValue(evidence, reader.Value)
+                    && AppendEvidenceToken(evidence, "\"");
+                if (!complete)
+                    break;
+            }
+            while (reader.MoveToNextAttribute());
+
+            reader.MoveToElement();
         }
         complete = complete && AppendEvidenceToken(evidence, " />");
 

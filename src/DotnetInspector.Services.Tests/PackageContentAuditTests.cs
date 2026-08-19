@@ -461,11 +461,13 @@ public sealed class PackageContentAuditTests
         string root = CreateRoot();
         try
         {
-            const int Depth = 128;
+            const int Depth = 16;
             string content =
-                string.Concat(Enumerable.Repeat("<packageSources><add>", Depth))
+                "<configuration><packageSources><add>"
+                + string.Concat(Enumerable.Repeat("<packageSources><add>", Depth))
                 + "deep-marker"
-                + string.Concat(Enumerable.Repeat("</add></packageSources>", Depth));
+                + string.Concat(Enumerable.Repeat("</add></packageSources>", Depth))
+                + "</add></packageSources></configuration>";
             Write(root, "build/nuget.config", content);
 
             PackageContentAuditResult result = PackageContentAudit.Scan(
@@ -473,10 +475,40 @@ public sealed class PackageContentAuditTests
                 ["build/nuget.config"]);
 
             Assert.True(result.Complete);
-            Assert.Equal(Depth, result.Findings.Count);
-            Assert.All(
-                result.Findings,
-                finding => Assert.Equal("<add />", finding.EncodedText.ToString()));
+            PackageContentAuditFinding finding = Assert.Single(result.Findings);
+            Assert.Equal("<add />", finding.EncodedText.ToString());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void NuGetConfiguration_DeepXmlReportsScanLimit()
+    {
+        string root = CreateRoot();
+        try
+        {
+            const int Depth = 128;
+            string content =
+                "<configuration>"
+                + string.Concat(Enumerable.Repeat("<wrapper>", Depth))
+                + string.Concat(Enumerable.Repeat("</wrapper>", Depth))
+                + "</configuration>";
+            Write(root, "build/nuget.config", content);
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                ["build/nuget.config"]);
+
+            Assert.False(result.Complete);
+            PackageContentAuditFinding finding = Assert.Single(result.Findings);
+            Assert.Equal(PackageContentFindingKind.ScanLimit, finding.Kind);
+            Assert.Contains(
+                "XML depth limit",
+                finding.EncodedText.ToString(),
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -597,6 +629,48 @@ public sealed class PackageContentAuditTests
                 finding => Assert.Equal(
                     "<add key=\"prefixed\" value=\"https://prefixed.example/v3/index.json\" />",
                     finding.EncodedText.ToString()));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void NuGetConfiguration_IgnoresNestedAndMiscasedSections()
+    {
+        string root = CreateRoot();
+        try
+        {
+            Write(
+                root,
+                "build/nuget.config",
+                """
+                <Configuration>
+                  <packageSources>
+                    <add key="active" value="https://active.example/v3/index.json" />
+                  </packageSources>
+                  <wrapper>
+                    <packageSources>
+                      <clear />
+                      <add key="nested" value="https://nested.example/v3/index.json" />
+                    </packageSources>
+                  </wrapper>
+                  <PackageSources>
+                    <add key="miscased" value="https://miscased.example/v3/index.json" />
+                  </PackageSources>
+                </Configuration>
+                """);
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                ["build/nuget.config"]);
+
+            Assert.True(result.Complete);
+            PackageContentAuditFinding finding = Assert.Single(result.Findings);
+            Assert.Equal(
+                "<add key=\"active\" value=\"https://active.example/v3/index.json\" />",
+                finding.EncodedText.ToString());
         }
         finally
         {

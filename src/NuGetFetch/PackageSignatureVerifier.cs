@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Formats.Asn1;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -7,7 +8,8 @@ using System.Security.Cryptography.X509Certificates;
 namespace NuGetFetch;
 
 /// <summary>
-/// Verifies NuGet package signatures using the embedded trusted root certificates.
+/// Verifies NuGet package signatures, signer chains, and signed archive content
+/// using the embedded trusted root certificates.
 /// Inspired by the NuGet client's signing verification (Apache 2.0 licensed).
 /// </summary>
 public static class PackageSignatureVerifier
@@ -19,6 +21,15 @@ public static class PackageSignatureVerifier
     private const string AuthorCommitmentOid = "1.2.840.113549.1.9.16.6.1";     // proof of origin
     private const string RepositoryCommitmentOid = "1.2.840.113549.1.9.16.6.2";  // proof of receipt
     private const string TimestampTokenOid = "1.2.840.113549.1.9.16.2.14";
+    private const string Sha256Oid = "2.16.840.1.101.3.4.2.1";
+    private const string Sha384Oid = "2.16.840.1.101.3.4.2.2";
+    private const string Sha512Oid = "2.16.840.1.101.3.4.2.3";
+    private const uint CentralDirectoryHeaderSignature = 0x02014B50;
+    private const uint EndOfCentralDirectorySignature = 0x06054B50;
+    private const int CentralDirectoryFixedLength = 46;
+    private const int EndOfCentralDirectoryFixedLength = 22;
+    private const int MaximumZipCommentLength = ushort.MaxValue;
+    private const int MaximumSignatureBytes = 1024 * 1024;
 
     /// <summary>
     /// Verifies the signature of a .nupkg file on disk.
@@ -34,14 +45,46 @@ public static class PackageSignatureVerifier
     /// </summary>
     public static SignatureVerificationResult VerifyPackage(Stream nupkgStream)
     {
-        byte[]? signatureBytes = ExtractSignature(nupkgStream);
+        byte[]? signatureBytes;
+        try
+        {
+            signatureBytes = ExtractSignature(nupkgStream);
+        }
+        catch (InvalidDataException)
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Package signature entry is invalid.");
+        }
 
         if (signatureBytes is null)
         {
             return new SignatureVerificationResult(SignatureStatus.Unsigned, Reason: null);
         }
 
-        return VerifySignature(signatureBytes);
+        SignatureVerificationResult result = VerifySignature(signatureBytes);
+        if (!result.IsValid)
+            return result;
+
+        if (result.ContentHash is null
+            || result.ContentHashAlgorithm is null
+            || !VerifyPackageContentHash(
+                nupkgStream,
+                result.ContentHashAlgorithm,
+                result.ContentHash))
+        {
+            return new SignatureVerificationResult(
+                SignatureStatus.Invalid,
+                "Package content hash could not be verified against the signed hash.");
+        }
+
+        return result with
+        {
+            PackageContentVerified = true,
+            CounterSignature = result.CounterSignature is null
+                ? null
+                : result.CounterSignature with { PackageContentVerified = true },
+        };
     }
 
     /// <summary>
@@ -60,9 +103,11 @@ public static class PackageSignatureVerifier
 
         if (signatureEntry is null)
             return null;
+        if (signatureEntry.Length > MaximumSignatureBytes)
+            throw new InvalidDataException("Package signature entry is too large.");
 
         using Stream entryStream = signatureEntry.Open();
-        using MemoryStream ms = new();
+        using MemoryStream ms = new((int)signatureEntry.Length);
         entryStream.CopyTo(ms);
         return ms.ToArray();
     }
@@ -94,14 +139,10 @@ public static class PackageSignatureVerifier
                 $"Package signature integrity check failed: {ex.Message}");
         }
 
-        // Parse the signed content hash for transparency.
+        // Parse the signed content hash that binds the CMS identity to the package archive.
         // The CMS ContentInfo contains "Version:1\n\n{OID}-Hash:{base64}\n\n".
-        // CheckSignature above cryptographically verifies this content was signed
-        // by the certificate holder. Full content hash verification (comparing this
-        // hash against the actual package bytes) requires implementing NuGet's
-        // SignedPackageArchiveUtility ZIP hashing algorithm, which manipulates raw
-        // ZIP bytes — not implemented in this lightweight client.
-        string? signedContentHash = TryExtractSignedHash(signedCms.ContentInfo.Content);
+        SignedContentHash? signedContentHash = TryExtractSignedHash(
+            signedCms.ContentInfo.Content);
 
         // Extract the signing certificate
         if (signedCms.SignerInfos.Count == 0)
@@ -144,7 +185,8 @@ public static class PackageSignatureVerifier
             Thumbprint = thumbprint,
             SignatureType = signatureType,
             Timestamp = timestamp,
-            ContentHash = signedContentHash,
+            ContentHash = signedContentHash?.Value,
+            ContentHashAlgorithm = signedContentHash?.AlgorithmOid,
             CounterSignature = signatureType == SignatureType.Author
                 ? VerifyRepositoryCounterSignature(signerInfo, signedCms.Certificates)
                 : null,
@@ -155,33 +197,326 @@ public static class PackageSignatureVerifier
     /// Parses the NuGet-specific signed content format to extract the package hash.
     /// Format: "Version:1\n\n{OID}-Hash:{base64Hash}\n\n"
     /// </summary>
-    private static string? TryExtractSignedHash(byte[]? content)
+    private static SignedContentHash? TryExtractSignedHash(byte[]? content)
     {
         if (content is null || content.Length == 0)
         {
             return null;
         }
 
+        string text = System.Text.Encoding.UTF8.GetString(content);
+        const string hashMarker = "-Hash:";
+        int hashStart = text.IndexOf(hashMarker, StringComparison.Ordinal);
+        if (hashStart < 0)
+            return null;
+
+        int algorithmStart = text.LastIndexOf('\n', hashStart);
+        algorithmStart = algorithmStart < 0 ? 0 : algorithmStart + 1;
+        string algorithmOid = text[algorithmStart..hashStart].Trim();
+        int valueStart = hashStart + hashMarker.Length;
+        int valueEnd = text.IndexOf('\n', valueStart);
+        string value = (valueEnd < 0 ? text[valueStart..] : text[valueStart..valueEnd]).Trim();
         try
         {
-            string text = System.Text.Encoding.UTF8.GetString(content);
-            const string hashMarker = "-Hash:";
-            int hashStart = text.IndexOf(hashMarker, StringComparison.Ordinal);
-
-            if (hashStart < 0)
-            {
-                return null;
-            }
-
-            hashStart += hashMarker.Length;
-            int hashEnd = text.IndexOf('\n', hashStart);
-
-            return hashEnd < 0 ? text[hashStart..].Trim() : text[hashStart..hashEnd].Trim();
+            _ = Convert.FromBase64String(value);
         }
-        catch
+        catch (FormatException)
         {
             return null;
         }
+
+        return new SignedContentHash(algorithmOid, value);
+    }
+
+    private static bool VerifyPackageContentHash(
+        Stream packageStream,
+        string algorithmOid,
+        string expectedHash)
+    {
+        try
+        {
+            HashAlgorithmName algorithm = algorithmOid switch
+            {
+                Sha256Oid => HashAlgorithmName.SHA256,
+                Sha384Oid => HashAlgorithmName.SHA384,
+                Sha512Oid => HashAlgorithmName.SHA512,
+                _ => default,
+            };
+            if (algorithm.Name is null || !packageStream.CanSeek)
+                return false;
+
+            byte[] expected = Convert.FromBase64String(expectedHash);
+            ZipEndRecord end = ReadZipEndRecord(packageStream);
+            List<ZipEntryRecord> entries = ReadCentralDirectory(packageStream, end);
+            ZipEntryRecord? signature = null;
+            foreach (ZipEntryRecord entry in entries)
+            {
+                if (!entry.IsSignature)
+                    continue;
+                if (signature is not null)
+                    return false;
+                signature = entry;
+            }
+            if (signature is null)
+                return false;
+
+            List<ZipEntryRecord> localOrder = entries
+                .OrderBy(entry => entry.LocalOffset)
+                .ToList();
+            long startOfLocalEntries = localOrder[0].LocalOffset;
+            for (int index = 0; index < localOrder.Count; index++)
+            {
+                long endOffset = index + 1 < localOrder.Count
+                    ? localOrder[index + 1].LocalOffset
+                    : end.CentralDirectoryOffset;
+                if (endOffset <= localOrder[index].LocalOffset)
+                    return false;
+                localOrder[index].LocalSize = endOffset - localOrder[index].LocalOffset;
+            }
+
+            List<ZipEntryRecord> unsignedLocalOrder = localOrder
+                .Where(entry => !entry.IsSignature)
+                .ToList();
+            if (unsignedLocalOrder.Count == 0)
+                return false;
+
+            long previousUnsignedEnd = 0;
+            foreach (ZipEntryRecord entry in unsignedLocalOrder)
+            {
+                entry.OffsetChange = previousUnsignedEnd - entry.LocalOffset;
+                previousUnsignedEnd = checked(
+                    entry.LocalOffset + entry.LocalSize + entry.OffsetChange);
+            }
+
+            using IncrementalHash hash = IncrementalHash.CreateHash(algorithm);
+            byte[] hashBuffer = new byte[64 * 1024];
+            AppendRange(packageStream, hash, hashBuffer, 0, startOfLocalEntries);
+            foreach (ZipEntryRecord entry in unsignedLocalOrder)
+            {
+                AppendRange(
+                    packageStream,
+                    hash,
+                    hashBuffer,
+                    entry.LocalOffset,
+                    entry.LocalOffset + entry.LocalSize);
+            }
+
+            foreach (ZipEntryRecord entry in entries.Where(value => !value.IsSignature))
+            {
+                AppendRange(
+                    packageStream,
+                    hash,
+                    hashBuffer,
+                    entry.CentralPosition,
+                    entry.CentralPosition + 42);
+                packageStream.Position = entry.CentralPosition + 42;
+                uint originalOffset = ReadUInt32(packageStream);
+                long adjustedOffset = checked((long)originalOffset + entry.OffsetChange);
+                if (adjustedOffset is < 0 or > uint.MaxValue)
+                    return false;
+                AppendUInt32(hash, (uint)adjustedOffset);
+                AppendRange(
+                    packageStream,
+                    hash,
+                    hashBuffer,
+                    entry.CentralPosition + CentralDirectoryFixedLength,
+                    entry.CentralPosition + entry.CentralHeaderSize);
+            }
+
+            AppendRange(
+                packageStream,
+                hash,
+                hashBuffer,
+                end.Position,
+                end.Position + 8);
+            if (end.EntriesOnDisk == 0 || end.TotalEntries == 0)
+                return false;
+            AppendUInt16(hash, (ushort)(end.EntriesOnDisk - 1));
+            AppendUInt16(hash, (ushort)(end.TotalEntries - 1));
+            if (end.CentralDirectorySize < signature.CentralHeaderSize
+                || end.CentralDirectoryOffset < signature.LocalSize)
+            {
+                return false;
+            }
+            AppendUInt32(
+                hash,
+                end.CentralDirectorySize - (uint)signature.CentralHeaderSize);
+            AppendUInt32(
+                hash,
+                end.CentralDirectoryOffset - (uint)signature.LocalSize);
+            AppendRange(
+                packageStream,
+                hash,
+                hashBuffer,
+                end.Position + 20,
+                packageStream.Length);
+
+            byte[] actual = hash.GetHashAndReset();
+            return expected.Length == actual.Length
+                && CryptographicOperations.FixedTimeEquals(expected, actual);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private static ZipEndRecord ReadZipEndRecord(Stream stream)
+    {
+        int tailLength = checked((int)Math.Min(
+            stream.Length,
+            EndOfCentralDirectoryFixedLength + MaximumZipCommentLength));
+        byte[] tail = new byte[tailLength];
+        stream.Position = stream.Length - tailLength;
+        stream.ReadExactly(tail);
+
+        for (int index = tail.Length - EndOfCentralDirectoryFixedLength; index >= 0; index--)
+        {
+            ReadOnlySpan<byte> candidate = tail.AsSpan(index);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(candidate) != EndOfCentralDirectorySignature)
+                continue;
+
+            ushort commentLength = BinaryPrimitives.ReadUInt16LittleEndian(candidate[20..]);
+            if (index + EndOfCentralDirectoryFixedLength + commentLength != tail.Length)
+                continue;
+
+            ushort diskNumber = BinaryPrimitives.ReadUInt16LittleEndian(candidate[4..]);
+            ushort centralDirectoryDisk = BinaryPrimitives.ReadUInt16LittleEndian(candidate[6..]);
+            ushort entriesOnDisk = BinaryPrimitives.ReadUInt16LittleEndian(candidate[8..]);
+            ushort totalEntries = BinaryPrimitives.ReadUInt16LittleEndian(candidate[10..]);
+            uint centralDirectorySize = BinaryPrimitives.ReadUInt32LittleEndian(candidate[12..]);
+            uint centralDirectoryOffset = BinaryPrimitives.ReadUInt32LittleEndian(candidate[16..]);
+            if (diskNumber != 0
+                || centralDirectoryDisk != 0
+                || entriesOnDisk != totalEntries
+                || totalEntries == ushort.MaxValue
+                || centralDirectorySize == uint.MaxValue
+                || centralDirectoryOffset == uint.MaxValue)
+            {
+                throw new InvalidDataException("Unsupported ZIP layout.");
+            }
+
+            long position = stream.Length - tailLength + index;
+            if ((long)centralDirectoryOffset + centralDirectorySize != position)
+                throw new InvalidDataException("Invalid central directory bounds.");
+
+            return new ZipEndRecord(
+                position,
+                entriesOnDisk,
+                totalEntries,
+                centralDirectorySize,
+                centralDirectoryOffset);
+        }
+
+        throw new InvalidDataException("ZIP end record was not found.");
+    }
+
+    private static List<ZipEntryRecord> ReadCentralDirectory(
+        Stream stream,
+        ZipEndRecord end)
+    {
+        var entries = new List<ZipEntryRecord>(end.TotalEntries);
+        byte[] header = new byte[CentralDirectoryFixedLength];
+        byte[] signatureName = new byte[SignatureFileName.Length];
+        stream.Position = end.CentralDirectoryOffset;
+        for (int index = 0; index < end.TotalEntries; index++)
+        {
+            long position = stream.Position;
+            stream.ReadExactly(header);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(header) != CentralDirectoryHeaderSignature)
+                throw new InvalidDataException("Invalid central directory header.");
+
+            ushort fileNameLength = BinaryPrimitives.ReadUInt16LittleEndian(header[28..]);
+            ushort extraLength = BinaryPrimitives.ReadUInt16LittleEndian(header[30..]);
+            ushort commentLength = BinaryPrimitives.ReadUInt16LittleEndian(header[32..]);
+            ushort diskStart = BinaryPrimitives.ReadUInt16LittleEndian(header[34..]);
+            uint localOffset = BinaryPrimitives.ReadUInt32LittleEndian(header[42..]);
+            if (diskStart != 0 || localOffset == uint.MaxValue)
+                throw new InvalidDataException("Unsupported ZIP entry layout.");
+
+            bool isSignature = false;
+            if (fileNameLength == signatureName.Length)
+            {
+                stream.ReadExactly(signatureName);
+                isSignature = signatureName.AsSpan().SequenceEqual(".signature.p7s"u8);
+            }
+            else
+            {
+                stream.Position = checked(stream.Position + fileNameLength);
+            }
+            int headerSize = checked(
+                CentralDirectoryFixedLength + fileNameLength + extraLength + commentLength);
+            long nextPosition = checked(position + headerSize);
+            if (nextPosition > end.Position)
+                throw new InvalidDataException("Invalid central directory entry bounds.");
+            stream.Position = nextPosition;
+
+            entries.Add(new ZipEntryRecord(
+                position,
+                localOffset,
+                headerSize,
+                isSignature));
+        }
+
+        if (stream.Position != end.Position || entries.Count == 0)
+            throw new InvalidDataException("Invalid central directory size.");
+
+        return entries;
+    }
+
+    private static void AppendRange(
+        Stream stream,
+        IncrementalHash hash,
+        byte[] buffer,
+        long start,
+        long end)
+    {
+        if (start < 0 || end < start || end > stream.Length)
+            throw new InvalidDataException("Invalid ZIP range.");
+
+        stream.Position = start;
+        long remaining = end - start;
+        while (remaining > 0)
+        {
+            int read = stream.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
+            if (read == 0)
+                throw new EndOfStreamException();
+            hash.AppendData(buffer, 0, read);
+            remaining -= read;
+        }
+    }
+
+    private static uint ReadUInt32(Stream stream)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(uint)];
+        stream.ReadExactly(bytes);
+        return BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+    }
+
+    private static void AppendUInt16(IncrementalHash hash, ushort value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(ushort)];
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes, value);
+        hash.AppendData(bytes);
+    }
+
+    private static void AppendUInt32(IncrementalHash hash, uint value)
+    {
+        Span<byte> bytes = stackalloc byte[sizeof(uint)];
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes, value);
+        hash.AppendData(bytes);
     }
 
     /// <summary>
@@ -402,6 +737,31 @@ public static class PackageSignatureVerifier
         int end = subject.IndexOf(',', start);
         return end < 0 ? subject[start..].Trim() : subject[start..end].Trim();
     }
+
+    private readonly record struct SignedContentHash(
+        string AlgorithmOid,
+        string Value);
+
+    private readonly record struct ZipEndRecord(
+        long Position,
+        ushort EntriesOnDisk,
+        ushort TotalEntries,
+        uint CentralDirectorySize,
+        uint CentralDirectoryOffset);
+
+    private sealed class ZipEntryRecord(
+        long centralPosition,
+        long localOffset,
+        int centralHeaderSize,
+        bool isSignature)
+    {
+        public long CentralPosition { get; } = centralPosition;
+        public long LocalOffset { get; } = localOffset;
+        public int CentralHeaderSize { get; } = centralHeaderSize;
+        public bool IsSignature { get; } = isSignature;
+        public long LocalSize { get; set; }
+        public long OffsetChange { get; set; }
+    }
 }
 
 /// <summary>
@@ -425,6 +785,10 @@ public enum SignatureStatus
 
 public record SignatureVerificationResult(SignatureStatus Status, string? Reason)
 {
+    /// <summary>
+    /// Whether the CMS signature and signer chain are valid. Package callers must
+    /// additionally require <see cref="PackageContentVerified"/>.
+    /// </summary>
     public bool IsValid => Status == SignatureStatus.Valid;
     public bool IsUnsigned => Status == SignatureStatus.Unsigned;
 
@@ -441,11 +805,15 @@ public record SignatureVerificationResult(SignatureStatus Status, string? Reason
     public DateTimeOffset? Timestamp { get; init; }
 
     /// <summary>
-    /// Base64-encoded content hash from the signed data.
-    /// This is the hash the signer committed to. Full content hash verification
-    /// (comparing against actual package bytes) requires NuGet's ZIP hashing algorithm.
+    /// Base64-encoded package content hash from the signed data.
     /// </summary>
     public string? ContentHash { get; init; }
+
+    /// <summary>OID of the package content hash algorithm.</summary>
+    public string? ContentHashAlgorithm { get; init; }
+
+    /// <summary>Whether the signed content hash matched the package archive.</summary>
+    public bool PackageContentVerified { get; init; }
 
     /// <summary>
     /// Repository counter-signature, present when the primary signature is an author signature

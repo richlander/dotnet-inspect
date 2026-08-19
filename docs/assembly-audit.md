@@ -110,10 +110,13 @@ The detail table has exactly `Path`, `Kind`, and `Encoded Text`. A source line
 produces one rendering finding containing all Unicode concern kinds on that
 line. NuGet configuration also produces semantic rows for `<clear/>` and each
 declared package source, even when the same line already has a text finding.
-Element names follow NuGet's namespace-agnostic local-name matching, while only
-unqualified attributes contribute semantic evidence. Namespace declarations
-and qualified attributes therefore cannot impersonate NuGet `key` or `value`
-attributes without hiding effective qualified elements.
+Element names follow NuGet's namespace-agnostic local-name matching for the
+correctly cased `packageSources` section directly under the configuration root,
+while only unqualified attributes contribute semantic evidence. Namespace
+declarations and qualified attributes therefore cannot impersonate NuGet `key`
+or `value` attributes without hiding effective qualified elements. XML parsing
+is streaming and stops at 64 levels of nesting; reaching that limit makes the
+scan partial.
 Each row encodes only the recognized element name and its semantic attributes;
 nested content is not serialized into an outer row. Attribute values are
 structurally escaped, and evidence truncation keeps escape tokens and Unicode
@@ -130,7 +133,9 @@ terminal.
 When the scan runs, Signals adds `Audit | Findings` with `Detected`, `None`, or
 `Partial`. Registry-backed package Signals also distinguish an
 unlisted exact version and author-, repository-, unsigned-, and unverified
-signature states. These remain observations rather than a trust verdict.
+signature states. Author or repository verification requires both a valid
+signer chain and a signed content hash matching the inspected package archive.
+These remain observations rather than a trust verdict.
 
 ```bash
 dotnet-inspect package X -S "Signals,Audit: Findings"
@@ -151,6 +156,10 @@ gate unambiguous attribute evidence and scalar-safe truncation.
 and
 `PackageContentAuditTests.NuGetConfiguration_QualifiedElementsMatchNuGetSemantics`
 gate namespace-safe attributes and NuGet-compatible qualified elements.
+`PackageContentAuditTests.NuGetConfiguration_IgnoresNestedAndMiscasedSections`
+gates the active section hierarchy and casing, while
+`PackageContentAuditTests.NuGetConfiguration_DeepXmlReportsScanLimit` gates the
+fail-visible depth bound.
 `PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`
 and
 `SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`
@@ -163,6 +172,10 @@ SourceLink PDB.
 package-local PDB census and visible incompleteness.
 `PackageContentOutput_ContainsNoLiveControlsOnStdoutAndPreservesExplicitFileExport`
 gates encoded stdout and byte-exact `--out` export.
+`PackageSignatureVerifierTests.VerifyPackage_MutatedSignedPackageFailsContentHash`
+gates signer trust against the signed archive bytes, and
+`InspectionResultTests.Signed_PreservesUnestablishedVerificationState` gates
+Package Info and `--value signed` tri-state parity.
 
 ## Identifier confusion
 

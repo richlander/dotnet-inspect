@@ -112,11 +112,43 @@ public class PackageSignatureVerifierTests : IDisposable
             var result = PackageSignatureVerifier.VerifyPackage(nupkgPath);
 
             Assert.True(result.IsValid);
+            Assert.True(result.PackageContentVerified);
             Assert.NotNull(result.ContentHash);
             Assert.NotEmpty(result.ContentHash);
             // Should be valid base64
             byte[] decoded = Convert.FromBase64String(result.ContentHash);
             Assert.Equal(32, decoded.Length); // SHA-256 = 32 bytes
+        }
+        finally
+        {
+            File.Delete(nupkgPath);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyPackage_MutatedSignedPackageFailsContentHash()
+    {
+        string nupkgPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
+        try
+        {
+            using (var archive = System.IO.Compression.ZipFile.Open(
+                nupkgPath,
+                System.IO.Compression.ZipArchiveMode.Update))
+            {
+                var entry = archive.Entries.First(value =>
+                    value.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
+                string entryName = entry.FullName;
+                entry.Delete();
+                var replacement = archive.CreateEntry(entryName);
+                using var writer = new StreamWriter(replacement.Open());
+                writer.Write("<package><metadata><id>mutated</id></metadata></package>");
+            }
+
+            var result = PackageSignatureVerifier.VerifyPackage(nupkgPath);
+
+            Assert.False(result.IsValid);
+            Assert.False(result.PackageContentVerified);
+            Assert.Contains("content hash", result.Reason, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -236,10 +268,8 @@ public class PackageSignatureVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task VerifySignatureFile_MatchesPackageVerification()
+    public async Task VerifySignatureFile_MatchesCmsIdentityWithoutPackageBinding()
     {
-        // Verify that VerifySignatureFile on an extracted .signature.p7s
-        // produces the same result as VerifyPackage on the .nupkg
         string nupkgPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
         try
         {
@@ -258,6 +288,8 @@ public class PackageSignatureVerifierTests : IDisposable
                 Assert.Equal(packageResult.Status, fileResult.Status);
                 Assert.Equal(packageResult.Publisher, fileResult.Publisher);
                 Assert.Equal(packageResult.SignatureType, fileResult.SignatureType);
+                Assert.True(packageResult.PackageContentVerified);
+                Assert.False(fileResult.PackageContentVerified);
             }
             finally
             {

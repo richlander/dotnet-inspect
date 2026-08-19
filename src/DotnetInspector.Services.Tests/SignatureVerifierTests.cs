@@ -50,6 +50,7 @@ public class SignatureVerifierTests : IDisposable
         {
             SignatureType = SignatureType.Author,
             Publisher = "Author",
+            PackageContentVerified = true,
         };
 
         SignatureVerificationResult result = SignatureVerifier.FromNuGetResult(source);
@@ -69,12 +70,14 @@ public class SignatureVerifierTests : IDisposable
         {
             SignatureType = SignatureType.Author,
             Publisher = "Author",
+            PackageContentVerified = true,
             CounterSignature = new NuGetFetch.SignatureVerificationResult(
                 SignatureStatus.Valid,
                 Reason: null)
             {
                 SignatureType = SignatureType.Repository,
                 Publisher = "Repository",
+                PackageContentVerified = true,
             },
         };
 
@@ -95,6 +98,7 @@ public class SignatureVerifierTests : IDisposable
         {
             SignatureType = SignatureType.Repository,
             Publisher = "Repository",
+            PackageContentVerified = true,
         };
 
         SignatureVerificationResult result = SignatureVerifier.FromNuGetResult(source);
@@ -103,6 +107,24 @@ public class SignatureVerifierTests : IDisposable
         Assert.Null(result.Publisher);
         Assert.True(result.RepositoryVerified);
         Assert.Equal("Repository", result.Repository);
+    }
+
+    [Fact]
+    public void FromNuGetResult_UnboundSignatureDoesNotEstablishTrust()
+    {
+        var source = new NuGetFetch.SignatureVerificationResult(
+            SignatureStatus.Valid,
+            Reason: null)
+        {
+            SignatureType = SignatureType.Author,
+            Publisher = "Author",
+        };
+
+        SignatureVerificationResult result = SignatureVerifier.FromNuGetResult(source);
+
+        Assert.False(result.AuthorVerified);
+        Assert.False(result.RepositoryVerified);
+        Assert.Contains("content hash", result.StatusMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -500,15 +500,16 @@ public class InspectionResultTests
     }
 
     [Theory]
-    [InlineData(true, false, false, true)]
-    [InlineData(false, true, false, true)]
-    [InlineData(false, false, true, false)]
-    [InlineData(false, false, false, null)]
+    [InlineData(true, false, false, true, "Verified")]
+    [InlineData(false, true, false, true, "Verified")]
+    [InlineData(false, false, true, false, "Unsigned")]
+    [InlineData(false, false, false, null, null)]
     public void Signed_PreservesUnestablishedVerificationState(
         bool authorVerified,
         bool repositoryVerified,
         bool isUnsigned,
-        bool? expected)
+        bool? expected,
+        string? expectedValue)
     {
         var result = new InspectionResult
         {
@@ -521,6 +522,9 @@ public class InspectionResultTests
         };
 
         Assert.Equal(expected, result.Signed);
+        Assert.Equal(
+            expectedValue,
+            Commands.PackageCommand.GetPackageSignedValue(result));
     }
 
     [Fact]

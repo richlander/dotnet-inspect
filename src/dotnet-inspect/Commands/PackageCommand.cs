@@ -1774,16 +1774,7 @@ public class PackageCommand
         }
 
         var text = new PackageInspectionText(result);
-        string? rawSigned = result.SignatureResult is null
-            ? null
-            : result.SignatureResult.IsUnsigned ? "Unsigned"
-                : result.SignatureResult.AuthorVerified || result.SignatureResult.RepositoryVerified ? "Verified"
-                : result.SignatureResult.StatusMessage;
-        string? containedSigned = text.SignatureResult is not { } signature
-            ? null
-            : signature.IsUnsigned ? "Unsigned"
-                : signature.AuthorVerified || signature.RepositoryVerified ? "Verified"
-                : signature.StatusMessage?.ToString();
+        string? signed = GetPackageSignedValue(result);
 
         (string? Raw, string? Contained) value = field.ToLowerInvariant() switch
         {
@@ -1806,7 +1797,7 @@ public class PackageCommand
                 text.PackageTypes is { Count: > 0 } containedTypes
                     ? InertString.Join(", ", TextPolicy.Field, containedTypes).ToString()
                     : null),
-            "signed" => (rawSigned, containedSigned),
+            "signed" => (signed, signed),
             "size" => (
                 result.PackageSize?.ToString(CultureInfo.InvariantCulture),
                 result.PackageSize?.ToString(CultureInfo.InvariantCulture)),
@@ -1817,6 +1808,14 @@ public class PackageCommand
             ? []
             : [new ShapeProjectionRow(1, section, value.Contained!, Label: field)];
     }
+
+    internal static string? GetPackageSignedValue(InspectionResult result)
+        => result.Signed switch
+        {
+            true => "Verified",
+            false => "Unsigned",
+            null => null,
+        };
 
     private static bool ValidatePathMatchMode(InspectionOptions options)
     {
