@@ -4,6 +4,8 @@ import {
   buildAnnotatedView,
   factsForNode,
   nodeAtOffset,
+  prepareAnnotatedView,
+  projectPreparedAnnotatedView,
 } from "../src/annotated-source-view.ts";
 import { sampleDocument } from "../../annotated-source-viewer/src/sample-document.js";
 
@@ -116,4 +118,18 @@ test("clicking a node highlights it without selecting a fact", () => {
     ["IL_0001: newobj instance void System.Object::.ctor()"],
   );
   assert.deepEqual(view.facts.filter(fact => fact.selected), []);
+});
+
+test("prepared documents preserve projection semantics across interactions", () => {
+  const prepared = prepareAnnotatedView(sampleDocument);
+  const state = {
+    selectedFactId: 1,
+    media: { CSharp: true, Il: false },
+  };
+
+  assert.deepEqual(
+    projectPreparedAnnotatedView(prepared, state),
+    buildAnnotatedView(sampleDocument, state),
+  );
+  assert.equal(prepared.document, sampleDocument);
 });

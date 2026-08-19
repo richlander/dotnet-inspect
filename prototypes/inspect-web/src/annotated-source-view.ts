@@ -1,7 +1,6 @@
 import {
   buildLines,
   lineMedium,
-  nodeIdsForFact,
   nodesAtOffset,
   segmentsForLine,
   unanchoredFacts,
@@ -114,15 +113,19 @@ export interface AnnotatedView {
   hiddenLines: number;
 }
 
+export interface PreparedAnnotatedView {
+  document: AnnotatedSourceDocument;
+  lines: readonly AnnotatedViewLine[];
+  facts: readonly AnnotatedViewFact[];
+  unanchoredFactIds: readonly number[];
+  totalLineCount: number;
+}
+
 const getLines = buildLines as (text: string) => SourceLine[];
 const getLineMedium = lineMedium as (
   document: AnnotatedSourceDocument,
   line: SourceLine,
 ) => LineMedium;
-const getNodeIdsForFact = nodeIdsForFact as (
-  document: AnnotatedSourceDocument,
-  factId: number,
-) => number[];
 const getNodesAtOffset = nodesAtOffset as (
   document: AnnotatedSourceDocument,
   offset: number,
@@ -148,8 +151,57 @@ export function buildAnnotatedView(
   document: AnnotatedSourceDocument,
   state: AnnotatedViewState = {},
 ): AnnotatedView {
-  validateDocument(document);
+  return projectPreparedAnnotatedView(prepareAnnotatedView(document), state);
+}
 
+export function validateAnnotatedSourceDocument(document: AnnotatedSourceDocument): void {
+  validateDocument(document);
+}
+
+export function prepareAnnotatedView(
+  document: AnnotatedSourceDocument,
+): PreparedAnnotatedView {
+  validateAnnotatedSourceDocument(document);
+  const sourceLines = getLines(document.text);
+  const lines = sourceLines.map(line => ({
+    number: line.number,
+    medium: getLineMedium(document, line),
+    start: line.start,
+    end: line.end,
+    segments: getSegmentsForLine(document, line).map(segment => ({
+      ...segment,
+      selected: false,
+    })),
+  }));
+  const nodeIdsByFact = document.facts.map((): number[] => []);
+  for (const target of document.targets) nodeIdsByFact[target.fact_id].push(target.node_id);
+  const anchored = new Set(document.targets.map(target => target.fact_id));
+  const facts = document.facts.map(fact => ({
+    id: fact.id,
+    descriptor: fact.descriptor,
+    category: fact.category,
+    conditionality: fact.conditionality,
+    detail: fact.detail ?? null,
+    origin: fact.origin,
+    sourceOffset: fact.source_offset,
+    anchored: anchored.has(fact.id),
+    nodeIds: nodeIdsByFact[fact.id],
+    selected: false,
+  }));
+  const unanchored = getUnanchoredFacts(document);
+  return {
+    document,
+    lines,
+    facts,
+    unanchoredFactIds: unanchored.map(fact => fact.id),
+    totalLineCount: sourceLines.length,
+  };
+}
+
+export function projectPreparedAnnotatedView(
+  prepared: PreparedAnnotatedView,
+  state: AnnotatedViewState = {},
+): AnnotatedView {
   const media: Record<SourceMedium, boolean | undefined> = {
     CSharp: true,
     Il: true,
@@ -161,52 +213,35 @@ export function buildAnnotatedView(
       : null;
   const targetNodeIds: number[] = selectedFactId == null
     ? [...new Set(state.selectedNodeIds ?? [])]
-    : getNodeIdsForFact(document, selectedFactId);
+    : [...(prepared.facts[selectedFactId]?.nodeIds ?? [])];
   const targeted = new Set(targetNodeIds);
 
-  const sourceLines = getLines(document.text);
-  const lines = sourceLines
-    .map(line => ({
-      ...line,
-      medium: getLineMedium(document, line),
-    }))
+  const lines = prepared.lines
     .filter(line => isVisible(line.medium, media))
     .map(line => ({
       number: line.number,
       medium: line.medium,
       start: line.start,
       end: line.end,
-      segments: getSegmentsForLine(document, line, targetNodeIds).map(segment => ({
+      segments: line.segments.map(segment => ({
         ...segment,
-        // A segment is highlighted only when a targeted node actually covers it, so one node's
-        // several separated spans light up without selecting the text between them.
         selected: segment.nodeIds.some(id => targeted.has(id)),
       })),
     }));
 
-  const anchored = new Set(document.targets.map(target => target.fact_id));
-  const facts = document.facts.map(fact => ({
-    id: fact.id,
-    descriptor: fact.descriptor,
-    category: fact.category,
-    conditionality: fact.conditionality,
-    detail: fact.detail ?? null,
-    origin: fact.origin,
-    sourceOffset: fact.source_offset,
-    anchored: anchored.has(fact.id),
-    nodeIds: getNodeIdsForFact(document, fact.id),
+  const facts = prepared.facts.map(fact => ({
+    ...fact,
     selected: fact.id === selectedFactId,
   }));
 
-  const unanchored = getUnanchoredFacts(document);
   return {
     media,
     selectedFactId,
     selectedNodeIds: targetNodeIds,
     lines,
     facts,
-    unanchoredFactIds: unanchored.map(fact => fact.id),
-    hiddenLines: sourceLines.length - lines.length,
+    unanchoredFactIds: [...prepared.unanchoredFactIds],
+    hiddenLines: prepared.totalLineCount - lines.length,
   };
 }
 

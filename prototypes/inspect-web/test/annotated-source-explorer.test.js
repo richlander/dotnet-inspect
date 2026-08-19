@@ -10,6 +10,7 @@ import {
 import { sampleDocument } from "../../annotated-source-viewer/src/sample-document.js";
 
 const appSource = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
 const result = {
   document: sampleDocument,
@@ -47,7 +48,7 @@ test("the app routes the member tab into the TypeScript explorer", () => {
 test("the explorer presents canonical text beside anchored and unanchored facts", () => {
   const html = renderAnnotatedSourceExplorer({
     result,
-    state: createAnnotatedSourceExplorerState(),
+    state: createAnnotatedSourceExplorerState(sampleDocument),
     title: "Example.Run",
     subtitle: "public object Run()",
     escapeHtml,
@@ -64,13 +65,14 @@ test("the explorer presents canonical text beside anchored and unanchored facts"
 });
 
 test("fact, source, node-kind, and clear actions preserve typed selection semantics", () => {
-  const initial = createAnnotatedSourceExplorerState();
+  const initial = createAnnotatedSourceExplorerState(sampleDocument);
   const fact = reduceAnnotatedSourceExplorerState(
     sampleDocument,
     initial,
     { type: "select-fact", factId: 0 },
   );
   assert.equal(fact.selectedFactId, 0);
+  assert.equal(fact.prepared, initial.prepared);
 
   const source = reduceAnnotatedSourceExplorerState(
     sampleDocument,
@@ -99,7 +101,7 @@ test("fact, source, node-kind, and clear actions preserve typed selection semant
 });
 
 test("media actions refuse an empty-looking document", () => {
-  const initial = createAnnotatedSourceExplorerState();
+  const initial = createAnnotatedSourceExplorerState(sampleDocument);
   const csharpOff = reduceAnnotatedSourceExplorerState(
     sampleDocument,
     initial,
@@ -127,7 +129,7 @@ test("explorer presentation escapes document and member text", () => {
   };
   const html = renderAnnotatedSourceExplorer({
     result: hostile,
-    state: createAnnotatedSourceExplorerState(),
+    state: createAnnotatedSourceExplorerState(hostile.document),
     title: "<member>",
     subtitle: '"signature"',
     escapeHtml,
@@ -140,17 +142,39 @@ test("explorer presentation escapes document and member text", () => {
 });
 
 test("invalid portable documents remain visible failures instead of empty explorers", () => {
+  const invalidResult = {
+    ...result,
+    document: { ...sampleDocument, targets: [{ fact_id: 0, node_id: 99 }] },
+  };
   assert.throws(
-    () => renderAnnotatedSourceExplorer({
-      result: {
-        ...result,
-        document: { ...sampleDocument, targets: [{ fact_id: 0, node_id: 99 }] },
-      },
-      state: createAnnotatedSourceExplorerState(),
-      title: "Example.Run",
-      subtitle: "public object Run()",
+    () => renderAnnotatedSourceEntry({
+      result: invalidResult,
       escapeHtml,
     }),
     /names a node that does not exist/,
   );
+});
+
+test("addressable source and rerendered controls remain keyboard-operable", () => {
+  const html = renderAnnotatedSourceExplorer({
+    result,
+    state: createAnnotatedSourceExplorerState(sampleDocument),
+    title: "Example.Run",
+    subtitle: "public object Run()",
+    escapeHtml,
+  });
+
+  assert.match(html, /<button type="button" class="annotated-span addressable"/);
+  assert.match(appSource, /focusSelector = "#ase-exit"/);
+  assert.match(appSource, /focus\(\{ preventScroll: true \}\)/);
+  assert.match(appSource, /"#ase-node-kind"\);/);
+});
+
+test("full-bleed feedback and narrow layouts stay reachable", () => {
+  assert.match(styles, /\.toast\s*\{[^}]*z-index:\s*120/s);
+  assert.match(
+    styles,
+    /\.ase-workspace\s*\{[^}]*grid-template-rows:\s*minmax\(0, 3fr\) minmax\(0, 2fr\)/s,
+  );
+  assert.doesNotMatch(styles, /grid-template-rows:[^;]*(?:45vh|240px)/);
 });

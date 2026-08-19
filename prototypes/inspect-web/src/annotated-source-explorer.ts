@@ -1,13 +1,16 @@
 import {
-  buildAnnotatedView,
   factsForNode,
   MEDIUM_LABELS,
   MEDIA,
   nodeAtOffset,
+  prepareAnnotatedView,
+  projectPreparedAnnotatedView,
   type AnnotatedSourceDocument,
   type AnnotatedSourceNode,
   type AnnotatedViewFact,
+  type PreparedAnnotatedView,
   type SourceMedium,
+  validateAnnotatedSourceDocument,
 } from "./annotated-source-view.ts";
 
 export interface AnnotatedSourceResult {
@@ -17,6 +20,7 @@ export interface AnnotatedSourceResult {
 }
 
 export interface AnnotatedSourceExplorerState {
+  prepared: PreparedAnnotatedView;
   media: Record<SourceMedium, boolean>;
   selectedFactId: number | null;
   selectedNodeIds: readonly number[];
@@ -47,7 +51,8 @@ export interface AnnotatedSourceExplorerOptions extends AnnotatedSourceEntryOpti
 const MAX_SELECTION_DETAILS = 50;
 
 export function createAnnotatedSourceExplorerState(
-  initial: Partial<AnnotatedSourceExplorerState> = {},
+  document: AnnotatedSourceDocument,
+  initial: Partial<Omit<AnnotatedSourceExplorerState, "prepared">> = {},
 ): AnnotatedSourceExplorerState {
   const media = {
     CSharp: initial.media?.CSharp !== false,
@@ -56,6 +61,7 @@ export function createAnnotatedSourceExplorerState(
   if (!MEDIA.some(medium => media[medium])) media.CSharp = true;
 
   return {
+    prepared: prepareAnnotatedView(document),
     media,
     selectedFactId: initial.selectedFactId ?? null,
     selectedNodeIds: [...new Set(initial.selectedNodeIds ?? [])],
@@ -123,7 +129,8 @@ export function reduceAnnotatedSourceExplorerState(
 
 export function renderAnnotatedSourceEntry(options: AnnotatedSourceEntryOptions): string {
   const { result, escapeHtml } = options;
-  const view = buildAnnotatedView(result.document);
+  validateAnnotatedSourceDocument(result.document);
+  const anchoredFacts = new Set(result.document.targets.map(target => target.fact_id));
   const targetCount = result.document.targets.length;
 
   return `<section class="document-section source-result annotated-entry">
@@ -136,9 +143,9 @@ export function renderAnnotatedSourceEntry(options: AnnotatedSourceEntryOptions)
           <p>Open the full-screen viewer to follow facts through their structural targets into exact C# and IL spans.</p>
           <div class="annotated-entry-counts">
             ${countHtml(result.document.nodes.length, "node", escapeHtml)}
-            ${countHtml(view.facts.length, "fact", escapeHtml)}
+            ${countHtml(result.document.facts.length, "fact", escapeHtml)}
             ${countHtml(targetCount, "target", escapeHtml)}
-            ${countHtml(view.unanchoredFactIds.length, "unanchored", escapeHtml)}
+            ${countHtml(result.document.facts.length - anchoredFacts.size, "unanchored", escapeHtml)}
           </div>
         </div>
         <button id="open-annotated-explorer" class="annotated-entry-open" type="button">Open full-screen viewer</button>
@@ -150,7 +157,10 @@ export function renderAnnotatedSourceExplorer(
   options: AnnotatedSourceExplorerOptions,
 ): string {
   const { result, state, title, subtitle, escapeHtml } = options;
-  const view = buildAnnotatedView(result.document, state);
+  if (state.prepared.document !== result.document) {
+    throw new Error("The annotated source explorer state belongs to a different document.");
+  }
+  const view = projectPreparedAnnotatedView(state.prepared, state);
   const nodeById = new Map(result.document.nodes.map(node => [node.id, node]));
   const selectedNodes = view.selectedNodeIds
     .map(id => nodeById.get(id))
@@ -175,7 +185,10 @@ export function renderAnnotatedSourceExplorer(
         .filter((node): node is AnnotatedSourceNode => node !== undefined);
       const addressable = nodes.length > 0;
       const titleText = nodes.map(node => `#${node.id} ${node.kind}`).join(" · ");
-      return `<span class="annotated-span${segment.selected ? " selected" : ""}${addressable ? " addressable" : ""}"${addressable ? ` data-ase-offset="${segment.start}" title="${escapeHtml(titleText)}"` : ""}>${escapeHtml(segment.text)}</span>`;
+      if (addressable) {
+        return `<button type="button" class="annotated-span addressable${segment.selected ? " selected" : ""}" data-ase-offset="${segment.start}" title="${escapeHtml(titleText)}">${escapeHtml(segment.text)}</button>`;
+      }
+      return `<span class="annotated-span${segment.selected ? " selected" : ""}">${escapeHtml(segment.text)}</span>`;
     }).join("");
     const mediumLabel = line.medium === "Mixed" ? "C#/IL" : MEDIUM_LABELS[line.medium];
     return `<div class="annotated-line medium-${line.medium.toLowerCase()}">

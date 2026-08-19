@@ -1101,7 +1101,7 @@ kbd {
   position: fixed;
   right: 14px;
   bottom: 60px;
-  z-index: 30;
+  z-index: 120;
   padding: 9px 13px;
   border: 1px solid var(--line-strong);
   background: var(--panel-active);
@@ -1869,7 +1869,7 @@ kbd {
 .annotated-line-number { flex: none; width: 4ch; color: var(--code-line); text-align: right; user-select: none; }
 .annotated-line-medium { flex: none; width: 4ch; color: var(--dim); font-size: 10px; text-align: right; user-select: none; }
 .annotated-line-text { flex: 1; min-width: 0; }
-.annotated-span.addressable { cursor: pointer; }
+.annotated-span.addressable { margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; line-height: inherit; text-align: left; cursor: pointer; }
 .annotated-span.addressable:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .annotated-span.selected { background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); color: var(--text); }
 .ase-inspector { min-width: 0; min-height: 0; overflow: auto; background: var(--panel); }
@@ -1911,7 +1911,7 @@ kbd {
 @media (max-width: 720px) {
   .annotated-entry-body { grid-template-columns: auto minmax(0, 1fr); }
   .annotated-entry-open { grid-column: 1 / -1; }
-  .ase-workspace { grid-template-columns: 1fr; grid-template-rows: minmax(45vh, 1fr) minmax(240px, 42vh); }
+  .ase-workspace { grid-template-columns: 1fr; grid-template-rows: minmax(0, 3fr) minmax(0, 2fr); }
   .ase-code-panel { border-right: 0; border-bottom: 1px solid var(--line); }
   .ase-kind-filter { flex: 1; }
   .ase-kind-filter select { min-width: 0; max-width: none; flex: 1; }

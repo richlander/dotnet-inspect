@@ -3436,7 +3436,7 @@ function annotatedSourceExplorerContext() {
 
 function openAnnotatedSourceExplorer() {
   if (!annotatedSourceExplorerContext()) return;
-  state.annotatedExplorer = createAnnotatedSourceExplorerState({
+  state.annotatedExplorer = createAnnotatedSourceExplorerState(state.memberAnnotated.document, {
     media: state.memberAnnotatedMedia,
     selectedFactId: state.memberAnnotatedFactId,
     selectedNodeIds: state.memberAnnotatedNodeIds,
@@ -3478,7 +3478,7 @@ function renderAnnotatedSourceExplorer() {
   bindAnnotatedSourceExplorerEvents();
 }
 
-function updateAnnotatedSourceExplorer(action, revealTarget = false) {
+function updateAnnotatedSourceExplorer(action, revealTarget = false, focusSelector = "#ase-exit") {
   if (!state.annotatedExplorer || !state.memberAnnotated) return;
   const codeScroll = document.querySelector(".ase-code-scroll")?.scrollTop ?? 0;
   const inspectorScroll = document.querySelector(".ase-inspector")?.scrollTop ?? 0;
@@ -3492,6 +3492,7 @@ function updateAnnotatedSourceExplorer(action, revealTarget = false) {
     const inspector = document.querySelector(".ase-inspector");
     if (code) code.scrollTop = codeScroll;
     if (inspector) inspector.scrollTop = inspectorScroll;
+    document.querySelector(focusSelector)?.focus({ preventScroll: true });
     if (revealTarget) {
       document.querySelector(".annotated-span.selected")?.scrollIntoView({
         block: "center",
@@ -3512,34 +3513,34 @@ function bindAnnotatedSourceExplorerEvents() {
     updateAnnotatedSourceExplorer({
       type: "toggle-medium",
       medium: button.dataset.aseMedium,
-    });
+    }, false, `[data-ase-medium="${button.dataset.aseMedium}"]`);
   }));
   document.querySelector("#ase-node-kind")?.addEventListener("change", event => {
     updateAnnotatedSourceExplorer({
       type: "select-kind",
       kind: event.currentTarget.value,
-    }, Boolean(event.currentTarget.value));
+    }, Boolean(event.currentTarget.value), "#ase-node-kind");
   });
   document.querySelectorAll("[data-ase-fact]").forEach(button => button.addEventListener("click", () => {
     updateAnnotatedSourceExplorer({
       type: "select-fact",
       factId: Number(button.dataset.aseFact),
-    }, true);
+    }, true, `[data-ase-fact="${button.dataset.aseFact}"]`);
   }));
   document.querySelectorAll("[data-ase-node]").forEach(button => button.addEventListener("click", () => {
     updateAnnotatedSourceExplorer({
       type: "select-node",
       nodeId: Number(button.dataset.aseNode),
-    }, true);
+    }, true, `[data-ase-node="${button.dataset.aseNode}"]`);
   }));
   document.querySelectorAll("[data-ase-offset]").forEach(span => span.addEventListener("click", () => {
     updateAnnotatedSourceExplorer({
       type: "select-offset",
       offset: Number(span.dataset.aseOffset),
-    });
+    }, false, `[data-ase-offset="${span.dataset.aseOffset}"]`);
   }));
   document.querySelector("#ase-clear")?.addEventListener("click", () => {
-    updateAnnotatedSourceExplorer({ type: "clear-selection" });
+    updateAnnotatedSourceExplorer({ type: "clear-selection" }, false, "#ase-node-kind");
   });
 }
 
