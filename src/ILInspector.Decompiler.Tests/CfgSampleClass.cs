@@ -648,6 +648,12 @@ public class CfgSampleClass
     public static System.Func<int, int> LocalBodyLambda()
         => x => { int y = x + 1; return y * y; };
 
+    public static System.Func<CfgDimStructConsumer, int> InterfaceCastLambda()
+        => consumer => ((CfgDimFace)consumer).Value();
+
+    public static System.Func<CfgDimStructConsumer, int> InterfaceCastLocalBodyLambda()
+        => consumer => { int copy = 1; return copy + ((CfgDimFace)consumer).Value(); };
+
     // Capturing local-bearing body whose capture is an outer parameter. The
     // parameter name is stable in the nested lambda print scope, so this is now
     // recoverable.
@@ -4766,6 +4772,12 @@ public class CfgSampleClass
         yield return "b";
     }
 
+    public static System.Collections.Generic.IEnumerable<int> YieldInterfaceValue(
+        CfgDimStructConsumer consumer)
+    {
+        yield return ((CfgDimFace)consumer).Value();
+    }
+
     // IEnumerator<T>-returning iterator (not IEnumerable<T>): the kickoff creates
     // the state machine with initial state 0 directly, but the linear MoveNext
     // dispatch is identical, so reconstruction still applies.
@@ -5115,6 +5127,21 @@ public class CfgSampleClass
         }
     }
 
+    // The local-function body is the only place that references CfgDimFace, and
+    // its own local forces a nested printer scope. The interface fact must survive
+    // both the body-to-host merge and the host-to-nested-printer copy so the boxed
+    // interface receiver is restored as ((CfgDimFace)consumer), not omitted.
+    public static int InterfaceBoxInLocalFunctionWithLocal(CfgDimStructConsumer consumer, int x)
+    {
+        return Call(consumer, x);
+
+        static int Call(CfgDimStructConsumer consumer, int value)
+        {
+            int copy = value;
+            return copy + ((CfgDimFace)consumer).Value();
+        }
+    }
+
     // #2983 (inline path): a static local function with no locals or surviving
     // stack slots prints INLINE through the enclosing function's scope, not a
     // reconstructed one. `CfgPriority` is referenced only inside the local
@@ -5410,6 +5437,13 @@ public sealed class JoinTypeProvider
 
 public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }
 
+public interface CfgDimFace
+{
+    int Value() => 7;
+}
+
+public readonly struct CfgDimStructConsumer : CfgDimFace { }
+
 public enum CfgTerminalSwitchKind
 {
     Value25 = 25,
@@ -5470,29 +5504,5 @@ public sealed class CfgNullableTarget
     {
         get => Value + index;
         set => Value = value + index;
-    }
-}
-
-/// <summary>Reference-typed indexer for indexer <c>??=</c> fixtures.</summary>
-public sealed class StringIndexer
-{
-    private readonly string?[] _slots = new string?[8];
-
-    public string? this[int index]
-    {
-        get => _slots[index];
-        set => _slots[index] = value;
-    }
-}
-
-/// <summary>Numeric indexer for indexer compound-assignment fixtures.</summary>
-public sealed class CounterIndexer
-{
-    private readonly int[] _counts = new int[8];
-
-    public int this[int index]
-    {
-        get => _counts[index];
-        set => _counts[index] = value;
     }
 }

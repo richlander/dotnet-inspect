@@ -1621,6 +1621,7 @@ public partial class CommandExecutionTests
         Assert.Contains("\"provenance\": \"exact\"", output);
         Assert.Contains("\"operation\": \"box\"", output);
         Assert.Contains("\"assembly\": \"", output);
+        Assert.Contains("\"module_version_id\": \"", output);
         Assert.Contains("\"method_token\": \"0x06", output);
         Assert.Contains("\"token\": \"0x", output);
     }
@@ -13852,6 +13853,18 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task BareName_DecompilerCategory_IsNotPublished()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json", "-S", "@Decompiler", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Select value '@Decompiler' not found.", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Body Shapes\" requires", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LibraryCommand_PlatformFacade_LibraryInfoShowsFacadeAssemblyYes()
     {
         var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime.CompilerServices.Unsafe");
@@ -14289,7 +14302,7 @@ public partial class CommandExecutionTests
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Context", "@Decompiler", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
+            new[] { "@Audit", "@Context", "@Integrations", "@Library", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
         var raw = SplitOutputLines(output);

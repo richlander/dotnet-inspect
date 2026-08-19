@@ -15,6 +15,7 @@ public enum InspectionGraphInducedSetRule
 {
     DocumentSubjects,
     WorkspaceParticipants,
+    ExplicitSubjects,
 }
 
 /// <summary>

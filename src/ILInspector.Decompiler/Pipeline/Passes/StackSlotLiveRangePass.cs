@@ -37,6 +37,12 @@ public sealed class StackSlotLiveRangePass : IIrPass
                 if (previousType is null || previousType.Equals(valueType))
                     continue;
 
+                // LiveLoads stops at the next store statement. A load in that
+                // statement, or after a nested store that may not execute, may
+                // still observe this definition.
+                if (NextStoreBoundaryHasUnprovenLoad(block, i, store.Slot))
+                    continue;
+
                 var liveLoads = LiveLoads(block, i, store.Slot).ToList();
                 if (liveLoads.Count == 0)
                     continue;
@@ -51,7 +57,7 @@ public sealed class StackSlotLiveRangePass : IIrPass
                     ? !ReferencesAreStraightLineInBlock(function, store.Slot, block)
                     : function.Descendants.OfType<LoadStackSlot>()
                             .Any(load => load.Slot == store.Slot && !IsDescendantOf(load, block))
-                        || HasLoopCarriedLoadBeforeStore(function, block, i, store.Slot))
+                        || HasLoopCarriedLoadBeforeStore(function, block, i, store))
                     continue;
 
                 int newSlot = FreshStackSlot(function);
@@ -298,12 +304,21 @@ public sealed class StackSlotLiveRangePass : IIrPass
             && functionBody.Parent is IrFunction;
     }
 
-    static bool HasLoopCarriedLoadBeforeStore(IrFunction function, Block block, int storeChild, int slot)
+    static bool HasLoopCarriedLoadBeforeStore(
+        IrFunction function,
+        Block block,
+        int storeChild,
+        StoreStackSlot store)
     {
+        int slot = store.Slot;
         bool hasPriorLoad = block.Children.Take(storeChild)
-            .Any(statement => statement.Descendants.Prepend(statement)
+            .Any(statement => ScopeDescendants(statement).Prepend(statement)
                 .OfType<LoadStackSlot>()
-                .Any(load => load.Slot == slot));
+                .Any(load => load.Slot == slot))
+            || ScopeDescendants(store.Value)
+                .Prepend(store.Value)
+                .OfType<LoadStackSlot>()
+                .Any(load => load.Slot == slot);
         if (!hasPriorLoad)
             return false;
         if (IsWithinStructuredLoop(block))
@@ -390,6 +405,33 @@ public sealed class StackSlotLiveRangePass : IIrPass
             }
         }
         return previous;
+    }
+
+    static bool NextStoreBoundaryHasUnprovenLoad(Block block, int storeChild, int slot)
+    {
+        bool sawNestedStore = false;
+        for (int i = storeChild + 1; i < block.Children.Count; i++)
+        {
+            var statement = block.Children[i];
+            bool hasStore = ScopeDescendants(statement).Prepend(statement)
+                .OfType<StoreStackSlot>()
+                .Any(store => store.Slot == slot);
+            if (!sawNestedStore && !hasStore)
+                continue;
+
+            if (ScopeDescendants(statement).Prepend(statement)
+                .OfType<LoadStackSlot>()
+                .Any(load => load.Slot == slot))
+            {
+                return true;
+            }
+
+            if (statement is StoreStackSlot store && store.Slot == slot)
+                return false;
+
+            sawNestedStore |= hasStore;
+        }
+        return false;
     }
 
     static IEnumerable<LoadStackSlot> LiveLoads(Block block, int storeChild, int slot)
