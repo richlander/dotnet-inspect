@@ -51,8 +51,13 @@ public static class InspectionGraphCommand
         if (!TryCreateMembers(options.Packages, out var members))
             return 1;
 
-        ImmutableArray<InspectionGraphRelationshipDescriptor> relationships =
-            ResolveRelationships(options.Relationships);
+        if (!TryResolveRelationships(
+                options.Relationships,
+                out ImmutableArray<
+                    InspectionGraphRelationshipDescriptor> relationships))
+        {
+            return 1;
+        }
         using var workspace = new InspectionWorkspace();
         WorkspaceContextLoadOutcome outcome =
             await WorkspaceContextLoader.LoadAsync(
@@ -150,22 +155,38 @@ public static class InspectionGraphCommand
         return true;
     }
 
-    static ImmutableArray<InspectionGraphRelationshipDescriptor>
-        ResolveRelationships(IReadOnlyList<string> requested)
+    static bool TryResolveRelationships(
+        IReadOnlyList<string> requested,
+        out ImmutableArray<InspectionGraphRelationshipDescriptor>
+            relationships)
     {
         if (requested.Count == 0)
-            return DefaultRelationships;
+        {
+            relationships = DefaultRelationships;
+            return true;
+        }
 
         var byId =
             InspectionGraphIntegrationsCatalog.Relationships.ToDictionary(
                 static relationship => relationship.Id,
                 StringComparer.Ordinal);
-        return
-        [
-            .. requested
-                .Distinct(StringComparer.Ordinal)
-                .Select(id => byId[id]),
-        ];
+        var selected =
+            ImmutableArray.CreateBuilder<
+                InspectionGraphRelationshipDescriptor>();
+        foreach (string id in requested.Distinct(StringComparer.Ordinal))
+        {
+            if (!byId.TryGetValue(id, out var relationship))
+            {
+                CommandError.Write(
+                    $"Unknown Integration graph relationship '{id}'.");
+                relationships = [];
+                return false;
+            }
+            selected.Add(relationship);
+        }
+
+        relationships = selected.ToImmutable();
+        return true;
     }
 
     static int Write(
@@ -187,7 +208,8 @@ public static class InspectionGraphCommand
             InspectionGraphOutputAdapter.WriteGraph(
                 document,
                 rows,
-                new PlainTextFormatter());
+                new PlainTextFormatter(),
+                includeGroupInNodeLabel: true);
         }
         else
         {
@@ -214,13 +236,15 @@ public static class InspectionGraphCommand
                     InspectionGraphOutputAdapter.WriteGraph(
                         document,
                         rows,
-                        new MermaidFormatter());
+                        new MermaidFormatter(),
+                        includeGroupInNodeLabel: false);
                     break;
                 case OutputFormat.PlainText:
                     InspectionGraphOutputAdapter.WriteGraph(
                         document,
                         rows,
-                        new PlainTextFormatter());
+                        new PlainTextFormatter(),
+                        includeGroupInNodeLabel: true);
                     break;
                 default:
                     InspectionGraphOutputAdapter.WriteMarkdown(

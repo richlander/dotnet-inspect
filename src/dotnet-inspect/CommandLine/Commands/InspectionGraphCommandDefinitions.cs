@@ -72,6 +72,17 @@ public static class InspectionGraphCommandDefinitions
 
         command.Validators.Add(result =>
         {
+            string? missingRelationshipValue =
+                (result.GetValue(relationshipOption) ?? [])
+                    .FirstOrDefault(static value =>
+                        value.StartsWith(
+                            "-",
+                            StringComparison.Ordinal));
+            if (missingRelationshipValue is not null)
+            {
+                result.AddError(
+                    $"--relationship requires a relationship id before '{missingRelationshipValue}'.");
+            }
             if (result.GetValue(opts.Tree)
                 && result.GetValue(opts.Mermaid))
             {

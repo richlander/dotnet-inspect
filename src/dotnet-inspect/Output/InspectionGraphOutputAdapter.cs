@@ -13,8 +13,10 @@ namespace DotnetInspector.Output;
 internal sealed record InspectionGraphEdgeRow(
     int EdgeId,
     string Source,
+    string? SourceGroup,
     string Relationship,
     string Target,
+    string? TargetGroup,
     int Occurrences,
     string? Evidence);
 
@@ -63,9 +65,11 @@ internal sealed record InspectionGraphJsonEdge(
     int FromNodeId,
     int ToNodeId,
     string Source,
+    string? SourceGroup,
     string Relationship,
     string Target,
-    int[] OccurrenceIds,
+    string? TargetGroup,
+    int Occurrences,
     string? Evidence);
 
 internal sealed record InspectionGraphJsonDocument(
@@ -100,8 +104,10 @@ internal static class InspectionGraphOutputAdapter
                 return new InspectionGraphEdgeRow(
                     edge.Id,
                     Label(source.Subject),
+                    GroupLabel(document, source),
                     edge.Relationship.Id,
                     Label(target.Subject),
+                    GroupLabel(document, target),
                     edge.OccurrenceIds.Length,
                     Evidence(document, edge));
             }),
@@ -181,9 +187,15 @@ internal static class InspectionGraphOutputAdapter
                         edge.FromNodeId,
                         edge.ToNodeId,
                         Label(document.Nodes[edge.FromNodeId].Subject),
+                        GroupLabel(
+                            document,
+                            document.Nodes[edge.FromNodeId]),
                         edge.Relationship.Id,
                         Label(document.Nodes[edge.ToNodeId].Subject),
-                        [.. edge.OccurrenceIds],
+                        GroupLabel(
+                            document,
+                            document.Nodes[edge.ToNodeId]),
+                        edge.OccurrenceIds.Length,
                         Evidence(document, edge))),
             ],
             [.. document.Failures.Select(failure =>
@@ -221,7 +233,8 @@ internal static class InspectionGraphOutputAdapter
                         ToGraph(
                             document,
                             rows,
-                            includeIsolatedPackages: true));
+                            includeIsolatedPackages: true,
+                            includeGroupInNodeLabel: false));
                 }
                 else
                 {
@@ -248,14 +261,16 @@ internal static class InspectionGraphOutputAdapter
     internal static void WriteGraph(
         InspectionGraphDocument document,
         IReadOnlyList<InspectionGraphEdgeRow> rows,
-        IMarkoutFormatter formatter)
+        IMarkoutFormatter formatter,
+        bool includeGroupInNodeLabel)
     {
         var writer = new MarkoutWriter(Console.Out, formatter);
         writer.WriteGraph(
             ToGraph(
                 document,
                 rows,
-                includeIsolatedPackages: true));
+                includeIsolatedPackages: true,
+                includeGroupInNodeLabel));
         writer.Flush();
     }
 
@@ -273,14 +288,32 @@ internal static class InspectionGraphOutputAdapter
             new TableFormatter(!noHeader),
             writerOptions);
         writer.WriteTable(
-            ["Source", "Relationship", "Target", "Occurrences", "Evidence"],
-            ["source", "relationship", "target", "occurrences", "evidence"],
+            [
+                "Source",
+                "Source Group",
+                "Relationship",
+                "Target",
+                "Target Group",
+                "Occurrences",
+                "Evidence",
+            ],
+            [
+                "source",
+                "source_group",
+                "relationship",
+                "target",
+                "target_group",
+                "occurrences",
+                "evidence",
+            ],
             [
                 .. rows.Select(row => new[]
                 {
                     row.Source,
+                    row.SourceGroup ?? "",
                     row.Relationship,
                     row.Target,
+                    row.TargetGroup ?? "",
                     row.Occurrences.ToString(CultureInfo.InvariantCulture),
                     row.Evidence ?? "",
                 }),
@@ -291,7 +324,8 @@ internal static class InspectionGraphOutputAdapter
     static Markout.Graph ToGraph(
         InspectionGraphDocument document,
         IReadOnlyList<InspectionGraphEdgeRow> rows,
-        bool includeIsolatedPackages)
+        bool includeIsolatedPackages,
+        bool includeGroupInNodeLabel = false)
     {
         InspectionGraphEdge[] selectedEdges = SelectedEdges(
             document,
@@ -312,8 +346,11 @@ internal static class InspectionGraphOutputAdapter
             string? group = node.GroupIds.Length == 0
                 ? null
                 : Label(document.Groups[node.GroupIds[0]].Subject);
+            string label = Label(node.Subject);
+            if (includeGroupInNodeLabel && group is not null)
+                label = $"{label} [{group}]";
             nodes.Add(
-                new Markout.GraphNode(Key(node.Id), Label(node.Subject))
+                new Markout.GraphNode(Key(node.Id), label)
                 {
                     Group = group,
                 });
@@ -466,6 +503,17 @@ internal static class InspectionGraphOutputAdapter
 
     static string ContainRequired(string value) =>
         CSharpIdentifier.ContainRenderedText(value);
+
+    static string? GroupLabel(
+        InspectionGraphDocument document,
+        InspectionGraphNode node) =>
+        node.GroupIds.IsEmpty
+            ? null
+            : string.Join(
+                ", ",
+                node.GroupIds
+                    .Select(id => Label(document.Groups[id].Subject))
+                    .Distinct(StringComparer.Ordinal));
 
     static void WriteFailures(
         MarkoutWriter writer,

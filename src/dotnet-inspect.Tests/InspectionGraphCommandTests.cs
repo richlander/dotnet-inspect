@@ -6,6 +6,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 using NuGetFetch;
 
@@ -39,6 +40,30 @@ public sealed class InspectionGraphCommandTests
                     InspectionGraphEndpointRole.Source),
                 new(
                     InspectionGraphSubjectKind.Package,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Target),
+            ],
+            InspectionGraphEndpointProjection.Exact,
+            InspectionGraphOccurrenceIdentityProjection.SyntheticNoOccurrence,
+            []);
+
+    static InspectionGraphRelationshipDescriptor TestTypeRelationship
+        { get; } =
+        new(
+            "integration.type-test",
+            InspectionGraphOwner.Queries,
+            InspectionGraphRelationshipSemantics.Synthetic,
+            [InspectionGraphSubjectKind.Type],
+            [InspectionGraphSubjectKind.Type],
+            [InspectionGraphSubjectKind.Type],
+            [InspectionGraphSubjectKind.Type],
+            [
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.EdgeEndpoint,
+                    InspectionGraphEndpointRole.Source),
+                new(
+                    InspectionGraphSubjectKind.Type,
                     InspectionGraphSeedAdmissionKind.EdgeEndpoint,
                     InspectionGraphEndpointRole.Target),
             ],
@@ -100,6 +125,42 @@ public sealed class InspectionGraphCommandTests
             error => error.Message.Contains(
                 "call",
                 StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void IntegrationsCommand_RejectsOptionAsMissingRelationshipValue()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            [
+                "graph",
+                "integrations",
+                "--package",
+                "Package.A",
+                "--tfm",
+                "net10.0",
+                "--relationship",
+                "--count",
+            ]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--relationship requires a relationship id",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RejectsUnknownRelationshipWithoutStack()
+    {
+        Execution execution = await ExecuteAsync(
+            relationships: ["--count"],
+            injectedDocument: GraphWithTwoEdges());
+
+        Assert.Equal(1, execution.ExitCode);
+        Assert.Contains(
+            "Unknown Integration graph relationship",
+            execution.Error);
+        Assert.DoesNotContain("Exception", execution.Error);
     }
 
     [Fact]
@@ -303,6 +364,57 @@ public sealed class InspectionGraphCommandTests
         Assert.Contains(TestRelationship.Id, tree.Output, StringComparison.Ordinal);
         Assert.StartsWith("graph TD", mermaid.Output);
         Assert.Contains(TestRelationship.Id, mermaid.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProductionShapedEndpoints_RetainPackageOwnership()
+    {
+        InspectionGraphDocument document =
+            GraphWithDuplicateTypeLabels();
+
+        Execution table = await ExecuteAsync(
+            ["--table"],
+            injectedDocument: document);
+        Execution jsonLines = await ExecuteAsync(
+            ["--jsonl"],
+            injectedDocument: document);
+        Execution tree = await ExecuteAsync(
+            ["--tree"],
+            injectedDocument: document);
+        Execution json = await ExecuteAsync(
+            ["--json"],
+            injectedDocument: document);
+
+        Assert.All(
+            [table, jsonLines, tree, json],
+            static execution => Assert.Equal(0, execution.ExitCode));
+        Assert.Contains("Source Group", table.Output);
+        Assert.Contains("source_group", jsonLines.Output);
+        Assert.Contains(PackageId, table.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            OtherPackageId,
+            table.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"[{PackageId}@{Version}]",
+            tree.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"[{OtherPackageId}@{Version}]",
+            tree.Output,
+            StringComparison.Ordinal);
+
+        using JsonDocument parsed = JsonDocument.Parse(json.Output);
+        JsonElement edge = Assert.Single(
+            parsed.RootElement.GetProperty("edges").EnumerateArray());
+        Assert.Equal(
+            $"{PackageId}@{Version}",
+            edge.GetProperty("source_group").GetString());
+        Assert.Equal(
+            $"{OtherPackageId}@{Version}",
+            edge.GetProperty("target_group").GetString());
+        Assert.Equal(0, edge.GetProperty("occurrences").GetInt32());
+        Assert.False(edge.TryGetProperty("occurrence_ids", out _));
     }
 
     [Fact]
@@ -643,6 +755,74 @@ public sealed class InspectionGraphCommandTests
                     InspectionGraphInducedSetCatalog.SubjectBound,
                     Evidence:
                         new InspectionGraphInducedSubjectBoundEvidence(3)),
+            ],
+            []);
+    }
+
+    static InspectionGraphDocument GraphWithDuplicateTypeLabels()
+    {
+        InspectionGraphSubject firstPackage = PackageSubject(PackageId);
+        InspectionGraphSubject secondPackage =
+            PackageSubject(OtherPackageId);
+        InspectionGraphSubject firstType =
+            InspectionGraphSubject.ForStructuralType(
+                TypeRef.Definition(
+                    "Assembly.One",
+                    "Sample",
+                    "Shared"));
+        InspectionGraphSubject secondType =
+            InspectionGraphSubject.ForStructuralType(
+                TypeRef.Definition(
+                    "Assembly.Two",
+                    "Sample",
+                    "Shared"));
+        var request = new InspectionGraphInducedSetRequest(
+            [firstPackage, secondPackage],
+            [TestTypeRelationship],
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
+
+        return new InspectionGraphDocument(
+            InspectionGraphDocumentScope.Portable,
+            request,
+            [
+                new InspectionGraphNode(
+                    0,
+                    firstType,
+                    InspectionGraphNodeRole.Ordinary,
+                    [0]),
+                new InspectionGraphNode(
+                    1,
+                    secondType,
+                    InspectionGraphNodeRole.Ordinary,
+                    [1]),
+            ],
+            [
+                new InspectionGraphGroup(
+                    0,
+                    firstPackage,
+                    parentId: null),
+                new InspectionGraphGroup(
+                    1,
+                    secondPackage,
+                    parentId: null),
+            ],
+            [
+                new InspectionGraphEdge(
+                    0,
+                    0,
+                    1,
+                    TestTypeRelationship,
+                    []),
+            ],
+            [],
+            [],
+            [],
+            [
+                new InspectionGraphLimit(
+                    InspectionGraphInducedSetCatalog.SubjectBound,
+                    Evidence:
+                        new InspectionGraphInducedSubjectBoundEvidence(2)),
             ],
             []);
     }

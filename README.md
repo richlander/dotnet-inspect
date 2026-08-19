@@ -215,7 +215,9 @@ subject closure enter the graph. Its default relationship family is
 by default; `--tree`, `--mermaid`, `--table`, `--tsv`, `--jsonl`, `--json`,
 `--count`, and `--rows` address the same ordered logical-edge rows. Missing
 peer packages remain visible as typed binding failures and make the command
-exit nonzero rather than silently shortening the graph.
+exit nonzero rather than silently shortening the graph. Tabular edge rows
+include `source_group` and `target_group` package ownership; JSON edges expose
+an occurrence count rather than an unresolved document-local occurrence id.
 
 ```bash
 dotnet-inspect graph integrations \

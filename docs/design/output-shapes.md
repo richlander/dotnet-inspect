@@ -66,6 +66,15 @@ lossless inert containment boundary as human-readable failures.
 resolvability, and `StructuredFailureText_IsInertAfterJsonParsing` gates
 containment after a JSON consumer decodes the value.
 
+Integration graph edge rows carry `source`, `source_group`, `relationship`,
+`target`, `target_group`, `occurrences`, and `evidence`. Group fields preserve
+package ownership when equal member or type labels occur in different package
+contexts; plain-text trees include that ownership in node labels. JSON edges
+carry the occurrence count and projected evidence rather than exposing
+document-local occurrence ids without the occurrence collection that owns
+them. `ProductionShapedEndpoints_RetainPackageOwnership` gates these contracts
+with equal type labels in different package groups.
+
 ## Flag families
 
 Three families walk the shape ladder, and a fourth sits before it. A flag in one
