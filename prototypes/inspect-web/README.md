@@ -510,6 +510,9 @@ visibility, reference-only retained-image budget, duplicate XML parameter
 handling, Mermaid label containment, and complete call-graph navigation targets.
 The JavaScript tests gate the annotated view helper against the shared sample
 document and keep Spotlight candidate/cache identity coordinate-complete.
+`call graph diagnostics distinguish failures from expected bounds` gates that
+catalog and body-analysis failures remain visible while an expected finite
+traversal boundary does not become a global error.
 
 The shared product paths are gated by:
 

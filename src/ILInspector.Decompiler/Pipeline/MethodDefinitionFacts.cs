@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -76,6 +77,175 @@ internal static class MethodDefinitionFacts
     // declaring class and module). The method-level mark is the precise signal.
     internal static bool HasExtensionAttribute(MetadataReader reader, MethodDefinition method)
         => HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.CompilerServices", "ExtensionAttribute");
+
+    internal static MetadataFactState ReturnDynamicFact(
+        MetadataReader reader,
+        MethodDefinition method,
+        TypeRef declaredReturnType,
+        TypeRef effectiveReturnType)
+    {
+        foreach (var parameterHandle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            if (parameter.SequenceNumber != 0)
+                continue;
+            return DynamicFact(
+                reader,
+                parameter.GetCustomAttributes(),
+                declaredReturnType,
+                effectiveReturnType);
+        }
+
+        return GenericObjectDynamicFact(
+            DynamicElementType(declaredReturnType),
+            DynamicElementType(effectiveReturnType));
+    }
+
+    internal static MetadataFactState ReturnArrayElementDynamicFact(
+        MetadataReader reader,
+        MethodDefinition method,
+        TypeRef declaredReturnType,
+        TypeRef effectiveReturnType)
+    {
+        foreach (var parameterHandle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            if (parameter.SequenceNumber != 0)
+                continue;
+            return ArrayElementDynamicFact(
+                reader,
+                parameter.GetCustomAttributes(),
+                declaredReturnType,
+                effectiveReturnType);
+        }
+
+        return GenericObjectDynamicFact(
+            ArrayElementType(declaredReturnType),
+            ArrayElementType(effectiveReturnType));
+    }
+
+    internal static MetadataFactState FieldDynamicFact(
+        MetadataReader reader,
+        FieldDefinition field,
+        TypeRef declaredFieldType,
+        TypeRef effectiveFieldType)
+    {
+        var attributes = field.GetCustomAttributes();
+        bool hasDynamicAttribute = HasAttribute(
+            reader,
+            attributes,
+            "System.Runtime.CompilerServices",
+            "DynamicAttribute");
+        var flags = DynamicReader.GetDynamicFlags(reader, attributes);
+        if (DynamicReader.IsTopLevelDynamic(flags))
+            return MetadataFactState.Yes;
+        if (hasDynamicAttribute)
+            return MetadataFactState.Unknown;
+        return GenericObjectDynamicFact(
+            DynamicElementType(declaredFieldType),
+            DynamicElementType(effectiveFieldType));
+    }
+
+    internal static MetadataFactState FieldArrayElementDynamicFact(
+        MetadataReader reader,
+        FieldDefinition field,
+        TypeRef declaredFieldType,
+        TypeRef effectiveFieldType)
+        => ArrayElementDynamicFact(
+            reader,
+            field.GetCustomAttributes(),
+            declaredFieldType,
+            effectiveFieldType);
+
+    internal static MetadataFactState ParameterArrayElementDynamicFact(
+        MetadataReader reader,
+        System.Reflection.Metadata.Parameter parameter,
+        TypeRef declaredParameterType)
+        => ArrayElementDynamicFact(
+            reader,
+            parameter.GetCustomAttributes(),
+            declaredParameterType,
+            declaredParameterType);
+
+    static MetadataFactState DynamicFact(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        TypeRef declaredType,
+        TypeRef effectiveType)
+    {
+        bool hasDynamicAttribute = HasAttribute(
+            reader,
+            attributes,
+            "System.Runtime.CompilerServices",
+            "DynamicAttribute");
+        var flags = DynamicReader.GetDynamicFlags(reader, attributes);
+        bool isDynamic = declaredType.Kind == TypeRefKind.ByRef
+            ? DynamicReader.IsByRefElementDynamic(flags)
+            : DynamicReader.IsTopLevelDynamic(flags);
+        if (isDynamic)
+            return MetadataFactState.Yes;
+        if (hasDynamicAttribute)
+            return MetadataFactState.Unknown;
+        return GenericObjectDynamicFact(DynamicElementType(declaredType), DynamicElementType(effectiveType));
+    }
+
+    static TypeRef DynamicElementType(TypeRef type)
+        => type.Kind == TypeRefKind.ByRef && type.ElementType is { } element
+            ? element
+            : type;
+
+    internal static TypeRef DynamicValueType(TypeRef type)
+        => DynamicElementType(type);
+
+    static MetadataFactState ArrayElementDynamicFact(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        TypeRef declaredType,
+        TypeRef effectiveType)
+    {
+        var declaredElement = ArrayElementType(declaredType);
+        var effectiveElement = ArrayElementType(effectiveType);
+        if (effectiveElement is not
+            {
+                Kind: TypeRefKind.Definition,
+                Namespace: "System",
+                Name: "Object",
+            })
+        {
+            return MetadataFactState.No;
+        }
+
+        bool hasDynamicAttribute = HasAttribute(
+            reader,
+            attributes,
+            "System.Runtime.CompilerServices",
+            "DynamicAttribute");
+        var flags = DynamicReader.GetDynamicFlags(reader, attributes);
+        if (flags is not null)
+            return DynamicReader.IsArrayElementDynamic(flags)
+                ? MetadataFactState.Yes
+                : MetadataFactState.No;
+        if (hasDynamicAttribute)
+            return MetadataFactState.Unknown;
+        return GenericObjectDynamicFact(declaredElement, effectiveElement);
+    }
+
+    static TypeRef ArrayElementType(TypeRef type)
+        => type.Kind is TypeRefKind.SzArray or TypeRefKind.Array
+            && type.ElementType is { } element
+                ? element
+                : type;
+
+    static MetadataFactState GenericObjectDynamicFact(TypeRef declaredType, TypeRef effectiveType)
+    {
+        // A generic result substituted with object may have been authored through
+        // a dynamic type argument (for example Box<dynamic>.Value). The definition
+        // itself cannot prove the source view, so absence of [Dynamic] is not No.
+        return declaredType.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter
+            && effectiveType is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" }
+                ? MetadataFactState.Unknown
+                : MetadataFactState.No;
+    }
 
     // [OverloadResolutionPriority] (C# 13) reorders applicable candidates before
     // betterness, so a differently-typed sibling can win a shortened call the

@@ -95,6 +95,28 @@ public sealed record MethodRef(
     public ImmutableArray<TypeRef> DefinitionParameterTypes { get; init; } = [];
 
     /// <summary>
+    /// The generic method definition's return type before MethodSpec
+    /// substitution. Populated with <see cref="DefinitionParameterTypes"/> so
+    /// return-only generic signature distinctions remain available during
+    /// cross-assembly method resolution.
+    /// </summary>
+    public TypeRef? DefinitionReturnType { get; init; }
+
+    /// <summary>
+    /// Whether the method's return type, or a by-ref return's element type, was
+    /// authored as <c>dynamic</c>. A dynamic return is encoded as
+    /// <c>System.Object</c> plus <c>DynamicAttribute</c> on parameter sequence 0;
+    /// MemberRefs do not carry that row, so unresolved callees remain
+    /// <see cref="MetadataFactState.Unknown"/>.
+    /// </summary>
+    public MetadataFactState ReturnIsDynamic { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
+    /// Whether an array return's element type was authored as <c>dynamic</c>.
+    /// </summary>
+    public MetadataFactState ReturnArrayElementIsDynamic { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
     /// Per-parameter call-site ref-kind (ref/out/in), aligned 1:1 with
     /// <see cref="ParameterTypes"/>. Populated for callees resolved as a
     /// MethodDef, from the parameter rows (IsReadOnlyAttribute / the Out flag),
@@ -322,6 +344,19 @@ public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
     /// of a raised dynamic member access.
     /// </summary>
     public bool IsDynamic { get; init; }
+
+    /// <summary>
+    /// Whether this field's top-level type was authored as <c>dynamic</c>.
+    /// MemberRefs do not carry the defining field's custom attributes, so an
+    /// unresolved <c>object</c>-typed field remains
+    /// <see cref="MetadataFactState.Unknown"/>.
+    /// </summary>
+    public MetadataFactState DynamicFact { get; init; } = MetadataFactState.Unknown;
+
+    /// <summary>
+    /// Whether an array field's element type was authored as <c>dynamic</c>.
+    /// </summary>
+    public MetadataFactState ArrayElementIsDynamic { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
     /// Positive metadata evidence that this field is a C# fixed buffer source
@@ -620,6 +655,12 @@ public sealed class IrFunction : IrNode
     public IReadOnlyDictionary<TypeRef, TypeShape> TypeShapes { get; set; }
         = ImmutableDictionary<TypeRef, TypeShape>.Empty;
 
+    internal IReadOnlyDictionary<TypeRef, TypeDefinitionIdentity> TypeFactIdentities { get; set; }
+        = ImmutableDictionary<TypeRef, TypeDefinitionIdentity>.Empty;
+
+    internal IReadOnlySet<TypeRef> AmbiguousTypeFacts { get; set; }
+        = ImmutableHashSet<TypeRef>.Empty;
+
     /// <summary>
     /// Named members (value → name) of the same-assembly enum types this
     /// function references, materialized at import. Lets the printer render an
@@ -673,6 +714,139 @@ public sealed class IrFunction : IrNode
     /// </summary>
     public IReadOnlySet<TypeRef> InterfaceTypes { get; set; }
         = ImmutableHashSet<TypeRef>.Empty;
+
+    /// <summary>
+    /// Reference definitions proven while metadata was live not to declare
+    /// <c>op_Equality</c> anywhere C# operator lookup can bind it. A definition
+    /// absent from this set is not assumed operator-free: unresolved external
+    /// hierarchies stay conservative so raw IL reference identity cannot be
+    /// rebound to user code by the metadata-free printer.
+    /// </summary>
+    /// <remarks>Gated by <c>BoxedReferenceEqualityTests</c>.</remarks>
+    internal IReadOnlySet<TypeDefinitionIdentity> EqualityOperatorFreeTypes { get; set; }
+        = ImmutableHashSet<TypeDefinitionIdentity>.Empty;
+
+    /// <summary>
+    /// The <c>op_Inequality</c> counterpart of
+    /// <see cref="EqualityOperatorFreeTypes"/>.
+    /// </summary>
+    internal IReadOnlySet<TypeDefinitionIdentity> InequalityOperatorFreeTypes { get; set; }
+        = ImmutableHashSet<TypeDefinitionIdentity>.Empty;
+
+    internal void MergeTypeFactsFrom(IrFunction body)
+    {
+        var ambiguous = MergeSet(AmbiguousTypeFacts, body.AmbiguousTypeFacts).ToImmutableHashSet();
+        foreach (var (type, bodyIdentity) in body.TypeFactIdentities)
+        {
+            if (TypeFactIdentities.TryGetValue(type, out var outerIdentity)
+                && outerIdentity != bodyIdentity)
+            {
+                ambiguous = ambiguous.Add(type);
+            }
+        }
+
+        AmbiguousTypeFacts = ambiguous;
+        TypeFactIdentities = WithoutAmbiguous(
+            MergeMap(TypeFactIdentities, body.TypeFactIdentities),
+            ambiguous);
+        TypeShapes = WithoutAmbiguous(
+            MergeMap(TypeShapes, body.TypeShapes),
+            ambiguous,
+            keepUnknownSentinel: true);
+        EnumMembers = WithoutAmbiguous(
+            MergeMap(EnumMembers, body.EnumMembers),
+            ambiguous);
+        EnumUnderlyingTypes = WithoutAmbiguous(
+            MergeMap(EnumUnderlyingTypes, body.EnumUnderlyingTypes),
+            ambiguous);
+        CollectionInitializerTypes = WithoutAmbiguous(
+            MergeSet(CollectionInitializerTypes, body.CollectionInitializerTypes),
+            ambiguous);
+        UnionTypes = WithoutAmbiguous(
+            MergeSet(UnionTypes, body.UnionTypes),
+            ambiguous);
+        ByRefLikeTypes = WithoutAmbiguous(
+            MergeSet(ByRefLikeTypes, body.ByRefLikeTypes),
+            ambiguous);
+        InterfaceTypes = WithoutAmbiguous(
+            MergeSet(InterfaceTypes, body.InterfaceTypes),
+            ambiguous);
+        EqualityOperatorFreeTypes = MergeSet(
+            EqualityOperatorFreeTypes,
+            body.EqualityOperatorFreeTypes);
+        InequalityOperatorFreeTypes = MergeSet(
+            InequalityOperatorFreeTypes,
+            body.InequalityOperatorFreeTypes);
+    }
+
+    internal void CopyTypeFactsFrom(IrFunction source)
+    {
+        TypeShapes = source.TypeShapes;
+        TypeFactIdentities = source.TypeFactIdentities;
+        AmbiguousTypeFacts = source.AmbiguousTypeFacts;
+        EnumMembers = source.EnumMembers;
+        EnumUnderlyingTypes = source.EnumUnderlyingTypes;
+        CollectionInitializerTypes = source.CollectionInitializerTypes;
+        UnionTypes = source.UnionTypes;
+        ByRefLikeTypes = source.ByRefLikeTypes;
+        InterfaceTypes = source.InterfaceTypes;
+        EqualityOperatorFreeTypes = source.EqualityOperatorFreeTypes;
+        InequalityOperatorFreeTypes = source.InequalityOperatorFreeTypes;
+    }
+
+    static IReadOnlyDictionary<TKey, TValue> MergeMap<TKey, TValue>(
+        IReadOnlyDictionary<TKey, TValue> outer,
+        IReadOnlyDictionary<TKey, TValue> inner)
+        where TKey : notnull
+    {
+        if (inner.Count == 0)
+            return outer;
+        var result = outer as ImmutableDictionary<TKey, TValue>
+            ?? ImmutableDictionary.CreateRange(outer);
+        foreach (var (key, value) in inner)
+        {
+            if (!result.ContainsKey(key))
+                result = result.SetItem(key, value);
+        }
+        return result;
+    }
+
+    static IReadOnlySet<T> MergeSet<T>(IReadOnlySet<T> outer, IReadOnlySet<T> inner)
+        where T : notnull
+    {
+        if (inner.Count == 0)
+            return outer;
+        var result = outer as ImmutableHashSet<T> ?? ImmutableHashSet.CreateRange(outer);
+        return result.Union(inner);
+    }
+
+    static IReadOnlyDictionary<TypeRef, TValue> WithoutAmbiguous<TValue>(
+        IReadOnlyDictionary<TypeRef, TValue> values,
+        IReadOnlySet<TypeRef> ambiguous,
+        bool keepUnknownSentinel = false)
+    {
+        if (ambiguous.Count == 0)
+            return values;
+        var result = ImmutableDictionary.CreateBuilder<TypeRef, TValue>();
+        foreach (var (type, value) in values)
+        {
+            if (!ambiguous.Contains(type))
+                result.Add(type, value);
+        }
+        if (keepUnknownSentinel && typeof(TValue) == typeof(TypeShape))
+        {
+            foreach (var type in ambiguous)
+                result[type] = (TValue)(object)TypeShape.Unknown;
+        }
+        return result.ToImmutable();
+    }
+
+    static IReadOnlySet<TypeRef> WithoutAmbiguous(
+        IReadOnlySet<TypeRef> values,
+        IReadOnlySet<TypeRef> ambiguous)
+        => ambiguous.Count == 0
+            ? values
+            : values.Where(type => !ambiguous.Contains(type)).ToImmutableHashSet();
 
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
@@ -1833,14 +2007,19 @@ public sealed class Unary : IrExpression
     witness: "async fixtures (classic-async MoveNext reconstruction); corpus compile-back")]
 public sealed class AwaitExpression : IrExpression
 {
-    public AwaitExpression(IrExpression operand, TypeRef? resultType)
+    public AwaitExpression(
+        IrExpression operand,
+        TypeRef? resultType,
+        MetadataFactState resultIsDynamic = MetadataFactState.Unknown)
     {
         AddChild(operand);
         ResultType = resultType;
+        ResultIsDynamic = resultIsDynamic;
     }
 
     public IrExpression Operand => (IrExpression)Children[0];
     public override TypeRef? ResultType { get; }
+    public MetadataFactState ResultIsDynamic { get; }
 
     public override string Describe() => "AwaitExpression";
 }
@@ -1984,6 +2163,7 @@ public sealed class LoadArgument : IrExpression
     /// is the receiver of a raised dynamic member access.
     /// </summary>
     public bool IsDynamic { get; init; }
+    public MetadataFactState ArrayElementIsDynamic { get; init; } = MetadataFactState.Unknown;
     public override TypeRef? ResultType => Type;
 
     public override string Describe() => $"LoadArgument {Index} ({Type.ToDisplayString()} {Name})";
@@ -4360,6 +4540,7 @@ public sealed class LoadElement : IrExpression
 
     /// <summary>Null when the opcode does not encode one (ldelem.ref); the array's element type stands in.</summary>
     public TypeRef? ElementType { get; }
+    public MetadataFactState ResultIsDynamic { get; internal set; } = MetadataFactState.Unknown;
     public IrExpression Array => (IrExpression)Children[0];
     public IrExpression Index => (IrExpression)Children[1];
     public override TypeRef? ResultType
