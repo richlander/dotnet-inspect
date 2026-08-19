@@ -58,7 +58,7 @@ export interface AnnotatedSourceDocument {
 }
 
 export interface AnnotatedViewState {
-  media?: Partial<Record<SourceMedium, boolean>>;
+  media?: Partial<Record<SourceMedium, boolean | undefined>>;
   selectedFactId?: number | null;
   selectedNodeIds?: readonly number[];
 }
@@ -105,7 +105,7 @@ export interface AnnotatedViewFact {
 }
 
 export interface AnnotatedView {
-  media: Record<SourceMedium, boolean>;
+  media: Record<SourceMedium, boolean | undefined>;
   selectedFactId: number | null;
   selectedNodeIds: number[];
   lines: AnnotatedViewLine[];
@@ -150,9 +150,10 @@ export function buildAnnotatedView(
 ): AnnotatedView {
   validateDocument(document);
 
-  const media: Record<SourceMedium, boolean> = {
-    CSharp: state.media?.CSharp ?? true,
-    Il: state.media?.Il ?? true,
+  const media: Record<SourceMedium, boolean | undefined> = {
+    CSharp: true,
+    Il: true,
+    ...state.media,
   };
   const selectedFactId =
     typeof state.selectedFactId === "number" && Number.isInteger(state.selectedFactId)
@@ -237,8 +238,8 @@ export function factLabel(fact: AnnotatedSourceFact): string {
 
 function isVisible(
   medium: LineMedium,
-  media: Readonly<Record<SourceMedium, boolean>>,
-): boolean {
+  media: Readonly<Record<SourceMedium, boolean | undefined>>,
+): boolean | undefined {
   if (medium === "Mixed") return media.CSharp || media.Il;
   return media[medium] === true;
 }

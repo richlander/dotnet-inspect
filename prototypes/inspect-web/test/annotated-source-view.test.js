@@ -44,6 +44,15 @@ test("hiding a medium drops only that medium's lines and rebases no coordinate",
   );
 });
 
+test("an explicitly undefined medium preserves the JavaScript visibility semantics", () => {
+  const view = buildAnnotatedView(sampleDocument, {
+    media: { CSharp: undefined, Il: true },
+  });
+
+  assert.equal(view.media.CSharp, undefined);
+  assert.deepEqual(view.lines.map(line => line.number), [2, 5]);
+});
+
 test("selecting a fact highlights every target node across both media", () => {
   const view = buildAnnotatedView(sampleDocument, { selectedFactId: 0 });
 
