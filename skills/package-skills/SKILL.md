@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect-package-skills
-description: Acquire version-matched SKILL.md files from NuGet packages, select every skill relevant to the consuming code, and persist them under .agents/skills so repository agent harnesses discover them.
+description: Acquire version-matched SKILL.md files from NuGet packages, select every skill relevant to the consuming code, and persist them where the target repository's agent harness discovers them.
 ---
 
 # dotnet-inspect: acquire package skills
@@ -56,16 +56,27 @@ NuGet dependency is provenance, not proof that agent instructions are safe.
 
 ## Install for repository discovery
 
-Use the repository root's `.agents/skills/<name>/SKILL.md` as the portable
-default. The directory name must match the skill's frontmatter `name`. Create
-that directory, then ask dotnet-inspect to write the selected package document
+The target repository owns the installation regime; the package does not.
+Inspect repository instructions, its existing skill layout, and the active
+harness, then follow any user direction. Common repository roots include
+`skills/`, `.agents/skills/`, `.github/skills/`, and `.claude/skills/`.
+
+`dotnet-inspect project ... -S Skills` refuses package skills whose names do
+not comply with the Agent Skills name grammar or do not match their containing
+package directory. Do not recover one by sanitizing or renaming it. For a
+listed skill, preserve that validated name as the leaf directory under the
+repository-selected root.
+
+For example, Markout itself keeps its skills under `skills/`, so its output
+formats skill belongs at `skills/markout-output-formats/SKILL.md`. Create that
+directory, then ask dotnet-inspect to write the selected package document
 directly to `-o`/`--output`:
 
 ```bash
-mkdir -p .agents/skills/markout-output-formats
+mkdir -p skills/markout-output-formats
 dnx dotnet-inspect -y -- package Markout@0.35.2 \
   --path skills/markout-output-formats/SKILL.md --content --blob --bare \
-  --output .agents/skills/markout-output-formats/SKILL.md
+  --output skills/markout-output-formats/SKILL.md
 ```
 
 `--blob` retains authored GitHub link shapes instead of rewriting them for raw
@@ -73,9 +84,8 @@ content. Preserve the packaged document rather than combining, renaming, or
 silently editing it. If the skill references sibling scripts, references, or
 assets, inspect the package subtree and persist those beside `SKILL.md` too.
 
-Use `.github/skills` or `.claude/skills` only when repository policy names that
-harness-specific root. Do not duplicate the same skill into several roots;
-harnesses may discover duplicate names and the copies will drift.
+Do not duplicate the same skill into several roots; harnesses may discover
+duplicate names and the copies will drift.
 
 ## Keep skills version-matched
 

@@ -21835,14 +21835,14 @@ public partial class CommandExecutionTests
     {
         var querySkill = """
             ---
-            name: Query guidance
+            name: query
             description: Find APIs from restored dependencies.
             ---
             # Query skill
             """;
         var sourceSkill = """
             ---
-            name: Source guidance
+            name: source
             description: Inspect SourceLink-backed files.
             ---
             # Source skill
@@ -21866,11 +21866,111 @@ public partial class CommandExecutionTests
             using var queryDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Skills.Query")));
             Assert.Equal("Test.Project.Skills.Query", queryDocument.RootElement.GetProperty("package").GetString());
             Assert.Equal("skills/query/SKILL.md", queryDocument.RootElement.GetProperty("path").GetString());
-            Assert.Equal("Query guidance", queryDocument.RootElement.GetProperty("name").GetString());
+            Assert.Equal("query", queryDocument.RootElement.GetProperty("name").GetString());
             Assert.Equal("Find APIs from restored dependencies.", queryDocument.RootElement.GetProperty("description").GetString());
 
             using var sourceDocument = JsonDocument.Parse(lines.Single(line => line.Contains("Test.Project.Skills.Source")));
             Assert.Equal("skills/source/SKILL.md", sourceDocument.RootElement.GetProperty("path").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("../../owned", "valid")]
+    [InlineData("Uppercase", "uppercase")]
+    [InlineData("-leading", "leading")]
+    [InlineData("trailing-", "trailing")]
+    [InlineData("two--hyphens", "two-hyphens")]
+    [InlineData("with/slash", "with-slash")]
+    [InlineData("with\\backslash", "with-backslash")]
+    [InlineData("different-name", "directory-name")]
+    [InlineData("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklm", "long-name")]
+    public async Task Project_SkillsSection_RejectsNoncompliantSkillNames(
+        string name, string directoryName)
+    {
+        var skill = $$"""
+            ---
+            name: {{name}}
+            description: Package guidance.
+            ---
+            # Package skill
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Skills.Invalid", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc($"skills/{directoryName}/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "must use an Agent Skills-compliant name that matches its containing directory",
+                error);
+            Assert.DoesNotContain(name, error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SkillsSection_AcceptsDirectoryNameAndExtensionFrontmatter()
+    {
+        var skill = """
+            ---
+            name: markout-output-formats
+            description: Control output formats.
+            version: 0.35.2
+            ---
+            # Markout output formats
+            """;
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Markout", "0.35.2", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/markout-output-formats/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                "markout-output-formats",
+                document.RootElement.GetProperty("name").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Project_SkillsSection_DerivesACompliantMissingNameFromDirectory()
+    {
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Skills.MissingName", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/directory-name/SKILL.md", "# Package skill")]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal(
+                "directory-name",
+                document.RootElement.GetProperty("name").GetString());
         }
         finally
         {
