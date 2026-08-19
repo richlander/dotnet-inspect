@@ -102,6 +102,26 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
+    public void RetainedLoopImportedConditionalTargetKeepsInstructionProvenanceAndBlockLabel()
+    {
+        var blocks = RetainedLoopBlocks();
+        var retained = Cond(6);
+        retained.SetSourceOffset(45);
+        blocks[4] = Term(4, retained);
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Contains(
+            loop.Body.Descendants.OfType<ConditionalBranch>(),
+            branch => branch.SourceOffset == 45 && branch.TargetOffset == 6);
+        Assert.Contains(
+            loop.Body.Descendants.OfType<LabelAnchor>(),
+            anchor => anchor.SourceOffset == 4);
+    }
+
+    [Fact]
     public void RetainedLoopSynthesizedConditionalMergeStaysFlat()
     {
         var blocks = RetainedLoopBlocks();

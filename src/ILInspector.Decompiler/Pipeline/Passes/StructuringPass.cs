@@ -2865,6 +2865,15 @@ public sealed class StructuringPass : IIrPass
                     {
                         if (ctx.AllowRetainedMergeWithinLoop)
                         {
+                            if (result.Children.Count == resultStart
+                                && ctx.FlowFacts.BranchTargets.Contains(block.StartOffset)
+                                && conditional.SourceOffset >= 0
+                                && conditional.SourceOffset != block.StartOffset)
+                            {
+                                var anchor = new LabelAnchor();
+                                anchor.SetSourceOffset(block.StartOffset);
+                                result.Add(anchor);
+                            }
                             var retainedConditional = new ConditionalBranch(
                                 condition,
                                 conditional.TargetOffset,

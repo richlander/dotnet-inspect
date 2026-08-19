@@ -681,7 +681,11 @@ only when the post-dominator machinery is proven.
    `RetainedLoopConditionalMergePreservesTransferKind` and
    `RetainedLoopSynthesizedConditionalMergeStaysFlat`;
    `BranchingMethod_MarksConditionalBranchesImported` gates the importer
-   provenance that distinguishes the two. The existing
+   provenance that distinguishes the two. When that conditional is also the
+   first statement of a targeted block, a separate `LabelAnchor` owns the block
+   label rather than replacing the conditional's instruction provenance;
+   `RetainedLoopImportedConditionalTargetKeepsInstructionProvenanceAndBlockLabel`
+   gates both identities. The existing
    generated-transfer ownership check guards `break`/`continue` binding. A
    post-build proof also requires each retained target label to remain in the
    same lexical C# block as its goto or an enclosing block; a label nested below
