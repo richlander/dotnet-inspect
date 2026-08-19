@@ -384,8 +384,9 @@ encoding, byte order mark, and line endings; a Markdown scope exports that
 projected text. Terminal-facing output never emits a live control or bidi scalar
 from package content. Multi-file or multi-package `--content --out` is refused
 unless `--jsonl` selects the structured table shape; global selection
-cardinality is resolved before any selected payload is read. Narrow it with
-`--path` for exact transfer.
+cardinality is resolved before any selected payload is read, and the unique
+payload is read from the same retained package acquisition that supplied its
+selection metadata. Narrow it with `--path` for exact transfer.
 
 Tool-authored companion sections still use the stream split: for example,
 `package X -S "Package README file" --print --info` writes the encoded document

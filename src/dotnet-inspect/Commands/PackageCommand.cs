@@ -1860,6 +1860,29 @@ public class PackageCommand
 
     private sealed record PackageFileContentSet(string PackageName, string Version, List<PackageFileContent> Files);
 
+    private sealed class PackageFileContentAcquisition(
+        PackageExtractionResult resolution,
+        string packageName,
+        string packageVersion,
+        string? readmeFile,
+        string? declaredReadmeFile) : IDisposable
+    {
+        public PackageFileContentSet Read(
+            InspectionOptions options,
+            bool suppressUnaryPayloadRead)
+            => ReadPackageFileContents(
+                resolution.ExtractPath,
+                packageName,
+                packageVersion,
+                readmeFile,
+                declaredReadmeFile,
+                options,
+                suppressUnaryPayloadRead);
+
+        public void Dispose()
+            => CleanupPackageExtraction(resolution);
+    }
+
     private static async Task<int> ExecuteMultiPackageContentAsync(
         string[] packageArgs,
         InspectionOptions options,
@@ -1874,45 +1897,83 @@ public class PackageCommand
         }
 
         var results = new List<PackageFileContentSet>();
-        int selectedFiles = 0;
         bool unaryPayload = RequiresUnaryPackageContent(options);
-        foreach (var target in targets)
+        if (!unaryPayload)
         {
-            var result = await ReadPackageFileContentsAsync(
-                target,
-                options,
-                context,
-                suppressUnaryPayloadRead: unaryPayload);
-            if (result == null)
-                return 1;
-            results.Add(result);
-            selectedFiles += result.Files.Count(static file => file.Found);
-        }
-
-        if (unaryPayload && selectedFiles == 1)
-        {
-            int selectedPackage =
-                results.FindIndex(result =>
-                    result.Files.Any(static file => file.Found));
-            PackageReferenceTarget selectedTarget =
-                targets[selectedPackage];
-            if (!selectedTarget.IsLocalFile)
+            foreach (var target in targets)
             {
-                selectedTarget = PackageExtractor.ParsePackageTarget(
-                    $"{selectedTarget.PackageName}@{results[selectedPackage].Version}");
-            }
-            PackageFileContentSet? hydrated =
-                await ReadPackageFileContentsAsync(
-                    selectedTarget,
+                var result = await ReadPackageFileContentsAsync(
+                    target,
                     options,
                     context,
                     suppressUnaryPayloadRead: false);
-            if (hydrated == null)
-                return 1;
-            results[selectedPackage] = hydrated;
+                if (result == null)
+                    return 1;
+                results.Add(result);
+            }
+
+            return PrintPackageFileContents(results, options);
         }
 
-        return PrintPackageFileContents(results, options);
+        PackageFileContentAcquisition? selectedAcquisition = null;
+        int selectedPackage = -1;
+        int selectedFiles = 0;
+        try
+        {
+            foreach (var target in targets)
+            {
+                PackageFileContentAcquisition? acquisition =
+                    await AcquirePackageFileContentAsync(
+                        target,
+                        options,
+                        context);
+                if (acquisition == null)
+                    return 1;
+                try
+                {
+                    PackageFileContentSet result =
+                        acquisition.Read(
+                            options,
+                            suppressUnaryPayloadRead: true);
+                    results.Add(result);
+                    int packageSelectedFiles =
+                        result.Files.Count(static file => file.Found);
+                    if (selectedFiles == 0
+                        && packageSelectedFiles == 1)
+                    {
+                        selectedAcquisition = acquisition;
+                        acquisition = null;
+                        selectedPackage = results.Count - 1;
+                    }
+                    selectedFiles += packageSelectedFiles;
+                    if (selectedFiles > 1
+                        && selectedAcquisition is not null)
+                    {
+                        selectedAcquisition.Dispose();
+                        selectedAcquisition = null;
+                        selectedPackage = -1;
+                    }
+                }
+                finally
+                {
+                    acquisition?.Dispose();
+                }
+            }
+
+            if (selectedFiles == 1)
+            {
+                results[selectedPackage] =
+                    selectedAcquisition!.Read(
+                        options,
+                        suppressUnaryPayloadRead: false);
+            }
+
+            return PrintPackageFileContents(results, options);
+        }
+        finally
+        {
+            selectedAcquisition?.Dispose();
+        }
     }
 
     private static async Task<PackageFileContentSet?> ReadPackageFileContentsAsync(
@@ -1921,19 +1982,38 @@ public class PackageCommand
         CommandContext context,
         bool suppressUnaryPayloadRead)
     {
-        var logger = context.Logger;
-        string? extractPath = null;
-        PackageExtractionResult? resolution = null;
-        string version = target.Version;
+        using PackageFileContentAcquisition? acquisition =
+            await AcquirePackageFileContentAsync(
+                target,
+                options,
+                context);
+        return acquisition?.Read(
+            options,
+            suppressUnaryPayloadRead);
+    }
 
+    private static async Task<PackageFileContentAcquisition?>
+        AcquirePackageFileContentAsync(
+            PackageReferenceTarget target,
+            InspectionOptions options,
+            CommandContext context)
+    {
+        var logger = context.Logger;
+        PackageExtractionResult? resolution = null;
+        bool ownershipTransferred = false;
+        string version = target.Version;
         try
         {
             var outcome = await PackageExtractor.ExtractPackageAsync(
                 context.HttpClient,
-                target.IsLocalFile ? target.OriginalArgument : target.PackageName,
+                target.IsLocalFile
+                    ? target.OriginalArgument
+                    : target.PackageName,
                 logger.Log,
                 sourceOptions: options.SourceOptions,
-                version: target.IsLocalFile ? null : (version.Length > 0 ? version : null),
+                version: target.IsLocalFile
+                    ? null
+                    : (version.Length > 0 ? version : null),
                 forceLatest: options.ForceLatest,
                 includePrerelease: options.IncludePrerelease);
 
@@ -1944,39 +2024,53 @@ public class PackageCommand
             }
 
             resolution = outcome.Result!;
-            extractPath = resolution.ExtractPath;
             version = resolution.Version ?? version;
-
-            var nuspec = Services.NuspecParser.FindAndParse(extractPath);
-
-            var packageId =
-                nuspec?.PackageName
-                ?? resolution.PackageName
-                ?? target.PackageName;
-            var packageVersion = nuspec?.Version ?? version;
-            var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
-            return ReadPackageFileContents(
-                extractPath,
-                packageId,
-                packageVersion,
-                packageReadme,
-                nuspec?.ReadmeFile,
-                options,
-                suppressUnaryPayloadRead);
+            var nuspec =
+                Services.NuspecParser.FindAndParse(
+                    resolution.ExtractPath);
+            var acquisition =
+                new PackageFileContentAcquisition(
+                    resolution,
+                    nuspec?.PackageName
+                        ?? resolution.PackageName
+                        ?? target.PackageName,
+                    nuspec?.Version ?? version,
+                    PackageFileLister.ResolvePackageReadme(
+                        resolution.ExtractPath,
+                        nuspec?.ReadmeFile),
+                    nuspec?.ReadmeFile);
+            ownershipTransferred = true;
+            return acquisition;
         }
         finally
         {
-            if (resolution is { FromCache: false, TempDir: not null } && Directory.Exists(resolution.TempDir))
+            if (!ownershipTransferred)
+                CleanupPackageExtraction(resolution);
+        }
+    }
+
+    private static void CleanupPackageExtraction(
+        PackageExtractionResult? resolution)
+    {
+        if (resolution is not
             {
-                try
-                {
-                    Directory.Delete(resolution.TempDir, recursive: true);
-                }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
+                FromCache: false,
+                TempDir: not null
             }
+            || !Directory.Exists(resolution.TempDir))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(
+                resolution.TempDir,
+                recursive: true);
+        }
+        catch
+        {
+            // Ignore cleanup errors
         }
     }
 

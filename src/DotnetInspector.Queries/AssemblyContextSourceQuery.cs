@@ -737,7 +737,9 @@ public static class AssemblyContextSourceQuery
         int maxEmbeddedPdbBytes =
             context.SymbolAcquisitionLimits is { } acquisitionLimits
                 ? (int)Math.Min(
-                    acquisitionLimits.MaxExpandedPdbBytes,
+                    Math.Min(
+                        acquisitionLimits.MaxPortablePdbBytes,
+                        acquisitionLimits.MaxExpandedPdbBytes),
                     int.MaxValue)
                 : int.MaxValue;
         var readLimits = new SourceLinkReadLimits(

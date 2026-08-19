@@ -93,8 +93,8 @@ key or URL. That finding is intentionally suspiciousness, not a maliciousness
 verdict. Embedded-PDB inflation and SourceLink map byte/mapping materialization
 are caller-bounded before allocation, including a shared decompression budget
 across package carriers. Query hosts likewise apply their symbol-acquisition
-expansion limit before a query-owned embedded PDB is opened. The audit does not
-acquire PDBs or contact SourceLink URLs.
+per-PDB and aggregate expansion limits before a query-owned embedded PDB is
+opened. The audit does not acquire PDBs or contact SourceLink URLs.
 
 ### Type and member
 

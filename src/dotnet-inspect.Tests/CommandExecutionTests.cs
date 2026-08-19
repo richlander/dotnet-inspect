@@ -24292,15 +24292,15 @@ public partial class CommandExecutionTests
     {
         var (firstPackage, firstDir) =
             CreateLocalReadmePackage(
-                "Test.PackageContentOutput.WithAgents",
-                "README.md",
-                "first",
-                "agents payload");
-        var (secondPackage, secondDir) =
-            CreateLocalReadmePackage(
                 "Test.PackageContentOutput.WithoutAgents",
                 "README.md",
-                "second");
+                "first");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.PackageContentOutput.WithAgents",
+                "README.md",
+                "second",
+                "agents payload");
         string outputPath = Path.Combine(firstDir, "agents.txt");
         try
         {

@@ -1497,8 +1497,12 @@ public sealed class AssemblyContextSourceQueryTests
         Assert.Equal(1, stream.DisposeCount);
     }
 
-    [Fact]
-    public async Task EmbeddedPdbHostLimit_AppliesBeforeQueryOwnedOpen()
+    [Theory]
+    [InlineData(1024, 1)]
+    [InlineData(1, 1024)]
+    public async Task EmbeddedPdbHostLimits_ApplyBeforeQueryOwnedOpen(
+        long maxPortablePdbBytes,
+        long maxExpandedPdbBytes)
     {
         byte[] bytes = File.ReadAllBytes(
             typeof(EmbeddedSourceFixture).Assembly.Location);
@@ -1517,9 +1521,9 @@ public sealed class AssemblyContextSourceQueryTests
         using var host = QueryHost.WithoutPdb(
             new SymbolAcquisitionLimits(
                 maxSymbolPackageBytes: 1024,
-                maxPortablePdbBytes: 1024,
+                maxPortablePdbBytes,
                 maxSymbolPackageEntries: 1,
-                maxExpandedPdbBytes: 1));
+                maxExpandedPdbBytes));
 
         var result =
             await AssemblyContextSourceQuery.OpenSourceLinkAsync(
