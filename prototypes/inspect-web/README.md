@@ -525,6 +525,54 @@ the component does not acquire engine or workspace authority.
 `test/command-bar.test.js` gates the completion grammar, replacement behavior,
 bounded suggestions, command metadata, selection, and escaping.
 
+`src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
+pane) and the type viewer (the type heading, metadata, and source sections
+shown for the "type" scope) as pure, dependency-injected render functions.
+`app.js` still owns the type index, filtering, member grouping, and
+click/keyboard navigation, and passes each computed slice in explicitly; the
+shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
+`typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
+`relatedTypeChip`) stay in `app.js` and are injected the same way.
+`test/type-panel.test.js` gates namespace grouping and selection in the type
+list, active-group and overload selection in the member list, the type
+heading's package/library fields, the metadata- and source-signature cache
+keys, and the metadata/source panels' loading, error, and loaded states.
+
+`src/package-bar.ts` owns the package tab strip (including the always-present
+Platform tab), the open-package query form, and their keyboard/mouse/wheel
+interaction. `app.js` supplies the workspace effects — selecting, closing, and
+opening a package or the runtime pack — so the component acquires no engine or
+workspace authority. `test/package-bar.test.js` gates tab markup, active/close
+state, escaping, and open-package query parsing.
+
+`src/settings-panel.ts` owns the Settings page and the decompiler "taste"
+popover it shares its style catalog with, as pure, dependency-injected render
+functions. `app.js` still owns `state`, localStorage persistence for theme and
+taste, and event wiring (`setTheme`, `toggleTaste`, `clearTaste`), and passes
+each computed slice in explicitly. `test/settings-panel.test.js` gates the
+style catalog's tier grouping, byte-divergent badges, and checked state; the
+taste popover's active/default states; and the Settings page's theme segment,
+close-button label, and active-style-count states.
+
+`src/metadata-viewer.ts` owns the Metadata lens (the image-level summary of each
+assembly — format stamp, heap sizes, ECMA-335 table row counts, and PE/CLI
+headers) and the Metadata Explorer (the spatial table/heap drill-down laid over
+it) as pure, dependency-injected render functions; both describe the metadata
+image rather than the API surface within it, so they share one module the way
+`type-panel.ts` combines the type selector and the type viewer. `app.js` still
+owns `state`, the engine calls that fetch an image, a table row window, or a
+heap listing, the explorer's focus/history stack, the DOM event binding, the
+`IntersectionObserver` that hydrates cards lazily, the resize listener, and the
+global keydown handler, and passes each computed slice in explicitly; the shared
+helpers used well beyond these views (`escapeHtml`, `fmtBytes`,
+`platformLensPicker`, `scopedPlatformLibrary`, `packageScopeSignature`) stay in
+`app.js` and are injected the same way. `test/metadata-viewer.test.js` gates the
+lens's picker, loading, failure, stale-scope, partial-read, and empty-image
+states and its heap/table ordering; the explorer's chips, history-button
+enablement, overview versus focus lightbox, lazy-load hooks, pager bounds, row
+highlight and selection, ref->def jump targets, cell escaping, heap addressing
+and coverage notes, and the row inspector.
+
 - `Cmd/Ctrl+K` focuses the persistent command prompt.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
 - Arrow keys select a completion, `Tab` accepts it, and `Enter` runs it.
