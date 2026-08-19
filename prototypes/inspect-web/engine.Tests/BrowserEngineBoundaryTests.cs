@@ -532,6 +532,7 @@ public sealed class BrowserEngineBoundaryTests
         Assert.All(
             surface.Types,
             type => Assert.Equal("netcore.app", type.PlatformPack));
+        int requestsAfterInitialLoad = handler.Requests;
         BrowserPlatformScopeResolution reused =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
                 "net11.0",
@@ -540,7 +541,7 @@ public sealed class BrowserEngineBoundaryTests
                 TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken);
         Assert.Same(initial.Scope, reused.Scope);
-        Assert.Equal(3, handler.Requests);
+        Assert.Equal(requestsAfterInitialLoad, handler.Requests);
 
         BrowserPlatformScopeResolution expanded =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
@@ -566,7 +567,7 @@ public sealed class BrowserEngineBoundaryTests
             BrowserPackageWorkspace.IsScopeRetained(initial.Scope));
         Assert.True(
             BrowserPackageWorkspace.IsScopeRetained(expanded.Scope));
-        Assert.Equal(3, handler.Requests);
+        Assert.Equal(requestsAfterInitialLoad, handler.Requests);
 
         BrowserPackageSurface siblingSurface =
             Assert.IsType<BrowserPackageSurface>(
