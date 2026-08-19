@@ -42,7 +42,9 @@ import {
 } from "./data.js";
 import {
   filterMemberGroups,
-  MEMBER_TRAITS
+  MEMBER_TRAITS,
+  memberNavTargetIndex,
+  memberScopeIsActive
 } from "./member-filtering.js";
 import {
   buildDependencyGraphMermaid,
@@ -1101,7 +1103,7 @@ function renderMemberFilterControls(type) {
     <div class="type-search member-search">
       <span aria-hidden="true">/</span>
       <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
-      <button class="tiny-button" id="clear-member-filter" title="Clear member filters">×</button>
+      <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
     </div>
     <div class="member-filter-stack">
       <div class="namespace-chips kind-chips" aria-label="Member kind filters">
@@ -1163,10 +1165,7 @@ function selectedMember(type) {
 // lens strip, detail pane, and arrow keys all react to the active scope.
 function scope() {
   if (state.atPackageRoot) return "package";
-  return state.lens === "api"
-    && (state.selectedMemberKey || state.memberBrowseTypeId === state.selectedTypeId)
-    ? "member"
-    : "type";
+  return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
 // The resident runtime pseudo-package (Microsoft.NETCore.App) has no NuGet nupkg, so the
@@ -1199,11 +1198,7 @@ function activeLenses() {
 // members (with the active member's overloads nested) once a member is open under
 // the API lens. Both modes render into #type-list so keyboard/scroll logic is shared.
 function navMode() {
-  if (state.atPackageRoot) return "type";
-  return state.lens === "api"
-    && (state.selectedMemberKey || state.memberBrowseTypeId === state.selectedTypeId)
-    ? "member"
-    : "type";
+  return memberScopeIsActive(state, selectedType()?.id) ? "member" : "type";
 }
 
 function resetMemberSectionState() {
@@ -1225,7 +1220,7 @@ function resetMemberSectionState() {
 }
 
 function openMemberGroup(key) {
-  state.memberBrowseTypeId = state.selectedTypeId;
+  state.memberBrowseTypeId = selectedType()?.id ?? "";
   state.selectedMemberKey = key;
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
@@ -1306,14 +1301,13 @@ function memberNavEntries(type) {
 }
 
 function memberNavCursor(entries) {
-  const index = entries.findIndex(entry => {
+  return entries.findIndex(entry => {
     if (entry.kind === "overload") {
       return entry.group.key === state.selectedMemberKey && state.selectedOverloadIndex === entry.index;
     }
     const isMulti = entry.group.overloads.length > 1;
     return entry.group.key === state.selectedMemberKey && (isMulti ? state.selectedOverloadIndex == null : true);
   });
-  return index < 0 ? 0 : index;
 }
 
 function selectMemberNavEntry(entry, focusList) {
@@ -1337,8 +1331,7 @@ function stepMemberNav(delta, focusList) {
   const type = selectedType();
   const entries = memberNavEntries(type);
   if (!entries.length) return;
-  let cursor = memberNavCursor(entries);
-  cursor = Math.max(0, Math.min(entries.length - 1, cursor + delta));
+  const cursor = memberNavTargetIndex(memberNavCursor(entries), entries.length, delta);
   selectMemberNavEntry(entries[cursor], focusList);
 }
 
@@ -1472,6 +1465,8 @@ function render() {
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
+  } else if (state.selectedTypeId !== current.id) {
+    state.selectedTypeId = current.id;
   }
   const visible = filteredTypes();
   // Keep the package lens on something the active package actually supports, so a restored
@@ -5111,6 +5106,38 @@ function focusFilter() {
   });
 }
 
+function renderPreservingMemberFilterFocus() {
+  const active = document.activeElement;
+  let selector = "";
+  let selection = null;
+  if (active?.id === "member-filter") {
+    selector = "#member-filter";
+    selection = {
+      start: active.selectionStart,
+      end: active.selectionEnd,
+      direction: active.selectionDirection
+    };
+  } else if (active?.id === "clear-member-filter") {
+    selector = "#clear-member-filter";
+  } else if (active?.dataset?.memberKindFilter !== undefined) {
+    selector = `[data-member-kind-filter="${cssEscape(active.dataset.memberKindFilter)}"]`;
+  } else if (active?.dataset?.memberAccessFilter !== undefined) {
+    selector = `[data-member-access-filter="${cssEscape(active.dataset.memberAccessFilter)}"]`;
+  } else if (active?.dataset?.memberTraitFilter !== undefined) {
+    selector = `[data-member-trait-filter="${cssEscape(active.dataset.memberTraitFilter)}"]`;
+  }
+
+  render();
+  if (!selector) return;
+  requestAnimationFrame(() => {
+    const replacement = document.querySelector(selector);
+    replacement?.focus();
+    if (selection && replacement?.setSelectionRange) {
+      replacement.setSelectionRange(selection.start, selection.end, selection.direction);
+    }
+  });
+}
+
 function buildStateUrl(base = location.href) {
   const url = new URL(base);
   if (!state.package) return url;
@@ -5607,7 +5634,8 @@ async function loadSelectedMemberDocumentation() {
   } finally {
     if (state.memberDocumentationKey === signature) {
       state.memberDocumentationLoading = false;
-      render();
+      if (memberRequestIsCurrent(signature))
+        renderPreservingMemberFilterFocus();
     }
   }
 }

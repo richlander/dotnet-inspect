@@ -32,3 +32,18 @@ export function memberGroupMatches(group, filters) {
 export function filterMemberGroups(groups, filters) {
   return groups.filter(group => memberGroupMatches(group, filters));
 }
+
+export function memberScopeIsActive(state, currentTypeId) {
+  return !state.atPackageRoot
+    && state.lens === "api"
+    && Boolean(state.selectedMemberKey || (
+      currentTypeId
+      && state.memberBrowseTypeId === currentTypeId
+    ));
+}
+
+export function memberNavTargetIndex(currentIndex, entryCount, delta) {
+  if (!entryCount) return -1;
+  if (currentIndex < 0) return delta < 0 ? entryCount - 1 : 0;
+  return Math.max(0, Math.min(entryCount - 1, currentIndex + delta));
+}

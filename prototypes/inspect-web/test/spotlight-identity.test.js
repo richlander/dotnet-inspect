@@ -241,6 +241,18 @@ test("loading brand links back to the site root", () => {
     /\.loading-brand\s*\{[^}]*text-decoration: none;/s);
 });
 
+test("member filters retain accessible controls and focus across rerenders", () => {
+  assert.match(
+    appSource,
+    /id="clear-member-filter"[^>]*aria-label="Clear member filters"/);
+  assert.match(
+    appSource,
+    /state\.memberDocumentationLoading = false;\s*if \(memberRequestIsCurrent\(signature\)\)\s*renderPreservingMemberFilterFocus\(\)/);
+  assert.match(
+    stylesSource,
+    /\.type-browser:not\(\.member-nav\) \.namespace-chips, \.pane-footer \{ display: none; \}/);
+});
+
 test("settings keep a viewport-bounded scroll region", () => {
   const settingsPageRule =
     stylesSource.match(/\.settings-page\s*\{([^}]*)\}/s)?.[1] ?? "";

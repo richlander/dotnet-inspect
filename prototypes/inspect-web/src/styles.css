@@ -1206,7 +1206,7 @@ kbd {
   .brand span:last-child, .scope-kicker { display: none; }
   .package-title { min-width: 0; flex: 1; }
   .workspace { grid-template-columns: 44% 56%; }
-  .namespace-chips, .pane-footer { display: none; }
+  .type-browser:not(.member-nav) .namespace-chips, .pane-footer { display: none; }
   .type-browser { grid-template-rows: 40px 38px minmax(0, 1fr); }
   .member-nav { grid-template-rows: 40px 34px 38px auto 24px minmax(0, 1fr); }
   .detail-scroll { padding: 22px 18px 60px; }
