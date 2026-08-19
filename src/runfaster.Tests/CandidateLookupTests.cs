@@ -41,6 +41,41 @@ public class CandidateLookupTests
     }
 
     [Fact]
+    public void FindNearestByTokenOffset_SelectsNearestWithinEachBuild()
+    {
+        var firstBuild = Candidate(
+            id: 1,
+            methodToken: 0x06000002,
+            ilOffset: 0x0010,
+            moduleVersionId:
+                Guid.Parse(
+                    "11111111-1111-1111-1111-111111111111"));
+        var secondBuild = Candidate(
+            id: 2,
+            methodToken: 0x06000002,
+            ilOffset: 0x0020,
+            moduleVersionId:
+                Guid.Parse(
+                    "22222222-2222-2222-2222-222222222222"));
+        var lookup = CandidateLookup.Create(
+            [firstBuild, secondBuild]);
+
+        var matches = lookup.FindNearestByTokenOffset(
+            0x06000002,
+            0x0020,
+            "/tmp/Fixture.dll",
+            "Fixture",
+            "Fixture.Type.M()");
+
+        Assert.Equal(
+            [firstBuild.Id, secondBuild.Id],
+            matches
+                .Select(static candidate =>
+                    candidate.Id)
+                .Order());
+    }
+
+    [Fact]
     public void FindNearestByTokenOffset_FallsBackToMethodNameWhenModuleIsUnavailable()
     {
         var target = Candidate(id: 1, methodToken: 0x06000003, ilOffset: 0x0040);
@@ -737,6 +772,34 @@ public class CandidateLookupTests
 
         Assert.Equal(1, first.SameMethodShapeRows);
         Assert.Equal(1, duplicate.SameMethodShapeRows);
+    }
+
+    [Fact]
+    public void Create_UnknownBuildTriageInputsRemainDistinct()
+    {
+        var first = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            libraryPath: "/tmp/triage-a.json",
+            source: "triage");
+        var second = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            libraryPath: "/tmp/triage-b.json",
+            source: "triage");
+
+        var lookup = CandidateLookup.Create(
+            [first, second]);
+        var weights = lookup.AttributeWeight(
+            [first, second],
+            1);
+
+        Assert.Equal(1, first.SameMethodShapeRows);
+        Assert.Equal(1, second.SameMethodShapeRows);
+        Assert.Equal(0.5, weights[first.Id]);
+        Assert.Equal(0.5, weights[second.Id]);
     }
 
     [Fact]

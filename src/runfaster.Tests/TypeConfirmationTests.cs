@@ -549,6 +549,36 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_CountsUnknownTriageInputsSeparately()
+    {
+        var first = CandidateWithType(
+            1,
+            "Fixture.T.M()",
+            "System.String",
+            source: "triage",
+            libraryPath: "/tmp/triage-a.json");
+        var second = CandidateWithType(
+            2,
+            "Fixture.T.M()",
+            "System.String",
+            source: "triage",
+            libraryPath: "/tmp/triage-b.json");
+        var result = new CorrelationResult();
+        result.Candidates.Add(first);
+        result.Candidates.Add(second);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(first.TypeConfirmed);
+        Assert.True(second.TypeConfirmed);
+        Assert.Equal(2, first.TypeConfirmedSiteCount);
+        Assert.Equal(2, second.TypeConfirmedSiteCount);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_DoesNotCollapseAmbiguousLibraryVersions()
     {
         var firstVersion = CandidateWithType(

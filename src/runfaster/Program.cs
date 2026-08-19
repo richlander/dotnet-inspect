@@ -2630,9 +2630,9 @@ sealed class AllocationCandidate(
         ProgramSupport.NormalizeModuleKey(
             assemblyName);
     public Guid? ModuleVersionId { get; } = moduleVersionId;
-    public string UnknownLibraryInputIdentity { get; } =
-        source == "library" && moduleVersionId is null
-            ? ProgramSupport.NormalizeLibraryInputIdentity(
+    public string UnknownBuildInputIdentity { get; } =
+        moduleVersionId is null
+            ? ProgramSupport.NormalizeInputIdentity(
                 libraryPath)
             : "";
     public int MethodToken { get; } = methodToken;
@@ -3177,7 +3177,7 @@ sealed class CandidateLookup
                             candidate.ModuleVersionId
                                 ?.ToString("D")
                             ?? candidate
-                                .UnknownLibraryInputIdentity,
+                                .UnknownBuildInputIdentity,
                          candidate.RuntimeMethodToken,
                          MethodWithoutToken:
                             candidate.RuntimeMethodToken == 0
@@ -3530,8 +3530,27 @@ sealed class CandidateLookup
         if (search.Length == 0)
             return [];
 
-        int nearest = search.Max(static candidate => candidate.IlOffset);
-        return search.Where(candidate => candidate.IlOffset == nearest).ToArray();
+        return
+        [
+            .. search
+                .GroupBy(static candidate => (
+                    candidate.AssemblyModuleKey,
+                    BuildIdentity:
+                        candidate.ModuleVersionId
+                            ?.ToString("D")
+                        ?? candidate
+                            .UnknownBuildInputIdentity))
+                .SelectMany(static buildCandidates =>
+                {
+                    int nearest = buildCandidates.Max(
+                        static candidate =>
+                            candidate.IlOffset);
+                    return buildCandidates.Where(
+                        candidate =>
+                            candidate.IlOffset
+                                == nearest);
+                })
+        ];
     }
 
     public List<MethodTextMatch> FindByMethodText(string line)
@@ -3627,7 +3646,7 @@ sealed class CandidateLookup
                     CultureInfo.InvariantCulture)),
             EncodeAttributionPart(
                 candidate
-                    .UnknownLibraryInputIdentity),
+                    .UnknownBuildInputIdentity),
             EncodeAttributionPart(
                 candidate.IlOffset.ToString(
                     "X8",
@@ -3706,11 +3725,11 @@ sealed class CandidateLookup
         int buildIdentityCount = candidates
             .Where(static candidate =>
                 candidate.ModuleVersionId is not null
-                || candidate.UnknownLibraryInputIdentity.Length > 0)
+                || candidate.UnknownBuildInputIdentity.Length > 0)
             .Select(static candidate =>
                 candidate.ModuleVersionId is Guid moduleVersionId
                     ? $"mvid:{moduleVersionId:D}"
-                    : $"path:{candidate.UnknownLibraryInputIdentity}")
+                    : $"path:{candidate.UnknownBuildInputIdentity}")
             .Distinct(StringComparer.Ordinal)
             .Take(2)
             .Count();
@@ -3791,7 +3810,7 @@ sealed class CandidateLookup
                         candidate.ModuleVersionId
                             is Guid candidateMvid
                             ? $"mvid:{candidateMvid:D}"
-                            : $"path:{candidate.UnknownLibraryInputIdentity}")
+                            : $"path:{candidate.UnknownBuildInputIdentity}")
                     .Distinct(
                         StringComparer.Ordinal)
                     .Take(2)
@@ -4214,8 +4233,7 @@ internal static class ProgramSupport
                     candidate.Source,
                     "triage",
                     StringComparison.Ordinal))
-                .GroupBy(static candidate =>
-                    candidate.ModuleVersionId)
+                .GroupBy(GetBuildKey)
                 .ToArray();
             var libraryGroups = coordinateCandidates
                 .Where(candidate => string.Equals(
@@ -4223,7 +4241,7 @@ internal static class ProgramSupport
                     "library",
                     StringComparison.Ordinal)
                     && !supersededIds.Contains(candidate.Id))
-                .GroupBy(GetLibraryBuildKey)
+                .GroupBy(GetBuildKey)
                 .ToArray();
             var otherCandidates = coordinateCandidates
                 .Where(static candidate =>
@@ -4284,25 +4302,27 @@ internal static class ProgramSupport
                 candidate.Source,
                 "triage",
                 StringComparison.Ordinal))
-            .GroupBy(static candidate =>
-                candidate.ModuleVersionId)
+            .GroupBy(GetBuildKey)
             .ToArray();
         var libraryGroups = candidates
             .Where(static candidate => string.Equals(
                 candidate.Source,
                 "library",
                 StringComparison.Ordinal))
-            .GroupBy(GetLibraryBuildKey)
+            .GroupBy(GetBuildKey)
             .ToList();
         var superseded = new List<AllocationCandidate>();
 
         foreach (var triageGroup in triageGroups.Where(
-                     static group => group.Key is not null))
+                     static group =>
+                         group.Key.ModuleVersionId
+                             is not null))
         {
             int matchingLibrary = libraryGroups.FindIndex(
                 libraryGroup =>
                     libraryGroup.Key.ModuleVersionId ==
-                        triageGroup.Key);
+                        triageGroup.Key
+                            .ModuleVersionId);
             if (matchingLibrary < 0)
                 continue;
 
@@ -4314,7 +4334,8 @@ internal static class ProgramSupport
 
         bool oneResolvableLegacySite =
             triageGroups.Length == 1
-            && triageGroups[0].Key is null
+            && triageGroups[0].Key.ModuleVersionId
+                is null
             && libraryGroups.Count == 1
             && candidates.All(static candidate =>
                 candidate.Source is "triage" or "library");
@@ -4392,7 +4413,7 @@ internal static class ProgramSupport
                 .ToArray());
     }
 
-    static LibraryBuildKey GetLibraryBuildKey(
+    static BuildKey GetBuildKey(
         AllocationCandidate candidate)
     {
         if (candidate.ModuleVersionId is Guid moduleVersionId)
@@ -4400,19 +4421,22 @@ internal static class ProgramSupport
 
         return new(
             null,
-            candidate.UnknownLibraryInputIdentity);
+            candidate.UnknownBuildInputIdentity);
     }
 
-    public static string NormalizeLibraryInputIdentity(
-        string libraryPath)
+    public static string NormalizeInputIdentity(
+        string inputPath)
     {
-        string path = Path.GetFullPath(libraryPath);
+        if (string.IsNullOrWhiteSpace(inputPath))
+            return "";
+
+        string path = Path.GetFullPath(inputPath);
         if (OperatingSystem.IsWindows())
             path = path.ToUpperInvariant();
         return path;
     }
 
-    readonly record struct LibraryBuildKey(
+    readonly record struct BuildKey(
         Guid? ModuleVersionId,
         string UnknownInputPath);
 

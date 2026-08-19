@@ -1275,6 +1275,73 @@ public class E2EFixtureTests
     }
 
     [Fact]
+    public void Correlate_UnknownBuildTriageInputsDoNotCollapse()
+    {
+        string firstTriagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string secondTriagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            const string triage =
+                """
+                {"performance":{"objects":[{"candidate":"same","member":"Fixture.Type.M()","assembly":"Fixture","method_token":"0x06000001","shape":"object-allocation","operation":"newobj","token":"0x0A000001","il":"IL_0005","allocation":"System.Object","provenance":"exact"}]}}
+                """;
+            File.WriteAllText(
+                firstTriagePath,
+                triage);
+            File.WriteAllText(
+                secondTriagePath,
+                triage);
+            File.WriteAllText(
+                logPath,
+                "0x06000001+0005 Fixture.Type.M() 512 bytes");
+
+            var result = RunCorrelate(
+                "--triage",
+                firstTriagePath,
+                secondTriagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                0,
+                output.RootElement.GetProperty(
+                    "observedCandidates").GetInt32());
+            Assert.Equal(
+                2,
+                output.RootElement.GetProperty(
+                    "candidates").GetArrayLength());
+            Assert.All(
+                output.RootElement.GetProperty(
+                    "candidates").EnumerateArray(),
+                candidate =>
+                {
+                    Assert.Equal(
+                        "cold-for-this-workload",
+                        candidate.GetProperty(
+                            "status").GetString());
+                });
+        }
+        finally
+        {
+            File.Delete(firstTriagePath);
+            File.Delete(secondTriagePath);
+            File.Delete(logPath);
+        }
+    }
+
+    [Fact]
     public void Correlate_RejectedCoordinateDoesNotFallBackToAnotherSite()
     {
         string triagePath = Path.Combine(
