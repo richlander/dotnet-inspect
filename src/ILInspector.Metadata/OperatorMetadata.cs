@@ -5,7 +5,11 @@ using CSharpText;
 
 namespace ILInspector.Metadata;
 
-internal interface IOperatorTypeRelationshipResolver
+/// <summary>
+/// Resolves operator-signature relationships that require metadata outside the
+/// assembly containing the operator declaration.
+/// </summary>
+public interface IOperatorTypeRelationshipResolver
 {
     OperatorMetadata.TypeRelationship InterfaceRelationship(
         MetadataReader reader,
@@ -53,7 +57,7 @@ public static class OperatorMetadata
     public static bool IsCSharpOperatorDeclaration(MetadataReader reader, MethodDefinition method)
         => IsCSharpOperatorDeclaration(reader, method, relationshipResolver: null);
 
-    internal static bool IsCSharpOperatorDeclaration(
+    public static bool IsCSharpOperatorDeclaration(
         MetadataReader reader,
         MethodDefinition method,
         IOperatorTypeRelationshipResolver? relationshipResolver)
@@ -322,7 +326,7 @@ public static class OperatorMetadata
             _ => OperatorSignatureTypeProvider.Opaque,
         };
 
-    internal enum TypeRelationship
+    public enum TypeRelationship
     {
         No,
         Yes,
@@ -467,7 +471,7 @@ public static class OperatorMetadata
     /// and which type definition or reference it names. Decoding to this rather
     /// than to display text keeps the declaring-type comparison structural.
     /// </summary>
-    internal readonly record struct OperatorSignatureType(
+    public readonly record struct OperatorSignatureType(
         bool IsVoid,
         bool IsByRef,
         bool IsTypeParameter,
