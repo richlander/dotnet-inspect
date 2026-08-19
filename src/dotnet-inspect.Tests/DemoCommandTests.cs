@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Queries.Definitions;
@@ -8,6 +9,16 @@ namespace DotnetInspector.Tests;
 [Collection("Console")]
 public class DemoCommandTests
 {
+    private static async Task<(int ExitCode, string Output, string Error)> RunCliAsync(params string[] args)
+    {
+        return await ConsoleCapture.RunAsync(async () =>
+        {
+            args = CommandLineBuilder.PreprocessArgs(args);
+            var root = CommandLineBuilder.CreateRootCommand();
+            return await root.Parse(args).InvokeAsync();
+        });
+    }
+
     [Fact]
     public async Task ExecuteList_IncludesEveryHomeDemo()
     {
@@ -114,5 +125,48 @@ public class DemoCommandTests
         Assert.Equal(
             "System.Collections.Generic.List`1",
             document.RootElement.GetProperty("view").GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public void KnownCommands_ReservesDemo()
+    {
+        Assert.Contains(DemoCommand.Name, ArgumentPreprocessor.KnownCommands);
+    }
+
+    [Fact]
+    public async Task Cli_DemoList_DispatchesThroughPreprocessor()
+    {
+        var (exitCode, output, error) = await RunCliAsync("demo", "list", "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(ProductInspectionDemos.Entries.Count, document.RootElement.GetArrayLength());
+        Assert.Contains(
+            document.RootElement.EnumerateArray(),
+            element => element.GetProperty("id").GetString() == "stj-serializer");
+    }
+
+    [Fact]
+    public async Task Cli_DemoScenario_DispatchesThroughPreprocessor()
+    {
+        var (exitCode, output, error) = await RunCliAsync("demo", "extensions-callgraph", "--json");
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal("extensions-callgraph", document.RootElement.GetProperty("id").GetString());
+        Assert.Equal("resolve-only", document.RootElement.GetProperty("activation").GetString());
+        Assert.Contains("74b6b4b321", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_DemoBare_ListsCatalog()
+    {
+        var (exitCode, output, _) = await RunCliAsync("demo");
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("stj-serializer", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unknown command 'demo'", output, StringComparison.Ordinal);
     }
 }
