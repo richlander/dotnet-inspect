@@ -1073,7 +1073,12 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /state\.retryAction = options\.retryAction/);
   assert.match(
     appSource,
-    /state\.retryAction = runCallGraphDemo/);
+    /const demo = compileHomeDemo\(kind\);/);
+  assert.match(
+    appSource,
+    /restoreWorkspaceFromLocation\(loc, deepLinkFromLocation\(loc\)\)/);
+  assert.doesNotMatch(appSource, /runCallGraphDemo/);
+  assert.doesNotMatch(appSource, /HOME_DEMO_LINKS/);
   assert.match(
     appSource,
     /appendQueryNotice\(\s+friendly\.message,\s+options\.retryAction/);
@@ -1091,7 +1096,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /assemblyDescriptorForType\(pkg\.assemblies, stat\)/);
   assert.match(
     appSource,
-    /activatePackage\(targetPackage\)/);
+    /activatePackage\(targetModel, \{ resetAccessibility: true \}\)/);
 });
 
 test("member documentation state is scoped to the exact request", () => {

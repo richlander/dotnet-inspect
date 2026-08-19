@@ -32,6 +32,20 @@ A selected malformed entry receives a path-derived identity only as a rejection
 carrier, so the workspace returns its typed failure instead of silently
 shortening the selected assembly set.
 
+## Home demos
+
+The home-page demo buttons are declarative scenario records in
+`src/home-demos.js`, shaped like the peer records in
+[workspace-definitions.md](../../docs/design/workspace-definitions.md). Each
+scenario compiles to the ordinary share-packet restore path (`?package=` +
+`w=`), including the multi-package call-graph demo. Member overloads are
+selected by `MemberAnchor` digest (`d` in the packet), not by positional
+index; legacy `o` remains readable for older links.
+
+The product-owned definition loader, catalog subscriptions, and versioned
+packet contract are still ahead of this browser projection. These records are
+the first consumer-side demos on that spine.
+
 ## How a workspace is opened
 
 1. **Resolve an exact identity.** `PackageSourceCoordinateResolver` validates

@@ -566,3 +566,125 @@ export function mermaidLabel(value) {
   }
   return encoded;
 }
+
+// URL-safe base64 over UTF-8 bytes for the opaque share packet.
+export function base64UrlEncode(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export function base64UrlDecode(value) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * Build the opaque share packet object from workbench selection state.
+ * Prefer MemberAnchor digest (`d`) over positional overload index (`o`).
+ */
+export function buildSharePacket({
+  packages = [],
+  activePackage = null,
+  libraryScope = null,
+  atPackageRoot = false,
+  packageLens = "overview",
+  lens = "api",
+  selectedTypeId = "",
+  selectedMemberKey = "",
+  selectedOverloadIndex = null,
+  selectedOverloadDigest = null,
+  memberSection = "overview"
+} = {}) {
+  const packet = {
+    t: packages.map(item => [item.id, item.version, item.activeFramework || ""]),
+    a: Math.max(0, packages.indexOf(activePackage))
+  };
+  if (activePackage
+    && isRuntimePackPacketId(activePackage.id)
+    && libraryScope
+    && libraryScope.size === 1) {
+    packet.l = [...libraryScope][0];
+  }
+  if (atPackageRoot) {
+    packet.v = packageLens && packageLens !== "overview" ? `pkg:${packageLens}` : "pkg";
+    return packet;
+  }
+  if (lens && lens !== "api") packet.v = lens;
+  if (selectedTypeId) packet.y = selectedTypeId;
+  if (selectedMemberKey) packet.m = selectedMemberKey;
+  if (selectedOverloadDigest) packet.d = selectedOverloadDigest;
+  else if (selectedOverloadIndex != null) packet.o = selectedOverloadIndex;
+  if (memberSection && memberSection !== "overview") packet.c = memberSection;
+  return packet;
+}
+
+function isRuntimePackPacketId(id) {
+  return String(id || "").toLowerCase() === "microsoft.netcore.app"
+    || String(id || "").toLowerCase() === "microsoft.aspnetcore.app";
+}
+
+/**
+ * Resolve a deep-link member selection against member groups.
+ * Prefers MemberAnchor digest over positional overload index.
+ */
+export function resolveMemberDeepLink(groups, deep) {
+  if (!Array.isArray(groups) || !deep) {
+    return { memberKey: "", overloadIndex: null };
+  }
+
+  const anchor = deep.memberAnchor != null && deep.memberAnchor !== ""
+    ? String(deep.memberAnchor)
+    : null;
+
+  if (anchor) {
+    const matches = [];
+    for (const group of groups) {
+      if (deep.member && group.key !== deep.member) continue;
+      for (let index = 0; index < group.overloads.length; index++) {
+        if (group.overloads[index]?.anchorDigest === anchor) {
+          matches.push({ memberKey: group.key, overloadIndex: index });
+        }
+      }
+    }
+    if (matches.length === 1) return matches[0];
+    // Ambiguous or missing digest: fall through to member + positional overload.
+  }
+
+  if (!deep.member) return { memberKey: "", overloadIndex: null };
+  const group = groups.find(item => item.key === deep.member);
+  if (!group) return { memberKey: "", overloadIndex: null };
+
+  const overloadIndex = Number(deep.overload);
+  if (deep.overload != null && deep.overload !== ""
+    && Number.isInteger(overloadIndex)
+    && overloadIndex >= 0
+    && overloadIndex < group.overloads.length) {
+    return { memberKey: group.key, overloadIndex };
+  }
+  return { memberKey: group.key, overloadIndex: null };
+}
+
+/** Build the deep-link object consumed by applyDeepLink / restore paths. */
+export function deepLinkFromLocation(loc) {
+  if (!loc) {
+    return {
+      type: null,
+      member: null,
+      memberAnchor: null,
+      overload: null,
+      section: null
+    };
+  }
+  return {
+    type: loc.type ?? null,
+    member: loc.member ?? null,
+    memberAnchor: loc.memberAnchor ?? null,
+    overload: loc.overload ?? null,
+    section: loc.section ?? null
+  };
+}

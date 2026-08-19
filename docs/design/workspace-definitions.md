@@ -22,9 +22,14 @@ Three consumers need a portable workspace description and are currently served
 by none (the browser workbench described below lives in the main tree under
 `prototypes/inspect-web`; claims about it cite that implementation):
 
-- The browser workbench's home demos are hand-authored base64 URL strings, and
-  one demo (`runCallGraphDemo`) is imperative code because the URL packet
-  cannot express its selection stably (only by positional overload index).
+- The browser workbench's home demos previously were hand-authored base64 URL
+  strings, and one demo (`runCallGraphDemo`) was imperative code because the
+  URL packet could not express its selection stably (only by positional
+  overload index). inspect-web now loads those three home demos from
+  declarative scenario records in `prototypes/inspect-web/src/home-demos.js`
+  and selects members by `MemberAnchor` digest; that is a browser projection
+  onto the current share packet, not yet the product-owned definition loader
+  or versioned packet contract below.
 - Share links carry a terse, unversioned packet whose two wire forms are
   distinguished by shape sniffing (`Array.isArray` vs `.t`).
 - The platform rides in package-shaped slots under the display id
@@ -852,6 +857,10 @@ Implementation must add, at minimum:
   the registry-binding open question; and
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload.
+  inspect-web's `home-demos.test.js` covers the browser projection of that
+  claim (scenario → multi-package packet with `d` digest, plus
+  `resolveMemberDeepLink`); the product-owned definition loader and packet
+  transposition gates above remain open.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified
@@ -859,6 +868,16 @@ manually (bash and zsh by transcript; PowerShell and cmd analytically) and
 otherwise falling under this note's blanket unverified marking.
 
 ### What exists today
+
+Browser home-demo projection (not a substitute for the gates above):
+
+- `prototypes/inspect-web/src/home-demos.js` registers the three home scenarios
+  as declarative workspace / navigation / view peer records and compiles them
+  to the current share-packet restore path;
+- share encode prefers MemberAnchor digest (`d`) over positional overload
+  (`o`); decode and deep-link restore accept either; and
+- `prototypes/inspect-web/test/home-demos.test.js` is the demo-parity gate for
+  that browser projection, including the former imperative call-graph demo.
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates

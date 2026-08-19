@@ -2,13 +2,17 @@ import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
   authoredSourceLimitationHtml,
+  base64UrlDecode,
+  base64UrlEncode,
   beginSourceRequestState,
+  buildSharePacket,
   cancelSourceRequestState,
   callGraphDiagnosticsMessage,
   callGraphTargetMatchesType,
   callGraphTargetTypeId,
   createDependencyGraphPendingState,
   createDependencyGraphRenderSequence,
+  deepLinkFromLocation,
   dependencyCoordinateCandidates,
   dependencyGroupSelectionMessage,
   dependencyGraphGroupSelectionIndex,
@@ -28,6 +32,7 @@ import {
   packageLenses,
   parameterTitleHtml,
   removeWorkspacePackage,
+  resolveMemberDeepLink,
   retainWorkspacePackage,
   rootCommands,
   resolveLoadedGraphTargetCandidate,
@@ -46,6 +51,7 @@ import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
 } from "./graph-mermaid.js";
+import { compileHomeDemo, homeDemoCatalog } from "./home-demos.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
 
@@ -460,50 +466,31 @@ function memberSectionsFor(member) {
   return memberSectionDefs.filter(([id]) => allowed.has(id));
 }
 
-// URL-safe base64 over UTF-8 bytes. Used for the opaque share packet so a shared or
-// duplicated link can carry the full session state without bloating the visible query.
-function base64UrlEncode(text) {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64UrlDecode(value) {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
-}
-
 // Compact, opaque share packet. Carries everything needed to fully restore a session — the
 // open-tab set, which tab is active, the current view, and (only in type view) the selected
 // type/member — so the visible query stays down to a human-readable ?package=<id>. Keys are
 // terse to keep the encoded string short:
 //   t = tabs [[id, version, framework], …]   a = active tab index   v = view token
-//   y/m/o/c = selected type / member / overload / member section (type view only)
+//   y/m/d|o/c = selected type / member / MemberAnchor digest|legacy overload / member section
 function encodeShareState() {
-  const packet = {
-    t: state.packages.map(item => [item.id, item.version, item.activeFramework || ""]),
-    a: Math.max(0, state.packages.indexOf(state.package))
-  };
-  // Which platform library the runtime pack is scoped to is part of the view's provenance —
-  // capture it so refresh/back/share land on that library instead of the aggregate platform.
-  if (isRuntimePackId(state.package.id) && state.libraryScope && state.libraryScope.size === 1) {
-    packet.l = [...state.libraryScope][0];
-  }
-  if (state.atPackageRoot) {
-    packet.v = state.packageLens && state.packageLens !== "overview" ? `pkg:${state.packageLens}` : "pkg";
-  } else {
-    // Package identity/view is enough for a package-root link; a selected type only belongs
-    // to type view, so it is captured here and nowhere else.
-    if (state.lens && state.lens !== "api") packet.v = state.lens;
-    if (state.selectedTypeId) packet.y = state.selectedTypeId;
-    if (state.selectedMemberKey) packet.m = state.selectedMemberKey;
-    if (state.selectedOverloadIndex != null) packet.o = state.selectedOverloadIndex;
-    if (state.memberSection && state.memberSection !== "overview") packet.c = state.memberSection;
-  }
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member && state.selectedOverloadIndex != null
+    ? member.overloads[state.selectedOverloadIndex]
+    : null;
+  const packet = buildSharePacket({
+    packages: state.packages,
+    activePackage: state.package,
+    libraryScope: state.libraryScope,
+    atPackageRoot: state.atPackageRoot,
+    packageLens: state.packageLens,
+    lens: state.lens,
+    selectedTypeId: state.selectedTypeId,
+    selectedMemberKey: state.selectedMemberKey,
+    selectedOverloadIndex: state.selectedOverloadIndex,
+    selectedOverloadDigest: overload?.anchorDigest || null,
+    memberSection: state.memberSection
+  });
   return base64UrlEncode(JSON.stringify(packet));
 }
 
@@ -517,7 +504,18 @@ function decodeShareState(value) {
     if (Array.isArray(raw)) {
       const normalized = normalizeShareTabs(raw);
       if (normalized.error) return { error: normalized.error };
-      return { tabs: normalized.tabs, active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, library: null };
+      return {
+        tabs: normalized.tabs,
+        active: 0,
+        view: "",
+        rich: false,
+        type: null,
+        member: null,
+        memberAnchor: null,
+        overload: null,
+        section: null,
+        library: null
+      };
     }
     if (raw && Array.isArray(raw.t)) {
       const normalized = normalizeShareTabs(raw.t);
@@ -531,6 +529,7 @@ function decodeShareState(value) {
         rich: true,
         type: raw.y != null ? String(raw.y) : null,
         member: raw.m != null ? String(raw.m) : null,
+        memberAnchor: raw.d != null ? String(raw.d) : null,
         overload: raw.o != null ? String(raw.o) : null,
         section: raw.c != null ? String(raw.c) : null,
         library: raw.l != null ? String(raw.l) : null
@@ -566,6 +565,7 @@ function parseLocation() {
   let framework = params.get("framework");
   let type = params.get("type");
   let member = params.get("member");
+  let memberAnchor = params.get("memberAnchor") || params.get("digest");
   let overload = params.get("overload");
   let section = params.get("section");
   let viewToken = location.hash.slice(1);
@@ -584,6 +584,7 @@ function parseLocation() {
       if (share.view) viewToken = share.view;
       type = share.type;
       member = share.member;
+      memberAnchor = share.memberAnchor;
       overload = share.overload;
       section = share.section;
       library = share.library;
@@ -608,6 +609,7 @@ function parseLocation() {
     framework,
     type,
     member,
+    memberAnchor,
     overload,
     section,
     lens: view.lens,
@@ -639,12 +641,7 @@ if (initialLocation.atPackageRoot) {
 
 // Deep-link selection to restore once the first package model is available. Consumed
 // (and cleared) by the first loadPackage so later package switches start fresh.
-const initialDeepLink = {
-  type: initialLocation.type,
-  member: initialLocation.member,
-  overload: initialLocation.overload,
-  section: initialLocation.section
-};
+const initialDeepLink = deepLinkFromLocation(initialLocation);
 
 const app = document.querySelector("#app");
 let mermaidModule;
@@ -5612,7 +5609,7 @@ function syncUrl() {
 }
 
 // Apply a parsed URL selection onto the currently loaded package, validating that the
-// type/member/overload/section still exist.
+// type/member/MemberAnchor-or-overload/section still exist.
 function applyDeepLink(deep) {
   const pkg = state.package;
   if (!pkg) return;
@@ -5641,16 +5638,13 @@ function applyDeepLink(deep) {
   if (restoreType && deep) {
     const type = pkg.types.find(item => item.id === deep.type);
     const groups = memberGroups(type);
-    const group = deep.member ? groups.find(item => item.key === deep.member) : null;
-    if (group) {
-      state.selectedMemberKey = deep.member;
-      const overloadIndex = Number(deep.overload);
-      if (deep.overload != null && deep.overload !== ""
-        && Number.isInteger(overloadIndex) && overloadIndex >= 0
-        && overloadIndex < group.overloads.length) {
-        state.selectedOverloadIndex = overloadIndex;
-      }
+    const resolved = resolveMemberDeepLink(groups, deep);
+    if (resolved.memberKey) {
+      state.selectedMemberKey = resolved.memberKey;
+      state.selectedOverloadIndex = resolved.overloadIndex;
+      const group = groups.find(item => item.key === resolved.memberKey);
       if (deep.section
+        && group
         && memberSectionIdsFor(group).includes(deep.section)) {
         state.memberSection = deep.section;
       }
@@ -5789,9 +5783,9 @@ function renderHomeView() {
           <div class="home-demos">
             <span class="home-demos-label">Or jump straight into a demo</span>
             <div class="home-demo-row">
-              <button class="home-demo" data-home-demo="stj" ${enginePending ? "disabled" : ""}><strong>System.Text.Json</strong><small>Browse a real package API</small></button>
-              <button class="home-demo" data-home-demo="callgraph" ${enginePending ? "disabled" : ""}><strong>Cross-package call graph</strong><small>Trace calls across four packages</small></button>
-              <button class="home-demo" data-home-demo="runtime" ${enginePending ? "disabled" : ""}><strong>.NET Platform</strong><small>Inspect platform BCL types</small></button>
+              ${homeDemoCatalog().map(demo =>
+                `<button class="home-demo" data-home-demo="${escapeHtml(demo.id)}" ${enginePending ? "disabled" : ""}><strong>${escapeHtml(demo.title)}</strong><small>${escapeHtml(demo.summary)}</small></button>`
+              ).join("")}
             </div>
           </div>
         </div>
@@ -5854,25 +5848,16 @@ function bindHomeEvents() {
   requestAnimationFrame(() => document.querySelector("#spotlight-input")?.focus());
 }
 
-// The two package demos jump to a rich, curated deep link (open tabs + selected type +,
-// for the platform, a scoped library) so the buttons showcase the workbench, not a bare
-// package root. pushState keeps them shareable/refreshable; the workspace restore reuses
-// the same path as a shared link. The call-graph demo stays a bespoke multi-package load.
-const HOME_DEMO_LINKS = {
-  stj: "?package=System.Text.Json&w=eyJ0IjpbWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCJdXSwiYSI6MCwieSI6IlN5c3RlbS5UZXh0Lkpzb24uSnNvblNlcmlhbGl6ZXIifQ",
-  runtime: "?package=Microsoft.NETCore.App&w=eyJ0IjpbWyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCJdLFsiTWljcm9zb2Z0Lk5FVENvcmUuQXBwIiwiMTAuMC4xMCIsIm5ldDEwLjAiXV0sImEiOjEsImwiOiJTeXN0ZW0uUHJpdmF0ZS5Db3JlTGliIiwieSI6IlN5c3RlbS5Db2xsZWN0aW9ucy5HZW5lcmljLkxpc3RgMSJ9"
-};
-
+// Home demos are declarative scenario records (see home-demos.js). Each compiles to the
+// ordinary share-packet restore path — including the multi-package call-graph demo — so
+// pushState keeps them shareable/refreshable with no demo-only loader.
 function runHomeDemo(kind) {
+  const demo = compileHomeDemo(kind);
+  if (!demo) return;
   state.home = false;
-  if (kind === "callgraph") { runCallGraphDemo(); return; }
-  const link = HOME_DEMO_LINKS[kind];
-  if (!link) return;
-  try { history.pushState(null, "", link); } catch {}
+  try { history.pushState(null, "", demo.href); } catch {}
   const loc = parseLocation();
-  restoreWorkspaceFromLocation(loc, {
-    type: loc.type, member: loc.member, overload: loc.overload, section: loc.section
-  });
+  restoreWorkspaceFromLocation(loc, deepLinkFromLocation(loc));
 }
 
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
@@ -8005,71 +7990,6 @@ async function loadRuntimePackAssembly(
   }
 }
 
-async function runCallGraphDemo() {
-  state.loading = true;
-  state.error = "";
-  state.loadingMessage = "Loading cross-package call graph demo…";
-  state.loadingSubtitle = "";
-  render();
-
-  const targetPackage = await loadPackage(
-    "Microsoft.Extensions.DependencyInjection.Abstractions",
-    "10.0.0",
-    "net10.0",
-    { retryAction: runCallGraphDemo });
-  if (!targetPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
-  }
-  const loggingPackage = await loadPackage(
-    "Microsoft.Extensions.Logging",
-    "10.0.0",
-    "net10.0",
-    { retryAction: runCallGraphDemo });
-  if (!loggingPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
-  }
-  const httpPackage = await loadPackage(
-    "Microsoft.Extensions.Http",
-    "10.0.0",
-    "net10.0",
-    { retryAction: runCallGraphDemo });
-  if (!httpPackage) {
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
-  }
-
-  activatePackage(targetPackage);
-  const type = state.package.types.find(item =>
-    item.id === "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions");
-  const member = type && memberGroups(type).find(item =>
-    item.name === "TryAddEnumerable" && item.kind === "method");
-  const overloadIndex = member?.overloads.findIndex(item => item.anchorDigest === "74b6b4b321") ?? -1;
-  if (!type || !member || overloadIndex < 0) {
-    state.loading = false;
-    state.error = "The call graph demo member was not found in the selected package.";
-    state.errorTitle = "Call graph demo failed";
-    state.retryAction = runCallGraphDemo;
-    render();
-    return;
-  }
-
-  state.selectedTypeId = type.id;
-  state.selectedMemberKey = member.key;
-  state.selectedOverloadIndex = overloadIndex;
-  state.memberSection = "call-graph";
-  state.memberCallGraph = null;
-  state.memberCallGraphError = "";
-  state.memberCallGraphKey = "";
-  state.loading = false;
-  render();
-  await loadSelectedMemberCallGraph();
-}
-
 // Loads the full open-tab set described by a parsed location (opaque workspace bucket, or a
 // lone target), then restores the active tab's platform library scope and deep-link
 // selection. Shared by boot restore, refreshed/shared links, and the in-app demo buttons.
@@ -8443,21 +8363,11 @@ window.addEventListener("popstate", () => {
     return;
   }
   if (!state.package) {
-    const deep = {
-      type: loc.type,
-      member: loc.member,
-      overload: loc.overload,
-      section: loc.section
-    };
+    const deep = deepLinkFromLocation(loc);
     restoreWorkspaceFromLocation(loc, deep, navigationSeq);
     return;
   }
-  const deep = {
-    type: loc.type,
-    member: loc.member,
-    overload: loc.overload,
-    section: loc.section
-  };
+  const deep = deepLinkFromLocation(loc);
   if (loc.tabs?.length && !workspaceCoordinatesMatch(state.packages, loc.tabs)) {
     restoreWorkspaceFromLocation(loc, deep, navigationSeq);
     return;
