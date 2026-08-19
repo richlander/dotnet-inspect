@@ -54,3 +54,18 @@ public sealed class GenericBodyShapeFixture<T>
 {
     public static object Create() => new object();
 }
+
+public sealed class OverloadedIndexerBodyShapeFixture
+{
+    public string this[int index]
+    {
+        get => index.ToString();
+        set => GC.KeepAlive(value);
+    }
+
+    public string this[string key]
+    {
+        get => key.ToString();
+        set => Console.WriteLine(value);
+    }
+}
