@@ -412,17 +412,6 @@ export function graphTargetNavigationDisposition(candidate, target) {
     : "none";
 }
 
-export function authoredSourceLimitationHtml(source) {
-  if (!source?.authoredLimitation) return "";
-  const escaped = String(source.authoredLimitation)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-  return `<span class="graph-source-status">Original source unavailable: ${escaped}</span>`;
-}
-
 export function callGraphDiagnosticsMessage(diagnostics) {
   if (!diagnostics) return "";
   const evidence = [];

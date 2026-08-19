@@ -285,7 +285,6 @@ public sealed record BrowserSource(
     string Provider,
     string Provenance,
     string? Url,
-    string? AuthoredLimitation,
     string Text);
 
 public sealed record BrowserStyleOption(
