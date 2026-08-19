@@ -368,6 +368,34 @@ public class StructuralCloneRetrievalTests
     }
 
     [Fact]
+    public void RetrieveSimilar_InvalidPopulationPrecedesMalformedSeedMvid()
+    {
+        using var seedImage = new PEReader(
+            new MemoryStream(
+                BuildZeroScoreAssembly(malformedModuleIdentity: true)));
+        MethodDefinitionHandle invalid =
+            MetadataTokens.MethodDefinitionHandle(3);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                MetadataTokens.MethodDefinitionHandle(1),
+                [invalid]));
+
+        using PEReader candidateImage = OpenDiffFixture(
+            FixtureCatalog.DiffPair.New);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            StructuralCloneAnalysis.RetrieveSimilar(
+                seedImage,
+                MetadataTokens.MethodDefinitionHandle(1),
+                candidateImage,
+                [MetadataTokens.MethodDefinitionHandle(
+                    candidateImage.GetMetadataReader()
+                        .GetTableRowCount(TableIndex.MethodDef)
+                        + 1)]));
+    }
+
+    [Fact]
     public void RetrieveSimilar_ByteDistinctSameMvidImagesRetainCandidate()
     {
         byte[] seedBytes =

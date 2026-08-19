@@ -239,17 +239,6 @@ public static partial class StructuralCloneAnalysis
                 metadataFailure);
         }
         ValidateHandle(seedReader, seed, nameof(seed));
-        if (!TryGetModuleVersionId(
-                seedReader,
-                out Guid seedModuleVersionId,
-                out metadataFailure))
-        {
-            return FailedRetrieval(
-                seed,
-                methods.Length,
-                potentialCandidates,
-                metadataFailure);
-        }
 
         Guid candidateModuleVersionId = default;
         bool candidateReaderAvailable =
@@ -261,6 +250,17 @@ public static partial class StructuralCloneAnalysis
         {
             foreach (MethodDefinitionHandle method in orderedMethods)
                 ValidateHandle(candidateReader, method, nameof(methods));
+        }
+        if (!TryGetModuleVersionId(
+                seedReader,
+                out Guid seedModuleVersionId,
+                out metadataFailure))
+        {
+            return FailedRetrieval(
+                seed,
+                methods.Length,
+                potentialCandidates,
+                metadataFailure);
         }
         bool candidateMetadataAvailable =
             candidateReaderAvailable
