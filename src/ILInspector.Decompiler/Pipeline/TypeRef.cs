@@ -386,14 +386,20 @@ public sealed class TypeRef : IEquatable<TypeRef>
         string callingConvention,
         bool callingConventionIsExact)
     {
-        bool suppressGcTransition = HasCustomModifier(
-            returnType,
-            isRequired: false,
-            "System.Runtime.CompilerServices",
-            "CallConvSuppressGCTransition");
         var parameterRefKinds = FunctionPointerParameterRefKindsFor(parameters);
-        string convention = AddSuppressGcTransition(callingConvention, suppressGcTransition);
+        bool conventionModifiersAreExact = TryApplyFunctionPointerConventionModifiers(
+            callingConvention,
+            returnType,
+            out string convention);
+        convention = AddSuppressGcTransition(
+            convention,
+            HasCustomModifier(
+                returnType,
+                isRequired: false,
+                "System.Runtime.CompilerServices",
+                "CallConvSuppressGCTransition"));
         bool signatureIsExact = callingConventionIsExact
+            && conventionModifiersAreExact
             && FunctionPointerRefKindsAreExact(returnType, parameters);
         return FunctionPointer(returnType, parameters, convention, parameterRefKinds, signatureIsExact);
     }
@@ -479,7 +485,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
         if (isByRef != (refKind != ArgumentRefKind.Value))
             return false;
         if (!isByRef)
+        {
+            // Function-pointer calling-convention and parameter modifiers stay
+            // attached to the signature TypeRefs (#4250). Their exactness is
+            // FunctionPointerSignatureIsExact, not this explicit-parameter slot.
+            if (Kind == TypeRefKind.FunctionPointer)
+                return CustomModifiers.IsDefaultOrEmpty;
             return !ContainsCustomModifiers;
+        }
         if (ElementType is null || ElementType.ContainsCustomModifiers)
             return false;
         return CustomModifiers.Distinct().Count() == CustomModifiers.Length
@@ -491,6 +504,63 @@ public sealed class TypeRef : IEquatable<TypeRef>
         => !CustomModifiers.IsDefaultOrEmpty
             || (ElementType?.ContainsCustomModifiers ?? false)
             || TypeArguments.Any(argument => argument.ContainsCustomModifiers);
+
+    static bool TryApplyFunctionPointerConventionModifiers(
+        string callingConvention,
+        TypeRef returnType,
+        out string convention)
+    {
+        convention = callingConvention;
+        var modifiers = returnType.CustomModifiers
+            .Where(modifier =>
+                modifier.Modifier.Namespace == "System.Runtime.CompilerServices"
+                && modifier.Modifier.Name.StartsWith("CallConv", StringComparison.Ordinal))
+            .Select(modifier => (
+                modifier.IsRequired,
+                Name: modifier.Modifier.Name["CallConv".Length..]))
+            .ToArray();
+        if (modifiers.Any(modifier => modifier.IsRequired))
+            return false;
+        var modifierNames = modifiers
+            .Select(modifier => modifier.Name)
+            .ToArray();
+        if (modifierNames.Length == 0)
+            return true;
+        if (callingConvention.Length == 0)
+            return false;
+
+        var parts = new List<string>();
+        const string prefix = "unmanaged[";
+        if (callingConvention.StartsWith(prefix, StringComparison.Ordinal)
+            && callingConvention.EndsWith(']'))
+        {
+            parts.AddRange(callingConvention[prefix.Length..^1]
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+        }
+        else if (callingConvention != "unmanaged")
+        {
+            return false;
+        }
+
+        foreach (var modifier in modifierNames)
+        {
+            if (modifier is not ("Cdecl"
+                or "Stdcall"
+                or "Thiscall"
+                or "Fastcall"
+                or "SuppressGCTransition"
+                or "MemberFunction")
+                || parts.Contains(modifier, StringComparer.Ordinal))
+            {
+                return false;
+            }
+            parts.Add(modifier);
+        }
+        convention = parts.Count == 0
+            ? "unmanaged"
+            : $"unmanaged[{string.Join(", ", parts)}]";
+        return true;
+    }
 
     static bool FunctionPointerRefKindsAreExact(
         TypeRef returnType,
@@ -873,8 +943,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     {
         TypeRefKind.Definition => RenderDefinition(scope),
         TypeRefKind.GenericInstance => RenderGenericInstance(scope),
-        TypeRefKind.SzArray => $"{ElementType!.ToDisplayString(scope)}[]",
-        TypeRefKind.Array => $"{ElementType!.ToDisplayString(scope)}[{new string(',', Rank - 1)}]",
+        TypeRefKind.SzArray or TypeRefKind.Array => RenderArray(scope),
         TypeRefKind.ByRef => $"ref {ElementType!.ToDisplayString(scope)}",
         TypeRefKind.Pointer => $"{ElementType!.ToDisplayString(scope)}*",
         TypeRefKind.Pinned => $"pinned {ElementType!.ToDisplayString(scope)}",
@@ -885,6 +954,28 @@ public sealed class TypeRef : IEquatable<TypeRef>
     };
 
     public override string ToString() => ToDisplayString();
+
+    /// <summary>
+    /// C# writes array ranks left-to-right from the element name
+    /// (<c>int[][,]</c>), while metadata nests the other way. Collect suffixes
+    /// from the outside in so mixed SZ/MD ranks keep source order. Rank &lt; 1
+    /// is not valid C#; render it as a diagnostic instead of throwing.
+    /// </summary>
+    string RenderArray(TypeRef? scope)
+    {
+        var suffixes = new List<string>();
+        TypeRef element = this;
+        while (element.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
+        {
+            suffixes.Add(element.Kind == TypeRefKind.SzArray
+                ? "[]"
+                : element.Rank > 0
+                    ? $"[{new string(',', element.Rank - 1)}]"
+                    : $"[rank:{element.Rank}]");
+            element = element.ElementType!;
+        }
+        return element.ToDisplayString(scope) + string.Concat(suffixes);
+    }
 
     bool IsPrivateImplementationDetails
         => Kind == TypeRefKind.Definition

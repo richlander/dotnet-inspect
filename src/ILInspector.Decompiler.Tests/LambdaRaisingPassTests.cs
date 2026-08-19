@@ -2063,9 +2063,21 @@ public class LambdaRaisingPassTests
     }
 
     static TypeRef MapDefinitionsToInt(TypeRef type)
-        => type.Kind == TypeRefKind.Definition
-            ? s_int
-            : type.MapConstituentTypes(MapDefinitionsToInt);
+        => type.Kind switch
+        {
+            TypeRefKind.Definition => s_int,
+            TypeRefKind.GenericInstance or TypeRefKind.FunctionPointer =>
+                type.WithComponents(
+                    MapDefinitionsToInt(type.ElementType!),
+                    [.. type.TypeArguments.Select(MapDefinitionsToInt)]),
+            TypeRefKind.SzArray
+                or TypeRefKind.Array
+                or TypeRefKind.ByRef
+                or TypeRefKind.Pointer
+                or TypeRefKind.Pinned =>
+                type.WithComponents(MapDefinitionsToInt(type.ElementType!)),
+            _ => type,
+        };
 
     static TypeRef FunctionPointerWithConventionModifier(
         string name,
