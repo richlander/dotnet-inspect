@@ -4592,7 +4592,8 @@ static class FidelityCheck
             ? ExplicitMemberName(
                 propertyName,
                 explicitProvenance,
-                explicitAlias)
+                explicitAlias,
+                ExplicitMemberLeafKind.Property)
             : Identifier(propertyName);
         sb.AppendLine($"{pad}{accessibilityPrefix}{emittedModifier}{unsafeMod}{ret} {emittedName} {{{getterBody}{setterBody} }}");
     }
@@ -4700,7 +4701,8 @@ static class FidelityCheck
             ? ExplicitMemberName(
                 metadataName,
                 explicitProvenance,
-                explicitAlias)
+                explicitAlias,
+                ExplicitMemberLeafKind.Event)
             : Identifier(metadataName);
         sb.AppendLine(
             $"{pad}{accessibilityPrefix}{modifier}event {eventType} "
@@ -5414,7 +5416,8 @@ static class FidelityCheck
             ? ExplicitMemberName(
                 name,
                 explicitInterfaceProvenance,
-                explicitInterfaceAlias)
+                explicitInterfaceAlias,
+                ExplicitMemberLeafKind.Method)
             : Identifier(name);
         sb.AppendLine($"{pad}{accessibilityModifier}{unsafeModifier}{(isStatic ? "static " : instanceModifier)}{asyncModifier}{returnType} {emittedName}{genParams}({parameters}){whereClauses} {{{body}}}");
     }
@@ -5422,7 +5425,8 @@ static class FidelityCheck
     static string ExplicitMemberName(
         string metadataName,
         ApiExplicitInterfaceProvenance? provenance,
-        string? alias)
+        string? alias,
+        ExplicitMemberLeafKind leafKind)
     {
         int separator = metadataName.LastIndexOf('.');
         string? interfaceName = separator >= 0
@@ -5437,13 +5441,73 @@ static class FidelityCheck
         interfaceName = EscapeMetadataTypeName(
             RemoveSourceAlias(interfaceName));
         string memberName = Identifier(
-            separator >= 0
-                ? metadataName[(separator + 1)..]
-                : metadataName);
+            ExplicitDeclarationMemberLeaf(
+                metadataName,
+                provenance,
+                leafKind));
         return alias is null
             ? $"{interfaceName}.{memberName}"
             : $"{alias}::{interfaceName}.{memberName}";
     }
+
+    enum ExplicitMemberLeafKind
+    {
+        Method,
+        Property,
+        Event,
+    }
+
+    static string ExplicitDeclarationMemberLeaf(
+        string metadataName,
+        ApiExplicitInterfaceProvenance? provenance,
+        ExplicitMemberLeafKind leafKind)
+    {
+        if (provenance is null)
+        {
+            int separator = metadataName.LastIndexOf('.');
+            return separator >= 0
+                ? metadataName[(separator + 1)..]
+                : metadataName;
+        }
+
+        string[] leaves = provenance.Declarations
+            .Select(declaration => declaration.DeclarationMemberName)
+            .Where(name => !string.IsNullOrEmpty(name))
+            .Select(name => leafKind switch
+            {
+                ExplicitMemberLeafKind.Method => name!,
+                ExplicitMemberLeafKind.Property =>
+                    SemanticAccessorLeaf(name!, "get_", "set_"),
+                ExplicitMemberLeafKind.Event =>
+                    SemanticAccessorLeaf(name!, "add_", "remove_"),
+                _ => throw new InvalidOperationException(
+                    "Unknown explicit member leaf kind."),
+            })
+            .Where(name => name is not null)
+            .Select(name => name!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (leaves.Length != 1
+            || provenance.Declarations.Any(declaration =>
+                string.IsNullOrEmpty(declaration.DeclarationMemberName)))
+        {
+            throw new CompileBackPlanningException(
+                "explicit-interface-member-name-unavailable: "
+                + metadataName);
+        }
+
+        return leaves[0];
+    }
+
+    static string? SemanticAccessorLeaf(
+        string name,
+        string firstPrefix,
+        string secondPrefix)
+        => name.StartsWith(firstPrefix, StringComparison.Ordinal)
+            ? name[firstPrefix.Length..]
+            : name.StartsWith(secondPrefix, StringComparison.Ordinal)
+                ? name[secondPrefix.Length..]
+                : null;
 
     static ApiExplicitInterfaceProvenance?
         TargetExplicitInterfaceProvenance(
@@ -6294,6 +6358,11 @@ static class FidelityCheck
             string match = name is ".ctor" or ".cctor" ? name : name;
             bool matchExplicitInterface =
                 explicitInterfaceProvenance is not null;
+            string correspondenceMatch = matchExplicitInterface
+                ? ExplicitCorrespondenceMethodLeaf(
+                    match,
+                    explicitInterfaceProvenance!)
+                : match;
             var canonicalMatches =
                 canonicalSignature is null
                     ? null
@@ -6308,9 +6377,7 @@ static class FidelityCheck
                 if (CorrespondenceMethodName(
                         mn,
                         matchExplicitInterface)
-                    != CorrespondenceMethodName(
-                        match,
-                        matchExplicitInterface))
+                    != correspondenceMatch)
                     continue;
                 if (canonicalSignature is not null)
                 {
@@ -6327,9 +6394,7 @@ static class FidelityCheck
                         StringComparison.Ordinal);
                     string normalizedExpected = canonicalSignature.Replace(
                         name,
-                        CorrespondenceMethodName(
-                            name,
-                            matchExplicitInterface),
+                        correspondenceMatch,
                         StringComparison.Ordinal);
                     if (normalizedCandidate == normalizedExpected)
                         canonicalMatches!.Add((mh, m));
@@ -6427,6 +6492,8 @@ static class FidelityCheck
         if (expected.Kind != actual.Kind
             || expected.DefinitionName != actual.DefinitionName
             || expected.InterfaceTypeName != actual.InterfaceTypeName
+            || expected.InterfaceTypeIdentity
+                != actual.InterfaceTypeIdentity
             || expected.DeclarationMemberName
                 != actual.DeclarationMemberName)
         {
@@ -6484,6 +6551,50 @@ static class FidelityCheck
         return qualifier < 0
             ? name
             : name[(qualifier + 1)..];
+    }
+
+    static string ExplicitCorrespondenceMethodLeaf(
+        string metadataName,
+        ApiExplicitInterfaceProvenance provenance)
+    {
+        string metadataLeaf =
+            CorrespondenceMethodName(
+                metadataName,
+                explicitInterface: true);
+        string? accessorPrefix = new[]
+        {
+            "get_",
+            "set_",
+            "add_",
+            "remove_",
+            "raise_",
+        }.FirstOrDefault(prefix =>
+            metadataLeaf.StartsWith(prefix, StringComparison.Ordinal));
+        if (accessorPrefix is null)
+        {
+            return ExplicitDeclarationMemberLeaf(
+                metadataName,
+                provenance,
+                ExplicitMemberLeafKind.Method);
+        }
+
+        string[] leaves = provenance.Declarations
+            .Select(declaration => declaration.DeclarationMemberName)
+            .Where(name => name is not null
+                && name.StartsWith(
+                    accessorPrefix,
+                    StringComparison.Ordinal))
+            .Select(name => name!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (leaves.Length != 1)
+        {
+            throw new CompileBackPlanningException(
+                "explicit-interface-member-name-unavailable: "
+                + metadataName);
+        }
+
+        return leaves[0];
     }
 
     static IlBodyDiffResult CompareCompileBackFidelity(

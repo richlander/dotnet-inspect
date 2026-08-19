@@ -1821,14 +1821,38 @@ internal static class CSharpDeclarationWriter
             signature = $"{FormatConstructorTypeName(type.Name)}({parameters})";
             return true;
         }
-        if (member.Kind == "method"
+        if ((member.Kind == "method"
+                || member.Kind == "explicit-interface-implementation"
+                    && member.ExplicitInterfaceProvenance is not null
+                    && !IsExplicitInterfaceProperty(member)
+                    && !IsExplicitInterfaceEvent(member))
             && methodParameters is not { Count: > 0 }
             && model.MemberName is { Length: > 0 } memberName
             && model.ReturnType is { Length: > 0 } returnType)
         {
             if (memberName.Contains('<', StringComparison.Ordinal) && model.TypeParameters.Count == 0)
                 return false;
-            signature = AppendMemberTypeParameterConstraints($"{returnType} {memberName}({parameters})", member, model.TypeParameters);
+            string emittedMemberName = memberName;
+            if (IsExplicitInterfaceMember(member))
+            {
+                string? qualifier = ExplicitInterfaceQualifier(member);
+                string? leaf = ExplicitInterfaceMemberLeaf(
+                    member,
+                    model.MemberName,
+                    member.Name);
+                if (qualifier is null || leaf is null)
+                    return false;
+                string typeParameterList =
+                    model.TypeParameters.Count == 0
+                        ? ""
+                        : $"<{string.Join(", ", model.TypeParameters.Select(parameter => parameter.Name))}>";
+                emittedMemberName =
+                    $"{qualifier}.{leaf}{typeParameterList}";
+            }
+            signature = AppendMemberTypeParameterConstraints(
+                $"{returnType} {emittedMemberName}({parameters})",
+                member,
+                model.TypeParameters);
             return true;
         }
         if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))
@@ -1900,9 +1924,9 @@ internal static class CSharpDeclarationWriter
             return true;
         }
 
-        // Keep extension projections, explicit implementations, operators, and
-        // unsupported event shapes on compatibility text until the remaining
-        // declaration-level facts are represented in ApiSignature.
+        // Keep extension projections, operators, and unsupported event shapes
+        // on compatibility text until the remaining declaration-level facts are
+        // represented in ApiSignature.
         return false;
 
         static bool HasStructuredMetadataOnlyDefault(ApiParameter parameter)
@@ -2076,6 +2100,12 @@ internal static class CSharpDeclarationWriter
             "event" => ["add_", "remove_", "raise_"],
             _ => [],
         };
+        if (prefixes.Length == 0)
+        {
+            return IsIdentitySafeIdentifier(methodName)
+                ? EscapeIdentifier(methodName)
+                : null;
+        }
         foreach (string prefix in prefixes)
         {
             if (!methodName.StartsWith(

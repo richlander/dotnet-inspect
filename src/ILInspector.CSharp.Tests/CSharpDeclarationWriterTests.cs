@@ -1231,6 +1231,41 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void ExplicitInterfaceMethod_UsesDeclarationLeafForUndottedName()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Implementation",
+            Kind = "class"
+        };
+        var member = new ApiMember
+        {
+            Name = "Invoke",
+            Kind = "explicit-interface-implementation",
+            ExplicitInterfaceProvenance =
+                SameImageProvenance(
+                    "Samples",
+                    "IContract",
+                    "Run"),
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                MemberName = "Invoke"
+            }
+        };
+
+        var declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                member);
+
+        Assert.Equal(
+            "int Samples.IContract.Run()",
+            declaration);
+    }
+
+    [Fact]
     public void ExplicitInterfaceProperty_PreservesExternalAliasAndConstructedType()
     {
         var type = new ApiType
@@ -1303,6 +1338,34 @@ public sealed class CSharpDeclarationWriterTests
 
         Assert.Equal(
             "int System.Collections.ICollection.Count { get; }",
+            declaration);
+    }
+
+    [Fact]
+    public void UnavailableVisualBasicMethodImplDoesNotEmitPrivateVirtual()
+    {
+        using var stream = File.OpenRead(
+            typeof(Microsoft.VisualBasic.Collection).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.FullName
+                == "Microsoft.VisualBasic.Collection");
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name
+                == "ICollectionGetEnumerator");
+
+        string declaration =
+            CSharpDeclarationWriter.RenderMemberDeclaration(
+                type,
+                member);
+
+        Assert.Equal(
+            "private System.Collections.IEnumerator ICollectionGetEnumerator()",
             declaration);
     }
 

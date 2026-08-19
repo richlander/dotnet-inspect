@@ -764,10 +764,12 @@ public static class ApiSurfaceExtractor
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
                 bool hasMethodImplementation =
                     explicitImplementationBodies.ContainsKey(methodHandle);
+                bool hasUnavailableMethodImplementation =
+                    unavailableMethodImplementationBodies.Contains(
+                        methodHandle);
                 bool isExplicitInterfaceImplementation =
                     hasMethodImplementation
-                    && !unavailableMethodImplementationBodies.Contains(
-                        methodHandle);
+                    && !hasUnavailableMethodImplementation;
                 bool isObjectFinalizeOverride =
                     objectFinalizeOverrides.Contains(methodHandle);
                 if (methodAccess != MethodAttributes.Public
@@ -828,7 +830,11 @@ public static class ApiSurfaceExtractor
                 var isOperator = IsOperatorMethodName(methodName);
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
                 var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
-                var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
+                var isSourceDeclarableVirtual =
+                    isVirtual && !hasUnavailableMethodImplementation;
+                var isOverride = isSourceDeclarableVirtual
+                    && !isNewSlot
+                    && !isExplicitInterfaceImplementation;
 
                 // A class finalizer is the `object.Finalize` override the C#
                 // `~Type()` destructor compiles to. It is detected by the
@@ -871,8 +877,9 @@ public static class ApiSurfaceExtractor
                         _ => "method"
                     },
                     IsStatic = (methodAttributes & MethodAttributes.Static) != 0,
-                    IsVirtual = isVirtual,
-                    IsAbstract = (methodAttributes & MethodAttributes.Abstract) != 0,
+                    IsVirtual = isSourceDeclarableVirtual,
+                    IsAbstract = !hasUnavailableMethodImplementation
+                        && (methodAttributes & MethodAttributes.Abstract) != 0,
                     IsOverride = isOverride,
                     IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
                     IsFinalizer = isFinalizer,
@@ -2001,7 +2008,9 @@ public static class ApiSurfaceExtractor
                             interfaceTypeName:
                                 declarationContext.InterfaceTypeName,
                             declarationMemberName:
-                                declarationContext.DeclarationMemberName);
+                                declarationContext.DeclarationMemberName,
+                            interfaceTypeIdentity:
+                                declarationContext.InterfaceTypeIdentity);
                 }
 
                 if (!handles.TryGetValue(
@@ -2015,15 +2024,6 @@ public static class ApiSurfaceExtractor
                 declarations.Add(declarationContext);
             }
         }
-
-        unavailableMethodImplementationBodies.RemoveWhere(
-            body => handles.TryGetValue(
-                    body,
-                    out HashSet<ApiExplicitInterfaceDeclarationContext>?
-                        declarations)
-                && declarations.Any(declaration =>
-                    declaration.Kind
-                        != ApiExplicitInterfaceDeclarationKind.Unavailable));
 
         return handles.ToDictionary(
             static pair => pair.Key,
@@ -2040,6 +2040,8 @@ public static class ApiSurfaceExtractor
                     or ApiExplicitInterfaceDeclarationKind.External
             && candidate.Kind == implemented.Kind
             && candidate.DefinitionName == implemented.DefinitionName
+            && candidate.InterfaceTypeIdentity
+                == implemented.InterfaceTypeIdentity
             && (candidate.Assembly is null
                     && implemented.Assembly is null
                 || candidate.Assembly is { } candidateAssembly
@@ -2237,7 +2239,8 @@ public static class ApiSurfaceExtractor
             typeContextResult.DefinitionName,
             typeContextResult.Assembly,
             typeContextResult.InterfaceTypeName,
-            declarationMemberName);
+            declarationMemberName,
+            typeContextResult.InterfaceTypeIdentity);
     }
 
     private static string? MethodDeclarationName(
@@ -2392,12 +2395,26 @@ public static class ApiSurfaceExtractor
             .TryGetValue(out string? decoded)
                 ? decoded
                 : null;
+        TypeNode interfaceType = GuardedProviderDecode.TypeSpec(
+            reader,
+            handle,
+            TypeNodeProvider.Instance,
+            typeContext,
+            (TypeNode)new DegradedTypeNode());
+        if (interfaceType.IsDegraded || interfaceTypeName is null)
+        {
+            return new ApiExplicitInterfaceDeclarationContext(
+                ApiExplicitInterfaceDeclarationKind.Unavailable,
+                context.DefinitionName,
+                interfaceTypeName: interfaceTypeName);
+        }
         return new ApiExplicitInterfaceDeclarationContext(
             context.Kind,
             context.DefinitionName,
             context.Assembly,
             interfaceTypeName,
-            context.DeclarationMemberName);
+            context.DeclarationMemberName,
+            interfaceType.StructuralIdentity());
     }
 
     private static MetadataTypeDefinitionName? ReadDefinitionName(

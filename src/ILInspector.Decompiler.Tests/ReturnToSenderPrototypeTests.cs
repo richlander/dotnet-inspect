@@ -1971,6 +1971,60 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void FidelityCheck_UsesAuthenticatedExplicitMethodDeclarationLeaf()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping explicit method declaration-leaf regression.");
+            return;
+        }
+
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"return-to-sender-{Guid.NewGuid():N}");
+        var assemblyPath = AssembleIlFixture(
+            ilasm,
+            UndottedExplicitMethodIl,
+            directory,
+            "undottedexplicitmethod");
+        try
+        {
+            using (var stream = File.OpenRead(assemblyPath))
+            using (var peReader = new PEReader(stream))
+            {
+                var reader = peReader.GetMetadataReader();
+                MethodDefinitionHandle method = reader.TypeDefinitions
+                    .Select(reader.GetTypeDefinition)
+                    .Single(type => reader.GetString(type.Name)
+                        == "Implementation")
+                    .GetMethods()
+                    .Single(handle => reader.GetString(
+                        reader.GetMethodDefinition(handle).Name)
+                        == "Invoke");
+                Assert.IsType<ApiExplicitInterfaceProvenance>(
+                    FidelityCheck.ExplicitInterfaceProvenance(
+                        peReader,
+                        method));
+            }
+
+            var result = Assert.Single(
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    candidate => candidate == "Implementation"),
+                candidate => candidate.Method == "Invoke");
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     // Regression for #3112 review (escaped-identifier shadow): a hand-authored external
     // interface can live in a namespace whose segment is a C# keyword (`class`), so its raw
     // metadata full name is `class.IProbe` but its C# display name is `@class.IProbe`. A
@@ -10000,6 +10054,38 @@ public class ReturnToSenderPrototypeTests
           .property instance int32 Value()
           {
             .get instance int32 Counter::get_Value()
+          }
+        }
+        """;
+
+    const string UndottedExplicitMethodIl = """
+        .assembly extern System.Runtime
+        {
+          .ver 10:0:0:0
+          .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A)
+        }
+        .assembly undottedexplicitmethod {}
+        .module undottedexplicitmethod.dll
+
+        .class interface public abstract auto ansi IContract
+        {
+          .method public hidebysig newslot abstract virtual
+                  instance int32 Run() cil managed
+          {
+          }
+        }
+
+        .class public auto ansi beforefieldinit Implementation
+               extends [System.Runtime]System.Object
+               implements IContract
+        {
+          .method private final hidebysig newslot virtual
+                  instance int32 Invoke() cil managed
+          {
+            .override IContract::Run
+            .maxstack 1
+            ldc.i4.1
+            ret
           }
         }
         """;

@@ -2000,11 +2000,10 @@ public class ApiOutputFormatterTests
     }
 
     /// <summary>
-    /// An explicit interface implementation reaches the text fallback by a second route:
-    /// the signature-model path renders only <c>method</c>, so this kind falls through it
-    /// even in the whole-type view, where no caller supplies a generic-parameter list.
-    /// The recovery has to fire on that route too — the rendered parameter is spelled
-    /// <c>Nullable&lt;T&gt;</c>, which is not even legal without the <c>struct</c> clause.
+    /// A structured explicit-interface method must retain both its generic-parameter list
+    /// and constraints when its authenticated declaration identity supplies the emitted
+    /// member leaf. The rendered parameter is spelled <c>Nullable&lt;T&gt;</c>, which is
+    /// not even legal without the <c>struct</c> clause.
     /// </summary>
     [Fact]
     public void ConstrainedGenericExplicitImplementation_KeepsItsConstraintInTheWholeTypeView()

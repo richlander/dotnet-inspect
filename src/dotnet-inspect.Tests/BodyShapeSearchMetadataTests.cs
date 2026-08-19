@@ -85,6 +85,27 @@ public sealed class BodyShapeSearchMetadataTests
         });
     }
 
+    [Fact]
+    public void Search_MixedUnavailableMethodImplIsExcludedWithFailure()
+    {
+        WithImage(BuildMixedMethodImplImage(), path =>
+        {
+            using var source = MetadataSource.Open(path);
+
+            var result = BodyShapeSearch.Search(
+                source,
+                "LiteralExpression",
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            Assert.Empty(result.Matches);
+            Assert.Contains(
+                result.Failures,
+                failure => failure.Subject.StartsWith(
+                    "authenticate MethodImpl target at ",
+                    StringComparison.Ordinal));
+        });
+    }
+
     static byte[] BuildNestedExternalInterfaceImage()
     {
         var metadata = CreateMetadata();
@@ -127,6 +148,68 @@ public sealed class BodyShapeSearchMetadataTests
             MetadataTokens.ParameterHandle(1));
         metadata.AddInterfaceImplementation(implementationType, probe);
         metadata.AddMethodImplementation(implementationType, body, declaration);
+        return Serialize(metadata, methodBodies);
+    }
+
+    static byte[] BuildMixedMethodImplImage()
+    {
+        var metadata = CreateMetadata();
+        var contracts = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Contracts"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        var implemented = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("IImplemented"));
+        var unavailable = metadata.AddTypeReference(
+            contracts,
+            metadata.GetOrAddString("Contracts"),
+            metadata.GetOrAddString("IUnavailable"));
+        BlobHandle signature = InstanceInt32Signature(metadata);
+        var implementedDeclaration = metadata.AddMemberReference(
+            implemented,
+            metadata.GetOrAddString("Target"),
+            signature);
+        var unavailableDeclaration = metadata.AddMemberReference(
+            unavailable,
+            metadata.GetOrAddString("Target"),
+            signature);
+
+        AddModuleType(metadata);
+        var implementationType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("Sample"),
+            metadata.GetOrAddString("Impl"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var (methodBodies, bodyOffset) = Int32Body(1);
+        var body = metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Final
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot
+                | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Target"),
+            signature,
+            bodyOffset,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddInterfaceImplementation(
+            implementationType,
+            implemented);
+        metadata.AddMethodImplementation(
+            implementationType,
+            body,
+            implementedDeclaration);
+        metadata.AddMethodImplementation(
+            implementationType,
+            body,
+            unavailableDeclaration);
         return Serialize(metadata, methodBodies);
     }
 

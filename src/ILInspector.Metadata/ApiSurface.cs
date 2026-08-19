@@ -828,7 +828,8 @@ public sealed record ApiExplicitInterfaceDeclarationContext
         MetadataTypeDefinitionName? definitionName = null,
         AssemblyReferenceIdentity? assembly = null,
         string? interfaceTypeName = null,
-        string? declarationMemberName = null)
+        string? declarationMemberName = null,
+        string? interfaceTypeIdentity = null)
     {
         if (kind == ApiExplicitInterfaceDeclarationKind.External
             && assembly is null)
@@ -850,6 +851,7 @@ public sealed record ApiExplicitInterfaceDeclarationContext
         Assembly = assembly;
         InterfaceTypeName = interfaceTypeName;
         DeclarationMemberName = declarationMemberName;
+        InterfaceTypeIdentity = interfaceTypeIdentity;
     }
 
     public ApiExplicitInterfaceDeclarationKind Kind { get; }
@@ -871,6 +873,13 @@ public sealed record ApiExplicitInterfaceDeclarationContext
     /// implementing member's unrelated metadata name.
     /// </summary>
     public string? DeclarationMemberName { get; }
+
+    /// <summary>
+    /// Canonical structural identity of a constructed TypeSpec interface.
+    /// Unlike <see cref="InterfaceTypeName"/>, this participates in
+    /// MethodImpl authentication.
+    /// </summary>
+    public string? InterfaceTypeIdentity { get; }
 }
 
 /// <summary>
@@ -908,6 +917,11 @@ public sealed record ApiExplicitInterfaceProvenance
             ? Declarations[0].Assembly
             : null;
 
+    public bool HasUnavailableDeclaration
+        => Declarations.Any(declaration =>
+            declaration.Kind
+                == ApiExplicitInterfaceDeclarationKind.Unavailable);
+
     static ApiExplicitInterfaceProvenanceKind Classify(
         ImmutableArray<ApiExplicitInterfaceDeclarationContext> declarations)
     {
@@ -916,7 +930,8 @@ public sealed record ApiExplicitInterfaceProvenance
                 declaration.Kind,
                 declaration.DefinitionName,
                 declaration.Assembly,
-                declaration.InterfaceTypeName))
+                declaration.InterfaceTypeName,
+                declaration.InterfaceTypeIdentity))
             .Distinct()
             .ToImmutableArray();
         if (distinct.Length != 1)

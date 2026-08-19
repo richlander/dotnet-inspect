@@ -462,6 +462,29 @@ public sealed class ApiSurfaceExtractorBoundsTests
     }
 
     [Fact]
+    public void ConstructedMethodImplRequiresExactInterfaceInstantiation()
+    {
+        byte[] image = BuildConstructedInterfaceMismatchImage();
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
+
+        ApiMember member = Assert.Single(
+            Assert.Single(surface.Types).Members);
+        Assert.Equal("method", member.Kind);
+        Assert.False(member.IsVirtual);
+        Assert.Equal(
+            ApiExplicitInterfaceProvenanceKind.Unavailable,
+            Assert.IsType<ApiExplicitInterfaceProvenance>(
+                member.ExplicitInterfaceProvenance).Kind);
+        Assert.Contains(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == "authenticate MethodImpl target");
+    }
+
+    [Fact]
     public void AbstractInstanceMethodImplWithoutFinal_IsNotExplicit()
     {
         byte[] image = BuildUndottedExplicitAccessorImage(
@@ -1505,6 +1528,72 @@ public sealed class ApiSurfaceExtractorBoundsTests
                 declaration);
         }
         return Serialize(metadata);
+    }
+
+    static byte[] BuildConstructedInterfaceMismatchImage()
+    {
+        var metadata = Metadata("ConstructedInterfaceMismatch");
+        AssemblyReferenceHandle contracts =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("Contracts"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        TypeReferenceHandle contract =
+            metadata.AddTypeReference(
+                contracts,
+                metadata.GetOrAddString("Contracts"),
+                metadata.GetOrAddString("IValue`1"));
+        TypeSpecificationHandle implemented =
+            AddConstructedType(metadata, contract, 0x0e);
+        TypeSpecificationHandle declared =
+            AddConstructedType(metadata, contract, 0x08);
+        TypeDefinitionHandle type = AddModuleAndPublicType(
+            metadata,
+            "ConstructedInterfaceMismatch");
+        var signatureBytes = new BlobBuilder();
+        new BlobEncoder(signatureBytes).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Type().Int32(),
+                _ => { });
+        BlobHandle signature = metadata.GetOrAddBlob(signatureBytes);
+        MethodDefinitionHandle body = metadata.AddMethodDefinition(
+            MethodAttributes.Private
+                | MethodAttributes.Final
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Value"),
+            signature,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        MemberReferenceHandle declaration = metadata.AddMemberReference(
+            declared,
+            metadata.GetOrAddString("Value"),
+            signature);
+        metadata.AddInterfaceImplementation(type, implemented);
+        metadata.AddMethodImplementation(type, body, declaration);
+        return Serialize(metadata);
+    }
+
+    static TypeSpecificationHandle AddConstructedType(
+        MetadataBuilder metadata,
+        EntityHandle genericType,
+        byte argumentTypeCode)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x15);
+        signature.WriteByte(0x12);
+        WriteTypeDefOrRef(signature, genericType);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(argumentTypeCode);
+        return metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(signature));
     }
 
     static byte[] BuildRepeatedLongVisibilityAttributeTypeNameImage(

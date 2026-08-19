@@ -422,12 +422,18 @@ evidence only when its structured definition identity also appears in the contai
 InterfaceImpl rows; a private body shape alone cannot turn an external class slot into an
 interface member. A structurally valid MethodImpl whose external target cannot be authenticated
 is retained with unavailable provenance and an `authenticate MethodImpl target` inspection
-failure, rather than being silently dropped or relabeled as an interface member. Property and
-event spelling uses the authenticated MethodImpl declaration method name for its semantic member
-leaf; it does not infer that leaf from the implementing property's or event's unrelated metadata
-name. Valid abstract MethodImpl bodies are retained for interfaces that re-abstract inherited
-default members, and constructed interface qualifiers are decoded with the containing type's
-generic-parameter names. Compile-back provenance keeps non-platform assembly identity exact;
+failure, rather than being silently dropped or relabeled as an interface member. Authenticated
+and unavailable declarations remain independently visible when one body has both; consumers that
+require complete declaration identity reject the mixed provenance. A constructed interface
+declaration authenticates only against the exact structural InterfaceImpl instantiation, not
+merely the same generic interface definition. Method, property, and event spelling uses the
+authenticated MethodImpl declaration method name for its semantic member leaf; it does not infer
+that leaf from the implementing member's unrelated metadata name. Unavailable bodies remain
+addressable as ordinary methods, but their metadata-only virtual, abstract, and override flags
+are not projected as invalid C# modifiers. Valid abstract MethodImpl bodies are retained for
+interfaces that re-abstract inherited default members, and constructed interface qualifiers are
+decoded with the containing type's generic-parameter names. Compile-back provenance keeps
+non-platform assembly identity exact;
 facade/core-library correspondence is normalized only when both assembly references carry trusted
 platform key tokens. Event raiser and other semantic
 methods remain method members because `ApiMember` has no event-token slots through which their
@@ -455,9 +461,14 @@ MethodSemantics-based accessor exclusion, and `Extract_PreservesEventRaiserAndOt
 the event semantic-method boundary. ``MethodImplWithoutImplementedInterface_FailsVisibly`,
 `AbstractInstanceMethodImplWithoutFinal_IsNotExplicit`,
 `Extract_TransitiveExternalMethodImplFailsVisibly`,
+`ConstructedMethodImplRequiresExactInterfaceInstantiation`,
 `Extract_UsesContainingGenericParameterInExplicitQualifier`,
 `ExplicitQualifier_UsesContainingGenericParameterName`,
+`ExplicitInterfaceMethod_UsesDeclarationLeafForUndottedName`,
 `ExplicitInterfaceProperty_UsesRealVisualBasicDeclarationLeaf`,
+`UnavailableVisualBasicMethodImplDoesNotEmitPrivateVirtual`,
+`Search_MixedUnavailableMethodImplIsExcludedWithFailure`,
+`FidelityCheck_UsesAuthenticatedExplicitMethodDeclarationLeaf`,
 `Extract_RetainsReabstractedInterfaceMethodImpls`, and
 `FidelityLookup_NormalizesOnlyTrustedPlatformProvenance` gate the MethodImpl and provenance
 authentication rules above.

@@ -348,8 +348,8 @@ public static class BodyShapeSearch
                 return;
             if (methodTokens is not null && !methodTokens.Contains(value))
                 return;
-            if (member.ExplicitInterfaceProvenance?.Kind
-                == ApiExplicitInterfaceProvenanceKind.Unavailable)
+            if (member.ExplicitInterfaceProvenance
+                ?.HasUnavailableDeclaration == true)
             {
                 return;
             }
