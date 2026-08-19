@@ -456,6 +456,35 @@ public sealed class PackageContentAuditTests
     }
 
     [Fact]
+    public void NestedNuGetConfiguration_EvidenceIsElementLocal()
+    {
+        string root = CreateRoot();
+        try
+        {
+            const int Depth = 128;
+            string content =
+                string.Concat(Enumerable.Repeat("<packageSources><add>", Depth))
+                + "deep-marker"
+                + string.Concat(Enumerable.Repeat("</add></packageSources>", Depth));
+            Write(root, "build/nuget.config", content);
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                ["build/nuget.config"]);
+
+            Assert.True(result.Complete);
+            Assert.Equal(Depth, result.Findings.Count);
+            Assert.All(
+                result.Findings,
+                finding => Assert.Equal("<add />", finding.EncodedText.ToString()));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void LongHostileLine_AfterLiteralBackslashesKeepsTheConcernInEvidence()
     {
         string root = CreateRoot();

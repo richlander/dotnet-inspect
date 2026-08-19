@@ -855,9 +855,7 @@ public static class PackageContentAudit
                     int line = (child as IXmlLineInfo)?.HasLineInfo() == true
                         ? ((IXmlLineInfo)child).LineNumber
                         : 0;
-                    InertString evidence = new(
-                        TextPolicy.Prose,
-                        child.ToString(SaveOptions.DisableFormatting));
+                    InertString evidence = EncodeNuGetConfigurationEvidence(child);
                     collector.TryAdd(new PackageContentAuditFinding(
                         path,
                         kind.Value,
@@ -874,6 +872,47 @@ public static class PackageContentAudit
                 PackageContentFindingKind.InvalidNuGetConfiguration,
                 "NuGet configuration could not be parsed as XML."));
         }
+    }
+
+    private static InertString EncodeNuGetConfigurationEvidence(XElement element)
+    {
+        var evidence = new StringBuilder(MaxEncodedTextLength);
+        bool complete = AppendBounded(evidence, "<")
+            && AppendBounded(evidence, element.Name.LocalName);
+        foreach (XAttribute attribute in element.Attributes())
+        {
+            complete = complete
+                && AppendBounded(evidence, " ")
+                && AppendBounded(evidence, attribute.Name.LocalName)
+                && AppendBounded(evidence, "=\"")
+                && AppendBounded(evidence, attribute.Value)
+                && AppendBounded(evidence, "\"");
+            if (!complete)
+                break;
+        }
+        complete = complete && AppendBounded(evidence, " />");
+
+        if (!complete)
+        {
+            if (evidence.Length == MaxEncodedTextLength)
+                evidence.Length--;
+            evidence.Append('…');
+        }
+
+        return new InertString(TextPolicy.Prose, evidence.ToString());
+    }
+
+    private static bool AppendBounded(StringBuilder destination, string value)
+    {
+        int remaining = MaxEncodedTextLength - destination.Length;
+        if (value.Length <= remaining)
+        {
+            destination.Append(value);
+            return true;
+        }
+
+        destination.Append(value.AsSpan(0, remaining));
+        return false;
     }
 
     private sealed class FindingCollector
