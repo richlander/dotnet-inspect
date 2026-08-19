@@ -32,8 +32,21 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: prototypes/inspect-web/package-lock.json
+
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
+
+      - name: Build browser frontend
+        working-directory: prototypes/inspect-web
+        run: |
+          npm ci
+          npm run build
 
       - name: Publish browser app
         shell: bash

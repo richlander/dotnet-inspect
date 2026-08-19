@@ -4,7 +4,7 @@ import {
   buildAnnotatedView,
   factsForNode,
   nodeAtOffset,
-} from "../src/annotated-source-view.js";
+} from "../src/annotated-source-view.ts";
 import { sampleDocument } from "../../annotated-source-viewer/src/sample-document.js";
 
 test("an invalid document is refused rather than rendered", () => {

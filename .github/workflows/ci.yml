@@ -139,6 +139,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: prototypes/inspect-web/package-lock.json
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
@@ -150,6 +157,12 @@ jobs:
 
       - name: Build platform-index generator
         run: dotnet build prototypes/inspect-web/tools/gen-platform-index/genindex.cs
+
+      - name: Build browser frontend
+        working-directory: prototypes/inspect-web
+        run: |
+          npm ci
+          npm run build
 
       - name: Publish browser app
         run: >
