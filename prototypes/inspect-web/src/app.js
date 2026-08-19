@@ -5399,46 +5399,31 @@ async function restorePackageSource(previousSource) {
   }
 }
 
-// Validate a service index without mutating workspace state. Callers that race with a newer
-// navigation can discard the result instead of wiping packages mid-flight.
-async function validateNuGetMirror(serviceIndexUrl) {
-  return inspectConfigurePackageSource(serviceIndexUrl);
-}
-
-// Commit an already-validated configuration. Persistence is opt-in: Settings and Keep write
-// localStorage; history and cold shared-link open only switch the engine.
-function commitNuGetMirror(configuration, { persist = false, resetWorkspace = true, previousSource = null } = {}) {
+// Point the engine at a service index. ConfigurePackageSource commits the engine source
+// before it returns, so JS state must lockstep immediately — a "validate then maybe commit"
+// split desyncs engine fetches from Settings/share encoding after a discarded popstate.
+async function switchPackageSource(serviceIndexUrl, { persist = false, resetWorkspace = true } = {}) {
+  const previousSource = state.packageSource;
+  const configuration = await inspectConfigurePackageSource(serviceIndexUrl);
+  // Engine is already on `configuration`; keep UI/source-generation in agreement now.
+  state.packageSource = configuration;
+  bumpPackageSourceGeneration();
   if (persist) {
     try {
       localStorage.setItem(NUGET_MIRROR_STORAGE_KEY, configuration.serviceIndexUrl);
     } catch (error) {
-      if (previousSource) {
-        // Best-effort restore; caller may also await restorePackageSource.
-        state.packageSource = previousSource.isDefault
-          ? inspectUseDefaultPackageSource()
-          : previousSource;
-        bumpPackageSourceGeneration();
-      }
+      await restorePackageSource(previousSource);
       throw new Error(
         `Mirror validated but could not be stored in this browser: ${String(error?.message || error)}`);
     }
   }
-  state.packageSource = configuration;
-  bumpPackageSourceGeneration();
   if (resetWorkspace) resetSourceScopedWorkspace();
   return configuration;
 }
 
-// Apply a validated NuGet service index for this session.
+// Apply a NuGet service index for this session (persist only when requested).
 async function applyNuGetMirror(serviceIndexUrl, { persist = false, resetWorkspace = true } = {}) {
-  const previousSource = state.packageSource;
-  const configuration = await validateNuGetMirror(serviceIndexUrl);
-  try {
-    return commitNuGetMirror(configuration, { persist, resetWorkspace, previousSource });
-  } catch (error) {
-    if (persist) await restorePackageSource(previousSource);
-    throw error;
-  }
+  return switchPackageSource(serviceIndexUrl, { persist, resetWorkspace });
 }
 
 async function configureNuGetMirror(serviceIndexUrl) {
@@ -5506,35 +5491,55 @@ function dismissSharedNuGetMirrorOffer() {
   location.reload();
 }
 
-// Align the active engine source with a history/share location without persisting.
+// Align engine + JS source with a history/share location without persisting.
 // Entries with `n` apply that mirror session-only; entries without `n` restore the stored
 // preference or nuget.org so a prior session mirror cannot stick across Forward/Back.
+// On success the switch is fully committed (engine+JS); a superseded popstate leaves both
+// on the new source and the newer turn re-aligns from there.
 async function alignPackageSourceToLocation(loc) {
   if (loc.nugetMirror) {
     if (!state.packageSource.isDefault
       && packageSourceUrlsMatch(state.packageSource.serviceIndexUrl, loc.nugetMirror)) {
-      return { switched: false, notice: "" };
+      return { switched: false, offerUrl: "" };
     }
-    const configuration = await validateNuGetMirror(loc.nugetMirror);
-    return { switched: true, configuration, notice: "", offerUrl: loc.nugetMirror };
+    await switchPackageSource(loc.nugetMirror, { persist: false, resetWorkspace: true });
+    return { switched: true, offerUrl: loc.nugetMirror };
   }
   const stored = loadStoredNuGetMirror();
   if (stored) {
     if (!state.packageSource.isDefault
       && packageSourceUrlsMatch(state.packageSource.serviceIndexUrl, stored)) {
-      return { switched: false, notice: "" };
+      return { switched: false, offerUrl: "" };
     }
-    if (state.packageSource.isDefault
-      || !packageSourceUrlsMatch(state.packageSource.serviceIndexUrl, stored)) {
-      const configuration = await validateNuGetMirror(stored);
-      return { switched: true, configuration, notice: "", offerUrl: "" };
-    }
-    return { switched: false, notice: "" };
+    await switchPackageSource(stored, { persist: false, resetWorkspace: true });
+    return { switched: true, offerUrl: "" };
   }
   if (!state.packageSource.isDefault) {
-    return { switched: true, useDefault: true, notice: "", offerUrl: "" };
+    useDefaultNuGetSource({ clearStorage: false, resetWorkspace: true });
+    return { switched: true, offerUrl: "" };
   }
-  return { switched: false, notice: "" };
+  return { switched: false, offerUrl: "" };
+}
+
+// After a failed history/share mirror alignment, fall back to stored preference or nuget.org
+// so packages are not served from a leftover transient mirror.
+async function restorePreferredPackageSourceSessionOnly() {
+  const stored = loadStoredNuGetMirror();
+  if (stored) {
+    if (!state.packageSource.isDefault
+      && packageSourceUrlsMatch(state.packageSource.serviceIndexUrl, stored)) {
+      return;
+    }
+    try {
+      await switchPackageSource(stored, { persist: false, resetWorkspace: true });
+      return;
+    } catch {
+      // Fall through to default.
+    }
+  }
+  if (!state.packageSource.isDefault) {
+    useDefaultNuGetSource({ clearStorage: false, resetWorkspace: true });
+  }
 }
 
 async function promptForNuGetMirror() {
@@ -7296,9 +7301,9 @@ function renderSettingsView() {
             <input id="settings-nuget-source-url" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://mirror.example/nuget/v3/index.json" value="${escapeHtml(storedMirror)}" />
             <div class="settings-source-actions">
               <button type="submit" class="settings-reset">Validate and use mirror</button>
-              ${!state.packageSource.isDefault ? '<button id="settings-nuget-source-reset" type="button" class="settings-reset">Use nuget.org</button>' : ""}
+              ${(!state.packageSource.isDefault || storedMirror) ? '<button id="settings-nuget-source-reset" type="button" class="settings-reset">Use nuget.org</button>' : ""}
             </div>
-            <small>Current source: ${escapeHtml(state.packageSource.serviceIndexUrl)}${!state.packageSource.isDefault && !storedMirror ? " · session only (not kept)" : ""}</small>
+            <small>Current source: ${escapeHtml(state.packageSource.serviceIndexUrl)}${!state.packageSource.isDefault && !storedMirror ? " · session only (not kept)" : ""}${state.packageSource.isDefault && storedMirror ? " · stored mirror unreachable this session" : ""}</small>
           </form>
         </section>
 
@@ -7817,6 +7822,11 @@ async function restoreWorkspaceFromLocation(loc, deep, options = {}) {
   state.loading = true;
   state.error = "";
   if (isCurrent()) render();
+  else {
+    // Superseded before work started; do not leave a phantom spinner for the next turn.
+    state.loading = false;
+    return;
+  }
   const target = {
     id: loc.package,
     version: loc.version || "latest",
@@ -7838,11 +7848,17 @@ async function restoreWorkspaceFromLocation(loc, deep, options = {}) {
   // once, below — so a non-target tab (e.g. an STJ tab on a platform-library link) never
   // flashes into view before the target resolves.
   for (const tab of tabs) {
-    if (!isCurrent()) return;
+    if (!isCurrent()) {
+      state.loading = false;
+      return;
+    }
     if (isRuntimePackId(tab.id)) await loadRuntimePack(tab.framework);
     else await loadPackage(tab.id, tab.version, tab.framework, { background: true, keepQueryNotice });
   }
-  if (!isCurrent()) return;
+  if (!isCurrent()) {
+    state.loading = false;
+    return;
+  }
 
   const targetModel = state.packages.find(matchesTarget);
   if (targetModel) {
@@ -7851,7 +7867,10 @@ async function restoreWorkspaceFromLocation(loc, deep, options = {}) {
     // deep link, so a refreshed/shared platform-library link lands on that library.
     if (isRuntimePackId(targetModel.id) && loc.library) {
       await applyPlatformLibraryScope(loc.library);
-      if (!isCurrent()) return;
+      if (!isCurrent()) {
+        state.loading = false;
+        return;
+      }
     }
     applyDeepLink(deep);
     state.loading = false;
@@ -7864,6 +7883,7 @@ async function restoreWorkspaceFromLocation(loc, deep, options = {}) {
     // the foreground so its error (e.g. a 404) surfaces properly instead of a blank workbench.
     pendingDeepLink = deep;
     await loadPackage(target.id, target.version, target.framework, { keepQueryNotice });
+    if (!isCurrent()) state.loading = false;
   } else {
     state.loading = false;
     if (isCurrent()) render();
@@ -8153,39 +8173,50 @@ async function handlePopState(generation, loc) {
   urlSyncOwnerGeneration = generation;
   // Allow restore even when a prior stale turn wiped packages (package null, not home).
   const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
-  if (bareHome) {
-    if (!isCurrent()) return;
-    state.home = true;
-    render();
-    return;
-  }
   if (!isCurrent()) return;
-  state.home = false;
-  state.lens = loc.lens || "api";
-  state.atPackageRoot = loc.atPackageRoot || false;
-  state.packageLens = loc.packageLens || "overview";
+
+  // Drop a phantom spinner left by a superseded restore before this turn decides its UI.
+  state.loading = false;
 
   let sourceSwitched = false;
   let mirrorNotice = "";
   try {
+    // Align before bare-home return so no-n home entries leave a session mirror.
     const alignment = await alignPackageSourceToLocation(loc);
     if (!isCurrent()) return;
     if (alignment.switched) {
-      if (alignment.useDefault) {
-        useDefaultNuGetSource({ clearStorage: false, resetWorkspace: true });
-      } else if (alignment.configuration) {
-        commitNuGetMirror(alignment.configuration, { persist: false, resetWorkspace: true });
-      }
       sourceSwitched = true;
       if (alignment.offerUrl) offerSharedMirrorKeep(alignment.offerUrl);
       else state.sharedMirrorOffer = null;
     }
   } catch (error) {
     if (!isCurrent()) return;
-    mirrorNotice = `Shared NuGet mirror could not be used: ${String(error?.message || error)}`;
+    mirrorNotice = loc.nugetMirror
+      ? `Shared NuGet mirror could not be used: ${String(error?.message || error)}`
+      : `Stored NuGet mirror could not be used: ${String(error?.message || error)}`;
     state.queryNotice = mirrorNotice;
+    try {
+      await restorePreferredPackageSourceSessionOnly();
+    } catch {
+      // Best-effort; packages may still fail visibly.
+    }
+    if (!isCurrent()) return;
+    sourceSwitched = true;
+    state.sharedMirrorOffer = null;
   }
   if (!isCurrent()) return;
+
+  if (bareHome) {
+    state.home = true;
+    state.loading = false;
+    render();
+    return;
+  }
+
+  state.home = false;
+  state.lens = loc.lens || "api";
+  state.atPackageRoot = loc.atPackageRoot || false;
+  state.packageLens = loc.packageLens || "overview";
 
   const deep = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
   if (sourceSwitched) {
@@ -8217,6 +8248,7 @@ async function handlePopState(generation, loc) {
     } else {
       applyDeepLink(loc);
       if (!isCurrent()) return;
+      state.loading = false;
       render();
       loadSelectionData();
     }
@@ -8229,7 +8261,10 @@ async function handlePopState(generation, loc) {
     await loadPackage(loc.package, loc.version || "latest", loc.framework || "", {
       keepQueryNotice: Boolean(mirrorNotice)
     });
-    if (!isCurrent()) return;
+    if (!isCurrent()) {
+      state.loading = false;
+      return;
+    }
     if (mirrorNotice && !state.queryNotice) {
       state.queryNotice = mirrorNotice;
       render();
