@@ -6983,6 +6983,70 @@ public partial class CommandExecutionTests
         Assert.Contains("has no IL body", interfaceOutput);
     }
 
+    [Theory]
+    [InlineData("abstract", "relative")]
+    [InlineData("interface", "dot")]
+    [InlineData("extern", "parent")]
+    public async Task Member_BodylessSource_NonCanonicalAssemblyPathPreservesTokenIdentity(
+        string memberKind,
+        string pathStyle)
+    {
+        var (assemblyPath, typeName, memberName) = memberKind switch
+        {
+            "abstract" => (
+                FixtureCatalog.DiffPair.OldAssemblyPath(),
+                "DiffFixtureSample.BodyStateSample",
+                "BodyState"),
+            "interface" => (
+                FixtureCatalog.DiffPair.OldAssemblyPath(),
+                "DiffFixtureSample.IExplicitSurface",
+                "Get"),
+            _ => (
+                TestAssemblyPath,
+                typeof(SamplePInvokeClass).FullName!,
+                nameof(SamplePInvokeClass.GetCurrentProcessId)),
+        };
+        string fullAssemblyPath = Path.GetFullPath(assemblyPath);
+        string relativePath = Path.GetRelativePath(
+            Environment.CurrentDirectory,
+            fullAssemblyPath);
+        string assemblyDirectory = Path.GetDirectoryName(fullAssemblyPath)!;
+        string suppliedPath = pathStyle switch
+        {
+            "relative" => relativePath,
+            "dot" => Path.Combine(".", relativePath),
+            _ => Path.Combine(
+                Path.GetDirectoryName(assemblyDirectory)!,
+                Path.GetFileName(assemblyDirectory),
+                "..",
+                Path.GetFileName(assemblyDirectory),
+                Path.GetFileName(fullAssemblyPath)),
+        };
+
+        foreach (string section in new[] { SectionNames.PdbSource, SectionNames.SourceDiff })
+        {
+            var bare = await RunAppAsync(
+                "member", typeName, memberName,
+                "--library", suppliedPath, "--all",
+                "-S", section, "--bare", "--tips", "q");
+            var count = await RunAppAsync(
+                "member", typeName, memberName,
+                "--library", suppliedPath, "--all",
+                "-S", section, "--count", "--tips", "q");
+
+            Assert.Equal(0, bare.Exit);
+            Assert.Empty(bare.Error);
+            Assert.Contains(
+                section == SectionNames.PdbSource
+                    ? ApiCommand.BodylessMemberNote
+                    : "PDB Source unavailable",
+                bare.Output);
+            Assert.Equal(0, count.Exit);
+            Assert.Empty(count.Error);
+            Assert.Equal("0\n", count.Output);
+        }
+    }
+
     [Fact]
     public async Task Member_PdbSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
     {

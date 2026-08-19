@@ -346,7 +346,11 @@ public static class MemberCommand
                 // assembly for the surface vs an implementation assembly for
                 // bodies), so fall back to name/overload resolution.
                 var tokenOriginAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
-                var sourceMetadataToken = string.Equals(pdbLookupPath, tokenOriginAssembly, StringComparison.Ordinal)
+                var sourceMetadataToken = LibraryMetadataService
+                    .ReferenceTreePathComparer(OperatingSystem.IsWindows())
+                    .Equals(
+                        Path.GetFullPath(pdbLookupPath),
+                        Path.GetFullPath(tokenOriginAssembly))
                     ? (sourceMember?.MetadataToken ?? 0)
                     : 0;
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
