@@ -72,6 +72,17 @@ public class FqnParserTests
     }
 
     [Theory]
+    [InlineData("operator +=", "op_AdditionAssignment")]
+    [InlineData("operator checked +=", "op_CheckedAdditionAssignment")]
+    [InlineData("operator +", "op_Addition")]
+    public void OperatorMember_NormalizesToMetadataName(
+        string input,
+        string expectedMember)
+        => Assert.Equal(
+            expectedMember,
+            FqnParser.NormalizeMemberName(input));
+
+    [Theory]
     [InlineData("List<T>.IndexOf", "List`1", "IndexOf")]
     [InlineData("Dictionary<TKey,TValue>.TryGetValue", "Dictionary`2", "TryGetValue")]
     [InlineData("Span<T>.Slice", "Span`1", "Slice")]

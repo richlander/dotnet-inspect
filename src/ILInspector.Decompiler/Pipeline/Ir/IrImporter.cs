@@ -2249,13 +2249,14 @@ public static class IrImporter
                         signature.ReturnType,
                         signature.ReturnType),
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
-                    IsOperator = FactState(
-                        relationshipResolver?.IsCSharpOperatorDeclaration(
+                    IsOperator = relationshipResolver is null
+                        ? FactState(MethodDefinitionFacts.IsOperator(
                             reader,
-                            method)
-                        ?? MethodDefinitionFacts.IsOperator(
-                            reader,
-                            method)),
+                            method))
+                        : FactState(
+                            relationshipResolver.ClassifyCSharpOperatorDeclaration(
+                                reader,
+                                method)),
                     AccessorKind = MethodDefinitionFacts.ReadAccessorKind(reader, declaringType, (MethodDefinitionHandle)handle),
                     ParameterRefKinds = parameterRefKinds.Kinds,
                     ParameterRefKindsFacts = parameterRefKinds.State,
@@ -2424,6 +2425,16 @@ public static class IrImporter
 
     static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
 
+    static MetadataFactState FactState(
+        OperatorMetadata.DeclarationClassification value) => value switch
+        {
+            OperatorMetadata.DeclarationClassification.Yes =>
+                MetadataFactState.Yes,
+            OperatorMetadata.DeclarationClassification.No =>
+                MetadataFactState.No,
+            _ => MetadataFactState.Unknown,
+        };
+
     /// <summary>
     /// The property names of an anonymous-type constructor, in argument order, or
     /// empty when the constructor's declaring type is not a compiler-generated
@@ -2557,11 +2568,14 @@ public static class IrImporter
                         method,
                         declaredReturnType,
                         effectiveReturnType),
-                    FactState(
-                        relationshipResolver?.IsCSharpOperatorDeclaration(
+                    relationshipResolver is null
+                        ? FactState(MethodDefinitionFacts.IsOperator(
                             reader,
-                            method)
-                        ?? MethodDefinitionFacts.IsOperator(reader, method)),
+                            method))
+                        : FactState(
+                            relationshipResolver.ClassifyCSharpOperatorDeclaration(
+                                reader,
+                                method)),
                     FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
                     typeCompilerGenerated);
             }

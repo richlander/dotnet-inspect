@@ -508,6 +508,60 @@ public sealed class CSharpPrinterReceiverTests
     }
 
     [Fact]
+    public void HiddenDerivedAssignmentOperator_BaseCallMaterializesBaseReceiver()
+    {
+        string body = PrintFixture(
+            typeof(DerivedInstanceAssignmentBox),
+            nameof(DerivedInstanceAssignmentBox.InvokeBase));
+
+        Assert.Contains("BaseInstanceAssignmentBox __receiver = this;", body);
+        Assert.Contains("__receiver += value;", body);
+        Assert.DoesNotContain("this += value;", body);
+        AssertCompiles(
+            "public void InvokeBase(int value)",
+            Indent(body),
+            """
+            public class BaseInstanceAssignmentBox
+            {
+                public void operator +=(int value) { }
+            }
+
+            public sealed partial class DerivedInstanceAssignmentBox
+                : BaseInstanceAssignmentBox
+            {
+                public new void operator +=(int value) { }
+            }
+            """,
+            gateType: "DerivedInstanceAssignmentBox");
+    }
+
+    [Fact]
+    public void CollectionExpression_InstanceAssignmentPreservesSpanTarget()
+    {
+        string body = PrintFixture(
+            typeof(CollectionInstanceAssignmentBox),
+            nameof(CollectionInstanceAssignmentBox.InvokeSpan));
+
+        Assert.Contains(
+            "CollectionInstanceAssignmentBox __receiver = this;",
+            body);
+        Assert.Contains(
+            "__receiver += (Span<int>)[1, 2];",
+            body);
+        AssertCompiles(
+            "public void InvokeSpan()",
+            Indent(body),
+            """
+            public sealed partial class CollectionInstanceAssignmentBox
+            {
+                public void operator +=(Span<int> value) { }
+                public void operator +=(ReadOnlySpan<int> value) { }
+            }
+            """,
+            gateType: "CollectionInstanceAssignmentBox");
+    }
+
+    [Fact]
     public void DynamicRightOperand_InstanceAssignment_PreservesSelectedOverload()
     {
         var box = TypeRef.Definition("synthetic", "", "DynamicAssignmentBox");
@@ -618,6 +672,17 @@ public sealed class CSharpPrinterReceiverTests
     static string PrintFixture(string methodName)
         => PrintFixtureResult(methodName).Output!.TrimEnd();
 
+    static string PrintFixture(Type type, string methodName)
+    {
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            type.FullName!,
+            methodName);
+        Assert.NotNull(function);
+        return CSharpPrinter.PrintRaised(function!, out _).Output!.TrimEnd();
+    }
+
     static DecompilerResult PrintFixtureResult(string methodName)
     {
         using var source = MetadataSource.Open(
@@ -635,21 +700,32 @@ public sealed class CSharpPrinterReceiverTests
             "\n",
             body.Split('\n').Select(line => line.Length == 0 ? line : "        " + line));
 
-    static void AssertCompiles(string header, string body, string extraDeclarations = "")
+    static void AssertCompiles(
+        string header,
+        string body,
+        string extraDeclarations = "",
+        string gateType = "__Gate")
     {
-        var errors = Recompile(header, body, extraDeclarations)
+        var errors = Recompile(header, body, extraDeclarations, gateType)
             .Where(d => d.Severity == DiagnosticSeverity.Error)
             .Select(d => $"{d.Id}: {d.GetMessage()}")
             .ToArray();
         Assert.True(errors.Length == 0, "Rendered body must compile, got:\n  " + string.Join("\n  ", errors) + "\n--- body ---\n" + body);
     }
 
-    static ImmutableArray<Diagnostic> Recompile(string methodHeader, string body, string extraDeclarations)
+    static ImmutableArray<Diagnostic> Recompile(
+        string methodHeader,
+        string body,
+        string extraDeclarations,
+        string gateType)
     {
+        string gateDeclaration = gateType == "__Gate"
+            ? "static class __Gate"
+            : $"partial class {gateType}";
         string source = $$"""
             using System;
             {{extraDeclarations}}
-            static class __Gate
+            {{gateDeclaration}}
             {
                 {{methodHeader}}
                 {
@@ -746,5 +822,35 @@ public static class InstanceAssignmentFixtures
         InstanceAssignmentBox box = InstanceAssignmentBoxFactory.Create();
         box += 1;
         box += 2;
+    }
+}
+
+public class BaseInstanceAssignmentBox
+{
+    public void operator +=(int value) { }
+}
+
+public sealed partial class DerivedInstanceAssignmentBox
+    : BaseInstanceAssignmentBox
+{
+    public new void operator +=(int value) { }
+
+    public void InvokeBase(int value)
+    {
+        BaseInstanceAssignmentBox receiver = this;
+        receiver += value;
+    }
+}
+
+public sealed partial class CollectionInstanceAssignmentBox
+{
+    public void operator +=(Span<int> value) { }
+
+    public void operator +=(ReadOnlySpan<int> value) { }
+
+    public void InvokeSpan()
+    {
+        CollectionInstanceAssignmentBox receiver = this;
+        receiver += (Span<int>)[1, 2];
     }
 }

@@ -59,11 +59,12 @@ internal sealed class CrossAssemblyTypeResolver
         _context = context;
     }
 
-    internal bool IsCSharpOperatorDeclaration(
+    internal OperatorMetadata.DeclarationClassification
+        ClassifyCSharpOperatorDeclaration(
         MetadataReader reader,
         MethodDefinition method,
         ResolvedAssemblyReference? originAssembly = null)
-        => OperatorMetadata.IsCSharpOperatorDeclaration(
+        => OperatorMetadata.ClassifyCSharpOperatorDeclaration(
             reader,
             method,
             new OperatorRelationshipResolver(
@@ -675,7 +676,7 @@ internal sealed class CrossAssemblyTypeResolver
                     FactState(typeCompilerGenerated),
                     FactState(IsDelegateType(reader, typeDef)),
                     FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
-                    FactState(IsCSharpOperatorDeclaration(
+                    FactState(ClassifyCSharpOperatorDeclaration(
                         reader,
                         method,
                         definition.Assembly.Assembly)),
@@ -1332,6 +1333,36 @@ internal sealed class CrossAssemblyTypeResolver
         }
     }
 
+    OperatorMetadata.TypeRelationship ResolveOperatorValueTypeRelationship(
+        MetadataReader reader,
+        OperatorMetadata.OperatorSignatureType type,
+        ResolvedAssemblyReference originAssembly)
+    {
+        try
+        {
+            if (DecodeOperatorType(reader, type) is not { } decoded
+                || NamedDefinition(decoded) is not { } definition
+                || Locate(
+                    definition,
+                    originAssembly,
+                    originAssembly) is not { } resolved)
+            {
+                return OperatorMetadata.TypeRelationship.Unknown;
+            }
+
+            return resolved.IsValueType
+                ? OperatorMetadata.TypeRelationship.Yes
+                : OperatorMetadata.TypeRelationship.No;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or BadImageFormatException
+                or UnauthorizedAccessException)
+        {
+            return OperatorMetadata.TypeRelationship.Unknown;
+        }
+    }
+
     OperatorMetadata.TypeRelationship ResolveOperatorSameOrDerivedRelationship(
         MetadataReader reader,
         OperatorMetadata.OperatorSignatureType candidateType,
@@ -1466,7 +1497,13 @@ internal sealed class CrossAssemblyTypeResolver
         MetadataReader reader,
         OperatorMetadata.OperatorSignatureType type)
     {
-        if (type.IsTypeParameter || type.IsNonNamedType)
+        if (type.IsTypeParameter)
+        {
+            return type.IsMethodTypeParameter
+                ? TypeRef.MethodGenericParameter(type.TypeParameterIndex)
+                : TypeRef.GenericParameter(type.TypeParameterIndex);
+        }
+        if (type.IsNonNamedType)
             return null;
 
         TypeRef? definition = type.Identity.Kind switch
@@ -1509,6 +1546,16 @@ internal sealed class CrossAssemblyTypeResolver
         ResolvedAssemblyReference originAssembly)
         : IOperatorTypeRelationshipResolver
     {
+        public OperatorMetadata.TypeRelationship ValueTypeRelationship(
+            MetadataReader reader,
+            OperatorMetadata.OperatorSignatureType type)
+        {
+            return owner.ResolveOperatorValueTypeRelationship(
+                reader,
+                type,
+                originAssembly);
+        }
+
         public OperatorMetadata.TypeRelationship InterfaceRelationship(
             MetadataReader reader,
             OperatorMetadata.OperatorSignatureType type)
@@ -1731,6 +1778,16 @@ internal sealed class CrossAssemblyTypeResolver
     }
 
     static MetadataFactState FactState(bool value) => value ? MetadataFactState.Yes : MetadataFactState.No;
+
+    static MetadataFactState FactState(
+        OperatorMetadata.DeclarationClassification value) => value switch
+        {
+            OperatorMetadata.DeclarationClassification.Yes =>
+                MetadataFactState.Yes,
+            OperatorMetadata.DeclarationClassification.No =>
+                MetadataFactState.No,
+            _ => MetadataFactState.Unknown,
+        };
 
     readonly record struct ResolvedMethodFacts(
         ParameterRefKindResult ParameterRefKinds,

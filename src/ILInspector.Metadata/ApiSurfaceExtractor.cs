@@ -808,7 +808,16 @@ public static class ApiSurfaceExtractor
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     CSharpOperatorDeclaration = isOperator
-                        ? OperatorMetadata.IsCSharpOperatorDeclaration(reader, method)
+                        ? OperatorMetadata.ClassifyCSharpOperatorDeclaration(
+                            reader,
+                            method) switch
+                        {
+                            OperatorMetadata.DeclarationClassification.Yes =>
+                                true,
+                            OperatorMetadata.DeclarationClassification.No =>
+                                false,
+                            _ => null,
+                        }
                         : null,
                     SignatureDecodeStatus = signature.IsDegraded
                         ? SignatureDecodeStatus.Degraded

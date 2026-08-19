@@ -112,6 +112,33 @@ public sealed class MetadataSource : IDisposable
     public ApiSurface ExtractApiSurface(bool includeAll = false, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(Pe, includeAll, typesOnly);
 
+    public void ResolveOperatorDeclarations(ApiSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        foreach (ApiMember member in surface.Types
+            .SelectMany(type => type.Members)
+            .Where(member =>
+                member.Kind == "operator"
+                && member.MetadataToken is not null))
+        {
+            Handle handle = MetadataTokens.Handle(member.MetadataToken!.Value);
+            if (handle.Kind != HandleKind.MethodDefinition)
+                continue;
+
+            OperatorMetadata.DeclarationClassification classification =
+                CrossAssembly.ClassifyCSharpOperatorDeclaration(
+                    Reader,
+                    Reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)handle));
+            member.CSharpOperatorDeclaration = classification switch
+            {
+                OperatorMetadata.DeclarationClassification.Yes => true,
+                OperatorMetadata.DeclarationClassification.No => false,
+                _ => null,
+            };
+        }
+    }
+
     /// <summary>
     /// Classifies the async shape of the given MethodDef metadata token (runtime or
     /// state-machine async), or <see langword="null"/> when the token is not a MethodDef or

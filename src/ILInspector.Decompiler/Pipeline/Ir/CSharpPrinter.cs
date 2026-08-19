@@ -5628,13 +5628,29 @@ public sealed partial class CSharpPrinter
     /// arrives as an address, its spelling is already a place, and binding the
     /// pointed-to value to a local would mutate a copy.
     /// </remarks>
-    static bool RequiresMaterializedReceiver(Call call)
+    bool RequiresMaterializedReceiver(Call call)
     {
         if (call.Arguments.Count == 0)
             return false;
         var receiver = call.Arguments[0];
-        return !IsAssignableReceiverPlace(receiver)
-            && receiver.ResultType is not { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer };
+        if (!IsAssignableReceiverPlace(receiver))
+        {
+            return receiver.ResultType
+                is not { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer };
+        }
+
+        TypeRef? receiverType = EffectiveType(receiver);
+        if (receiverType?.Kind == TypeRefKind.ByRef)
+            receiverType = receiverType.ElementType;
+        return receiverType is not null
+            && (receiver is LoadArgument
+                {
+                    Index: 0,
+                    Name: "this",
+                }
+                || !receiverType.Equals(call.Callee.DeclaringType))
+            && IsConcreteReferenceParameter(
+                call.Callee.DeclaringType);
     }
 
     static bool IsAssignableReceiverPlace(IrExpression receiver) => receiver switch
@@ -5666,7 +5682,14 @@ public sealed partial class CSharpPrinter
 
     string? OperatorOverloadFidelityCast(IrExpression argument, TypeRef parameter)
     {
-        if (!IsConcreteReferenceParameter(parameter))
+        bool collectionTargetCast =
+            argument is CollectionExpression
+            && parameter.Kind is TypeRefKind.Definition
+                or TypeRefKind.GenericInstance
+                or TypeRefKind.SzArray
+                or TypeRefKind.Array;
+        if (!IsConcreteReferenceParameter(parameter)
+            && !collectionTargetCast)
             return null;
         string parameterText = TypeText(parameter);
         if (argument is Constant { Value: null })

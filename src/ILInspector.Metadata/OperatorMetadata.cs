@@ -11,6 +11,10 @@ namespace ILInspector.Metadata;
 /// </summary>
 public interface IOperatorTypeRelationshipResolver
 {
+    OperatorMetadata.TypeRelationship ValueTypeRelationship(
+        MetadataReader reader,
+        OperatorMetadata.OperatorSignatureType type);
+
     OperatorMetadata.TypeRelationship InterfaceRelationship(
         MetadataReader reader,
         OperatorMetadata.OperatorSignatureType type);
@@ -50,9 +54,10 @@ public static class OperatorMetadata
 
     /// <summary>
     /// True when <paramref name="method"/> is representable as a C# operator
-    /// declaration on its declaring type. Returns <see langword="false"/> when
-    /// the signature cannot be decoded — an undecodable shape is not a proven
-    /// C# declaration.
+    /// declaration on its declaring type. This fail-closed convenience maps
+    /// unavailable relationship evidence to <see langword="false"/>; callers
+    /// that disclose uncertainty use
+    /// <see cref="ClassifyCSharpOperatorDeclaration"/>.
     /// </summary>
     public static bool IsCSharpOperatorDeclaration(MetadataReader reader, MethodDefinition method)
         => IsCSharpOperatorDeclaration(reader, method, relationshipResolver: null);
@@ -61,6 +66,19 @@ public static class OperatorMetadata
         MetadataReader reader,
         MethodDefinition method,
         IOperatorTypeRelationshipResolver? relationshipResolver)
+        => ClassifyCSharpOperatorDeclaration(
+            reader,
+            method,
+            relationshipResolver) == DeclarationClassification.Yes;
+
+    /// <summary>
+    /// Classifies C# operator representability without collapsing unavailable
+    /// signature or relationship evidence into a negative fact.
+    /// </summary>
+    public static DeclarationClassification ClassifyCSharpOperatorDeclaration(
+        MetadataReader reader,
+        MethodDefinition method,
+        IOperatorTypeRelationshipResolver? relationshipResolver = null)
     {
         string name = reader.GetString(method.Name);
         var attributes = method.Attributes;
@@ -68,7 +86,7 @@ public static class OperatorMetadata
             || method.GetGenericParameters().Count != 0
             || !OperatorNames.IsCSharpOperatorMethodName(name))
         {
-            return false;
+            return DeclarationClassification.No;
         }
 
         var decoded = GuardedProviderDecode.MethodResult(
@@ -78,28 +96,28 @@ public static class OperatorMetadata
             (object?)null,
             OperatorSignatureTypeProvider.Opaque);
         if (decoded.IsDegraded)
-            return false;
+            return DeclarationClassification.Unknown;
         var signature = decoded.Value;
         if (signature.Header.CallingConvention != SignatureCallingConvention.Default
             || signature.Header.HasExplicitThis
             || signature.Header.IsGeneric)
         {
-            return false;
+            return DeclarationClassification.No;
         }
 
         var declaringHandle = method.GetDeclaringType();
         if (declaringHandle.IsNil)
-            return false;
+            return DeclarationClassification.No;
         var declaringType = reader.GetTypeDefinition(declaringHandle);
         var declaringAttributes = declaringType.Attributes;
         if ((declaringAttributes & TypeAttributes.Interface) == 0
             && (declaringAttributes & (TypeAttributes.Abstract | TypeAttributes.Sealed))
                 == (TypeAttributes.Abstract | TypeAttributes.Sealed))
         {
-            return false;
+            return DeclarationClassification.No;
         }
         if (HasUnrepresentableDeclaringKind(reader, declaringType))
-            return false;
+            return DeclarationClassification.No;
         var declaringIdentity = OperatorSignatureType.ForDeclaringType(reader, declaringHandle);
         var selfConstrainedTypeParameters = SelfConstrainedTypeParameters(
             reader,
@@ -109,6 +127,7 @@ public static class OperatorMetadata
 
         bool anyParameterIsDeclaringType = false;
         bool hasForbiddenByRefParameter = false;
+        bool hasParamArrayParameter = false;
         for (int i = 0; i < signature.ParameterTypes.Length; i++)
         {
             var parameterType = signature.ParameterTypes[i];
@@ -117,9 +136,24 @@ public static class OperatorMetadata
             {
                 hasForbiddenByRefParameter = true;
             }
+            if (IsParamArrayParameter(reader, parameterHandles, i + 1))
+                hasParamArrayParameter = true;
             if (parameterType.Matches(declaringIdentity, selfConstrainedTypeParameters))
                 anyParameterIsDeclaringType = true;
         }
+
+        if (hasParamArrayParameter)
+            return DeclarationClassification.No;
+
+        TypeRelationship encodingConsistency =
+            SignatureEncodingConsistency(
+                reader,
+                signature,
+                relationshipResolver);
+        if (encodingConsistency == TypeRelationship.No)
+            return DeclarationClassification.No;
+        bool hasUnknownEvidence =
+            encodingConsistency == TypeRelationship.Unknown;
 
         if (OperatorNames.IsConversionOperatorMethodName(name)
             && signature.ParameterTypes is [var encodedConversionSource])
@@ -132,37 +166,37 @@ public static class OperatorMetadata
                     conversionTarget,
                     declaringIdentity))
             {
-                return false;
+                return DeclarationClassification.No;
             }
 
             if (!IsAllowedNullableSelfConversion(
                     conversionSource,
                     conversionTarget,
-                    declaringIdentity)
-                && (InterfaceRelationship(
+                    declaringIdentity))
+            {
+                TypeRelationship relationship = CombineForbiddenRelationships(
+                    InterfaceRelationship(
                         reader,
                         conversionSource,
-                        relationshipResolver)
-                        != TypeRelationship.No
-                    || InterfaceRelationship(
+                        relationshipResolver),
+                    InterfaceRelationship(
                         reader,
                         conversionTarget,
-                        relationshipResolver)
-                        != TypeRelationship.No
-                    || SameOrDerivedRelationship(
-                            reader,
-                            conversionSource,
-                            conversionTarget,
-                            relationshipResolver)
-                        != TypeRelationship.No
-                    || SameOrDerivedRelationship(
-                            reader,
-                            conversionTarget,
-                            conversionSource,
-                            relationshipResolver)
-                        != TypeRelationship.No))
-            {
-                return false;
+                        relationshipResolver),
+                    SameOrDerivedRelationship(
+                        reader,
+                        conversionSource,
+                        conversionTarget,
+                        relationshipResolver),
+                    SameOrDerivedRelationship(
+                        reader,
+                        conversionTarget,
+                        conversionSource,
+                        relationshipResolver));
+                if (relationship == TypeRelationship.Yes)
+                    return DeclarationClassification.No;
+                hasUnknownEvidence |=
+                    relationship == TypeRelationship.Unknown;
             }
         }
 
@@ -171,17 +205,21 @@ public static class OperatorMetadata
                 or "op_Decrement"
                 or "op_CheckedIncrement"
                 or "op_CheckedDecrement"
-            && signature.ParameterTypes is [var operand]
-            && SameOrDerivedRelationship(
+            && signature.ParameterTypes is [var operand])
+        {
+            TypeRelationship incrementRelationship =
+                SameOrDerivedRelationship(
                 reader,
                 signature.ReturnType.WithoutByRef(),
                 operand.WithoutByRef(),
-                relationshipResolver) != TypeRelationship.Yes)
-        {
-            return false;
+                relationshipResolver);
+            if (incrementRelationship == TypeRelationship.No)
+                return DeclarationClassification.No;
+            hasUnknownEvidence |=
+                incrementRelationship == TypeRelationship.Unknown;
         }
 
-        return OperatorNames.IsCSharpOperatorDeclaration(
+        bool hasCSharpShape = OperatorNames.IsCSharpOperatorDeclaration(
             name,
             isStatic: (attributes & MethodAttributes.Static) != 0,
             isPublic: (attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Public,
@@ -197,6 +235,48 @@ public static class OperatorMetadata
                 anyParameterIsDeclaringType,
                 signature.ReturnType.Matches(declaringIdentity, selfConstrainedTypeParameters)),
             hasByRefReturn: signature.ReturnType.IsByRef);
+        if (!hasCSharpShape)
+            return DeclarationClassification.No;
+        return hasUnknownEvidence
+            ? DeclarationClassification.Unknown
+            : DeclarationClassification.Yes;
+    }
+
+    static TypeRelationship CombineForbiddenRelationships(
+        params ReadOnlySpan<TypeRelationship> relationships)
+    {
+        bool hasUnknown = false;
+        foreach (TypeRelationship relationship in relationships)
+        {
+            if (relationship == TypeRelationship.Yes)
+                return TypeRelationship.Yes;
+            hasUnknown |= relationship == TypeRelationship.Unknown;
+        }
+        return hasUnknown
+            ? TypeRelationship.Unknown
+            : TypeRelationship.No;
+    }
+
+    static bool IsParamArrayParameter(
+        MetadataReader reader,
+        ParameterHandleCollection parameterHandles,
+        int sequenceNumber)
+    {
+        foreach (var handle in parameterHandles)
+        {
+            var parameter = reader.GetParameter(handle);
+            if (parameter.SequenceNumber != sequenceNumber)
+                continue;
+            return AttributeReader.HasAttribute(
+                    reader,
+                    parameter.GetCustomAttributes(),
+                    "System.ParamArrayAttribute")
+                || AttributeReader.HasAttribute(
+                    reader,
+                    parameter.GetCustomAttributes(),
+                    KnownAttributeNames.ParamCollectionAttribute);
+        }
+        return false;
     }
 
     static bool IsInParameter(
@@ -333,6 +413,13 @@ public static class OperatorMetadata
         Unknown,
     }
 
+    public enum DeclarationClassification
+    {
+        No,
+        Yes,
+        Unknown,
+    }
+
     static TypeRelationship SameOrDerivedRelationship(
         MetadataReader reader,
         OperatorSignatureType candidate,
@@ -353,9 +440,13 @@ public static class OperatorMetadata
                 requiredBase,
                 relationshipResolver) == TypeRelationship.Yes)
             return TypeRelationship.No;
-        if (IsKnownValueType(reader, requiredBase))
+        TypeRelationship requiredBaseValueType =
+            ValueTypeRelationship(reader, requiredBase, relationshipResolver);
+        if (requiredBaseValueType == TypeRelationship.Yes)
             return TypeRelationship.No;
-        if (IsKnownValueType(reader, candidate))
+        TypeRelationship candidateValueType =
+            ValueTypeRelationship(reader, candidate, relationshipResolver);
+        if (candidateValueType == TypeRelationship.Yes)
         {
             return IsTrustedSystemType(requiredBase, "Object")
                 || IsTrustedSystemType(requiredBase, "ValueType")
@@ -410,7 +501,10 @@ public static class OperatorMetadata
     {
         if (type.IsTypeParameter || type.IsNonNamedType)
             return TypeRelationship.No;
-        if (IsKnownValueType(reader, type)
+        if (ValueTypeRelationship(
+                reader,
+                type,
+                relationshipResolver) == TypeRelationship.Yes
             || IsTrustedSystemType(type, "Object")
             || IsTrustedSystemType(type, "String")
             || IsTrustedSystemType(type, "ValueType")
@@ -433,29 +527,121 @@ public static class OperatorMetadata
             : TypeRelationship.No;
     }
 
-    static bool IsKnownValueType(
+    static TypeRelationship SignatureEncodingConsistency(
         MetadataReader reader,
-        OperatorSignatureType type)
+        MethodSignature<OperatorSignatureType> signature,
+        IOperatorTypeRelationshipResolver? relationshipResolver)
+    {
+        TypeRelationship result = EncodingConsistency(
+            reader,
+            signature.ReturnType,
+            relationshipResolver);
+        foreach (OperatorSignatureType parameter in signature.ParameterTypes)
+        {
+            result = CombineConsistency(
+                result,
+                EncodingConsistency(
+                    reader,
+                    parameter,
+                    relationshipResolver));
+        }
+        return result;
+    }
+
+    static TypeRelationship EncodingConsistency(
+        MetadataReader reader,
+        OperatorSignatureType type,
+        IOperatorTypeRelationshipResolver? relationshipResolver)
+    {
+        if (type.IsByRef && type.TypeArguments is [var element])
+            return EncodingConsistency(reader, element, relationshipResolver);
+
+        TypeRelationship result = TypeRelationship.Yes;
+        if (!type.IsVoid
+            && !type.IsTypeParameter
+            && !type.IsNonNamedType
+            && (type.Identity.Kind is HandleKind.TypeDefinition
+                or HandleKind.TypeReference
+                || type.Identity.IsNil && type.Namespace is not null))
+        {
+            TypeRelationship actual = ValueTypeRelationship(
+                reader,
+                type,
+                relationshipResolver);
+            if (actual == TypeRelationship.Unknown)
+            {
+                result = TypeRelationship.Unknown;
+            }
+            else if ((actual == TypeRelationship.Yes)
+                != type.HasValueTypeEncoding)
+            {
+                return TypeRelationship.No;
+            }
+        }
+
+        foreach (OperatorSignatureType argument in type.TypeArguments)
+        {
+            result = CombineConsistency(
+                result,
+                EncodingConsistency(
+                    reader,
+                    argument,
+                    relationshipResolver));
+        }
+        return result;
+    }
+
+    static TypeRelationship CombineConsistency(
+        TypeRelationship left,
+        TypeRelationship right)
+        => left == TypeRelationship.No || right == TypeRelationship.No
+            ? TypeRelationship.No
+            : left == TypeRelationship.Unknown
+                || right == TypeRelationship.Unknown
+                ? TypeRelationship.Unknown
+                : TypeRelationship.Yes;
+
+    static TypeRelationship ValueTypeRelationship(
+        MetadataReader reader,
+        OperatorSignatureType type,
+        IOperatorTypeRelationshipResolver? relationshipResolver)
     {
         if (type.IsNullable)
-            return true;
-        if (type.HasValueTypeEncoding)
-            return true;
+            return TypeRelationship.Yes;
+        if (IsTrustedSystemType(type, "Object")
+            || IsTrustedSystemType(type, "String")
+            || IsTrustedSystemType(type, "Void"))
+        {
+            return TypeRelationship.No;
+        }
         if (type.Identity.IsNil)
         {
             return type.Namespace == "System"
                 && type.Name is not null
-                && type.Name is not "Object" and not "String" and not "Void";
+                && type.Name is not "Object" and not "String" and not "Void"
+                    ? TypeRelationship.Yes
+                    : TypeRelationship.No;
         }
         if (type.Identity.Kind != HandleKind.TypeDefinition)
-            return false;
+        {
+            TypeRelationship resolved =
+                relationshipResolver?.ValueTypeRelationship(reader, type)
+                    ?? TypeRelationship.Unknown;
+            if (resolved != TypeRelationship.Unknown)
+                return resolved;
+            return type.HasValueTypeEncoding
+                ? TypeRelationship.Yes
+                : TypeRelationship.Unknown;
+        }
 
         var definition = reader.GetTypeDefinition((TypeDefinitionHandle)type.Identity);
         if (definition.BaseType.IsNil)
-            return false;
+            return TypeRelationship.No;
         var baseType = ReadType(reader, definition.BaseType);
         return IsTrustedSystemType(baseType, "ValueType")
-            || IsTrustedSystemType(baseType, "Enum");
+            || IsTrustedSystemType(baseType, "Enum")
+            ? TypeRelationship.Yes
+            : TypeRelationship.No;
     }
 
     static bool IsTrustedSystemType(
@@ -475,6 +661,7 @@ public static class OperatorMetadata
         bool IsVoid,
         bool IsByRef,
         bool IsTypeParameter,
+        bool IsMethodTypeParameter,
         int TypeParameterIndex,
         EntityHandle Identity,
         bool IsTrustedCoreLibraryType,
@@ -504,6 +691,7 @@ public static class OperatorMetadata
                 IsVoid: false,
                 IsByRef: false,
                 IsTypeParameter: false,
+                IsMethodTypeParameter: false,
                 TypeParameterIndex: -1,
                 handle,
                 ApiSurfaceExtractor.IsCoreLibraryAssemblyDefinition(reader),
@@ -528,6 +716,7 @@ public static class OperatorMetadata
                         false,
                         false,
                         true,
+                        false,
                         parameter.Index,
                         default,
                         false,
@@ -574,12 +763,15 @@ public static class OperatorMetadata
             if (IsVoid != other.IsVoid
                 || IsByRef != other.IsByRef
                 || IsTypeParameter != other.IsTypeParameter
+                || IsMethodTypeParameter != other.IsMethodTypeParameter
                 || IsGenericInstantiation != other.IsGenericInstantiation)
             {
                 return false;
             }
             if (IsTypeParameter)
-                return TypeParameterIndex == other.TypeParameterIndex;
+                return TypeParameterIndex == other.TypeParameterIndex
+                    && IsMethodTypeParameter
+                        == other.IsMethodTypeParameter;
             if (Identity.IsNil || other.Identity.IsNil)
             {
                 if (Namespace is null
@@ -616,7 +808,7 @@ public static class OperatorMetadata
         public OperatorSignatureType Instantiate(
             ImmutableArray<OperatorSignatureType> typeArguments)
         {
-            if (IsTypeParameter)
+            if (IsTypeParameter && !IsMethodTypeParameter)
                 return TypeParameterIndex >= 0 && TypeParameterIndex < typeArguments.Length
                     ? typeArguments[TypeParameterIndex]
                     : OperatorSignatureTypeProvider.Opaque;
@@ -637,14 +829,15 @@ public static class OperatorMetadata
     {
         public static readonly OperatorSignatureTypeProvider Instance = new();
 
-        internal static OperatorSignatureType Opaque => new(false, false, false, -1, default, false, false, null, null, false, false, []);
+        internal static OperatorSignatureType Opaque => new(false, false, false, false, -1, default, false, false, null, null, false, false, []);
         static OperatorSignatureType NonNamed(string name)
-            => new(false, false, false, -1, default, false, false, null, name, false, false, []);
+            => new(false, false, false, false, -1, default, false, false, null, name, false, false, []);
 
         public OperatorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode == PrimitiveTypeCode.Void
-                ? new OperatorSignatureType(true, false, false, -1, default, true, false, "System", "Void", false, false, [])
+                ? new OperatorSignatureType(true, false, false, false, -1, default, true, false, "System", "Void", false, false, [])
                 : new OperatorSignatureType(
+                    false,
                     false,
                     false,
                     false,
@@ -677,6 +870,7 @@ public static class OperatorMetadata
                 false,
                 false,
                 false,
+                false,
                 -1,
                 handle,
                 ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
@@ -704,7 +898,7 @@ public static class OperatorMetadata
             => NonNamed("#array");
 
         public OperatorSignatureType GetByReferenceType(OperatorSignatureType elementType)
-            => new(false, true, false, -1, default, false, false, null, null, false, false, [elementType]);
+            => new(false, true, false, false, -1, default, false, false, null, null, false, false, [elementType]);
 
         public OperatorSignatureType GetPointerType(OperatorSignatureType elementType)
             => NonNamed("#pointer");
@@ -725,10 +919,10 @@ public static class OperatorMetadata
             };
 
         public OperatorSignatureType GetGenericMethodParameter(object? genericContext, int index)
-            => new(false, false, true, index, default, false, false, null, null, false, false, []);
+            => new(false, false, true, true, index, default, false, false, null, null, false, false, []);
 
         public OperatorSignatureType GetGenericTypeParameter(object? genericContext, int index)
-            => new(false, false, true, index, default, false, false, null, null, false, false, []);
+            => new(false, false, true, false, index, default, false, false, null, null, false, false, []);
 
         public OperatorSignatureType GetModifiedType(
             OperatorSignatureType modifier,

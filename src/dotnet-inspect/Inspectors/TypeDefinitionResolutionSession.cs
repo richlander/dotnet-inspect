@@ -1,5 +1,6 @@
 using DotnetInspector.Options;
 using DotnetInspector.Services;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
@@ -123,6 +124,13 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
             var read =
                 (ResolutionAwareApiSurfaceOutcome.Read)outcome;
             ApiSurface surface = read.Surface;
+            using (MetadataSource metadata =
+                MetadataSource.OpenWithoutSymbols(
+                    source,
+                    _policy))
+            {
+                metadata.ResolveOperatorDeclarations(surface);
+            }
             if (source.Path is { } path)
                 surface.SetInspectionSourceAssemblyPath(path);
 

@@ -440,6 +440,30 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void OpenGenericExternalClassConversion_RendersOperator()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.LibraryPath);
+        var function = IrImporter.Import(
+            source,
+            "ExternalFacts.GenericConversionHolder`1",
+            "Convert");
+
+        Assert.NotNull(function);
+        var call = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            candidate => candidate.Callee.Name == "op_Implicit");
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(MetadataFactState.Yes, call.Callee.IsOperator);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "return (GenericConversionHolder<T>)value;",
+            result.Output);
+        Assert.DoesNotContain("op_Implicit", result.Output);
+    }
+
+    [Fact]
     public void ResolvedExternalInterfaceConversion_StaysRejected()
     {
         using var fixture = CrossAssemblyFixture.Create();
@@ -468,6 +492,45 @@ public class CrossAssemblyMethodFactsTests
             resolveRequiresUnsafe: false);
 
         Assert.Equal(MetadataFactState.No, resolved.IsOperator);
+    }
+
+    [Fact]
+    public void MissingOperandRelationshipDependency_KeepsOperatorUnknown()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        var siblings =
+            new MetadataSource.SiblingAssemblyReferenceResolver(
+                fixture.ConsumerPath);
+        using var source = MetadataSource.Open(
+            fixture.ConsumerPath,
+            null,
+            new DenyAssemblyResolver(
+                siblings,
+                "ExternalFacts.Contracts"));
+        TypeRef holder = fixture.Type(
+            fixture.InvalidLibraryPath,
+            "ExternalFacts",
+            "InvalidExternalConversionHolder");
+        TypeRef contract = fixture.Type(
+            fixture.ContractsPath,
+            "ExternalContracts",
+            "IExternalFace");
+        var callee = new MethodRef(
+            holder,
+            "op_Explicit",
+            holder,
+            [contract],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+        };
+
+        MethodRef resolved = source.CrossAssembly.Upgrade(
+            callee,
+            resolveRequiresUnsafe: false);
+
+        Assert.Equal(MetadataFactState.Unknown, resolved.IsOperator);
     }
 
     [Fact]
@@ -1178,6 +1241,10 @@ public class CrossAssemblyMethodFactsTests
                     {
                     }
 
+                    public sealed class GenericExternal<T>
+                    {
+                    }
+
                     public interface IExternalFace
                     {
                     }
@@ -1295,6 +1362,15 @@ public class CrossAssemblyMethodFactsTests
 
                         public static ExternalConversionHolder Convert(
                             ExternalClass value) => value;
+                    }
+
+                    public sealed class GenericConversionHolder<T>
+                    {
+                        public static implicit operator GenericConversionHolder<T>(
+                            GenericExternal<T> value) => new();
+
+                        public static GenericConversionHolder<T> Convert(
+                            GenericExternal<T> value) => value;
                     }
 
                     public ref struct ExternalRefStruct
@@ -1626,4 +1702,17 @@ public class CrossAssemblyMethodFactsTests
         public const string UseUri = nameof(UseUri);
         public const string UseExternalInlineArray = nameof(UseExternalInlineArray);
     }
+}
+
+sealed class DenyAssemblyResolver(
+    IAssemblyReferenceResolver inner,
+    string deniedAssembly)
+    : IAssemblyReferenceResolver
+{
+    public ResolvedAssemblyReference? Resolve(
+        AssemblyReferenceIdentity identity,
+        AssemblyResolutionScope scope)
+        => identity.Name == deniedAssembly
+            ? null
+            : inner.Resolve(identity, scope);
 }

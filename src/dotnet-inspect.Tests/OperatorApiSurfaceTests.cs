@@ -1,10 +1,12 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using CSharpText;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Services;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Metadata;
@@ -183,6 +185,55 @@ public sealed class OperatorApiSurfaceTests
         {
             Assert.Equal("operator", Assert.Single(image.Members, m => m.Name == name).Kind);
         }
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsParamArrayParameter()
+    {
+        using var image = OperatorImage.Build(builder =>
+        {
+            var method = builder.DefineMethod(
+                "op_Addition",
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName,
+                builder,
+                [builder, typeof(int[])]);
+            method.DefineParameter(1, ParameterAttributes.None, "left");
+            method.DefineParameter(2, ParameterAttributes.None, "values")
+                .SetCustomAttribute(
+                    new CustomAttributeBuilder(
+                        typeof(ParamArrayAttribute)
+                            .GetConstructor(Type.EmptyTypes)!,
+                        []));
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ret);
+        });
+
+        Assert.False(
+            image.IsCSharpOperatorDeclaration("op_Addition"));
+        Assert.False(
+            Assert.Single(
+                image.Members,
+                member => member.Name == "op_Addition")
+                .CSharpOperatorDeclaration);
+    }
+
+    [Fact]
+    public void CSharpOperatorDeclaration_RejectsContradictoryValueTypeEncoding()
+    {
+        using var wellFormed =
+            OperatorImage.BuildObjectParameterEncoding(
+                (byte)SignatureTypeKind.Class);
+        using var malformed =
+            OperatorImage.BuildObjectParameterEncoding(
+                (byte)SignatureTypeKind.ValueType);
+
+        Assert.True(
+            wellFormed.IsCSharpOperatorDeclaration("op_Addition"));
+        Assert.False(
+            malformed.IsCSharpOperatorDeclaration("op_Addition"));
     }
 
     [Fact]
@@ -640,6 +691,60 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void ResolutionAwareSurface_AcceptsExternalReferenceConversions()
+    {
+        using var image = OperatorImage.Build(builder =>
+        {
+            void Define(
+                string name,
+                Type returnType,
+                Type parameterType)
+            {
+                var method = builder.DefineMethod(
+                    name,
+                    MethodAttributes.Public
+                        | MethodAttributes.Static
+                        | MethodAttributes.SpecialName,
+                    returnType,
+                    [parameterType]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+            }
+
+            Define(
+                "op_Implicit",
+                typeof(System.Text.StringBuilder),
+                builder);
+            Define(
+                "op_Explicit",
+                builder,
+                typeof(System.Collections.Generic.List<int>));
+        });
+        using var session = new TypeDefinitionResolutionSession(
+            image.AssemblyPath,
+            isPlatformAssembly: false);
+
+        ApiSurface? extracted =
+            session.ExtractApiSurface(includeAll: true);
+        Assert.NotNull(extracted);
+        ApiSurface surface = extracted;
+        var operators = Assert.Single(
+            surface.Types,
+            type => type.FullName == "OperatorSurface")
+            .Members
+            .Where(member => member.Kind == "operator")
+            .ToArray();
+
+        Assert.Equal(2, operators.Length);
+        Assert.All(
+            operators,
+            member => Assert.True(
+                member.CSharpOperatorDeclaration,
+                member.Signature));
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_RejectsObjectConversions()
     {
         using var toObject = OperatorImage.Build(builder =>
@@ -967,6 +1072,7 @@ public sealed class OperatorApiSurfaceTests
         }
 
         public List<ApiMember> Members { get; }
+        public string AssemblyPath => _path;
 
         public static OperatorImage Build(
             Action<TypeBuilder> define,
@@ -1002,6 +1108,105 @@ public sealed class OperatorApiSurfaceTests
             define(module);
             assembly.Save(path);
             return new OperatorImage(path, targetTypeName);
+        }
+
+        public static OperatorImage BuildObjectParameterEncoding(
+            byte objectKind)
+        {
+            string path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"operator-surface-{Guid.NewGuid():N}.dll");
+            var metadata = new MetadataBuilder();
+            metadata.AddModule(
+                0,
+                metadata.GetOrAddString("OperatorSurface.dll"),
+                metadata.GetOrAddGuid(Guid.NewGuid()),
+                default,
+                default);
+            metadata.AddAssembly(
+                metadata.GetOrAddString("OperatorSurface"),
+                new Version(1, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+            var runtime = metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Runtime"),
+                new Version(11, 0, 0, 0),
+                default,
+                metadata.GetOrAddBlob(
+                new byte[]
+                {
+                    0xb0, 0x3f, 0x5f, 0x7f,
+                    0x11, 0xd5, 0x0a, 0x3a,
+                }),
+                default,
+                default);
+            var objectType = metadata.AddTypeReference(
+                runtime,
+                metadata.GetOrAddString("System"),
+                metadata.GetOrAddString("Object"));
+            metadata.AddTypeDefinition(
+                default,
+                default,
+                metadata.GetOrAddString("<Module>"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+            metadata.AddTypeDefinition(
+                TypeAttributes.Public | TypeAttributes.Class,
+                default,
+                metadata.GetOrAddString(TypeName),
+                objectType,
+                MetadataTokens.FieldDefinitionHandle(1),
+                MetadataTokens.MethodDefinitionHandle(1));
+
+            var bodies = new BlobBuilder();
+            var bodyEncoder = new MethodBodyStreamEncoder(bodies);
+            var code = new BlobBuilder();
+            var instructions =
+                new InstructionEncoder(
+                    code,
+                    new ControlFlowBuilder());
+            instructions.OpCode(ILOpCode.Ldnull);
+            instructions.OpCode(ILOpCode.Ret);
+            int bodyOffset =
+                bodyEncoder.AddMethodBody(
+                    instructions,
+                    maxStack: 1);
+            byte[] signature =
+            [
+                0x00,
+                0x02,
+                (byte)SignatureTypeKind.Class,
+                0x08,
+                (byte)SignatureTypeKind.Class,
+                0x08,
+                objectKind,
+                0x05,
+            ];
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("op_Addition"),
+                metadata.GetOrAddBlob(signature),
+                bodyOffset,
+                MetadataTokens.ParameterHandle(1));
+
+            var builder = new ManagedPEBuilder(
+                PEHeaderBuilder.CreateLibraryHeader(),
+                new MetadataRootBuilder(
+                    metadata,
+                    suppressValidation: true),
+                bodies,
+                flags: CorFlags.ILOnly);
+            var image = new BlobBuilder();
+            builder.Serialize(image);
+            File.WriteAllBytes(path, image.ToArray());
+            return new OperatorImage(path, TypeName);
         }
 
         public MemberAnchor Anchor(string methodName)
