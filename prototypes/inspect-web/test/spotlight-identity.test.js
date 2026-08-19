@@ -3284,6 +3284,33 @@ test("home navigation invalidates pending graph work", () => {
   assert.match(history, /state\.memberCallGraphExpanding = false/);
 });
 
+test("graph navigation restores scope and supersedes local drills", () => {
+  const capture =
+    appSource.match(/function captureView[\s\S]*?(?=\nfunction recordNav)/)?.[0]
+    ?? "";
+  const apply =
+    appSource.match(/function applyView[\s\S]*?(?=\nfunction navBack)/)?.[0]
+    ?? "";
+  const pop =
+    appSource.match(/function popPlatformDrill[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  const navigation =
+    appSource.match(/function navigateToMember[\s\S]*?(?=\nasync function loadSelectedMemberFacts)/)?.[0]
+    ?? "";
+
+  assert.match(capture, /libraryScope: state\.libraryScope \? \[\.\.\.state\.libraryScope\] : null/);
+  assert.match(apply, /state\.libraryScope = view\.libraryScope\?\.length\s*\? new Set\(view\.libraryScope\)\s*: null/);
+  assert.match(
+    pop,
+    /state\.memberCallGraphSeq\+\+;\s*state\.memberCallGraphExpanding = false;\s*state\.platformDrillLoading = false;/);
+  assert.match(
+    navigation,
+    /state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.libraryScope = null;/);
+  assert.match(
+    navigation,
+    /state\.accessibilityFilter\.add\(type\.accessibilityId\)/);
+});
+
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {
   const target = {
     assembly: "Example",

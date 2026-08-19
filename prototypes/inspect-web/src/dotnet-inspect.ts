@@ -7114,11 +7114,13 @@ function navigateToRuntimeMember(
 ) {
   invalidateGraphMemberNavigation();
   activatePackage(pack);
+  const targetLibrary = libraryKey(type);
+  state.libraryScope = targetLibrary ? new Set([targetLibrary]) : null;
+  if (type.accessibilityId)
+    state.accessibilityFilter.add(type.accessibilityId);
   state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
-  const targetLibrary = libraryKey(type);
-  state.libraryScope = targetLibrary ? new Set([targetLibrary]) : null;
   resetMemberFilters();
   state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
@@ -7365,6 +7367,13 @@ function navigateToMember(
     group.overloads[overloadIndex].graphTarget = bodyTarget;
   }
   activatePackage(pkg);
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.libraryScope = null;
+  if (type.accessibilityId)
+    state.accessibilityFilter.add(type.accessibilityId);
+  state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
   resetMemberFilters();
