@@ -100,7 +100,7 @@ public class DemoCommandTests
         var root = document.RootElement;
         Assert.Equal("stj-serializer", root.GetProperty("id").GetString());
         Assert.Equal("resolve-only", root.GetProperty("activation").GetString());
-        Assert.True(root.GetProperty("createsAssemblyContextGroup").GetBoolean());
+        Assert.True(root.GetProperty("creates_assembly_context_group").GetBoolean());
         Assert.Equal(
             "System.Text.Json.JsonSerializer",
             root.GetProperty("view").GetProperty("type").GetString());

@@ -21,13 +21,13 @@ public sealed class DemoListView
 public sealed class DemoListRow
 {
     [MarkoutPropertyName("Id")]
-    public string Id { get; set; } = "";
+    public string Id { get => field; set => field = LibraryViewText.Contain(value) ?? ""; } = "";
 
     [MarkoutPropertyName("Title")]
-    public string Title { get; set; } = "";
+    public string Title { get => field; set => field = LibraryViewText.Contain(value) ?? ""; } = "";
 
     [MarkoutPropertyName("Summary")]
-    public string Summary { get; set; } = "";
+    public string Summary { get => field; set => field = LibraryViewText.Contain(value) ?? ""; } = "";
 }
 
 /// <summary>Resolved home-demo activation plan for <c>demo &lt;id&gt;</c>.</summary>
@@ -35,10 +35,18 @@ public sealed class DemoListRow
 public sealed class DemoPlanView
 {
     [MarkoutIgnore]
-    public string Title { get; set; } = "Demo plan";
+    public string Title
+    {
+        get => field;
+        set => field = LibraryViewText.Contain(value) ?? "";
+    } = "Demo plan";
 
     [MarkoutIgnore]
-    public string? Description { get; set; }
+    public string? Description
+    {
+        get => field;
+        set => field = LibraryViewText.Contain(value);
+    }
 
     [MarkoutSection(Headless = true)]
     public List<DemoPlanFieldRow> Plan { get; set; } = [];
@@ -53,37 +61,37 @@ public sealed class DemoPlanView
 public sealed class DemoPlanFieldRow
 {
     [MarkoutPropertyName("Field")]
-    public string Field { get; set; } = "";
+    public string Field { get => field; set => field = LibraryViewText.Contain(value) ?? ""; } = "";
 
     [MarkoutPropertyName("Value")]
-    public string Value { get; set; } = "";
+    public string Value { get => field; set => field = LibraryViewText.Contain(value) ?? ""; } = "";
 }
 
 public sealed class DemoMemberRow
 {
     [MarkoutPropertyName("Kind")]
-    public string Kind { get; set; } = "";
+    public string Kind { get => field; set => field = LibraryViewText.Contain(value) ?? ""; } = "";
 
     [MarkoutPropertyName("Identity")]
-    public string Identity { get; set; } = "";
+    public string Identity { get => field; set => field = LibraryViewText.Contain(value) ?? ""; } = "";
 
     [MarkoutPropertyName("Version")]
-    public string? Version { get; set; }
+    public string? Version { get => field; set => field = LibraryViewText.Contain(value); }
 
     [MarkoutPropertyName("Framework")]
-    public string? Framework { get; set; }
+    public string? Framework { get => field; set => field = LibraryViewText.Contain(value); }
 }
 
 public sealed class DemoNavigationRow
 {
     [MarkoutPropertyName("Tab")]
-    public string Tab { get; set; } = "";
+    public string Tab { get => field; set => field = LibraryViewText.Contain(value) ?? ""; } = "";
 
     [MarkoutPropertyName("Focus")]
-    public string Focus { get; set; } = "";
+    public string Focus { get => field; set => field = LibraryViewText.Contain(value) ?? ""; } = "";
 
     [MarkoutPropertyName("Coordinate")]
-    public string Coordinate { get; set; } = "";
+    public string Coordinate { get => field; set => field = LibraryViewText.Contain(value) ?? ""; } = "";
 }
 
 [MarkoutContext(typeof(DemoListView))]

@@ -252,7 +252,7 @@ public sealed record DemoPlanJson(
     [property: JsonPropertyName("workspace")] string? Workspace,
     [property: JsonPropertyName("context")] string? Context,
     [property: JsonPropertyName("framework")] string? Framework,
-    [property: JsonPropertyName("createsAssemblyContextGroup")] bool CreatesAssemblyContextGroup,
+    [property: JsonPropertyName("creates_assembly_context_group")] bool CreatesAssemblyContextGroup,
     [property: JsonPropertyName("view")] DemoViewJson? View,
     [property: JsonPropertyName("members")] IReadOnlyList<DemoMemberJson> Members,
     [property: JsonPropertyName("navigation")] DemoNavigationJson? Navigation,
@@ -260,8 +260,8 @@ public sealed record DemoPlanJson(
 
 public sealed record DemoViewJson(
     [property: JsonPropertyName("type")] string? Type,
-    [property: JsonPropertyName("memberAnchor")] string? MemberAnchor,
-    [property: JsonPropertyName("memberKey")] string? MemberKey,
+    [property: JsonPropertyName("member_anchor")] string? MemberAnchor,
+    [property: JsonPropertyName("member_key")] string? MemberKey,
     [property: JsonPropertyName("section")] string? Section,
     [property: JsonPropertyName("library")] string? Library);
 
@@ -272,8 +272,8 @@ public sealed record DemoMemberJson(
     [property: JsonPropertyName("framework")] string? Framework);
 
 public sealed record DemoNavigationJson(
-    [property: JsonPropertyName("focusTabId")] string FocusTabId,
-    [property: JsonPropertyName("focusIndex")] int FocusIndex,
+    [property: JsonPropertyName("focus_tab_id")] string FocusTabId,
+    [property: JsonPropertyName("focus_index")] int FocusIndex,
     [property: JsonPropertyName("tabs")] IReadOnlyList<DemoNavigationTabJson> Tabs);
 
 public sealed record DemoNavigationTabJson(
