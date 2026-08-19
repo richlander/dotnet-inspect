@@ -163,6 +163,8 @@ jobs:
         run: |
           npm ci
           npm run build
+          grep -q '<script type="importmap"></script>' dist/index.html
+          grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
 
       - name: Publish browser app
         run: >
@@ -170,6 +172,21 @@ jobs:
           prototypes/inspect-web/engine/InspectWeb.Engine.csproj
           -c Release
           --output artifacts/inspect-web-publish
+
+      - name: Verify browser site artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          site=artifacts/inspect-web-publish/wwwroot
+          index="$site/index.html"
+          test -f "$index"
+          test -f "$site/staticwebapp.config.json"
+          dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
+          test -n "$dotnet_module"
+          test -f "$site/_framework/$dotnet_module"
+          import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
+          module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
+          test "$import_map_line" -lt "$module_line"
 
       - name: Test browser engine
         run: >

@@ -18,15 +18,34 @@ internal static class PromotionWorkflowContract
     private const string UploadArtifactAction =
         "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a";
     private const string DeploymentFilesCheck =
-        "test -f artifacts/inspect-web-publish/wwwroot/index.html && " +
-        "test -f artifacts/inspect-web-publish/wwwroot/staticwebapp.config.json";
+        """
+        set -euo pipefail
+        site=artifacts/inspect-web-publish/wwwroot
+        index="$site/index.html"
+        test -f "$index"
+        test -f "$site/staticwebapp.config.json"
+        dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
+        test -n "$dotnet_module"
+        test -f "$site/_framework/$dotnet_module"
+        import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
+        module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
+        test "$import_map_line" -lt "$module_line"
+        """;
     private const string CoreClrDeploymentFilesCheck =
         """
         set -euo pipefail
-        test -f artifacts/inspect-web-coreclr-publish/wwwroot/index.html
-        test -f artifacts/inspect-web-coreclr-publish/wwwroot/staticwebapp.config.json
-        test "$(find artifacts/inspect-web-coreclr-publish/wwwroot/_framework -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
-        grep -q GetDotNetRuntimeHeap artifacts/inspect-web-coreclr-publish/wwwroot/_framework/dotnet.native.*.js
+        site=artifacts/inspect-web-coreclr-publish/wwwroot
+        index="$site/index.html"
+        test -f "$index"
+        test -f "$site/staticwebapp.config.json"
+        dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
+        test -n "$dotnet_module"
+        test -f "$site/_framework/$dotnet_module"
+        import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
+        module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
+        test "$import_map_line" -lt "$module_line"
+        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
+        grep -q GetDotNetRuntimeHeap "$site"/_framework/dotnet.native.*.js
         """;
 
     internal static void AssertMutations(string repository)
@@ -134,10 +153,10 @@ internal static class PromotionWorkflowContract
             "Promotion workflow contract accepted download before revalidation.");
         AssertMutationRejected(
             stagingWorkflow,
-            $"        run: {DeploymentFilesCheck}\n",
-            $"        run: {DeploymentFilesCheck} || true\n",
+            "          test \"$import_map_line\" -lt \"$module_line\"\n",
+            "          test \"$import_map_line\" -lt \"$module_line\" || true\n",
             ValidateStaging,
-            "Staging workflow contract accepted disabled artifact verification.");
+            "Staging workflow contract accepted disabled import-map verification.");
         AssertMutationRejected(
             stagingWorkflow,
             "          skip_app_build: true\n",
@@ -164,8 +183,8 @@ internal static class PromotionWorkflowContract
             "CoreCLR staging contract accepted native relinking.");
         AssertMutationRejected(
             coreClrStagingWorkflow,
-            "          grep -q GetDotNetRuntimeHeap artifacts/inspect-web-coreclr-publish/wwwroot/_framework/dotnet.native.*.js\n",
-            "          grep -q GetDotNetRuntimeHeap artifacts/inspect-web-coreclr-publish/wwwroot/_framework/dotnet.native.*.js || true\n",
+            "          grep -q GetDotNetRuntimeHeap \"$site\"/_framework/dotnet.native.*.js\n",
+            "          grep -q GetDotNetRuntimeHeap \"$site\"/_framework/dotnet.native.*.js || true\n",
             ValidateCoreClrStaging,
             "CoreCLR staging contract accepted disabled runtime verification.");
         AssertMutationRejected(
@@ -454,19 +473,8 @@ internal static class PromotionWorkflowContract
 
         YamlMappingNode verify =
             RequireStep(steps, 4, "Verify staged site artifact");
-        RequireExactKeys(
+        ValidateDeploymentArtifactVerification(
             verify,
-            ["name", "shell", "run"],
-            "artifact verification step");
-        RequireScalarValue(
-            verify,
-            "shell",
-            "bash",
-            "artifact verification step");
-        RequireScalarValue(
-            verify,
-            "run",
-            DeploymentFilesCheck,
             "artifact verification step");
 
         YamlMappingNode deployStep =
@@ -561,11 +569,12 @@ internal static class PromotionWorkflowContract
             "jobs.build");
         RequireScalarValue(build, "runs-on", "ubuntu-26.04", "jobs.build");
         YamlSequenceNode buildSteps = GetRequiredSequence(build, "steps", "jobs.build");
-        if (buildSteps.Children.Count != 7)
+        if (buildSteps.Children.Count != 8)
         {
             throw new InvalidOperationException(
                 "Staging build must contain checkout, .NET and Node setup, " +
-                "workload install, frontend build, publish, and artifact upload steps.");
+                "workload install, frontend build, publish, artifact verification, " +
+                "and artifact upload steps.");
         }
         YamlMappingNode checkout =
             RequireStep(buildSteps, 0, null, "jobs.build");
@@ -632,7 +641,11 @@ internal static class PromotionWorkflowContract
             {
                 ["name"] = "Build browser frontend",
                 ["working-directory"] = "prototypes/inspect-web",
-                ["run"] = "npm ci\nnpm run build\n",
+                ["run"] =
+                    "npm ci\n" +
+                    "npm run build\n" +
+                    "grep -q '<script type=\"importmap\"></script>' dist/index.html\n" +
+                    "grep -Eq '<link rel=\"preload\" id=\"webassembly\"[[:space:]]*/?>' dist/index.html\n",
             },
             "staging frontend build step");
 
@@ -659,8 +672,14 @@ internal static class PromotionWorkflowContract
                 "Staging publish command does not match the trusted contract.");
         }
 
+        YamlMappingNode buildVerify =
+            RequireStep(buildSteps, 6, "Verify staged site artifact", "jobs.build");
+        ValidateDeploymentArtifactVerification(
+            buildVerify,
+            "staging build artifact verification step");
+
         YamlMappingNode upload =
-            RequireStep(buildSteps, 6, "Upload staged site artifact", "jobs.build");
+            RequireStep(buildSteps, 7, "Upload staged site artifact", "jobs.build");
         RequireExactKeys(
             upload,
             ["name", "uses", "with"],
@@ -738,19 +757,8 @@ internal static class PromotionWorkflowContract
 
         YamlMappingNode verify =
             RequireStep(deploySteps, 1, "Verify staged site artifact");
-        RequireExactKeys(
+        ValidateDeploymentArtifactVerification(
             verify,
-            ["name", "shell", "run"],
-            "staging artifact verification step");
-        RequireScalarValue(
-            verify,
-            "shell",
-            "bash",
-            "staging artifact verification step");
-        RequireScalarValue(
-            verify,
-            "run",
-            DeploymentFilesCheck,
             "staging artifact verification step");
 
         YamlMappingNode deployStep =
@@ -946,7 +954,11 @@ internal static class PromotionWorkflowContract
             {
                 ["name"] = "Build browser frontend",
                 ["working-directory"] = "prototypes/inspect-web",
-                ["run"] = "npm ci\nnpm run build\n",
+                ["run"] =
+                    "npm ci\n" +
+                    "npm run build\n" +
+                    "grep -q '<script type=\"importmap\"></script>' dist/index.html\n" +
+                    "grep -Eq '<link rel=\"preload\" id=\"webassembly\"[[:space:]]*/?>' dist/index.html\n",
             },
             "CoreCLR staging frontend build step");
 
@@ -1146,6 +1158,20 @@ internal static class PromotionWorkflowContract
         RequireScalarValue(step, "shell", "bash", context);
         if (GetRequiredScalar(step, "run", context).TrimEnd() !=
             CoreClrDeploymentFilesCheck)
+        {
+            throw new InvalidOperationException(
+                $"{context} does not match the trusted contract.");
+        }
+    }
+
+    private static void ValidateDeploymentArtifactVerification(
+        YamlMappingNode step,
+        string context)
+    {
+        RequireExactKeys(step, ["name", "shell", "run"], context);
+        RequireScalarValue(step, "shell", "bash", context);
+        if (GetRequiredScalar(step, "run", context).TrimEnd() !=
+            DeploymentFilesCheck)
         {
             throw new InvalidOperationException(
                 $"{context} does not match the trusted contract.");

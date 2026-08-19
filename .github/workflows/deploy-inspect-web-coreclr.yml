@@ -46,6 +46,8 @@ jobs:
         run: |
           npm ci
           npm run build
+          grep -q '<script type="importmap"></script>' dist/index.html
+          grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
 
       - name: Publish CoreCLR browser app
         shell: bash
@@ -69,10 +71,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f artifacts/inspect-web-coreclr-publish/wwwroot/index.html
-          test -f artifacts/inspect-web-coreclr-publish/wwwroot/staticwebapp.config.json
-          test "$(find artifacts/inspect-web-coreclr-publish/wwwroot/_framework -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
-          grep -q GetDotNetRuntimeHeap artifacts/inspect-web-coreclr-publish/wwwroot/_framework/dotnet.native.*.js
+          site=artifacts/inspect-web-coreclr-publish/wwwroot
+          index="$site/index.html"
+          test -f "$index"
+          test -f "$site/staticwebapp.config.json"
+          dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
+          test -n "$dotnet_module"
+          test -f "$site/_framework/$dotnet_module"
+          import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
+          module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
+          test "$import_map_line" -lt "$module_line"
+          test "$(find "$site/_framework" -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
+          grep -q GetDotNetRuntimeHeap "$site"/_framework/dotnet.native.*.js
 
       - name: Upload CoreCLR staged site artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -102,10 +112,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f artifacts/inspect-web-coreclr-publish/wwwroot/index.html
-          test -f artifacts/inspect-web-coreclr-publish/wwwroot/staticwebapp.config.json
-          test "$(find artifacts/inspect-web-coreclr-publish/wwwroot/_framework -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
-          grep -q GetDotNetRuntimeHeap artifacts/inspect-web-coreclr-publish/wwwroot/_framework/dotnet.native.*.js
+          site=artifacts/inspect-web-coreclr-publish/wwwroot
+          index="$site/index.html"
+          test -f "$index"
+          test -f "$site/staticwebapp.config.json"
+          dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
+          test -n "$dotnet_module"
+          test -f "$site/_framework/$dotnet_module"
+          import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
+          module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
+          test "$import_map_line" -lt "$module_line"
+          test "$(find "$site/_framework" -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
+          grep -q GetDotNetRuntimeHeap "$site"/_framework/dotnet.native.*.js
 
       - name: Deploy to CoreCLR staging
         uses: Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1 # v1

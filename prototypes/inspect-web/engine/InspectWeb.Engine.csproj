@@ -37,7 +37,8 @@
     <ProjectReference Include="..\..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\..\..\src\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
-    <Content Include="..\dist\**\*" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\dist\index.html" Link="wwwroot\index.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+    <Content Include="..\dist\assets\**\*" Link="wwwroot\assets\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\staticwebapp.config.json" Link="wwwroot\staticwebapp.config.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\assets\dotnet-inspect-bot.png" Link="wwwroot\assets\dotnet-inspect-bot.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\assets\bots\*.png" Link="wwwroot\assets\bots\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
@@ -46,6 +47,11 @@
 
   <Target Name="RequireInspectWebFrontendBundle" BeforeTargets="PrepareForPublish" Condition="!Exists('..\dist\index.html')">
     <Error Text="The inspect-web frontend bundle is missing. Run 'npm ci' and 'npm run build' in prototypes/inspect-web before publishing." />
+  </Target>
+
+  <Target Name="PublishInspectWebFrontendIndex" AfterTargets="ComputeAndCopyFilesToPublishDirectory">
+    <Error Condition="'@(_HtmlPublishCandidates)' == ''" Text="The .NET SDK did not produce the inspect-web HTML placeholder artifact." />
+    <Copy SourceFiles="@(_HtmlPublishCandidates)" DestinationFiles="@(_HtmlPublishCandidates->'$(PublishDir)wwwroot/index.html')" />
   </Target>
 
 </Project>

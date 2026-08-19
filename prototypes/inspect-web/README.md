@@ -584,7 +584,10 @@ commits. The workflow contract gate enforces those references. Azure's pinned
 action still pulls Microsoft's `staticappsclient:stable` image; that
 vendor-controlled deployment dependency is not immutable and remains inside
 the Azure trust boundary. All three workflows disable Azure's own app build
-and require the published artifact to contain `staticwebapp.config.json`. That
+and require the published artifact to contain `staticwebapp.config.json`.
+Trusted build and deployment steps also verify that Vite preserved the authored
+.NET placeholders, that the SDK injected a mapping to the fingerprinted
+`dotnet.js`, and that the import map precedes the Vite module entry. That
 configuration serves `/` and `/index.html` with `Cache-Control: no-cache,
 no-store, must-revalidate`, so an Azure edge cannot retain an old browser boot
 graph after its fingerprinted Wasm assets rotate.
