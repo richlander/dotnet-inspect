@@ -1,7 +1,6 @@
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
-  authoredSourceLimitationHtml,
   beginSourceRequestState,
   cancelSourceRequestState,
   callGraphDiagnosticsMessage,
@@ -47,6 +46,20 @@ import {
 } from "./graph-mermaid.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.ts";
 import { createCommandBar } from "/src/command-bar.ts";
+import {
+  renderMemberNav,
+  renderTypeMetadata,
+  renderTypeNav,
+  renderTypeSource,
+  typeHeading,
+  typeMetadataSignature,
+  typeSourceSignature,
+} from "/src/type-panel.ts";
+import { createPackageBar } from "/src/package-bar.ts";
+import {
+  renderSettingsView,
+  renderTastePopover,
+} from "/src/settings-panel.ts";
 import { loadPlatformIndex } from "/src/platform-index.js";
 
 let initializeEngine;
@@ -670,6 +683,18 @@ const commandBar = createCommandBar({
   focusAfterDismiss: () => document.querySelector("#type-list").focus(),
 });
 
+const packageBar = createPackageBar({
+  state,
+  escapeHtml,
+  packageIdentityKey,
+  runtimePackPackage,
+  selectPackageTab,
+  closePackageTab,
+  openRuntimePack: openRuntimePackFromHome,
+  openPackage: (packageId, version) => loadPackage(packageId, version, ""),
+  showToast,
+});
+
 function selectedType() {
   if (!state.package) return null;
   return state.package.types.find(item => item.id === state.selectedTypeId) || filteredTypes()[0] || state.package.types[0];
@@ -1230,7 +1255,7 @@ function render() {
   // so it renders first and returns; closeSettings restores the underlying view.
   if (state.settings) {
     loadingBotSrc = null;
-    renderSettingsView();
+    renderSettingsViewHtml();
     return;
   }
   // The Metadata Explorer is a full-bleed "browse the database" view layered over the
@@ -1276,23 +1301,7 @@ function render() {
     <div class="workbench">
       <header class="titlebar">
         <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
-        <div class="package-tabs" role="tablist" aria-label="Package scope">
-          ${platformTabHtml()}
-          ${state.packages.filter(item => !item.isRuntimePack).map(item => `
-            <div class="package-tab ${packageIdentityEquals(item, state.package) ? "active" : ""}" data-package-key="${escapeHtml(packageIdentityKey(item))}" role="tab" tabindex="0">
-              <span class="package-cube">⬡</span>
-              <span class="tab-label">${escapeHtml(item.id)}</span>
-              <small>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</small>
-              ${packageIdentityEquals(item, state.package)
-                ? `<button class="tab-close" data-package-close="${escapeHtml(packageIdentityKey(item))}" type="button" aria-label="Close ${escapeHtml(item.id)}">×</button>`
-                : ""}
-            </div>`).join("")}
-        </div>
-        <form class="package-query" id="package-query">
-          <span>+</span>
-          <input id="package-query-input" placeholder="Package or Package@version" aria-label="Open NuGet package" autocomplete="off" spellcheck="false" />
-          <button>open</button>
-        </form>
+        ${packageBar.html()}
         <div class="title-actions">
           <button id="go-home" title="Back to the home page">home</button>
           <button id="theme-toggle" aria-label="Switch to light theme">${state.theme === "dark" ? "light" : "dark"}</button>
@@ -1389,7 +1398,7 @@ function render() {
       ${state.spotlightOpen ? renderSpotlight() : ""}
       ${state.graphSourceOpen ? renderGraphSource() : ""}
       ${state.docViewerOpen ? renderDocViewer() : ""}
-      ${state.tasteOpen ? renderTastePopover() : ""}
+      ${state.tasteOpen ? renderTastePopoverHtml() : ""}
     </div>`;
 
   bindEvents();
@@ -1427,7 +1436,7 @@ function maybeAutoLoadVisibleSource() {
   const type = selectedType();
   if (!type) return;
   if (kind === "type") {
-    const signature = typeSourceSignature(type);
+    const signature = typeSourceSignature(type, state.package, state.taste, memberRequestKey);
     if (sourceRequestNeedsLoad(
         state.typeSourceKey === signature,
         state.typeSourceLoading,
@@ -1456,7 +1465,7 @@ function maybeAutoLoadTypeMetadata() {
   if (state.lens !== "metadata") return;
   const type = selectedType();
   if (!type) return;
-  const signature = typeMetadataSignature(type);
+  const signature = typeMetadataSignature(type, state.package);
   if (state.typeMetadataKey === signature) {
     if (state.typeMetadata?.graphNodes?.length > 1) renderTypeGraph();
     return;
@@ -1465,7 +1474,43 @@ function maybeAutoLoadTypeMetadata() {
 }
 
 function renderNavPane(current, visible) {
-  return navMode() === "member" ? renderMemberNav(current) : renderTypeNav(current, visible);
+  return navMode() === "member"
+    ? renderMemberNavPane(current)
+    : renderTypeNavPane(current, visible);
+}
+
+function renderTypeNavPane(current, visible) {
+  return renderTypeNav({
+    current,
+    visible,
+    typeGroups: typeGroups(),
+    typeFilter: state.typeFilter,
+    namespaceFilter: state.namespaceFilter,
+    kindFilter: state.kindFilter,
+    namespaceCount: namespaces().length,
+    namespaceOptionsHtml: namespaceOptions(),
+    kindFilters: typeKinds(),
+    accessibilityControlHtml: accessibilityControl(),
+    libraryControlHtml: libraryControl(),
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    shortKind,
+  });
+}
+
+function renderMemberNavPane(type) {
+  return renderMemberNav({
+    type,
+    entries: memberNavEntries(type),
+    memberCount: memberGroups(type).length,
+    selectedMemberKey: state.selectedMemberKey,
+    selectedOverloadIndex: state.selectedOverloadIndex,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
 }
 
 // The scope switcher + lens strip. The leading segmented control is the scope ladder —
@@ -1499,96 +1544,6 @@ function renderScopeBar() {
       <span class="lens-separator"></span>
       ${strip}
     </nav>`;
-}
-
-function renderTypeNav(current, visible) {
-  return `
-    <aside class="type-browser" aria-label="Public types">
-      <div class="browser-head">
-        <div>
-          <span class="pane-label">PUBLIC TYPES</span>
-          <span class="result-count">${visible.length} shown</span>
-        </div>
-        <button class="tiny-button" id="clear-filter" title="Clear filter">×</button>
-      </div>
-      <label class="type-search">
-        <span>/</span>
-        <input id="type-filter" value="${escapeHtml(state.typeFilter)}" placeholder="Filter types, members, libraries" autocomplete="off" spellcheck="false" />
-        <kbd>⌘F</kbd>
-      </label>
-      <div class="namespace-picker">
-        <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
-          <option value="" ${!state.namespaceFilter ? "selected" : ""}>All namespaces · ${namespaces().length}</option>
-          ${namespaceOptions()}
-        </select>
-      </div>
-      <div class="chip-stack">
-        <div class="namespace-chips kind-chips" aria-label="Type kind filters">
-          <button class="${!state.kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
-          ${typeKinds().map(kind => `<button class="${state.kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
-        </div>
-        ${accessibilityControl()}
-        ${libraryControl()}
-      </div>
-      <div class="type-list" role="listbox" tabindex="0" id="type-list">
-        ${[...typeGroups()].map(([namespace, types]) => `
-          <section class="type-group">
-            <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
-              <span class="chevron">⌄</span>
-              <span>${escapeHtml(namespace)}</span>
-              <small>${types.length}</small>
-            </button>
-            ${types.map(item => {
-              const selected = item.id === current.id;
-              return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
-                <span class="kind-icon">${kindIcon(item.kind)}</span>
-                <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
-                <small>${escapeHtml(shortKind(item.kind))}</small>
-              </button>`;
-            }).join("")}
-          </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
-      </div>
-      <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
-    </aside>`;
-}
-
-function renderMemberNav(type) {
-  const entries = memberNavEntries(type);
-  return `
-    <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
-      <div class="browser-head">
-        <div>
-          <span class="pane-label">MEMBERS</span>
-          <span class="result-count">${memberGroups(type).length} members</span>
-        </div>
-      </div>
-      <button class="nav-back-row" id="nav-to-types" title="Back to types (Esc)">
-        <span class="chevron">‹</span>
-        <span class="type-name">${escapeHtml(typeDisplayName(type))}</span>
-        <small>types</small>
-      </button>
-      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list">
-        ${entries.map(entry => {
-          if (entry.kind === "member") {
-            const group = entry.group;
-            const isMulti = group.overloads.length > 1;
-            const active = group.key === state.selectedMemberKey;
-            const selected = active && (isMulti ? state.selectedOverloadIndex == null : true);
-            return `<button class="type-row member-row ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
-              <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-              <span class="type-name">${escapeHtml(group.name)}</span>
-              <small>${isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind))}</small>
-            </button>`;
-          }
-          const selected = entry.group.key === state.selectedMemberKey && state.selectedOverloadIndex === entry.index;
-          return `<button class="type-row overload-nav-row ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}">
-            <span class="overload-branch">↳</span>
-            <code>${highlight(entry.group.overloads[entry.index].signature)}</code>
-          </button>`;
-        }).join("")}
-      </div>
-      <footer class="pane-footer"><span>↑↓ members</span><span>←→ sections</span><span>esc types</span></footer>
-    </aside>`;
 }
 
 function packageHeading() {
@@ -3225,17 +3180,30 @@ function renderPackageOverview() {
     </section>${documentsSection}`;
 }
 
+function typeHeadingHtml(item) {
+  return typeHeading({ item, packageContext: state.package, escapeHtml, typeDisplayName, kindIcon, highlight });
+}
+
+function renderTypeMetadataHtml(item) {
+  return renderTypeMetadata({ item, packageContext: state.package, metadataState: state, escapeHtml, relatedTypeChip, factRows });
+}
+
+function renderTypeSourceHtml(item) {
+  const currentSignature = typeSourceSignature(item, state.package, state.taste, memberRequestKey);
+  return renderTypeSource({ item, currentSignature, sourceState: state, escapeHtml, highlightCSharp });
+}
+
 function renderLens(item) {
   if (state.atPackageRoot) return renderPackageView();
   const member = selectedMember(item);
   if (state.lens === "api" && member) return renderMember(item, member);
   if (state.lens === "source") {
     return `
-      ${typeHeading(item)}
-      ${renderTypeSource(item)}`;
+      ${typeHeadingHtml(item)}
+      ${renderTypeSourceHtml(item)}`;
   }
   if (state.lens === "metadata") {
-    return `${typeHeading(item)}${renderTypeMetadata(item)}`;
+    return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
   }
   const groups = memberGroups(item);
   const kindOrder = ["constructor", "method", "property", "field", "event"];
@@ -3249,7 +3217,7 @@ function renderLens(item) {
       `<button class="member-kind ${activeKind === kind ? "active" : ""}" data-kind="${kind}">${kindLabels[kind]}</button>`))
     .join("");
   return `
-    ${typeHeading(item)}
+    ${typeHeadingHtml(item)}
     <section class="document-section">
       <div class="section-title"><h2>Public API</h2><span>${groups.length} member groups · ${item.members} overloads</span></div>
       <div class="member-filter">${filterButtons}</div>
@@ -3425,7 +3393,7 @@ function renderMember(type, member) {
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`
       : state.memberSource
         ? `<section class="document-section source-result">
-            <div class="source-provenance"><strong>${state.memberSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.memberSource)}<button id="copy-source" type="button">copy</button></div>
+            <div class="source-provenance"><strong>${state.memberSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-source" type="button">copy</button></div>
             <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
@@ -3559,23 +3527,6 @@ function renderFactTable(title, rows, columns, emptyText) {
   </section>`;
 }
 
-function typeHeading(item) {
-  return `<header class="type-heading">
-    <div class="type-badge">${kindIcon(item.kind)}</div>
-    <div>
-      <div class="type-namespace">${escapeHtml(item.namespace)}</div>
-      <h1>${escapeHtml(typeDisplayName(item))}</h1>
-      <code class="type-signature">${highlight(item.signature)}</code>
-    </div>
-    <div class="type-metrics"><span><strong>${item.members}</strong> members</span><span><strong>${escapeHtml(item.accessibility || "public")}</strong> accessibility</span></div>
-    <dl class="definition-list">
-      <div><dt>TFM:</dt><dd>${escapeHtml(state.package.activeFramework)}</dd></div>
-      <div><dt>Library:</dt><dd>${escapeHtml(item.assembly)}</dd></div>
-      <div><dt>Package:</dt><dd>${escapeHtml(state.package.id)}@${escapeHtml(state.package.version)}</dd></div>
-    </dl>
-  </header>`;
-}
-
 function factRows(rows) {
   return `<dl class="fact-rows">${rows.map(([key, value, evidence]) => `<div><dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code>${factEvidence(evidence)}</dd></div>`).join("")}</dl>`;
 }
@@ -3592,126 +3543,6 @@ function factEvidence(offsets) {
   const extra = unique.length - shown.length;
   const label = shown.join(", ") + (extra > 0 ? ` +${extra}` : "");
   return `<span class="fact-evidence" title="${escapeHtml(unique.join(", "))}">${escapeHtml(label)}</span>`;
-}
-
-function typeMetadataSignature(item) {
-  return `${state.package.id}@${state.package.version}/${state.package.activeFramework}/${item.assembly}/${item.id}`;
-}
-
-const COMPOSITION_KINDS = [
-  ["methods", "Methods"],
-  ["properties", "Properties"],
-  ["fields", "Fields"],
-  ["events", "Events"],
-  ["constructors", "Constructors"],
-  ["operators", "Operators"],
-  ["extensionMethods", "Extension methods"],
-  ["explicitInterfaceImplementations", "Explicit impls"]
-];
-
-const COMPOSITION_FLAGS = [
-  ["static", "static"],
-  ["unsafe", "unsafe"],
-  ["async", "async"],
-  ["virtual", "virtual"],
-  ["abstract", "abstract"],
-  ["override", "override"],
-  ["extension", "extension"],
-  ["obsolete", "obsolete"]
-];
-
-function renderCompositionGrid(composition) {
-  const kinds = COMPOSITION_KINDS
-    .filter(([key]) => composition[key] > 0)
-    .map(([key, label]) => `<div class="count-cell"><strong>${composition[key]}</strong><span>${label}</span></div>`)
-    .join("");
-  const flags = COMPOSITION_FLAGS
-    .filter(([key]) => composition[key] > 0)
-    .map(([key, label]) => `<span class="count-flag flag-${key}">${composition[key]} ${label}</span>`)
-    .join("");
-  return `
-    <div class="composition-grid">${kinds || '<div class="count-cell"><strong>0</strong><span>members</span></div>'}</div>
-    ${flags ? `<div class="composition-flags">${flags}</div>` : ""}`;
-}
-
-function renderTypeMetadata(item) {
-  const current = typeMetadataSignature(item);
-  const fresh = state.typeMetadataKey === current;
-  if (state.typeMetadataLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`;
-  }
-  if (fresh && state.typeMetadataError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(state.typeMetadataError)}</p></section>`;
-  }
-  const meta = fresh ? state.typeMetadata : null;
-  if (!meta) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
-  }
-
-  const shape = [
-    ["Kind", [...(meta.modifiers || []), meta.kind].join(" ")],
-    ["Accessibility", meta.accessibility || "public"],
-    ["Namespace", meta.namespace || "global"],
-    ["Assembly", meta.assembly || item.assembly]
-  ];
-  if (meta.baseType) shape.push(["Base type", meta.baseType]);
-  if (meta.enumUnderlyingType) shape.push(["Enum underlying", meta.enumUnderlyingType]);
-  if (meta.typeParameters?.length) {
-    shape.push(["Type parameters", meta.typeParameters
-      .map(parameter => `${parameter.variance ? parameter.variance + " " : ""}${parameter.name}${parameter.constraints?.length ? ` : ${parameter.constraints.join(", ")}` : ""}`)
-      .join(" · ")]);
-  }
-
-  const interfaces = (meta.interfaces || []).length
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Implements</h2><span>${meta.interfaces.length} interface${meta.interfaces.length === 1 ? "" : "s"}</span></div>
-        <div class="type-chip-list">${meta.interfaces.map(name => relatedTypeChip(name)).join("")}</div>
-      </section>`
-    : "";
-
-  const derived = (meta.derivedTypes || []).length
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Known derived types</h2><span>${meta.derivedTypes.length} in ${escapeHtml(meta.assembly || item.assembly)}</span></div>
-        <div class="type-chip-list">${meta.derivedTypes.map(name => relatedTypeChip(name)).join("")}</div>
-      </section>`
-    : "";
-
-  const attributes = (meta.attributes || []).length
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Custom attributes</h2><span>${meta.attributes.length}</span></div>
-        <div class="type-chip-list">${meta.attributes.map(name => `<code class="attr-chip">[${escapeHtml(name)}]</code>`).join("")}</div>
-      </section>`
-    : "";
-
-  const composition = meta.composition
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Composition</h2><span>${meta.composition.total} member${meta.composition.total === 1 ? "" : "s"}</span></div>
-        ${renderCompositionGrid(meta.composition)}
-      </section>`
-    : "";
-
-  const graph = (meta.graphNodes || []).length > 1
-    ? `<section class="document-section call-graph-section">
-        <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — click a highlighted node to open</span></div>
-        <div id="type-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
-      </section>`
-    : "";
-
-  const failures = (meta.inspectionFailures || []).length
-    ? `<section class="document-section metadata-warning"><strong>⚠ Relationship view may be incomplete</strong><ul>${meta.inspectionFailures.map(entry => `<li><code>${escapeHtml(entry)}</code></li>`).join("")}</ul></section>`
-    : "";
-
-  return `
-    <section class="document-section">
-      <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
-      ${factRows(shape)}
-    </section>
-    ${composition}
-    ${interfaces}
-    ${derived}
-    ${attributes}
-    ${graph}
-    ${failures}`;
 }
 
 function shortTypeName(fullName) {
@@ -3739,34 +3570,6 @@ function splitSignalName(fullName) {
   };
 }
 
-function typeSourceSignature(item) {
-  return memberRequestKey([
-    state.package.id,
-    state.package.version,
-    state.package.activeFramework,
-    item.assembly,
-    item.definitionId ?? item.id
-  ], state.taste);
-}
-
-function renderTypeSource(item) {
-  const current = typeSourceSignature(item);
-  const fresh = state.typeSourceKey === current;
-  if (state.typeSourceLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
-  }
-  if (fresh && state.typeSource) {
-    return `<section class="document-section source-result">
-        <div class="source-provenance"><strong>${state.typeSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.typeSource.provenance)}</span>${state.typeSource.url ? `<a href="${escapeHtml(state.typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.typeSource)}<button id="copy-type-source" type="button">copy</button></div>
-        <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.typeSource.text)}</code></pre>
-      </section>`;
-  }
-  if (fresh && state.typeSourceError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(state.typeSourceError)}</p></section>`;
-  }
-  return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
-}
-
 function kindIcon(kind) {
   if (kind.includes("struct")) return "S";
   if (kind === "enum") return "E";
@@ -3792,37 +3595,7 @@ function highlightCSharp(value) {
 }
 
 function bindEvents() {
-  document.querySelectorAll("[data-package-key]").forEach(tab => {
-    const activate = () => selectPackageTab(
-      state.packages.find(item => packageIdentityKey(item) === tab.dataset.packageKey));
-    tab.addEventListener("click", event => {
-      if (event.target.closest("[data-package-close]")) return;
-      activate();
-    });
-    tab.addEventListener("keydown", event => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      activate();
-    });
-  });
-  document.querySelectorAll("[data-package-close]").forEach(button =>
-    button.addEventListener("click", event => {
-      event.stopPropagation();
-      closePackageTab(button.dataset.packageClose);
-    }));
-  document.querySelector("[data-platform-open]")?.addEventListener("click", () => openRuntimePackFromHome());
-  // Browser-tab behavior for a crowded strip: keep the active tab in view, and let a
-  // vertical wheel scroll the horizontal strip so hidden tabs stay reachable.
-  const tabStrip = document.querySelector(".package-tabs");
-  if (tabStrip) {
-    requestAnimationFrame(() =>
-      tabStrip.querySelector(".package-tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" }));
-    tabStrip.addEventListener("wheel", event => {
-      if (event.deltaY === 0) return;
-      event.preventDefault();
-      tabStrip.scrollLeft += event.deltaY;
-    }, { passive: false });
-  }
+  packageBar.bind(document);
   document.querySelectorAll("[data-scope]").forEach(button => button.addEventListener("click", () => {
     const target = button.dataset.scope;
     if (target === "package") {
@@ -4179,18 +3952,6 @@ function bindEvents() {
     focusFilter();
   });
 
-  document.querySelector("#package-query").addEventListener("submit", event => {
-    event.preventDefault();
-    const value = document.querySelector("#package-query-input").value.trim();
-    const separator = value.lastIndexOf("@");
-    if (!value || separator === value.length - 1) {
-      showToast("enter a package, optionally followed by @version");
-      return;
-    }
-    const packageId = separator > 0 ? value.slice(0, separator) : value;
-    const version = separator > 0 ? value.slice(separator + 1) : "latest";
-    loadPackage(packageId, version, "");
-  });
   document.querySelector("#share").addEventListener("click", share);
   document.querySelector("[data-graph-back]")?.addEventListener("click", popPlatformDrill);
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
@@ -6100,7 +5861,7 @@ async function loadSelectedTypeSource() {
     render();
     return;
   }
-  const signature = typeSourceSignature(type);
+  const signature = typeSourceSignature(type, state.package, state.taste, memberRequestKey);
   if (!sourceRequestNeedsLoad(
       state.typeSourceKey === signature,
       state.typeSourceLoading,
@@ -6149,7 +5910,7 @@ async function loadSelectedTypeMetadata() {
     render();
     return;
   }
-  const signature = typeMetadataSignature(type);
+  const signature = typeMetadataSignature(type, state.package);
   if (state.typeMetadataKey === signature && (state.typeMetadata || state.typeMetadataError)) {
     render();
     return;
@@ -7225,43 +6986,15 @@ function renderDocViewer() {
 // The decompiler style ("taste") catalog, grouped by tier, as checkbox rows. Shared by the
 // detail-view taste popover and the Settings page so both stay in lockstep with the engine's
 // StyleOptionCatalog (fetched once into state.styleTiers/state.styleOptions).
-function styleCatalogGroupsHtml() {
-  const tiers = state.styleTiers || [];
-  const options = state.styleOptions || [];
-  if (!tiers.length || !options.length) {
-    return state.styleCatalogError
-      ? `<div class="taste-empty">Style catalog unavailable: ${escapeHtml(state.styleCatalogError)}</div>`
-      : "";
-  }
-  return tiers
-    .filter(tier => options.some(option => option.tier === tier.id))
-    .map(tier => `
-      <div class="taste-group">
-        <div class="taste-group-head">
-          <div class="taste-group-title">${escapeHtml(tier.title)}</div>
-          ${tier.byte_divergent ? '<em class="taste-badge divergent">byte-divergent</em>' : ""}
-        </div>
-        <div class="taste-group-summary">${escapeHtml(tier.summary)}</div>
-        ${options.filter(option => option.tier === tier.id).map(option => `
-          <label class="taste-item">
-            <input type="checkbox" data-taste="${escapeHtml(option.id)}" ${state.taste.includes(option.id) ? "checked" : ""} />
-            <span class="taste-item-text">
-              <span class="taste-item-title">${escapeHtml(option.title)}${option.oracle_endorsed ? '<em class="taste-badge oracle">oracle</em>' : ""}</span>
-              <span class="taste-item-summary">${escapeHtml(option.summary)}</span>
-            </span>
-          </label>`).join("")}
-      </div>`).join("");
-}
-
-function renderTastePopover() {
-  const groups = styleCatalogGroupsHtml();
-  const body = groups || '<div class="taste-empty">Style catalog unavailable.</div>';
-  return `
-    <div class="taste-popover" id="taste-popover" role="dialog" aria-label="Decompiler taste">
-      <div class="taste-head"><strong>Taste</strong><span>decompiler style knobs</span></div>
-      <div class="taste-body">${body}</div>
-      <div class="taste-foot">${state.taste.length ? '<button id="taste-clear" type="button">reset to default</button>' : '<span>default · opcode-faithful</span>'}</div>
-    </div>`;
+function renderTastePopoverHtml() {
+  return renderTastePopover(
+    {
+      styleTiers: state.styleTiers,
+      styleOptions: state.styleOptions,
+      styleCatalogError: state.styleCatalogError,
+      taste: state.taste,
+    },
+    escapeHtml);
 }
 
 function invalidateSourceCaches() {
@@ -7345,50 +7078,18 @@ function closeSettings() {
 // localStorage (theme → inspect-theme, taste → inspect-taste) so choices survive a reload and
 // future sessions. Grouped into Appearance and Decompiler style; the latter reuses the same
 // style-option catalog the detail-view taste popover shows.
-function renderSettingsView() {
-  const catalog = styleCatalogGroupsHtml();
-  const styleBody = catalog
-    || '<div class="taste-empty">Style catalog is still loading — reopen Settings in a moment.</div>';
-  const activeCount = state.taste.length;
-  app.innerHTML = `
-    <div class="settings-page">
-      <header class="settings-bar">
-        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
-        <button id="settings-close" class="settings-close">${state.settingsReturn === "workbench" ? "back to workbench" : "back to home"} ✕</button>
-      </header>
-      <main class="settings-main">
-        <div class="settings-head">
-          <h1>Settings</h1>
-          <p class="settings-lede">Preferences are stored locally in your browser and persist across sessions. Nothing is uploaded.</p>
-        </div>
-
-        <section class="settings-section">
-          <div class="settings-section-head">
-            <h2>Appearance</h2>
-            <p>Choose the color theme for the whole app.</p>
-          </div>
-          <div class="settings-control">
-            <div class="settings-segment" role="group" aria-label="Theme">
-              <button type="button" class="settings-seg ${state.theme === "dark" ? "active" : ""}" data-theme="dark" aria-pressed="${state.theme === "dark"}">Dark</button>
-              <button type="button" class="settings-seg ${state.theme === "light" ? "active" : ""}" data-theme="light" aria-pressed="${state.theme === "light"}">Light</button>
-            </div>
-          </div>
-        </section>
-
-        <section class="settings-section">
-          <div class="settings-section-head">
-            <h2>Decompiler style <span class="settings-badge">${activeCount ? `${activeCount} on` : "default"}</span></h2>
-            <p>Tune how decompiled C# is spelled and synthesized — including <strong>readable local names</strong>. These apply to every source and call-graph view. The default is opcode-faithful.</p>
-          </div>
-          <div class="settings-taste">${styleBody}</div>
-          <div class="settings-taste-foot">
-            ${activeCount
-              ? '<button id="settings-taste-clear" type="button" class="settings-reset">Reset to default</button>'
-              : '<span class="settings-muted">Default · opcode-faithful</span>'}
-          </div>
-        </section>
-      </main>
-    </div>`;
+function renderSettingsViewHtml() {
+  app.innerHTML = renderSettingsView({
+    theme: state.theme,
+    settingsReturn: state.settingsReturn,
+    styleCatalog: {
+      styleTiers: state.styleTiers,
+      styleOptions: state.styleOptions,
+      styleCatalogError: state.styleCatalogError,
+      taste: state.taste,
+    },
+    escapeHtml,
+  });
   bindSettingsEvents();
 }
 
@@ -7405,7 +7106,7 @@ function renderGraphSource() {
   const body = state.graphSourceLoading
     ? `<div class="graph-source-status">Resolving source for ${escapeHtml(state.graphSourceTitle)}…</div>`
     : state.graphSource
-      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span>${state.graphSource.url ? `<a href="${escapeHtml(state.graphSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.graphSource)}</div>
+      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span>${state.graphSource.url ? `<a href="${escapeHtml(state.graphSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}</div>
          <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.graphSource.text)}</code></pre>`
       : `<div class="graph-source-status error">${escapeHtml(state.graphSourceError || "No source was returned.")}</div>`;
   return `
@@ -7684,22 +7385,6 @@ function platformLibrarySelectHtml(options = {}) {
       ${group("netcore.app", ".NET")}
       ${group("aspnetcore.app", "ASP.NET Core")}
     </select>`;
-}
-
-// The always-present, non-closable, left-most "Platform" tab. It abstracts the .NET runtime
-// packs (netcore.app, aspnetcore.app, …) behind a single surface: when a pack is resident it
-// activates it; otherwise clicking loads it lazily. Rendered separately from the normal tab
-// map so it is always first and never carries a close affordance.
-function platformTabHtml() {
-  const rt = runtimePackPackage();
-  const active = rt && state.package && state.package.id === rt.id ? "active" : "";
-  const framework = rt?.activeFramework || state.package?.activeFramework || "";
-  const attr = rt ? `data-package-key="${escapeHtml(packageIdentityKey(rt))}"` : `data-platform-open="1"`;
-  return `<button class="package-tab platform ${active}" ${attr} role="tab" title="Platform · .NET runtime libraries">
-      <span class="package-cube">◎</span>
-      <span class="tab-label">Platform</span>
-      <small>${escapeHtml(framework || "load")}</small>
-    </button>`;
 }
 
 // The resident runtime pseudo-package rides in the shared workspace/URL packet under the
