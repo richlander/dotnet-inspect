@@ -36,8 +36,10 @@ descriptions. In this package-only flow, print every row and inspect its YAML
 frontmatter before selecting or writing anything. Require a declared `name`
 that is 1-64 lowercase ASCII letters, digits, or hyphens, with no leading,
 trailing, or consecutive hyphens, and exactly matches the package directory
-containing `SKILL.md`. Refuse the candidate if any check fails. Never compose
-an output path from a package-authored value before completing those checks.
+containing `SKILL.md`. Also require a declared `description` of 1-1024
+characters that explains when to use the skill. Refuse the candidate if any
+check fails. Never compose an output path from a package-authored value before
+completing those checks.
 
 ## Select from the whole skill set
 
@@ -69,10 +71,10 @@ Inspect repository instructions, its existing skill layout, and the active
 harness, then follow any user direction. Common repository roots include
 `skills/`, `.agents/skills/`, `.github/skills/`, and `.claude/skills/`.
 
-`dotnet-inspect project ... -S Skills` applies the same checks and refuses a
-missing or noncompliant name. Do not recover a refused skill by sanitizing or
-renaming it. For an accepted skill, preserve that validated name as the leaf
-directory under the repository-selected root.
+`dotnet-inspect project ... -S Skills` applies the same checks and refuses
+missing or noncompliant metadata. Do not recover a refused skill by sanitizing
+or renaming it. For an accepted skill, preserve that validated name as the
+leaf directory under the repository-selected root.
 
 For example, Markout itself keeps its skills under `skills/`, so its output
 formats skill belongs at `skills/markout-output-formats/SKILL.md`. Create that

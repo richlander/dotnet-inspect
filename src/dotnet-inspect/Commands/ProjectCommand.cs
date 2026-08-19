@@ -20,7 +20,8 @@ public class ProjectCommand
     {
         None,
         MissingFile,
-        InvalidIdentity,
+        InvalidName,
+        InvalidDescription,
     }
 
     public const string Name = "project";
@@ -345,9 +346,15 @@ public class ProjectCommand
             var failure = CreateSkillRow(file, out var row);
             if (failure != ProjectSkillReadFailure.None)
             {
-                CommandError.Write(failure == ProjectSkillReadFailure.MissingFile
-                    ? "A restored package skill listed in project.assets.json is missing from the package cache."
-                    : "A restored package skill must declare an Agent Skills-compliant name that matches its containing directory.");
+                CommandError.Write(failure switch
+                {
+                    ProjectSkillReadFailure.MissingFile =>
+                        "A restored package skill listed in project.assets.json is missing from the package cache.",
+                    ProjectSkillReadFailure.InvalidName =>
+                        "A restored package skill must declare an Agent Skills-compliant name that matches its containing directory.",
+                    _ =>
+                        "A restored package skill must declare an Agent Skills-compliant description of 1 to 1024 characters.",
+                });
                 return 1;
             }
 
@@ -389,9 +396,11 @@ public class ProjectCommand
         var content = File.ReadAllText(file.FullPath);
         var frontmatter = MarkdownContent.ParseYamlFrontmatter(content);
         if (!TryGetSkillName(file.Path, frontmatter, out var name))
-            return ProjectSkillReadFailure.InvalidIdentity;
+            return ProjectSkillReadFailure.InvalidName;
 
         frontmatter.TryGetValue("description", out var description);
+        if (!IsAgentSkillDescription(description))
+            return ProjectSkillReadFailure.InvalidDescription;
 
         row = new ProjectSkillRow(
             file.PackageName,
@@ -449,6 +458,21 @@ public class ProjectCommand
             }
 
             previousWasHyphen = isHyphen;
+        }
+
+        return true;
+    }
+
+    private static bool IsAgentSkillDescription(string? description)
+    {
+        if (string.IsNullOrEmpty(description))
+            return false;
+
+        var length = 0;
+        foreach (var _ in description.EnumerateRunes())
+        {
+            if (++length > 1024)
+                return false;
         }
 
         return true;

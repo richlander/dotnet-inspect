@@ -1124,7 +1124,9 @@ public partial class CommandExecutionTests
     {
         var segments = path.Replace('\\', '/').Split('/');
         var name = segments[^2];
-        return new ProjectSkillDoc(path, $"---\nname: {name}\n---\n{body}");
+        return new ProjectSkillDoc(
+            path,
+            $"---\nname: {name}\ndescription: Test package skill guidance.\n---\n{body}");
     }
 
     private sealed record ProjectDocPackage(
@@ -22030,6 +22032,52 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(1024, true)]
+    [InlineData(1025, false)]
+    public async Task Project_SkillsSection_ValidatesDescriptionLength(
+        int descriptionLength,
+        bool expectedSuccess)
+    {
+        var descriptionLine = descriptionLength < 0
+            ? ""
+            : $"description: {new string('d', descriptionLength)}\n";
+        var skill = $"---\nname: description-boundary\n{descriptionLine}---\n# Package skill";
+        var (projectPath, tempDir) = CreateProjectWithPackageDocs(
+            new ProjectDocPackage("Test.Project.Skills.Description", "1.0.0", "README.md", "readme", Skills:
+                [new ProjectSkillDoc("skills/description-boundary/SKILL.md", skill)]));
+
+        try
+        {
+            var (exit, output, error) = await RunProjectFixtureAsync(
+                projectPath, "-S", "Skills", "--jsonl");
+
+            Assert.Equal(expectedSuccess ? 0 : 1, exit);
+            if (expectedSuccess)
+            {
+                Assert.Empty(error);
+                using var document = JsonDocument.Parse(output);
+                Assert.Equal(
+                    descriptionLength,
+                    document.RootElement.GetProperty("description").GetString()!.Length);
+            }
+            else
+            {
+                Assert.Empty(output);
+                Assert.Contains(
+                    "must declare an Agent Skills-compliant description of 1 to 1024 characters",
+                    error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Project_SkillsSection_FailsWhenRestoredSkillFileIsMissing()
     {
@@ -22115,6 +22163,7 @@ public partial class CommandExecutionTests
         var skill = """
             ---
             name: selected
+            description: Test package skill guidance.
             ---
             # Skill guidance
             """;
