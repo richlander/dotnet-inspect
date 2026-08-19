@@ -632,15 +632,10 @@ public class E2EFixtureTests
     {
         string assemblyPath =
             FixtureCatalog.RunFasterAllocation.AssemblyPath();
-        var sourceMethod =
-            typeof(RunFaster.AllocationFixture.Program).GetMethod(
-                "Main",
-                BindingFlags.Public | BindingFlags.Static);
         var evidenceMethod =
             typeof(RunFaster.AllocationFixture.Program).GetMethod(
                 "AllocateOne",
                 BindingFlags.Public | BindingFlags.Static);
-        Assert.NotNull(sourceMethod);
         Assert.NotNull(evidenceMethod);
         var occurrence = Assert.Single(
             LibraryBodyIndex.Open(assemblyPath)
@@ -660,7 +655,7 @@ public class E2EFixtureTests
             File.WriteAllText(
                 triagePath,
                 $$$"""
-                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"{{{occurrence.Method.AssemblyName}}}","module_version_id":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{sourceMethod.MetadataToken:X8}}}","evidence_method":"0x{{{evidenceMethod.MetadataToken:X8}}}","shape":"object-allocation","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object"}]}}
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"{{{occurrence.Method.AssemblyName}}}","module_version_id":"{{{occurrence.Method.ModuleVersionId:D}}}","evidence_method":"0x{{{evidenceMethod.MetadataToken:X8}}}","shape":"object-allocation","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object"}]}}
                 """);
             File.WriteAllText(
                 logPath,
@@ -2727,7 +2722,9 @@ public class E2EFixtureTests
                 "--triage",
                 triagePath,
                 "--log",
-                logPath);
+                logPath,
+                "--top",
+                "3");
 
             Assert.Equal(0, result.ExitCode);
             Assert.Empty(result.Error);
@@ -2740,6 +2737,12 @@ public class E2EFixtureTests
             Assert.Contains(
                 "| sample weight 1 / 26 B | `Fixture.Type.M()` | 26 |",
                 result.Output);
+            Assert.Equal(
+                3,
+                result.Output.Split('\n').Count(
+                    static line => line.StartsWith(
+                        "| confirmed-hot |",
+                        StringComparison.Ordinal)));
         }
         finally
         {

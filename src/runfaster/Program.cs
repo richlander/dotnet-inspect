@@ -1656,6 +1656,14 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
                 bool hasSourceBodyFragment =
                     group.Any(static match =>
                         !match.IsRuntimeBody);
+                if (ilOffset is int explicitOffset
+                    && candidate.MethodToken == 0
+                    && candidate.EvidenceMethodToken is not null
+                    && candidate.IlOffset >= 0
+                    && candidate.IlOffset != explicitOffset)
+                {
+                    return false;
+                }
                 return ilOffset is not int offset
                     || candidate.IlOffset < 0
                     || candidate.IlOffset == offset
@@ -1867,6 +1875,7 @@ static IEnumerable<AllocationCandidate> SelectCandidates(IReadOnlyList<Allocatio
 static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCandidate> candidates, CorrelateOptions options)
 {
     var observed = result.Candidates.Where(c => c.IsObserved).ToArray();
+    var visibleObserved = candidates.Where(c => c.IsObserved).ToArray();
     var cold = result.Candidates
         .Where(c => !c.IsObserved
             && !c.TypeConfirmed
@@ -2070,8 +2079,8 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     // Multiplicity predict-vs-observe (#2286): disambiguate a hot site's cause using the static
     // multiplicity prior. The trace confirms the site/type is HOT; the Loop/Once split is a static
     // prior it does not verify — so this describes the likely cause, it does not prescribe a fix.
-    var loopHot = observed.Where(c => c.MultiplicityCheck == "loop-hot").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
-    var callFrequency = observed.Where(c => c.MultiplicityCheck == "call-frequency").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
+    var loopHot = visibleObserved.Where(c => c.MultiplicityCheck == "loop-hot").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
+    var callFrequency = visibleObserved.Where(c => c.MultiplicityCheck == "call-frequency").OrderByDescending(c => c.EffectiveObservedBytes).ToArray();
     int loopUnexercised = result.Candidates.Count(c => c.MultiplicityCheck == "loop-unexercised");
     if (loopHot.Length > 0 || callFrequency.Length > 0 || loopUnexercised > 0)
     {
@@ -2114,7 +2123,7 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
     Console.WriteLine();
     Console.WriteLine("## Observed candidate rows");
     Console.WriteLine();
-    RenderTable(observed.Length > 0 ? observed : candidates, markdown: true);
+    RenderTable(visibleObserved.Length > 0 ? visibleObserved : candidates, markdown: true);
     if (cold.Length > 0)
     {
         Console.WriteLine();
@@ -2640,10 +2649,6 @@ sealed class AllocationCandidate(
         evidenceMethodToken;
     public int RuntimeMethodToken =>
         EvidenceMethodToken ?? MethodToken;
-    public bool HasKnownDistinctEvidenceMethodBody =>
-        EvidenceMethodToken is int evidenceMethodToken
-        && MethodToken != 0
-        && evidenceMethodToken != MethodToken;
     public bool SourceMethodIdentifiesRuntimeBody =>
         EvidenceMethodToken is null
         || (MethodToken != 0
@@ -3033,8 +3038,7 @@ sealed class CandidateLookup
             }
 
             bool isRuntimeBody =
-                !candidate
-                    .HasKnownDistinctEvidenceMethodBody;
+                candidate.SourceMethodIdentifiesRuntimeBody;
             AddFragment(
                 candidate.MethodKey,
                 candidate,
