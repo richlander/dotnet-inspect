@@ -1779,36 +1779,45 @@ public sealed partial class CSharpPrinter
 
     void AppendNestedLocalFunctionBody(StringBuilder sb, LocalFunctionStatement localFunction, int indent)
     {
-        var body = (BlockContainer)localFunction.Body.Clone();
-        var function = new IrFunction(
-            localFunction.Name,
-            _function.DeclaringType,
-            new MethodSignature(localFunction.ReturnType, localFunction.Parameters, HasThis: false, GenericParameterCount: 0),
-            localFunction.Locals,
-            body)
+        var body = localFunction.Body;
+        body.Detach();
+        try
         {
-            LocalNames = localFunction.LocalNames,
-            UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
-            SkipLocalsInit = localFunction.SkipLocalsInit,
-            // The nested scope is metadata-free like the enclosing one; carry the
-            // enclosing function's resolved type maps so an enum constant renders
-            // by member name, not a bare int (issue #2983). LocalFunctionRaisingPass
-            // merges each raised body's maps into the enclosing function, so these
-            // include the definitions this local function references.
-        };
-        function.CopyTypeFactsFrom(_function);
+            var function = new IrFunction(
+                localFunction.Name,
+                _function.DeclaringType,
+                new MethodSignature(localFunction.ReturnType, localFunction.Parameters, HasThis: false, GenericParameterCount: 0),
+                localFunction.Locals,
+                body)
+            {
+                LocalNames = localFunction.LocalNames,
+                UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
+                SkipLocalsInit = localFunction.SkipLocalsInit,
+                // The nested scope is metadata-free like the enclosing one; carry the
+                // enclosing function's resolved type maps so an enum constant renders
+                // by member name, not a bare int (issue #2983). LocalFunctionRaisingPass
+                // merges each raised body's maps into the enclosing function, so these
+                // include the definitions this local function references.
+            };
+            function.CopyTypeFactsFrom(_function);
 
-        string pad = new(' ', indent * 4);
-        var nestedPrinter = new CSharpPrinter(
-            function,
-            _options,
-            CurrentScopeNames(),
-            _stackSlotTelemetry,
-            stackSlotTelemetryScope: localFunction,
-            decisions: _decisions,
-            decisionKeys: _decisionKeys);
-        foreach (var line in nestedPrinter.PrintBody(function).TrimEnd().Split("\n"))
-            sb.Append(pad).AppendLf(line);
+            string pad = new(' ', indent * 4);
+            var nestedPrinter = new CSharpPrinter(
+                function,
+                _options,
+                CurrentScopeNames(),
+                _stackSlotTelemetry,
+                stackSlotTelemetryScope: localFunction,
+                decisions: _decisions,
+                decisionKeys: _decisionKeys);
+            foreach (var line in nestedPrinter.PrintBody(function).TrimEnd().Split("\n"))
+                sb.Append(pad).AppendLf(line);
+        }
+        finally
+        {
+            body.Detach();
+            localFunction.ResetBody(body);
+        }
     }
 
     /// <summary>

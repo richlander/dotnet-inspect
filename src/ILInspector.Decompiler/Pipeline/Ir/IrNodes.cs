@@ -3335,6 +3335,12 @@ public sealed class LocalFunctionStatement : IrNode
 
     public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);
 
+    public void ResetBody(BlockContainer body)
+    {
+        DetachChildren();
+        AddChild(body);
+    }
+
     /// <summary>The single returned expression when the body is one block ending in a bare <c>return expr;</c>.</summary>
     public IrExpression? ExpressionBody
         => Body.Blocks is [{ Children: [Return { Value: { } value }] }] ? value : null;

@@ -179,6 +179,82 @@ public class SlotResidualCensusTests
     }
 
     [Fact]
+    public void StackSlotUnifierTelemetry_DoesNotDoubleCountNestedScopesDuringSpeculativeRendering()
+    {
+        var action = TypeRef.CoreLib("System", "Action");
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
+
+        var innerLambdaBlock = new Block();
+        innerLambdaBlock.Add(new StoreStackSlot(256, new Constant(1, i32)));
+        innerLambdaBlock.Add(new StoreStackSlot(0, new LoadStackSlot(256, i32)));
+        innerLambdaBlock.Add(new ExpressionStatement(new LoadStackSlot(0, i32)));
+        innerLambdaBlock.Add(new Return(null));
+        var innerLambdaBody = new BlockContainer();
+        innerLambdaBody.Add(innerLambdaBlock);
+        var innerLambda = new Lambda(
+            action,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            innerLambdaBody);
+
+        var localFunctionBlock = new Block();
+        localFunctionBlock.Add(new StoreLocal(0, action, innerLambda));
+        localFunctionBlock.Add(new Return(null));
+        var localFunctionBody = new BlockContainer();
+        localFunctionBody.Add(localFunctionBlock);
+        var localFunction = new LocalFunctionStatement(
+            "Local",
+            voidType,
+            [],
+            isStatic: true,
+            [action],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            localFunctionBody);
+
+        var outerLambdaBlock = new Block();
+        outerLambdaBlock.Add(localFunction);
+        outerLambdaBlock.Add(new Return(null));
+        var outerLambdaBody = new BlockContainer();
+        outerLambdaBody.Add(outerLambdaBlock);
+        var outerLambda = new Lambda(
+            action,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            outerLambdaBody);
+
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            new MethodRef(owner, "Use", voidType, [action], HasThis: false),
+            isVirtual: false,
+            [outerLambda])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+
+        Assert.Equal(2, telemetry.StoreNodes);
+        Assert.Equal(2, telemetry.LoadNodes);
+        Assert.Equal(1, telemetry.DirectCopyStores);
+        Assert.Equal(2, telemetry.DistinctSlots);
+    }
+
+    [Fact]
     public void StackSlotUnifierTelemetry_UnifiesReferenceCoalesceAtObjectTarget()
     {
         var obj = TypeRef.CoreLib("System", "Object");
