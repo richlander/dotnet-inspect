@@ -1733,11 +1733,15 @@ public class ApiCommand
         bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
+        bool sourceSectionExplicitlySelected =
+            options.IncludeSections?
+                .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]) == true;
         if (options is MemberOptions memberOptions
             && !memberOptions.MemberHasNoBody
             && (memberOptions.MemberSourceTooComplex
                 || memberOptions.MemberSourceCoordinatesInvalid
-                || (!memberOptions.MemberHasNoPdbDeclaration
+                || (sourceSectionExplicitlySelected
+                    && !memberOptions.MemberHasNoPdbDeclaration
                     && memberOptions.PdbSourceUnavailableReason is { Length: > 0 }))
             && !IsProjectionRequested(options)
             && !barePayloadRenderer

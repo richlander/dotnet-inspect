@@ -6623,6 +6623,38 @@ public partial class CommandExecutionTests
         Assert.Contains("add --print", error);
     }
 
+    [Fact]
+    public async Task Member_VerbosityIncludedComplexSourceUnderDocumentJsonFailsVisibly()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var options = new MemberOptions
+        {
+            JsonOutput = true,
+            Verbosity = Verbosity.Detailed,
+            MemberSourceTooComplex = true,
+        };
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => ApiCommand.WriteTypeOutputAsync(
+                type,
+                foundIn: null,
+                packageName: null,
+                packageVersion: null,
+                apiSource: null,
+                selectedTfm: null,
+                options));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("lexical complexity limit", error);
+    }
+
     [Theory]
     [InlineData(SectionNames.PdbSource, false, "lexical complexity limit")]
     [InlineData(SectionNames.SourceDiff, false, "lexical complexity limit")]
@@ -6788,6 +6820,37 @@ public partial class CommandExecutionTests
             Assert.Empty(printError);
             Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, printOutput);
         }
+    }
+
+    [Fact]
+    public async Task Member_VerbosityIncludedPdbSourceUnavailabilityDoesNotFailDocumentJson()
+    {
+        string assemblyPath = FixtureCatalog.DiffPair.OldAssemblyPath();
+        string[] target =
+        [
+            "member", "DiffFixtureSample.BodyStateSample", ".ctor:1",
+            "--library", assemblyPath, "--all",
+        ];
+
+        var detailed = await RunAppAsync(
+            [.. target, "--json", "-v:d", "--tips", "q"]);
+
+        Assert.Equal(0, detailed.Exit);
+        Assert.Empty(detailed.Error);
+        using (var document = JsonDocument.Parse(detailed.Output))
+        {
+            Assert.Equal(
+                "BodyStateSample",
+                document.RootElement.GetProperty("name").GetString());
+        }
+
+        var selected = await RunAppAsync(
+            [.. target, "-S", "PDB Source", "--json", "--tips", "q"]);
+
+        Assert.Equal(1, selected.Exit);
+        Assert.Empty(selected.Output);
+        Assert.Contains(ApiCommand.NoPdbSourceMappingReason, selected.Error);
+        Assert.Contains("cannot represent this code-section failure", selected.Error);
     }
 
     [Theory]
@@ -7022,6 +7085,7 @@ public partial class CommandExecutionTests
                 Path.GetFileName(assemblyDirectory),
                 Path.GetFileName(fullAssemblyPath)),
         };
+        Assert.NotEqual(fullAssemblyPath, suppliedPath);
 
         foreach (string section in new[] { SectionNames.PdbSource, SectionNames.SourceDiff })
         {
