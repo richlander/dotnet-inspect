@@ -536,6 +536,13 @@ Package source is shown only in a workspace and distinguishes a local file,
 NuGet.org, a custom feed host, and the .NET platform. Missing provenance is
 shown as `Unknown` rather than omitted so acquisition failures stay diagnosable.
 
+`src/package-bar.ts` owns the package tab strip (including the always-present
+Platform tab), the open-package query form, and their keyboard/mouse/wheel
+interaction. `app.js` supplies the workspace effects — selecting, closing, and
+opening a package or the runtime pack — so the component acquires no engine or
+workspace authority. `test/package-bar.test.js` gates tab markup, active/close
+state, escaping, and open-package query parsing.
+
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
