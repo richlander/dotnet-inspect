@@ -3134,6 +3134,51 @@ public partial class CommandExecutionTests
         Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
     }
 
+    [Theory]
+    [InlineData("String", "System.String")]
+    [InlineData("Object", "System.Object")]
+    [InlineData("Boolean", "System.Boolean")]
+    [InlineData("Void", "System.Void")]
+    public async Task Router_BareBclTypeName_IgnoresNestedSimpleNameCollisions(
+        string query,
+        string expectedType)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            query, "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains($"# {expectedType}", output);
+        Assert.DoesNotContain("## Package Info", output);
+        Assert.Contains("resolved via platform find", error);
+    }
+
+    [Fact]
+    public async Task Router_NestedPlatformTypePlusSyntax_RemainsResolvable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "JSType+String", "--markdown", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            "# System.Runtime.InteropServices.JavaScript.JSType.String",
+            output);
+        Assert.Contains("resolved via platform find", error);
+    }
+
+    [Fact]
+    public async Task Router_AmbiguousPlatformFind_ReportsAmbiguity()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "Timer", "--markdown", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Type 'Timer' matched multiple platform types.",
+            error);
+        Assert.DoesNotContain("Package 'timer'", error);
+    }
+
     [Fact]
     public async Task Router_BareGenericTypeMiss_UsesPlatformFindIfMiss()
     {
@@ -3475,6 +3520,119 @@ public partial class CommandExecutionTests
         Assert.Equal(1, deferred.Exit);
         Assert.Empty(deferred.Output);
         Assert.Contains("Field 'Kind' is not filterable", deferred.Error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeStaticDiscoveryPreservesBodyKindFilterValidation()
+    {
+        string[] arguments =
+        [
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform",
+            "System.Collections.Immutable",
+            "--where",
+            "Kind=InvocationExpression",
+            "-D",
+            "--schema",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(deferred.Output);
+        Assert.Contains("Field 'Kind' is not filterable", deferred.Error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredMemberStaticDiscoveryPreservesBodyKindQuery()
+    {
+        string[] common =
+        [
+            "--platform",
+            "System.Collections.Immutable",
+            "--where",
+            "Kind=InvocationExpression",
+            "-D",
+            "--schema",
+            "--tips",
+            "q"
+        ];
+        var direct = await RunAppAsync(
+            [
+                "member",
+                "System.Collections.Immutable.ImmutableArray<T>.Builder",
+                "-m",
+                "Add",
+                .. common
+            ]);
+        var deferred = await RunAppAsync(
+            [
+                "System.Collections.Immutable.ImmutableArray<T>.Builder.Add",
+                .. common
+            ]);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Contains("| Body Shapes | section |", deferred.Output);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeRejectsUniversallyInvalidSectionBeforeAcquisition()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+        string[] arguments =
+        [
+            "Missing.Generic<T>",
+            "--library",
+            missingAssembly,
+            "-S",
+            "DefinitelyNotASection",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(1, direct.Exit);
+        Assert.Equal(1, deferred.Exit);
+        Assert.Empty(direct.Output);
+        Assert.Empty(deferred.Output);
+        Assert.Contains("Select value 'DefinitelyNotASection' not found.", direct.Error);
+        Assert.Contains("Select value 'DefinitelyNotASection' not found.", deferred.Error);
+        Assert.DoesNotContain("File not found", deferred.Error);
+    }
+
+    [Fact]
+    public async Task Router_DeferredExactTypeReusesResolvedApiSurface()
+    {
+        string[] arguments =
+        [
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform",
+            "System.Collections.Immutable",
+            "--markdown",
+            "--verbose",
+            "--tips",
+            "q"
+        ];
+
+        var direct = await RunAppAsync(["type", .. arguments]);
+        var deferred = await RunAppAsync(arguments);
+
+        Assert.Equal(direct, deferred);
+        Assert.Equal(0, deferred.Exit);
+        Assert.Equal(
+            1,
+            deferred.Error.Split('\n').Count(
+                static line => line.Contains(
+                    "Extracting API from:",
+                    StringComparison.Ordinal)));
     }
 
     [Fact]

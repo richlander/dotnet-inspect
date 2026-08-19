@@ -31,6 +31,9 @@ public static class MemberCommand
             return 1;
         }
 
+        if (ApiCommand.RejectUniversallyInvalidDeferredSelect(options))
+            return 1;
+
         var unresolvedOptions = options;
         if (!options.RouterDeferredTypeOrMember)
         {
@@ -39,7 +42,9 @@ public static class MemberCommand
             if (error.HasValue) return error.Value;
             options = (MemberOptions)preamble.Options;
         }
-        else if (options.Discover != null && !options.EffectiveDiscovery)
+        else if (options.Discover != null
+                 && !options.EffectiveDiscovery
+                 && !options.BodyKindQuery.HasFilter)
         {
             var (_, discoveryExitCode) = ApiCommand.RunPreamble(options);
             if (discoveryExitCode.HasValue)
@@ -112,8 +117,10 @@ public static class MemberCommand
                     return 1;
                 }
 
-                return await TypeCommand.ExecuteAsync(
-                    ApiCommand.ToTypeOptions(unresolvedOptions));
+                return await TypeCommand.ExecuteResolvedAsync(
+                    ApiCommand.ToTypeOptions(unresolvedOptions),
+                    source,
+                    loaded);
             }
 
             if (lookupResult.ImpliedMember is { } impliedMember)

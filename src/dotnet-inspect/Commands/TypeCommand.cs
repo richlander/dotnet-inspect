@@ -23,7 +23,19 @@ public static class TypeCommand
 {
     public const string Name = "type";
 
-    public static async Task<int> ExecuteAsync(TypeOptions options)
+    public static Task<int> ExecuteAsync(TypeOptions options)
+        => ExecuteCoreAsync(options);
+
+    internal static Task<int> ExecuteResolvedAsync(
+        TypeOptions options,
+        ApiSourceResult source,
+        ApiServices.LoadedApiSurface loaded)
+        => ExecuteCoreAsync(options, source, loaded);
+
+    private static async Task<int> ExecuteCoreAsync(
+        TypeOptions options,
+        ApiSourceResult? resolvedSource = null,
+        ApiServices.LoadedApiSurface? loadedSurface = null)
     {
         if (!PerformanceTriageOptions.TryValidate(
                 options.PerformanceTriage,
@@ -54,11 +66,23 @@ public static class TypeCommand
             return 1;
         }
 
-        var (source, sourceError) = await ApiSourceResolver.ResolveAsync(options);
-        if (sourceError.HasValue)
+        bool ownsSource = resolvedSource is null;
+        ApiSourceResult source;
+        if (resolvedSource is null)
         {
-            NamespacePrefixHints.WriteIfLikelyBareTypeName(options.OriginalTypeQuery ?? options.PackagePath ?? options.TypeName ?? "");
-            return sourceError.Value;
+            var (acquiredSource, sourceError) =
+                await ApiSourceResolver.ResolveAsync(options);
+            if (sourceError.HasValue)
+            {
+                NamespacePrefixHints.WriteIfLikelyBareTypeName(options.OriginalTypeQuery ?? options.PackagePath ?? options.TypeName ?? "");
+                return sourceError.Value;
+            }
+
+            source = acquiredSource;
+        }
+        else
+        {
+            source = resolvedSource;
         }
 
         var searchPath = source.SearchPath;
@@ -88,21 +112,22 @@ public static class TypeCommand
             if (string.IsNullOrEmpty(typeName))
             {
                 // No type specified - list all types
-                var loaded = CanUsePlatformSummary(
-                    options,
-                    searchPath,
-                    runtimeAssemblyPath,
-                    platformFramework)
-                    ? ApiServices.LoadPlatformApiSummary(
-                        searchPath,
-                        runtimeAssemblyPath!,
-                        apiSource,
-                        apiVersion,
-                        selectedTfm,
-                        logger)
-                    : ApiServices.LoadFullApi(
-                        searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                        apiSource, apiVersion, selectedTfm, logger, options);
+                var loaded = loadedSurface
+                    ?? (CanUsePlatformSummary(
+                            options,
+                            searchPath,
+                            runtimeAssemblyPath,
+                            platformFramework)
+                        ? ApiServices.LoadPlatformApiSummary(
+                            searchPath,
+                            runtimeAssemblyPath!,
+                            apiSource,
+                            apiVersion,
+                            selectedTfm,
+                            logger)
+                        : ApiServices.LoadFullApi(
+                            searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                            apiSource, apiVersion, selectedTfm, logger, options));
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -171,9 +196,10 @@ public static class TypeCommand
             }
             else
             {
-                var loaded = ApiServices.LoadFullApi(
-                    searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                    apiSource, apiVersion, selectedTfm, logger, options);
+                var loaded = loadedSurface
+                    ?? ApiServices.LoadFullApi(
+                        searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
+                        apiSource, apiVersion, selectedTfm, logger, options);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -460,7 +486,9 @@ public static class TypeCommand
         }
         finally
         {
-            if (tempDir != null && Directory.Exists(tempDir))
+            if (ownsSource
+                && tempDir != null
+                && Directory.Exists(tempDir))
             {
                 try { Directory.Delete(tempDir, recursive: true); } catch { }
             }

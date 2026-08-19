@@ -159,7 +159,10 @@ internal static class TypeFindIfMissResolver
                 .ToList();
 
             var exactIdentityMatches = exactMatches
-                .Where(r => IsExactTypeIdentity(r.FullName, normalizedQuery))
+                .Where(r => IsExactTypeIdentity(
+                    r.FullName,
+                    r.Type,
+                    normalizedQuery))
                 .ToList();
             var candidateMatches = exactIdentityMatches.Count > 0 ? exactIdentityMatches
                 : TypeMatcher.HasExplicitGenericNotation(query!) ? []
@@ -177,19 +180,27 @@ internal static class TypeFindIfMissResolver
 
     private static bool IsExactTypeIdentity(
         string candidate,
+        string displayName,
         string normalizedQuery)
     {
-        string normalizedCandidate =
-            FqnParser.NormalizeTypeName(candidate).Replace('+', '.');
-        normalizedQuery = normalizedQuery.Replace('+', '.');
-        return normalizedCandidate.Equals(
-                   normalizedQuery,
+        if (!normalizedQuery.Contains('.', StringComparison.Ordinal)
+            && !normalizedQuery.Contains('+', StringComparison.Ordinal)
+            && displayName.Contains('.', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string normalizedCandidate = FqnParser.NormalizeTypeName(candidate);
+        string flattenedCandidate = normalizedCandidate.Replace('+', '.');
+        string flattenedQuery = normalizedQuery.Replace('+', '.');
+        return flattenedCandidate.Equals(
+                   flattenedQuery,
                    StringComparison.OrdinalIgnoreCase)
-               || (normalizedCandidate.Length > normalizedQuery.Length
+               || (flattenedCandidate.Length > flattenedQuery.Length
                    && normalizedCandidate[
-                       normalizedCandidate.Length - normalizedQuery.Length - 1] == '.'
-                   && normalizedCandidate.EndsWith(
-                       normalizedQuery,
+                       normalizedCandidate.Length - flattenedQuery.Length - 1] == '.'
+                   && flattenedCandidate.EndsWith(
+                       flattenedQuery,
                        StringComparison.OrdinalIgnoreCase));
     }
 

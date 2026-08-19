@@ -125,6 +125,59 @@ public class ApiCommand
         };
     }
 
+    internal static bool RejectUniversallyInvalidDeferredSelect(
+        MemberOptions options)
+    {
+        if (!options.RouterDeferredTypeOrMember
+            || options.Discover is not null
+            || options.Select is not { Length: > 0 })
+        {
+            return false;
+        }
+
+        var listingPipeline = ApiTypeSectionDescriptors.CreatePipeline();
+        var memberPipelines = new[]
+        {
+            ApiMemberSectionDescriptors.CreatePipeline(),
+            ApiMemberOverloadSectionDescriptors.CreatePipeline(),
+            ApiMemberDetailSectionDescriptors.CreatePipeline(),
+        };
+        var knownSections = listingPipeline.SelectableSectionNames
+            .Concat(memberPipelines.SelectMany(
+                static pipeline => pipeline.SelectableSectionNames))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        Dictionary<string, string[]> categories =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        AddCategories(listingPipeline.GetCategoryMap());
+        foreach (var pipeline in memberPipelines)
+            AddCategories(pipeline.GetCategoryMap());
+
+        var result = SelectResolver.ResolveSelectAsSections(
+            options.Select,
+            knownSections,
+            infoSections: [],
+            categories,
+            selectDefault: false);
+        return SelectOutput.WriteUnresolved(result);
+
+        void AddCategories(
+            IReadOnlyDictionary<string, string[]> additions)
+        {
+            foreach (var (name, sections) in additions)
+            {
+                categories[name] = categories.TryGetValue(
+                    name,
+                    out var existing)
+                    ? existing.Concat(sections)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray()
+                    : sections;
+            }
+        }
+    }
+
     /// <summary>
     /// True when bare <c>-S</c> was requested, carries no explicit section values to fall back on,
     /// and the pipeline publishes no overview sections -- the state that would otherwise render the

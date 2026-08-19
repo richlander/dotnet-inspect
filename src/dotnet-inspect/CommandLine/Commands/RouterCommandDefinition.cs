@@ -419,6 +419,11 @@ public static class RouterCommandDefinition
                 CommandError.WriteNote($"Type '{target}' resolved via platform find to {match.FullName} in {match.Library}.");
                 return ["type", match.FullName, "--platform", match.Library, .. FrameworkArgs(match.Source), .. tail];
             }
+            if (typeFind.Status == TypeFindIfMissStatus.Ambiguous)
+            {
+                typeFind.WriteAmbiguousError();
+                return tokens;
+            }
 
             if (platformLookupFailure is not null)
             {
