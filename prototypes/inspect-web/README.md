@@ -411,22 +411,27 @@ lists them.
 
 ## Annotated source
 
-`src/annotated-source-view.ts` and its tests are the browser half of the [#3964]
-portable `AnnotatedSourceDocument` contract, and `QueryMemberAnnotatedSource` now
-feeds it a real document.
+`src/annotated-source-view.ts`, `src/annotated-source-explorer.ts`, and their
+tests are the browser half of the [#3964] portable `AnnotatedSourceDocument`
+contract, and `QueryMemberAnnotatedSource` feeds them a real document.
 
 The viewer reuses the owner's module rather than copying it.
 `prototypes/annotated-source-viewer/src/document-model.js` owns validation,
 UTF-16 coordinates, line derivation, segmentation, and the fact → target → node →
 span walk. `src/document-model.js` here re-exports that owner for Vite and the
 Node tests; Vite bundles the shared implementation into the deployable browser
-artifact. On top of it the typed view module adds only selection state:
-canonical lines, C#/IL medium toggles that hide lines without rebasing a
-coordinate, fact selection that highlights every targeted node across both
-media without selecting the text between one node's separated spans,
-click-to-tightest-node, explicitly unanchored facts, and a copy action that
-copies `document.text` so the copied artifact is source and never annotations.
-A payload the model rejects is reported as rejected, not rendered.
+artifact. On top of it the typed view module adds selection state. The member
+tab is a compact hand-off into a full-screen TypeScript explorer, following the
+Metadata explorer's full-bleed interaction model without creating a second
+site or URL. The explorer renders canonical lines beside anchored and
+explicitly unanchored facts; supports C#/IL visibility, fact, exact-node, and
+node-kind selection; and follows clicks to the tightest structural node.
+Selection highlights every targeted node across both media without selecting
+the text between one node's separated spans. Its copy action copies
+`document.text`, so the copied artifact is source and never annotations.
+`test/annotated-source-explorer.test.js` gates the hand-off, selection reducer,
+media floor, escaping, and rejected-document behavior. A payload the model
+rejects is reported as rejected, not rendered.
 
 ## Run
 

@@ -44,7 +44,12 @@ import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
 } from "./graph-mermaid.js";
-import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.ts";
+import {
+  createAnnotatedSourceExplorerState,
+  reduceAnnotatedSourceExplorerState,
+  renderAnnotatedSourceEntry,
+  renderAnnotatedSourceExplorer as renderAnnotatedSourceExplorerMarkup,
+} from "/src/annotated-source-explorer.ts";
 import { createCommandBar } from "/src/command-bar.ts";
 import {
   renderMemberNav,
@@ -237,6 +242,7 @@ const state = {
   memberAnnotatedMedia: { CSharp: true, Il: true },
   memberAnnotatedFactId: null,
   memberAnnotatedNodeIds: [],
+  annotatedExplorer: null,
   typeSource: null,
   typeSourceLoading: false,
   typeSourceError: "",
@@ -1069,6 +1075,7 @@ function resetMemberSectionState() {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
+  state.annotatedExplorer = null;
   state.selectedBodyTarget = null;
 }
 
@@ -1260,6 +1267,11 @@ function render() {
   if (state.explorer?.open) {
     loadingBotSrc = null;
     renderMetadataExplorer();
+    return;
+  }
+  if (state.annotatedExplorer) {
+    loadingBotSrc = null;
+    renderAnnotatedSourceExplorer();
     return;
   }
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
@@ -3399,54 +3411,136 @@ function renderMember(type, member) {
   return content;
 }
 
-// The annotated section renders the product's portable AnnotatedSourceDocument directly: canonical
-// lines from its text buffer, structural segments from its nodes, and the fact -> target -> node ->
-// span walk it defines. Coordinates, validation, and segmentation belong to document-model.js.
 function renderAnnotatedSource(result) {
-  let view;
   try {
-    view = buildAnnotatedView(result.document, {
-      media: state.memberAnnotatedMedia,
-      selectedFactId: state.memberAnnotatedFactId,
-      selectedNodeIds: state.memberAnnotatedNodeIds
+    return renderAnnotatedSourceEntry({
+      result,
+      escapeHtml,
     });
   } catch (error) {
     return `<section class="document-section empty-member-section"><h2>Annotated source document rejected</h2><p>${escapeHtml(String(error?.message || error))}</p></section>`;
   }
+}
 
-  const toggles = MEDIA.map(medium =>
-    `<button type="button" class="annotated-medium${view.media[medium] ? " on" : ""}" data-annotated-medium="${medium}" aria-pressed="${view.media[medium]}">${escapeHtml(MEDIUM_LABELS[medium])}</button>`).join("");
+function annotatedSourceExplorerContext() {
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  if (!type || !member || !overload || !state.memberAnnotated) return null;
+  return {
+    result: state.memberAnnotated,
+    title: `${typeDisplayName(type)}.${member.name}`,
+    subtitle: overload.signature,
+  };
+}
 
-  const lines = view.lines.map(line => {
-    const segments = line.segments.map(segment =>
-      `<span class="annotated-span${segment.selected ? " selected" : ""}" data-annotated-offset="${segment.start}">${escapeHtml(segment.text)}</span>`).join("");
-    return `<div class="annotated-line medium-${line.medium.toLowerCase()}"><span class="annotated-line-number">${line.number}</span><span class="annotated-line-text">${segments || "&nbsp;"}</span></div>`;
-  }).join("");
+function openAnnotatedSourceExplorer() {
+  if (!annotatedSourceExplorerContext()) return;
+  state.annotatedExplorer = createAnnotatedSourceExplorerState({
+    media: state.memberAnnotatedMedia,
+    selectedFactId: state.memberAnnotatedFactId,
+    selectedNodeIds: state.memberAnnotatedNodeIds,
+  });
+  render();
+  requestAnimationFrame(() => document.querySelector("#ase-exit")?.focus());
+}
 
-  const facts = view.facts.length === 0
-    ? `<li class="annotated-fact empty">No facts were observed about this member.</li>`
-    : view.facts.map(fact =>
-      `<li><button type="button" class="annotated-fact${fact.selected ? " selected" : ""}${fact.anchored ? "" : " unanchored"}" data-annotated-fact="${fact.id}">
-          <span class="annotated-fact-descriptor">${escapeHtml(fact.descriptor)}</span>
-          <span class="annotated-fact-category">${escapeHtml(fact.category)}</span>
-          ${fact.detail ? `<span class="annotated-fact-detail">${escapeHtml(fact.detail)}</span>` : ""}
-          <span class="annotated-fact-conditionality">${escapeHtml(fact.conditionality)}</span>
-          <span class="annotated-fact-anchor">${fact.anchored ? `${fact.nodeIds.length} target${fact.nodeIds.length === 1 ? "" : "s"}` : "unanchored"}</span>
-        </button></li>`).join("");
+function closeAnnotatedSourceExplorer() {
+  if (!state.annotatedExplorer) return;
+  state.memberAnnotatedMedia = { ...state.annotatedExplorer.media };
+  state.memberAnnotatedFactId = state.annotatedExplorer.selectedFactId;
+  state.memberAnnotatedNodeIds = [...state.annotatedExplorer.selectedNodeIds];
+  state.annotatedExplorer = null;
+  render();
+  requestAnimationFrame(() => document.querySelector("#open-annotated-explorer")?.focus());
+}
 
-  return `<section class="document-section source-result annotated-result">
-      <div class="source-provenance"><strong>Annotated source</strong><span>${escapeHtml(result.provenance)}</span><button id="copy-annotated" type="button">copy</button></div>
-      ${result.contextLimitation ? `<p class="annotated-limitation">The whole-assembly fact context was narrowed, so this fact list is incomplete: ${escapeHtml(result.contextLimitation)}</p>` : ""}
-      <div class="annotated-controls">
-        <span class="annotated-controls-label">show</span>${toggles}
-        ${view.hiddenLines > 0 ? `<span class="annotated-hidden">${view.hiddenLines} line${view.hiddenLines === 1 ? "" : "s"} hidden</span>` : ""}
-        ${view.selectedFactId !== null || view.selectedNodeIds.length > 0 ? `<button type="button" id="annotated-clear">clear selection</button>` : ""}
-      </div>
-      <div class="annotated-body">
-        <pre class="annotated-text"><code>${lines}</code></pre>
-        <ol class="annotated-facts">${facts}</ol>
-      </div>
-    </section>`;
+function renderAnnotatedSourceExplorer() {
+  const context = annotatedSourceExplorerContext();
+  if (!context || !state.annotatedExplorer) {
+    state.annotatedExplorer = null;
+    render();
+    return;
+  }
+
+  try {
+    app.innerHTML = renderAnnotatedSourceExplorerMarkup({
+      ...context,
+      state: state.annotatedExplorer,
+      escapeHtml,
+    });
+  } catch (error) {
+    app.innerHTML = `<div class="annotated-explorer" role="dialog" aria-modal="true" aria-label="Annotated source explorer">
+      <header class="ase-bar"><button id="ase-exit" class="ase-exit" type="button">✕ Exit</button><div class="ase-title"><strong>Annotated source document rejected</strong><span>${escapeHtml(context.title)}</span></div></header>
+      <section class="ase-failure"><h2>The portable document could not be rendered.</h2><p>${escapeHtml(String(error?.message || error))}</p></section>
+    </div>`;
+  }
+  bindAnnotatedSourceExplorerEvents();
+}
+
+function updateAnnotatedSourceExplorer(action, revealTarget = false) {
+  if (!state.annotatedExplorer || !state.memberAnnotated) return;
+  const codeScroll = document.querySelector(".ase-code-scroll")?.scrollTop ?? 0;
+  const inspectorScroll = document.querySelector(".ase-inspector")?.scrollTop ?? 0;
+  state.annotatedExplorer = reduceAnnotatedSourceExplorerState(
+    state.memberAnnotated.document,
+    state.annotatedExplorer,
+    action);
+  render();
+  requestAnimationFrame(() => {
+    const code = document.querySelector(".ase-code-scroll");
+    const inspector = document.querySelector(".ase-inspector");
+    if (code) code.scrollTop = codeScroll;
+    if (inspector) inspector.scrollTop = inspectorScroll;
+    if (revealTarget) {
+      document.querySelector(".annotated-span.selected")?.scrollIntoView({
+        block: "center",
+        inline: "nearest",
+      });
+    }
+  });
+}
+
+function bindAnnotatedSourceExplorerEvents() {
+  document.querySelector("#ase-exit")?.addEventListener("click", closeAnnotatedSourceExplorer);
+  document.querySelector("#ase-copy")?.addEventListener("click", async () => {
+    if (state.memberAnnotated) {
+      await copyText(state.memberAnnotated.document.text, "annotated source copied");
+    }
+  });
+  document.querySelectorAll("[data-ase-medium]").forEach(button => button.addEventListener("click", () => {
+    updateAnnotatedSourceExplorer({
+      type: "toggle-medium",
+      medium: button.dataset.aseMedium,
+    });
+  }));
+  document.querySelector("#ase-node-kind")?.addEventListener("change", event => {
+    updateAnnotatedSourceExplorer({
+      type: "select-kind",
+      kind: event.currentTarget.value,
+    }, Boolean(event.currentTarget.value));
+  });
+  document.querySelectorAll("[data-ase-fact]").forEach(button => button.addEventListener("click", () => {
+    updateAnnotatedSourceExplorer({
+      type: "select-fact",
+      factId: Number(button.dataset.aseFact),
+    }, true);
+  }));
+  document.querySelectorAll("[data-ase-node]").forEach(button => button.addEventListener("click", () => {
+    updateAnnotatedSourceExplorer({
+      type: "select-node",
+      nodeId: Number(button.dataset.aseNode),
+    }, true);
+  }));
+  document.querySelectorAll("[data-ase-offset]").forEach(span => span.addEventListener("click", () => {
+    updateAnnotatedSourceExplorer({
+      type: "select-offset",
+      offset: Number(span.dataset.aseOffset),
+    });
+  }));
+  document.querySelector("#ase-clear")?.addEventListener("click", () => {
+    updateAnnotatedSourceExplorer({ type: "clear-selection" });
+  });
 }
 
 function renderMemberFacts(type, member, overload, overloadIndex) {
@@ -3753,35 +3847,7 @@ function bindEvents() {
   document.querySelector("#copy-annotated")?.addEventListener("click", async () => {
     if (state.memberAnnotated) await copyText(state.memberAnnotated.document.text, "annotated source copied");
   });
-  document.querySelectorAll("[data-annotated-medium]").forEach(button => button.addEventListener("click", () => {
-    const medium = button.dataset.annotatedMedium;
-    const next = { ...state.memberAnnotatedMedia, [medium]: !state.memberAnnotatedMedia[medium] };
-    // Both media off would render an empty document that looks like an empty result.
-    if (!MEDIA.some(candidate => next[candidate])) return;
-    state.memberAnnotatedMedia = next;
-    render();
-  }));
-  document.querySelectorAll("[data-annotated-fact]").forEach(button => button.addEventListener("click", () => {
-    const factId = Number(button.dataset.annotatedFact);
-    state.memberAnnotatedFactId = state.memberAnnotatedFactId === factId ? null : factId;
-    state.memberAnnotatedNodeIds = [];
-    render();
-  }));
-  document.querySelectorAll("[data-annotated-offset]").forEach(span => span.addEventListener("click", () => {
-    if (!state.memberAnnotated) return;
-    const node = nodeAtOffset(state.memberAnnotated.document, Number(span.dataset.annotatedOffset));
-    state.memberAnnotatedFactId = null;
-    state.memberAnnotatedNodeIds = node ? [node.id] : [];
-    // Selecting the text a fact is about also selects that fact when exactly one owns the node.
-    const owning = node ? factsForNode(state.memberAnnotated.document, node.id) : [];
-    if (owning.length === 1) state.memberAnnotatedFactId = owning[0].id;
-    render();
-  }));
-  document.querySelector("#annotated-clear")?.addEventListener("click", () => {
-    state.memberAnnotatedFactId = null;
-    state.memberAnnotatedNodeIds = [];
-    render();
-  });
+  document.querySelector("#open-annotated-explorer")?.addEventListener("click", openAnnotatedSourceExplorer);
   document.querySelector("#copy-type-source")?.addEventListener("click", async () => {
     if (state.typeSource) await copyText(state.typeSource.text, "source copied");
   });
@@ -5779,6 +5845,7 @@ async function loadSelectedMemberAnnotatedSource() {
   state.memberAnnotatedError = "";
   state.memberAnnotatedFactId = null;
   state.memberAnnotatedNodeIds = [];
+  state.annotatedExplorer = null;
   render();
   try {
     const result = await inspectMemberAnnotatedSource({
@@ -7033,6 +7100,7 @@ function invalidateSourceCaches() {
   state.memberAnnotatedError = "";
   state.memberAnnotatedFactId = null;
   state.memberAnnotatedNodeIds = [];
+  state.annotatedExplorer = null;
 }
 
 function reloadVisibleSource() {
@@ -7926,6 +7994,13 @@ function fmtBytes(bytes) {
 }
 
 document.addEventListener("keydown", event => {
+  if (state.annotatedExplorer) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeAnnotatedSourceExplorer();
+    }
+    return;
+  }
   // The Metadata Explorer is a full-screen modal-style view. Escape zooms the focus lightbox
   // out to the all-tables wall, then (from the wall) exits to the Metadata page. Backspace walks
   // the ref->def history (Shift+Backspace forward).
