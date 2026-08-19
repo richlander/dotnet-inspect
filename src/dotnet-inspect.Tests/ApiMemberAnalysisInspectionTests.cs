@@ -138,6 +138,35 @@ public class ApiMemberAnalysisInspectionTests
     }
 
     [Fact]
+    public void CallGraphColumns_DoNotEnableScopedGraphOpportunities()
+    {
+        var inspection = new ApiMemberAnalysisInspection(
+            SelfPath,
+            [],
+            new HashSet<string> { SectionNames.CallGraph },
+            [CliPath],
+            new MemberOptions
+            {
+                Columns = ["A*"],
+            });
+        int root = TokenOf(
+            SelfPath,
+            nameof(MemberCallGraphFixture),
+            nameof(MemberCallGraphFixture.CrossAssemblyAsyncAlternative));
+
+        _ = inspection.BuildCallGraph(root);
+        ILInspector.Analysis.LibraryBodyIndex cliIndex =
+            inspection.CallGraphBodyIndexes.Single(index =>
+                index.DeclaredMethods.Any(method =>
+                    method.DeclaringType.Name == nameof(DiffCommand)));
+
+        Assert.True(inspection.HasCallGraphFieldProjection);
+        Assert.Empty(inspection.CallGraphFields);
+        Assert.False(inspection.IncludesCallGraphOpportunities);
+        Assert.Empty(cliIndex.OptimizationOpportunities);
+    }
+
+    [Fact]
     public void CallerScopes_VersionSkewKeepsTheCallerForGraphDiagnostics()
     {
         string targetV2 =

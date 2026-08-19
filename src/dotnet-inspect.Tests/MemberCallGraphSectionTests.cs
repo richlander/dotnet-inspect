@@ -367,6 +367,29 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_ColumnsDoNotProjectGraphFields()
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.AllocCall)],
+            IncludeSections =
+                [SectionNames.CallGraph, SectionNames.AllocationFacts],
+            Columns = ["Allocation Kind"],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.True(result.ExitCode == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Contains("## Allocation Facts", result.Output);
+        Assert.DoesNotContain("## Call Graph", result.Output);
+        Assert.DoesNotContain("alloc 1", result.Output);
+        Assert.DoesNotContain("fanout", result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_ProjectsAllocationAndCopySignals()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions

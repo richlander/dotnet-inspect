@@ -61,11 +61,8 @@ internal sealed class ApiMemberAnalysisInspection
         {
             _hasCallGraphFieldProjection = true;
             _includeAllocations = true;
-            IReadOnlyList<string> fields =
-                options?.Fields is { Length: > 0 } requestedFields
-                    ? requestedFields
-                    : options?.Columns ?? [];
-            _callGraphFields = CallGraphFieldSelection.Resolve(fields);
+            _callGraphFields = CallGraphFieldSelection.Resolve(
+                options?.Fields ?? []);
             _includeGraphOpportunities = _callGraphFields.Contains(
                 CallGraphField.AsyncAlternatives);
             if (_includeGraphOpportunities)

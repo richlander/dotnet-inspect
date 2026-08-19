@@ -41,9 +41,9 @@ internal static class CallGraphSectionAdapter
     /// selection.
     /// </param>
     /// <param name="hasFieldProjection">
-    /// Whether the command has an explicit field projection. An empty
-    /// <paramref name="requestedFields"/> then means the projection matched
-    /// another selected section, not that default graph cues were requested.
+    /// Whether the command has an explicit field or column projection. An
+    /// empty <paramref name="requestedFields"/> then means the projection did
+    /// not request graph fields, not that default graph cues were requested.
     /// </param>
     public static Markout.Graph ToGraph(
         CallGraphProjection projection,

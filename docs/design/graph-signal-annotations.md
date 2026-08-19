@@ -100,6 +100,12 @@ section does not restore Call Graph's default cues;
 `CallGraphSection_DoesNotDefaultCuesForAnotherSectionsField` gates that
 distinction.
 
+`--columns` remains a tabular projection. Supplying it still makes the request
+explicit, so Call Graph does not restore default cues, but column patterns never
+resolve graph fields or authorize opportunity analysis.
+`CallGraphColumns_DoNotEnableScopedGraphOpportunities` and
+`CallGraphSection_ColumnsDoNotProjectGraphFields` gate that boundary.
+
 Opportunity analysis in cross-assembly graph scope sessions is enabled only
 when the resolved graph fields include `Async` / `AsyncAlternatives`.
 Selecting `Performance Triage` alongside an unprojected Call Graph enables the
