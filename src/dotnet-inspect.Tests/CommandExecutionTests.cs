@@ -21548,6 +21548,80 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageCommand_AllLibraries_CountOutputFile_PreservesLineWindowsAndInfoMetrics()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            foreach (string[] lineWindow in new[]
+                     {
+                         new[] { "-n", "1" },
+                         ["-n", "1", "--tail"]
+                     })
+            {
+                string outputPath = Path.Combine(
+                    tempDir,
+                    lineWindow.Contains("--tail") ? "count-tail.jsonl" : "count-head.jsonl");
+                var baseline = await RunAppInDirectoryAsync(
+                    tempDir,
+                    [
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "-S",
+                        "@Library",
+                        "--count",
+                        "--jsonl",
+                        "--info",
+                        .. lineWindow
+                    ]);
+                var redirected = await RunAppInDirectoryAsync(
+                    tempDir,
+                    [
+                        "package",
+                        packagePath,
+                        "--all-libraries",
+                        "-S",
+                        "@Library",
+                        "--count",
+                        "--jsonl",
+                        "--info",
+                        .. lineWindow,
+                        "--out",
+                        outputPath
+                    ]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(1, baseline.Output.Count(character => character == '\n'));
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+                Assert.DoesNotContain('\r', File.ReadAllText(outputPath));
+                Assert.False(
+                    File.ReadAllBytes(outputPath)
+                        .AsSpan()
+                        .StartsWith(Encoding.UTF8.GetPreamble()));
+
+                static string OutputMetric(string error) =>
+                    SplitOutputLines(error).Single(line =>
+                        line.StartsWith("| Output |", StringComparison.Ordinal));
+
+                Assert.Equal(
+                    OutputMetric(baseline.Error),
+                    OutputMetric(redirected.Error));
+                Assert.DoesNotContain(
+                    "| Output | 0 B |",
+                    redirected.Error,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_EmptyOutput_TruncatesAndValidatesOutputFile()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();

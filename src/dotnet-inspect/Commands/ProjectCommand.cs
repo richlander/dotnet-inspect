@@ -347,7 +347,7 @@ public class ProjectCommand
         var visibleRows = RowWindow.Apply(options.Rows, rows);
         if (options.Count)
         {
-            CountOutput.WriteCount(visibleRows.Count, options.OutputPath);
+            CountOutput.WriteCount(visibleRows.Count, options.OutputPath, options.Rows);
             return 0;
         }
 

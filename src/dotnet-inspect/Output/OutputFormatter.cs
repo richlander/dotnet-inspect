@@ -475,7 +475,7 @@ public static class OutputFormatter
                 auditView, inspection, writerOpts, options.Rows, options.Fields, options.Columns);
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
             CountOutput.Write(
-                projection, ordered, options.Format, options.NoHeader, options.OutputPath);
+                projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
             return;
         }
 
@@ -691,7 +691,7 @@ public static class OutputFormatter
             }
             var ordered = ResolveCountMapSections(pipeline, options.IncludeSections, options.FixedOverview);
             CountOutput.Write(
-                projection, ordered, options.Format, options.NoHeader, options.OutputPath);
+                projection, ordered, options.Format, options.NoHeader, options.OutputPath, options.Rows);
             return;
         }
 

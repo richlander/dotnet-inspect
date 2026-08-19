@@ -73,7 +73,7 @@ public static class LensProjection
                 return true;
             }
 
-            CountOutput.WriteCount(rowCount, options.OutputPath);
+            CountOutput.WriteCount(rowCount, options.OutputPath, options.Rows);
             return true;
         }
 

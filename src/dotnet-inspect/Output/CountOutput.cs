@@ -83,25 +83,34 @@ public static class CountOutput
     /// Writes a count to <paramref name="outputPath"/>, or to stdout when it is null. A count is
     /// still the command's payload, so --out has to apply to it as it does to a full render.
     /// </summary>
-    public static void WriteCount(int count, string? outputPath)
+    public static void WriteCount(
+        int count,
+        string? outputPath,
+        RowWindow? rows = null)
     {
         // Invariant: a count is machine-readable output, so it must not pick up
         // culture-specific digits or grouping from the ambient locale.
-        WriteCountResult(count.ToString(CultureInfo.InvariantCulture), outputPath);
+        WriteCountResult(
+            count.ToString(CultureInfo.InvariantCulture),
+            outputPath,
+            rows);
     }
 
     /// <summary>
     /// Writes an already-rendered scalar or structured count to <paramref name="outputPath"/>,
     /// or to stdout when it is null.
     /// </summary>
-    public static void WriteCountResult(string result, string? outputPath)
+    public static void WriteCountResult(
+        string result,
+        string? outputPath,
+        RowWindow? rows = null)
     {
         ProjectionAudit.MarkHonored(ProjectionAudit.Count);
         var text = result.TrimEnd('\r', '\n') + '\n';
-        if (string.IsNullOrEmpty(outputPath))
-            Console.Write(text);
-        else
-            File.WriteAllText(outputPath, text);
+        OutputDestination.Write(
+            outputPath,
+            rows,
+            writer => writer.Write(text));
     }
 
     internal static string Render(
@@ -118,8 +127,12 @@ public static class CountOutput
         IReadOnlyList<string>? orderedSections,
         OutputFormat format,
         bool noHeader = false,
-        string? outputPath = null)
-        => WriteCountResult(Render(projection, orderedSections, format, noHeader), outputPath);
+        string? outputPath = null,
+        RowWindow? rows = null)
+        => WriteCountResult(
+            Render(projection, orderedSections, format, noHeader),
+            outputPath,
+            rows);
 
     internal static bool TryWriteProjected<T>(
         T value,
@@ -139,7 +152,12 @@ public static class CountOutput
         writerOptions.IncludeSections = [section];
         writerOptions.RowWindow = RowWindow.ToMarkout(rows);
         var projection = CountProjectionFormatter.Capture(value, context, writerOptions);
-        Write(projection, orderedSections: null, OutputFormat.Markdown, outputPath: outputPath);
+        Write(
+            projection,
+            orderedSections: null,
+            OutputFormat.Markdown,
+            outputPath: outputPath,
+            rows: rows);
         return true;
     }
 
