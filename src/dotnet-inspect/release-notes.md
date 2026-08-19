@@ -30,7 +30,8 @@
   SourceLink origin evidence do not independently prove build provenance.
   Both old spellings remain accepted as hidden compatibility aliases. The
   Implementation Diff `Mechanism` row value likewise changes from `Source` to
-  `PDB Source` in table, TSV, and JSONL output (#4381).
+  `PDB Source` in Markdown, `--table`, `--tsv`, `--jsonl`, and `--json` output
+  (#4381).
 
 ### NuGet acquisition
 
