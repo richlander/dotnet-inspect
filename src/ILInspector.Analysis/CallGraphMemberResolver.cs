@@ -450,7 +450,7 @@ public static class CallGraphMemberResolver
 
     static string NamedTypeIdentity(
         TypeRef type,
-        bool preserveExactIdentity)
+        bool structural)
     {
         if (type.Assembly == TypeRef.CoreLibrary
             && type.Namespace == "System"
@@ -464,7 +464,7 @@ public static class CallGraphMemberResolver
             string exactTypeName = string.Join(
                 '.',
                 exactName.Segments.Select(
-                    segment => preserveExactIdentity
+                    segment => structural
                         ? EscapeIdentitySegment(
                             segment,
                             escapeGenericParameterMarker:
@@ -472,7 +472,7 @@ public static class CallGraphMemberResolver
                         : StripArity(segment)));
             return exactName.Namespace.Length == 0
                 ? exactTypeName
-                : preserveExactIdentity
+                : structural
                     ? $"{EscapeIdentityNamespace(exactName.Namespace)}.{exactTypeName}"
                     : $"{exactName.Namespace}.{exactTypeName}";
         }
