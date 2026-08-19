@@ -237,7 +237,8 @@ public class CandidateLookupTests
                 otherBuildTriage
             ]);
 
-        Assert.True(library.SupersededByTriage);
+        Assert.True(library.ProjectedByTriage);
+        Assert.False(library.SupersededByTriage);
         Assert.Empty(
             lookup.FindByTokenOffset(
                 0x06000003,
@@ -250,6 +251,113 @@ public class CandidateLookupTests
                 .Select(static candidate =>
                     candidate.Id)
                 .Order());
+    }
+
+    [Fact]
+    public void Create_DoesNotProjectAcrossAssemblies()
+    {
+        var library = Candidate(
+            id: 1,
+            methodToken: 0x06000003,
+            ilOffset: 0x0010,
+            assemblyName: "AssemblyA");
+        var triage = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            assemblyName: "AssemblyB",
+            evidenceMethodToken: 0x06000003,
+            source: "triage");
+
+        var lookup = CandidateLookup.Create(
+            [library, triage]);
+
+        Assert.False(library.ProjectedByTriage);
+        Assert.False(library.SupersededByTriage);
+        Assert.Empty(
+            lookup.FindByTokenOffset(
+                0x06000003,
+                0x0010));
+        Assert.Equal(
+            [library.Id, triage.Id],
+            lookup.FindRejectedByTokenOffset(
+                    0x06000003,
+                    0x0010)
+                .Select(static candidate =>
+                    candidate.Id)
+                .Order());
+    }
+
+    [Fact]
+    public void AttributeBytes_IsStableAndRotatesRemainders()
+    {
+        var objectRow = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            kind: "Object");
+        var delegateRow = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            kind: "Delegate");
+        var lookup = CandidateLookup.Create(
+            [objectRow, delegateRow]);
+
+        var first = lookup.AttributeBytes(
+            [objectRow, delegateRow],
+            1);
+        var second = lookup.AttributeBytes(
+            [delegateRow, objectRow],
+            1);
+
+        Assert.Equal(
+            1,
+            first.Values.Sum());
+        Assert.Equal(
+            1,
+            second.Values.Sum());
+        Assert.Equal(
+            1,
+            first[objectRow.Id]
+                + second[objectRow.Id]);
+        Assert.Equal(
+            1,
+            first[delegateRow.Id]
+                + second[delegateRow.Id]);
+
+        var reversedObject = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            kind: "Object");
+        var reversedDelegate = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            kind: "Delegate");
+        var reversedLookup =
+            CandidateLookup.Create(
+                [
+                    reversedDelegate,
+                    reversedObject
+                ]);
+        var reorderedFirst =
+            reversedLookup.AttributeBytes(
+                [
+                    reversedObject,
+                    reversedDelegate
+                ],
+                1);
+
+        Assert.Equal(
+            first[objectRow.Id],
+            reorderedFirst[
+                reversedObject.Id]);
+        Assert.Equal(
+            first[delegateRow.Id],
+            reorderedFirst[
+                reversedDelegate.Id]);
     }
 
     [Fact]

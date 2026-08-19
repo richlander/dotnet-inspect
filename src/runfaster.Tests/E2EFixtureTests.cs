@@ -705,7 +705,7 @@ public class E2EFixtureTests
                     triage.GetProperty(
                         "runtimeBytes").GetInt64());
                 Assert.Equal(
-                    "superseded-by-triage",
+                    "cold-for-this-workload",
                     library.GetProperty(
                         "status").GetString());
             }
@@ -763,6 +763,76 @@ public class E2EFixtureTests
             File.Delete(triagePath);
             File.Delete(logPath);
             File.Delete(speedscopePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_ProjectedColdSiteRemainsWorkloadCold()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var method =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "AllocateTwo",
+                BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(method);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    method.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.AllocateTwo()","assembly":"{{{occurrence.Method.AssemblyName}}}","module_version_id":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{method.MetadataToken:X8}}}","shape":"object-allocation","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.String"}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            var rows = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .Where(candidate =>
+                    candidate.GetProperty(
+                        "method").GetString()!
+                        .EndsWith(
+                            ".AllocateTwo()",
+                            StringComparison.Ordinal))
+                .ToArray();
+            Assert.Equal(2, rows.Length);
+            Assert.All(
+                rows,
+                candidate =>
+                {
+                    Assert.Equal(
+                        "cold-for-this-workload",
+                        candidate.GetProperty(
+                            "status").GetString());
+                    Assert.False(
+                        candidate.TryGetProperty(
+                            "multiplicityCheck",
+                            out _));
+                });
+        }
+        finally
+        {
+            File.Delete(triagePath);
         }
     }
 
@@ -937,6 +1007,57 @@ public class E2EFixtureTests
                         candidate.GetProperty(
                             "status").GetString());
                 });
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_RejectedCoordinateDoesNotFallBackToAnotherSite()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"objects":[{"member":"Fixture.Type.M()","assembly":"Fixture","module_version_id":"11111111-1111-1111-1111-111111111111","method_token":"0x06000001","evidence_method":"0x06000003","shape":"object-allocation","il":"IL_0005","allocation":"System.Object"},{"member":"Fixture.Type.M()","assembly":"Fixture","module_version_id":"22222222-2222-2222-2222-222222222222","method_token":"0x06000002","evidence_method":"0x06000003","shape":"object-allocation","il":"IL_0005","allocation":"System.Object"},{"member":"Fixture.Type.M()","assembly":"Fixture","method_token":"0x06000004","evidence_method":"0x06000004","shape":"object-allocation","il":"IL_0009","allocation":"System.String"}]}}
+                """);
+            File.WriteAllText(
+                logPath,
+                "0x06000003+0005 Fixture.Type.M() 512 bytes");
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            Assert.Equal(
+                0,
+                output.RootElement.GetProperty(
+                    "observedCandidates").GetInt32());
+            Assert.All(
+                output.RootElement.GetProperty(
+                    "candidates").EnumerateArray(),
+                candidate =>
+                    Assert.Equal(
+                        0,
+                        candidate.GetProperty(
+                            "runtimeBytes").GetInt64()));
         }
         finally
         {
