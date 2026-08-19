@@ -640,6 +640,36 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void CSharpOperatorDeclaration_RejectsObjectConversions()
+    {
+        using var toObject = OperatorImage.Build(builder =>
+        {
+            var method = builder.DefineMethod(
+                "op_Explicit",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                typeof(object),
+                [builder]);
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Ret);
+        });
+        using var fromObject = OperatorImage.Build(builder =>
+        {
+            var method = builder.DefineMethod(
+                "op_Explicit",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
+                builder,
+                [typeof(object)]);
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Ret);
+        });
+
+        Assert.False(toObject.IsCSharpOperatorDeclaration("op_Explicit"));
+        Assert.False(fromObject.IsCSharpOperatorDeclaration("op_Explicit"));
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_AcceptsConversionToDeclaringTypeParameter()
     {
         using var image = OperatorImage.Build(

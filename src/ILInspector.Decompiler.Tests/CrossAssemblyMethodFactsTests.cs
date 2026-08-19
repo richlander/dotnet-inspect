@@ -390,6 +390,117 @@ public class CrossAssemblyMethodFactsTests
         Assert.DoesNotContain("op_Addition", output);
     }
 
+    [Fact]
+    public void CrossAssemblyConversion_WithResolvedExternalClass_RendersOperator()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        var call = SingleCall(
+            source,
+            nameof(CrossAssemblyFixtureMethods.UseExternalConversion),
+            "op_Implicit");
+        var result = PrintResult(
+            source,
+            nameof(CrossAssemblyFixtureMethods.UseExternalConversion));
+
+        Assert.Equal(
+            ValueTypeHint.ReferenceType,
+            call.Callee.ParameterTypes[0].ValueTypeHint);
+        Assert.Equal(MetadataFactState.Yes, call.Callee.IsOperator);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "return (ExternalConversionHolder)value;",
+            result.Output);
+        Assert.DoesNotContain("op_Implicit", result.Output);
+    }
+
+    [Fact]
+    public void SameAssemblyConversion_WithResolvedExternalClass_RendersOperator()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.LibraryPath);
+        var function = IrImporter.Import(
+            source,
+            "ExternalFacts.ExternalConversionHolder",
+            "Convert");
+
+        Assert.NotNull(function);
+        var call = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            candidate => candidate.Callee.Name == "op_Implicit");
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(MetadataFactState.Yes, call.Callee.IsOperator);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "return (ExternalConversionHolder)value;",
+            result.Output);
+        Assert.DoesNotContain("op_Implicit", result.Output);
+    }
+
+    [Fact]
+    public void ResolvedExternalInterfaceConversion_StaysRejected()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+        TypeRef holder = fixture.Type(
+            fixture.InvalidLibraryPath,
+            "ExternalFacts",
+            "InvalidExternalConversionHolder");
+        TypeRef contract = fixture.Type(
+            fixture.ContractsPath,
+            "ExternalContracts",
+            "IExternalFace");
+        var callee = new MethodRef(
+            holder,
+            "op_Explicit",
+            holder,
+            [contract],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+        };
+
+        MethodRef resolved = source.CrossAssembly.Upgrade(
+            callee,
+            resolveRequiresUnsafe: false);
+
+        Assert.Equal(MetadataFactState.No, resolved.IsOperator);
+    }
+
+    [Fact]
+    public void ResolvedExternalTransitiveBaseConversion_StaysRejected()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+        TypeRef holder = fixture.Type(
+            fixture.InvalidDerivedLibraryPath,
+            "ExternalFacts",
+            "InvalidDerivedConversionHolder");
+        TypeRef baseType = fixture.Type(
+            fixture.ContractsPath,
+            "ExternalContracts",
+            "ExternalBaseX");
+        var callee = new MethodRef(
+            holder,
+            "op_Implicit",
+            baseType,
+            [holder],
+            HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Unknown,
+        };
+
+        MethodRef resolved = source.CrossAssembly.Upgrade(
+            callee,
+            resolveRequiresUnsafe: false);
+
+        Assert.Equal(MetadataFactState.No, resolved.IsOperator);
+    }
+
     [Theory]
     [InlineData(
         nameof(CrossAssemblyFixtureMethods.UseRealOperator),
@@ -1030,12 +1141,26 @@ public class CrossAssemblyMethodFactsTests
     {
         readonly string _directory;
 
-        CrossAssemblyFixture(string directory, string consumerPath)
+        CrossAssemblyFixture(
+            string directory,
+            string contractsPath,
+            string libraryPath,
+            string invalidLibraryPath,
+            string invalidDerivedLibraryPath,
+            string consumerPath)
         {
             _directory = directory;
+            ContractsPath = contractsPath;
+            LibraryPath = libraryPath;
+            InvalidLibraryPath = invalidLibraryPath;
+            InvalidDerivedLibraryPath = invalidDerivedLibraryPath;
             ConsumerPath = consumerPath;
         }
 
+        public string ContractsPath { get; }
+        public string LibraryPath { get; }
+        public string InvalidLibraryPath { get; }
+        public string InvalidDerivedLibraryPath { get; }
         public string ConsumerPath { get; }
 
         public static CrossAssemblyFixture Create(bool versionDrift = false)
@@ -1043,9 +1168,36 @@ public class CrossAssemblyMethodFactsTests
             var directory = Directory.CreateTempSubdirectory("dotnet-inspect-method-facts-").FullName;
             try
             {
+                string contractsPath = Emit(
+                    directory,
+                    "ExternalFacts.Contracts",
+                    """
+                    namespace ExternalContracts;
+
+                    public sealed class ExternalClass
+                    {
+                    }
+
+                    public interface IExternalFace
+                    {
+                    }
+
+                    public sealed class ExternalOther
+                    {
+                    }
+
+                    public class ExternalBaseX
+                    {
+                    }
+
+                    public class ExternalChild : ExternalBaseX
+                    {
+                    }
+                    """);
                 const string librarySource = """
                     using System.Reflection;
                     using System.Runtime.CompilerServices;
+                    using ExternalContracts;
 
                     [assembly: AssemblyVersion("1.0.0.0")]
 
@@ -1136,6 +1288,15 @@ public class CrossAssemblyMethodFactsTests
                             => new(left.Value + right.Value);
                     }
 
+                    public sealed class ExternalConversionHolder
+                    {
+                        public static implicit operator ExternalConversionHolder(
+                            ExternalClass value) => new();
+
+                        public static ExternalConversionHolder Convert(
+                            ExternalClass value) => value;
+                    }
+
                     public ref struct ExternalRefStruct
                     {
                         public int Value;
@@ -1157,11 +1318,53 @@ public class CrossAssemblyMethodFactsTests
                 string libraryPath = Emit(
                     directory,
                     "ExternalFacts.Library",
-                    librarySource);
+                    librarySource,
+                    [MetadataReference.CreateFromFile(contractsPath)]);
+                string invalidLibraryPath = Emit(
+                    directory,
+                    "ExternalFacts.InvalidLibrary",
+                    """
+                    using ExternalContracts;
+
+                    namespace ExternalFacts;
+
+                    public sealed class InvalidExternalConversionHolder
+                    {
+                        public static explicit operator InvalidExternalConversionHolder(
+                            ExternalClass value) => new();
+                    }
+                    """,
+                    [MetadataReference.CreateFromFile(contractsPath)]);
+                PatchTypeReference(
+                    invalidLibraryPath,
+                    "ExternalClass"u8,
+                    "IExternalFace"u8);
+                string invalidDerivedLibraryPath = Emit(
+                    directory,
+                    "ExternalFacts.InvalidDerivedLibrary",
+                    """
+                    using ExternalContracts;
+
+                    namespace ExternalFacts;
+
+                    public sealed class InvalidDerivedConversionHolder
+                        : ExternalChild
+                    {
+                        public static implicit operator ExternalOther(
+                            InvalidDerivedConversionHolder value) => new();
+                    }
+                    """,
+                    [MetadataReference.CreateFromFile(contractsPath)]);
+                PatchTypeReference(
+                    invalidDerivedLibraryPath,
+                    "ExternalOther"u8,
+                    "ExternalBaseX"u8);
                 string consumerPath = Emit(
                     directory,
                     "ExternalFacts.Consumer",
                     """
+                    using ExternalContracts;
+
                     namespace ExternalFacts;
 
                     public static class Consumer
@@ -1223,6 +1426,9 @@ public class CrossAssemblyMethodFactsTests
 
                         public static ExternalNumber UseRealOperator(ExternalNumber left, ExternalNumber right)
                             => left + right;
+
+                        public static ExternalConversionHolder UseExternalConversion(
+                            ExternalClass value) => value;
 
                         public static int UseExternalRefStruct()
                         {
@@ -1286,7 +1492,10 @@ public class CrossAssemblyMethodFactsTests
                         }
                     }
                     """,
-                    [MetadataReference.CreateFromFile(libraryPath)]);
+                    [
+                        MetadataReference.CreateFromFile(libraryPath),
+                        MetadataReference.CreateFromFile(contractsPath),
+                    ]);
                 if (versionDrift)
                 {
                     Emit(
@@ -1295,9 +1504,16 @@ public class CrossAssemblyMethodFactsTests
                         librarySource.Replace(
                             """AssemblyVersion("1.0.0.0")""",
                             """AssemblyVersion("2.0.0.0")""",
-                            StringComparison.Ordinal));
+                            StringComparison.Ordinal),
+                        [MetadataReference.CreateFromFile(contractsPath)]);
                 }
-                return new CrossAssemblyFixture(directory, consumerPath);
+                return new CrossAssemblyFixture(
+                    directory,
+                    contractsPath,
+                    libraryPath,
+                    invalidLibraryPath,
+                    invalidDerivedLibraryPath,
+                    consumerPath);
             }
             catch
             {
@@ -1331,6 +1547,51 @@ public class CrossAssemblyMethodFactsTests
         static ImmutableArray<MetadataReference> RuntimeReferences()
             => RoslynTestReferences.TrustedPlatform;
 
+        public TypeRef Type(
+            string assemblyPath,
+            string @namespace,
+            string name)
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            AssemblyReferenceIdentity identity =
+                AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+            var definitionName = MetadataTypeDefinitionName.Create(
+                @namespace,
+                [name]) switch
+            {
+                MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+                _ => throw new InvalidOperationException(
+                    "fixture metadata name is invalid"),
+            };
+            return TypeRef.DefinitionWithResolution(
+                identity.Name,
+                @namespace,
+                name,
+                ValueTypeHint.ReferenceType,
+                MetadataFactState.Unknown,
+                null,
+                definitionName,
+                identity);
+        }
+
+        static void PatchTypeReference(
+            string assemblyPath,
+            ReadOnlySpan<byte> original,
+            ReadOnlySpan<byte> replacement)
+        {
+            Assert.Equal(original.Length, replacement.Length);
+            byte[] image = File.ReadAllBytes(assemblyPath);
+            int offset = image.AsSpan().IndexOf(original);
+            Assert.True(offset >= 0, "fixture TypeRef name was not found");
+            replacement.CopyTo(image.AsSpan(offset, replacement.Length));
+            Assert.True(
+                image.AsSpan(offset + replacement.Length).IndexOf(original) < 0,
+                "fixture TypeRef name was not unique");
+            File.WriteAllBytes(assemblyPath, image);
+        }
+
         public void Dispose() => Directory.Delete(_directory, recursive: true);
     }
 
@@ -1346,6 +1607,7 @@ public class CrossAssemblyMethodFactsTests
         public const string UseOperatorLikeAddition = nameof(UseOperatorLikeAddition);
         public const string UseOperatorLikeImplicit = nameof(UseOperatorLikeImplicit);
         public const string UseRealOperator = nameof(UseRealOperator);
+        public const string UseExternalConversion = nameof(UseExternalConversion);
         public const string UseExternalRefStruct = nameof(UseExternalRefStruct);
         public const string UseExternalStruct = nameof(UseExternalStruct);
         public const string UseProperty = nameof(UseProperty);

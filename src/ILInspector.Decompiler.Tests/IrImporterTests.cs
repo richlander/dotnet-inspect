@@ -1170,6 +1170,31 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void GenericDeclaringAndMethodParameters_AreSubstitutedOnce()
+    {
+        using var source = MetadataSource.Open(
+            typeof(MethodSpecSubstitutionFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(MethodSpecSubstitutionFixture).FullName!,
+            nameof(MethodSpecSubstitutionFixture.Invoke));
+
+        Assert.NotNull(function);
+        var call = Assert.Single(
+            function.Descendants.OfType<Call>(),
+            candidate => candidate.Callee.Name
+                == nameof(MethodSpecSubstitutionBox<int>.Pick));
+        Assert.Equal(function.Signature.Parameters[1].Type, call.Callee.ParameterTypes[0]);
+        Assert.Equal(function.Signature.Parameters[2].Type, call.Callee.ParameterTypes[1]);
+        Assert.Equal(
+            TypeRefKind.GenericParameter,
+            call.Callee.DefinitionParameterTypes[0].Kind);
+        Assert.Equal(
+            TypeRefKind.MethodGenericParameter,
+            call.Callee.DefinitionParameterTypes[1].Kind);
+    }
+
+    [Fact]
     public void NestedType_ImportsByFullyQualifiedName()
     {
         // A nested type's metadata name threads its declaring types

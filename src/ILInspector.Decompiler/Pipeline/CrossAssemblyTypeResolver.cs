@@ -59,6 +59,17 @@ internal sealed class CrossAssemblyTypeResolver
         _context = context;
     }
 
+    internal bool IsCSharpOperatorDeclaration(
+        MetadataReader reader,
+        MethodDefinition method,
+        ResolvedAssemblyReference? originAssembly = null)
+        => OperatorMetadata.IsCSharpOperatorDeclaration(
+            reader,
+            method,
+            new OperatorRelationshipResolver(
+                this,
+                originAssembly ?? _selfAssembly));
+
     /// <summary>
     /// Returns <paramref name="type"/> with cross-assembly type facts stamped
     /// when this resolver can confirm them from the defining assembly; returns the
@@ -664,9 +675,10 @@ internal sealed class CrossAssemblyTypeResolver
                     FactState(typeCompilerGenerated),
                     FactState(IsDelegateType(reader, typeDef)),
                     FactState(MethodDefinitionFacts.HasExtensionAttribute(reader, method)),
-                    FactState(MethodDefinitionFacts.IsOperator(
+                    FactState(IsCSharpOperatorDeclaration(
                         reader,
-                        method)),
+                        method,
+                        definition.Assembly.Assembly)),
                     MethodDefinitionFacts.ReadAccessorKind(reader, typeDef, methodHandle));
             }
 
@@ -1233,8 +1245,10 @@ internal sealed class CrossAssemblyTypeResolver
 
     ResolvedTypeDefinition? Locate(
         TypeRef type,
-        ResolvedAssemblyReference? localAssembly = null)
+        ResolvedAssemblyReference? localAssembly = null,
+        ResolvedAssemblyReference? resolutionOrigin = null)
     {
+        ResolvedAssemblyReference origin = resolutionOrigin ?? _selfAssembly;
         MetadataTypeDefinitionName? definitionName = type.DefinitionName;
         AssemblyReferenceIdentity? resolutionAssembly = type.ResolutionAssembly;
         if (definitionName is null)
@@ -1265,7 +1279,7 @@ internal sealed class CrossAssemblyTypeResolver
         else if (type.Assembly == TypeRef.CoreLibrary)
         {
             return _context.ResolveCoreLibraryDefinition(
-                _selfAssembly,
+                origin,
                 definitionName);
         }
         else
@@ -1274,16 +1288,248 @@ internal sealed class CrossAssemblyTypeResolver
                 return null;
             request = TypeResolutionRequest.FromReference(
                 identity,
-                AssemblyBindingOrigin.FromAssembly(_selfAssembly),
+                AssemblyBindingOrigin.FromAssembly(origin),
                 ScopeFor(type),
                 definitionName);
         }
 
         TypeResolutionOutcome outcome =
-            _context.Resolve(_selfAssembly, request);
+            _context.Resolve(origin, request);
         return outcome is TypeResolutionOutcome.Resolved resolved
             ? resolved.Definition
             : null;
+    }
+
+    OperatorMetadata.TypeRelationship ResolveOperatorInterfaceRelationship(
+        MetadataReader reader,
+        OperatorMetadata.OperatorSignatureType type,
+        ResolvedAssemblyReference originAssembly)
+    {
+        try
+        {
+            if (DecodeOperatorType(reader, type) is not { } decoded
+                || NamedDefinition(decoded) is not { } definition
+                || Locate(
+                    definition,
+                    originAssembly,
+                    originAssembly) is not { } resolved
+                || _context.Open(resolved, out var handle) is not { } assembly)
+            {
+                return OperatorMetadata.TypeRelationship.Unknown;
+            }
+
+            return (assembly.Reader.GetTypeDefinition(handle).Attributes
+                    & System.Reflection.TypeAttributes.Interface) != 0
+                ? OperatorMetadata.TypeRelationship.Yes
+                : OperatorMetadata.TypeRelationship.No;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or BadImageFormatException
+                or UnauthorizedAccessException)
+        {
+            return OperatorMetadata.TypeRelationship.Unknown;
+        }
+    }
+
+    OperatorMetadata.TypeRelationship ResolveOperatorSameOrDerivedRelationship(
+        MetadataReader reader,
+        OperatorMetadata.OperatorSignatureType candidateType,
+        OperatorMetadata.OperatorSignatureType requiredBaseType,
+        ResolvedAssemblyReference originAssembly)
+    {
+        try
+        {
+            TypeRef? candidate = DecodeOperatorType(reader, candidateType);
+            TypeRef? requiredBase = DecodeOperatorType(reader, requiredBaseType);
+            if (candidate is null || requiredBase is null)
+                return OperatorMetadata.TypeRelationship.Unknown;
+            if (SameResolvedOperatorType(
+                candidate,
+                originAssembly,
+                requiredBase,
+                originAssembly))
+            {
+                return OperatorMetadata.TypeRelationship.Yes;
+            }
+
+            var visited = new HashSet<MetadataTypeDefinitionAddress>();
+            TypeRef current = candidate;
+            ResolvedAssemblyReference currentOrigin = originAssembly;
+            for (int depth = 0; depth < 64; depth++)
+            {
+                if (IsSystemObject(current))
+                    return OperatorMetadata.TypeRelationship.No;
+                if (NamedDefinition(current) is not { } definition
+                    || Locate(
+                        definition,
+                        currentOrigin,
+                        currentOrigin) is not { } resolved
+                    || !visited.Add(resolved.Address)
+                    || _context.Open(resolved, out var handle) is not { } assembly)
+                {
+                    return OperatorMetadata.TypeRelationship.Unknown;
+                }
+
+                var typeDefinition = assembly.Reader.GetTypeDefinition(handle);
+                var typeArguments = current.Kind == TypeRefKind.GenericInstance
+                    ? current.TypeArguments
+                    : [];
+                TypeRef? baseType = DecodeBaseType(
+                    assembly.Reader,
+                    typeDefinition,
+                    typeArguments);
+                if (baseType is null)
+                    return OperatorMetadata.TypeRelationship.No;
+                ResolvedAssemblyReference baseOrigin = resolved.Assembly.Assembly;
+                if (SameResolvedOperatorType(
+                    baseType,
+                    baseOrigin,
+                    requiredBase,
+                    originAssembly))
+                {
+                    return OperatorMetadata.TypeRelationship.Yes;
+                }
+
+                current = baseType;
+                currentOrigin = baseOrigin;
+            }
+
+            return OperatorMetadata.TypeRelationship.Unknown;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or BadImageFormatException
+                or UnauthorizedAccessException)
+        {
+            return OperatorMetadata.TypeRelationship.Unknown;
+        }
+    }
+
+    bool SameResolvedOperatorType(
+        TypeRef left,
+        ResolvedAssemblyReference leftOrigin,
+        TypeRef right,
+        ResolvedAssemblyReference rightOrigin)
+    {
+        if (left.Equals(right))
+            return true;
+        if (left.Kind != right.Kind)
+            return false;
+        if (left.Kind == TypeRefKind.GenericInstance)
+        {
+            if (!SameResolvedOperatorType(
+                    left.ElementType!,
+                    leftOrigin,
+                    right.ElementType!,
+                    rightOrigin)
+                || left.TypeArguments.Length != right.TypeArguments.Length)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < left.TypeArguments.Length; index++)
+            {
+                if (!SameResolvedOperatorType(
+                    left.TypeArguments[index],
+                    leftOrigin,
+                    right.TypeArguments[index],
+                    rightOrigin))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (left.Kind != TypeRefKind.Definition)
+            return left.Equals(right);
+        if (NamedDefinition(left) is not { } leftDefinition
+            || NamedDefinition(right) is not { } rightDefinition
+            || Locate(
+                leftDefinition,
+                leftOrigin,
+                leftOrigin) is not { } leftResolved
+            || Locate(
+                rightDefinition,
+                rightOrigin,
+                rightOrigin) is not { } rightResolved)
+        {
+            return false;
+        }
+
+        return leftResolved.Type.Equals(rightResolved.Type)
+            && leftResolved.Assembly.Assembly.Identity.IsEquivalentTo(
+                rightResolved.Assembly.Assembly.Identity);
+    }
+
+    static TypeRef? DecodeOperatorType(
+        MetadataReader reader,
+        OperatorMetadata.OperatorSignatureType type)
+    {
+        if (type.IsTypeParameter || type.IsNonNamedType)
+            return null;
+
+        TypeRef? definition = type.Identity.Kind switch
+        {
+            HandleKind.TypeDefinition => TypeRefDecoder.Instance.GetTypeFromDefinition(
+                reader,
+                (TypeDefinitionHandle)type.Identity,
+                type.HasValueTypeEncoding
+                    ? (byte)SignatureTypeKind.ValueType
+                    : (byte)SignatureTypeKind.Class),
+            HandleKind.TypeReference => TypeRefDecoder.Instance.GetTypeFromReference(
+                reader,
+                (TypeReferenceHandle)type.Identity,
+                type.HasValueTypeEncoding
+                    ? (byte)SignatureTypeKind.ValueType
+                    : (byte)SignatureTypeKind.Class),
+            _ when type.Namespace is not null && type.Name is not null
+                => TypeRef.CoreLib(type.Namespace, type.Name),
+            _ => null,
+        };
+        if (definition is null || !type.IsGenericInstantiation)
+            return definition;
+
+        var arguments = ImmutableArray.CreateBuilder<TypeRef>(
+            type.TypeArguments.Length);
+        foreach (OperatorMetadata.OperatorSignatureType argument
+            in type.TypeArguments)
+        {
+            if (DecodeOperatorType(reader, argument) is not { } decoded)
+                return null;
+            arguments.Add(decoded);
+        }
+        return TypeRef.GenericInstance(
+            definition,
+            arguments.MoveToImmutable());
+    }
+
+    sealed class OperatorRelationshipResolver(
+        CrossAssemblyTypeResolver owner,
+        ResolvedAssemblyReference originAssembly)
+        : IOperatorTypeRelationshipResolver
+    {
+        public OperatorMetadata.TypeRelationship InterfaceRelationship(
+            MetadataReader reader,
+            OperatorMetadata.OperatorSignatureType type)
+        {
+            return owner.ResolveOperatorInterfaceRelationship(
+                reader,
+                type,
+                originAssembly);
+        }
+
+        public OperatorMetadata.TypeRelationship SameOrDerivedRelationship(
+            MetadataReader reader,
+            OperatorMetadata.OperatorSignatureType candidate,
+            OperatorMetadata.OperatorSignatureType requiredBase)
+        {
+            return owner.ResolveOperatorSameOrDerivedRelationship(
+                reader,
+                candidate,
+                requiredBase,
+                originAssembly);
+        }
     }
 
     static AssemblyResolutionScope ScopeFor(TypeRef type) =>

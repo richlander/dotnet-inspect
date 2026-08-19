@@ -1231,7 +1231,11 @@ public static class IrImporter
                 case ILOpCode.Call or ILOpCode.Callvirt:
                 {
                     var methodHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
-                    var callee = ResolveMethod(source.Reader, methodHandle, callerScope);
+                    var callee = ResolveMethod(
+                        source.Reader,
+                        methodHandle,
+                        callerScope,
+                        source.CrossAssembly);
                     if (callee.DeclaringType.Kind == TypeRefKind.Unsupported)
                     {
                         // Unknown arity would mis-pop the stack and corrupt
@@ -1442,7 +1446,11 @@ public static class IrImporter
                 case ILOpCode.Newobj:
                 {
                     var ctorHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
-                    var constructor = ResolveMethod(source.Reader, ctorHandle, callerScope);
+                    var constructor = ResolveMethod(
+                        source.Reader,
+                        ctorHandle,
+                        callerScope,
+                        source.CrossAssembly);
                     // A bare cross-assembly struct token carries no VALUETYPE
                     // byte; resolve its value-type-ness so a struct constructor
                     // (new DateTime(...)) is not misread as a heap allocation.
@@ -2208,7 +2216,11 @@ public static class IrImporter
         return MakeStoreLocal(method, index, value);
     }
 
-    internal static MethodRef ResolveMethod(MetadataReader reader, EntityHandle handle, GenericScope callerScope)
+    internal static MethodRef ResolveMethod(
+        MetadataReader reader,
+        EntityHandle handle,
+        GenericScope callerScope,
+        CrossAssemblyTypeResolver? relationshipResolver = null)
     {
         switch (handle.Kind)
         {
@@ -2237,9 +2249,13 @@ public static class IrImporter
                         signature.ReturnType,
                         signature.ReturnType),
                     IsSpecialName = (method.Attributes & System.Reflection.MethodAttributes.SpecialName) != 0,
-                    IsOperator = FactState(MethodDefinitionFacts.IsOperator(
-                        reader,
-                        method)),
+                    IsOperator = FactState(
+                        relationshipResolver?.IsCSharpOperatorDeclaration(
+                            reader,
+                            method)
+                        ?? MethodDefinitionFacts.IsOperator(
+                            reader,
+                            method)),
                     AccessorKind = MethodDefinitionFacts.ReadAccessorKind(reader, declaringType, (MethodDefinitionHandle)handle),
                     ParameterRefKinds = parameterRefKinds.Kinds,
                     ParameterRefKindsFacts = parameterRefKinds.State,
@@ -2275,7 +2291,8 @@ public static class IrImporter
                     signature.Header.IsInstance,
                     signature.ReturnType,
                     returnType,
-                    parameterTypes);
+                    parameterTypes,
+                    relationshipResolver);
                 bool trustedPlatform = IsTrustedPlatformMemberReference(reader, member.Parent);
                 var accessorKind = MemberReferenceAccessorKind(reader, member, memberName);
                 if (accessorKind == AccessorKind.Unknown && trustedPlatform)
@@ -2326,16 +2343,27 @@ public static class IrImporter
                 // method, then instantiate its !!N against the decoded type
                 // arguments so the call site reports concrete types.
                 var spec = reader.GetMethodSpecification((MethodSpecificationHandle)handle);
-                var generic = ResolveMethod(reader, spec.Method, callerScope);
+                var generic = ResolveMethod(
+                    reader,
+                    spec.Method,
+                    callerScope,
+                    relationshipResolver);
                 var methodArguments = GuardedDecode.MethodSpecArguments(reader, spec, callerScope);
-                var returnType = generic.ReturnType.Instantiate([], methodArguments);
+                var definitionParameterTypes = generic.DefinitionParameterTypes.IsDefaultOrEmpty
+                    ? generic.ParameterTypes
+                    : generic.DefinitionParameterTypes;
+                var definitionReturnType = generic.DefinitionReturnType ?? generic.ReturnType;
+                var declaringTypeArguments = generic.DeclaringType.Kind == TypeRefKind.GenericInstance
+                    ? generic.DeclaringType.TypeArguments
+                    : [];
+                var returnType = definitionReturnType.Instantiate(
+                    declaringTypeArguments,
+                    methodArguments);
                 return generic with
                 {
                     TypeArguments = methodArguments,
-                    DefinitionParameterTypes = generic.DefinitionParameterTypes.IsDefaultOrEmpty
-                        ? generic.ParameterTypes
-                        : generic.DefinitionParameterTypes,
-                    DefinitionReturnType = generic.DefinitionReturnType ?? generic.ReturnType,
+                    DefinitionParameterTypes = definitionParameterTypes,
+                    DefinitionReturnType = definitionReturnType,
                     ReturnType = returnType,
                     ReturnIsDynamic = generic.ReturnIsDynamic == MetadataFactState.No
                         && generic.ReturnType.Kind == TypeRefKind.MethodGenericParameter
@@ -2360,7 +2388,13 @@ public static class IrImporter
                         }
                             ? MetadataFactState.Unknown
                             : generic.ReturnArrayElementIsDynamic,
-                    ParameterTypes = [.. generic.ParameterTypes.Select(p => p.Instantiate([], methodArguments))],
+                    ParameterTypes =
+                    [
+                        .. definitionParameterTypes.Select(
+                            parameter => parameter.Instantiate(
+                                declaringTypeArguments,
+                                methodArguments)),
+                    ],
                 };
             }
             default:
@@ -2479,7 +2513,8 @@ public static class IrImporter
         bool hasThis,
         TypeRef declaredReturnType,
         TypeRef effectiveReturnType,
-        ImmutableArray<TypeRef> parameterTypes)
+        ImmutableArray<TypeRef> parameterTypes,
+        CrossAssemblyTypeResolver? relationshipResolver)
     {
         var fallbackRefKinds = parameterTypes.Any(p => p.Kind == TypeRefKind.ByRef)
             ? new ParameterRefKindResult([], ParameterRefKindFacts.Unknown)
@@ -2522,7 +2557,11 @@ public static class IrImporter
                         method,
                         declaredReturnType,
                         effectiveReturnType),
-                    FactState(MethodDefinitionFacts.IsOperator(reader, method)),
+                    FactState(
+                        relationshipResolver?.IsCSharpOperatorDeclaration(
+                            reader,
+                            method)
+                        ?? MethodDefinitionFacts.IsOperator(reader, method)),
                     FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
                     typeCompilerGenerated);
             }
@@ -2813,7 +2852,8 @@ public static class IrImporter
                         hasThis: false,
                         declaredReturnType: fieldType,
                         effectiveReturnType: fieldType,
-                        parameterTypes: []).DeclaringTypeCompilerGenerated,
+                        parameterTypes: [],
+                        relationshipResolver: null).DeclaringTypeCompilerGenerated,
                     IsDynamic = dynamicFact == MetadataFactState.Yes,
                     DynamicFact = dynamicFact,
                     ArrayElementIsDynamic = arrayElementDynamicFact,

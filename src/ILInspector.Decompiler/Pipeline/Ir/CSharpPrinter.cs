@@ -5674,10 +5674,19 @@ public sealed partial class CSharpPrinter
         var argumentType = EffectiveType(argument);
         if (argumentType?.Kind == TypeRefKind.ByRef)
             argumentType = argumentType.ElementType;
-        if (argumentType is null || argumentType.Equals(parameter))
+        if (argumentType is null
+            || argumentType.Equals(parameter)
+                && !RequiresContextualOperatorCast(argument))
             return null;
         return $"({parameterText}){OperatorOperand(argument)}";
     }
+
+    static bool RequiresContextualOperatorCast(IrExpression argument)
+        => RendersAsDynamic(argument)
+            || argument is Lambda
+                or DelegateCreation
+                or AddressOfMethod
+                or CollectionExpression;
 
     /// <summary>
     /// An operand of a user-defined operator call. The operator's parameters may

@@ -5,6 +5,18 @@ using CSharpText;
 
 namespace ILInspector.Metadata;
 
+internal interface IOperatorTypeRelationshipResolver
+{
+    OperatorMetadata.TypeRelationship InterfaceRelationship(
+        MetadataReader reader,
+        OperatorMetadata.OperatorSignatureType type);
+
+    OperatorMetadata.TypeRelationship SameOrDerivedRelationship(
+        MetadataReader reader,
+        OperatorMetadata.OperatorSignatureType candidate,
+        OperatorMetadata.OperatorSignatureType requiredBase);
+}
+
 /// <summary>
 /// Operator classification over metadata handles. Two questions live here and
 /// they are deliberately different:
@@ -39,6 +51,12 @@ public static class OperatorMetadata
     /// C# declaration.
     /// </summary>
     public static bool IsCSharpOperatorDeclaration(MetadataReader reader, MethodDefinition method)
+        => IsCSharpOperatorDeclaration(reader, method, relationshipResolver: null);
+
+    internal static bool IsCSharpOperatorDeclaration(
+        MetadataReader reader,
+        MethodDefinition method,
+        IOperatorTypeRelationshipResolver? relationshipResolver)
     {
         string name = reader.GetString(method.Name);
         var attributes = method.Attributes;
@@ -117,19 +135,27 @@ public static class OperatorMetadata
                     conversionSource,
                     conversionTarget,
                     declaringIdentity)
-                && (InterfaceRelationship(reader, conversionSource)
+                && (InterfaceRelationship(
+                        reader,
+                        conversionSource,
+                        relationshipResolver)
                         != TypeRelationship.No
-                    || InterfaceRelationship(reader, conversionTarget)
+                    || InterfaceRelationship(
+                        reader,
+                        conversionTarget,
+                        relationshipResolver)
                         != TypeRelationship.No
                     || SameOrDerivedRelationship(
                             reader,
                             conversionSource,
-                            conversionTarget)
+                            conversionTarget,
+                            relationshipResolver)
                         != TypeRelationship.No
                     || SameOrDerivedRelationship(
                             reader,
                             conversionTarget,
-                            conversionSource)
+                            conversionSource,
+                            relationshipResolver)
                         != TypeRelationship.No))
             {
                 return false;
@@ -145,7 +171,8 @@ public static class OperatorMetadata
             && SameOrDerivedRelationship(
                 reader,
                 signature.ReturnType.WithoutByRef(),
-                operand.WithoutByRef()) != TypeRelationship.Yes)
+                operand.WithoutByRef(),
+                relationshipResolver) != TypeRelationship.Yes)
         {
             return false;
         }
@@ -295,7 +322,7 @@ public static class OperatorMetadata
             _ => OperatorSignatureTypeProvider.Opaque,
         };
 
-    enum TypeRelationship
+    internal enum TypeRelationship
     {
         No,
         Yes,
@@ -305,7 +332,8 @@ public static class OperatorMetadata
     static TypeRelationship SameOrDerivedRelationship(
         MetadataReader reader,
         OperatorSignatureType candidate,
-        OperatorSignatureType requiredBase)
+        OperatorSignatureType requiredBase,
+        IOperatorTypeRelationshipResolver? relationshipResolver)
     {
         if (candidate.MatchesExactly(requiredBase))
             return TypeRelationship.Yes;
@@ -316,7 +344,10 @@ public static class OperatorMetadata
         {
             return TypeRelationship.No;
         }
-        if (InterfaceRelationship(reader, requiredBase) == TypeRelationship.Yes)
+        if (InterfaceRelationship(
+                reader,
+                requiredBase,
+                relationshipResolver) == TypeRelationship.Yes)
             return TypeRelationship.No;
         if (IsKnownValueType(reader, requiredBase))
             return TypeRelationship.No;
@@ -343,7 +374,10 @@ public static class OperatorMetadata
             {
                 return IsTrustedSystemType(candidate, "Object")
                     ? TypeRelationship.No
-                    : TypeRelationship.Unknown;
+                    : relationshipResolver?.SameOrDerivedRelationship(
+                        reader,
+                        candidate,
+                        requiredBase) ?? TypeRelationship.Unknown;
             }
             var definitionHandle = (TypeDefinitionHandle)candidate.Identity;
             if (!visited.Add(definitionHandle))
@@ -367,7 +401,8 @@ public static class OperatorMetadata
 
     static TypeRelationship InterfaceRelationship(
         MetadataReader reader,
-        OperatorSignatureType type)
+        OperatorSignatureType type,
+        IOperatorTypeRelationshipResolver? relationshipResolver)
     {
         if (type.IsTypeParameter || type.IsNonNamedType)
             return TypeRelationship.No;
@@ -383,7 +418,10 @@ public static class OperatorMetadata
         }
 
         if (type.Identity.Kind != HandleKind.TypeDefinition)
-            return TypeRelationship.Unknown;
+        {
+            return relationshipResolver?.InterfaceRelationship(reader, type)
+                ?? TypeRelationship.Unknown;
+        }
 
         return (reader.GetTypeDefinition((TypeDefinitionHandle)type.Identity).Attributes
                 & TypeAttributes.Interface) != 0
@@ -602,7 +640,19 @@ public static class OperatorMetadata
         public OperatorSignatureType GetPrimitiveType(PrimitiveTypeCode typeCode)
             => typeCode == PrimitiveTypeCode.Void
                 ? new OperatorSignatureType(true, false, false, -1, default, true, false, "System", "Void", false, false, [])
-                : new OperatorSignatureType(false, false, false, -1, default, true, true, "System", typeCode.ToString(), false, false, []);
+                : new OperatorSignatureType(
+                    false,
+                    false,
+                    false,
+                    -1,
+                    default,
+                    true,
+                    typeCode is not PrimitiveTypeCode.Object and not PrimitiveTypeCode.String,
+                    "System",
+                    typeCode.ToString(),
+                    false,
+                    false,
+                    []);
 
         public OperatorSignatureType GetTypeFromDefinition(
             MetadataReader reader,

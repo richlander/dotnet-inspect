@@ -507,6 +507,100 @@ public sealed class CSharpPrinterReceiverTests
         AssertCompiles("public static void M()", Indent(body), InstanceAssignmentDeclarations);
     }
 
+    [Fact]
+    public void DynamicRightOperand_InstanceAssignment_PreservesSelectedOverload()
+    {
+        var box = TypeRef.Definition("synthetic", "", "DynamicAssignmentBox");
+        var call = new Call(
+            new MethodRef(
+                box,
+                "op_AdditionAssignment",
+                VoidType,
+                [ObjectType],
+                HasThis: true)
+            {
+                IsSpecialName = true,
+                IsOperator = MetadataFactState.Yes,
+            },
+            isVirtual: false,
+            [
+                new LoadArgument(0, "box", box),
+                new LoadArgument(1, "value", ObjectType)
+                {
+                    IsDynamic = true,
+                },
+            ]);
+
+        string body = RenderStatements(
+            [
+                new Parameter("box", box),
+                new Parameter("value", ObjectType, IsDynamic: true),
+            ],
+            new ExpressionStatement(call));
+
+        Assert.Contains("box += (object)value;", body);
+        AssertCompiles(
+            "public static void M(DynamicAssignmentBox box, dynamic value)",
+            body,
+            """
+            public sealed class DynamicAssignmentBox
+            {
+                public void operator +=(object value) { }
+                public void operator +=(string value) { }
+            }
+            """);
+    }
+
+    [Fact]
+    public void LambdaRightOperand_InstanceAssignment_PreservesSelectedOverload()
+    {
+        var box = TypeRef.Definition("synthetic", "", "LambdaAssignmentBox");
+        var func = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "Func`1"),
+            [Int32Type]);
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new Return(new Constant(1, Int32Type)));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            func,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+        var call = new Call(
+            new MethodRef(
+                box,
+                "op_AdditionAssignment",
+                VoidType,
+                [func],
+                HasThis: true)
+            {
+                IsSpecialName = true,
+                IsOperator = MetadataFactState.Yes,
+            },
+            isVirtual: false,
+            [new LoadArgument(0, "box", box), lambda]);
+
+        string body = RenderStatements(
+            [new Parameter("box", box)],
+            new ExpressionStatement(call));
+
+        Assert.Contains("box += (Func<int>)", body);
+        AssertCompiles(
+            "public static void M(LambdaAssignmentBox box)",
+            body,
+            """
+            public sealed class LambdaAssignmentBox
+            {
+                public void operator +=(System.Func<int> value) { }
+                public void operator +=(System.Linq.Expressions.Expression<System.Func<int>> value) { }
+            }
+            """);
+    }
+
     const string InstanceAssignmentDeclarations = """
         public sealed class InstanceAssignmentBox
         {
