@@ -1137,33 +1137,6 @@ public static class ApiSurfaceExtractor
                 var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
                 var isOverride = isVirtual && !isNewSlot && !isRetainedExplicitImplementation && !isFinalizer;
 
-                // A class finalizer is the `object.Finalize` override the C#
-                // `~Type()` destructor compiles to. It is detected by the
-                // overridden slot (not by name/signature shape), which excludes
-                // the false positives a shape heuristic admits: an implicit
-                // generic `Finalize<T>()`, an override of an unrelated
-                // base/interface `Finalize()` slot, and an explicit
-                // `IFoo.Finalize()` implementation. There are two slot-anchored
-                // shapes:
-                //   * Roslyn (C#) emits an explicit `.override` MethodImpl
-                //     targeting `System.Object::Finalize`; `objectFinalizeOverrides`
-                //     carries those.
-                //   * The VB.NET compiler emits `Protected Overrides Sub Finalize()`
-                //     with NO MethodImpl — it reuses the inherited object.Finalize
-                //     slot implicitly; `IsImplicitObjectFinalizeOverride` proves
-                //     that slot roots at `System.Object` over metadata alone.
-                // A finalizer is never generic, so a method that overrides
-                // object.Finalize while declaring its own type parameters is still
-                // rejected — rendering it `~Type()` would erase `<T>`.
-                var isFinalizer = apiType.Kind == "class"
-                    && method.GetGenericParameters().Count == 0
-                    && (objectFinalizeOverrides.Contains(methodHandle)
-                        || IsImplicitObjectFinalizeOverride(
-                            reader,
-                            typeDefHandle,
-                            method,
-                            observeDecodeWork));
-
                 OperatorMetadata.DeclarationClassification?
                     operatorClassification = isOperator
                         ? constraintResolution?.ClassifyOperator(
