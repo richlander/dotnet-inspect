@@ -2306,6 +2306,8 @@ public static class IrImporter
                     // otherwise be lost; recover it from the underlying MethodDef.
                     ParameterRefKinds = memberFacts.ParameterRefKinds.Kinds,
                     ParameterRefKindsFacts = memberFacts.ParameterRefKinds.State,
+                    DefinitionReturnType = signature.ReturnType,
+                    DefinitionParameterTypes = signature.ParameterTypes,
                     ReturnIsDynamic = memberFacts.ReturnIsDynamic,
                     ReturnArrayElementIsDynamic = memberFacts.ReturnArrayElementIsDynamic,
                     HasRefReadOnlyParameters = memberFacts.ParameterRefKinds.HasRefReadOnlyParameters,

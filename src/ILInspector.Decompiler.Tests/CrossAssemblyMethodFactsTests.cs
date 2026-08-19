@@ -52,6 +52,19 @@ public class CrossAssemblyMethodFactsTests
     }
 
     [Fact]
+    public void GenericDeclaringTypeSignatureCollision_UsesDefinitionSignature()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        AssertCallRefKind(
+            source,
+            "UseGenericDeclaringTypeOut",
+            "DefinitionCollision",
+            ArgumentRefKind.Out);
+    }
+
+    [Fact]
     public void GenericReturnSignatureCollision_UsesDefinitionReturnType()
     {
         using var fixture = MethodCollisionFixture.Create();
@@ -1049,6 +1062,12 @@ public class CrossAssemblyMethodFactsTests
                         public static void GenericCollision<T>(out T value) => value = default!;
                     }
 
+                    public sealed class GenericByRefLibrary<T>
+                    {
+                        private void DefinitionCollision(out T value) => value = default!;
+                        public void DefinitionCollision(out int value) => value = 42;
+                    }
+
                     public delegate int ExternalDelegate(int value);
 
                     public static class DelegateLibrary
@@ -1181,6 +1200,12 @@ public class CrossAssemblyMethodFactsTests
                         public static object UseGenericOut()
                         {
                             ByRefLibrary.GenericCollision<object>(out var value);
+                            return value;
+                        }
+
+                        public static int UseGenericDeclaringTypeOut(GenericByRefLibrary<int> library)
+                        {
+                            library.DefinitionCollision(out var value);
                             return value;
                         }
 

@@ -793,9 +793,8 @@ internal sealed class CrossAssemblyTypeResolver
         var localAssemblyIdentity = AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
         if (callee.DefinitionReturnType is { } definitionReturnType)
         {
-            var candidateDefinitionReturn = signature.ReturnType.Instantiate(typeArguments, []);
             if (!SameSignatureType(
-                candidateDefinitionReturn,
+                signature.ReturnType,
                 definitionReturnType,
                 allowCoreLibraryAliases,
                 localAssembly,
@@ -825,9 +824,8 @@ internal sealed class CrossAssemblyTypeResolver
                 return false;
             for (int i = 0; i < signature.ParameterTypes.Length; i++)
             {
-                var definitionParameter = signature.ParameterTypes[i].Instantiate(typeArguments, []);
                 if (!SameSignatureType(
-                    definitionParameter,
+                    signature.ParameterTypes[i],
                     callee.DefinitionParameterTypes[i],
                     allowCoreLibraryAliases,
                     localAssembly,

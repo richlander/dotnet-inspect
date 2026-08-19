@@ -4391,15 +4391,19 @@ public static class CompileBackSourceComposer
                 var typeArguments = methodRef.DeclaringType.Kind == TypeRefKind.GenericInstance
                     ? methodRef.DeclaringType.TypeArguments
                     : [];
-                var definitionReturnType = signature.ReturnType.Instantiate(typeArguments, []);
-                var definitionParameterTypes = methodRef.DefinitionParameterTypes.IsDefaultOrEmpty
+                var expectedReturnType = methodRef.DefinitionReturnType ?? methodRef.ReturnType;
+                var candidateReturnType = methodRef.DefinitionReturnType is null
+                    ? signature.ReturnType.Instantiate(typeArguments, [])
+                    : signature.ReturnType;
+                var expectedParameterTypes = methodRef.DefinitionParameterTypes.IsDefaultOrEmpty
                     ? methodRef.ParameterTypes
                     : methodRef.DefinitionParameterTypes;
-                return definitionReturnType.Equals(methodRef.DefinitionReturnType ?? methodRef.ReturnType)
-                    && signature.ParameterTypes.Length == definitionParameterTypes.Length
-                    && signature.ParameterTypes
-                        .Select(parameter => parameter.Instantiate(typeArguments, []))
-                        .SequenceEqual(definitionParameterTypes);
+                var candidateParameterTypes = methodRef.DefinitionParameterTypes.IsDefaultOrEmpty
+                    ? signature.ParameterTypes.Select(parameter => parameter.Instantiate(typeArguments, []))
+                    : signature.ParameterTypes;
+                return candidateReturnType.Equals(expectedReturnType)
+                    && signature.ParameterTypes.Length == expectedParameterTypes.Length
+                    && candidateParameterTypes.SequenceEqual(expectedParameterTypes);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
