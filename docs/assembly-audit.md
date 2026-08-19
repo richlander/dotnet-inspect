@@ -110,6 +110,8 @@ The detail table has exactly `Path`, `Kind`, and `Encoded Text`. A source line
 produces one rendering finding containing all Unicode concern kinds on that
 line. NuGet configuration also produces semantic rows for `<clear/>` and each
 declared package source, even when the same line already has a text finding.
+Each row encodes only the recognized element name and its attributes; nested
+content is not serialized into an outer row.
 Each SourceLink mapping with concerning decoded text adds one row attributed to
 its package PDB (or assembly for an embedded PDB). A decoded document key or URL
 containing the literal `../` adds a separate `SourceLink parent path segment`
@@ -133,6 +135,9 @@ dotnet-inspect package X -S @Audit
 decoding, BOM, binary-file, case-distinct paths, bounded evidence and
 cardinality, common web/Razor formats, malformed PDB handling, resource limits,
 and literal parent-path cases, including close negatives.
+`PackageContentAuditTests.NestedNuGetConfiguration_EvidenceIsElementLocal`
+gates element-local NuGet evidence construction against nested serialization
+amplification.
 `PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`
 and
 `SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`
