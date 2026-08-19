@@ -110,7 +110,32 @@ jobs:
 
       - name: Verify staged site artifact
         shell: bash
-        run: test -f artifacts/inspect-web-publish/wwwroot/index.html && test -f artifacts/inspect-web-publish/wwwroot/staticwebapp.config.json
+        run: |
+          set -euo pipefail
+          site=artifacts/inspect-web-publish/wwwroot
+          index="$site/index.html"
+          test -f "$index"
+          test -f "$site/staticwebapp.config.json"
+          manifest="$site/manifest.json"
+          test -f "$manifest"
+          jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
+          vite_assets=$(jq -er '[to_entries[].value | .file, (.css[]?), (.assets[]?)] | unique | if length > 0 then join("\n") else error("empty Vite manifest") end' "$manifest")
+          while IFS= read -r asset; do
+            [[ "$asset" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
+            test -f "$site/$asset"
+          done <<< "$vite_assets"
+          vite_entry=$(jq -er '.["index.html"].file' "$manifest")
+          grep -Fq "src=\"/$vite_entry\"" "$index"
+          vite_stylesheets=$(jq -er '.["index.html"].css | if length > 0 then join("\n") else error("missing Vite stylesheet") end' "$manifest")
+          while IFS= read -r stylesheet; do
+            grep -Fq "href=\"/$stylesheet\"" "$index"
+          done <<< "$vite_stylesheets"
+          dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
+          test -n "$dotnet_module"
+          test -f "$site/_framework/$dotnet_module"
+          import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
+          module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
+          test "$import_map_line" -lt "$module_line"
 
       - name: Deploy to production
         uses: Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1 # v1
