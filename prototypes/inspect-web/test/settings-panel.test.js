@@ -37,6 +37,40 @@ test("style catalog groups render tiers, byte-divergent badges, and checked stat
   assert.match(html, /oracle/);
 });
 
+test("style catalog groups escape untrusted tier and option text", () => {
+  const html = styleCatalogGroupsHtml(
+    {
+      styleTiers: [{ id: "naming", title: '<script>alert(1)</script>', summary: "\"quoted\" & <b>bold</b>" }],
+      styleOptions: [{ id: 'x"onmouseover=1', tier: "naming", title: "<img src=x>", summary: "<i>italic</i> & more" }],
+      styleCatalogError: "",
+      taste: [],
+    },
+    escapeHtml);
+
+  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<img src=x>/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /&amp;/);
+});
+
+test("style catalog groups hide a tier with no options", () => {
+  const html = styleCatalogGroupsHtml(
+    {
+      styleTiers: [
+        ...styleTiers,
+        { id: "empty-tier", title: "Empty Tier", summary: "Has no options." },
+      ],
+      styleOptions,
+      styleCatalogError: "",
+      taste: [],
+    },
+    escapeHtml);
+
+  assert.match(html, /Naming/);
+  assert.match(html, /Layout/);
+  assert.doesNotMatch(html, /Empty Tier/);
+});
+
 test("style catalog reports an error when the catalog failed to load", () => {
   const html = styleCatalogGroupsHtml(
     { styleTiers: [], styleOptions: [], styleCatalogError: "network error", taste: [] },
