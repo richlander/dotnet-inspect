@@ -49,6 +49,9 @@ public sealed record MemberTargetSelector(
             };
             var suffix = DigestPrefix is { Length: > 0 }
                 ? $"~{DigestPrefix}"
+                    + (OverloadIndex is { } accessorIndex
+                        ? $":{accessorIndex}"
+                        : "")
                 : OverloadIndex is { } index ? $":{index}" : "";
             return $"{kindPrefix}{Name}{suffix}";
         }
@@ -70,8 +73,9 @@ public sealed record MemberTargetSelector(
             break;
         }
 
-        var (digestHead, digest) = SplitDigest(work);
+        var (digestHead, digest, accessorIndex) = SplitDigest(work);
         var (overloadHead, overloadIndex) = FqnParser.TrySplitOverload(digestHead);
+        overloadIndex ??= accessorIndex;
         var genericArity = FqnParser.GetMemberGenericArity(overloadHead);
         var name = FqnParser.NormalizeMemberName(overloadHead);
         return new MemberTargetSelector(
@@ -95,17 +99,22 @@ public sealed record MemberTargetSelector(
     static string NormalizeKind(string value)
         => NormalizeKindQualifier(value) ?? value.ToLowerInvariant();
 
-    static (string Head, string? Digest) SplitDigest(string value)
+    static (string Head, string? Digest, int? AccessorIndex) SplitDigest(
+        string value)
     {
         var tilde = value.LastIndexOf('~');
         if (tilde <= 0 || tilde == value.Length - 1)
-            return (value, null);
+            return (value, null, null);
 
-        var digest = value[(tilde + 1)..];
+        var (digest, accessorIndex) =
+            FqnParser.TrySplitOverload(value[(tilde + 1)..]);
         if (!digest.All(Uri.IsHexDigit))
-            return (value, null);
+            return (value, null, null);
 
-        return (value[..tilde], digest.ToLowerInvariant());
+        return (
+            value[..tilde],
+            digest.ToLowerInvariant(),
+            accessorIndex);
     }
 
 }
@@ -226,13 +235,6 @@ public static class MemberTargetResolver
                 candidates);
         }
 
-        if (selector.OverloadIndex.HasValue && selector.DigestPrefix is { Length: > 0 })
-        {
-            return Failure(MemberTargetDiagnosticKind.ConflictingSelectors,
-                "digest selector cannot be combined with --index/Name:N.",
-                candidates);
-        }
-
         MemberTargetCandidate selected;
         int? accessorOrdinal = null;
         if (selector.DigestPrefix is { Length: > 0 } digest)
@@ -256,6 +258,28 @@ public static class MemberTargetResolver
             }
 
             selected = matches[0];
+            if (selector.OverloadIndex is { } accessorIndex)
+            {
+                int accessorCount = AccessorCount(selected.Member);
+                if (accessorCount == 0)
+                {
+                    return Failure(
+                        MemberTargetDiagnosticKind.ConflictingSelectors,
+                        "digest selector cannot be combined with --index/Name:N.",
+                        candidates);
+                }
+                if (accessorIndex < 1 || accessorIndex > accessorCount)
+                {
+                    return Failure(
+                        MemberTargetDiagnosticKind.OverloadOutOfRange,
+                        $"{selector.Name}~{digest}:{accessorIndex} is out of range. "
+                            + $"Use {selector.Name}~{digest}:1 through "
+                            + $"{selector.Name}~{digest}:{accessorCount}.",
+                        matches);
+                }
+
+                accessorOrdinal = accessorIndex;
+            }
         }
         else if (selector.OverloadIndex is { } index)
         {

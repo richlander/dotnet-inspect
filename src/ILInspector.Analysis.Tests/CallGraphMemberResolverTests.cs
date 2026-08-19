@@ -343,6 +343,239 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void Resolve_MatchesExplicitInterfaceAccessorNameAcrossProducers()
+    {
+        var member = new ApiMember
+        {
+            Name = "INamed.Value",
+            Kind = "property",
+            ReturnType = "int",
+            GetterToken = 0x06000002,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        Name = "INamed.get_Value",
+                    },
+                ],
+            },
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [member],
+        };
+        var graph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "INamed.get_Value",
+            ImmutableArray<TypeRef>.Empty,
+            TypeRef.CoreLib("System", "Int32"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
+
+        var getter = Assert.Single(CallGraphMemberResolver.CreateBodySelectors(type, member));
+        Assert.Equal("INamed.get_Value", getter.MemberName);
+        Assert.NotEqual("get_INamed.Value", getter.MemberName);
+        Assert.Equal(graph.Key, getter.SelectorKey);
+        Assert.Equal(
+            0x06000002,
+            CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.BodyToken);
+    }
+
+    [Fact]
+    public void Resolve_MatchesCompiledExplicitInterfaceAccessorAcrossProducers()
+    {
+        using var stream = File.OpenRead(typeof(ExplicitAccessorFixtures).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == nameof(ExplicitAccessorFixtures));
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Kind == "property"
+                && candidate.Name.EndsWith(
+                    $".{nameof(IExplicitAccessor.Value)}",
+                    StringComparison.Ordinal));
+        CallGraphMemberBodySelector getter = Assert.Single(
+            CallGraphMemberResolver.CreateBodySelectors(type, member),
+            selector => selector.BodyToken == member.GetterToken);
+
+        MemberRef reference = MemberResolver.ResolveMethod(
+            peReader.GetMetadataReader(),
+            MetadataTokens.EntityHandle(getter.BodyToken),
+            GenericScope.Empty);
+        CallGraphMemberSelector graph = CallGraphMemberResolver.CreateSelector(reference);
+
+        Assert.Equal(reference.Name, getter.MemberName);
+        Assert.False(getter.MemberName.StartsWith("get_", StringComparison.Ordinal));
+        Assert.Contains(".get_", getter.MemberName, StringComparison.Ordinal);
+        Assert.Equal(graph.Key, getter.SelectorKey);
+        Assert.Equal(
+            getter.BodyToken,
+            CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.BodyToken);
+    }
+
+    [Fact]
+    public void Resolve_MatchesCompiledNestedGenericAndByRefAcrossProducers()
+    {
+        using var stream = File.OpenRead(typeof(NestedGenericKeyFixtures).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        MetadataReader mdReader = peReader.GetMetadataReader();
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == nameof(NestedGenericKeyFixtures));
+
+        AssertCompiledSelectorAgreement(type, mdReader, nameof(NestedGenericKeyFixtures.TakeNested));
+        AssertCompiledSelectorAgreement(type, mdReader, nameof(NestedGenericKeyFixtures.TakeRefNested));
+        AssertCompiledSelectorAgreement(type, mdReader, nameof(NestedGenericKeyFixtures.TakeRefPlain));
+        AssertCompiledSelectorAgreement(type, mdReader, nameof(NestedGenericKeyFixtures.TakeList));
+        AssertCompiledSelectorAgreement(type, mdReader, nameof(NestedGenericKeyFixtures.TakeRefInt));
+        AssertCompiledSelectorAgreement(type, mdReader, nameof(NestedGenericKeyFixtures.TakeListOfOuter));
+        AssertCompiledSelectorAgreement(type, mdReader, nameof(NestedGenericKeyFixtures.TakeListOfNested));
+        AssertCompiledSelectorAgreement(type, mdReader, "TakeHidden");
+        AssertCompiledSelectorAgreement(type, mdReader, "TakeRefHidden");
+
+        ApiMember[] wrapped = [.. type.Members.Where(candidate => candidate.Name == "TakeWrapped")];
+        Assert.Equal(2, wrapped.Length);
+        foreach (ApiMember member in wrapped)
+            AssertCompiledSelectorAgreement(type, mdReader, member);
+    }
+
+    [Fact]
+    public void Selector_PlacesByRefMarkerOutsideNestedGenericDisplay()
+    {
+        var nested = Method("ref Samples.Outer<int>.Inner<string>");
+        nested.MetadataToken = 0x06000001;
+        var plus = Method("ref Samples.Outer<int>+Inner<string>");
+        plus.MetadataToken = 0x06000001;
+        var ordinary = Method("ref int");
+        ordinary.MetadataToken = 0x06000002;
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [nested, ordinary],
+        };
+        var plusType = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [plus],
+        };
+        var declaringType = TypeRef.Definition("Samples", "Samples", "Owner");
+        CallGraphMemberSelector nestedGraph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            declaringType,
+            "M",
+            [
+                TypeRef.ByRef(
+                    TypeRef.GenericInstance(
+                        TypeRef.Definition("Samples", "Samples", "Outer`1+Inner`1"),
+                        [
+                            TypeRef.CoreLib("System", "Int32"),
+                            TypeRef.CoreLib("System", "String"),
+                        ])),
+            ],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
+
+        Assert.Null(nested.SignatureModel!.Parameters[0].StructuralType);
+        Assert.Equal(
+            "Samples.Outer{System.Int32}.Inner{System.String}@",
+            CallGraphMemberResolver.CreateSelector(type, nested).ParameterTypes[0]);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, nested).Key,
+            nestedGraph.Key);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(plusType, plus).Key,
+            nestedGraph.Key);
+        Assert.Equal(
+            "System.Int32@",
+            CallGraphMemberResolver.CreateSelector(type, ordinary).ParameterTypes[0]);
+        Assert.Same(
+            nested,
+            CallGraphMemberResolver.Resolve(type, nestedGraph.Name, nestedGraph.Key)!.Member);
+    }
+
+    [Fact]
+    public void Selector_DistinguishesNestedGenericInsideAnotherGenericArgument()
+    {
+        var outer = Method("System.Collections.Generic.List<Samples.Outer<int>>");
+        outer.MetadataToken = 0x06000001;
+        var inner = Method("System.Collections.Generic.List<Samples.Outer<int>.Inner<string>>");
+        inner.MetadataToken = 0x06000002;
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [outer, inner],
+        };
+        var declaringType = TypeRef.Definition("Samples", "Samples", "Owner");
+        CallGraphMemberSelector innerGraph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            declaringType,
+            "M",
+            [
+                TypeRef.GenericInstance(
+                    TypeRef.Definition("corelib", "System.Collections.Generic", "List`1"),
+                    [
+                        TypeRef.GenericInstance(
+                            TypeRef.Definition("Samples", "Samples", "Outer`1+Inner`1"),
+                            [
+                                TypeRef.CoreLib("System", "Int32"),
+                                TypeRef.CoreLib("System", "String"),
+                            ]),
+                    ]),
+            ],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
+        CallGraphMemberSelector outerGraph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            declaringType,
+            "M",
+            [
+                TypeRef.GenericInstance(
+                    TypeRef.Definition("corelib", "System.Collections.Generic", "List`1"),
+                    [
+                        TypeRef.GenericInstance(
+                            TypeRef.Definition("Samples", "Samples", "Outer`1"),
+                            [TypeRef.CoreLib("System", "Int32")]),
+                    ]),
+            ],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
+
+        Assert.NotEqual(outerGraph.Key, innerGraph.Key);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, outer).Key,
+            outerGraph.Key);
+        Assert.Equal(
+            CallGraphMemberResolver.CreateSelector(type, inner).Key,
+            innerGraph.Key);
+        Assert.Same(
+            outer,
+            CallGraphMemberResolver.Resolve(type, outerGraph.Name, outerGraph.Key)!.Member);
+        Assert.Same(
+            inner,
+            CallGraphMemberResolver.Resolve(type, innerGraph.Name, innerGraph.Key)!.Member);
+    }
+
+    [Fact]
     public void Selector_KeepsDisplaySpellingWhenModifiersArePresent()
     {
         var modified = TypeRef.UnsupportedModified(
@@ -1050,6 +1283,36 @@ public sealed class CallGraphMemberResolverTests
                 genericParameterCount,
                 [TypeRef.CoreLib("System", "Int32")]));
 
+    static void AssertCompiledSelectorAgreement(
+        ApiType type,
+        MetadataReader mdReader,
+        string memberName)
+        => AssertCompiledSelectorAgreement(
+            type,
+            mdReader,
+            Assert.Single(type.Members, candidate => candidate.Name == memberName));
+
+    static void AssertCompiledSelectorAgreement(
+        ApiType type,
+        MetadataReader mdReader,
+        ApiMember member)
+    {
+        foreach (CallGraphMemberBodySelector selector in
+            CallGraphMemberResolver.CreateBodySelectors(type, member))
+        {
+            MemberRef reference = MemberResolver.ResolveMethod(
+                mdReader,
+                MetadataTokens.EntityHandle(selector.BodyToken),
+                GenericScope.Empty);
+            CallGraphMemberSelector graph = CallGraphMemberResolver.CreateSelector(reference);
+            Assert.Equal(graph.Name, selector.MemberName);
+            Assert.Equal(graph.Key, selector.SelectorKey);
+            Assert.Equal(
+                selector.BodyToken,
+                CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.BodyToken);
+        }
+    }
+
     static ApiMember Method(string parameterType, string? structuralType = null) => new()
     {
         Name = "M",
@@ -1094,4 +1357,79 @@ public sealed class CallGraphMemberResolverTests
 public sealed class InitAccessorFixtures
 {
     public int Value { get; init; }
+}
+
+public interface IExplicitAccessor
+{
+    int Value { get; }
+}
+
+public sealed class ExplicitAccessorFixtures : IExplicitAccessor
+{
+    int IExplicitAccessor.Value => 1;
+}
+
+public sealed class NestedGenericKeyFixtures
+{
+    public sealed class Outer<T>
+    {
+        public sealed class Inner<U>
+        {
+        }
+
+        public sealed class Plain
+        {
+        }
+    }
+
+    public static void TakeNested(Outer<int>.Inner<string> value)
+    {
+    }
+
+    public static void TakeRefNested(ref Outer<int>.Inner<string> value)
+    {
+    }
+
+    public static void TakeRefPlain(ref Outer<int>.Plain value)
+    {
+    }
+
+    public static void TakeList(List<int> value)
+    {
+    }
+
+    public static void TakeRefInt(ref int value)
+    {
+    }
+
+    public static void TakeListOfOuter(List<Outer<int>> value)
+    {
+    }
+
+    public static void TakeListOfNested(List<Outer<int>.Inner<string>> value)
+    {
+    }
+
+    public static void TakeWrapped(List<Outer<int>> value)
+    {
+    }
+
+    public static void TakeWrapped(List<Outer<int>.Inner<string>> value)
+    {
+    }
+
+    static void TakeHidden(HiddenOuter<int>.HiddenInner<string> value)
+    {
+    }
+
+    static void TakeRefHidden(ref HiddenOuter<int>.HiddenInner<string> value)
+    {
+    }
+
+    sealed class HiddenOuter<T>
+    {
+        public sealed class HiddenInner<U>
+        {
+        }
+    }
 }

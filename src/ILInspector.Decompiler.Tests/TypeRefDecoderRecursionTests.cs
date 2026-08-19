@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
@@ -161,12 +162,11 @@ public class TypeRefDecoderRecursionTests
             MetadataTokens.TypeSpecificationHandle(1),
             0);
 
-        // The decompiler intentionally drops custom modifiers (GetModifiedType returns the
-        // unmodified type), so this modreq cycle degrades to the underlying I4 rather than
-        // Unsupported. The guard's contract here is purely crash-avoidance: reaching this
-        // assertion at all proves the decode terminated instead of overflowing the stack.
-        Assert.NotNull(result);
-        Assert.Equal("Int32", result.Name);
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "type-specification",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -351,6 +351,121 @@ public class TypeRefDecoderRecursionTests
             "type-definition metadata name is incomplete",
             result.UnsupportedReason,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SharedOversizeNestedDefinitionName_IsRejectedBeforeRepeatedMaterialization()
+    {
+        const int levels = MetadataSafetyPolicy.MaxRelationshipNodes;
+        TypeDefinitionHandle leafHandle = default;
+        string oversize = new('A', 64 * 1024);
+        var reader = BuildMetadata(metadata =>
+        {
+            StringHandle name = metadata.GetOrAddString(oversize);
+            TypeDefinitionHandle previous = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                name,
+                baseType: default,
+                fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                methodList: MetadataTokens.MethodDefinitionHandle(1));
+            var nestings =
+                new List<(TypeDefinitionHandle Nested, TypeDefinitionHandle Enclosing)>();
+            for (int level = 1; level < levels; level++)
+            {
+                TypeDefinitionHandle current = metadata.AddTypeDefinition(
+                    TypeAttributes.NestedPublic,
+                    default,
+                    name,
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: MetadataTokens.MethodDefinitionHandle(1));
+                nestings.Add((current, previous));
+                previous = current;
+            }
+
+            foreach ((TypeDefinitionHandle nested, TypeDefinitionHandle enclosing) in nestings)
+                metadata.AddNestedType(nested, enclosing);
+            leafHandle = previous;
+            return default(EntityHandle);
+        });
+
+        _ = TypeRefDecoder.Instance.GetTypeFromDefinition(
+            reader,
+            MetadataTokens.TypeDefinitionHandle(1),
+            0);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var result = TypeRefDecoder.Instance.GetTypeFromDefinition(
+            reader,
+            leafHandle,
+            0);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "type-definition metadata name is incomplete",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            RelationshipTraversalRejectionKind.NameBudget,
+            result.MetadataNameFailure?.RelationshipKind);
+        Assert.True(
+            allocated < 256 * 1024,
+            $"Expected bounded rejection allocation, observed {allocated:N0} bytes.");
+    }
+
+    [Fact]
+    public void SharedOversizeNestedReferenceName_IsRejectedBeforeRepeatedMaterialization()
+    {
+        const int levels = MetadataSafetyPolicy.MaxRelationshipNodes;
+        TypeReferenceHandle leafHandle = default;
+        TypeReferenceHandle warmHandle = default;
+        string oversize = new('A', 64 * 1024);
+        var reader = BuildMetadata(metadata =>
+        {
+            StringHandle name = metadata.GetOrAddString(oversize);
+            for (int row = 1; row <= levels; row++)
+            {
+                metadata.AddTypeReference(
+                    row == levels
+                        ? default
+                        : MetadataTokens.TypeReferenceHandle(row + 1),
+                    row == levels
+                        ? metadata.GetOrAddString("N")
+                        : default,
+                    name);
+            }
+            leafHandle = MetadataTokens.TypeReferenceHandle(1);
+            warmHandle = metadata.AddTypeReference(
+                default,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("Warm"));
+
+            return default(EntityHandle);
+        });
+
+        _ = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            warmHandle,
+            0);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var result = TypeRefDecoder.Instance.GetTypeFromReference(
+            reader,
+            leafHandle,
+            0);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(TypeRefKind.Unsupported, result.Kind);
+        Assert.Contains(
+            "type-reference metadata name is incomplete",
+            result.UnsupportedReason,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            RelationshipTraversalRejectionKind.NameBudget,
+            result.MetadataNameFailure?.RelationshipKind);
+        Assert.True(
+            allocated < 256 * 1024,
+            $"Expected bounded rejection allocation, observed {allocated:N0} bytes.");
     }
 
     // The close negative: the same shape well inside the budget still decodes, and its flattened

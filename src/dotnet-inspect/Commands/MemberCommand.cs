@@ -195,6 +195,25 @@ public static class MemberCommand
                     options = options with { IncludeSections = actualSelect.Sections };
             }
 
+            if (options.BodyKindQuery.HasFilter
+                && (options.MemberFilter.Count != 1
+                    || options.MemberFilter.Any(MemberFilterHasWildcard)))
+            {
+                CommandError.Write(
+                    "--where Kind=... requires one exact member name or selector "
+                    + "(for example, Name:1 or Name~digest).");
+                return 1;
+            }
+            if (options.BodyKindQuery.HasFilter
+                && options.IncludeSections is null
+                && options.Discover is null)
+            {
+                options = options with
+                {
+                    IncludeSections = [SectionNames.BodyShapes],
+                };
+            }
+
             // Check each member filter before producing output
             if (options.MemberFilter.Count > 0)
             {
@@ -243,7 +262,17 @@ public static class MemberCommand
                 var autoMemberName = effectiveOptions.MemberFilter.First();
                 var autoOverloads = GetCandidateMembers(apiType, effectiveOptions, autoMemberName);
                 if (autoOverloads.Count == 1)
+                {
+                    if (effectiveOptions.BodyKindQuery.HasFilter
+                        && BodyAccessorCount(autoOverloads[0]) > 1)
+                    {
+                        WriteAccessorSelectionRequired(
+                            apiType,
+                            autoOverloads[0]);
+                        return 1;
+                    }
                     effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
+                }
             }
 
             if (effectiveOptions.OverloadIndex.HasValue
@@ -273,6 +302,18 @@ public static class MemberCommand
 
                 var target = memberResolution.Target!;
                 var selected = target.ApiMember.Member;
+                bool explicitAccessorSelector =
+                    target.Kind is MemberTargetKind.Property or MemberTargetKind.Event
+                    && target.OverloadIndex.HasValue
+                    && (target.DigestPrefix is not null
+                        || memberResolution.Candidates.Count == 1);
+                if (effectiveOptions.BodyKindQuery.HasFilter
+                    && BodyAccessorCount(selected) > 1
+                    && !explicitAccessorSelector)
+                {
+                    WriteAccessorSelectionRequired(apiType, selected);
+                    return 1;
+                }
                 apiType.Members = [selected];
                 var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
@@ -407,6 +448,16 @@ public static class MemberCommand
 
             if (effectiveOptions.EffectiveDiscovery)
             {
+                if (!effectiveOptions.BodyKindQuery.HasFilter
+                    && ApiCommand.TargetsBodyShapes(
+                        effectiveOptions,
+                        effectiveOptions.Discover))
+                {
+                    CommandError.Write(
+                        "Section 'Body Shapes' requires --where "
+                        + "\"Kind=<C# Body Kinds ID>\".");
+                    return 1;
+                }
                 return ApiCommand.ExecuteEffectiveDiscovery(
                     apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions,
                     new ApiCommand.TypeAcquisitionContext(
@@ -571,11 +622,43 @@ public static class MemberCommand
         return true;
     }
 
+    private static bool MemberFilterHasWildcard(string filter)
+        => filter.Contains('*', StringComparison.Ordinal)
+           || filter.Contains('?', StringComparison.Ordinal);
+
+    private static int BodyAccessorCount(ApiMember member)
+        => member.Kind switch
+        {
+            "property" => (member.GetterToken.HasValue ? 1 : 0)
+                + (member.SetterToken.HasValue ? 1 : 0),
+            "event" => (member.AdderToken.HasValue ? 1 : 0)
+                + (member.RemoverToken.HasValue ? 1 : 0),
+            _ => 0,
+        };
+
+    private static void WriteAccessorSelectionRequired(
+        ApiType type,
+        ApiMember member)
+    {
+        var stable = ApiMemberIdentity
+            .GetMemberAnchor(type, member)
+            .StableSelector;
+        int count = BodyAccessorCount(member);
+        CommandError.Write(
+            $"Member '{member.Name}' has {count} body accessors. "
+                + $"Select one with {stable}:1 through {stable}:{count}.");
+    }
+
     private static bool TryGetSelectedSingleOverloadSections(MemberOptions options, out List<string> sections)
     {
         sections = [];
         if (options.MemberFilter.Count != 1)
             return false;
+        if (options.BodyKindQuery.HasFilter)
+        {
+            sections = [SectionNames.BodyShapes];
+            return true;
+        }
         if (options.IncludeSections is not { Count: > 0 } includeSections)
             return false;
         // Bare -S carries no selector value, so it cannot be recognized by inspecting Select.
@@ -617,6 +700,7 @@ public static class MemberCommand
         SectionNames.Callers,
         SectionNames.CallGraph,
         SectionNames.UnsafeOperations,
+        SectionNames.BodyShapes,
         SectionNames.TopLeverage,
         SectionNames.PerformanceTriage,
         SectionNames.Facts,
@@ -665,6 +749,7 @@ public static class MemberCommand
                && (sections.Contains(SectionNames.DecompiledSource)
                    || sections.Contains(SectionNames.AnnotatedSource)
                    || sections.Contains(SectionNames.AnnotatedSourceDocument)
+                   || sections.Contains(SectionNames.BodyShapes)
                    || sections.Contains(SectionNames.Facts));
     }
 

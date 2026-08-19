@@ -7,6 +7,16 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
+internal static class OperatorHierarchyLimits
+{
+    // Bound both graph depth and breadth: malformed metadata can attach an
+    // arbitrary number of duplicate InterfaceImpl rows to one definition.
+    // Gated by WideInterfaceHierarchy_EnforcesWorkBudget and
+    // CrossAssemblyGenericParameters_EnforceWorkBudget.
+    public const int Types = 256;
+    public const int WorkItems = 4096;
+}
+
 /// <summary>
 /// Owner of the PE and metadata readers for one assembly, with an explicit
 /// lifetime contract (docs/decompiler-ir.md). Everything that
@@ -493,6 +503,7 @@ public sealed class MetadataSource : IDisposable
     HashSet<TypeRef>? _unionTypes;
     HashSet<TypeRef>? _byRefLikeTypes;
     HashSet<TypeRef>? _delegates;
+    readonly ConcurrentDictionary<(TypeDefinitionIdentity Type, string MethodName), MetadataFactState> _operatorHierarchyFacts = new();
 
     /// <summary>
     /// The C# shape of a type defined in THIS assembly — enum, struct, or
@@ -559,7 +570,10 @@ public sealed class MetadataSource : IDisposable
         if (NamedDefinition(type) is not { } definition || string.IsNullOrEmpty(definition.Assembly))
             return TypeShapeKind.Unknown;
 
-        if (definition.Assembly == (Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : ""))
+        if (TypeDefinitionIdentity.BelongsToAssembly(
+            definition,
+            Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "",
+            _assembly.Identity))
         {
             EnsureTypeMaps();
             if (_delegates!.Contains(definition))
@@ -628,9 +642,334 @@ public sealed class MetadataSource : IDisposable
         // same-assembly type absent from it is not a ref struct. Only a
         // cross-assembly (referenced) definition needs the resolver, which reads
         // [IsByRefLike] from the defining assembly's metadata.
-        if (definition.Assembly == (Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : ""))
+        if (TypeDefinitionIdentity.BelongsToAssembly(
+            definition,
+            Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "",
+            _assembly.Identity))
             return _byRefLikeTypes!.Contains(definition);
         return CrossAssembly.IsByRefLike(definition) == MetadataFactState.Yes;
+    }
+
+    /// <summary>
+    /// Whether the named reference type's C# binding hierarchy declares the
+    /// requested equality operator. <see cref="MetadataFactState.No"/> is
+    /// returned only after the reachable class/base or interface hierarchy has
+    /// been inspected; unresolved hierarchy edges remain unknown.
+    /// </summary>
+    /// <remarks>
+    /// Gated by <c>BoxedReferenceEqualityTests</c>' same-assembly inherited
+    /// operator and operator-free class cases.
+    /// </remarks>
+    internal MetadataFactState HasOperatorInBindingHierarchy(TypeRef type, string methodName)
+    {
+        if (NamedDefinition(type) is not { } definition
+            || string.IsNullOrEmpty(definition.Assembly)
+            || TypeDefinitionIdentity.Create(definition) is not { } identity)
+            return MetadataFactState.Unknown;
+        var cacheKey = (identity, methodName);
+        if (_operatorHierarchyFacts.TryGetValue(cacheKey, out var cached))
+            return cached;
+
+        string self = Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "";
+        if (!TypeDefinitionIdentity.BelongsToAssembly(
+            definition,
+            self,
+            _assembly.Identity))
+        {
+            var crossAssembly = CrossAssembly.HasOperatorInBindingHierarchy(type, methodName);
+            _operatorHierarchyFacts.TryAdd(cacheKey, crossAssembly);
+            return crossAssembly;
+        }
+
+        _ = methodName switch
+        {
+            "op_Equality" => true,
+            "op_Inequality" => true,
+            _ => throw new ArgumentOutOfRangeException(nameof(methodName)),
+        };
+        bool unresolved = false;
+        int remainingWork = OperatorHierarchyLimits.WorkItems;
+        var seen = new HashSet<TypeDefinitionIdentity>();
+        var pending = new Stack<TypeRef>();
+        pending.Push(type);
+        while (pending.Count > 0
+            && seen.Count < OperatorHierarchyLimits.Types
+            && remainingWork-- > 0)
+        {
+            var current = pending.Pop();
+            if (NamedDefinition(current) is not { } currentDefinition
+                || TypeDefinitionIdentity.Create(currentDefinition) is not { } currentIdentity)
+            {
+                unresolved = true;
+                continue;
+            }
+            if (!seen.Add(currentIdentity))
+                continue;
+
+            if (!TypeDefinitionIdentity.BelongsToAssembly(
+                currentDefinition,
+                self,
+                _assembly.Identity))
+            {
+                var crossAssembly = CrossAssembly.HasOperatorInBindingHierarchy(current, methodName);
+                if (crossAssembly == MetadataFactState.Yes)
+                {
+                    _operatorHierarchyFacts.TryAdd(cacheKey, MetadataFactState.Yes);
+                    return MetadataFactState.Yes;
+                }
+                if (crossAssembly == MetadataFactState.Unknown)
+                    unresolved = true;
+                continue;
+            }
+
+            TypeDefinitionHandle handle =
+                currentDefinition.DefinitionModuleVersionId is { } sourceMvid
+                    && sourceMvid != Guid.Empty
+                    && ModuleVersionId != Guid.Empty
+                    && sourceMvid == ModuleVersionId
+                    && IsLocalRowFor(
+                        currentDefinition.DefinitionHandle,
+                        currentIdentity.DefinitionName)
+                    ? currentDefinition.DefinitionHandle
+                    : default;
+            if (handle.IsNil)
+            {
+                var lookup = FindLocalTypeDefinition(
+                    currentIdentity.DefinitionName,
+                    ref remainingWork);
+                if (lookup.Kind != LocalTypeDefinitionLookupKind.Found)
+                {
+                    unresolved = true;
+                    if (lookup.Kind
+                        == LocalTypeDefinitionLookupKind.BudgetExceeded)
+                    {
+                        break;
+                    }
+                    continue;
+                }
+                handle = lookup.Handle;
+            }
+
+            var typeDefinition = Reader.GetTypeDefinition(handle);
+            foreach (var methodHandle in typeDefinition.GetMethods())
+            {
+                if (remainingWork-- <= 0)
+                {
+                    unresolved = true;
+                    break;
+                }
+                var method = Reader.GetMethodDefinition(methodHandle);
+                if (!Reader.StringComparer.Equals(method.Name, methodName))
+                    continue;
+                bool hasThis =
+                    (method.Attributes
+                        & System.Reflection.MethodAttributes.Static) == 0;
+                if (MethodDefinitionFacts.IsOperator(
+                    method,
+                    methodName,
+                    hasThis))
+                {
+                    _operatorHierarchyFacts.TryAdd(
+                        cacheKey,
+                        MetadataFactState.Yes);
+                    return MetadataFactState.Yes;
+                }
+            }
+            if (remainingWork < 0)
+                break;
+
+            var genericParameters = typeDefinition.GetGenericParameters();
+            if (!TryCreateHierarchyGenericScope(
+                genericParameters,
+                ref remainingWork,
+                out var scope))
+            {
+                unresolved = true;
+                break;
+            }
+            bool isGenericInstance =
+                current.Kind == TypeRefKind.GenericInstance;
+
+            if ((typeDefinition.Attributes
+                & System.Reflection.TypeAttributes.Interface) != 0)
+            {
+                foreach (var implementationHandle
+                    in typeDefinition.GetInterfaceImplementations())
+                {
+                    if (remainingWork-- <= 0)
+                    {
+                        unresolved = true;
+                        break;
+                    }
+                    var implementation =
+                        Reader.GetInterfaceImplementation(
+                            implementationHandle);
+                    TypeRef? baseInterface = DecodeBaseType(
+                        implementation.Interface,
+                        scope);
+                    if (baseInterface is null)
+                    {
+                        unresolved = true;
+                        continue;
+                    }
+                    pending.Push(isGenericInstance
+                        ? baseInterface.Instantiate(
+                            current.TypeArguments,
+                            [])
+                        : baseInterface);
+                }
+                if (remainingWork < 0)
+                    break;
+                continue;
+            }
+
+            if (!typeDefinition.BaseType.IsNil)
+            {
+                // Charged before the decode and for every non-nil edge,
+                // including the one that reaches System.Object: the decode is
+                // itself the work being bounded, and the cross-assembly walk
+                // charges the same way. Skipping either case lets the local
+                // path run past the budget and still answer with confidence
+                // where the cross-assembly path answers Unknown.
+                if (remainingWork-- <= 0)
+                {
+                    unresolved = true;
+                    break;
+                }
+                TypeRef? baseType = DecodeBaseType(
+                    typeDefinition.BaseType,
+                    scope);
+                if (baseType is null)
+                {
+                    unresolved = true;
+                    continue;
+                }
+                if (!IsObject(baseType))
+                {
+                    pending.Push(isGenericInstance
+                        ? baseType.Instantiate(current.TypeArguments, [])
+                        : baseType);
+                }
+            }
+        }
+
+        var result = !unresolved && pending.Count == 0
+            ? MetadataFactState.No
+            : MetadataFactState.Unknown;
+        _operatorHierarchyFacts.TryAdd(cacheKey, result);
+        return result;
+    }
+
+    /// <summary>
+    /// Whether a stored TypeDef row handle really names <paramref name="name"/>
+    /// in <em>this</em> module. A module version id is metadata like any other:
+    /// a hostile or accidentally duplicated image can carry the MVID this
+    /// module carries, so a matching MVID makes the recorded row a hint rather
+    /// than a fact. Confirm the row is in range and still spells the expected
+    /// structured name before reusing it; callers fall back to the bounded
+    /// <see cref="FindLocalTypeDefinition"/> scan when this returns false.
+    /// </summary>
+    bool IsLocalRowFor(
+        TypeDefinitionHandle handle,
+        MetadataTypeDefinitionName name)
+    {
+        if (handle.IsNil)
+            return false;
+        // Range check first as defence in depth: the structured-name match
+        // below already refuses a row this module does not have, so this guard
+        // is deliberately not independently gated.
+        int row = MetadataTokens.GetRowNumber(handle);
+        if (row < 1 || row > Reader.GetTableRowCount(TableIndex.TypeDef))
+            return false;
+        return MetadataTypeDefinitionName.Matches(
+            Reader,
+            handle,
+            name,
+            out _) == MetadataTypeDefinitionNameMatchResult.Match;
+    }
+
+    LocalTypeDefinitionLookup FindLocalTypeDefinition(
+        MetadataTypeDefinitionName name,
+        ref int remainingWork)
+    {
+        TypeDefinitionHandle match = default;
+        bool rejected = false;
+        foreach (var handle in Reader.TypeDefinitions)
+        {
+            if (remainingWork-- <= 0)
+            {
+                return new LocalTypeDefinitionLookup(
+                    LocalTypeDefinitionLookupKind.BudgetExceeded);
+            }
+
+            switch (MetadataTypeDefinitionName.Matches(
+                Reader,
+                handle,
+                name,
+                out _))
+            {
+                case MetadataTypeDefinitionNameMatchResult.Match
+                    when !match.IsNil:
+                    return new LocalTypeDefinitionLookup(
+                        LocalTypeDefinitionLookupKind.Ambiguous);
+                case MetadataTypeDefinitionNameMatchResult.Match:
+                    match = handle;
+                    break;
+                case MetadataTypeDefinitionNameMatchResult.Rejected:
+                    rejected = true;
+                    break;
+            }
+        }
+
+        if (!match.IsNil)
+        {
+            return new LocalTypeDefinitionLookup(
+                LocalTypeDefinitionLookupKind.Found,
+                match);
+        }
+        return new LocalTypeDefinitionLookup(
+            rejected
+                ? LocalTypeDefinitionLookupKind.Rejected
+                : LocalTypeDefinitionLookupKind.Missing);
+    }
+
+    enum LocalTypeDefinitionLookupKind
+    {
+        Found,
+        Missing,
+        Ambiguous,
+        Rejected,
+        BudgetExceeded,
+    }
+
+    readonly record struct LocalTypeDefinitionLookup(
+        LocalTypeDefinitionLookupKind Kind,
+        TypeDefinitionHandle Handle = default);
+
+    static bool TryCreateHierarchyGenericScope(
+        GenericParameterHandleCollection parameters,
+        ref int remainingWork,
+        out GenericScope scope)
+    {
+        if (parameters.Count == 0)
+        {
+            scope = new GenericScope([], []);
+            return true;
+        }
+        if (parameters.Count > remainingWork)
+        {
+            remainingWork = 0;
+            scope = new GenericScope([], []);
+            return false;
+        }
+
+        var names = ImmutableArray.CreateBuilder<string>(
+            parameters.Count);
+        remainingWork -= parameters.Count;
+        foreach (var _ in parameters)
+            names.Add("");
+        scope = new GenericScope(names.MoveToImmutable(), []);
+        return true;
     }
 
     /// <summary>
@@ -903,7 +1242,10 @@ public sealed class MetadataSource : IDisposable
         if (type.Equals(s_enumerable) || definition.Equals(s_enumerable))
             return MetadataFactState.Yes;
 
-        if (definition.Assembly == (Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : ""))
+        if (TypeDefinitionIdentity.BelongsToAssembly(
+            definition,
+            Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : "",
+            _assembly.Identity))
             return Implements(type, s_enumerable) ? MetadataFactState.Yes : MetadataFactState.No;
 
         return CrossAssembly.Implements(type, s_enumerable);
