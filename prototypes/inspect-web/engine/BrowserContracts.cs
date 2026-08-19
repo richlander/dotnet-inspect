@@ -87,7 +87,6 @@ public sealed record BrowserMemberSurface(
     string Accessibility,
     bool IsStatic,
     bool IsUnsafe,
-    bool IsAsync,
     bool IsVirtual,
     bool IsAbstract,
     bool IsOverride,

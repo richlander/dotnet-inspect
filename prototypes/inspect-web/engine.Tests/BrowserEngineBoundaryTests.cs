@@ -38,7 +38,6 @@ public sealed class BrowserEngineBoundaryTests
             Accessibility = "protected",
             IsStatic = true,
             IsUnsafe = true,
-            IsAsync = true,
             IsVirtual = true,
             IsAbstract = true,
             IsOverride = true,
@@ -51,7 +50,6 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal("protected", projected.Accessibility);
         Assert.True(projected.IsStatic);
         Assert.True(projected.IsUnsafe);
-        Assert.True(projected.IsAsync);
         Assert.True(projected.IsVirtual);
         Assert.True(projected.IsAbstract);
         Assert.True(projected.IsOverride);
@@ -70,6 +68,17 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal("public", ordinary.Accessibility);
         Assert.False(ordinary.IsStatic);
         Assert.False(ordinary.IsObsolete);
+
+        BrowserMemberSurface explicitImplementation = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "IDisposable.Dispose",
+                Kind = "explicit-interface-implementation",
+                Signature = "void IDisposable.Dispose()",
+            });
+
+        Assert.Equal("private", explicitImplementation.Accessibility);
     }
 
     [Fact]

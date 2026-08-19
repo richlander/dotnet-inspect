@@ -86,10 +86,11 @@ internal static class BrowserSurfaceProjection
             member.Name,
             member.Kind,
             member.Signature ?? member.Name,
-            member.Accessibility ?? "public",
+            member.Kind == "explicit-interface-implementation"
+                ? "private"
+                : member.Accessibility ?? "public",
             member.IsStatic,
             member.IsUnsafe,
-            member.IsAsync,
             member.IsVirtual,
             member.IsAbstract,
             member.IsOverride,

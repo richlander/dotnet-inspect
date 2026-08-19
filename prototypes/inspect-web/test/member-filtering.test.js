@@ -15,14 +15,12 @@ const groups = [
         signature: "public static Task Build(string path)",
         accessibility: "public",
         isStatic: true,
-        isAsync: true,
         isObsolete: false,
       },
       {
         signature: "protected void Build()",
         accessibility: "protected",
         isStatic: false,
-        isAsync: false,
         isObsolete: true,
       },
     ],
@@ -36,7 +34,6 @@ const groups = [
         signature: "public string Name { get; }",
         accessibility: "public",
         isStatic: false,
-        isAsync: false,
         isObsolete: false,
       },
     ],
@@ -47,14 +44,14 @@ test("member filters compose on one matching overload", () => {
   assert.equal(memberGroupMatches(groups[0], {
     kind: "method",
     accessibility: "public",
-    trait: "isAsync",
+    trait: "isStatic",
     query: "path",
   }), true);
 
   assert.equal(memberGroupMatches(groups[0], {
     kind: "method",
     accessibility: "protected",
-    trait: "isAsync",
+    trait: "isStatic",
     query: "",
   }), false);
 });

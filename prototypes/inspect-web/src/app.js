@@ -368,6 +368,7 @@ function viewSignature() {
     l: state.lens,
     t: state.selectedTypeId,
     m: state.selectedMemberKey,
+    mb: state.memberBrowseTypeId,
     o: state.selectedOverloadIndex,
     s: state.memberSection,
     pr: state.atPackageRoot,
@@ -382,6 +383,7 @@ function captureView() {
     lens: state.lens,
     selectedTypeId: state.selectedTypeId,
     selectedMemberKey: state.selectedMemberKey,
+    memberBrowseTypeId: state.memberBrowseTypeId,
     selectedOverloadIndex: state.selectedOverloadIndex,
     bodyTarget: state.selectedBodyTarget,
     memberSection: state.memberSection,
@@ -406,6 +408,7 @@ function applyView(view) {
   state.lens = view.lens;
   state.selectedTypeId = view.selectedTypeId;
   state.selectedMemberKey = view.selectedMemberKey;
+  state.memberBrowseTypeId = view.memberBrowseTypeId ?? "";
   state.selectedOverloadIndex = view.selectedOverloadIndex;
   state.memberSection = view.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
@@ -791,6 +794,7 @@ function afterLibraryScopeChange() {
   const first = filteredTypes()[0];
   if (first) state.selectedTypeId = first.id;
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   render();
 }
 
@@ -891,6 +895,7 @@ function selectPackageTab(pkg) {
   state.home = false;
   state.selectedTypeId = pkg.types[0]?.id || "";
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.typeFilter = "";
   state.namespaceFilter = "";
@@ -920,6 +925,10 @@ function activatePackage(pkg, { resetAccessibility = false } = {}) {
   state.package = pkg;
   if (changed)
     state.dependenciesGroupIndex = null;
+  if (changed) {
+    state.memberBrowseTypeId = "";
+    resetMemberFilters();
+  }
   if (pkg && (changed || resetAccessibility || state.accessibilityFilter.size === 0))
     state.accessibilityFilter = defaultAccessibilityFilter(pkg);
   return changed;
@@ -1196,17 +1205,26 @@ function openMemberGroup(key) {
 
 function enterMemberScope() {
   const type = selectedType();
-  if (!type) return;
+  if (!type) return false;
+  const groups = memberGroups(type);
+  if (!groups.length) {
+    state.memberBrowseTypeId = "";
+    return false;
+  }
   state.atPackageRoot = false;
   state.lens = "api";
   state.memberBrowseTypeId = type.id;
-  let visible = visibleMemberGroups(type);
-  if (!visible.length && memberGroups(type).length) {
-    resetMemberFilters();
-    visible = visibleMemberGroups(type);
-  }
+  const visible = visibleMemberGroups(type);
   const selectedIsVisible = visible.some(group => group.key === state.selectedMemberKey);
-  if (!selectedIsVisible && visible.length) openMemberGroup(visible[0].key);
+  if (!selectedIsVisible) {
+    if (visible.length) openMemberGroup(visible[0].key);
+    else {
+      state.selectedMemberKey = "";
+      state.selectedOverloadIndex = null;
+      resetMemberSectionState();
+    }
+  }
+  return true;
 }
 
 function normalizeMemberSelection() {
@@ -1214,12 +1232,9 @@ function normalizeMemberSelection() {
   if (!type || !state.selectedMemberKey) return;
   const visible = visibleMemberGroups(type);
   if (!visible.some(group => group.key === state.selectedMemberKey)) {
-    if (visible.length) openMemberGroup(visible[0].key);
-    else {
-      state.selectedMemberKey = "";
-      state.selectedOverloadIndex = null;
-      resetMemberSectionState();
-    }
+    state.selectedMemberKey = "";
+    state.selectedOverloadIndex = null;
+    resetMemberSectionState();
   }
 }
 
@@ -1343,8 +1358,7 @@ function drillIn() {
   const type = selectedType();
   if (!type) return;
   if (navMode() === "type") {
-    enterMemberScope();
-    if (!state.selectedMemberKey) render();
+    if (enterMemberScope()) render();
   } else {
     const member = selectedMember(type);
     if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
@@ -1426,6 +1440,7 @@ function render() {
     state.atPackageRoot = true;
     state.selectedTypeId = "";
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
     state.selectedOverloadIndex = null;
   }
   const visible = filteredTypes();
@@ -3792,6 +3807,7 @@ function bindEvents() {
     state.namespaceFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -3803,6 +3819,7 @@ function bindEvents() {
     state.kindFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -3816,6 +3833,7 @@ function bindEvents() {
     state.namespaceFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -4000,6 +4018,7 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
     render();
   }));
   const namespaceJump = document.getElementById("namespace-jump");
@@ -4009,6 +4028,7 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
     render();
   });
   document.querySelectorAll("[data-kind-filter]").forEach(button => button.addEventListener("click", () => {
@@ -4017,6 +4037,7 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
     render();
   }));
   document.querySelectorAll("[data-library-chip]").forEach(button => button.addEventListener("click", () => {
@@ -4097,6 +4118,7 @@ function bindEvents() {
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
     render();
     focusFilter();
   });
@@ -4238,6 +4260,7 @@ function selectTypeByCursor(cursor, items, focusList) {
   state.typeCursor = cursor;
   state.selectedTypeId = items[cursor].id;
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   resetMemberFilters();
   render();
   requestAnimationFrame(() => {
@@ -4973,6 +4996,7 @@ async function switchPlatformVersion(tfm, retryPackage = null) {
   state.packageLens = "overview";
   state.selectedTypeId = loaded.types[0]?.id || "";
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.typeFilter = "";
   state.namespaceFilter = "";
@@ -5171,6 +5195,7 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
   const scoped = filteredTypes();
   state.selectedTypeId = scoped[0]?.id || pkg.types[0]?.id || "";
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   render();
   loadSelectionData();
@@ -5184,6 +5209,7 @@ function pickSpotlightLoadedPackage(pkg) {
   state.atPackageRoot = true;
   state.selectedTypeId = null;
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
   state.spotlightOpen = false;
@@ -5201,6 +5227,8 @@ function pickSpotlightMember(result) {
   state.atPackageRoot = false;
   state.selectedTypeId = type.id;
   state.lens = "api";
+  resetMemberFilters();
+  state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = result.memberKey;
   state.selectedOverloadIndex = null;
   state.typeFilter = "";
@@ -5227,6 +5255,7 @@ function pickSpotlight(packageResult, typeId) {
   state.atPackageRoot = false;
   state.selectedTypeId = type.id;
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
   state.memberSource = null;
@@ -5375,6 +5404,7 @@ function executeCommand(value) {
     if (match) {
       state.selectedTypeId = match.id;
       state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
     }
   } else if (verb === "show") {
     const match = lenses.find(([id, label]) => id === argument.toLowerCase() || label.toLowerCase() === argument.toLowerCase());
@@ -5398,7 +5428,8 @@ function executeCommand(value) {
 
 function focusFilter() {
   requestAnimationFrame(() => {
-    const input = document.querySelector("#type-filter");
+    const input = document.querySelector("#member-filter, #type-filter");
+    if (!input) return;
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   });
@@ -5464,6 +5495,7 @@ function applyDeepLink(deep) {
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
   state.selectedTypeId = restoreType ? deep.type : (pkg.types[0]?.id || "");
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
   if (restoreType && deep) {
@@ -5758,6 +5790,7 @@ async function openRuntimePackFromHome() {
   state.packageLens = "overview";
   state.selectedTypeId = pack.types[0]?.id || "";
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   render();
   loadSelectionData();
@@ -6229,6 +6262,7 @@ function navigateToType(target) {
   }
   state.selectedTypeId = target.id;
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   resetMemberFilters();
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === target.id);
   render();
@@ -6357,6 +6391,7 @@ function switchToPackageForDependencies(packageKey) {
   state.packageLens = "dependencies";
   state.selectedTypeId = target.types[0]?.id || "";
   state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   render();
 }
@@ -6955,6 +6990,8 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex, bodyTarget = 
   state.atPackageRoot = false;
   state.lens = "api";
   state.selectedTypeId = type.id;
+  resetMemberFilters();
+  state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex ?? 0;
   state.memberSection = "call-graph";
@@ -7390,6 +7427,8 @@ function navigateToMember(pkg, type, group, overloadIndex = null, bodyTarget = n
   activatePackage(pkg);
   state.lens = "api";
   state.selectedTypeId = type.id;
+  resetMemberFilters();
+  state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = group.key;
   state.selectedOverloadIndex = overloadIndex;
   state.memberSection = "overview";
@@ -7529,6 +7568,7 @@ async function loadPackage(packageId, version, framework, options = {}) {
     } else {
       state.selectedTypeId = packageModel.types[0]?.id || "";
       state.selectedMemberKey = "";
+      state.memberBrowseTypeId = "";
       state.selectedOverloadIndex = null;
       state.memberSection = "overview";
     }

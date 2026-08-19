@@ -1,7 +1,6 @@
 export const MEMBER_TRAITS = [
   ["isStatic", "static"],
   ["isUnsafe", "unsafe"],
-  ["isAsync", "async"],
   ["isVirtual", "virtual"],
   ["isAbstract", "abstract"],
   ["isOverride", "override"],
