@@ -41,6 +41,10 @@
   emits round-tripping owner-plus-accessor selectors, supports non-public
   selections with `--all`, and decompiles only the selected body instead of
   scanning the assembly.
+- Library body-kind queries now compose with existing Performance Triage
+  predicates. Matching opportunities are joined through typed source
+  MethodDef identities before decompilation, so only candidate methods are
+  searched for the requested rendered syntax.
 - Adds bounded exact structural clone comparison and same-assembly discovery.
   Exact normalized IL/control-flow witnesses remain distinct from unsupported,
   failed, limited, ambiguous, and different outcomes; incomplete candidate
