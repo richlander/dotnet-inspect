@@ -849,7 +849,7 @@ public class ProjectCommand
                         knownSize,
                         "",
                         "",
-                        ""));
+                        null));
                 }
             }
         }

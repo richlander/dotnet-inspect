@@ -22156,6 +22156,17 @@ public partial class CommandExecutionTests
                 "",
                 document.RootElement.GetProperty("name").GetString());
             Assert.Contains("Could not read", error);
+
+            var printed = await RunProjectFixtureAsync(
+                projectPath,
+                "-S", section,
+                "--print", "--row", "1");
+            Assert.Equal(1, printed.Exit);
+            Assert.Empty(printed.Output);
+            Assert.Contains(
+                "row 1 has no printable document",
+                printed.Error,
+                StringComparison.Ordinal);
         }
         finally
         {
