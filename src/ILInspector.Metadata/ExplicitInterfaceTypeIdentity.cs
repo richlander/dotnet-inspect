@@ -1,6 +1,10 @@
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace ILInspector.Metadata;
@@ -52,18 +56,34 @@ internal readonly record struct ExplicitInterfaceSignatureContext(
 /// Every identity this provider builds is charged to <paramref name="observeDecodeWork"/>
 /// before it is returned, so the explicit-interface MethodImpl projection spends the same
 /// bounded extraction work budget as the rest of the surface. Charging each composed node
-/// (rather than only the leaf blobs) is what bounds the amplifying shapes — a deeply nested
-/// generic instantiation grows its key multiplicatively — and a <see langword="null"/>
-/// observer keeps the unbounded query paths unchanged. Gated by
-/// <c>ApiSurfaceExtractorBoundsTests.ExplicitInterfaceProjection_SpendsDecodeWorkBudget</c>.
+/// (rather than only the leaf blobs) is what bounds amplifying shapes. Structural keys are
+/// fixed-width framed SHA-256 digests, and display names are separately capped, so nested
+/// generic composition cannot retain recursively growing identity keys. A
+/// <see langword="null"/> observer keeps the unbounded query paths unchanged. Gated by
+/// <c>ApiSurfaceExtractorBoundsTests.ExplicitInterfaceProjection_SpendsDecodeWorkBudget</c>
+/// and
+/// <c>ApiSurfaceExtractorBoundsTests.RepeatedDeepGenericMethodImplParent_UsesBoundedUnboundedAllocation</c>.
 /// </remarks>
 internal sealed class ExplicitInterfaceTypeIdentityProvider(
     Action<int>? observeDecodeWork = null)
     : ISignatureTypeProvider<ExplicitInterfaceTypeIdentity, ExplicitInterfaceSignatureContext>
 {
     internal const int MaxAssemblyIdentityBlobBytes = 4096;
+    const int MaxIdentityCacheEntries = 4096;
     readonly Dictionary<AssemblyReferenceHandle, string> assemblyScopeKeys = [];
+    readonly Dictionary<NamedIdentityCacheKey, ExplicitInterfaceTypeIdentity>
+        namedIdentityCache = [];
+    readonly Dictionary<TypeSpecificationIdentityCacheKey, ExplicitInterfaceTypeIdentity>
+        typeSpecificationIdentityCache = [];
     string? currentModuleKey;
+    int? identityCacheEntryLimit;
+
+    readonly record struct NamedIdentityCacheKey(EntityHandle Handle, byte RawTypeKind);
+
+    readonly record struct TypeSpecificationIdentityCacheKey(
+        TypeSpecificationHandle Handle,
+        byte RawTypeKind,
+        ExplicitInterfaceSignatureContext Context);
 
     /// <summary>Charges one decoded or composed identity against the extraction work budget.</summary>
     internal ExplicitInterfaceTypeIdentity Observe(ExplicitInterfaceTypeIdentity identity)
@@ -119,12 +139,16 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         TypeDefinitionHandle handle,
         byte rawTypeKind)
     {
+        var cacheKey = new NamedIdentityCacheKey(handle, rawTypeKind);
+        if (namedIdentityCache.TryGetValue(cacheKey, out var cached))
+            return cached;
+
         var read = MetadataTypeDefinitionNameReader.Read(reader, handle);
         if (read is not MetadataTypeDefinitionNameReadResult.Read result)
             throw new BadImageFormatException("The interface type definition name is malformed.");
 
         string name = TypeResolver.GetTypeNameFromDefinition(reader, handle);
-        return Observe(new ExplicitInterfaceTypeIdentity(
+        var identity = Observe(new ExplicitInterfaceTypeIdentity(
             Node(
                 "named",
                 rawTypeKind.ToString(),
@@ -135,6 +159,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
             IsInterface: (reader.GetTypeDefinition(handle).Attributes
                 & TypeAttributes.Interface) != 0,
             IsWellKnownNullable: IsWellKnownNullable(reader, handle)));
+        CacheIdentity(reader, cacheKey, identity);
+        return identity;
     }
 
     public ExplicitInterfaceTypeIdentity GetTypeFromReference(
@@ -142,9 +168,13 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         TypeReferenceHandle handle,
         byte rawTypeKind)
     {
+        var cacheKey = new NamedIdentityCacheKey(handle, rawTypeKind);
+        if (namedIdentityCache.TryGetValue(cacheKey, out var cached))
+            return cached;
+
         var structuredName = ReferenceName(reader, handle);
         string name = TypeResolver.GetTypeNameFromReference(reader, handle);
-        return Observe(new ExplicitInterfaceTypeIdentity(
+        var identity = Observe(new ExplicitInterfaceTypeIdentity(
             Node(
                 "named",
                 rawTypeKind.ToString(),
@@ -153,6 +183,8 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
             name,
             GenericArity: structuredName.GenericArity,
             IsWellKnownNullable: IsWellKnownNullable(reader, handle)));
+        CacheIdentity(reader, cacheKey, identity);
+        return identity;
     }
 
     public ExplicitInterfaceTypeIdentity GetTypeFromSpecification(
@@ -160,7 +192,12 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         ExplicitInterfaceSignatureContext context,
         TypeSpecificationHandle handle,
         byte rawTypeKind)
-        => GuardedProviderDecode.TypeSpec(
+    {
+        var cacheKey = new TypeSpecificationIdentityCacheKey(handle, rawTypeKind, context);
+        if (typeSpecificationIdentityCache.TryGetValue(cacheKey, out var cached))
+            return cached;
+
+        var identity = GuardedProviderDecode.TypeSpec(
             reader,
             handle,
             this,
@@ -169,6 +206,9 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
                 "<invalid>",
                 "<invalid>",
                 IsDegraded: true));
+        CacheIdentity(reader, cacheKey, identity);
+        return identity;
+    }
 
     public ExplicitInterfaceTypeIdentity GetSZArrayType(ExplicitInterfaceTypeIdentity elementType)
         => Observe(new(
@@ -374,9 +414,55 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
                 IsDegraded: true))
         };
 
+    void CacheIdentity(
+        MetadataReader reader,
+        NamedIdentityCacheKey key,
+        ExplicitInterfaceTypeIdentity identity)
+    {
+        if (CacheHasCapacity(reader))
+            namedIdentityCache.TryAdd(key, identity);
+    }
+
+    void CacheIdentity(
+        MetadataReader reader,
+        TypeSpecificationIdentityCacheKey key,
+        ExplicitInterfaceTypeIdentity identity)
+    {
+        if (CacheHasCapacity(reader))
+            typeSpecificationIdentityCache.TryAdd(key, identity);
+    }
+
+    bool CacheHasCapacity(MetadataReader reader)
+        => namedIdentityCache.Count + typeSpecificationIdentityCache.Count
+            < (identityCacheEntryLimit ??= GetIdentityCacheEntryLimit(reader));
+
+    static int GetIdentityCacheEntryLimit(MetadataReader reader)
+    {
+        long identityHandles =
+            (long)reader.TypeDefinitions.Count
+            + reader.TypeReferences.Count
+            + reader.GetTableRowCount(TableIndex.TypeSpec);
+        return (int)Math.Min(
+            MaxIdentityCacheEntries,
+            Math.Min(int.MaxValue, identityHandles * 3));
+    }
+
     static string ApplyGenericArguments(string typeName, IReadOnlyList<string> typeArguments)
-        => TypeResolver.ApplyGenericArguments(typeName, typeArguments)
+    {
+        long displayLength = typeName.Length + 2L;
+        foreach (string argument in typeArguments)
+        {
+            displayLength += argument.Length + 1L;
+            if (displayLength > MetadataSafetyPolicy.MaxTypeNameCharacters)
+            {
+                throw new BadImageFormatException(
+                    "The constructed generic interface type name exceeds the metadata safety limit.");
+            }
+        }
+
+        return TypeResolver.ApplyGenericArguments(typeName, typeArguments)
             .Replace(", ", ",", StringComparison.Ordinal);
+    }
 
     string ResolutionScopeKey(MetadataReader reader, TypeReferenceHandle handle)
     {
@@ -413,6 +499,15 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
     }
 
     internal static string AssemblyKey(AssemblyReferenceIdentity identity)
+        => HashNode(
+            beforeEncode: null,
+            "assembly",
+            identity.Name.ToUpperInvariant(),
+            identity.Version?.ToString() ?? "",
+            NormalizeCulture(identity.Culture).ToUpperInvariant(),
+            (identity.PublicKeyToken ?? "").ToUpperInvariant());
+
+    string ObservedAssemblyKey(AssemblyReferenceIdentity identity)
         => Node(
             "assembly",
             identity.Name.ToUpperInvariant(),
@@ -428,7 +523,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         if (reader.IsAssembly)
         {
             ValidateAssemblyIdentity(reader, reader.GetAssemblyDefinition());
-            return currentModuleKey = AssemblyKey(
+            return currentModuleKey = ObservedAssemblyKey(
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader));
         }
 
@@ -446,12 +541,12 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
 
         var reference = reader.GetAssemblyReference(handle);
         ValidateAssemblyIdentity(reader, reference);
-        key = AssemblyKey(AssemblyReferenceIdentity.From(reader, handle));
+        key = ObservedAssemblyKey(AssemblyReferenceIdentity.From(reader, handle));
         assemblyScopeKeys.Add(handle, key);
         return key;
     }
 
-    static void ValidateAssemblyIdentity(
+    void ValidateAssemblyIdentity(
         MetadataReader reader,
         System.Reflection.Metadata.AssemblyReference reference)
     {
@@ -461,7 +556,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         ValidateAssemblyIdentityBlob(reader, reference.PublicKeyOrToken);
     }
 
-    static void ValidateAssemblyIdentity(MetadataReader reader, AssemblyDefinition definition)
+    void ValidateAssemblyIdentity(MetadataReader reader, AssemblyDefinition definition)
     {
         _ = BoundedString(reader, definition.Name);
         if (!definition.Culture.IsNil)
@@ -469,24 +564,30 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
         ValidateAssemblyIdentityBlob(reader, definition.PublicKey);
     }
 
-    static void ValidateAssemblyIdentityBlob(MetadataReader reader, BlobHandle handle)
+    void ValidateAssemblyIdentityBlob(MetadataReader reader, BlobHandle handle)
     {
-        if (!handle.IsNil
-            && reader.GetBlobReader(handle).Length > MaxAssemblyIdentityBlobBytes)
+        if (handle.IsNil)
+            return;
+
+        int length = reader.GetBlobReader(handle).Length;
+        if (length > MaxAssemblyIdentityBlobBytes)
         {
             throw new BadImageFormatException(
                 "The assembly identity key blob exceeds the inspection limit.");
         }
+        ObserveWork(length);
     }
 
-    static string BoundedString(MetadataReader reader, StringHandle handle)
+    string BoundedString(MetadataReader reader, StringHandle handle)
     {
-        if (reader.GetBlobReader(handle).Length > MetadataSafetyPolicy.MaxTypeNameCharacters)
+        int length = reader.GetBlobReader(handle).Length;
+        if (length > MetadataSafetyPolicy.MaxTypeNameCharacters)
             throw new BadImageFormatException("The metadata identity name exceeds the inspection limit.");
+        ObserveWork(length);
         return reader.GetString(handle);
     }
 
-    static (string Key, int GenericArity) ReferenceName(
+    (string Key, int GenericArity) ReferenceName(
         MetadataReader reader,
         TypeReferenceHandle handle)
     {
@@ -529,7 +630,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
             genericArity);
     }
 
-    static string StructuredNameKey(
+    string StructuredNameKey(
         string @namespace,
         IEnumerable<string> segments)
         => Node("type-name", [@namespace, .. segments]);
@@ -543,7 +644,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
                 : 0;
     }
 
-    static bool IsWellKnownNullable(
+    bool IsWellKnownNullable(
         MetadataReader reader,
         TypeDefinitionHandle handle)
     {
@@ -562,7 +663,7 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
                 .PublicKeyToken);
     }
 
-    static bool IsWellKnownNullable(
+    bool IsWellKnownNullable(
         MetadataReader reader,
         TypeReferenceHandle handle)
     {
@@ -586,16 +687,49 @@ internal sealed class ExplicitInterfaceTypeIdentityProvider(
                 ? ""
                 : value;
 
-    static string Node(string tag, params string[] parts)
+    string Node(string tag, params string[] parts)
+        => HashNode(ObserveWork, tag, parts);
+
+    static string HashNode(
+        Action<int>? beforeEncode,
+        string tag,
+        params string[] parts)
     {
-        var builder = new StringBuilder(tag);
+        beforeEncode?.Invoke(1);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendNodePart(hash, tag, beforeEncode);
         foreach (string part in parts)
         {
-            builder.Append('|');
-            builder.Append(part.Length);
-            builder.Append(':');
-            builder.Append(part);
+            AppendNodePart(hash, part, beforeEncode);
         }
-        return builder.ToString();
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    static void AppendNodePart(
+        IncrementalHash hash,
+        string value,
+        Action<int>? beforeEncode)
+    {
+        beforeEncode?.Invoke(value.Length);
+        int byteCount = Encoding.UTF8.GetByteCount(value);
+        beforeEncode?.Invoke(
+            checked(byteCount - Math.Min(byteCount, value.Length) + sizeof(int)));
+        byte[]? rented = null;
+        Span<byte> bytes = byteCount <= 256
+            ? stackalloc byte[byteCount]
+            : (rented = ArrayPool<byte>.Shared.Rent(byteCount));
+        Span<byte> length = stackalloc byte[sizeof(int)];
+        try
+        {
+            int written = Encoding.UTF8.GetBytes(value, bytes);
+            BinaryPrimitives.WriteInt32BigEndian(length, written);
+            hash.AppendData(length);
+            hash.AppendData(bytes[..written]);
+        }
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<byte>.Shared.Return(rented);
+        }
     }
 }

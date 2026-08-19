@@ -861,6 +861,14 @@ public sealed class MetadataDeclarationQueryTests
                 extracted.Members,
                 member => member.Name is "add_BaseChanged" or "remove_BaseChanged"
                     || member.Kind == "explicit-interface-implementation");
+
+            ApiType queried = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: false);
+            Assert.DoesNotContain(
+                queried.Members,
+                member => member.Name is "add_BaseChanged" or "remove_BaseChanged");
         }
         finally
         {
@@ -1071,9 +1079,9 @@ public sealed class MetadataDeclarationQueryTests
     [Fact]
     public void ExplicitAggregateRowSignature_RejectsModifiedVoidAccessorReturns()
     {
-        using var stream = new MemoryStream(
-            BuildModifiedVoidExplicitAggregateImage(),
-            writable: false);
+        byte[] privateImage =
+            BuildModifiedVoidExplicitAggregateImage(MethodAttributes.Private);
+        using var stream = new MemoryStream(privateImage, writable: false);
         using var peReader = new PEReader(stream);
 
         ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
@@ -1089,6 +1097,26 @@ public sealed class MetadataDeclarationQueryTests
             surface.InspectionFailures.Count(failure =>
                 failure.Operation == "event signature"
                 && failure.Detail == "The event adder does not return void."));
+
+        byte[] publicImage =
+            BuildModifiedVoidExplicitAggregateImage(MethodAttributes.Public);
+        using var publicStream = new MemoryStream(publicImage, writable: false);
+        using var publicReader = new PEReader(publicStream);
+        ApiSurface publicSurface = ApiSurfaceExtractor.Extract(publicReader);
+        using var summaryStream = new MemoryStream(publicImage, writable: false);
+        using var summaryReader = new PEReader(summaryStream);
+        ApiSurface summary = ApiSurfaceExtractor.ExtractSummary(summaryReader);
+        ApiType summaryHost = Assert.Single(summary.Types, type => type.Name == "Host");
+        Assert.DoesNotContain(
+            summaryHost.Members,
+            member => member.Kind is "property" or "event");
+        Assert.Equal(publicSurface.PublicMethodCount, summary.PublicMethodCount);
+        Assert.Equal(publicSurface.PublicPropertyCount, summary.PublicPropertyCount);
+        Assert.Equal(publicSurface.PublicEventCount, summary.PublicEventCount);
+        Assert.Equal(
+            publicSurface.InspectionFailures.Select(
+                failure => (failure.Operation, failure.Detail)),
+            summary.InspectionFailures.Select(failure => (failure.Operation, failure.Detail)));
     }
 
     /// <summary>
@@ -1376,6 +1404,13 @@ public sealed class MetadataDeclarationQueryTests
 
             Assert.Contains("ImplementInterface", names);
             Assert.DoesNotContain("OverrideBase", names);
+
+            ApiType queried = MetadataDeclarationQuery.GetTypeSurface(
+                reader,
+                typeHandle,
+                includeNonPublicMembers: false);
+            Assert.Contains(queried.Members, member => member.Name == "ImplementInterface");
+            Assert.DoesNotContain(queried.Members, member => member.Name == "OverrideBase");
         }
         finally
         {
@@ -2020,7 +2055,8 @@ public sealed class MetadataDeclarationQueryTests
         return image.ToArray();
     }
 
-    static byte[] BuildModifiedVoidExplicitAggregateImage()
+    static byte[] BuildModifiedVoidExplicitAggregateImage(
+        MethodAttributes accessorAccessibility)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2089,7 +2125,7 @@ public sealed class MetadataDeclarationQueryTests
                 parameterType: default,
                 parameterTypeCode: 0x08);
             MethodDefinitionHandle setter = metadata.AddMethodDefinition(
-                ExplicitAccessorAttributes,
+                accessorAccessibility | ExplicitAccessorFlags,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString($"Contracts.IRow.set_{name}"),
                 signature,
@@ -2122,14 +2158,14 @@ public sealed class MetadataDeclarationQueryTests
                 interfaceType,
                 parameterTypeCode: 0x12);
             MethodDefinitionHandle adder = metadata.AddMethodDefinition(
-                ExplicitAccessorAttributes,
+                accessorAccessibility | ExplicitAccessorFlags,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString($"Contracts.IRow.add_{name}"),
                 signature,
                 bodyOffset: -1,
                 parameterList: MetadataTokens.ParameterHandle(1));
             MethodDefinitionHandle remover = metadata.AddMethodDefinition(
-                ExplicitAccessorAttributes,
+                accessorAccessibility | ExplicitAccessorFlags,
                 MethodImplAttributes.IL,
                 metadata.GetOrAddString($"Contracts.IRow.remove_{name}"),
                 signature,
@@ -2187,9 +2223,8 @@ public sealed class MetadataDeclarationQueryTests
         }
     }
 
-    const MethodAttributes ExplicitAccessorAttributes =
-        MethodAttributes.Private
-        | MethodAttributes.Virtual
+    const MethodAttributes ExplicitAccessorFlags =
+        MethodAttributes.Virtual
         | MethodAttributes.Final
         | MethodAttributes.NewSlot
         | MethodAttributes.SpecialName

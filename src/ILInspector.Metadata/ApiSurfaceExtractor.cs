@@ -203,6 +203,12 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 var (typeNamespace, typeName) = GetApiTypeNameParts(reader, typeDefHandle);
+                var typeContext = GenericContext.ForType(reader, typeDef);
+                string? baseTypeName =
+                    (typeAttributes & TypeAttributes.Interface) != 0
+                        || typeDef.BaseType.IsNil
+                    ? null
+                    : ResolveRequiredTypeName(reader, typeDef.BaseType, typeContext);
                 var apiType = new ApiType
                 {
                     Namespace = typeNamespace,
@@ -217,7 +223,7 @@ public static class ApiSurfaceExtractor
                         MetadataDeclarationQuery.GetIntroducedTypeParameterCounts(
                             reader,
                             typeDefHandle),
-                    Kind = "class",
+                    Kind = ClassifyTypeKind(typeAttributes, baseTypeName),
                     Members = []
                 };
 
@@ -612,13 +618,7 @@ public static class ApiSurfaceExtractor
                     observeText,
                     observeDecodeWork);
 
-                apiType.Kind = baseTypeName switch
-                {
-                    "System.Enum" => "enum",
-                    "System.ValueType" => "struct",
-                    "System.Delegate" or "System.MulticastDelegate" => "delegate",
-                    _ => "class"
-                };
+                apiType.Kind = ClassifyTypeKind(attributes, baseTypeName);
             }
             else
             {
@@ -1764,10 +1764,12 @@ public static class ApiSurfaceExtractor
     {
         var explicitInterfaceIdentityProvider =
             new ExplicitInterfaceTypeIdentityProvider();
+        var typeContext = GenericContext.ForType(reader, typeDef);
         var methodImplementations = new MethodImplementationProjection(
             reader,
             typeDef,
-            explicitInterfaceIdentityProvider);
+            explicitInterfaceIdentityProvider,
+            typeContext: typeContext);
         var accessorMethods = GetAccessorMethods(reader, typeDef);
         var canonicalAccessorMethods = GetCanonicalAccessorMethods(reader, typeDef);
         var hiddenAggregateAccessorMethods =
@@ -1894,11 +1896,28 @@ public static class ApiSurfaceExtractor
             }
 
             string propertyName = reader.GetString(property.Name);
-            IsExplicitInterfaceAggregate(
+            bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
                 propertyName,
                 methodImplementations,
                 (accessors.Getter, "get_"),
                 (accessors.Setter, "set_"));
+            if (isExplicitInterfaceImplementation
+                && ValidateExplicitPropertyRowSignature(
+                    reader,
+                    property,
+                    accessors,
+                    typeContext,
+                    explicitInterfaceIdentityProvider,
+                    observeDecodeWork: null) is { } propertyRowDetail)
+            {
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    "property signature",
+                    propertyHandle,
+                    MetadataTypeNameFailure.Malformed(propertyHandle, propertyRowDetail));
+                continue;
+            }
             apiType.Members.Add(new ApiMember
             {
                 Name = propertyName,
@@ -1957,11 +1976,28 @@ public static class ApiSurfaceExtractor
             }
 
             string eventName = reader.GetString(evt.Name);
-            IsExplicitInterfaceAggregate(
+            bool isExplicitInterfaceImplementation = IsExplicitInterfaceAggregate(
                 eventName,
                 methodImplementations,
                 (accessors.Adder, "add_"),
                 (accessors.Remover, "remove_"));
+            if (isExplicitInterfaceImplementation
+                && ValidateExplicitEventRowSignature(
+                    reader,
+                    evt,
+                    accessors,
+                    typeContext,
+                    explicitInterfaceIdentityProvider,
+                    observeDecodeWork: null) is { } eventRowDetail)
+            {
+                AddInspectionFailure(
+                    surface,
+                    budget: null,
+                    "event signature",
+                    eventHandle,
+                    MetadataTypeNameFailure.Malformed(eventHandle, eventRowDetail));
+                continue;
+            }
             apiType.Members.Add(new ApiMember
             {
                 Name = eventName,
@@ -2869,6 +2905,7 @@ public static class ApiSurfaceExtractor
                 reader,
                 bodyHandle,
                 declaration,
+                declaringTypeIdentity,
                 context,
                 identityProvider,
                 observeDecodeWork))
@@ -2895,6 +2932,7 @@ public static class ApiSurfaceExtractor
         MetadataReader reader,
         MethodDefinitionHandle bodyHandle,
         EntityHandle declaration,
+        ExplicitInterfaceTypeIdentity declaringTypeIdentity,
         GenericContext typeContext,
         ExplicitInterfaceTypeIdentityProvider identityProvider,
         Action<int>? observeDecodeWork)
@@ -2940,15 +2978,6 @@ public static class ApiSurfaceExtractor
                 break;
             case HandleKind.MemberReference:
                 var member = reader.GetMemberReference((MemberReferenceHandle)declaration);
-                var parentIdentity = identityProvider.FromHandle(
-                    reader,
-                    member.Parent,
-                    typeContext);
-                if (parentIdentity.IsDegraded)
-                {
-                    throw new BadImageFormatException(
-                        "The MethodImpl declaration parent could not be decoded.");
-                }
                 declarationSignature = GuardedProviderDecode.MemberRefMethod(
                     reader,
                     member,
@@ -2956,8 +2985,8 @@ public static class ApiSurfaceExtractor
                     ExplicitInterfaceSignatureContext
                         .Open(typeContext)
                         .WithTypeArguments(
-                            parentIdentity.GenericArguments,
-                            parentIdentity.GenericArity),
+                            declaringTypeIdentity.GenericArguments,
+                            declaringTypeIdentity.GenericArity),
                     new ExplicitInterfaceTypeIdentity(
                         "<invalid>",
                         "<invalid>",
@@ -4858,6 +4887,22 @@ public static class ApiSurfaceExtractor
                 typeDef.BaseType,
                 context: null,
                 beforeMaterialize: beforeDecodeWork) == "System.Enum";
+
+    private static string ClassifyTypeKind(
+        TypeAttributes attributes,
+        string? baseTypeName)
+    {
+        if ((attributes & TypeAttributes.Interface) != 0)
+            return "interface";
+
+        return baseTypeName switch
+        {
+            "System.Enum" => "enum",
+            "System.ValueType" => "struct",
+            "System.Delegate" or "System.MulticastDelegate" => "delegate",
+            _ => "class",
+        };
+    }
 
     private sealed class MetadataRowRejectedException
         : InvalidOperationException

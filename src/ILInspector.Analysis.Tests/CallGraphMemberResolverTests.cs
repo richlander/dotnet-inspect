@@ -377,14 +377,12 @@ public sealed class CallGraphMemberResolverTests
             candidate => candidate.Name == nameof(InitAccessorFixtures.Value));
         ApiAccessor signatureAccessor = Assert.Single(
             member.SignatureModel!.Accessors,
-            accessor => accessor.Kind == "set");
+            accessor => accessor.Kind == "init");
         ApiAccessor factAccessor = Assert.Single(
             member.AccessorFacts,
-            accessor => accessor.Kind == "set");
+            accessor => accessor.Kind == "init");
         Assert.Null(signatureAccessor.MethodName);
         Assert.False(string.IsNullOrEmpty(factAccessor.MethodName));
-        signatureAccessor.Kind = "init";
-        factAccessor.Kind = "init";
         CallGraphMemberBodySelector setter = Assert.Single(
             CallGraphMemberResolver.CreateBodySelectors(type, member),
             selector => selector.MemberName == "set_Value");

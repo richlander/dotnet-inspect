@@ -156,8 +156,6 @@ public static class MetadataDeclarationQuery
                 reader,
                 typeDef)
             : [];
-        var explicitImplementationBodies =
-            ApiSurfaceExtractor.GetExplicitImplementationBodies(reader, typeDef);
         var explicitInterfaceIdentityProvider = new ExplicitInterfaceTypeIdentityProvider();
         var explicitInterfaceImplementationTargets =
             ApiSurfaceExtractor.GetExplicitInterfaceImplementationTargets(
@@ -371,12 +369,13 @@ public static class MetadataDeclarationQuery
             var method = reader.GetMethodDefinition(methodHandle);
             var methodName = reader.GetString(method.Name);
             var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
-            var isRetainedImplementationAccessor = explicitImplementationBodies.Contains(methodHandle)
+            bool isFinalizer = type.Kind == "class"
+                && ApiSurfaceExtractor.IsFinalizerMethod(reader, methodHandle);
+            var isRetainedImplementationAccessor = explicitInterfaceImplementationBodies.Contains(methodHandle)
                 && (methodName.Contains('.', StringComparison.Ordinal)
-                    || (explicitInterfaceImplementationBodies.Contains(methodHandle)
-                        && (!canonicalAccessorMethods.Contains(methodHandle)
-                            || (!includeNonPublicMembers
-                                && hiddenAggregateAccessorMethods.Contains(methodHandle)))));
+                    || (!canonicalAccessorMethods.Contains(methodHandle)
+                        || (!includeNonPublicMembers
+                            && hiddenAggregateAccessorMethods.Contains(methodHandle))));
             if (((accessorMethods.Contains(methodHandle)
                         && canonicalAccessorMethods.Contains(methodHandle))
                     || extensionPropertyImplementationMethods.Contains(methodHandle))
@@ -388,14 +387,17 @@ public static class MetadataDeclarationQuery
             var declaration = GetMethod(reader, typeDef, method);
             if (!includeNonPublicMembers
                 && declaration.Accessibility != "public"
-                && !explicitImplementationBodies.Contains(methodHandle))
+                && !explicitInterfaceImplementationBodies.Contains(methodHandle)
+                && !isFinalizer)
                 continue;
 
             var signatureText = MethodSignatureText(declaration);
             type.Members.Add(new ApiMember
             {
                 Name = declaration.MetadataName,
-                Kind = declaration.MetadataName == ".ctor" ? "constructor" : "method",
+                Kind = declaration.MetadataName == ".ctor"
+                    ? "constructor"
+                    : isFinalizer ? "finalizer" : "method",
                 SignatureModel = declaration.Signature,
                 Signature = signatureText,
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
@@ -405,6 +407,7 @@ public static class MetadataDeclarationQuery
                 IsVirtual = declaration.IsVirtual,
                 IsOverride = declaration.IsOverride,
                 IsSealed = declaration.IsSealed,
+                IsFinalizer = isFinalizer,
                 HasMethodBody = method.RelativeVirtualAddress != 0,
                 IsUnsafe = ApiSurfaceExtractor.HasUnsafeSignature(reader, method)
                     || AttributeReader.HasRequiresUnsafeAttribute(reader, method.GetCustomAttributes()),
