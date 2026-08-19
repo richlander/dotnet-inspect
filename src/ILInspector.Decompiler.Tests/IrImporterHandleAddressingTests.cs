@@ -206,6 +206,7 @@ public class InterleavedVisibilityOverloads
 {
     public int Marker() => 10;
     private int Marker(int a) => 20 + a;
+    internal int Marker(long a) => 25 + (int)a;
     public int Marker(int a, int b) => 30 + a + b;
 }
 

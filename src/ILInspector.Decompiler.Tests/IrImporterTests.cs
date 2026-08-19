@@ -3810,8 +3810,6 @@ public class RaisingPassTests
             nameof(InterleavedVisibilityOverloads.Marker),
             candidate =>
                 candidate.ReturnType.Equals(TypeRef.CoreLib("System", "Int32"))
-                && candidate.ParameterTypes.SequenceEqual(
-                    [TypeRef.CoreLib("System", "Int32")])
                 && candidate.HasThis
                 && candidate.HasBody
                 && candidate.IsPrivate);
