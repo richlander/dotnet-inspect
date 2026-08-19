@@ -139,7 +139,7 @@ export function commandPaletteResults(
 
   if (root?.[2] === "choice" && tokens.length > 2) return [];
   if (root?.[2] === "none" && tokens.length > 1) return [];
-  if (!root && tokens.length > 1) return [];
+  if (!root && (tokens.length > 1 || input.endsWith(" "))) return [];
   if (root?.[2] === "choice" && tokens.length === 2 && input.endsWith(" ")) {
     return commandPaletteResults({
       ...context,

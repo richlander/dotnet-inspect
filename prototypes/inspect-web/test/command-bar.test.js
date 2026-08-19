@@ -197,6 +197,8 @@ test("trailing whitespace preserves completed command arguments", () => {
     "clear clear",
     "share share ",
     "bogus clear",
+    "bogus ",
+    "ty ",
   ]) {
     assert.deepEqual(commandPaletteResults(commandContext(invalid), lenses), []);
   }
