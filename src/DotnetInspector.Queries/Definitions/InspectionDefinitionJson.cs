@@ -20,17 +20,34 @@ public static class InspectionDefinitionJson
     /// <summary>Maximum coordinates accepted across one record's nested lists.</summary>
     public const int MaxCoordinatesPerRecord = 1_024;
 
+    private static readonly Encoding s_utf8Strict = new UTF8Encoding(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
+
     public static InspectionDefinitionRecord Parse(string json)
     {
         ArgumentException.ThrowIfNullOrEmpty(json);
-        var byteCount = Encoding.UTF8.GetByteCount(json);
-        if (byteCount > MaxUtf8ByteLength)
+
+        int byteCount;
+        byte[] utf8;
+        try
+        {
+            byteCount = s_utf8Strict.GetByteCount(json);
+            if (byteCount > MaxUtf8ByteLength)
+            {
+                throw new InspectionDefinitionException(
+                    $"Definition JSON exceeds the {MaxUtf8ByteLength}-byte limit.");
+            }
+
+            utf8 = s_utf8Strict.GetBytes(json);
+        }
+        catch (EncoderFallbackException ex)
         {
             throw new InspectionDefinitionException(
-                $"Definition JSON exceeds the {MaxUtf8ByteLength}-byte limit.");
+                "Definition JSON contains invalid UTF-16 text.",
+                ex);
         }
 
-        var utf8 = Encoding.UTF8.GetBytes(json);
         return Parse(utf8);
     }
 

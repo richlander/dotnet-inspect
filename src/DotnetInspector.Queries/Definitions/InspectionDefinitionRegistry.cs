@@ -86,9 +86,10 @@ public sealed class InspectionDefinitionRegistry
                     $"Scenario '{scenario.Id}' references unknown workspace '{scenario.Workspace}'.");
             }
 
-            contexts = workspace.Contexts
-                .Select(context => ResolveContext(workspace, context))
-                .ToArray();
+            contexts = new ReadOnlyCollection<ResolvedWorkspaceContext>(
+                workspace.Contexts
+                    .Select(context => ResolveContext(workspace, context))
+                    .ToArray());
 
             if (!string.IsNullOrWhiteSpace(scenario.Context))
             {

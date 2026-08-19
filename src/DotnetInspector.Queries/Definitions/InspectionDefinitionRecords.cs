@@ -136,12 +136,19 @@ public sealed record WorkspaceContextDefinition
         IReadOnlyList<DefinitionMemberCoordinate>? members = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (subscribe is not null && string.IsNullOrWhiteSpace(subscribe))
+        {
+            throw new ArgumentException(
+                "A workspace context subscribe must not be blank.",
+                nameof(subscribe));
+        }
+
         Name = name;
         Framework = framework;
         RuntimeIdentifier = runtimeIdentifier;
         Subscribe = subscribe;
         Members = DefinitionCollections.Freeze(members);
-        if (string.IsNullOrWhiteSpace(Subscribe) && Members.Count == 0)
+        if (Subscribe is null && Members.Count == 0)
         {
             throw new ArgumentException(
                 "A workspace context requires subscribe, members, or both.",
@@ -324,8 +331,15 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
         string? navigation = null)
         : base(schemaVersion, id)
     {
-        var hasWorkspace = !string.IsNullOrWhiteSpace(workspace);
-        var hasInput = !string.IsNullOrWhiteSpace(input);
+        workspace = NormalizeOptionalReference(workspace, nameof(workspace));
+        input = NormalizeOptionalReference(input, nameof(input));
+        context = NormalizeOptionalReference(context, nameof(context));
+        query = NormalizeOptionalReference(query, nameof(query));
+        view = NormalizeOptionalReference(view, nameof(view));
+        navigation = NormalizeOptionalReference(navigation, nameof(navigation));
+
+        var hasWorkspace = workspace is not null;
+        var hasInput = input is not null;
         if (!hasWorkspace && !hasInput)
         {
             throw new ArgumentException(
@@ -340,7 +354,7 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
                 nameof(input));
         }
 
-        if (!hasWorkspace && !string.IsNullOrWhiteSpace(context))
+        if (!hasWorkspace && context is not null)
         {
             throw new ArgumentException(
                 "A scenario context requires workspace.",
@@ -355,6 +369,20 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
         Query = query;
         View = view;
         Navigation = navigation;
+    }
+
+    private static string? NormalizeOptionalReference(string? value, string paramName)
+    {
+        if (value is null)
+            return null;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException(
+                $"Scenario {paramName} must not be blank.",
+                paramName);
+        }
+
+        return value;
     }
 
     public override InspectionDefinitionKind Kind => InspectionDefinitionKind.Scenario;

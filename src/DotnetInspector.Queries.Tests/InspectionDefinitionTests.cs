@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -496,6 +497,74 @@ public class InspectionDefinitionTests
         Assert.True(registry.TryGet<ViewDefinition>("same", out _));
         Assert.True(registry.TryGet<QueryDefinition>("same", out _));
         Assert.False(registry.TryGet<InspectionDefinitionRecord>("same", out _));
+    }
+
+
+    [Fact]
+    public void Parse_RejectsBlankWorkspaceSubscribeWithMembers()
+    {
+        var ex = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            {
+              "schemaVersion": 1,
+              "kind": "workspace",
+              "id": "ws",
+              "contexts": [
+                {
+                  "name": "c",
+                  "subscribe": "   ",
+                  "members": [ { "kind": "package", "id": "P", "version": "1.0.0", "framework": "net10.0" } ]
+                }
+              ]
+            }
+            """));
+        Assert.Contains("subscribe", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parse_RejectsBlankScenarioPeerReferences()
+    {
+        var ex = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "scenario", "id": "s", "workspace": "ws", "navigation": "   " }
+            """));
+        Assert.Contains("navigation", ex.Message, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "scenario", "id": "s", "workspace": "   ", "input": "x" }
+            """));
+    }
+
+    [Fact]
+    public void ResolveScenario_Contexts_AreMutationResistant()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition(
+                "c",
+                members: [new DefinitionMemberCoordinate.PackageCoordinate("P", "1.0.0", "net10.0")])]));
+        registry.Add(new ScenarioDefinition(1, "s", workspace: "ws"));
+        var resolved = registry.ResolveScenario("s");
+        Assert.ThrowsAny<Exception>(() =>
+        {
+            ((ResolvedWorkspaceContext[])resolved.Contexts)[0] = null!;
+        });
+        Assert.Single(resolved.Contexts);
+        Assert.NotNull(resolved.SelectedContext);
+    }
+
+    [Fact]
+    public void Parse_RejectsInvalidUtf16InStringOverload()
+    {
+        var invalid = "{\n  \"schemaVersion\": 1,\n  \"kind\": \"query\",\n  \"id\": \"q\",\n  \"queryId\": \"surface\"\n}".ToCharArray();
+        // Inject an unpaired high surrogate into the id value region is hard; use a lone surrogate payload.
+        var lone = new string(['\uD800']);
+        var ex = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(lone));
+        Assert.Contains("UTF-16", ex.Message, StringComparison.Ordinal);
+        Assert.IsType<EncoderFallbackException>(ex.InnerException);
     }
 
     [Fact]
