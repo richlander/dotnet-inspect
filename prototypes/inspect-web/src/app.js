@@ -1088,11 +1088,11 @@ function renderMemberFilterControls(type) {
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
   return `
-    <label class="type-search member-search">
-      <span>/</span>
-      <input id="member-filter" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
+    <div class="type-search member-search">
+      <span aria-hidden="true">/</span>
+      <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
       <button class="tiny-button" id="clear-member-filter" title="Clear member filters">×</button>
-    </label>
+    </div>
     <div class="member-filter-stack">
       <div class="namespace-chips kind-chips" aria-label="Member kind filters">
         <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all" aria-pressed="${state.memberKindFilter === "all"}">all kinds</button>
@@ -1251,6 +1251,7 @@ function normalizeMemberSelection() {
   if (!type || !state.selectedMemberKey) return;
   const visible = visibleMemberGroups(type);
   if (!visible.some(group => group.key === state.selectedMemberKey)) {
+    state.memberBrowseTypeId = type.id;
     state.selectedMemberKey = "";
     state.selectedOverloadIndex = null;
     resetMemberSectionState();
@@ -3229,6 +3230,7 @@ function drillToPerfMember(token, assembly, typeId) {
 
   state.atPackageRoot = false;
   state.selectedTypeId = targetType.id;
+  state.memberBrowseTypeId = targetType.id;
   state.namespaceFilter = "";
   resetMemberFilters();
   state.lens = "api";
@@ -5229,6 +5231,7 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
   state.selectedTypeId = scoped[0]?.id || pkg.types[0]?.id || "";
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
+  resetMemberFilters();
   state.selectedOverloadIndex = null;
   render();
   loadSelectionData();
@@ -5289,6 +5292,7 @@ function pickSpotlight(packageResult, typeId) {
   state.selectedTypeId = type.id;
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
+  resetMemberFilters();
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
   state.memberSource = null;
@@ -5438,6 +5442,7 @@ function executeCommand(value) {
       state.selectedTypeId = match.id;
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
+      resetMemberFilters();
     }
   } else if (verb === "show") {
     const match = lenses.find(([id, label]) => id === argument.toLowerCase() || label.toLowerCase() === argument.toLowerCase());
@@ -5526,6 +5531,7 @@ function applyDeepLink(deep) {
   state.platformDrillLoading = false;
   state.platformDrillError = "";
   const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
+  resetMemberFilters();
   state.selectedTypeId = restoreType ? deep.type : (pkg.types[0]?.id || "");
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
@@ -5536,6 +5542,7 @@ function applyDeepLink(deep) {
     const groups = memberGroups(type);
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
     if (group) {
+      state.memberBrowseTypeId = type.id;
       state.selectedMemberKey = deep.member;
       const overloadIndex = Number(deep.overload);
       if (deep.overload != null && deep.overload !== ""
@@ -7884,6 +7891,8 @@ async function runCallGraphDemo() {
   }
 
   state.selectedTypeId = type.id;
+  resetMemberFilters();
+  state.memberBrowseTypeId = type.id;
   state.selectedMemberKey = member.key;
   state.selectedOverloadIndex = overloadIndex;
   state.memberSection = "call-graph";

@@ -79,6 +79,17 @@ public sealed class BrowserEngineBoundaryTests
             });
 
         Assert.Equal("private", explicitImplementation.Accessibility);
+
+        BrowserMemberSurface finalizer = BrowserSurfaceProjection.Member(
+            type,
+            new ApiMember
+            {
+                Name = "Finalize",
+                Kind = "finalizer",
+                Signature = "~Widget()",
+            });
+
+        Assert.Equal("protected", finalizer.Accessibility);
     }
 
     [Fact]

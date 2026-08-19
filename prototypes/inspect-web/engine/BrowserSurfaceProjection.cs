@@ -86,9 +86,12 @@ internal static class BrowserSurfaceProjection
             member.Name,
             member.Kind,
             member.Signature ?? member.Name,
-            member.Kind == "explicit-interface-implementation"
-                ? "private"
-                : member.Accessibility ?? "public",
+            member.Kind switch
+            {
+                "explicit-interface-implementation" => "private",
+                "finalizer" => "protected",
+                _ => member.Accessibility ?? "public",
+            },
             member.IsStatic,
             member.IsUnsafe,
             member.IsVirtual,
