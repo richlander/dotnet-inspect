@@ -129,6 +129,155 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesExternalCovariantMethodImpl()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual System.IO.Stream Value() =>
+                    System.IO.Stream.Null;
+            }
+
+            public class Derived : Base
+            {
+                public override System.IO.MemoryStream Value() => new();
+            }
+            """);
+        string? rebuiltPath = null;
+        try
+        {
+            AssertCovariantMethodImpl(assemblyPath);
+
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "Value", 0)]));
+
+            Assert.Contains(
+                "public override MemoryStream Value()",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+
+            rebuiltPath = CompileFixture(result.Source);
+            AssertCovariantMethodImpl(rebuiltPath);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (rebuiltPath is not null)
+                DeleteFixture(rebuiltPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesCovariantPropertyMethodImpl()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Animal
+            {
+            }
+
+            public class Dog : Animal
+            {
+            }
+
+            public class Base
+            {
+                public virtual Animal Value => new();
+            }
+
+            public class Derived : Base
+            {
+                public override Dog Value => new();
+            }
+            """);
+        string? rebuiltPath = null;
+        try
+        {
+            AssertCovariantMethodImpl(assemblyPath, "get_Value");
+
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Derived",
+                    "get_Value",
+                    0)]));
+
+            Assert.Contains(
+                "public override Dog Value",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+
+            rebuiltPath = CompileFixture(result.Source);
+            AssertCovariantMethodImpl(rebuiltPath, "get_Value");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (rebuiltPath is not null)
+                DeleteFixture(rebuiltPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_PreservesCovariantIndexerMethodImpl()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Animal
+            {
+            }
+
+            public class Dog : Animal
+            {
+            }
+
+            public class Base
+            {
+                public virtual Animal this[int index] => new();
+            }
+
+            public class Derived : Base
+            {
+                public override Dog this[int index] => new();
+            }
+            """);
+        string? rebuiltPath = null;
+        try
+        {
+            AssertCovariantMethodImpl(assemblyPath, "get_Item");
+
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Derived",
+                    "get_Item",
+                    0)]));
+
+            Assert.Contains(
+                "public override Dog this[int index]",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+
+            rebuiltPath = CompileFixture(result.Source);
+            AssertCovariantMethodImpl(rebuiltPath, "get_Item");
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (rebuiltPath is not null)
+                DeleteFixture(rebuiltPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_AllFullPreservesUnrelatedOverrideDeclaration()
     {
         var assemblyPath = CompileFixture("""
@@ -5410,6 +5559,67 @@ public class ReturnToSenderPrototypeTests
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.Contains(": base(seed)", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("public Base()", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullDoesNotDuplicatePrivateParameterlessConstructor()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                private Base()
+                {
+                }
+
+                public Base(int seed)
+                {
+                }
+            }
+
+            public class Derived : Base
+            {
+                public Derived(int seed) : base(seed)
+                {
+                }
+            }
+
+            public static class Factory
+            {
+                public static Derived Create() => new(1);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Factory",
+                    "Create",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "private Base()",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "public Base()",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "CS0111",
+                result.Detail,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -11347,7 +11557,9 @@ public class ReturnToSenderPrototypeTests
         return path;
     }
 
-    static void AssertCovariantMethodImpl(string assemblyPath)
+    static void AssertCovariantMethodImpl(
+        string assemblyPath,
+        string methodName = "Value")
     {
         using var peReader = new PEReader(File.OpenRead(assemblyPath));
         var reader = peReader.GetMetadataReader();
@@ -11357,7 +11569,8 @@ public class ReturnToSenderPrototypeTests
             reader.GetString(reader.GetTypeDefinition(handle).Name) == "Derived");
         var derived = reader.GetTypeDefinition(derivedHandle);
         var methodHandle = derived.GetMethods().Single(handle =>
-            reader.GetString(reader.GetMethodDefinition(handle).Name) == "Value");
+            reader.GetString(reader.GetMethodDefinition(handle).Name)
+                == methodName);
         var method = reader.GetMethodDefinition(methodHandle);
         var implementation = Assert.Single(
             derived.GetMethodImplementations().Select(reader.GetMethodImplementation),

@@ -708,11 +708,26 @@ public static class MetadataDeclarationQuery
 
         if (candidateReturnType is "object" or "System.Object")
             return true;
-
-        if (!TryFindTypeDefinitionByRenderedName(reader, methodReturnType, out var methodReturnHandle)
-            || !TryFindTypeDefinitionByRenderedName(reader, candidateReturnType, out var candidateReturnHandle))
-        {
+        if (methodReturnType is "object" or "System.Object")
             return false;
+
+        var hasMethodReturnDefinition =
+            TryFindTypeDefinitionByRenderedName(
+                reader,
+                methodReturnType,
+                out var methodReturnHandle);
+        var hasCandidateReturnDefinition =
+            TryFindTypeDefinitionByRenderedName(
+                reader,
+                candidateReturnType,
+                out var candidateReturnHandle);
+        if (!hasMethodReturnDefinition || !hasCandidateReturnDefinition)
+        {
+            // The MethodImpl already authenticates the exact base slot. If either
+            // reference-type return lives outside this image, local metadata cannot
+            // prove or disprove covariance; preserve the slot and let the C#
+            // compiler validate the referenced hierarchy during compile-back.
+            return true;
         }
 
         return IsSameOrDerivedOrImplements(reader, methodReturnHandle, candidateReturnHandle);
@@ -840,7 +855,12 @@ public static class MetadataDeclarationQuery
         var setter = accessors.Setter.IsNil ? default : reader.GetMethodDefinition(accessors.Setter);
 
         var bestAccess = BestAccessorAccess(getter, setter, accessors);
-        if (TryGetAuthenticatedOverridePropertyAccess(reader, accessors, out var authenticatedPropertyAccess))
+        var hasClassMethodImplOverride =
+            TryGetAuthenticatedOverridePropertyAccess(
+                reader,
+                accessors,
+                out var authenticatedPropertyAccess);
+        if (hasClassMethodImplOverride)
             bestAccess = authenticatedPropertyAccess;
         var primaryAccessor = !accessors.Getter.IsNil ? getter : setter;
         var accessorAttributes = !accessors.Getter.IsNil || !accessors.Setter.IsNil
@@ -851,7 +871,7 @@ public static class MetadataDeclarationQuery
         var isSourceDeclarable = IsSourceDeclarableAccessibility(bestAccess);
         var isOverride = isSourceDeclarable
             && isVirtual
-            && !isNewSlot
+            && (!isNewSlot || hasClassMethodImplOverride)
             && (accessorAttributes & MethodAttributes.Static) == 0
             && (typeDef.Attributes & TypeAttributes.Interface) == 0;
         var isPublicOrProtected = IsPublicOrProtected(bestAccess);
@@ -900,7 +920,8 @@ public static class MetadataDeclarationQuery
                 && isVirtual
                 && (accessorAttributes & MethodAttributes.Abstract) == 0
                 && (accessorAttributes & MethodAttributes.Final) == 0
-                && isNewSlot,
+                && isNewSlot
+                && !hasClassMethodImplOverride,
             isOverride,
             isOverride && (accessorAttributes & MethodAttributes.Final) != 0,
             new ApiSignature

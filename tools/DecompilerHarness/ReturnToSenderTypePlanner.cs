@@ -5323,16 +5323,13 @@ public static class CompileBackSourceComposer
                 reader,
                 materializedOverrideSlots,
                 members);
-            // When this class is reconstructed as the base of another shell type, a
-            // derived stub constructor emits an implicit `: base()`. If the class has
-            // only parameterized constructors (no accessible parameterless one), that
-            // implicit call fails to bind (CS7036/CS1729). Synthesize a parameterless
-            // constructor so base-class reconstruction never breaks the derived shell;
-            // at worst the derived constructor stays at its pre-existing opcode diff.
+            // A synthetic constructor must not collide with a private parameterless
+            // constructor: accessibility affects whether a derived shell can call the
+            // constructor, but not whether its C# signature is already occupied.
             if (kind == CompileBackTypeKind.Class
                 && members.Any(member => member.Kind == CompileBackMemberKind.Constructor)
-                && !HasAccessibleParameterlessConstructor(members)
-                && !HasAccessibleParameterlessInstanceConstructor(reader, typeDef)
+                && !HasParameterlessConstructorSignature(members)
+                && !HasParameterlessInstanceConstructor(reader, typeDef)
                 && NeedsSyntheticParameterlessConstructor(reader, requirement, requirementsByMetadataName, useFullBodies))
             {
                 members.Add(SyntheticParameterlessConstructor(requirement.Type));
@@ -6102,7 +6099,10 @@ public static class CompileBackSourceComposer
                 string identifierName = MemberIdentifierName(name, isConstructor);
                 int existingMethodIndex = members.FindIndex(member =>
                     member.Kind == (isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method)
-                    && member.Identity.Method == identifierName);
+                    && (isConstructor
+                        ? member.MetadataToken
+                            == MetadataTokens.GetToken(methodHandle)
+                        : member.Identity.Method == identifierName));
                 if (existingMethodIndex >= 0)
                 {
                     var existing = members[existingMethodIndex];
@@ -6177,8 +6177,8 @@ public static class CompileBackSourceComposer
             if (requirement.RequiredKind == CompileBackTypeKind.Class
                 && !TypeShellProducer.IsStaticType(typeDef)
                 && requirement.PrimaryConstructor is null
-                && !HasAccessibleParameterlessConstructor(members)
-                && !HasAccessibleParameterlessInstanceConstructor(reader, typeDef)
+                && !HasParameterlessConstructorSignature(members)
+                && !HasParameterlessInstanceConstructor(reader, typeDef)
                 && NeedsSyntheticParameterlessConstructor(reader, requirement, requirementsByMetadataName, useFullBodies))
             {
                 members.Add(new CompileBackMemberRequirement(
@@ -6334,12 +6334,11 @@ public static class CompileBackSourceComposer
             return null;
         }
 
-        static bool HasAccessibleParameterlessConstructor(
+        static bool HasParameterlessConstructorSignature(
             IEnumerable<CompileBackMemberRequirement> members)
             => members.Any(member =>
                 member.Kind == CompileBackMemberKind.Constructor
-                && member.Parameters.Count == 0
-                && member.Accessibility != CompileBackAccessibility.Private);
+                && member.Parameters.Count == 0);
 
         static MethodDefinitionHandle? FindAccessibleInstanceConstructor(
             MetadataReader reader,
@@ -6375,14 +6374,15 @@ public static class CompileBackSourceComposer
             return null;
         }
 
-        static bool HasAccessibleParameterlessInstanceConstructor(MetadataReader reader, TypeDefinition typeDef)
+        static bool HasParameterlessInstanceConstructor(
+            MetadataReader reader,
+            TypeDefinition typeDef)
         {
             foreach (var methodHandle in typeDef.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
                 if (reader.GetString(method.Name) != ".ctor"
-                    || method.Attributes.HasFlag(MethodAttributes.Static)
-                    || !IsConstructorAccessibleFromDerived(method.Attributes & MethodAttributes.MemberAccessMask))
+                    || method.Attributes.HasFlag(MethodAttributes.Static))
                 {
                     continue;
                 }

@@ -286,6 +286,42 @@ public sealed class MetadataDeclarationQueryTests
         Assert.Equal((MethodDefinitionHandle)implementation.MethodDeclaration, slot.Method);
     }
 
+    [Theory]
+    [InlineData(
+        typeof(MetadataDeclarationQueryFixtures.CovariantPropertyDerived),
+        "Value",
+        "get_Value")]
+    [InlineData(
+        typeof(MetadataDeclarationQueryFixtures.CovariantIndexerDerived),
+        "Item",
+        "get_Item")]
+    public void PropertyDeclaration_UsesCompilerProducedCovariantMethodImpl(
+        Type derivedType,
+        string propertyName,
+        string accessorName)
+    {
+        var derivedHandle = GetTypeDefinitionHandle(derivedType);
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var property = GetProperty(derived, propertyName);
+        var accessorHandle = GetMethodHandle(derived, accessorName);
+        var accessor = Reader.GetMethodDefinition(accessorHandle);
+
+        Assert.True((accessor.Attributes & MethodAttributes.NewSlot) != 0);
+        Assert.Contains(
+            derived.GetMethodImplementations()
+                .Select(Reader.GetMethodImplementation),
+            implementation => implementation.MethodBody == accessorHandle);
+
+        var declaration =
+            MetadataDeclarationQuery.GetProperty(
+                Reader,
+                derived,
+                property);
+
+        Assert.True(declaration.IsOverride);
+        Assert.False(declaration.IsVirtual);
+    }
+
     [Fact]
     public void SameAssemblyOverrideSlot_DeclinesInterfaceMethodImpl()
     {
@@ -1129,6 +1165,26 @@ public class MetadataDeclarationQueryFixtures
     public class CovariantReturnDerived : CovariantReturnBase
     {
         public override CovariantDog Value() => new();
+    }
+
+    public class CovariantPropertyBase
+    {
+        public virtual CovariantAnimal Value => new();
+    }
+
+    public class CovariantPropertyDerived : CovariantPropertyBase
+    {
+        public override CovariantDog Value => new();
+    }
+
+    public class CovariantIndexerBase
+    {
+        public virtual CovariantAnimal this[int index] => new();
+    }
+
+    public class CovariantIndexerDerived : CovariantIndexerBase
+    {
+        public override CovariantDog this[int index] => new();
     }
 
     public class ObjectCovariantReturnBase
