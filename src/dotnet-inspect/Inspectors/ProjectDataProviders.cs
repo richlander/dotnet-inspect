@@ -22,18 +22,15 @@ internal sealed class ProjectSkillsProvider
 
     readonly string _assetsPath;
     readonly string? _targetFramework;
-    readonly bool _deferContent;
     readonly ProjectDocumentContentStore _contentStore;
 
     public ProjectSkillsProvider(
         string assetsPath,
         string? targetFramework,
-        bool deferContent,
         ProjectDocumentContentStore contentStore)
     {
         _assetsPath = assetsPath;
         _targetFramework = targetFramework;
-        _deferContent = deferContent;
         _contentStore = contentStore;
     }
 
@@ -91,24 +88,6 @@ internal sealed class ProjectSkillsProvider
                     continue;
                 }
 
-                if (_deferContent)
-                {
-                    _contentStore.Add(
-                        ProjectSectionNames.Skills,
-                        file.PackageName,
-                        file.Path,
-                        file.FullPath);
-                    skills.Add(new ProjectSkillData(
-                        file.PackageName,
-                        file.Version,
-                        file.Path,
-                        knownSize,
-                        skillName,
-                        description,
-                        ""));
-                    continue;
-                }
-
                 _contentStore.Add(
                     ProjectSectionNames.Skills,
                     file.PackageName,
@@ -139,7 +118,7 @@ internal sealed class ProjectSkillsProvider
                         knownSize,
                         "",
                         "",
-                        ""));
+                        null));
                 }
             }
         }

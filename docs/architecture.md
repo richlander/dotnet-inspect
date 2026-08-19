@@ -83,13 +83,14 @@ The CLI host resolves the restored assets and direct dependency set, then
 delegates section-specific filesystem access and package acquisition to
 bespoke Skills, Agent Guidance, and Package Docs providers. Typed project
 queries consume provider-owned document rows, and the section pipeline invokes
-only the provider needed by the selected section. Count and path projections
-retain row metadata without reading document payloads; print selection reads
-only its chosen row. `Package Docs` is explicit-only and unbounded; the
-network-free default does not authorize package acquisition. Effective
-discovery probes only the bounded Skills and Agent Guidance providers, dropping
-sections with no documents; Package Docs remains structural so discovery never
-acquires it.
+only the provider needed by the selected section. Agent Guidance count and path
+projections retain row metadata without reading document payloads, and print
+selection reads only its chosen row. Skills always reads every `SKILL.md` so it
+can validate Agent Skills metadata before emitting a row. `Package Docs` is
+explicit-only and unbounded; the network-free default does not authorize
+package acquisition. Effective discovery probes only the bounded Skills and
+Agent Guidance providers, dropping sections with no documents; Package Docs
+remains structural so discovery never acquires it.
 
 ### library
 

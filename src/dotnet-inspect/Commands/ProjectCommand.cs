@@ -164,7 +164,6 @@ public class ProjectCommand
         var skillsProvider = new ProjectSkillsProvider(
             assetsPath,
             options.Tfm,
-            deferDocumentContent,
             contentStore);
         var agentGuidanceProvider =
             new ProjectAgentGuidanceProvider(
