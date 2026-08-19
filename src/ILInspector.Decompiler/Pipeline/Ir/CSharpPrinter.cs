@@ -56,12 +56,14 @@ public sealed partial class CSharpPrinter
     readonly HashSet<string> _reservedScopeNames;
     readonly List<DecompilerDecision> _decisions;
     readonly HashSet<string> _decisionKeys;
+    readonly IrNode _stackSlotTelemetryScope;
 
     CSharpPrinter(
         IrFunction function,
         PrinterOptions? options = null,
         IEnumerable<string>? reservedScopeNames = null,
         StackSlotUnifierTelemetryBuilder? stackSlotTelemetry = null,
+        IrNode? stackSlotTelemetryScope = null,
         List<DecompilerDecision>? decisions = null,
         HashSet<string>? decisionKeys = null)
     {
@@ -73,6 +75,7 @@ public sealed partial class CSharpPrinter
             ? []
             : new HashSet<string>(reservedScopeNames, StringComparer.Ordinal);
         _stackSlotTelemetry = stackSlotTelemetry;
+        _stackSlotTelemetryScope = stackSlotTelemetryScope ?? function.Body;
         _decisions = decisions ?? [];
         _decisionKeys = decisionKeys ?? [];
     }
@@ -902,7 +905,11 @@ public sealed partial class CSharpPrinter
                     break;
             }
         }
-        _stackSlotTelemetry?.RecordNodes(
+        var telemetry = _stackSlotTelemetry is { } collector
+            && collector.TryBeginScope(_stackSlotTelemetryScope)
+                ? collector
+                : null;
+        telemetry?.RecordNodes(
             storesBySlot.Values.Sum(stores => stores.Count),
             loadsBySlot.Values.Sum(loads => loads.Count),
             storesBySlot.Values.Sum(stores => stores.Count(store => store is LoadStackSlot)));
@@ -922,7 +929,7 @@ public sealed partial class CSharpPrinter
 
         foreach (int slot in storesBySlot.Keys.Concat(loadsBySlot.Keys).Distinct())
         {
-            if (_stackSlotTelemetry is { } telemetry)
+            if (telemetry is not null)
             {
                 telemetry.RecordCandidate(
                     CandidateCount(
@@ -937,12 +944,11 @@ public sealed partial class CSharpPrinter
                 out var unifiedType))
             {
                 _stackSlotUnifiedTypes[slot] = unifiedType;
-                if (_stackSlotTelemetry is { } telemetryAfter)
-                    telemetryAfter.RecordUnified(unifiedType);
+                telemetry?.RecordUnified(unifiedType);
             }
-            else if (_stackSlotTelemetry is { } telemetryAfter)
+            else
             {
-                telemetryAfter.RecordUnunifiedSplit();
+                telemetry?.RecordUnunifiedSplit();
             }
         }
 
@@ -979,7 +985,7 @@ public sealed partial class CSharpPrinter
                     break;
             }
         }
-        _stackSlotTelemetry?.RecordEmittedDeclarations(EmittedStackSlotDeclarationCount());
+        telemetry?.RecordEmittedDeclarations(EmittedStackSlotDeclarationCount());
 
         static int CandidateCount(
             IReadOnlyList<IrExpression> stores,
@@ -1009,6 +1015,7 @@ public sealed partial class CSharpPrinter
     sealed class StackSlotUnifierTelemetryBuilder
     {
         int _lastCandidateCount;
+        readonly HashSet<IrNode> _recordedScopes = [];
 
         public int StoreNodes { get; private set; }
         public int LoadNodes { get; private set; }
@@ -1018,6 +1025,8 @@ public sealed partial class CSharpPrinter
         public int MultiCandidateUnifiedSlots { get; private set; }
         public int UnunifiedSplitSlots { get; private set; }
         public int EmittedDeclarationNames { get; private set; }
+
+        public bool TryBeginScope(IrNode scope) => _recordedScopes.Add(scope);
 
         public void RecordNodes(int stores, int loads, int directCopyStores)
         {
@@ -1795,8 +1804,9 @@ public sealed partial class CSharpPrinter
             _options,
             CurrentScopeNames(),
             _stackSlotTelemetry,
-            _decisions,
-            _decisionKeys);
+            stackSlotTelemetryScope: localFunction,
+            decisions: _decisions,
+            decisionKeys: _decisionKeys);
         foreach (var line in nestedPrinter.PrintBody(function).TrimEnd().Split("\n"))
             sb.Append(pad).AppendLf(line);
     }

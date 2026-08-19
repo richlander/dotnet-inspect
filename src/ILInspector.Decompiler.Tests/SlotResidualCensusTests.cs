@@ -133,6 +133,52 @@ public class SlotResidualCensusTests
     }
 
     [Fact]
+    public void StackSlotUnifierTelemetry_DoesNotDoubleCountSpeculativelyRenderedLambda()
+    {
+        var action = TypeRef.CoreLib("System", "Action");
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner", ValueTypeHint.ReferenceType);
+
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new StoreStackSlot(256, new Constant(1, i32)));
+        lambdaBlock.Add(new StoreStackSlot(0, new LoadStackSlot(256, i32)));
+        lambdaBlock.Add(new ExpressionStatement(new LoadStackSlot(0, i32)));
+        lambdaBlock.Add(new Return(null));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            action,
+            [],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody);
+
+        var block = new Block();
+        block.Add(new ExpressionStatement(new Call(
+            new MethodRef(owner, "Use", voidType, [action], HasThis: false),
+            isVirtual: false,
+            [lambda])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(voidType, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        var telemetry = CSharpPrinter.CollectStackSlotUnifierTelemetry(function);
+
+        Assert.Equal(2, telemetry.StoreNodes);
+        Assert.Equal(2, telemetry.LoadNodes);
+        Assert.Equal(1, telemetry.DirectCopyStores);
+        Assert.Equal(2, telemetry.DistinctSlots);
+    }
+
+    [Fact]
     public void StackSlotUnifierTelemetry_UnifiesReferenceCoalesceAtObjectTarget()
     {
         var obj = TypeRef.CoreLib("System", "Object");

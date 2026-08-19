@@ -295,7 +295,8 @@ public sealed partial class CSharpPrinter
                 function,
                 _options,
                 CurrentScopeNames(),
-                _stackSlotTelemetry).PrintBody(function).Trim();
+                _stackSlotTelemetry,
+                stackSlotTelemetryScope: lambda).PrintBody(function).Trim();
         }
         finally
         {
