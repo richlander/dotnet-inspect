@@ -14,6 +14,12 @@ namespace ILInspector.Analysis;
 /// <remarks>
 /// <c>CallGraphMemberResolverTests.Resolve_DistinguishesInstanceAndStaticMethodsWithTheSameSignature</c>
 /// gates the instance/static identity discriminator across both producers and structural remapping.
+/// <c>CallGraphMemberResolverTests.Selector_DistinguishesCustomModifiersPinnedAndFunctionPointerHeaders</c>
+/// gates modifier, pinned, and function-pointer header identity across both producers.
+/// <c>CallGraphMemberResolverTests.Resolve_MatchesCompiledInitSetterAcrossProducers</c>
+/// gates <c>init</c> setter <c>modreq(IsExternalInit)</c> identity from extract through MemberRef.
+/// <c>CallGraphMemberResolverTests.Resolve_MatchesCompiledExplicitInterfaceAccessorAcrossProducers</c>
+/// gates explicit-interface accessor MethodDef names (<c>I.get_P</c>, not <c>get_I.P</c>).
 /// </remarks>
 public static class CallGraphMemberResolver
 {
@@ -111,8 +117,10 @@ public static class CallGraphMemberResolver
             member.Name,
             member.GenericArity,
             member.HasThis,
-            member.OpenSignatureParameters.Select(TypeIdentity),
-            TypeIdentity(member.OpenSignatureReturn));
+            member.OpenSignatureParameters.Select(type => TypeIdentity(type, structural: false)),
+            TypeIdentity(member.OpenSignatureReturn, structural: false),
+            member.OpenSignatureParameters.Select(type => TypeIdentity(type, structural: true)),
+            TypeIdentity(member.OpenSignatureReturn, structural: true));
     }
 
     public static CallGraphMemberSelector CreateSelector(ApiType type, ApiMember member)
@@ -130,17 +138,27 @@ public static class CallGraphMemberResolver
             StripPinned(value),
             typeParameters,
             methodParameters);
+        string Structural(string? structural, string display) =>
+            string.IsNullOrEmpty(structural) ? display : structural;
+
+        var displayParameters = (member.SignatureModel?.Parameters ?? [])
+            .Select(parameter => Normalize(parameter.CanonicalTypeWithModifier))
+            .ToArray();
+        string displayReturn = Normalize(
+            member.SignatureModel?.EffectiveCanonicalReturnType
+                ?? member.ReturnType
+                ?? "void");
 
         return CreateSelector(
             member.Name,
             member.SignatureModel?.TypeParameters.Count ?? 0,
             !member.IsStatic,
+            displayParameters,
+            displayReturn,
             (member.SignatureModel?.Parameters ?? [])
-                .Select(parameter => Normalize(parameter.CanonicalTypeWithModifier)),
-            Normalize(
-                member.SignatureModel?.EffectiveCanonicalReturnType
-                    ?? member.ReturnType
-                    ?? "void"));
+                .Select((parameter, index) =>
+                    Structural(parameter.StructuralType, displayParameters[index])),
+            Structural(member.SignatureModel?.StructuralReturnType, displayReturn));
     }
 
     public static ImmutableArray<CallGraphMemberBodySelector> CreateBodySelectors(
@@ -159,7 +177,9 @@ public static class CallGraphMemberResolver
 
     /// <summary>
     /// Resolves an exact method or accessor. A MethodDef token wins within the already
-    /// selected type; structural fallback succeeds only for one unique candidate.
+    /// selected type; structural fallback succeeds only for one unique body. An
+    /// explicit-interface accessor may appear as both a method row and a property
+    /// accessor; those are one body, not a conflict.
     /// </summary>
     public static CallGraphMemberResolution? Resolve(
         ApiType type,
@@ -180,8 +200,8 @@ public static class CallGraphMemberResolver
                     && string.Equals(candidate.MemberName, memberName, StringComparison.Ordinal)
                     && string.Equals(candidate.SelectorKey, selectorKey, StringComparison.Ordinal))
                 .ToArray();
-            if (tokenMatches.Length == 1)
-                return tokenMatches[0].Resolution;
+            if (UniqueBody(tokenMatches) is { } tokenResolution)
+                return tokenResolution;
         }
 
         var matches = type.Members
@@ -190,7 +210,22 @@ public static class CallGraphMemberResolver
                 string.Equals(candidate.MemberName, memberName, StringComparison.Ordinal)
                 && string.Equals(candidate.SelectorKey, selectorKey, StringComparison.Ordinal))
             .ToArray();
-        return matches.Length == 1 ? matches[0].Resolution : null;
+        return UniqueBody(matches);
+    }
+
+    static CallGraphMemberResolution? UniqueBody(AccessorCandidate[] matches)
+    {
+        if (matches.Length == 0)
+            return null;
+
+        int token = matches[0].Resolution.BodyToken;
+        if (matches.Any(match => match.Resolution.BodyToken != token))
+            return null;
+
+        return matches
+            .FirstOrDefault(match => match.Resolution.Member.MetadataToken == token)
+            ?.Resolution
+            ?? matches[0].Resolution;
     }
 
     static IEnumerable<AccessorCandidate> CandidateBodies(ApiType type, ApiMember member)
@@ -204,46 +239,72 @@ public static class CallGraphMemberResolver
         if (member.GetterToken is int getter)
         {
             var selector = CreateSelector(
-                $"get_{member.Name}",
+                AccessorMethodName(member, "get", $"get_{member.Name}"),
                 0,
                 !member.IsStatic,
                 owner.ParameterTypes,
-                owner.ReturnType);
+                owner.ReturnType,
+                owner.StructuralParameterTypes,
+                AccessorStructuralReturn(member, "get", owner.StructuralReturnType));
             yield return new(selector.Name, selector.Key, new(type, member, getter));
         }
 
         if (member.SetterToken is int setter)
         {
             var selector = CreateSelector(
-                $"set_{member.Name}",
+                AccessorMethodName(member, "set", $"set_{member.Name}"),
                 0,
                 !member.IsStatic,
                 owner.ParameterTypes.Append(owner.ReturnType),
-                "System.Void");
+                "System.Void",
+                owner.StructuralParameterTypes.Append(owner.StructuralReturnType),
+                AccessorStructuralReturn(member, "set", "System.Void"));
             yield return new(selector.Name, selector.Key, new(type, member, setter));
         }
 
         if (member.AdderToken is int adder)
         {
             var selector = CreateSelector(
-                $"add_{member.Name}",
+                AccessorMethodName(member, "add", $"add_{member.Name}"),
                 0,
                 !member.IsStatic,
                 [owner.ReturnType],
-                "System.Void");
+                "System.Void",
+                [owner.StructuralReturnType],
+                AccessorStructuralReturn(member, "add", "System.Void"));
             yield return new(selector.Name, selector.Key, new(type, member, adder));
         }
 
         if (member.RemoverToken is int remover)
         {
             var selector = CreateSelector(
-                $"remove_{member.Name}",
+                AccessorMethodName(member, "remove", $"remove_{member.Name}"),
                 0,
                 !member.IsStatic,
                 [owner.ReturnType],
-                "System.Void");
+                "System.Void",
+                [owner.StructuralReturnType],
+                AccessorStructuralReturn(member, "remove", "System.Void"));
             yield return new(selector.Name, selector.Key, new(type, member, remover));
         }
+    }
+
+    static string AccessorMethodName(ApiMember member, string kind, string fallback)
+    {
+        string? name = member.SignatureModel?.Accessors
+            .FirstOrDefault(accessor =>
+                string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
+            ?.Name;
+        return string.IsNullOrEmpty(name) ? fallback : name;
+    }
+
+    static string AccessorStructuralReturn(ApiMember member, string kind, string fallback)
+    {
+        string? structural = member.SignatureModel?.Accessors
+            .FirstOrDefault(accessor =>
+                string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
+            ?.StructuralReturnType;
+        return string.IsNullOrEmpty(structural) ? fallback : structural;
     }
 
     static CallGraphMemberSelector CreateSelector(
@@ -251,63 +312,94 @@ public static class CallGraphMemberResolver
         int genericArity,
         bool hasThis,
         IEnumerable<string> parameterTypes,
-        string returnType)
+        string returnType,
+        IEnumerable<string>? structuralParameterTypes = null,
+        string? structuralReturnType = null)
     {
         var parameters = parameterTypes.ToImmutableArray();
+        var structuralParameters = structuralParameterTypes?.ToImmutableArray() ?? parameters;
+        string structuralReturn = structuralReturnType ?? returnType;
         var key = new StringBuilder();
         Append(key, name);
         key.Append(hasThis ? 'I' : 'S').Append(';');
         key.Append(genericArity).Append(';');
-        key.Append(parameters.Length).Append(';');
-        foreach (string parameter in parameters)
+        key.Append(structuralParameters.Length).Append(';');
+        foreach (string parameter in structuralParameters)
             Append(key, parameter);
-        Append(key, returnType);
-        return new(name, parameters, returnType, genericArity, key.ToString());
+        Append(key, structuralReturn);
+        return new(
+            name,
+            parameters,
+            returnType,
+            genericArity,
+            key.ToString(),
+            structuralParameters,
+            structuralReturn);
     }
 
     static void Append(StringBuilder builder, string value)
         => builder.Append(value.Length).Append(':').Append(value);
 
-    static string TypeIdentity(TypeRef type) => type.Kind switch
+    static string TypeIdentity(TypeRef type, bool structural) => type.Kind switch
     {
         TypeRefKind.GenericParameter => $"T{type.GenericParameterIndex}",
         TypeRefKind.MethodGenericParameter => $"M{type.GenericParameterIndex}",
         TypeRefKind.GenericInstance when type.ElementType is { } definition =>
-            NamedGenericTypeIdentity(definition, type.TypeArguments),
+            NamedGenericTypeIdentity(definition, type.TypeArguments, structural),
         TypeRefKind.SzArray when type.ElementType is { } element =>
-            $"{TypeIdentity(element)}[]",
+            $"{TypeIdentity(element, structural)}[]",
         TypeRefKind.Array when type.ElementType is { } element =>
-            $"{TypeIdentity(element)}[{new string(',', Math.Max(0, type.Rank - 1))}]",
+            $"{TypeIdentity(element, structural)}[{new string(',', Math.Max(0, type.Rank - 1))}]",
         TypeRefKind.ByRef when type.ElementType is { } element =>
-            $"{TypeIdentity(element)}@",
+            $"{TypeIdentity(element, structural)}@",
         TypeRefKind.Pointer when type.ElementType is { } element =>
-            $"{TypeIdentity(element)}*",
+            $"{TypeIdentity(element, structural)}*",
         TypeRefKind.Pinned when type.ElementType is { } element =>
-            TypeIdentity(element),
+            structural
+                ? StructuralTypeIdentity.Pinned(TypeIdentity(element, structural: true))
+                : TypeIdentity(element, structural: false),
         TypeRefKind.Unsupported when type.UnmodifiedType is { } unmodified =>
-            TypeIdentity(unmodified),
+            structural && type.ModifierType is { } modifier
+                ? StructuralTypeIdentity.Modified(
+                    type.IsRequiredModifier,
+                    TypeIdentity(modifier, structural: true),
+                    TypeIdentity(unmodified, structural: true))
+                : TypeIdentity(unmodified, structural),
         TypeRefKind.Unsupported when type.FunctionPointerSignature is { } signature =>
-            FunctionPointerIdentity(signature),
+            FunctionPointerIdentity(signature, structural),
         TypeRefKind.Definition => NamedTypeIdentity(type),
         _ => XmlDocumentationNotation.NormalizeParameterType(type.ToQualifiedDisplayString()),
     };
 
-    static string FunctionPointerIdentity(MethodSignature<TypeRef> signature)
+    static string FunctionPointerIdentity(
+        MethodSignature<TypeRef> signature,
+        bool structural)
     {
-        string convention = signature.Header.CallingConvention switch
+        IEnumerable<string> parameterTypes = signature.ParameterTypes
+            .Select(parameter => TypeIdentity(parameter, structural));
+        string returnType = TypeIdentity(signature.ReturnType, structural);
+        if (!structural)
         {
-            SignatureCallingConvention.Default => "",
-            SignatureCallingConvention.CDecl => " unmanaged[Cdecl]",
-            SignatureCallingConvention.StdCall => " unmanaged[Stdcall]",
-            SignatureCallingConvention.ThisCall => " unmanaged[Thiscall]",
-            SignatureCallingConvention.FastCall => " unmanaged[Fastcall]",
-            _ => " unmanaged",
-        };
-        return $"delegate*{convention}{{{string.Join(
-            ",",
-            signature.ParameterTypes
-                .Select(TypeIdentity)
-                .Append(TypeIdentity(signature.ReturnType)))}}}";
+            string convention = signature.Header.CallingConvention switch
+            {
+                SignatureCallingConvention.Default => "",
+                SignatureCallingConvention.CDecl => " unmanaged[Cdecl]",
+                SignatureCallingConvention.StdCall => " unmanaged[Stdcall]",
+                SignatureCallingConvention.ThisCall => " unmanaged[Thiscall]",
+                SignatureCallingConvention.FastCall => " unmanaged[Fastcall]",
+                _ => " unmanaged",
+            };
+            return $"delegate*{convention}{{{string.Join(",", parameterTypes.Append(returnType))}}}";
+        }
+
+        return StructuralTypeIdentity.FunctionPointer(
+            signature.Header.CallingConvention,
+            signature.Header.Attributes.HasFlag(SignatureAttributes.Instance),
+            signature.Header.Attributes.HasFlag(SignatureAttributes.ExplicitThis),
+            signature.GenericParameterCount,
+            signature.RequiredParameterCount,
+            parameterTypes,
+            returnType);
     }
 
     static string NormalizeApiType(
@@ -370,10 +462,11 @@ public static class CallGraphMemberResolver
 
     static string NamedGenericTypeIdentity(
         TypeRef definition,
-        ImmutableArray<TypeRef> arguments)
+        ImmutableArray<TypeRef> arguments,
+        bool structural)
     {
         if (definition.Kind != TypeRefKind.Definition)
-            return $"{TypeIdentity(definition)}{{{string.Join(",", arguments.Select(TypeIdentity))}}}";
+            return $"{TypeIdentity(definition, structural)}{{{string.Join(",", arguments.Select(argument => TypeIdentity(argument, structural)))}}}";
 
         string[] segments = definition.Resolution?.Type.Segments.ToArray()
             ?? definition.Name.Split('+');
@@ -386,7 +479,7 @@ public static class CallGraphMemberResolver
                     : 0;
         });
         if (totalArity != arguments.Length)
-            return $"{NamedTypeIdentity(definition)}{{{string.Join(",", arguments.Select(TypeIdentity))}}}";
+            return $"{NamedTypeIdentity(definition)}{{{string.Join(",", arguments.Select(argument => TypeIdentity(argument, structural)))}}}";
 
         var result = new StringBuilder();
         string ns = definition.Resolution?.Type.Namespace ?? definition.Namespace;
@@ -411,7 +504,7 @@ public static class CallGraphMemberResolver
             {
                 if (index > 0)
                     result.Append(',');
-                result.Append(TypeIdentity(arguments[argumentIndex++]));
+                result.Append(TypeIdentity(arguments[argumentIndex++], structural));
             }
             result.Append('}');
         }
@@ -448,7 +541,9 @@ public sealed record CallGraphMemberSelector(
     ImmutableArray<string> ParameterTypes,
     string ReturnType,
     int GenericArity,
-    string Key);
+    string Key,
+    ImmutableArray<string> StructuralParameterTypes,
+    string StructuralReturnType);
 
 public sealed record CallGraphMemberResolution(
     ApiType Type,
