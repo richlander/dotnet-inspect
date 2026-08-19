@@ -343,6 +343,87 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
+    public void Resolve_MatchesExplicitInterfaceAccessorNameAcrossProducers()
+    {
+        var member = new ApiMember
+        {
+            Name = "INamed.Value",
+            Kind = "property",
+            ReturnType = "int",
+            GetterToken = 0x06000002,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        Name = "INamed.get_Value",
+                    },
+                ],
+            },
+        };
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Owner",
+            Members = [member],
+        };
+        var graph = CallGraphMemberResolver.CreateSelector(new MemberRef(
+            TypeRef.Definition("Samples", "Samples", "Owner"),
+            "INamed.get_Value",
+            ImmutableArray<TypeRef>.Empty,
+            TypeRef.CoreLib("System", "Int32"),
+            MemberKind.Method)
+        {
+            HasThis = true,
+        });
+
+        var getter = Assert.Single(CallGraphMemberResolver.CreateBodySelectors(type, member));
+        Assert.Equal("INamed.get_Value", getter.MemberName);
+        Assert.NotEqual("get_INamed.Value", getter.MemberName);
+        Assert.Equal(graph.Key, getter.SelectorKey);
+        Assert.Equal(
+            0x06000002,
+            CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.BodyToken);
+    }
+
+    [Fact]
+    public void Resolve_MatchesCompiledExplicitInterfaceAccessorAcrossProducers()
+    {
+        using var stream = File.OpenRead(typeof(ExplicitAccessorFixtures).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            candidate => candidate.Name == nameof(ExplicitAccessorFixtures));
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Kind == "property"
+                && candidate.Name.EndsWith(
+                    $".{nameof(IExplicitAccessor.Value)}",
+                    StringComparison.Ordinal));
+        CallGraphMemberBodySelector getter = Assert.Single(
+            CallGraphMemberResolver.CreateBodySelectors(type, member),
+            selector => selector.BodyToken == member.GetterToken);
+
+        MemberRef reference = MemberResolver.ResolveMethod(
+            peReader.GetMetadataReader(),
+            MetadataTokens.EntityHandle(getter.BodyToken),
+            GenericScope.Empty);
+        CallGraphMemberSelector graph = CallGraphMemberResolver.CreateSelector(reference);
+
+        Assert.Equal(reference.Name, getter.MemberName);
+        Assert.False(getter.MemberName.StartsWith("get_", StringComparison.Ordinal));
+        Assert.Contains(".get_", getter.MemberName, StringComparison.Ordinal);
+        Assert.Equal(graph.Key, getter.SelectorKey);
+        Assert.Equal(
+            getter.BodyToken,
+            CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.BodyToken);
+    }
+
+    [Fact]
     public void Selector_KeepsDisplaySpellingWhenModifiersArePresent()
     {
         var modified = TypeRef.UnsupportedModified(
@@ -1094,4 +1175,14 @@ public sealed class CallGraphMemberResolverTests
 public sealed class InitAccessorFixtures
 {
     public int Value { get; init; }
+}
+
+public interface IExplicitAccessor
+{
+    int Value { get; }
+}
+
+public sealed class ExplicitAccessorFixtures : IExplicitAccessor
+{
+    int IExplicitAccessor.Value => 1;
 }
