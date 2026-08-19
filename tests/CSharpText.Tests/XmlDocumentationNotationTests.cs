@@ -60,6 +60,24 @@ public sealed class XmlDocumentationNotationTests
     }
 
     [Fact]
+    public void ParameterNormalization_KeepsNestedSuffixInsideGenericArguments()
+    {
+        Assert.Equal(
+            "System.Collections.Generic.List{Samples.Outer{System.Int32}.Inner{System.String}}",
+            XmlDocumentationNotation.NormalizeParameterType(
+                "System.Collections.Generic.List<Samples.Outer<int>.Inner<string>>"));
+        Assert.NotEqual(
+            XmlDocumentationNotation.NormalizeParameterType(
+                "System.Collections.Generic.List<Samples.Outer<int>>"),
+            XmlDocumentationNotation.NormalizeParameterType(
+                "System.Collections.Generic.List<Samples.Outer<int>.Inner<string>>"));
+        Assert.Equal(
+            "System.Collections.Generic.List{Samples.Outer{System.Int32}.Inner{System.String}}@",
+            XmlDocumentationNotation.NormalizeParameterType(
+                "ref System.Collections.Generic.List<Samples.Outer<int>+Inner<string>>"));
+    }
+
+    [Fact]
     public void SignatureParameterNormalization_StripsParameterNamesForFallback()
     {
         Assert.Equal(
