@@ -53,15 +53,19 @@ public abstract record InspectionGraphMemberIdentity
     {
         public AcquiredApi(
             AssemblyAcquisitionRegistration registration,
+            MetadataTypeDefinitionName declaringType,
             MemberAnchor member)
         {
             ArgumentNullException.ThrowIfNull(registration);
+            ArgumentNullException.ThrowIfNull(declaringType);
             ArgumentNullException.ThrowIfNull(member);
             Registration = registration;
+            DeclaringType = declaringType;
             Member = member;
         }
 
         public AssemblyAcquisitionRegistration Registration { get; }
+        public MetadataTypeDefinitionName DeclaringType { get; }
         public MemberAnchor Member { get; }
         public override bool IsPortable => false;
     }
@@ -203,10 +207,12 @@ public abstract record InspectionGraphSubject
 
     public static InspectionGraphSubject ForAcquiredApiMember(
         AssemblyAcquisitionRegistration registration,
+        MetadataTypeDefinitionName declaringType,
         MemberAnchor member) =>
         ForMember(
             new InspectionGraphMemberIdentity.AcquiredApi(
                 registration,
+                declaringType,
                 member));
 
     public static InspectionGraphSubject ForType(
@@ -561,7 +567,7 @@ public sealed class InspectionGraphRelationshipDescriptor
             if (admission.Kind
                     == InspectionGraphSeedAdmissionKind.OwnedSubjects
                 && !OwnedEndpointKinds(admission.Role).Any(
-                    endpointKind => StrictlyOwns(
+                    endpointKind => CanStrictlyOwn(
                         admission.SubjectKind,
                         endpointKind)))
             {
@@ -665,7 +671,7 @@ public sealed class InspectionGraphRelationshipDescriptor
             _ => throw new ArgumentOutOfRangeException(nameof(role)),
         };
 
-    static bool StrictlyOwns(
+    static bool CanStrictlyOwn(
         InspectionGraphSubjectKind owner,
         InspectionGraphSubjectKind subject) =>
         (owner, subject) switch
@@ -1212,6 +1218,7 @@ public sealed class InspectionGraphDocument
             scope,
             modeRequest,
             neighborhoodRequest: null,
+            inducedSetRequest: null,
             nodes,
             groups,
             edges,
@@ -1240,6 +1247,36 @@ public sealed class InspectionGraphDocument
                 ?? throw new ArgumentNullException(
                     nameof(neighborhoodRequest)),
             neighborhoodRequest,
+            inducedSetRequest: null,
+            nodes,
+            groups,
+            edges,
+            occurrences,
+            characteristics,
+            seeds,
+            limits,
+            failures)
+    {
+    }
+
+    public InspectionGraphDocument(
+        InspectionGraphDocumentScope scope,
+        InspectionGraphInducedSetRequest inducedSetRequest,
+        IEnumerable<InspectionGraphNode> nodes,
+        IEnumerable<InspectionGraphGroup> groups,
+        IEnumerable<InspectionGraphEdge> edges,
+        IEnumerable<InspectionGraphOccurrence> occurrences,
+        IEnumerable<InspectionGraphCharacteristic> characteristics,
+        IEnumerable<InspectionGraphSeed> seeds,
+        IEnumerable<InspectionGraphLimit> limits,
+        IEnumerable<InspectionGraphFailure> failures)
+        : this(
+            scope,
+            inducedSetRequest?.ModeRequest
+                ?? throw new ArgumentNullException(
+                    nameof(inducedSetRequest)),
+            neighborhoodRequest: null,
+            inducedSetRequest,
             nodes,
             groups,
             edges,
@@ -1255,6 +1292,7 @@ public sealed class InspectionGraphDocument
         InspectionGraphDocumentScope scope,
         InspectionGraphModeRequest modeRequest,
         InspectionGraphNeighborhoodRequest? neighborhoodRequest,
+        InspectionGraphInducedSetRequest? inducedSetRequest,
         IEnumerable<InspectionGraphNode> nodes,
         IEnumerable<InspectionGraphGroup> groups,
         IEnumerable<InspectionGraphEdge> edges,
@@ -1269,6 +1307,33 @@ public sealed class InspectionGraphDocument
         Scope = scope;
         ModeRequest = modeRequest;
         NeighborhoodRequest = neighborhoodRequest;
+        InducedSetRequest = inducedSetRequest;
+        if (neighborhoodRequest is not null
+            && !ReferenceEquals(
+                neighborhoodRequest.ModeRequest,
+                modeRequest))
+        {
+            throw new ArgumentException(
+                "A neighborhood request must own the document mode request.",
+                nameof(neighborhoodRequest));
+        }
+        if (inducedSetRequest is not null
+            && !ReferenceEquals(
+                inducedSetRequest.ModeRequest,
+                modeRequest))
+        {
+            throw new ArgumentException(
+                "An induced-set request must own the document mode request.",
+                nameof(inducedSetRequest));
+        }
+        if (modeRequest.InducedSetRule
+                == InspectionGraphInducedSetRule.ExplicitSubjects
+            && inducedSetRequest is null)
+        {
+            throw new ArgumentException(
+                "Explicit-subject induced mode requires its typed request.",
+                nameof(inducedSetRequest));
+        }
         Nodes = InspectionGraphCollections.Snapshot(nodes, nameof(nodes));
         Groups = InspectionGraphCollections.Snapshot(groups, nameof(groups));
         Edges = InspectionGraphCollections.Snapshot(edges, nameof(edges));
@@ -1328,11 +1393,13 @@ public sealed class InspectionGraphDocument
         ValidateCharacteristics();
         ValidateSeeds();
         ValidateDiagnostics();
+        ValidateProjectionRequest();
     }
 
     public InspectionGraphDocumentScope Scope { get; }
     public InspectionGraphModeRequest ModeRequest { get; }
     public InspectionGraphNeighborhoodRequest? NeighborhoodRequest { get; }
+    public InspectionGraphInducedSetRequest? InducedSetRequest { get; }
     public ImmutableArray<InspectionGraphNode> Nodes { get; }
     public ImmutableArray<InspectionGraphGroup> Groups { get; }
     public ImmutableArray<InspectionGraphEdge> Edges { get; }
@@ -1363,6 +1430,83 @@ public sealed class InspectionGraphDocument
         {
             foreach (int groupId in node.GroupIds)
                 ValidateId(groupId, Groups.Length, "Node group");
+        }
+    }
+
+    private void ValidateProjectionRequest()
+    {
+        if (InducedSetRequest is null)
+            return;
+
+        var subjects = Nodes.Select(static node => node.Subject)
+            .Concat(Groups.Select(static group => group.Subject))
+            .ToHashSet();
+        if (InducedSetRequest.Subjects.Any(subject =>
+            !subjects.Contains(subject)))
+        {
+            throw new ArgumentException(
+                "Every explicit induced-set subject must be represented by a node or group.",
+                nameof(InducedSetRequest));
+        }
+        var relationships = InducedSetRequest.Relationships.ToHashSet();
+        if (Edges.Any(edge =>
+            !relationships.Contains(edge.Relationship)))
+        {
+            throw new ArgumentException(
+                "An explicit induced-set document can contain only selected relationships.",
+                nameof(Edges));
+        }
+
+        IReadOnlyDictionary<InspectionGraphSubject, InspectionGraphNode>
+            nodesBySubject = Nodes.ToDictionary(
+                static node => node.Subject);
+        foreach (InspectionGraphEdge edge in Edges)
+        {
+            foreach (int occurrenceId in edge.OccurrenceIds)
+            {
+                InspectionGraphOccurrence occurrence =
+                    Occurrences[occurrenceId];
+                if (InspectionGraphProjectionUtilities.AdmitsEndpoint(
+                        this,
+                        nodesBySubject,
+                        InducedSetRequest.Subjects,
+                        edge,
+                        occurrence,
+                        InspectionGraphEndpointRole.Source)
+                    && InspectionGraphProjectionUtilities.AdmitsEndpoint(
+                        this,
+                        nodesBySubject,
+                        InducedSetRequest.Subjects,
+                        edge,
+                        occurrence,
+                        InspectionGraphEndpointRole.Target))
+                {
+                    continue;
+                }
+
+                throw new ArgumentException(
+                    "Every explicit induced-set occurrence must be admitted on both semantic endpoint roles.",
+                    nameof(Occurrences));
+            }
+        }
+
+        InspectionGraphLimit[] subjectBounds =
+        [
+            .. Limits.Where(limit =>
+                ReferenceEquals(
+                    limit.Descriptor,
+                    InspectionGraphInducedSetCatalog.SubjectBound)),
+        ];
+        if (subjectBounds.Length != 1
+            || subjectBounds[0].Target is not null
+            || subjectBounds[0].Evidence
+                is not InspectionGraphInducedSubjectBoundEvidence evidence
+            || evidence.SubjectCount
+                != InducedSetRequest.Subjects.Length)
+        {
+            throw new ArgumentException(
+                "An explicit induced-set document requires one global subject bound matching its input count.",
+                nameof(Limits));
         }
     }
 
