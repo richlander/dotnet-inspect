@@ -52,6 +52,7 @@ import {
 } from "./graph-mermaid.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.ts";
 import { createCommandBar } from "/src/command-bar.ts";
+import { renderScopeBar as renderScopeBarPure } from "/src/scope-bar.ts";
 import {
   renderMemberNav,
   renderTypeMetadata,
@@ -1739,34 +1740,39 @@ function renderMemberNavPane(type) {
 // Call graph, …) live here too instead of inside the detail pane.
 function renderScopeBar() {
   const sc = scope();
-  const lensButton = (id, label, active, attr, index) =>
-    `<button class="lens ${active ? "active" : ""}" ${attr}="${id}">${escapeHtml(label)}<kbd>${index + 1}</kbd></button>`;
-  let strip;
-  if (sc === "package") {
-    strip = packageLensesFor(state.package).map(([id, label], i) => lensButton(id, label, state.packageLens === id, "data-package-lens", i)).join("");
-  } else if (sc === "member") {
-    const member = selectedMember(selectedType());
-    const sections = member ? memberSectionsFor(member) : [];
-    strip = sections.length
-      ? sections.map(([id, label], i) => lensButton(id, label, state.memberSection === id, "data-member-section", i)).join("")
-      : '<span class="lens-context">Filtered member list</span>';
-  } else {
-    strip = lenses.map(([id, label], i) => lensButton(id, label, state.lens === id, "data-lens", i)).join("");
-  }
-  const seg = (id, label, active) =>
-    `<button class="scope-seg ${active ? "active" : ""}" data-scope="${id}" role="tab" aria-selected="${active}">${label}</button>`;
   const selected = selectedType();
-  const hasMembers = !state.atPackageRoot && selected && memberGroups(selected).length > 0;
-  return `
-    <nav class="lensbar" aria-label="Scope and lenses">
-      <div class="scope-switch" role="tablist" aria-label="Scope">
-        ${seg("package", "Package", sc === "package")}
-        ${seg("type", "Types", sc === "type")}
-        ${hasMembers ? seg("member", "Member", sc === "member") : ""}
-      </div>
-      <span class="lens-separator"></span>
-      ${strip}
-    </nav>`;
+  const showMemberScope =
+    !state.atPackageRoot && Boolean(selected && memberGroups(selected).length);
+  if (sc === "package") {
+    return renderScopeBarPure({
+      scope: sc,
+      strip: packageLensesFor(state.package),
+      activeStripId: state.packageLens,
+      stripAttribute: "data-package-lens",
+      showMemberScope,
+      escapeHtml,
+    });
+  }
+  if (sc === "member") {
+    const member = selectedMember(selected);
+    return renderScopeBarPure({
+      scope: sc,
+      strip: member ? memberSectionsFor(member) : [],
+      activeStripId: state.memberSection,
+      stripAttribute: "data-member-section",
+      showMemberScope,
+      emptyStripLabel: "Filtered member list",
+      escapeHtml,
+    });
+  }
+  return renderScopeBarPure({
+    scope: sc,
+    strip: lenses,
+    activeStripId: state.lens,
+    stripAttribute: "data-lens",
+    showMemberScope,
+    escapeHtml,
+  });
 }
 
 function packageHeading() {
