@@ -152,14 +152,13 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
 
-      - name: Install .NET 10 runtime (MSDL proxy target)
-        # The MSDL proxy intentionally targets the stable net10.0 LTS rather
-        # than this job's pinned net11.0 preview SDK (it's an independently
-        # deployed production service). WorkflowContract.ValidateInspectWebSdk
+      - name: Install .NET 10 runtime (inspect-web test target)
+        # The inspect-web test projects target stable net10.0 while this job
+        # uses the pinned net11.0 preview SDK. WorkflowContract.ValidateInspectWebSdk
         # requires exactly one setup-dotnet step in this job, so install the
-        # extra runtime with dotnetup instead of a second setup-dotnet@v5
-        # step. dotnetup is itself in preview; fall back to dotnet-install.sh
-        # on any failure, mirroring dotnet/sdk's own acquisition fallback.
+        # extra runtime with dotnetup instead of a second setup-dotnet@v5 step.
+        # dotnetup is itself in preview; fall back to dotnet-install.sh on any
+        # failure, mirroring dotnet/sdk's own acquisition fallback.
         run: |
           set -e
           if curl -fsSL --retry 3 https://aka.ms/dotnet/dotnetup/daily/get-dotnetup.sh -o /tmp/get-dotnetup.sh \

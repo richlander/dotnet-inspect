@@ -4,8 +4,8 @@ namespace MsdlProxy;
 /// Validates the two path segments this proxy forwards to MSDL.
 /// Deliberately reimplemented (rather than referencing
 /// DotnetInspector.Packages) to keep this externally-facing, security-
-/// sensitive edge service small, self-contained, and easy to audit and trim
-/// for Native AOT -- it has no need for the rest of that project's surface.
+/// sensitive edge service small, self-contained, and easy to audit -- it has
+/// no need for the rest of that project's surface.
 /// </summary>
 internal static class MsdlRequestValidator
 {
