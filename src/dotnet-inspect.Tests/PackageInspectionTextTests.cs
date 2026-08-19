@@ -465,6 +465,7 @@ public class PackageInspectionTextTests
         Assert.Null(signing.AuthorVerified);
         Assert.Equal("Unknown", signing.Signed);
         Assert.Equal("Verification failed: invalid signature", signing.Status);
+        Assert.Null(result.Signed);
     }
 
     private static Type? CurrencyType(Type modelType, IReadOnlyDictionary<Type, Type> mappings)

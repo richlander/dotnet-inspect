@@ -499,6 +499,30 @@ public class InspectionResultTests
         Assert.Equal(expectedEvidence, signal.Evidence);
     }
 
+    [Theory]
+    [InlineData(true, false, false, true)]
+    [InlineData(false, true, false, true)]
+    [InlineData(false, false, true, false)]
+    [InlineData(false, false, false, null)]
+    public void Signed_PreservesUnestablishedVerificationState(
+        bool authorVerified,
+        bool repositoryVerified,
+        bool isUnsigned,
+        bool? expected)
+    {
+        var result = new InspectionResult
+        {
+            SignatureResult = new SignatureVerificationResult
+            {
+                AuthorVerified = authorVerified,
+                RepositoryVerified = repositoryVerified,
+                IsUnsigned = isUnsigned,
+            },
+        };
+
+        Assert.Equal(expected, result.Signed);
+    }
+
     [Fact]
     public async Task PackageSignals_IncompleteContentScanReportsPartialEvenWithFindings()
     {

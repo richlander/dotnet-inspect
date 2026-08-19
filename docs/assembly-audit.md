@@ -110,8 +110,10 @@ The detail table has exactly `Path`, `Kind`, and `Encoded Text`. A source line
 produces one rendering finding containing all Unicode concern kinds on that
 line. NuGet configuration also produces semantic rows for `<clear/>` and each
 declared package source, even when the same line already has a text finding.
-Only unqualified NuGet elements and attributes contribute semantic evidence;
-namespace declarations and foreign expanded names cannot impersonate them.
+Element names follow NuGet's namespace-agnostic local-name matching, while only
+unqualified attributes contribute semantic evidence. Namespace declarations
+and qualified attributes therefore cannot impersonate NuGet `key` or `value`
+attributes without hiding effective qualified elements.
 Each row encodes only the recognized element name and its semantic attributes;
 nested content is not serialized into an outer row. Attribute values are
 structurally escaped, and evidence truncation keeps escape tokens and Unicode
@@ -145,8 +147,10 @@ amplification.
 `PackageContentAuditTests.NuGetConfiguration_EscapesAttributeStructure` and
 `PackageContentAuditTests.NuGetConfiguration_TruncationKeepsSurrogatePairsWhole`
 gate unambiguous attribute evidence and scalar-safe truncation.
-`PackageContentAuditTests.NuGetConfiguration_NamespacesCannotForgeSemanticEvidence`
-gates the unqualified NuGet XML grammar.
+`PackageContentAuditTests.NuGetConfiguration_NamespaceAttributesCannotForgeSemanticEvidence`
+and
+`PackageContentAuditTests.NuGetConfiguration_QualifiedElementsMatchNuGetSemantics`
+gate namespace-safe attributes and NuGet-compatible qualified elements.
 `PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`
 and
 `SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`

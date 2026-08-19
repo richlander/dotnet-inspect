@@ -832,27 +832,23 @@ public static class PackageContentAudit
             XDocument document = XDocument.Load(reader, LoadOptions.SetLineInfo);
             foreach (XElement packageSources in document
                 .Descendants()
-                .Where(element =>
-                    element.Name.Namespace == XNamespace.None
-                    && element.Name.LocalName.Equals(
-                        "packageSources",
-                        StringComparison.OrdinalIgnoreCase)))
+                .Where(element => element.Name.LocalName.Equals(
+                    "packageSources",
+                    StringComparison.OrdinalIgnoreCase)))
             {
                 foreach (XElement child in packageSources.Elements())
                 {
                     if (collector.Saturated)
                         return;
 
-                    PackageContentFindingKind? kind = child.Name.Namespace == XNamespace.None
-                        ? child.Name.LocalName switch
-                        {
-                            var name when name.Equals("clear", StringComparison.OrdinalIgnoreCase) =>
-                                PackageContentFindingKind.RestoreSourcesCleared,
-                            var name when name.Equals("add", StringComparison.OrdinalIgnoreCase) =>
-                                PackageContentFindingKind.PackageSourceDeclared,
-                            _ => null,
-                        }
-                        : null;
+                    PackageContentFindingKind? kind = child.Name.LocalName switch
+                    {
+                        var name when name.Equals("clear", StringComparison.OrdinalIgnoreCase) =>
+                            PackageContentFindingKind.RestoreSourcesCleared,
+                        var name when name.Equals("add", StringComparison.OrdinalIgnoreCase) =>
+                            PackageContentFindingKind.PackageSourceDeclared,
+                        _ => null,
+                    };
                     if (kind is null)
                         continue;
 

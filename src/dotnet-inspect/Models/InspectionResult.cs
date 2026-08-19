@@ -237,7 +237,7 @@ public class InspectionResult
         null => null,
         { IsUnsigned: true } => false,
         { AuthorVerified: true } or { RepositoryVerified: true } => true,
-        _ => false
+        _ => null
     };
 }
 

@@ -527,7 +527,7 @@ public sealed class PackageContentAuditTests
     }
 
     [Fact]
-    public void NuGetConfiguration_NamespacesCannotForgeSemanticEvidence()
+    public void NuGetConfiguration_NamespaceAttributesCannotForgeSemanticEvidence()
     {
         string root = CreateRoot();
         try
@@ -536,15 +536,11 @@ public sealed class PackageContentAuditTests
                 root,
                 "build/nuget.config",
                 """
-                <configuration xmlns:f="urn:foreign">
+                <configuration>
                   <packageSources>
                     <add xmlns:key="corp" xmlns:value="https://evil.example/v3/index.json" />
                     <add key="corp" value="https://evil.example/v3/index.json" />
-                    <f:add f:key="corp" f:value="https://evil.example/v3/index.json" />
                   </packageSources>
-                  <f:packageSources>
-                    <add key="foreign-parent" value="https://evil.example/v3/index.json" />
-                  </f:packageSources>
                 </configuration>
                 """);
 
@@ -558,6 +554,48 @@ public sealed class PackageContentAuditTests
                 finding => Assert.Equal("<add />", finding.EncodedText.ToString()),
                 finding => Assert.Equal(
                     "<add key=\"corp\" value=\"https://evil.example/v3/index.json\" />",
+                    finding.EncodedText.ToString()));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void NuGetConfiguration_QualifiedElementsMatchNuGetSemantics()
+    {
+        string root = CreateRoot();
+        try
+        {
+            Write(
+                root,
+                "build/nuget.config",
+                """
+                <configuration xmlns="urn:default" xmlns:f="urn:foreign">
+                  <packageSources>
+                    <clear />
+                    <add key="default" value="https://default.example/v3/index.json" />
+                  </packageSources>
+                  <f:packageSources>
+                    <f:add key="prefixed" value="https://prefixed.example/v3/index.json" />
+                  </f:packageSources>
+                </configuration>
+                """);
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                ["build/nuget.config"]);
+
+            Assert.True(result.Complete);
+            Assert.Collection(
+                result.Findings,
+                finding => Assert.Equal("<clear />", finding.EncodedText.ToString()),
+                finding => Assert.Equal(
+                    "<add key=\"default\" value=\"https://default.example/v3/index.json\" />",
+                    finding.EncodedText.ToString()),
+                finding => Assert.Equal(
+                    "<add key=\"prefixed\" value=\"https://prefixed.example/v3/index.json\" />",
                     finding.EncodedText.ToString()));
         }
         finally

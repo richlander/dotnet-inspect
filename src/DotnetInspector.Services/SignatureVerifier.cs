@@ -26,7 +26,7 @@ public record SignatureVerificationResult
     public bool RepositoryVerified { get; init; }
 
     /// <summary>
-    /// Repository source (e.g., "nuget.org").
+    /// Identity from the verified repository signature certificate.
     /// </summary>
     public string? Repository { get; init; }
 
@@ -60,32 +60,7 @@ public static class SignatureVerifier
         try
         {
             var result = PackageSignatureVerifier.VerifyPackage(nupkgPath);
-
-            return result.Status switch
-            {
-                SignatureStatus.Unsigned => new SignatureVerificationResult
-                {
-                    IsUnsigned = true,
-                    StatusMessage = "Package is not signed"
-                },
-                SignatureStatus.Invalid => new SignatureVerificationResult
-                {
-                    StatusMessage = $"Verification failed: {result.Reason}"
-                },
-                SignatureStatus.Valid => new SignatureVerificationResult
-                {
-                    // Only report publisher for author-signed packages;
-                    // for repo-only signatures the CN is the repository, not the author
-                    Publisher = result.SignatureType == SignatureType.Author ? result.Publisher : null,
-                    AuthorVerified = result.SignatureType == SignatureType.Author,
-                    RepositoryVerified = true, // nuget.org adds repo countersignature to all packages
-                    Repository = "nuget.org",
-                },
-                _ => new SignatureVerificationResult
-                {
-                    StatusMessage = "Unknown verification result"
-                }
-            };
+            return FromNuGetResult(result);
         }
         catch (Exception ex)
         {
@@ -94,6 +69,50 @@ public static class SignatureVerifier
                 StatusMessage = $"Verification failed: {ex.Message}"
             };
         }
+    }
+
+    internal static SignatureVerificationResult FromNuGetResult(
+        NuGetFetch.SignatureVerificationResult result)
+        => result.Status switch
+        {
+            SignatureStatus.Unsigned => new SignatureVerificationResult
+            {
+                IsUnsigned = true,
+                StatusMessage = "Package is not signed"
+            },
+            SignatureStatus.Invalid => new SignatureVerificationResult
+            {
+                StatusMessage = $"Verification failed: {result.Reason}"
+            },
+            SignatureStatus.Valid => ValidResult(result),
+            _ => new SignatureVerificationResult
+            {
+                StatusMessage = "Unknown verification result"
+            }
+        };
+
+    private static SignatureVerificationResult ValidResult(
+        NuGetFetch.SignatureVerificationResult result)
+    {
+        bool authorVerified = result.SignatureType == SignatureType.Author;
+        NuGetFetch.SignatureVerificationResult? repositorySignature =
+            result.SignatureType == SignatureType.Repository
+                ? result
+                : result.CounterSignature is
+                {
+                    IsValid: true,
+                    SignatureType: SignatureType.Repository
+                } counterSignature
+                    ? counterSignature
+                    : null;
+
+        return new SignatureVerificationResult
+        {
+            Publisher = authorVerified ? result.Publisher : null,
+            AuthorVerified = authorVerified,
+            RepositoryVerified = repositorySignature is not null,
+            Repository = repositorySignature?.Publisher,
+        };
     }
 
     /// <summary>

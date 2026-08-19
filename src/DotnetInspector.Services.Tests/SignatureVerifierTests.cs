@@ -31,7 +31,7 @@ public class SignatureVerifierTests : IDisposable
             Assert.Equal("Json.NET (.NET Foundation)", result.Publisher);
             Assert.True(result.AuthorVerified);
             Assert.True(result.RepositoryVerified);
-            Assert.Equal("nuget.org", result.Repository);
+            Assert.Contains("NuGet.org", result.Repository, StringComparison.OrdinalIgnoreCase);
             Assert.False(result.IsUnsigned);
             Assert.Null(result.StatusMessage);
         }
@@ -39,6 +39,70 @@ public class SignatureVerifierTests : IDisposable
         {
             File.Delete(nupkgPath);
         }
+    }
+
+    [Fact]
+    public void FromNuGetResult_AuthorOnlySignatureDoesNotClaimRepositoryVerification()
+    {
+        var source = new NuGetFetch.SignatureVerificationResult(
+            SignatureStatus.Valid,
+            Reason: null)
+        {
+            SignatureType = SignatureType.Author,
+            Publisher = "Author",
+        };
+
+        SignatureVerificationResult result = SignatureVerifier.FromNuGetResult(source);
+
+        Assert.True(result.AuthorVerified);
+        Assert.Equal("Author", result.Publisher);
+        Assert.False(result.RepositoryVerified);
+        Assert.Null(result.Repository);
+    }
+
+    [Fact]
+    public void FromNuGetResult_AuthorAndRepositorySignaturesPreserveBothIdentities()
+    {
+        var source = new NuGetFetch.SignatureVerificationResult(
+            SignatureStatus.Valid,
+            Reason: null)
+        {
+            SignatureType = SignatureType.Author,
+            Publisher = "Author",
+            CounterSignature = new NuGetFetch.SignatureVerificationResult(
+                SignatureStatus.Valid,
+                Reason: null)
+            {
+                SignatureType = SignatureType.Repository,
+                Publisher = "Repository",
+            },
+        };
+
+        SignatureVerificationResult result = SignatureVerifier.FromNuGetResult(source);
+
+        Assert.True(result.AuthorVerified);
+        Assert.Equal("Author", result.Publisher);
+        Assert.True(result.RepositoryVerified);
+        Assert.Equal("Repository", result.Repository);
+    }
+
+    [Fact]
+    public void FromNuGetResult_RepositorySignatureDoesNotClaimAuthorVerification()
+    {
+        var source = new NuGetFetch.SignatureVerificationResult(
+            SignatureStatus.Valid,
+            Reason: null)
+        {
+            SignatureType = SignatureType.Repository,
+            Publisher = "Repository",
+        };
+
+        SignatureVerificationResult result = SignatureVerifier.FromNuGetResult(source);
+
+        Assert.False(result.AuthorVerified);
+        Assert.Null(result.Publisher);
+        Assert.True(result.RepositoryVerified);
+        Assert.Equal("Repository", result.Repository);
     }
 
     [Fact]
