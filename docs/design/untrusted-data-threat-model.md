@@ -1318,6 +1318,7 @@ owner reads the same file pointer as the framework decoder and reserves both
 per-file and shared expansion budgets before decompression; the named gates are
 `PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`
 `PdbContextDescriptorTests.EmbeddedPdbLimit_ReadsTheFilePointerUsedByTheDecoder`,
+`PdbContextDescriptorTests.EmbeddedPdbLimit_AppliesDataPointerRelativeToPeImageStart`,
 `PdbContextDescriptorTests.EmbeddedPdbExpansionBudget_IsSharedAcrossOpens`,
 `PdbContextDescriptorTests.MalformedEmbeddedPdb_ConsumesExpansionBudgetBeforeDecode`,
 `PackageContentAuditTests.CandidatePathLimit_BoundsRepeatedInputBeforeMaterialization`,

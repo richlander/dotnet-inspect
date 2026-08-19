@@ -1875,17 +1875,41 @@ public class PackageCommand
 
         var results = new List<PackageFileContentSet>();
         int selectedFiles = 0;
+        bool unaryPayload = RequiresUnaryPackageContent(options);
         foreach (var target in targets)
         {
             var result = await ReadPackageFileContentsAsync(
                 target,
                 options,
                 context,
-                suppressUnaryPayloadRead: selectedFiles > 0);
+                suppressUnaryPayloadRead: unaryPayload);
             if (result == null)
                 return 1;
             results.Add(result);
             selectedFiles += result.Files.Count(static file => file.Found);
+        }
+
+        if (unaryPayload && selectedFiles == 1)
+        {
+            int selectedPackage =
+                results.FindIndex(result =>
+                    result.Files.Any(static file => file.Found));
+            PackageReferenceTarget selectedTarget =
+                targets[selectedPackage];
+            if (!selectedTarget.IsLocalFile)
+            {
+                selectedTarget = PackageExtractor.ParsePackageTarget(
+                    $"{selectedTarget.PackageName}@{results[selectedPackage].Version}");
+            }
+            PackageFileContentSet? hydrated =
+                await ReadPackageFileContentsAsync(
+                    selectedTarget,
+                    options,
+                    context,
+                    suppressUnaryPayloadRead: false);
+            if (hydrated == null)
+                return 1;
+            results[selectedPackage] = hydrated;
         }
 
         return PrintPackageFileContents(results, options);

@@ -210,6 +210,7 @@ public class PdbContext : IDisposable
 {
     private readonly PEReader _peReader;
     private readonly Stream _peStream;
+    private readonly long _peImageStart;
     private readonly bool _entireImagePrefetched;
     private readonly Action<string>? _log;
     private readonly string? _assemblyPath;
@@ -311,6 +312,7 @@ public class PdbContext : IDisposable
     private PdbContext(
         Stream peStream,
         PEReader peReader,
+        long peImageStart,
         string? assemblyPath,
         string assemblyDisplayName,
         Action<string>? log,
@@ -319,11 +321,12 @@ public class PdbContext : IDisposable
     {
         _peStream = peStream;
         _peReader = peReader;
+        _peImageStart = peImageStart;
         _entireImagePrefetched = entireImagePrefetched;
         _assemblyPath = assemblyPath;
         _assemblyDisplayName = assemblyDisplayName;
         _log = log;
-        FileSize = peStream.Length;
+        FileSize = peStream.Length - peImageStart;
         LastWriteTimeUtc = peStream is FileStream fileStream
             ? File.GetLastWriteTimeUtc(fileStream.SafeFileHandle)
             : lastWriteTimeUtc ?? default;
@@ -542,6 +545,10 @@ public class PdbContext : IDisposable
         PdbContext? context = null;
         try
         {
+            long peImageStart =
+                stream.CanSeek
+                    ? stream.Position
+                    : 0;
             // PdbContext is the sole stream owner.
             peReader = new PEReader(
                 stream,
@@ -549,6 +556,7 @@ public class PdbContext : IDisposable
             context = new PdbContext(
                 stream,
                 peReader,
+                peImageStart,
                 assemblyPath,
                 assemblyDisplayName,
                 log,
@@ -1910,9 +1918,22 @@ public class PdbContext : IDisposable
         }
         else
         {
+            long dataStart;
+            try
+            {
+                dataStart = checked(_peImageStart + entry.DataPointer);
+            }
+            catch (OverflowException ex)
+            {
+                throw new BadImageFormatException(
+                    "The embedded portable PDB file pointer is invalid.",
+                    ex);
+            }
+
             if (!_peStream.CanSeek
                 || entry.DataPointer < 0
-                || entry.DataPointer > _peStream.Length - entry.DataSize)
+                || dataStart < _peImageStart
+                || dataStart > _peStream.Length - entry.DataSize)
             {
                 throw new BadImageFormatException(
                     "The embedded portable PDB file pointer is invalid.");
@@ -1921,7 +1942,7 @@ public class PdbContext : IDisposable
             long originalPosition = _peStream.Position;
             try
             {
-                _peStream.Position = entry.DataPointer;
+                _peStream.Position = dataStart;
                 _peStream.ReadExactly(header);
             }
             catch (EndOfStreamException ex)

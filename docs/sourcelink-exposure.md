@@ -44,12 +44,14 @@ selection controls rendering.
 | `SourceLink: Integrity` | downloads source bodies and checks PDB checksums | opt-in; slowest and exits non-zero on mismatch |
 
 Plain `library -D` may open an embedded PDB because it is already part of the
-named carrier, but it does not probe an adjacent PDB or acquire symbols. This
-lets discovery advertise the `@SourceLink` door for embedded maps without
-performing network work.
+named carrier, but it caps decompression at 64 MiB and does not probe an
+adjacent PDB or acquire symbols. This lets discovery advertise the
+`@SourceLink` door for embedded maps without performing network work.
 `LibraryCommand_Discover_AdvertisesEmbeddedSourceLinkDoor` gates the positive
-carrier case; `LibraryPipeline_SourceLinkFamily_NotDiscoverableWithoutSourceLink`
-gates the close negative.
+carrier case, `LibraryCommand_Discover_BoundsEmbeddedPdbExpansion` gates the
+decompression bound, and
+`LibraryPipeline_SourceLinkFamily_NotDiscoverableWithoutSourceLink` gates the
+close negative.
 
 ### Package
 

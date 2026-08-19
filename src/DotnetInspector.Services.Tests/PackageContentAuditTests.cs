@@ -326,12 +326,14 @@ public sealed class PackageContentAuditTests
         string root = CreateRoot();
         try
         {
+            WriteBytes(root, "symbols/broken.pdb", [0]);
             string[] paths =
             [
                 .. Enumerable.Range(
                         0,
                         PackageContentAudit.MaxSourceLinkCarriers + 1)
                     .Select(index => $"lib/net11.0/carrier-{index:D3}.dll"),
+                "symbols/broken.pdb",
             ];
 
             PackageContentAuditResult result =
@@ -345,6 +347,12 @@ public sealed class PackageContentAuditTests
                     && finding.EncodedText.ToString().Contains(
                         "carrier limit",
                         StringComparison.Ordinal));
+            Assert.Contains(
+                result.Findings,
+                finding =>
+                    finding.Path == "symbols/broken.pdb"
+                    && finding.Kind
+                    == PackageContentFindingKind.InvalidSourceLinkMap);
         }
         finally
         {

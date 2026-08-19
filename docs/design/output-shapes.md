@@ -382,8 +382,10 @@ explicit file operation: add `--out <path>` to a selection that resolves one
 payload. An unscoped file export preserves the package bytes exactly, including
 encoding, byte order mark, and line endings; a Markdown scope exports that
 projected text. Terminal-facing output never emits a live control or bidi scalar
-from package content. Multi-file `--content --out` is refused unless `--jsonl`
-selects the structured table shape; narrow it with `--path` for exact transfer.
+from package content. Multi-file or multi-package `--content --out` is refused
+unless `--jsonl` selects the structured table shape; global selection
+cardinality is resolved before any selected payload is read. Narrow it with
+`--path` for exact transfer.
 
 Tool-authored companion sections still use the stream split: for example,
 `package X -S "Package README file" --print --info` writes the encoded document

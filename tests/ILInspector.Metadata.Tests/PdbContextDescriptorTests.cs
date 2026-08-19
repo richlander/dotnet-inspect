@@ -115,6 +115,37 @@ public class PdbContextDescriptorTests
     }
 
     [Fact]
+    public void EmbeddedPdbLimit_AppliesDataPointerRelativeToPeImageStart()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        (byte[] prefixed, int imageStart) =
+            PrefixWithDecoyEmbeddedPdbHeader(image);
+        var descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(image),
+                path: null,
+                () =>
+                {
+                    var stream =
+                        new MemoryStream(prefixed, writable: false);
+                    stream.Position = imageStart;
+                    return stream;
+                },
+                AssemblyResolutionProvenance.Local(
+                    "positioned embedded PDB fixture"));
+
+        PdbResourceLimitException error =
+            Assert.Throws<PdbResourceLimitException>(
+                () => PdbContext.OpenEmbeddedPdbOnly(
+                    descriptor,
+                    maxEmbeddedPdbBytes: 0));
+
+        Assert.True(error.ActualBytes > 0);
+        Assert.Equal(0, error.LimitBytes);
+    }
+
+    [Fact]
     public void EmbeddedPdbExpansionBudget_IsSharedAcrossOpens()
     {
         byte[] image = File.ReadAllBytes(
@@ -501,6 +532,34 @@ public class PdbContextDescriptorTests
             patched.AsSpan(embeddedEntryOffset + DataPointerOffset, sizeof(int)),
             image.Length);
         return patched;
+    }
+
+    static (byte[] Image, int ImageStart)
+        PrefixWithDecoyEmbeddedPdbHeader(byte[] image)
+    {
+        const uint EmbeddedPortablePdbSignature = 0x4244504D;
+        using var stream = new MemoryStream(image, writable: false);
+        using var reader = new PEReader(stream);
+        DebugDirectoryEntry embedded =
+            Assert.Single(
+                reader.ReadDebugDirectory(),
+                entry =>
+                    entry.Type
+                    == DebugDirectoryEntryType.EmbeddedPortablePdb);
+        int imageStart = embedded.DataPointer + 16;
+        byte[] prefixed = new byte[imageStart + image.Length];
+        image.CopyTo(prefixed, imageStart);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            prefixed.AsSpan(
+                embedded.DataPointer,
+                sizeof(uint)),
+            EmbeddedPortablePdbSignature);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            prefixed.AsSpan(
+                embedded.DataPointer + sizeof(uint),
+                sizeof(int)),
+            0);
+        return (prefixed, imageStart);
     }
 
     static int RvaToFileOffset(PEHeaders headers, int rva)

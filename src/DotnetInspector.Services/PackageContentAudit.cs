@@ -268,7 +268,8 @@ public static class PackageContentAudit
         int scannedMaps = 0;
         int scannedMappings = 0;
         int scannedMapBytes = 0;
-        int scannedCarriers = 0;
+        int scannedAssemblyCarriers = 0;
+        int scannedPdbCarriers = 0;
         long scannedCarrierBytes = 0;
         var embeddedPdbBudget =
             new PdbExpansionBudget(MaxTotalEmbeddedPdbBytes);
@@ -288,7 +289,7 @@ public static class PackageContentAudit
             if (!TryAccountSourceLinkCarrier(
                     assemblyPath,
                     collector,
-                    ref scannedCarriers))
+                    ref scannedAssemblyCarriers))
                 break;
             if (embeddedPdbBudget.RemainingBytes == 0)
             {
@@ -370,7 +371,7 @@ public static class PackageContentAudit
             if (!TryAccountSourceLinkCarrier(
                     pdbPath,
                     collector,
-                    ref scannedCarriers))
+                    ref scannedPdbCarriers))
                 break;
             if (!TryResolveAndAccountSourceLinkCarrier(
                     root,
@@ -424,9 +425,10 @@ public static class PackageContentAudit
     {
         if (scannedCarriers >= MaxSourceLinkCarriers)
         {
-            collector.AddLimit(
+            collector.AddIncomplete(ToolFinding(
                 evidencePath,
-                $"SourceLink audit exceeded the {MaxSourceLinkCarriers} carrier limit.");
+                PackageContentFindingKind.ScanLimit,
+                $"SourceLink audit exceeded the {MaxSourceLinkCarriers} carrier limit."));
             return false;
         }
 

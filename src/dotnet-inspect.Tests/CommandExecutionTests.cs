@@ -14249,6 +14249,55 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_Discover_BoundsEmbeddedPdbExpansion()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var reader = new PEReader(stream))
+        {
+            DebugDirectoryEntry embedded =
+                Assert.Single(
+                    reader.ReadDebugDirectory(),
+                    entry =>
+                        entry.Type
+                        == DebugDirectoryEntryType.EmbeddedPortablePdb);
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    embedded.DataPointer + sizeof(uint),
+                    sizeof(int)),
+                LibraryMetadataService
+                    .DiscoveryMaxEmbeddedPdbBytes
+                    + 1);
+        }
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"oversized-embedded-pdb-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, image);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                path,
+                "-D",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Could not read library",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_ComputedPolesAreUnresolvable()
     {
         // Authored categories own every section, so computed @All/@Hidden poles no longer exist.
@@ -24192,6 +24241,92 @@ public partial class CommandExecutionTests
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageContentOutput_MultiplePackagesRefuseGlobalCardinality()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.PackageContentOutput.First",
+                "README.md",
+                "first");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.PackageContentOutput.Second",
+                "README.md",
+                "second");
+        string outputPath =
+            Path.Combine(firstDir, "should-not-exist.txt");
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@readme",
+                "--content",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "--content --out requires exactly one selected package content file; found 2.",
+                result.Error);
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageContentOutput_MultiplePackagesHydrateOneGlobalMatch()
+    {
+        var (firstPackage, firstDir) =
+            CreateLocalReadmePackage(
+                "Test.PackageContentOutput.WithAgents",
+                "README.md",
+                "first",
+                "agents payload");
+        var (secondPackage, secondDir) =
+            CreateLocalReadmePackage(
+                "Test.PackageContentOutput.WithoutAgents",
+                "README.md",
+                "second");
+        string outputPath = Path.Combine(firstDir, "agents.txt");
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                firstPackage,
+                secondPackage,
+                "--path",
+                "@agents",
+                "--content",
+                "--out",
+                outputPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Empty(result.Error);
+            Assert.Equal(
+                "agents payload",
+                File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            Directory.Delete(firstDir, recursive: true);
+            Directory.Delete(secondDir, recursive: true);
         }
     }
 }

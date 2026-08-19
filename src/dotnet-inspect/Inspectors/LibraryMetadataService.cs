@@ -24,6 +24,9 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class LibraryMetadataService
 {
+    internal const int DiscoveryMaxEmbeddedPdbBytes =
+        64 * 1024 * 1024;
+
     /// <summary>
     /// Full inspection pipeline for a single assembly.
     /// </summary>
@@ -84,17 +87,36 @@ internal static class LibraryMetadataService
                             PreferImplementationAssemblies = true,
                         })
                     : null;
-            using var service = assemblyReference is not null
-                ? bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
-                    ? SourceLinkService.Open(assemblyReference, logger.Log)
-                    : SourceLinkService.OpenPrefetched(
+            var discoveryReadLimits =
+                new SourceLinkReadLimits(
+                    DiscoveryMaxEmbeddedPdbBytes,
+                    maxMapBytes: 4 * 1024 * 1024,
+                    maxMappings: 16 * 1024);
+            using var service = discoveryOnly
+                ? assemblyReference is not null
+                    ? SourceLinkService.OpenEmbeddedPdbOnly(
                         assemblyReference,
+                        discoveryReadLimits,
                         logger.Log)
-                : discoveryOnly
-                    ? SourceLinkService.OpenEmbeddedPdbOnly(path, logger.Log)
-                    : bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
-                        ? SourceLinkService.Open(path, logger.Log)
-                        : SourceLinkService.OpenPrefetched(path, logger.Log);
+                    : SourceLinkService.OpenEmbeddedPdbOnly(
+                        path,
+                        discoveryReadLimits,
+                        logger.Log)
+                : assemblyReference is not null
+                    ? bodyAnalysisFeatures
+                        == Analysis.LibraryBodyAnalysisFeatures.None
+                        ? SourceLinkService.Open(
+                            assemblyReference,
+                            logger.Log)
+                        : SourceLinkService.OpenPrefetched(
+                            assemblyReference,
+                            logger.Log)
+                    : bodyAnalysisFeatures
+                        == Analysis.LibraryBodyAnalysisFeatures.None
+                            ? SourceLinkService.Open(path, logger.Log)
+                            : SourceLinkService.OpenPrefetched(
+                                path,
+                                logger.Log);
             var pdbContext = service.Context;
             var sourceLinkQueryContext = new SourceLinkQueryContext(
                 service,
