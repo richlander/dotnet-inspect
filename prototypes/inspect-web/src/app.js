@@ -369,6 +369,9 @@ function viewSignature() {
     t: state.selectedTypeId,
     m: state.selectedMemberKey,
     mb: state.memberBrowseTypeId,
+    mk: state.memberKindFilter,
+    ma: state.memberAccessibilityFilter,
+    mr: state.memberTraitFilter,
     o: state.selectedOverloadIndex,
     s: state.memberSection,
     pr: state.atPackageRoot,
@@ -384,6 +387,10 @@ function captureView() {
     selectedTypeId: state.selectedTypeId,
     selectedMemberKey: state.selectedMemberKey,
     memberBrowseTypeId: state.memberBrowseTypeId,
+    memberKindFilter: state.memberKindFilter,
+    memberAccessibilityFilter: state.memberAccessibilityFilter,
+    memberTraitFilter: state.memberTraitFilter,
+    memberTextFilter: state.memberTextFilter,
     selectedOverloadIndex: state.selectedOverloadIndex,
     bodyTarget: state.selectedBodyTarget,
     memberSection: state.memberSection,
@@ -395,7 +402,10 @@ function captureView() {
 function recordNav() {
   if (!state.package) return;
   const sig = viewSignature();
-  if (nav.index >= 0 && nav.stack[nav.index]?.sig === sig) return;
+  if (nav.index >= 0 && nav.stack[nav.index]?.sig === sig) {
+    nav.stack[nav.index].view = captureView();
+    return;
+  }
   nav.stack = nav.stack.slice(0, nav.index + 1);
   nav.stack.push({ sig, view: captureView() });
   nav.index = nav.stack.length - 1;
@@ -409,6 +419,10 @@ function applyView(view) {
   state.selectedTypeId = view.selectedTypeId;
   state.selectedMemberKey = view.selectedMemberKey;
   state.memberBrowseTypeId = view.memberBrowseTypeId ?? "";
+  state.memberKindFilter = view.memberKindFilter ?? "all";
+  state.memberAccessibilityFilter = view.memberAccessibilityFilter ?? "all";
+  state.memberTraitFilter = view.memberTraitFilter ?? "";
+  state.memberTextFilter = view.memberTextFilter ?? "";
   state.selectedOverloadIndex = view.selectedOverloadIndex;
   state.memberSection = view.memberSection;
   state.atPackageRoot = view.atPackageRoot ?? false;
@@ -795,6 +809,7 @@ function afterLibraryScopeChange() {
   if (first) state.selectedTypeId = first.id;
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
+  resetMemberFilters();
   render();
 }
 
@@ -1076,16 +1091,16 @@ function renderMemberFilterControls(type) {
     </label>
     <div class="member-filter-stack">
       <div class="namespace-chips kind-chips" aria-label="Member kind filters">
-        <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all">all kinds</button>
-        ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
+        <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all" aria-pressed="${state.memberKindFilter === "all"}">all kinds</button>
+        ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}" aria-pressed="${state.memberKindFilter === kind}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
       </div>
       ${accessibilities.length ? `<div class="namespace-chips access-chips" aria-label="Member accessibility filters">
-        <button class="${state.memberAccessibilityFilter === "all" ? "active" : ""}" data-member-access-filter="all">all access</button>
-        ${accessibilities.map(accessibility => `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}">${escapeHtml(accessibility)}</button>`).join("")}
+        <button class="${state.memberAccessibilityFilter === "all" ? "active" : ""}" data-member-access-filter="all" aria-pressed="${state.memberAccessibilityFilter === "all"}">all access</button>
+        ${accessibilities.map(accessibility => `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}" aria-pressed="${state.memberAccessibilityFilter === accessibility}">${escapeHtml(accessibility)}</button>`).join("")}
       </div>` : ""}
       ${traits.length ? `<div class="namespace-chips member-trait-chips" aria-label="Member trait filters">
-        <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="">all traits</button>
-        ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}">${label}</button>`).join("")}
+        <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="" aria-pressed="${!state.memberTraitFilter}">all traits</button>
+        ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
       </div>` : ""}
     </div>
     <div class="member-filter-result">${visible.length} of ${groups.length} member groups</div>`;
@@ -3808,6 +3823,7 @@ function bindEvents() {
     state.typeFilter = "";
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
+    resetMemberFilters();
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -3820,6 +3836,7 @@ function bindEvents() {
     state.typeFilter = "";
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
+    resetMemberFilters();
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -3834,6 +3851,7 @@ function bindEvents() {
     state.typeFilter = "";
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
+    resetMemberFilters();
     state.typeCursor = 0;
     const first = filteredTypes()[0];
     if (first) state.selectedTypeId = first.id;
@@ -3876,20 +3894,27 @@ function bindEvents() {
   document.querySelectorAll("[data-opp-lookfor]").forEach(button => button.addEventListener("click", () => {
     openSpotlight(button.dataset.oppLookfor);
   }));
-  document.querySelectorAll("[data-member-kind-filter]").forEach(button => button.addEventListener("click", () => {
-    state.memberKindFilter = button.dataset.memberKindFilter;
-    normalizeMemberSelection();
+  const renderMemberFilterAndRestoreFocus = selector => {
     render();
+    requestAnimationFrame(() => document.querySelector(selector)?.focus());
+  };
+  document.querySelectorAll("[data-member-kind-filter]").forEach(button => button.addEventListener("click", () => {
+    const value = button.dataset.memberKindFilter;
+    state.memberKindFilter = value;
+    normalizeMemberSelection();
+    renderMemberFilterAndRestoreFocus(`[data-member-kind-filter="${cssEscape(value)}"]`);
   }));
   document.querySelectorAll("[data-member-access-filter]").forEach(button => button.addEventListener("click", () => {
-    state.memberAccessibilityFilter = button.dataset.memberAccessFilter;
+    const value = button.dataset.memberAccessFilter;
+    state.memberAccessibilityFilter = value;
     normalizeMemberSelection();
-    render();
+    renderMemberFilterAndRestoreFocus(`[data-member-access-filter="${cssEscape(value)}"]`);
   }));
   document.querySelectorAll("[data-member-trait-filter]").forEach(button => button.addEventListener("click", () => {
-    state.memberTraitFilter = button.dataset.memberTraitFilter;
+    const value = button.dataset.memberTraitFilter;
+    state.memberTraitFilter = value;
     normalizeMemberSelection();
-    render();
+    renderMemberFilterAndRestoreFocus(`[data-member-trait-filter="${cssEscape(value)}"]`);
   }));
   const memberFilter = document.querySelector("#member-filter");
   memberFilter?.addEventListener("input", event => {
@@ -3905,7 +3930,7 @@ function bindEvents() {
   document.querySelector("#clear-member-filter")?.addEventListener("click", () => {
     resetMemberFilters();
     normalizeMemberSelection();
-    render();
+    renderMemberFilterAndRestoreFocus("#clear-member-filter");
   });
   document.querySelectorAll("[data-member-jump-kind]").forEach(button => button.addEventListener("click", () => {
     resetMemberFilters();
@@ -4019,6 +4044,7 @@ function bindEvents() {
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
+    resetMemberFilters();
     render();
   }));
   const namespaceJump = document.getElementById("namespace-jump");
@@ -4029,6 +4055,7 @@ function bindEvents() {
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
+    resetMemberFilters();
     render();
   });
   document.querySelectorAll("[data-kind-filter]").forEach(button => button.addEventListener("click", () => {
@@ -4038,6 +4065,7 @@ function bindEvents() {
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
+    resetMemberFilters();
     render();
   }));
   document.querySelectorAll("[data-library-chip]").forEach(button => button.addEventListener("click", () => {
@@ -4119,6 +4147,7 @@ function bindEvents() {
     if (first) state.selectedTypeId = first.id;
     state.selectedMemberKey = "";
     state.memberBrowseTypeId = "";
+    resetMemberFilters();
     render();
     focusFilter();
   });
