@@ -720,6 +720,7 @@ Package uses `@Package` and `@Files` for its ordinary evidence, with focused
 
 ```bash
 dotnet-inspect library System.Text.Json -S Signals
+dotnet-inspect library System.Private.CoreLib -S "Unsafe Members"
 dotnet-inspect package Microsoft.Extensions.Logging.Abstractions --library -S Integrations
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
 dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
