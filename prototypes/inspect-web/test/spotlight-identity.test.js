@@ -28,6 +28,7 @@ import {
   ensureBoundedGraphNode,
   graphTargetNavigationDisposition,
   graphMemberDeepLinkDisposition,
+  graphMemberPendingMatchesView,
   graphMemberShareTarget,
   graphMemberSelection,
   graphMemberTargetFromPacket,
@@ -2940,7 +2941,7 @@ test("graph-only members open through the typed member surface", () => {
   assert.match(
     engineSource,
     /export async function inspectGraphMemberSurface\(request\)/);
-  assert.match(appSource, /solid border: loaded package/);
+  assert.match(appSource, /solid border: no platform lookup/);
   assert.match(
     appSource,
     /dashed border: external assembly \(platform lookup on click\)/);
@@ -2973,6 +2974,31 @@ test("graph-only deep links win over colliding public member groups", () => {
   assert.match(appSource, /if \(graphMemberState\.error\) return \{ error: graphMemberState\.error \}/);
 });
 
+test("pending graph-member restoration is bound to its exact view", () => {
+  const pending = {
+    packageKey: "Example\u00001.0.0\u0000net10.0",
+    viewSignature: "{\"t\":\"Example.Widget\"}"
+  };
+  assert.equal(
+    graphMemberPendingMatchesView(
+      pending,
+      pending.packageKey,
+      pending.viewSignature),
+    true);
+  assert.equal(
+    graphMemberPendingMatchesView(
+      pending,
+      pending.packageKey,
+      "{\"t\":\"Example.Other\"}"),
+    false);
+  assert.match(
+    appSource,
+    /if \(state\.pendingGraphMemberDeepLink\s*&& !graphMemberPendingMatchesView\(/);
+  assert.match(
+    appSource,
+    /The shared graph member's declaring type is no longer available/);
+});
+
 test("stale graph-only navigation clears progress without surfacing its error", () => {
   const navigation =
     appSource.match(/async function navigateToGraphMember[\s\S]*?\n\}/)?.[0]
@@ -2985,6 +3011,18 @@ test("stale graph-only navigation clears progress without surfacing its error", 
   assert.match(
     navigation,
     /if \(seq === state\.graphMemberNavigationSeq\) \{\s*state\.graphMemberNavigationTitle = "";\s*render\(\);/);
+});
+
+test("shared package graph navigation retains existing accessor identity", () => {
+  const shareState =
+    appSource.match(/function encodeShareState\(\) \{[\s\S]*?\n\}/)?.[0]
+    ?? "";
+
+  assert.match(
+    shareState,
+    /if \(!state\.package\?\.isRuntimePack\) \{\s*const graphTarget = graphMemberShareTarget\(state\.selectedBodyTarget\)/);
+  assert.doesNotMatch(shareState, /overloads\.some\(overload => overload\.graphOnly\)/);
+  assert.match(appSource, /solid border: no platform lookup/);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {

@@ -11,6 +11,7 @@ import {
   dependencyGraphRenderSignature,
   graphTargetNavigationDisposition,
   graphMemberDeepLinkDisposition,
+  graphMemberPendingMatchesView,
   graphMemberShareTarget,
   graphMemberSelection,
   MARKDOWN_SANITIZE_OPTIONS,
@@ -447,6 +448,8 @@ interface PlatformRecent {
 }
 
 interface PendingGraphMemberDeepLink {
+  packageKey: string;
+  viewSignature: string;
   type: string;
   member: string;
   overload: string | null;
@@ -3580,7 +3583,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
               <span><i class="legend-swatch same-type"></i>same declaring type</span>
               <span><i class="legend-swatch different-type"></i>different type, same assembly</span>
               <span><i class="legend-swatch different-assembly"></i>different assembly</span>
-              <span><i class="legend-swatch loaded-node"></i>solid border: loaded package</span>
+              <span><i class="legend-swatch loaded-node"></i>solid border: no platform lookup</span>
               <span><i class="legend-swatch platform-node"></i>dashed border: external assembly (platform lookup on click)</span>
             </div>
             <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>${escapeHtml(active.mermaid)}</code></pre></details>
@@ -5512,7 +5515,6 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberCallGraphExpanding = false;
   state.memberCallGraphSeq++;
   invalidateGraphMemberNavigation();
-  state.pendingGraphMemberDeepLink = null;
   state.selectedBodyTarget = null;
   state.platformStack = [];
   state.platformDrillLoading = false;
@@ -5556,8 +5558,10 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   state.memberSection = "overview";
-  state.selectedBodyTarget = null;
-  if (restoreType && deep) {
+  if (deep?.graphTarget && !restoreType) {
+    appendQueryNotice(
+      "The shared graph member's declaring type is no longer available and was not opened.");
+  } else if (restoreType && deep) {
     const type = pkg.types.find(item => item.id === deep.type);
     if (!type) return;
     const groups = memberGroups(type);
@@ -5585,6 +5589,8 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       graphMemberDeepLinkDisposition(deep, graphCandidate, type, group);
     if (disposition === "graph" && deep.member && deep.graphTarget) {
       state.pendingGraphMemberDeepLink = {
+        packageKey: packageIdentityKey(pkg),
+        viewSignature: viewSignature(),
         type: deep.type ?? type.id,
         member: deep.member,
         overload: deep.overload ?? null,
@@ -6809,10 +6815,22 @@ async function restorePendingGraphMember() {
   const type = selectedType();
   if (!pending || !pkg || !type) return;
   const seq = ++state.graphMemberNavigationSeq;
+  const restorationIsCurrent = () =>
+    seq === state.graphMemberNavigationSeq
+    && state.pendingGraphMemberDeepLink === pending
+    && graphMemberPendingMatchesView(
+      pending,
+      packageIdentityKey(state.package),
+      viewSignature());
+  const discardIfOwned = () => {
+    if (state.pendingGraphMemberDeepLink !== pending) return;
+    state.pendingGraphMemberDeepLink = null;
+    render();
+  };
   try {
     const selection = await loadGraphMemberSelection(pkg, type, pending.target);
-    if (seq !== state.graphMemberNavigationSeq
-      || state.pendingGraphMemberDeepLink !== pending) {
+    if (!restorationIsCurrent()) {
+      discardIfOwned();
       return;
     }
     if (selection.group.key !== pending.member)
@@ -6831,8 +6849,8 @@ async function restorePendingGraphMember() {
     render();
     loadSelectionData();
   } catch (error) {
-    if (seq !== state.graphMemberNavigationSeq
-      || state.pendingGraphMemberDeepLink !== pending) {
+    if (!restorationIsCurrent()) {
+      discardIfOwned();
       return;
     }
     state.pendingGraphMemberDeepLink = null;

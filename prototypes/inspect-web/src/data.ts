@@ -708,6 +708,21 @@ export function graphMemberDeepLinkDisposition<TType>(
   return publicGroup ? "public" : "none";
 }
 
+export interface PendingGraphMemberView {
+  packageKey: string;
+  viewSignature: string;
+}
+
+export function graphMemberPendingMatchesView(
+  pending: PendingGraphMemberView | null | undefined,
+  packageKey: string,
+  viewSignature: string,
+): boolean {
+  return !!pending
+    && pending.packageKey === packageKey
+    && pending.viewSignature === viewSignature;
+}
+
 export interface QueryIdentifiedType {
   id?: string;
   queryId?: string;
