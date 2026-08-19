@@ -8,6 +8,7 @@ namespace DotnetInspector.Services;
 internal enum SourceFetchFailureKind
 {
     InvalidUrl,
+    RequestNotAuthorized,
     Unavailable,
     AttributedOriginUnverified,
     ValidationFailed,
@@ -28,6 +29,7 @@ public class SourceFetcher
     private readonly ConcurrentDictionary<string, byte[]> _byteMemoryCache = new();
     private readonly HttpClient _httpClient;
     private readonly ISourceContentStore _contentStore;
+    private readonly ISourceFetchPolicy? _fetchPolicy;
     private const string ByteCacheCategory = "source-bytes-v2";
     internal const long MaxSourceDownloadSize = 16_000_000;
 
@@ -38,12 +40,14 @@ public class SourceFetcher
 
     public SourceFetcher(
         HttpClient httpClient,
-        ISourceContentStore contentStore)
+        ISourceContentStore contentStore,
+        ISourceFetchPolicy? fetchPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(contentStore);
         _httpClient = httpClient;
         _contentStore = contentStore;
+        _fetchPolicy = fetchPolicy;
     }
 
     /// <summary>
@@ -84,6 +88,13 @@ public class SourceFetcher
         {
             return new SourceFetchBytesResult(null, SourceFetchFailureKind.InvalidUrl);
         }
+        if (_fetchPolicy is not null
+            && !_fetchPolicy.IsRequestAllowed(parsed))
+        {
+            return new SourceFetchBytesResult(
+                null,
+                SourceFetchFailureKind.RequestNotAuthorized);
+        }
 
         if (_byteMemoryCache.TryGetValue(url, out var memoryBytes))
         {
@@ -120,16 +131,24 @@ public class SourceFetcher
 
         try
         {
+            Action<HttpRequestMessage>? configureRequest =
+                _fetchPolicy is null
+                    ? null
+                    : request => _fetchPolicy.ConfigureRequest(request);
             HttpRetryHelper.HttpBodyFetchResult fetch =
                 await HttpRetryHelper.GetBytesAfterHeadersWithRetryAsync(
                 _httpClient,
                 url,
                 response => SourceFetchOriginValidator.Validate(
                     url,
-                    response.RequestMessage?.RequestUri?.AbsoluteUri).IsAllowed,
+                    response.RequestMessage?.RequestUri?.AbsoluteUri,
+                    _fetchPolicy?.FinalResponseUriIsReliable
+                        ?? !OperatingSystem.IsBrowser()).IsAllowed,
                 cancellationToken: cancellationToken,
                 trafficKind: NetworkTrafficKind.SourceFetch,
-                maxDownloadSize: MaxSourceDownloadSize).ConfigureAwait(false);
+                maxDownloadSize: MaxSourceDownloadSize,
+                configureRequest: configureRequest)
+                .ConfigureAwait(false);
             if (fetch.Status == HttpRetryHelper.HttpBodyFetchStatus.ResponseRejected)
             {
                 return new SourceFetchBytesResult(

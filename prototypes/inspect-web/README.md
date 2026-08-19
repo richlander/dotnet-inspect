@@ -130,6 +130,7 @@ body selector even when the graph has no `MethodDef` token.
 | `engine/BrowserStyleOptions.cs` | resolving the client's style ids through `StyleOptionCatalog` |
 | `engine/BrowserXmlDocumentation.cs` | reading one member's package-shipped XML documentation |
 | `engine/BrowserInspectionEngine.cs` | the supported `[JSExport]` operations |
+| `engine/BrowserSourceOperations.cs` | pathless authored-or-decompiled type/member source and Browser source capabilities |
 | `engine/BrowserUnsupportedOperations.cs` | the `[JSExport]` operations this engine refuses |
 
 Inspected assemblies are read with System.Reflection.Metadata only, are never
@@ -162,8 +163,9 @@ coordinate to rewrite the resource path.
 `BrowserEngineBoundaryTests.PackageAcquisition_StallBecomesVisibleOperationTimeout`,
 `BrowserEngineBoundaryTests.PackageAcquisition_SharedStallIsAVisibleTimeoutForEveryCaller`,
 `BrowserEngineBoundaryTests.PackageAcquisition_ExpiredDeadlineCannotPublishReservedContent`,
+`BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout`,
 and
-`BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout`
+`BrowserEngineBoundaryTests.PackageOperation_LateCallerCancellationRemainsCancellation`
 gate these boundaries.
 
 Acquisition is bounded before content enters either cache or workspace. A
@@ -209,6 +211,7 @@ the full budget.
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryTypeProjection` | one package/version/framework | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
+| `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
 | `QueryPackageDependencies` | one package/version/framework | `PackageDependencyGroupsQuery.ExecuteAsync(content, ...)` and `AssemblyContextReferencesQuery.ExecuteParticipant(...)` |
 | `QueryPackageIntegrations` | one package/version/framework | `AssemblyContextIntegrationsQuery.Execute(group)` |
 | `QueryPackageOpportunities` | one package/version/framework | `AssemblyContextIntegrationOpportunitiesQuery.Execute(group, prerequisites)` |
@@ -263,6 +266,58 @@ whole-assembly fact context could not be built, a visible `contextLimitation` so
 a short fact list is never read as an honest absence of facts. Printer options
 are resolved from `StyleOptionCatalog`; an id the catalog does not know is a
 visible failure, not a silently ignored selection.
+
+The three source exports resolve the exact structured type identity and opaque
+member body selector against the implementation participant before calling
+`AssemblyContextSourceQuery`. The query tries checksum-verified authored source
+through Browser HTTP and explicit nuget.org authorization, then falls back to
+pathless decompilation under the workspace binding policy. Symbol-package
+responses are capped at 24 MiB, expanded PDBs at 8 MiB, and archives at 2,048
+entries before either response or expanded content is copied into the
+request-scoped store. Candidate PDB expansion across one symbol package is
+capped at 24 MiB, checks cancellation between decompression chunks, and rejects
+all ZIP64 sentinels in the end-of-central-directory record before `ZipArchive`
+enumeration. Because that record does not carry the per-entry ZIP64 extra field
+that supplies `ZipArchiveEntry.Length`, a negative declared PDB length — which
+would clear every ceiling and then narrow to a large allocation — is rejected at
+the allocation site as well. The store independently
+caps all retained PDB bytes at 24 MiB. SourceLink requests are authorized before
+dispatch for HTTPS URLs on GitHub, Azure DevOps, GitLab, and Bitbucket source
+hosts, and the Browser transport refuses redirects; unsupported hosts visibly
+fall back to decompilation.
+
+Source operations are exclusive across the Browser process: a new request
+cancels the previous request, and leaving every source view cancels hidden work.
+The operation holds its workspace and package archives until its fresh bounded
+PDB and source stores are released, so concurrent or evicted requests cannot
+multiply those request-local budgets. This lifetime is gated by
+`SourceOperations_AreExclusiveAndSuperseding` and
+`ActiveScopeLease_PreventsWorkspaceAndPackageEviction`. Cancellation also
+releases a caller waiting on shared package acquisition without canceling that
+bounded cache operation for other consumers; `CancelledWait_ReleasesSharedPackageAcquisition`
+gates that separation. Source lookup therefore adds no ambient filesystem
+dependency or unbounded retained cache. Typed rejection and unavailable
+outcomes become visible failures; only an `Available` result crosses the
+bridge. Decompiled results disclose why the authored attempt was unavailable.
+Reference-only type source is refused rather than presented as a body-free
+decompilation. Printer options apply to decompiled fallback and never rewrite
+authored source. Whole-member source remains MethodDef-scoped: a
+call-graph accessor body reports that limitation rather than returning its owner
+property or the whole type as a success-shaped substitute, and bodiless API
+groups do not offer a Source section.
+`BrowserEngineBoundaryTests.SourceContexts_UseFreshMemoryOnlyPdbStores`,
+`BrowserEngineBoundaryTests.SourceFetchPolicy_AuthorizesBeforeDispatch`,
+`BrowserEngineBoundaryTests.TypeSourceParticipant_RefusesReferenceOnlyAssembly`,
+`SnupkgPdbReaderTests.ExtractPortablePdb_EntryLimitRejectsArchiveBeforeExpansion`,
+`SnupkgPdbReaderTests.ExtractPortablePdb_EveryZip64SentinelIsRejected`,
+`SnupkgPdbReaderTests.ExtractPortablePdb_AggregateExpansionRejectsRepeatedCandidates`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_LimitedHostRejectsOversizedSymbolPackage`,
+`SymbolPackageDownloaderTests.AcquirePdbAsync_LimitedHostRejectsOversizedMsdlBeforeStore`,
+`AssemblyContextSourceQueryTests.DecompilerFallback_AppliesRequestPrinterOptions`,
+and the JavaScript `source requests carry exact type and member identities`,
+`member request identity distinguishes colliding type queries`, `annotated
+source request identity includes the selected body`, and `call graph source
+identity prefers the structured type definition` cases gate these boundaries.
 
 [#3964]: https://github.com/richlander/dotnet-inspect/pull/3964
 
@@ -336,15 +391,13 @@ ambiguity and diagnostic cases gate these host behaviors.
 
 ## Unsupported
 
-Each remaining gap is either a missing public query that owns its own group
-session or missing Browser host capability and adapter wiring around such a
-query. Each export keeps the signature the browser bridge binds and throws a
-`NotSupportedException` naming the gap, so the site reports the engine's
-refusal rather than fixture results or success-shaped empty output.
+Each remaining gap is a missing public query that owns its own group session.
+Each export keeps the signature the browser bridge binds and throws a
+`NotSupportedException` naming the gap, so the site reports the engine's refusal
+rather than fixture results or success-shaped empty output.
 
-| Unsupported export | Missing product or host wiring |
+| Unsupported export | Missing product query |
 | --- | --- |
-| `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | `AssemblyContextSourceQuery` now owns pathless SourceLink and decompiled source; the Browser host still needs symbol/source clients, authorization, in-memory stores, and typed-result adaptation |
 | `QueryMemberFacts` | method-scoped Analysis evidence over a group participant |
 | `QueryPackageMetadata`, `QueryPackageMetadataTable`, `QueryPackageHeapEntries` | metadata image, table, and heap projections over a group (`MetadataImageQuery` binds to a host-opened session today) |
 | `QueryPackagePerformance` | assembly-wide Analysis ranking over a group |
@@ -416,6 +469,9 @@ visibility, reference-only retained-image budget, duplicate XML parameter
 handling, Mermaid label containment, and complete call-graph navigation targets.
 The JavaScript tests gate the annotated view helper against the shared sample
 document and keep Spotlight candidate/cache identity coordinate-complete.
+`call graph diagnostics distinguish failures from expected bounds` gates that
+catalog and body-analysis failures remain visible while an expected finite
+traversal boundary does not become a global error.
 
 The shared product paths are gated by:
 

@@ -318,7 +318,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         _beforeRetain?.Invoke(name);
         return new GenericParameterNode(
             name,
-            hasValueTypeConstraint: context?.HasMethodParameterValueTypeConstraint(index) == true);
+            hasValueTypeConstraint: context?.HasMethodParameterValueTypeConstraint(index) == true,
+            isMethodParameter: true,
+            index);
     }
 
     public TypeNode GetGenericTypeParameter(GenericContext? context, int index)
@@ -328,7 +330,9 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
         _beforeRetain?.Invoke(name);
         return new GenericParameterNode(
             name,
-            hasValueTypeConstraint: context?.HasTypeParameterValueTypeConstraint(index) == true);
+            hasValueTypeConstraint: context?.HasTypeParameterValueTypeConstraint(index) == true,
+            isMethodParameter: false,
+            index);
     }
 
     public TypeNode GetFunctionPointerType(MethodSignature<TypeNode> signature)
@@ -350,7 +354,7 @@ internal sealed class TypeNodeProvider : ISignatureTypeProvider<TypeNode, Generi
     public TypeNode GetPinnedType(TypeNode elementType)
     {
         _beforeMaterialize?.Invoke(16);
-        var node = new PassthroughTypeNode(elementType);
+        var node = new PinnedTypeNode(elementType);
         ObserveMaterialization(node.EstimatedRenderedLength);
         return node;
     }
