@@ -532,13 +532,11 @@ shown for the "type" scope) as pure, dependency-injected render functions.
 click/keyboard navigation, and passes each computed slice in explicitly; the
 shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
 `typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
-`relatedTypeChip`, `authoredSourceLimitationHtml`) stay in `app.js`/`data.js`
-and are injected the same way.
+`relatedTypeChip`) stay in `app.js` and are injected the same way.
 `test/type-panel.test.js` gates namespace grouping and selection in the type
 list, active-group and overload selection in the member list, the type
 heading's package/library fields, the metadata- and source-signature cache
-keys, and the metadata/source panels' loading, error, and loaded states,
-including the decompiled-source authored-limitation disclosure.
+keys, and the metadata/source panels' loading, error, and loaded states.
 
 - `Cmd/Ctrl+K` focuses the persistent command prompt.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
