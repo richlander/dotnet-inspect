@@ -54,6 +54,7 @@ import {
   resolveLoadedGraphTargetCandidate,
   resolveOpportunitySourceType,
   resolvePlatformGraphTargetType,
+  resolveRuntimeGraphTargetCandidate,
   shareStateLengthError,
   scopedRequestState,
   selectedDependencyGroup,
@@ -2898,6 +2899,7 @@ test("call graph navigation resolves accessor body selectors without a token", (
     ?? "";
   assert.match(runtimeResolver, /graphMemberSelection\(groups, node\)/);
   assert.doesNotMatch(runtimeResolver, /node\.metadataToken != null/);
+  assert.match(runtimeResolver, /resolveRuntimeGraphTargetCandidate\(pack, node\)/);
 });
 
 test("graph-only member targets round-trip through shared URLs", () => {
@@ -3166,6 +3168,55 @@ test("platform graph borders reflect actual resident lookup", () => {
   assert.match(binding, /const resident = pack\s*\? findRuntimeMemberSelection\(pack, target\)/);
   assert.match(binding, /if \(!resident\) node\.classList\.add\("platform-node"\)/);
   assert.match(binding, /if \(resident\) \{\s*navigateToRuntimeMember\(/);
+  assert.match(binding, /disposition === "resident"/);
+});
+
+test("runtime graph identities share and restore through exact resident candidates", () => {
+  const type = {
+    id: "System.Console",
+    definitionId: "System.Console",
+    metadataId: "System.Console",
+    assembly: "System.Console.dll",
+    assemblyId: "runtime:System.Console"
+  };
+  const pack = {
+    id: "Microsoft.NETCore.App",
+    isRuntimePack: true,
+    types: [type],
+    assemblies: [{
+      id: "runtime:System.Console",
+      name: "System.Console",
+      version: "10.0.0.0",
+      culture: null,
+      publicKeyToken: "b03f5f7f11d50a3a"
+    }]
+  };
+  const target = {
+    kind: "external",
+    assembly: "System.Console",
+    assemblyVersion: "10.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "b03f5f7f11d50a3a",
+    typeDefinitionId: "System.Console",
+    memberName: "get_Out",
+    selectorKey: "getter-selector",
+    metadataToken: null
+  };
+
+  assert.deepEqual(resolveRuntimeGraphTargetCandidate(pack, target), {
+    status: "unique",
+    pkg: pack,
+    type
+  });
+  assert.equal(
+    graphTargetNavigationDisposition({ status: "missing" }, target, true),
+    "resident");
+  assert.doesNotMatch(
+    appSource,
+    /if \(!state\.package\?\.isRuntimePack\s*&& packet\.y/);
+  assert.match(
+    appSource,
+    /resolveRuntimeGraphTargetCandidate\(state\.package, state\.selectedBodyTarget\)/);
 });
 
 test("home navigation invalidates pending graph work", () => {

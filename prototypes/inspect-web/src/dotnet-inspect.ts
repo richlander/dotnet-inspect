@@ -5618,7 +5618,9 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
       state.memberBrowseTypeId = type.id;
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
     const graphCandidate = deep.member && deep.graphTarget
-      ? resolveLoadedGraphTargetCandidate([pkg], deep.graphTarget)
+      ? pkg.isRuntimePack
+        ? resolveRuntimeGraphTargetCandidate(pkg, deep.graphTarget)
+        : resolveLoadedGraphTargetCandidate([pkg], deep.graphTarget)
       : null;
     const localGraphSelection =
       deep.graphTarget
@@ -5627,12 +5629,14 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
         ? findGraphMemberSelection(type, deep.graphTarget)
         : null;
     const disposition =
-      graphMemberDeepLinkDisposition(
-        deep,
-        graphCandidate,
-        type,
-        group,
-        localGraphSelection);
+      pkg.isRuntimePack && deep.member && deep.graphTarget && !localGraphSelection
+        ? "mismatch"
+        : graphMemberDeepLinkDisposition(
+            deep,
+            graphCandidate,
+            type,
+            group,
+            localGraphSelection);
     if (disposition === "local"
       && localGraphSelection
       && deep.graphTarget) {
@@ -7147,10 +7151,9 @@ function findRuntimeMemberSelection(
   pack: AppPackage,
   node: BrowserCallGraphTarget,
 ) {
-  const typeId = callGraphTargetTypeId(node);
-  if (!pack || !typeId) return null;
-  const type = resolvePlatformGraphTargetType(pack, node);
-  if (!type) return null;
+  const candidate = resolveRuntimeGraphTargetCandidate(pack, node);
+  if (candidate.status !== "unique") return null;
+  const type = candidate.type;
   const groups = memberGroups(type);
   const selection = graphMemberSelection(groups, node);
   return selection

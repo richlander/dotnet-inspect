@@ -855,6 +855,7 @@ export function resolveLoadedGraphTargetCandidate<
 >(
   packages: readonly TPackage[],
   target: CallGraphTarget | null | undefined,
+  includeRuntimePacks: boolean,
 ): GraphTargetCandidate<TPackage, TType> {
   const typeId = callGraphTargetTypeId(target);
   if (!typeId || !target?.assembly) return { status: "missing" };
@@ -883,11 +884,69 @@ export function resolveLoadedGraphTargetCandidate<
     : { status: "missing" };
 }
 
-export type GraphTargetNavigationDisposition = "blocked" | "loaded" | "none" | "platform";
+export function resolveLoadedGraphTargetCandidate<
+  TPackage extends ResolvableGraphPackage,
+  TType extends ResolvableGraphType,
+>(
+  packages: readonly TPackage[],
+  target: CallGraphTarget | null | undefined,
+): GraphTargetCandidate<TPackage, TType> {
+  return resolveGraphTargetCandidate<TPackage, TType>(
+    packages,
+    target,
+    false);
+}
+
+type RuntimeGraphPackage<TType extends ResolvableGraphType> =
+  ResolvableGraphPackage & { types?: readonly TType[] };
+
+export function resolveRuntimeGraphTargetCandidate<
+  TType extends ResolvableGraphType,
+>(
+  pack: RuntimeGraphPackage<TType> | null | undefined,
+  target: CallGraphTarget | null | undefined,
+): GraphTargetCandidate<RuntimeGraphPackage<TType>, TType> {
+  return pack?.isRuntimePack
+    ? resolveGraphTargetCandidate<RuntimeGraphPackage<TType>, TType>(
+        [pack],
+        target,
+        true)
+    : { status: "missing" };
+}
+
+export function resolvePlatformGraphTargetType<
+  TType extends ResolvableGraphType,
+>(
+  pack: RuntimeGraphPackage<TType> | null | undefined,
+  target: CallGraphTarget | null | undefined,
+): TType | null {
+  const candidate = resolveRuntimeGraphTargetCandidate(pack, target);
+  return candidate.status === "unique" ? candidate.type : null;
+}
+
+export function resolveOpportunitySourceType<
+  TType extends ResolvableGraphType,
+>(
+  pack: RuntimeGraphPackage<TType> | null | undefined,
+  opportunity: OpportunitySourceIdentity | null | undefined,
+): TType | null {
+  if (!opportunity?.sourceDefinitionId) return null;
+  return resolvePlatformGraphTargetType(pack, {
+    assembly: opportunity.sourceAssembly,
+    assemblyVersion: opportunity.sourceAssemblyVersion,
+    assemblyCulture: opportunity.sourceAssemblyCulture,
+    assemblyPublicKeyToken: opportunity.sourceAssemblyPublicKeyToken,
+    typeDefinitionId: opportunity.sourceDefinitionId
+  });
+}
+
+export type GraphTargetNavigationDisposition =
+  "blocked" | "loaded" | "none" | "platform" | "resident";
 
 export function graphTargetNavigationDisposition(
   candidate: GraphTargetCandidate<unknown, unknown>,
   target: CallGraphTarget | null | undefined,
+  resident = false,
 ): GraphTargetNavigationDisposition {
   if (candidate.status === "ambiguous") return "blocked";
   if (candidate.status === "unique") return "loaded";
@@ -900,7 +959,7 @@ export function graphTargetNavigationDisposition(
   return target?.kind === "external"
       && Boolean(target.assembly)
       && Boolean(callGraphTargetTypeId(target))
-    ? "platform"
+    ? resident ? "resident" : "platform"
     : "none";
 }
 
