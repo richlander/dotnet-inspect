@@ -89,6 +89,21 @@ public class FidelityCheckGeneratedFilterTests
             {
                 public sealed class X { }
             }
+
+            namespace Models
+            {
+                public sealed class Timer { }
+            }
+
+            namespace SignatureCollision
+            {
+                public interface I { void M(Models.Timer value); }
+
+                public sealed class C : I
+                {
+                    void I.M(Models.Timer value) { }
+                }
+            }
             """);
         try
         {
@@ -99,7 +114,8 @@ public class FidelityCheckGeneratedFilterTests
             {
                 ("SameNamespace", "Contracts.ICloneable.Clone", true),
                 ("SkeletonUsingCollision", "Contracts.ICloneable.Clone", false),
-                ("ChildNamespaceCollision", "N.I.M", false)
+                ("ChildNamespaceCollision", "N.I.M", false),
+                ("C", "SignatureCollision.I.M", false)
             })
             {
                 var type = reader.GetTypeDefinition(Assert.Single(
@@ -131,7 +147,8 @@ public class FidelityCheckGeneratedFilterTests
                 assemblyPath,
                 typeName => typeName is "Contracts.SameNamespace"
                     or "App.SkeletonUsingCollision"
-                    or "T.ChildNamespaceCollision",
+                    or "T.ChildNamespaceCollision"
+                    or "SignatureCollision.C",
                 candidate => candidate.Method.EndsWith(
                     "Clone",
                     StringComparison.Ordinal)
@@ -140,7 +157,8 @@ public class FidelityCheckGeneratedFilterTests
                 assemblyPath,
                 typeName => typeName is "Contracts.SameNamespace"
                     or "App.SkeletonUsingCollision"
-                    or "T.ChildNamespaceCollision");
+                    or "T.ChildNamespaceCollision"
+                    or "SignatureCollision.C");
             foreach (var results in new[] { targetedResults, batchResults })
             {
                 var control = Assert.Single(
@@ -152,7 +170,8 @@ public class FidelityCheckGeneratedFilterTests
                 foreach (string typeName in new[]
                 {
                     "App.SkeletonUsingCollision",
-                    "T.ChildNamespaceCollision"
+                    "T.ChildNamespaceCollision",
+                    "SignatureCollision.C"
                 })
                 {
                     Assert.False(Assert.Single(
@@ -340,6 +359,102 @@ public class FidelityCheckGeneratedFilterTests
                             && result.Method.EndsWith(".M", StringComparison.Ordinal))
                         .UsedProductWholeMember);
                 }
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesReferencesWithLinkedMetadataModules()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string modulePath = Path.Combine(directory, "Part.netmodule");
+        string dependencyPath = Path.Combine(directory, "Neighbour.dll");
+        string assemblyPath = Path.Combine(directory, "fixture.dll");
+        try
+        {
+            CompileAssembly(
+                modulePath,
+                """
+                namespace App
+                {
+                    internal sealed class ILinked { }
+                }
+                """,
+                outputKind: OutputKind.NetModule);
+            CompileAssembly(
+                dependencyPath,
+                """
+                [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("cb")]
+                public sealed class ManifestType { }
+                """,
+                [MetadataReference.CreateFromFile(
+                    modulePath,
+                    MetadataReferenceProperties.Module)]);
+            CompileAssembly(
+                assemblyPath,
+                """
+                namespace Contracts
+                {
+                    public interface ILinked { void M(); }
+                }
+
+                namespace App
+                {
+                    public sealed class C : Contracts.ILinked
+                    {
+                        void Contracts.ILinked.M() { }
+                    }
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+            var type = reader.GetTypeDefinition(Assert.Single(
+                reader.TypeDefinitions,
+                handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                    == "C"));
+            var method = Assert.Single(
+                type.GetMethods(),
+                handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                    == "Contracts.ILinked.M");
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: true,
+                isPrimaryConstructor: false));
+            Assert.Null(FidelityCheck.TryRenderTargetMember(
+                pe,
+                source,
+                method,
+                targeted: false,
+                isPrimaryConstructor: false));
+
+            foreach (var results in new[]
+            {
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "App.C",
+                    candidate => candidate.Method == "Contracts.ILinked.M"),
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName == "App.C")
+            })
+            {
+                Assert.False(Assert.Single(
+                    results,
+                    result => result.Method == "Contracts.ILinked.M")
+                    .UsedProductWholeMember);
             }
         }
         finally
@@ -568,10 +683,56 @@ public class FidelityCheckGeneratedFilterTests
             genericBody.GetILGenerator().Emit(OpCodes.Ret);
             genericType.DefineMethodOverride(genericBody, genericDeclaration);
 
+            var parameterGenericInterface = module.DefineType(
+                "IParameterGeneric",
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract);
+            var parameterGenericDeclaration = parameterGenericInterface.DefineMethod(
+                "M",
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot);
+            var declarationTypeParameter =
+                parameterGenericDeclaration.DefineGenericParameters("T")[0];
+            parameterGenericDeclaration.SetReturnType(typeof(void));
+            parameterGenericDeclaration.SetParameters(declarationTypeParameter);
+            parameterGenericDeclaration.DefineParameter(
+                1,
+                ParameterAttributes.None,
+                "T");
+            var parameterGenericType = module.DefineType(
+                "ParameterGenericCollision",
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                typeof(object),
+                [parameterGenericInterface]);
+            parameterGenericType.DefineDefaultConstructor(MethodAttributes.Public);
+            var parameterGenericBody = parameterGenericType.DefineMethod(
+                "IParameterGeneric.M",
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot);
+            var bodyTypeParameter =
+                parameterGenericBody.DefineGenericParameters("T")[0];
+            parameterGenericBody.SetReturnType(typeof(void));
+            parameterGenericBody.SetParameters(bodyTypeParameter);
+            parameterGenericBody.DefineParameter(
+                1,
+                ParameterAttributes.None,
+                "T");
+            parameterGenericBody.GetILGenerator().Emit(OpCodes.Ret);
+            parameterGenericType.DefineMethodOverride(
+                parameterGenericBody,
+                parameterGenericDeclaration);
+
             parameterInterface.CreateType();
             genericInterface.CreateType();
+            parameterGenericInterface.CreateType();
             parameterType.CreateType();
             genericType.CreateType();
+            parameterGenericType.CreateType();
             assemblyBuilder.Save(assemblyPath);
 
             using var pe = new PEReader(File.OpenRead(assemblyPath));
@@ -580,7 +741,8 @@ public class FidelityCheckGeneratedFilterTests
             foreach (var (typeName, methodName) in new[]
             {
                 ("DuplicateParameters", "IParameters.M"),
-                ("DuplicateGenericParameters", "IGenericParameters.M")
+                ("DuplicateGenericParameters", "IGenericParameters.M"),
+                ("ParameterGenericCollision", "IParameterGeneric.M")
             })
             {
                 var type = reader.GetTypeDefinition(Assert.Single(
@@ -3697,7 +3859,8 @@ public class FidelityCheckGeneratedFilterTests
         string path,
         string source,
         IEnumerable<MetadataReference>? additionalReferences = null,
-        bool allowUnsafe = false)
+        bool allowUnsafe = false,
+        OutputKind outputKind = OutputKind.DynamicallyLinkedLibrary)
     {
         var references = RoslynTestReferences.TrustedPlatform.AsEnumerable();
         if (additionalReferences is not null)
@@ -3707,7 +3870,7 @@ public class FidelityCheckGeneratedFilterTests
             [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
             references,
             new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
+                outputKind,
                 allowUnsafe: allowUnsafe,
                 optimizationLevel: OptimizationLevel.Release,
                 nullableContextOptions: NullableContextOptions.Disable));

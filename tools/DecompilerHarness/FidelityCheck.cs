@@ -3616,6 +3616,12 @@ static class FidelityCheck
             if (!pe.HasMetadata)
                 return new ReferenceVisibility(types, namespaces);
             var reader = pe.GetMetadataReader();
+            if (reader.IsAssembly
+                && reader.AssemblyFiles.Any(handle =>
+                    reader.GetAssemblyFile(handle).ContainsMetadata))
+            {
+                return null;
+            }
             bool includeInternalTypes = GrantsInternalsToCompileBack(reader);
             foreach (var handle in reader.TypeDefinitions)
             {
@@ -4802,6 +4808,15 @@ static class FidelityCheck
             {
                 return null;
             }
+            if (HasAmbiguousBareMemberIdentifier(
+                    reader,
+                    methodDeclaration,
+                    effectiveNamespaces,
+                    bodyNamespace,
+                    references))
+            {
+                return null;
+            }
         }
         if (entry.Member.Kind == "constructor"
             && parsedMember is not ConstructorDeclarationSyntax)
@@ -4845,8 +4860,124 @@ static class FidelityCheck
         }
 
         var typeParameterNames = new HashSet<string>(StringComparer.Ordinal);
-        return declaration.TypeParameterList?.Parameters.Any(parameter =>
-            !typeParameterNames.Add(parameter.Identifier.ValueText)) == true;
+        if (declaration.TypeParameterList?.Parameters.Any(parameter =>
+            !typeParameterNames.Add(parameter.Identifier.ValueText)) == true)
+        {
+            return true;
+        }
+
+        return parameterNames.Overlaps(typeParameterNames);
+    }
+
+    static bool HasAmbiguousBareMemberIdentifier(
+        MetadataReader reader,
+        MethodDeclarationSyntax declaration,
+        IReadOnlySet<string> importedNamespaces,
+        string bodyNamespace,
+        ReferenceSet references)
+    {
+        var bindingNamespaces = new HashSet<string>(
+            importedNamespaces,
+            StringComparer.Ordinal);
+        for (string current = bodyNamespace; ;)
+        {
+            bindingNamespaces.Add(current);
+            int separator = current.LastIndexOf('.');
+            if (separator < 0)
+            {
+                bindingNamespaces.Add("");
+                break;
+            }
+            current = current[..separator];
+        }
+
+        var typeParameters = declaration.TypeParameterList?.Parameters
+            .Select(parameter => parameter.Identifier.ValueText)
+            .ToHashSet(StringComparer.Ordinal)
+            ?? [];
+        var identifiers = declaration.DescendantNodes()
+            .OfType<SimpleNameSyntax>()
+            .Where(name =>
+                !typeParameters.Contains(name.Identifier.ValueText)
+                && name.Identifier.ValueText is not ("dynamic" or "nint" or "nuint")
+                && !name.Ancestors().Any(node =>
+                    node is ExplicitInterfaceSpecifierSyntax)
+                && name.Parent is not QualifiedNameSyntax
+                && name.Parent is not AliasQualifiedNameSyntax
+                && !(name.Parent is MemberAccessExpressionSyntax memberAccess
+                    && memberAccess.Name == name))
+            .Select(name => name.Identifier.ValueText)
+            .Distinct(StringComparer.Ordinal);
+
+        foreach (string identifier in identifiers)
+        {
+            var symbols = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                var type = reader.GetTypeDefinition(handle);
+                string @namespace = reader.GetString(type.Namespace);
+                if (type.GetDeclaringType().IsNil
+                    && bindingNamespaces.Contains(@namespace)
+                    && StripArity(reader.GetString(type.Name)) == identifier)
+                {
+                    symbols.Add($"type:{@namespace}\0{identifier}");
+                }
+                AddNamespaceSymbol(@namespace);
+            }
+            foreach (var handle in reader.TypeReferences)
+            {
+                var type = reader.GetTypeReference(handle);
+                string @namespace = reader.GetString(type.Namespace);
+                if (bindingNamespaces.Contains(@namespace)
+                    && StripArity(reader.GetString(type.Name)) == identifier)
+                {
+                    symbols.Add($"type:{@namespace}\0{identifier}");
+                }
+                AddNamespaceSymbol(@namespace);
+            }
+            foreach (var lazyVisibility in references.Visibility)
+            {
+                var visibility = lazyVisibility.Value;
+                if (visibility is null)
+                    return true;
+                foreach (string @namespace in bindingNamespaces)
+                {
+                    if (visibility.Types.Contains($"{@namespace}\0{identifier}"))
+                        symbols.Add($"type:{@namespace}\0{identifier}");
+                    string child = @namespace.Length == 0
+                        ? identifier
+                        : $"{@namespace}.{identifier}";
+                    if (visibility.Namespaces.Any(candidate =>
+                        candidate == child
+                        || candidate.StartsWith($"{child}.", StringComparison.Ordinal)))
+                    {
+                        symbols.Add($"namespace:{child}");
+                    }
+                }
+            }
+
+            if (symbols.Count > 1)
+                return true;
+
+            void AddNamespaceSymbol(string candidate)
+            {
+                foreach (string @namespace in bindingNamespaces)
+                {
+                    string child = @namespace.Length == 0
+                        ? identifier
+                        : $"{@namespace}.{identifier}";
+                    if (candidate == child
+                        || candidate.StartsWith(
+                            $"{child}.",
+                            StringComparison.Ordinal))
+                    {
+                        symbols.Add($"namespace:{child}");
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     static MemberRenderResult? RenderTargetMember(ApiType type, ApiMember member, MetadataSource source)
