@@ -712,10 +712,14 @@ static class FidelityCheck
 
     sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
 
-    sealed record ReferenceSet(ImmutableArray<MetadataReference> Metadata, SignatureSpellability Accessibility);
+    sealed record ReferenceVisibility(
+        IReadOnlySet<string> Types,
+        IReadOnlySet<string> Namespaces);
 
-    static readonly ConcurrentDictionary<string, Lazy<IReadOnlySet<string>?>>
-        VisibleReferenceTypes = new(StringComparer.OrdinalIgnoreCase);
+    sealed record ReferenceSet(
+        ImmutableArray<MetadataReference> Metadata,
+        SignatureSpellability Accessibility,
+        ImmutableArray<Lazy<ReferenceVisibility?>> Visibility);
 
     sealed record CompilerReference(ResolvedAssemblyReference Reference, bool PlatformTrusted);
 
@@ -2921,8 +2925,8 @@ static class FidelityCheck
         // those short names bind instead of failing CS0246 and poisoning the
         // whole-module compile. Explicit-interface whole-member admission checks
         // this complete set against the compilation references before accepting a
-        // bare interface identifier; the effective-using regressions in
-        // FidelityCheckGeneratedFilterTests gate that coupling.
+        // bare interface identifier; the effective-using and referenced-lexical-
+        // scope regressions in FidelityCheckGeneratedFilterTests gate that coupling.
         var usings = new SortedSet<string>(SkeletonUsings, StringComparer.Ordinal);
         if (isolatedTargetNamespaces is not null)
             foreach (var ns in isolatedTargetNamespaces)
@@ -3532,7 +3536,9 @@ static class FidelityCheck
         TypeDefinitionHandle interfaceHandle,
         string identifier,
         IReadOnlySet<string> namespaces,
-        ImmutableArray<MetadataReference> references)
+        string bodyNamespace,
+        string interfaceNamespace,
+        ReferenceSet references)
     {
         foreach (var handle in reader.TypeDefinitions)
         {
@@ -3540,6 +3546,7 @@ static class FidelityCheck
                 continue;
             var candidate = reader.GetTypeDefinition(handle);
             if (candidate.GetDeclaringType().IsNil
+                && reader.GetString(candidate.Namespace) != interfaceNamespace
                 && namespaces.Contains(reader.GetString(candidate.Namespace))
                 && StripArity(reader.GetString(candidate.Name)) == identifier)
             {
@@ -3549,51 +3556,82 @@ static class FidelityCheck
         foreach (var handle in reader.TypeReferences)
         {
             var candidate = reader.GetTypeReference(handle);
-            if (namespaces.Contains(reader.GetString(candidate.Namespace))
+            if (reader.GetString(candidate.Namespace) != interfaceNamespace
+                && namespaces.Contains(reader.GetString(candidate.Namespace))
                 && StripArity(reader.GetString(candidate.Name)) == identifier)
             {
                 return true;
             }
         }
 
-        foreach (var reference in references.OfType<PortableExecutableReference>())
+        foreach (var lazyVisibility in references.Visibility)
         {
-            if (reference.FilePath is not { } path)
-                continue;
-            var visibleTypes = VisibleReferenceTypes.GetOrAdd(
-                path,
-                static candidatePath => new Lazy<IReadOnlySet<string>?>(
-                    () => ReadVisibleReferenceTypes(candidatePath),
-                    LazyThreadSafetyMode.ExecutionAndPublication)).Value;
-            if (visibleTypes is null)
+            var visibility = lazyVisibility.Value;
+            if (visibility is null)
                 return true;
             foreach (string @namespace in namespaces)
             {
-                if (visibleTypes.Contains($"{@namespace}\0{identifier}"))
+                if (@namespace != interfaceNamespace
+                    && visibility.Types.Contains($"{@namespace}\0{identifier}"))
                     return true;
+            }
+            for (string current = bodyNamespace; current != interfaceNamespace;)
+            {
+                if (visibility.Types.Contains($"{current}\0{identifier}"))
+                    return true;
+                string child = current.Length == 0
+                    ? identifier
+                    : $"{current}.{identifier}";
+                if (visibility.Namespaces.Any(@namespace =>
+                    @namespace == child
+                    || @namespace.StartsWith($"{child}.", StringComparison.Ordinal)))
+                {
+                    return true;
+                }
+
+                int separator = current.LastIndexOf('.');
+                if (separator < 0)
+                {
+                    if (current.Length == 0)
+                        break;
+                    current = "";
+                }
+                else
+                {
+                    current = current[..separator];
+                }
             }
         }
 
         return false;
     }
 
-    static IReadOnlySet<string>? ReadVisibleReferenceTypes(string path)
+    static ReferenceVisibility? ReadReferenceVisibility(string path)
     {
         var types = new HashSet<string>(StringComparer.Ordinal);
+        var namespaces = new HashSet<string>(StringComparer.Ordinal);
         try
         {
             using var pe = new PEReader(File.OpenRead(path));
             if (!pe.HasMetadata)
-                return types;
+                return new ReferenceVisibility(types, namespaces);
             var reader = pe.GetMetadataReader();
+            bool includeInternalTypes = GrantsInternalsToCompileBack(reader);
             foreach (var handle in reader.TypeDefinitions)
             {
                 var type = reader.GetTypeDefinition(handle);
-                if (type.GetDeclaringType().IsNil
-                    && type.Attributes.HasFlag(TypeAttributes.Public))
+                if (!type.GetDeclaringType().IsNil)
+                    continue;
+                string @namespace = reader.GetString(type.Namespace);
+                if (@namespace.Length > 0)
+                    namespaces.Add(@namespace);
+                var visibility = type.Attributes & TypeAttributes.VisibilityMask;
+                if (visibility == TypeAttributes.Public
+                    || includeInternalTypes
+                        && visibility == TypeAttributes.NotPublic)
                 {
                     types.Add(
-                        $"{reader.GetString(type.Namespace)}\0"
+                        $"{@namespace}\0"
                         + StripArity(reader.GetString(type.Name)));
                 }
             }
@@ -3603,8 +3641,11 @@ static class FidelityCheck
                 if (type.Implementation.Kind != HandleKind.ExportedType
                     && type.Attributes.HasFlag(TypeAttributes.Public))
                 {
+                    string @namespace = reader.GetString(type.Namespace);
+                    if (@namespace.Length > 0)
+                        namespaces.Add(@namespace);
                     types.Add(
-                        $"{reader.GetString(type.Namespace)}\0"
+                        $"{@namespace}\0"
                         + StripArity(reader.GetString(type.Name)));
                 }
             }
@@ -3619,7 +3660,34 @@ static class FidelityCheck
             return null;
         }
 
-        return types;
+        return new ReferenceVisibility(types, namespaces);
+    }
+
+    static bool GrantsInternalsToCompileBack(MetadataReader reader)
+    {
+        if (!reader.IsAssembly)
+            return false;
+        foreach (var handle in reader.GetAssemblyDefinition().GetCustomAttributes())
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            if (AttributeReader.GetAttributeTypeName(reader, attribute.Constructor)
+                != "System.Runtime.CompilerServices.InternalsVisibleToAttribute")
+            {
+                continue;
+            }
+
+            var blob = reader.GetBlobReader(attribute.Value);
+            if (blob.ReadUInt16() != 1)
+                throw new BadImageFormatException("Invalid InternalsVisibleToAttribute prolog.");
+            string? friend = blob.ReadSerializedString();
+            if (friend?.Split(',', 2)[0].Trim()
+                    .Equals("cb", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     static string CombineInheritance(string baseClause, string interfaceClause)
@@ -4431,7 +4499,8 @@ static class FidelityCheck
     /// immutable collections). Product whole members that emit a bare explicit-
     /// interface identifier must prove that identifier remains unique under this
     /// set; <c>TryRenderTargetMember_DeclinesEffectiveUsingAndChildNamespaceCollisions</c>
-    /// gates the coupling.
+    /// and <c>TryRenderTargetMember_DeclinesReferencedLexicalAndFriendCollisions</c>
+    /// gate the coupling.
     /// </summary>
     static readonly string[] SkeletonUsings =
     [
@@ -4698,7 +4767,8 @@ static class FidelityCheck
             if (parsedMember is not MethodDeclarationSyntax
                 {
                     ExplicitInterfaceSpecifier.Name: IdentifierNameSyntax interfaceIdentifier
-                })
+                } methodDeclaration
+                || HasDuplicateMethodDeclarationIdentifiers(methodDeclaration))
             {
                 return null;
             }
@@ -4720,19 +4790,15 @@ static class FidelityCheck
                 reader.GetMethodDefinition(target.Body).GetDeclaringType());
             string interfaceNamespace = reader.GetString(interfaceDef.Namespace);
             string bodyNamespace = reader.GetString(bodyDef.Namespace);
-            bool interfaceNamespaceIsVisible =
-                interfaceNamespace.Length == 0
-                || bodyNamespace == interfaceNamespace
-                || bodyNamespace.StartsWith(
-                    $"{interfaceNamespace}.",
-                    StringComparison.Ordinal);
-            if (!interfaceNamespaceIsVisible
+            if (bodyNamespace != interfaceNamespace
                 && HasImportedInterfaceQualifierCollision(
                     reader,
                     target.Interface,
                     interfaceIdentifier.Identifier.ValueText,
                     effectiveNamespaces,
-                    references.Metadata))
+                    bodyNamespace,
+                    interfaceNamespace,
+                    references))
             {
                 return null;
             }
@@ -4766,6 +4832,21 @@ static class FidelityCheck
             return null;
         }
         return (result.Text, new HashSet<string>(result.Namespaces, StringComparer.Ordinal));
+    }
+
+    static bool HasDuplicateMethodDeclarationIdentifiers(
+        MethodDeclarationSyntax declaration)
+    {
+        var parameterNames = new HashSet<string>(StringComparer.Ordinal);
+        if (declaration.ParameterList.Parameters.Any(parameter =>
+            !parameterNames.Add(parameter.Identifier.ValueText)))
+        {
+            return true;
+        }
+
+        var typeParameterNames = new HashSet<string>(StringComparer.Ordinal);
+        return declaration.TypeParameterList?.Parameters.Any(parameter =>
+            !typeParameterNames.Add(parameter.Identifier.ValueText)) == true;
     }
 
     static MemberRenderResult? RenderTargetMember(ApiType type, ApiMember member, MetadataSource source)
@@ -5714,7 +5795,19 @@ static class FidelityCheck
         foreach (var dependency in resolver.ResolveAll())
             Add(dependency.Path, dependency.Provenance);
 
-        return new ReferenceSet(builder.ToImmutable(), new SignatureSpellability(new CompilerReferenceResolver(resolvedReferences)));
+        var metadata = builder.ToImmutable();
+        var visibility = metadata
+            .OfType<PortableExecutableReference>()
+            .Select(reference => new Lazy<ReferenceVisibility?>(
+                () => reference.FilePath is { } path
+                    ? ReadReferenceVisibility(path)
+                    : null,
+                LazyThreadSafetyMode.ExecutionAndPublication))
+            .ToImmutableArray();
+        return new ReferenceSet(
+            metadata,
+            new SignatureSpellability(new CompilerReferenceResolver(resolvedReferences)),
+            visibility);
     }
 
     static AssemblyReferenceIdentity? TryReadAssemblyIdentity(string path)

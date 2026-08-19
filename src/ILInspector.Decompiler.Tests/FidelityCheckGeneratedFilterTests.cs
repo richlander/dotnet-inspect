@@ -175,6 +175,180 @@ public class FidelityCheckGeneratedFilterTests
     }
 
     [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesReferencedLexicalAndFriendCollisions()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string dependencyPath = Path.Combine(directory, "Neighbour.dll");
+        string assemblyPath = Path.Combine(directory, "fixture.dll");
+        try
+        {
+            CompileAssembly(
+                dependencyPath,
+                """
+                [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("cb")]
+
+                namespace App.IR8Contract
+                {
+                    public sealed class X { }
+                }
+
+                namespace System
+                {
+                    internal sealed class IR8Friend { }
+                }
+
+                namespace A.B
+                {
+                    public sealed class IFoo { }
+                }
+                """);
+            CompileAssembly(
+                assemblyPath,
+                """
+                namespace N
+                {
+                    public interface IR8Contract { void M(); }
+                }
+
+                namespace App
+                {
+                    public sealed class ReferencedChildNamespace : N.IR8Contract
+                    {
+                        void N.IR8Contract.M() { }
+                    }
+                }
+
+                namespace Contracts
+                {
+                    public interface IR8Friend { void M(); }
+                }
+
+                namespace Other
+                {
+                    public sealed class FriendVisibleType : Contracts.IR8Friend
+                    {
+                        void Contracts.IR8Friend.M() { }
+                    }
+                }
+
+                namespace A
+                {
+                    public interface IFoo { void M(); }
+
+                    public sealed class Control : IFoo
+                    {
+                        void IFoo.M() { }
+                    }
+                }
+
+                namespace A.B
+                {
+                    public sealed class NearerReferencedType : A.IFoo
+                    {
+                        void A.IFoo.M() { }
+                    }
+                }
+
+                namespace System
+                {
+                    public interface IEnumerator { void M(); }
+                }
+
+                namespace System.Collections
+                {
+                    public sealed class FrameworkNearerType : System.IEnumerator
+                    {
+                        void System.IEnumerator.M() { }
+                    }
+                }
+                """,
+                [MetadataReference.CreateFromFile(dependencyPath)]);
+
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+            foreach (var (typeName, methodName, admitted) in new[]
+            {
+                ("Control", "A.IFoo.M", true),
+                ("ReferencedChildNamespace", "N.IR8Contract.M", false),
+                ("FriendVisibleType", "Contracts.IR8Friend.M", false),
+                ("NearerReferencedType", "A.IFoo.M", false),
+                ("FrameworkNearerType", "System.IEnumerator.M", false)
+            })
+            {
+                var type = reader.GetTypeDefinition(Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                        == typeName));
+                var method = Assert.Single(
+                    type.GetMethods(),
+                    handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                        == methodName);
+                foreach (bool targeted in new[] { true, false })
+                {
+                    var rendered = FidelityCheck.TryRenderTargetMember(
+                        pe,
+                        source,
+                        method,
+                        targeted,
+                        isPrimaryConstructor: false);
+                    if (admitted)
+                        Assert.NotNull(rendered);
+                    else
+                        Assert.Null(rendered);
+                }
+            }
+
+            var targetedResults = FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName is "A.Control"
+                    or "App.ReferencedChildNamespace"
+                    or "Other.FriendVisibleType"
+                    or "A.B.NearerReferencedType"
+                    or "System.Collections.FrameworkNearerType",
+                candidate => candidate.Method.EndsWith(".M", StringComparison.Ordinal));
+            var batchResults = FidelityCheck.Evaluate(
+                assemblyPath,
+                typeName => typeName is "A.Control"
+                    or "App.ReferencedChildNamespace"
+                    or "Other.FriendVisibleType"
+                    or "A.B.NearerReferencedType"
+                    or "System.Collections.FrameworkNearerType");
+            foreach (var results in new[] { targetedResults, batchResults })
+            {
+                var control = Assert.Single(
+                    results,
+                    result => result.Type == "A.Control"
+                        && result.Method == "A.IFoo.M");
+                Assert.True(control.UsedProductWholeMember);
+                Assert.Equal(FidelityCheck.CompileBackStatus.Exact, control.Status);
+                foreach (string typeName in new[]
+                {
+                    "App.ReferencedChildNamespace",
+                    "Other.FriendVisibleType",
+                    "A.B.NearerReferencedType",
+                    "System.Collections.FrameworkNearerType"
+                })
+                {
+                    Assert.False(Assert.Single(
+                        results,
+                        result => result.Type == typeName
+                            && result.Method.EndsWith(".M", StringComparison.Ordinal))
+                        .UsedProductWholeMember);
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Evaluate_SkipsGeneratedCodeTypesAndMethods()
     {
         var assemblyPath = CompileFixture("""
@@ -303,6 +477,154 @@ public class FidelityCheckGeneratedFilterTests
                     results,
                     result => result.Method == "I.bad-name")
                     .UsedProductWholeMember);
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void TryRenderTargetMember_DeclinesDuplicateMetadataIdentifiers()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"fidelity-generated-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string assemblyPath = Path.Combine(directory, "fixture.dll");
+        try
+        {
+            var assemblyName = new AssemblyName("DuplicateExplicitMethodIdentifiers");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+
+            var parameterInterface = module.DefineType(
+                "IParameters",
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract);
+            var parameterDeclaration = parameterInterface.DefineMethod(
+                "M",
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                typeof(void),
+                [typeof(int), typeof(int)]);
+            parameterDeclaration.DefineParameter(1, ParameterAttributes.None, "x");
+            parameterDeclaration.DefineParameter(2, ParameterAttributes.None, "x");
+            var parameterType = module.DefineType(
+                "DuplicateParameters",
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                typeof(object),
+                [parameterInterface]);
+            parameterType.DefineDefaultConstructor(MethodAttributes.Public);
+            var parameterBody = parameterType.DefineMethod(
+                "IParameters.M",
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                typeof(void),
+                [typeof(int), typeof(int)]);
+            parameterBody.DefineParameter(1, ParameterAttributes.None, "x");
+            parameterBody.DefineParameter(2, ParameterAttributes.None, "x");
+            parameterBody.GetILGenerator().Emit(OpCodes.Ret);
+            parameterType.DefineMethodOverride(parameterBody, parameterDeclaration);
+
+            var genericInterface = module.DefineType(
+                "IGenericParameters",
+                TypeAttributes.Public
+                    | TypeAttributes.Interface
+                    | TypeAttributes.Abstract);
+            var genericDeclaration = genericInterface.DefineMethod(
+                "M",
+                MethodAttributes.Public
+                    | MethodAttributes.Abstract
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                typeof(void),
+                Type.EmptyTypes);
+            genericDeclaration.DefineGenericParameters("T", "T");
+            var genericType = module.DefineType(
+                "DuplicateGenericParameters",
+                TypeAttributes.Public | TypeAttributes.Sealed,
+                typeof(object),
+                [genericInterface]);
+            genericType.DefineDefaultConstructor(MethodAttributes.Public);
+            var genericBody = genericType.DefineMethod(
+                "IGenericParameters.M",
+                MethodAttributes.Private
+                    | MethodAttributes.Final
+                    | MethodAttributes.Virtual
+                    | MethodAttributes.NewSlot,
+                typeof(void),
+                Type.EmptyTypes);
+            genericBody.DefineGenericParameters("T", "T");
+            genericBody.GetILGenerator().Emit(OpCodes.Ret);
+            genericType.DefineMethodOverride(genericBody, genericDeclaration);
+
+            parameterInterface.CreateType();
+            genericInterface.CreateType();
+            parameterType.CreateType();
+            genericType.CreateType();
+            assemblyBuilder.Save(assemblyPath);
+
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var reader = pe.GetMetadataReader();
+            using var source = MetadataSource.Open(assemblyPath);
+            foreach (var (typeName, methodName) in new[]
+            {
+                ("DuplicateParameters", "IParameters.M"),
+                ("DuplicateGenericParameters", "IGenericParameters.M")
+            })
+            {
+                var type = reader.GetTypeDefinition(Assert.Single(
+                    reader.TypeDefinitions,
+                    handle => reader.GetString(reader.GetTypeDefinition(handle).Name)
+                        == typeName));
+                var method = Assert.Single(
+                    type.GetMethods(),
+                    handle => reader.GetString(reader.GetMethodDefinition(handle).Name)
+                        == methodName);
+                Assert.Null(FidelityCheck.TryRenderTargetMember(
+                    pe,
+                    source,
+                    method,
+                    targeted: true,
+                    isPrimaryConstructor: false));
+                Assert.Null(FidelityCheck.TryRenderTargetMember(
+                    pe,
+                    source,
+                    method,
+                    targeted: false,
+                    isPrimaryConstructor: false));
+            }
+
+            foreach (var results in new[]
+            {
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName.StartsWith(
+                        "Duplicate",
+                        StringComparison.Ordinal),
+                    candidate => candidate.Method.EndsWith(".M", StringComparison.Ordinal)),
+                FidelityCheck.Evaluate(
+                    assemblyPath,
+                    typeName => typeName.StartsWith(
+                        "Duplicate",
+                        StringComparison.Ordinal))
+            })
+            {
+                Assert.All(
+                    results.Where(result => result.Method.EndsWith(
+                        ".M",
+                        StringComparison.Ordinal)),
+                    result => Assert.False(result.UsedProductWholeMember));
             }
         }
         finally
