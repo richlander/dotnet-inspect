@@ -194,6 +194,9 @@ public sealed class InspectionGraphCommandTests
             static execution => Assert.Equal(0, execution.ExitCode));
         Assert.Contains(PackageId, markdown.Output, StringComparison.Ordinal);
         Assert.Contains(OtherPackageId, markdown.Output, StringComparison.Ordinal);
+        Assert.Equal(
+            1,
+            CountOutput.CountMarkdownTableRows(markdown.Output));
         Assert.Contains(PackageId, table.Output, StringComparison.Ordinal);
         Assert.DoesNotContain(ThirdPackageId, table.Output, StringComparison.Ordinal);
         Assert.Equal("1", count.Output.Trim());

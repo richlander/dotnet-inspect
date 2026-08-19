@@ -46,7 +46,10 @@ tabular stream. Tree nodes are presentation context, not additional rows.
 logical relationship. Its package groups and finer member/type nodes are
 presentation context, while `--count` and `--rows` count or select logical
 edges consistently across Markdown, tree, Mermaid, tabular, and structured
-output.
+output. Isolated explicit packages remain node/group context in graph and JSON
+views, but never become empty data rows in the default Markdown edge table.
+`OutputModes_UseTheSameWindowedLogicalEdges` gates the rendered Markdown table
+row count against the selected logical-edge count.
 
 The `graph integrations --json` failure array preserves both presentation and
 typed addressing: each failure carries its rendered target plus

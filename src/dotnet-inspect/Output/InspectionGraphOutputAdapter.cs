@@ -217,7 +217,11 @@ internal static class InspectionGraphOutputAdapter
             {
                 if (embeddedMermaid)
                 {
-                    writer.WriteGraph(ToGraph(document, rows));
+                    writer.WriteGraph(
+                        ToGraph(
+                            document,
+                            rows,
+                            includeIsolatedPackages: true));
                 }
                 else
                 {
@@ -231,7 +235,11 @@ internal static class InspectionGraphOutputAdapter
         }
         else
         {
-            writer.WriteGraph(ToGraph(document, rows));
+            writer.WriteGraph(
+                ToGraph(
+                    document,
+                    rows,
+                    includeIsolatedPackages: embeddedMermaid));
         }
         WriteFailures(writer, document);
         writer.Flush();
@@ -243,7 +251,11 @@ internal static class InspectionGraphOutputAdapter
         IMarkoutFormatter formatter)
     {
         var writer = new MarkoutWriter(Console.Out, formatter);
-        writer.WriteGraph(ToGraph(document, rows));
+        writer.WriteGraph(
+            ToGraph(
+                document,
+                rows,
+                includeIsolatedPackages: true));
         writer.Flush();
     }
 
@@ -278,7 +290,8 @@ internal static class InspectionGraphOutputAdapter
 
     static Markout.Graph ToGraph(
         InspectionGraphDocument document,
-        IReadOnlyList<InspectionGraphEdgeRow> rows)
+        IReadOnlyList<InspectionGraphEdgeRow> rows,
+        bool includeIsolatedPackages)
     {
         InspectionGraphEdge[] selectedEdges = SelectedEdges(
             document,
@@ -306,7 +319,8 @@ internal static class InspectionGraphOutputAdapter
                 });
         }
 
-        if (selectedEdges.Length > 0 || document.Edges.IsEmpty)
+        if (includeIsolatedPackages
+            && (selectedEdges.Length > 0 || document.Edges.IsEmpty))
         {
             foreach (InspectionGraphGroup group in document.Groups)
             {
