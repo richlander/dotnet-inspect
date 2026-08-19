@@ -16,6 +16,13 @@ namespace DotnetInspector.Commands;
 
 public class ProjectCommand
 {
+    private enum ProjectSkillReadFailure
+    {
+        None,
+        MissingFile,
+        InvalidIdentity,
+    }
+
     public const string Name = "project";
     private const string ProjectSkillsSection = "Skills";
     private static readonly string[] ProjectSectionNames = [ProjectSkillsSection];
@@ -335,10 +342,12 @@ public class ProjectCommand
                      ["skills/SKILL.md", "skills/**/SKILL.md"],
                      log))
         {
-            if (!TryCreateSkillRow(file, out var row))
+            var failure = CreateSkillRow(file, out var row);
+            if (failure != ProjectSkillReadFailure.None)
             {
-                CommandError.Write(
-                    "A restored package skill must use an Agent Skills-compliant name that matches its containing directory.");
+                CommandError.Write(failure == ProjectSkillReadFailure.MissingFile
+                    ? "A restored package skill listed in project.assets.json is missing from the package cache."
+                    : "A restored package skill must declare an Agent Skills-compliant name that matches its containing directory.");
                 return 1;
             }
 
@@ -369,16 +378,18 @@ public class ProjectCommand
         return 0;
     }
 
-    private static bool TryCreateSkillRow(ProjectPackageFileEntry file, out ProjectSkillRow? row)
+    private static ProjectSkillReadFailure CreateSkillRow(
+        ProjectPackageFileEntry file,
+        out ProjectSkillRow? row)
     {
         row = null;
         if (string.IsNullOrWhiteSpace(file.FullPath) || !File.Exists(file.FullPath))
-            return true;
+            return ProjectSkillReadFailure.MissingFile;
 
         var content = File.ReadAllText(file.FullPath);
         var frontmatter = MarkdownContent.ParseYamlFrontmatter(content);
         if (!TryGetSkillName(file.Path, frontmatter, out var name))
-            return false;
+            return ProjectSkillReadFailure.InvalidIdentity;
 
         frontmatter.TryGetValue("description", out var description);
 
@@ -390,7 +401,7 @@ public class ProjectCommand
             name,
             description ?? "",
             file.FullPath);
-        return true;
+        return ProjectSkillReadFailure.None;
     }
 
     private static bool TryGetSkillName(
@@ -410,7 +421,7 @@ public class ProjectCommand
         var parentSeparator = parentPath.LastIndexOf('/');
         var directoryName = parentPath[(parentSeparator + 1)..];
         if (!frontmatter.TryGetValue("name", out name!))
-            name = directoryName;
+            return false;
 
         return string.Equals(name, directoryName, StringComparison.Ordinal)
             && IsAgentSkillName(name);

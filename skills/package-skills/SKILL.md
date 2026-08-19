@@ -31,6 +31,14 @@ dnx dotnet-inspect -y -- package Markout@0.35.2 \
 Do not install from an unpinned package query when the repository consumes a
 specific version.
 
+The package table exposes paths and sizes, not parsed skill identities or
+descriptions. In this package-only flow, print every row and inspect its YAML
+frontmatter before selecting or writing anything. Require a declared `name`
+that is 1-64 lowercase ASCII letters, digits, or hyphens, with no leading,
+trailing, or consecutive hyphens, and exactly matches the package directory
+containing `SKILL.md`. Refuse the candidate if any check fails. Never compose
+an output path from a package-authored value before completing those checks.
+
 ## Select from the whole skill set
 
 Treat every listed row as a candidate. `--print` requires `--row` when the
@@ -61,11 +69,10 @@ Inspect repository instructions, its existing skill layout, and the active
 harness, then follow any user direction. Common repository roots include
 `skills/`, `.agents/skills/`, `.github/skills/`, and `.claude/skills/`.
 
-`dotnet-inspect project ... -S Skills` refuses package skills whose names do
-not comply with the Agent Skills name grammar or do not match their containing
-package directory. Do not recover one by sanitizing or renaming it. For a
-listed skill, preserve that validated name as the leaf directory under the
-repository-selected root.
+`dotnet-inspect project ... -S Skills` applies the same checks and refuses a
+missing or noncompliant name. Do not recover a refused skill by sanitizing or
+renaming it. For an accepted skill, preserve that validated name as the leaf
+directory under the repository-selected root.
 
 For example, Markout itself keeps its skills under `skills/`, so its output
 formats skill belongs at `skills/markout-output-formats/SKILL.md`. Create that

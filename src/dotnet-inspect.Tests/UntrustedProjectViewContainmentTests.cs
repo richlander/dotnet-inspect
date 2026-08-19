@@ -178,7 +178,7 @@ public class UntrustedProjectViewContainmentTests : IDisposable
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "must use an Agent Skills-compliant name that matches its containing directory",
+            "must declare an Agent Skills-compliant name that matches its containing directory",
             error);
         Assert.DoesNotContain("INJECTED", error);
         HostileOutputAssert.NoRenderingHazard(error, "UntrustedProjectViewContainmentTests");

@@ -168,7 +168,7 @@ reported on stderr rather than mixed into structured output.
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
-| Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files whose Agent Skills names match their directories, plus version-resolved package README/PROJECT docs from restored projects. Invalid skill identities fail visibly. |
+| Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files whose declared Agent Skills names match their directories, plus version-resolved package README/PROJECT docs from restored projects. Invalid identities and missing restored skill files fail visibly. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections and shared with browser/WASM. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
