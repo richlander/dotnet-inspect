@@ -253,6 +253,7 @@ internal sealed class DegradedTypeNode : TypeNode
 /// <summary>C# primitive types (int, string, object, etc.).</summary>
 internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : TypeNode
 {
+    public string Name => name;
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
 

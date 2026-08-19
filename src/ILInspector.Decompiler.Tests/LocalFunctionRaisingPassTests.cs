@@ -66,6 +66,17 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void NestedScopeLocalFunction_RetainsInterfaceReceiverCast()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.InterfaceBoxInLocalFunctionWithLocal));
+
+        Assert.Contains("static int Call(CfgDimStructConsumer consumer, int value)", output);
+        Assert.Contains("((CfgDimFace)consumer).Value()", output);
+        Assert.DoesNotContain("consumer.Value()", output);
+        Assert.DoesNotContain("g__", output);
+    }
+
+    [Fact]
     public void InlineLocalFunction_SpellsEnumConstantArgumentByMember()
     {
         // #2983 (inline path): a local function with no locals or stack slots
