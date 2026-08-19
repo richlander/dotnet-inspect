@@ -12,10 +12,18 @@ public sealed class InspectionDefinitionRegistry
     private readonly Dictionary<(InspectionDefinitionKind Kind, string Id), InspectionDefinitionRecord> _records =
         new();
 
-    public IReadOnlyCollection<InspectionDefinitionRecord> Records => _records.Values;
+    /// <summary>
+    /// Snapshot of registered records. Enumeration is isolated from later <see cref="Add"/> calls.
+    /// </summary>
+    public IReadOnlyCollection<InspectionDefinitionRecord> Records =>
+        new ReadOnlyCollection<InspectionDefinitionRecord>(_records.Values.ToArray());
 
-    public IEnumerable<ScenarioDefinition> Scenarios =>
-        _records.Values.OfType<ScenarioDefinition>();
+    /// <summary>
+    /// Snapshot of registered scenarios. Enumeration is isolated from later <see cref="Add"/> calls.
+    /// </summary>
+    public IReadOnlyList<ScenarioDefinition> Scenarios =>
+        new ReadOnlyCollection<ScenarioDefinition>(
+            _records.Values.OfType<ScenarioDefinition>().ToArray());
 
     public void Add(InspectionDefinitionRecord record)
     {

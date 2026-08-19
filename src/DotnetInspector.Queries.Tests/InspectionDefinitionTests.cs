@@ -68,9 +68,7 @@ public class InspectionDefinitionTests
         {
             var json = InspectionDefinitionJson.Serialize(record);
             var roundTripped = InspectionDefinitionJson.Parse(json);
-            Assert.Equal(record.Kind, roundTripped.Kind);
-            Assert.Equal(record.Id, roundTripped.Id);
-            Assert.Equal(record.SchemaVersion, roundTripped.SchemaVersion);
+            AssertDefinitionSemanticsEqual(record, roundTripped);
             Assert.Equal(json, InspectionDefinitionJson.Serialize(roundTripped));
         }
     }
@@ -548,12 +546,67 @@ public class InspectionDefinitionTests
                 members: [new DefinitionMemberCoordinate.PackageCoordinate("P", "1.0.0", "net10.0")])]));
         registry.Add(new ScenarioDefinition(1, "s", workspace: "ws"));
         var resolved = registry.ResolveScenario("s");
-        Assert.ThrowsAny<Exception>(() =>
-        {
-            ((ResolvedWorkspaceContext[])resolved.Contexts)[0] = null!;
-        });
-        Assert.Single(resolved.Contexts);
+        var original = Assert.Single(resolved.Contexts);
+        var mutable = Assert.IsAssignableFrom<IList<ResolvedWorkspaceContext>>(resolved.Contexts);
+        Assert.True(mutable.IsReadOnly);
+        Assert.ThrowsAny<Exception>(() => mutable[0] = null!);
+        Assert.ThrowsAny<Exception>(() => mutable.Clear());
+        Assert.Same(original, Assert.Single(resolved.Contexts));
         Assert.NotNull(resolved.SelectedContext);
+    }
+
+    [Fact]
+    public void Registry_RecordsAndScenarios_AreEnumerationSnapshots()
+    {
+        var registry = new InspectionDefinitionRegistry();
+        registry.Add(new QueryDefinition(1, "q1"));
+        registry.Add(new ScenarioDefinition(1, "s1", input: "path.dll"));
+
+        var recordsSnapshot = registry.Records;
+        var scenariosSnapshot = registry.Scenarios;
+        Assert.Equal(2, recordsSnapshot.Count);
+        Assert.Single(scenariosSnapshot);
+
+        registry.Add(new QueryDefinition(1, "q2"));
+        Assert.Equal(2, recordsSnapshot.Count);
+        Assert.Single(scenariosSnapshot);
+        Assert.Equal(3, registry.Records.Count);
+        Assert.Single(registry.Scenarios);
+    }
+
+    [Fact]
+    public void Serialize_RejectsRecordsThatExceedCoordinateBudget()
+    {
+        var members = Enumerable.Range(0, InspectionDefinitionJson.MaxCoordinatesPerRecord + 1)
+            .Select(i => (DefinitionMemberCoordinate)new DefinitionMemberCoordinate.PackageCoordinate(
+                $"P{i}",
+                "1.0.0",
+                "net10.0"))
+            .ToArray();
+        var oversized = new WorkspaceDefinition(
+            1,
+            "ws",
+            [new WorkspaceContextDefinition("c", members: members)]);
+
+        var ex = Assert.Throws<InspectionDefinitionException>(
+            () => InspectionDefinitionJson.Serialize(oversized));
+        Assert.Contains("coordinate", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parse_RejectsBlankQueryIdAndViewSelectors()
+    {
+        var queryEx = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "query", "id": "q", "queryId": "   " }
+            """));
+        Assert.Contains("queryId", queryEx.Message, StringComparison.OrdinalIgnoreCase);
+
+        var viewEx = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "view", "id": "v", "type": "   " }
+            """));
+        Assert.Contains("type", viewEx.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -664,5 +717,115 @@ public class InspectionDefinitionTests
         Assert.False(ProductInspectionDemos.TryResolveHomeScenario("missing", out _));
         Assert.True(ProductInspectionDemos.TryResolveHomeScenario("stj-serializer", out var resolved));
         Assert.Equal("stj-serializer", resolved.ScenarioId);
+    }
+
+    private static void AssertDefinitionSemanticsEqual(
+        InspectionDefinitionRecord expected,
+        InspectionDefinitionRecord actual)
+    {
+        Assert.Equal(expected.Kind, actual.Kind);
+        Assert.Equal(expected.Id, actual.Id);
+        Assert.Equal(expected.SchemaVersion, actual.SchemaVersion);
+
+        switch (expected)
+        {
+            case CatalogDefinition catalog:
+                var actualCatalog = Assert.IsType<CatalogDefinition>(actual);
+                AssertGroupsEqual(catalog.Groups, actualCatalog.Groups);
+                break;
+            case WorkspaceDefinition workspace:
+                var actualWorkspace = Assert.IsType<WorkspaceDefinition>(actual);
+                Assert.Equal(workspace.Title, actualWorkspace.Title);
+                Assert.Equal(workspace.Description, actualWorkspace.Description);
+                Assert.Equal(workspace.Contexts.Count, actualWorkspace.Contexts.Count);
+                for (var i = 0; i < workspace.Contexts.Count; i++)
+                {
+                    AssertContextEqual(workspace.Contexts[i], actualWorkspace.Contexts[i]);
+                }
+
+                AssertGroupsEqual(workspace.Groups, actualWorkspace.Groups);
+                break;
+            case QueryDefinition query:
+                var actualQuery = Assert.IsType<QueryDefinition>(actual);
+                Assert.Equal(query.QueryId, actualQuery.QueryId);
+                break;
+            case ViewDefinition view:
+                var actualView = Assert.IsType<ViewDefinition>(actual);
+                Assert.Equal(view.Lens, actualView.Lens);
+                Assert.Equal(view.Type, actualView.Type);
+                Assert.Equal(view.MemberAnchor, actualView.MemberAnchor);
+                Assert.Equal(view.MemberSignature, actualView.MemberSignature);
+                Assert.Equal(view.MemberKey, actualView.MemberKey);
+                Assert.Equal(view.Section, actualView.Section);
+                Assert.Equal(view.Library, actualView.Library);
+                break;
+            case NavigationDefinition navigation:
+                var actualNavigation = Assert.IsType<NavigationDefinition>(actual);
+                Assert.Equal(navigation.Focus, actualNavigation.Focus);
+                Assert.Equal(navigation.Tabs.Count, actualNavigation.Tabs.Count);
+                for (var i = 0; i < navigation.Tabs.Count; i++)
+                {
+                    AssertTabEqual(navigation.Tabs[i], actualNavigation.Tabs[i]);
+                }
+
+                break;
+            case ScenarioDefinition scenario:
+                var actualScenario = Assert.IsType<ScenarioDefinition>(actual);
+                Assert.Equal(scenario.Title, actualScenario.Title);
+                Assert.Equal(scenario.Description, actualScenario.Description);
+                Assert.Equal(scenario.Workspace, actualScenario.Workspace);
+                Assert.Equal(scenario.Context, actualScenario.Context);
+                Assert.Equal(scenario.Input, actualScenario.Input);
+                Assert.Equal(scenario.Query, actualScenario.Query);
+                Assert.Equal(scenario.View, actualScenario.View);
+                Assert.Equal(scenario.Navigation, actualScenario.Navigation);
+                break;
+            default:
+                throw new Xunit.Sdk.XunitException($"Unhandled record kind {expected.Kind}.");
+        }
+    }
+
+    private static void AssertGroupsEqual(
+        IReadOnlyList<CatalogGroupDefinition> expected,
+        IReadOnlyList<CatalogGroupDefinition> actual)
+    {
+        Assert.Equal(expected.Count, actual.Count);
+        for (var i = 0; i < expected.Count; i++)
+        {
+            Assert.Equal(expected[i].Name, actual[i].Name);
+            AssertCoordinatesEqual(expected[i].Members, actual[i].Members);
+            AssertGroupsEqual(expected[i].Children, actual[i].Children);
+        }
+    }
+
+    private static void AssertContextEqual(
+        WorkspaceContextDefinition expected,
+        WorkspaceContextDefinition actual)
+    {
+        Assert.Equal(expected.Name, actual.Name);
+        Assert.Equal(expected.Framework, actual.Framework);
+        Assert.Equal(expected.RuntimeIdentifier, actual.RuntimeIdentifier);
+        Assert.Equal(expected.Subscribe, actual.Subscribe);
+        AssertCoordinatesEqual(expected.Members, actual.Members);
+    }
+
+    private static void AssertTabEqual(
+        NavigationTabDefinition expected,
+        NavigationTabDefinition actual)
+    {
+        Assert.Equal(expected.Id, actual.Id);
+        Assert.Equal(expected.Subscribe, actual.Subscribe);
+        Assert.Equal(expected.Framework, actual.Framework);
+        Assert.Equal(expected.RuntimeIdentifier, actual.RuntimeIdentifier);
+        Assert.Equal(expected.Coordinate, actual.Coordinate);
+    }
+
+    private static void AssertCoordinatesEqual(
+        IReadOnlyList<DefinitionMemberCoordinate> expected,
+        IReadOnlyList<DefinitionMemberCoordinate> actual)
+    {
+        Assert.Equal(expected.Count, actual.Count);
+        for (var i = 0; i < expected.Count; i++)
+            Assert.Equal(expected[i], actual[i]);
     }
 }

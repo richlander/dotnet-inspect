@@ -173,7 +173,7 @@ public sealed record QueryDefinition : InspectionDefinitionRecord
     public QueryDefinition(int schemaVersion, string id, string? queryId = null)
         : base(schemaVersion, id)
     {
-        QueryId = queryId;
+        QueryId = DefinitionText.NormalizeOptional(queryId, nameof(queryId));
     }
 
     public override InspectionDefinitionKind Kind => InspectionDefinitionKind.Query;
@@ -197,6 +197,14 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         string? library = null)
         : base(schemaVersion, id)
     {
+        lens = DefinitionText.NormalizeOptional(lens, nameof(lens));
+        type = DefinitionText.NormalizeOptional(type, nameof(type));
+        memberAnchor = DefinitionText.NormalizeOptional(memberAnchor, nameof(memberAnchor));
+        memberSignature = DefinitionText.NormalizeOptional(memberSignature, nameof(memberSignature));
+        memberKey = DefinitionText.NormalizeOptional(memberKey, nameof(memberKey));
+        section = DefinitionText.NormalizeOptional(section, nameof(section));
+        library = DefinitionText.NormalizeOptional(library, nameof(library));
+
         if (memberAnchor is not null && memberSignature is not null)
         {
             throw new ArgumentException(
@@ -205,7 +213,7 @@ public sealed record ViewDefinition : InspectionDefinitionRecord
         }
 
         if ((memberAnchor is not null || memberSignature is not null || memberKey is not null)
-            && string.IsNullOrWhiteSpace(type))
+            && type is null)
         {
             throw new ArgumentException(
                 "Member selectors require type.",
@@ -331,12 +339,12 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
         string? navigation = null)
         : base(schemaVersion, id)
     {
-        workspace = NormalizeOptionalReference(workspace, nameof(workspace));
-        input = NormalizeOptionalReference(input, nameof(input));
-        context = NormalizeOptionalReference(context, nameof(context));
-        query = NormalizeOptionalReference(query, nameof(query));
-        view = NormalizeOptionalReference(view, nameof(view));
-        navigation = NormalizeOptionalReference(navigation, nameof(navigation));
+        workspace = DefinitionText.NormalizeOptional(workspace, nameof(workspace));
+        input = DefinitionText.NormalizeOptional(input, nameof(input));
+        context = DefinitionText.NormalizeOptional(context, nameof(context));
+        query = DefinitionText.NormalizeOptional(query, nameof(query));
+        view = DefinitionText.NormalizeOptional(view, nameof(view));
+        navigation = DefinitionText.NormalizeOptional(navigation, nameof(navigation));
 
         var hasWorkspace = workspace is not null;
         var hasInput = input is not null;
@@ -369,20 +377,6 @@ public sealed record ScenarioDefinition : InspectionDefinitionRecord
         Query = query;
         View = view;
         Navigation = navigation;
-    }
-
-    private static string? NormalizeOptionalReference(string? value, string paramName)
-    {
-        if (value is null)
-            return null;
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            throw new ArgumentException(
-                $"Scenario {paramName} must not be blank.",
-                paramName);
-        }
-
-        return value;
     }
 
     public override InspectionDefinitionKind Kind => InspectionDefinitionKind.Scenario;
@@ -467,4 +461,25 @@ file static class DefinitionCollections
         values is null || values.Count == 0
             ? Array.Empty<T>()
             : new ReadOnlyCollection<T>(values is T[] array ? [.. array] : [.. values]);
+}
+
+/// <summary>
+/// Optional definition text is null-means-absent. Non-null blank values are rejected so
+/// callers never treat whitespace as a present identity or selector.
+/// </summary>
+file static class DefinitionText
+{
+    public static string? NormalizeOptional(string? value, string paramName)
+    {
+        if (value is null)
+            return null;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException(
+                $"{paramName} must not be blank.",
+                paramName);
+        }
+
+        return value;
+    }
 }

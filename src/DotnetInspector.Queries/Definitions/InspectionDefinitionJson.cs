@@ -78,8 +78,55 @@ public static class InspectionDefinitionJson
     public static string Serialize(InspectionDefinitionRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);
+        EnsureWithinPortableLimits(record);
         var dto = ToDto(record);
-        return JsonSerializer.Serialize(dto, InspectionDefinitionJsonContext.Default.InspectionDefinitionDto);
+        var json = JsonSerializer.Serialize(dto, InspectionDefinitionJsonContext.Default.InspectionDefinitionDto);
+        var byteCount = s_utf8Strict.GetByteCount(json);
+        if (byteCount > MaxUtf8ByteLength)
+        {
+            throw new InspectionDefinitionException(
+                $"Serialized definition JSON exceeds the {MaxUtf8ByteLength}-byte limit.");
+        }
+
+        return json;
+    }
+
+    /// <summary>
+    /// Portable emit must reject in-memory records the parser would refuse, so serialize→parse
+    /// remains a closed boundary for well-formed product definitions.
+    /// </summary>
+    private static void EnsureWithinPortableLimits(InspectionDefinitionRecord record)
+    {
+        var coordinateCount = CountCoordinates(record);
+        if (coordinateCount > MaxCoordinatesPerRecord)
+        {
+            throw new InspectionDefinitionException(
+                $"Definition exceeds the {MaxCoordinatesPerRecord}-coordinate limit.");
+        }
+    }
+
+    private static int CountCoordinates(InspectionDefinitionRecord record) =>
+        record switch
+        {
+            CatalogDefinition catalog => CountGroupCoordinates(catalog.Groups),
+            WorkspaceDefinition workspace =>
+                CountGroupCoordinates(workspace.Groups)
+                + workspace.Contexts.Sum(context => context.Members.Count),
+            NavigationDefinition navigation =>
+                navigation.Tabs.Count(tab => tab.Coordinate is not null),
+            _ => 0,
+        };
+
+    private static int CountGroupCoordinates(IReadOnlyList<CatalogGroupDefinition> groups)
+    {
+        var count = 0;
+        foreach (var group in groups)
+        {
+            count += group.Members.Count;
+            count += CountGroupCoordinates(group.Children);
+        }
+
+        return count;
     }
 
     internal static InspectionDefinitionRecord Bind(JsonElement root)

@@ -1076,10 +1076,13 @@ is not part of runtime-pack acquisition. It supplies:
   so an archive folder whose framework text carries a sign is an ordinary
   unusable folder rather than an exception escaping the loader after commit.
 
-Nothing else on the list above exists yet. There is no record schema or
-serializer, no group catalog or grammar, no packet projection, no `platform`,
-`project`, `local`, or `directory` coordinate, and no preset binding, so every
-property that depends on those remains unverified.
+The residual open items from the list above are: group catalog grammar and
+subscribe lowering, packet projection, filesystem `project` / `local` /
+`directory` coordinate hosts, and preset/query binding. Coordinate kinds
+`package`, `platform`, and `embedded` already lower; the record schema,
+serializer, registry, and product demos are gated by
+`InspectionDefinitionTests`. Every property that still depends on the residual
+items remains unverified.
 
-Until those gates exist, nothing in this note beyond the slice above is a
-behavior claim.
+Until those residual gates exist, nothing in this note beyond the slices above
+is a behavior claim.
