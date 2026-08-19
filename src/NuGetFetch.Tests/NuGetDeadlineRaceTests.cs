@@ -179,6 +179,75 @@ public sealed class NuGetDeadlineRaceTests
             });
     }
 
+    [Fact]
+    public async Task RequestDeadline_OutranksMetadataBodyDeadlineWhenTimerCallbackIsDelayed()
+    {
+        await WithDelayedTimerCallbacksAsync(
+            async () =>
+            {
+                var options = new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromMilliseconds(120),
+                    OperationTimeout = TimeSpan.FromSeconds(5),
+                    MetadataBodyTimeout = TimeSpan.FromMilliseconds(80),
+                };
+                using var operation = new NuGetOperationDeadline(
+                    options,
+                    Timeout.InfiniteTimeSpan,
+                    TestContext.Current.CancellationToken);
+                await using var stream = new DelayedReadStream(
+                    TimeSpan.FromMilliseconds(250));
+
+                NuGetRequestTimeoutException error =
+                    await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
+                        () => operation.RunRequestAsync(
+                            token => NuGetMetadataReader.ReadStreamAsync(
+                                stream,
+                                ReadOneByteAsync,
+                                options,
+                                token).AsTask()));
+
+                Assert.Equal(options.RequestTimeout, error.Timeout);
+            });
+    }
+
+    [Fact]
+    public async Task MetadataBodyDeadline_RemainsAuthoritativeWhenOuterDeadlinesHaveNotExpired()
+    {
+        await WithDelayedTimerCallbacksAsync(
+            async () =>
+            {
+                var options = new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(5),
+                    OperationTimeout = TimeSpan.FromSeconds(10),
+                    MetadataBodyTimeout = TimeSpan.FromMilliseconds(40),
+                };
+                using var operation = new NuGetOperationDeadline(
+                    options,
+                    Timeout.InfiniteTimeSpan,
+                    TestContext.Current.CancellationToken);
+                await using var stream = new DelayedReadStream(
+                    TimeSpan.FromMilliseconds(250));
+
+                NuGetMetadataBodyTimeoutException error =
+                    await Assert.ThrowsAsync<NuGetMetadataBodyTimeoutException>(
+                        () => operation.RunRequestAsync(
+                            token => NuGetMetadataReader.ReadStreamAsync(
+                                stream,
+                                ReadOneByteAsync,
+                                options,
+                                token).AsTask()));
+
+                Assert.Equal(options.MetadataBodyTimeout, error.Timeout);
+            });
+    }
+
+    private static ValueTask<int> ReadOneByteAsync(
+        Stream stream,
+        CancellationToken cancellationToken) =>
+        stream.ReadAsync(new byte[1], cancellationToken);
+
     private static NuGetOperationDeadline CreateOperation() =>
         new(
             CreateOptions(),
@@ -226,6 +295,18 @@ public sealed class NuGetDeadlineRaceTests
             releaseBlocker.Set();
             Assert.True(ThreadPool.SetMaxThreads(originalMaxWorkers, maxIo));
             Assert.True(ThreadPool.SetMinThreads(originalMinWorkers, minIo));
+        }
+    }
+
+    private sealed class DelayedReadStream(TimeSpan delay)
+        : MemoryStream([42], writable: false)
+    {
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            Thread.Sleep(delay);
+            return base.ReadAsync(buffer, cancellationToken);
         }
     }
 }

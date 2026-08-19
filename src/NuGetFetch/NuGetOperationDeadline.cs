@@ -48,8 +48,9 @@ internal sealed class NuGetOperationDeadline : IDisposable
             throw;
         }
         catch (NuGetMetadataBodyTimeoutException ex)
-            when (_callerToken.IsCancellationRequested
-                || IsOperationExpired())
+            when (IsAnyDeadlineExpired(
+                requestStarted,
+                requestCancellation))
         {
             ThrowTranslated(
                 new OperationCanceledException(

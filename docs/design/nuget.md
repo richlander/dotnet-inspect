@@ -46,7 +46,9 @@ cancellation or transport abort, gated by
 `NuGetMetadataLimitTests.DirectNuGetApiCallerCancellationRetainsCallerToken`.
 When multiple deadlines have elapsed, attribution follows caller cancellation, operation ceiling,
 request deadline, then metadata-body deadline. This is gated under delayed callbacks by
-`NuGetDeadlineRaceTests.OperationCeiling_OutranksMetadataBodyDeadlineWhenTimerCallbackIsDelayed`.
+`NuGetDeadlineRaceTests.OperationCeiling_OutranksMetadataBodyDeadlineWhenTimerCallbackIsDelayed`,
+`NuGetDeadlineRaceTests.RequestDeadline_OutranksMetadataBodyDeadlineWhenTimerCallbackIsDelayed`, and
+`NuGetDeadlineRaceTests.MetadataBodyDeadline_RemainsAuthoritativeWhenOuterDeadlinesHaveNotExpired`.
 Search discovery supports the unversioned,
 `3.0.0-beta`, `3.0.0-rc`, `3.0.0`, and `3.5.0` service types. Unknown future types do not eclipse
 the highest supported capability.
