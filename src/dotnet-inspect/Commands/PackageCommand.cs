@@ -3682,7 +3682,7 @@ public class PackageCommand
             string json = JsonSerializer.Serialize(
                 inspections.ToArray(),
                 JsonContext.Default.LibraryInspectionArray);
-            WriteAllLibrariesOutput(
+            OutputDestination.Write(
                 libraryOptions.OutputPath,
                 libraryOptions.Rows,
                 writer => writer.WriteLine(json));
@@ -3750,7 +3750,7 @@ public class PackageCommand
             }
             else
             {
-                WriteAllLibrariesOutput(
+                OutputDestination.Write(
                     libraryOptions.OutputPath,
                     libraryOptions.Rows,
                     static _ => { });
@@ -3806,7 +3806,7 @@ public class PackageCommand
         }
         else
         {
-            WriteAllLibrariesOutput(
+            OutputDestination.Write(
                 libraryOptions.OutputPath,
                 libraryOptions.Rows,
                 writer => OutputFormatter.WriteLfLine(writer, markdown));
@@ -4140,14 +4140,14 @@ public class PackageCommand
         if (!table.HasRowsBeforeWindow)
         {
             CommandError.WriteNote("matched section has no row data across all libraries.");
-            WriteAllLibrariesOutput(
+            OutputDestination.Write(
                 options.OutputPath,
                 options.Rows,
                 static _ => { });
             return true;
         }
 
-        WriteAllLibrariesOutput(options.OutputPath, options.Rows, output =>
+        OutputDestination.Write(options.OutputPath, options.Rows, output =>
         {
             OutputFormatter.WriteTable(output, !options.NoHeader, (writer, formatter) =>
             {
@@ -4166,71 +4166,6 @@ public class PackageCommand
             });
         });
         return true;
-    }
-
-    private static void WriteAllLibrariesOutput(
-        string? outputPath,
-        RowWindow? rowWindow,
-        Action<TextWriter> write)
-    {
-        if (string.IsNullOrEmpty(outputPath))
-        {
-            write(Console.Out);
-            return;
-        }
-
-        using var output = new StreamWriter(
-            outputPath,
-            append: false,
-            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
-        {
-            NewLine = Console.Out.NewLine
-        };
-        CountingTextWriter? countingWriter = null;
-        TextWriter destination = output;
-        if (InfoTracker.Enabled)
-        {
-            countingWriter = new CountingTextWriter(output);
-            destination = countingWriter;
-        }
-
-        TailLineLimitingTextWriter? tailWriter = null;
-        bool hasLineWindow = false;
-        if (rowWindow is null
-            && CommandLineBuilder.HeadLines is int headLines)
-        {
-            destination = new LineLimitingTextWriter(
-                destination,
-                headLines);
-            hasLineWindow = true;
-        }
-
-        if (rowWindow is null
-            && CommandLineBuilder.TailLines is int tailLines)
-        {
-            tailWriter = new TailLineLimitingTextWriter(
-                destination,
-                tailLines);
-            destination = tailWriter;
-            hasLineWindow = true;
-        }
-
-        // Console.SetOut exposes its writer through a synchronized wrapper. Mirror that
-        // composition so formatters take the same streaming path for stdout and files.
-        if (hasLineWindow)
-            destination = TextWriter.Synchronized(destination);
-
-        try
-        {
-            write(destination);
-            tailWriter?.FlushTail();
-            destination.Flush();
-        }
-        finally
-        {
-            if (countingWriter is not null)
-                InfoTracker.RecordOutputChars(countingWriter.CharCount);
-        }
     }
 
     private sealed record AllLibrariesTable(
@@ -4902,8 +4837,9 @@ public class PackageCommand
                     $"{packageName} ({version})").ToString(),
                 Description = description.ToString()
             };
-            WriteDependencyTreeOutput(
+            OutputDestination.Write(
                 options.OutputPath,
+                options.Rows,
                 writer => writer.WriteLine(
                     MarkoutSerializer.Serialize(
                         emptyView,
@@ -4928,33 +4864,14 @@ public class PackageCommand
             Dependencies = ToTreeNodes(graph.Dependencies)
         };
 
-        WriteDependencyTreeOutput(
+        OutputDestination.Write(
             options.OutputPath,
+            options.Rows,
             writer => MarkoutSerializer.Serialize(
                 view,
                 writer,
                 PackageDependenciesContext.Default));
         return 0;
-    }
-
-    private static void WriteDependencyTreeOutput(
-        string? outputPath,
-        Action<TextWriter> write)
-    {
-        if (string.IsNullOrWhiteSpace(outputPath))
-        {
-            write(Console.Out);
-            return;
-        }
-
-        using var output = new StreamWriter(
-            outputPath,
-            append: false,
-            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
-        {
-            NewLine = Console.Out.NewLine
-        };
-        write(output);
     }
 
     /// <summary>

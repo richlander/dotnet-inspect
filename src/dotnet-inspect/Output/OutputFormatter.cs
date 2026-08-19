@@ -467,7 +467,10 @@ public static class OutputFormatter
 
         if (options.Tree && options.Discover == null)
         {
-            WriteReferenceTree(inspection, options.OutputPath);
+            OutputDestination.Write(
+                options.OutputPath,
+                options.Rows,
+                output => WriteReferenceTree(inspection, output));
             return;
         }
 
@@ -537,21 +540,6 @@ public static class OutputFormatter
         return includesMetadata
             ? MarkdownTableRowLimiter.Apply(plainText, rows)
             : plainText;
-    }
-
-    private static void WriteReferenceTree(
-        LibraryInspection inspection,
-        string? outputPath)
-    {
-        if (string.IsNullOrWhiteSpace(outputPath))
-        {
-            WriteReferenceTree(inspection, Console.Out);
-            return;
-        }
-
-        using var output = File.CreateText(outputPath);
-        output.NewLine = Console.Out.NewLine;
-        WriteReferenceTree(inspection, output);
     }
 
     private static void WriteReferenceTree(

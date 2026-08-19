@@ -17217,7 +17217,7 @@ public partial class CommandExecutionTests
                 "--tfm", "net9.0", "--tips", "q");
             var noHeader = await RunAppAsync(
                 "package", packagePath, "-S", "Dependencies", "--tree",
-                "--no-header", "--tips", "q");
+                "--no-header", "--markdown", "--tips", "q");
 
             Assert.Equal(1, canonical.Exit);
             Assert.Empty(canonical.Output);
@@ -17380,6 +17380,75 @@ public partial class CommandExecutionTests
             {
                 Directory.Delete(noDependenciesTempDir, recursive: true);
             }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencyTree_OutputFilePreservesWindowsAndInfo()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        var outputPath = Path.Combine(tempDir, "dependencies.md");
+        try
+        {
+            foreach (string[] lineWindow in new[]
+                     {
+                         new[] { "-n", "2" },
+                         ["-n", "2", "--tail"],
+                     })
+            {
+                var baseline = await RunAppInDirectoryAsync(
+                    tempDir,
+                    [
+                        "package", packagePath, "-S", "Dependencies", "--tree",
+                        "--tfm", "net9.0", "--tips", "q",
+                        .. lineWindow,
+                    ]);
+                var redirected = await RunAppInDirectoryAsync(
+                    tempDir,
+                    [
+                        "package", packagePath, "-S", "Dependencies", "--tree",
+                        "--tfm", "net9.0", "--tips", "q",
+                        .. lineWindow,
+                        "--out", outputPath,
+                    ]);
+
+                Assert.Equal(0, baseline.Exit);
+                Assert.Equal(2, baseline.Output.Count(character => character == '\n'));
+                Assert.Equal(baseline.Exit, redirected.Exit);
+                Assert.Equal(baseline.Error, redirected.Error);
+                Assert.Empty(redirected.Output);
+                Assert.Equal(baseline.Output, File.ReadAllText(outputPath));
+            }
+
+            var infoBaseline = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", packagePath, "-S", "Dependencies", "--tree",
+                "--tfm", "net9.0", "--info");
+            var infoRedirected = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", packagePath, "-S", "Dependencies", "--tree",
+                "--tfm", "net9.0", "--info", "--out", outputPath);
+
+            Assert.Equal(0, infoBaseline.Exit);
+            Assert.Equal(infoBaseline.Exit, infoRedirected.Exit);
+            Assert.Empty(infoRedirected.Output);
+            Assert.Equal(infoBaseline.Output, File.ReadAllText(outputPath));
+
+            static string OutputMetric(string error) =>
+                SplitOutputLines(error).Single(line =>
+                    line.StartsWith("| Output |", StringComparison.Ordinal));
+
+            Assert.Equal(
+                OutputMetric(infoBaseline.Error),
+                OutputMetric(infoRedirected.Error));
+            Assert.DoesNotContain(
+                "| Output | 0 B |",
+                infoRedirected.Error,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -17588,7 +17657,8 @@ public partial class CommandExecutionTests
                 "--out", outputPath, "--tips", "q");
             var noHeader = await RunAppAsync(
                 "package", packagePath, "--library", "Test.Primary.dll",
-                "-S", "References", "--tree", "--no-header", "--tips", "q");
+                "-S", "References", "--tree", "--no-header",
+                "--markdown", "--tips", "q");
 
             Assert.Equal(1, environment.Exit);
             Assert.Empty(environment.Output);
@@ -17606,6 +17676,24 @@ public partial class CommandExecutionTests
             Assert.Equal(1, noHeader.Exit);
             Assert.Empty(noHeader.Output);
             Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", noHeader.Error);
+
+            var windowed = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", packagePath, "--library", "Test.Primary.dll",
+                "-S", "References", "--tree", "--markdown",
+                "-n", "2", "--tips", "q");
+            var windowedFile = await RunAppInDirectoryAsync(
+                tempDir,
+                "package", packagePath, "--library", "Test.Primary.dll",
+                "-S", "References", "--tree", "--markdown",
+                "-n", "2", "--out", outputPath, "--tips", "q");
+
+            Assert.Equal(0, windowed.Exit);
+            Assert.Equal(2, windowed.Output.Count(character => character == '\n'));
+            Assert.Equal(windowed.Exit, windowedFile.Exit);
+            Assert.Equal(windowed.Error, windowedFile.Error);
+            Assert.Empty(windowedFile.Output);
+            Assert.Equal(windowed.Output, File.ReadAllText(outputPath));
         }
         finally
         {
