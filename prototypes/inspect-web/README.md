@@ -194,8 +194,8 @@ from their definition. Synthetic array and function-pointer nodes remain
 visible but carry no navigable definition identity. Accessor nodes resolve
 through their opaque body selector even when the graph has no `MethodDef` token.
 The call-graph legend explains the independent border vocabulary: solid nodes
-belong to loaded packages, while dashed nodes are .NET platform members loaded
-on click.
+belong to loaded packages, while dashed nodes are unresolved external
+assemblies that receive a .NET platform lookup on click.
 
 [#3932]: https://github.com/richlander/dotnet-inspect/pull/3932
 

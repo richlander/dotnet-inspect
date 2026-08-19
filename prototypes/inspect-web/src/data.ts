@@ -657,6 +657,57 @@ export function graphMemberTargetFromShare(
   };
 }
 
+export interface GraphMemberPacketResult {
+  target: GraphMemberShareIdentity | null;
+  error?: string;
+}
+
+export function graphMemberTargetFromPacket(
+  packet: unknown,
+): GraphMemberPacketResult {
+  if (!packet || typeof packet !== "object"
+    || !Object.prototype.hasOwnProperty.call(packet, "g")) {
+    return { target: null };
+  }
+  const values = Object.entries(packet);
+  const field = (name: string) =>
+    values.find(([key]) => key === name)?.[1];
+  const target = graphMemberTargetFromShare(field("g"));
+  const type = field("y");
+  const member = field("m");
+  if (!target
+    || typeof type !== "string"
+    || type.length === 0
+    || typeof member !== "string"
+    || member.length === 0) {
+    return {
+      target: null,
+      error: "The shared graph member target is invalid and was ignored."
+    };
+  }
+  return { target };
+}
+
+export type GraphMemberDeepLinkDisposition =
+  "graph" | "mismatch" | "public" | "none";
+
+export function graphMemberDeepLinkDisposition<TType>(
+  deep: {
+    member?: string | null;
+    graphTarget?: GraphMemberShareIdentity | null;
+  } | null | undefined,
+  candidate: { status: string; type?: TType } | null,
+  selectedType: TType,
+  publicGroup: unknown,
+): GraphMemberDeepLinkDisposition {
+  if (deep?.member && deep.graphTarget) {
+    return candidate?.status === "unique" && candidate.type === selectedType
+      ? "graph"
+      : "mismatch";
+  }
+  return publicGroup ? "public" : "none";
+}
+
 export interface QueryIdentifiedType {
   id?: string;
   queryId?: string;

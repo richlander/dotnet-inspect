@@ -27,8 +27,10 @@ import {
   dependencyGraphRenderSignature,
   ensureBoundedGraphNode,
   graphTargetNavigationDisposition,
+  graphMemberDeepLinkDisposition,
   graphMemberShareTarget,
   graphMemberSelection,
+  graphMemberTargetFromPacket,
   graphMemberTargetFromShare,
   MARKDOWN_SANITIZE_OPTIONS,
   MAX_SHARE_STATE_CHARACTERS,
@@ -2914,6 +2916,16 @@ test("graph-only member targets round-trip through shared URLs", () => {
     "opaque-selector",
     "not-a-token"
   ]), null);
+  assert.deepEqual(
+    graphMemberTargetFromPacket({ y: "Example.Widget", m: "method:Run", g: encoded }),
+    { target });
+  assert.match(
+    graphMemberTargetFromPacket({
+      y: "Example.Widget",
+      m: "method:Run",
+      g: [...encoded.slice(0, 8), "not-a-token"]
+    }).error,
+    /shared graph member target is invalid/);
 });
 
 test("graph-only members open through the typed member surface", () => {
@@ -2929,7 +2941,50 @@ test("graph-only members open through the typed member surface", () => {
     engineSource,
     /export async function inspectGraphMemberSurface\(request\)/);
   assert.match(appSource, /solid border: loaded package/);
-  assert.match(appSource, /dashed border: \.NET platform \(loaded on click\)/);
+  assert.match(
+    appSource,
+    /dashed border: external assembly \(platform lookup on click\)/);
+});
+
+test("graph-only deep links win over colliding public member groups", () => {
+  const selectedType = { id: "Example.Widget" };
+  const publicGroup = { key: "method:Run", overloads: [{ name: "Run" }] };
+  assert.equal(
+    graphMemberDeepLinkDisposition(
+      {
+        member: publicGroup.key,
+        graphTarget: { memberName: "Run", selectorKey: "private-overload" }
+      },
+      { status: "unique", type: selectedType },
+      selectedType,
+      publicGroup),
+    "graph");
+
+  const deepLink =
+    appSource.match(/function applyDeepLink\(deep\) \{[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  assert.match(deepLink, /graphMemberDeepLinkDisposition\(deep, graphCandidate, type, group\)/);
+  assert.match(deepLink, /if \(disposition === "graph"\)/);
+  assert.match(deepLink, /else if \(disposition === "public"\)/);
+  assert.match(
+    deepLink,
+    /The shared graph member no longer matches this package and was not opened/);
+  assert.match(appSource, /const graphMemberState = graphMemberTargetFromPacket\(raw\)/);
+  assert.match(appSource, /if \(graphMemberState\.error\) return \{ error: graphMemberState\.error \}/);
+});
+
+test("stale graph-only navigation clears progress without surfacing its error", () => {
+  const navigation =
+    appSource.match(/async function navigateToGraphMember[\s\S]*?\n\}/)?.[0]
+    ?? "";
+
+  assert.match(navigation, /const navigationIsCurrent = \(\) =>/);
+  assert.equal(
+    navigation.match(/if \(!navigationIsCurrent\(\)\)/g)?.length,
+    2);
+  assert.match(
+    navigation,
+    /if \(seq === state\.graphMemberNavigationSeq\) \{\s*state\.graphMemberNavigationTitle = "";\s*render\(\);/);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {

@@ -10,6 +10,7 @@ import {
   dependencyGroupSelectionMessage,
   dependencyGraphRenderSignature,
   graphTargetNavigationDisposition,
+  graphMemberDeepLinkDisposition,
   graphMemberShareTarget,
   graphMemberSelection,
   MARKDOWN_SANITIZE_OPTIONS,
@@ -450,7 +451,7 @@ interface PendingGraphMemberDeepLink {
   member: string;
   overload: string | null;
   section: string | null;
-  target: NonNullable<ReturnType<typeof graphMemberTargetFromShare>>;
+  target: GraphMemberShareIdentity;
 }
 
 interface RecentPackage {
@@ -880,6 +881,7 @@ function applyView(view: WorkspaceView) {
   const pkg = packageForView(state.packages, view);
   if (!pkg) return false;
   invalidateMemberCallGraphWork(state);
+  invalidateGraphMemberNavigation();
   activatePackage(pkg);
   state.libraryScope = restoreLibraryScope(
     view.libraryScope,
@@ -1787,6 +1789,7 @@ function navMode() {
 
 function resetMemberSectionState() {
   invalidateMemberCallGraphWork(state);
+  invalidateGraphMemberNavigation();
   state.memberSection = "overview";
   state.memberSource = null;
   state.memberSourceError = "";
@@ -3578,7 +3581,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
               <span><i class="legend-swatch different-type"></i>different type, same assembly</span>
               <span><i class="legend-swatch different-assembly"></i>different assembly</span>
               <span><i class="legend-swatch loaded-node"></i>solid border: loaded package</span>
-              <span><i class="legend-swatch platform-node"></i>dashed border: .NET platform (loaded on click)</span>
+              <span><i class="legend-swatch platform-node"></i>dashed border: external assembly (platform lookup on click)</span>
             </div>
             <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>${escapeHtml(active.mermaid)}</code></pre></details>
           </section>`
@@ -5508,8 +5511,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   state.memberCallGraphKey = "";
   state.memberCallGraphExpanding = false;
   state.memberCallGraphSeq++;
-  state.graphMemberNavigationSeq++;
-  state.graphMemberNavigationTitle = "";
+  invalidateGraphMemberNavigation();
   state.pendingGraphMemberDeepLink = null;
   state.selectedBodyTarget = null;
   state.platformStack = [];
@@ -5576,7 +5578,23 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     if (deep.memberBrowse && groups.length)
       state.memberBrowseTypeId = type.id;
     const group = deep.member ? groups.find(item => item.key === deep.member) : null;
-    if (group) {
+    const graphCandidate = deep.member && deep.graphTarget
+      ? resolveLoadedGraphTargetCandidate([pkg], deep.graphTarget)
+      : null;
+    const disposition =
+      graphMemberDeepLinkDisposition(deep, graphCandidate, type, group);
+    if (disposition === "graph" && deep.member && deep.graphTarget) {
+      state.pendingGraphMemberDeepLink = {
+        type: deep.type ?? type.id,
+        member: deep.member,
+        overload: deep.overload ?? null,
+        section: deep.section ?? null,
+        target: deep.graphTarget
+      };
+    } else if (disposition === "mismatch") {
+      appendQueryNotice(
+        "The shared graph member no longer matches this package and was not opened.");
+    } else if (disposition === "public" && group && deep.member) {
       state.memberBrowseTypeId = type.id;
       state.selectedMemberKey = deep.member ?? "";
       const overloadIndex = Number(deep.overload);
@@ -5596,17 +5614,6 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
         state.selectedOverloadIndex ?? (group.overloads.length === 1 ? 0 : -1)];
       if (bodyTargetMatchesOverload(deep.bodyTarget, group, restoredOverload)) {
         state.selectedBodyTarget = deep.bodyTarget ?? null;
-      }
-    } else if (deep.member && deep.graphTarget) {
-      const candidate = resolveLoadedGraphTargetCandidate([pkg], deep.graphTarget);
-      if (candidate.status === "unique" && candidate.type === type) {
-        state.pendingGraphMemberDeepLink = {
-          type: deep.type ?? type.id,
-          member: deep.member,
-          overload: deep.overload ?? null,
-          section: deep.section ?? null,
-          target: deep.graphTarget
-        };
       }
     }
   }
@@ -6755,6 +6762,10 @@ async function navigateToGraphMember(
   const seq = ++state.graphMemberNavigationSeq;
   const packageKey = packageIdentityKey(loaded.pkg);
   const sourceView = viewSignature();
+  const navigationIsCurrent = () =>
+    seq === state.graphMemberNavigationSeq
+    && viewSignature() === sourceView
+    && state.packages.some(pkg => packageIdentityKey(pkg) === packageKey);
   state.graphMemberNavigationTitle = loaded.title;
   state.memberCallGraphError = "";
   render();
@@ -6763,9 +6774,11 @@ async function navigateToGraphMember(
       loaded.pkg,
       loaded.type,
       target);
-    if (seq !== state.graphMemberNavigationSeq
-      || viewSignature() !== sourceView
-      || !state.packages.some(pkg => packageIdentityKey(pkg) === packageKey)) {
+    if (!navigationIsCurrent()) {
+      if (seq === state.graphMemberNavigationSeq) {
+        state.graphMemberNavigationTitle = "";
+        render();
+      }
       return;
     }
     state.graphMemberNavigationTitle = "";
@@ -6776,7 +6789,13 @@ async function navigateToGraphMember(
       selection.overloadIndex,
       target);
   } catch (error) {
-    if (seq !== state.graphMemberNavigationSeq) return;
+    if (!navigationIsCurrent()) {
+      if (seq === state.graphMemberNavigationSeq) {
+        state.graphMemberNavigationTitle = "";
+        render();
+      }
+      return;
+    }
     state.graphMemberNavigationTitle = "";
     state.memberCallGraphError =
       `Could not open ${loaded.title}: ${errorMessage(error)}`;
@@ -6945,6 +6964,7 @@ function navigateToRuntimeMember(
   overloadIndex: number,
   bodyTarget: BodyTarget | null = null,
 ) {
+  invalidateGraphMemberNavigation();
   activatePackage(pack);
   state.atPackageRoot = false;
   state.lens = "api";
@@ -7208,6 +7228,7 @@ function navigateToMember(
   overloadIndex: number | null = null,
   bodyTarget: BodyTarget | null = null,
 ) {
+  invalidateGraphMemberNavigation();
   activatePackage(pkg);
   state.lens = "api";
   state.selectedTypeId = type.id;
