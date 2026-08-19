@@ -651,7 +651,12 @@ a typed query result to instantiate a workspace in a later authorized stage.
 Several scenarios may reuse one workspace definition, and a host may inspect
 the definition without running a preset or acquiring its inputs.
 
-Selecting a scenario lowers into the same acquisition and typed query paths
+Product-resident home demos ship as a static id→factory registry
+(`DotnetInspector.Queries.Definitions.ProductInspectionDemos`, smooth-markdown-table
+`RendererRegistry` style); hosts activate one demo via
+`ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo.
+Group-subscription grammar and share-packet transposition remain design-ahead
+of that loader. Selecting a scenario lowers into the same acquisition and typed query paths
 used by an interactive request; it does not create a second demo-only execution
 path.
 
