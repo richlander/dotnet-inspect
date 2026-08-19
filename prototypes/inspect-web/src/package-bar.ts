@@ -146,7 +146,7 @@ export function createPackageBar(options: PackageBarOptions) {
         if (target) selectPackageTab(target);
       };
       tab.addEventListener("click", event => {
-        if ((event.target as Element | null)?.closest("[data-package-close]")) return;
+        if (event.target instanceof Element && event.target.closest("[data-package-close]")) return;
         activate();
       });
       tab.addEventListener("keydown", event => {
