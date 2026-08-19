@@ -545,6 +545,13 @@ public class E2EFixtureTests
             Assert.Equal(
                 "confirmed-hot",
                 incompatible.LibraryStatus);
+
+            var incompatibleMethod = Correlate(
+                "RunFaster.AllocationFixture.Program.AllocateOne() "
+                + "101 bytes");
+
+            Assert.Equal(101, incompatibleMethod.TotalBytes);
+            Assert.Equal(1, incompatibleMethod.TotalWeight);
         }
         finally
         {
@@ -617,6 +624,198 @@ public class E2EFixtureTests
                     "status").GetString()!,
                 library.GetProperty(
                     "status").GetString()!);
+        }
+    }
+
+    [Fact]
+    public void Correlate_RedirectedEvidenceFragmentsPreserveBodySemantics()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var sourceMethod =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "Main",
+                BindingFlags.Public | BindingFlags.Static);
+        var evidenceMethod =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "AllocateOne",
+                BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(sourceMethod);
+        Assert.NotNull(evidenceMethod);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    evidenceMethod.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        string speedscopePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-{Guid.NewGuid():N}.speedscope.json");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"{{{occurrence.Method.AssemblyName}}}","module_version_id":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{sourceMethod.MetadataToken:X8}}}","evidence_method":"0x{{{evidenceMethod.MetadataToken:X8}}}","shape":"object-allocation","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object"}]}}
+                """);
+            File.WriteAllText(
+                logPath,
+                "RunFaster.AllocationFixture.Program.AllocateOne() "
+                + "IL_FFFE 512 bytes");
+
+            var wrongOffset = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, wrongOffset.ExitCode);
+            Assert.Empty(wrongOffset.Error);
+            using (var output =
+                JsonDocument.Parse(wrongOffset.Output))
+            {
+                Assert.Equal(
+                    0,
+                    output.RootElement.GetProperty(
+                        "observedCandidates").GetInt32());
+                var rows = output.RootElement.GetProperty(
+                    "candidates").EnumerateArray().ToArray();
+                var triage = Assert.Single(
+                    rows,
+                    candidate => candidate.GetProperty(
+                        "source").GetString() == "triage");
+                var library = Assert.Single(
+                    rows,
+                    candidate => candidate.GetProperty(
+                        "source").GetString() == "library"
+                        && candidate.GetProperty(
+                            "method").GetString()!
+                            .EndsWith(
+                                ".AllocateOne()",
+                                StringComparison.Ordinal));
+                Assert.Equal(
+                    0,
+                    triage.GetProperty(
+                        "runtimeBytes").GetInt64());
+                Assert.Equal(
+                    "superseded-by-triage",
+                    library.GetProperty(
+                        "status").GetString());
+            }
+
+            File.WriteAllText(
+                speedscopePath,
+                """
+                {"shared":{"frames":[{"name":"RunFaster.AllocationFixture.Program.Main()"},{"name":"RunFaster.AllocationFixture.Program.AllocateOne()"}]},"profiles":[{"type":"sampled","samples":[[0,1]],"weights":[100]}]}
+                """);
+            var sampled = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--input",
+                speedscopePath,
+                "--json");
+
+            Assert.Equal(0, sampled.ExitCode);
+            Assert.Empty(sampled.Error);
+            using var sampledOutput =
+                JsonDocument.Parse(sampled.Output);
+            var sampledRows = sampledOutput.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .ToArray();
+            var sampledTriage = Assert.Single(
+                sampledRows,
+                candidate => candidate.GetProperty(
+                    "source").GetString() == "triage");
+            var sampledLibrary = Assert.Single(
+                sampledRows,
+                candidate => candidate.GetProperty(
+                    "source").GetString() == "library"
+                    && candidate.GetProperty(
+                        "method").GetString()!
+                        .EndsWith(
+                            ".AllocateOne()",
+                            StringComparison.Ordinal));
+            Assert.Equal(
+                1,
+                sampledTriage.GetProperty(
+                    "runtimeHits").GetInt32());
+            Assert.Equal(
+                100,
+                sampledTriage.GetProperty(
+                    "runtimeWeight").GetDouble());
+            Assert.Equal(
+                0,
+                sampledLibrary.GetProperty(
+                    "runtimeWeight").GetDouble());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
+            File.Delete(speedscopePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_MethodTextNeverClaimsExactCoordinate()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"objects":[{"member":"Fixture.Type.M()","assembly":"Fixture","method_token":"0x06000001","evidence_method":"0x06000001","shape":"object-allocation","il":"IL_0005","allocation":"System.Object"}]}}
+                """);
+            File.WriteAllText(
+                logPath,
+                "Fixture.Type.M() IL_0005 101 bytes");
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            var candidate = Assert.Single(
+                output.RootElement.GetProperty(
+                    "candidates").EnumerateArray());
+            Assert.Equal(
+                "method-hot",
+                candidate.GetProperty(
+                    "status").GetString());
+            Assert.False(
+                candidate.GetProperty(
+                    "exactOffsetObserved").GetBoolean());
+            Assert.Equal(
+                101,
+                candidate.GetProperty(
+                    "runtimeBytes").GetInt64());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
         }
     }
 

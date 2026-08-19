@@ -1154,8 +1154,15 @@ static bool TryCorrelateChromiumTrace(
     }
 
     var frames = ReadChromiumFrames(stackFramesElement);
+    var candidatesByFrame =
+        BuildFrameCandidateIndex(
+            frames,
+            lookup);
     var stack = new List<int>();
-    var weightsByFrame = new Dictionary<int, double>();
+    var weightsByCandidate =
+        new Dictionary<
+            int,
+            (AllocationCandidate Candidate, double Weight)>();
     double previousAt = 0;
     bool havePreviousAt = false;
 
@@ -1170,8 +1177,11 @@ static bool TryCorrelateChromiumTrace(
         if (havePreviousAt && at > previousAt)
         {
             var delta = at - previousAt;
-            foreach (var frameIndex in stack)
-                weightsByFrame[frameIndex] = weightsByFrame.GetValueOrDefault(frameIndex) + delta;
+            AccumulateFrameObservation(
+                stack,
+                candidatesByFrame,
+                delta,
+                weightsByCandidate);
         }
 
         havePreviousAt = true;
@@ -1205,7 +1215,9 @@ static bool TryCorrelateChromiumTrace(
         }
     }
 
-    int matchedRows = MarkFrameWeights(weightsByFrame, frames, sourceKind, lookup);
+    int matchedRows = CommitFrameWeights(
+        weightsByCandidate,
+        sourceKind);
     summary.MatchedRows = matchedRows;
     summary.Observations.Add($"chromium trace events: {traceEventsElement.GetArrayLength().ToString(CultureInfo.InvariantCulture)}");
     summary.Observations.Add(matchedRows == 0
@@ -1257,8 +1269,15 @@ static int CorrelateEventedSpeedscopeProfile(
     if (!profile.TryGetProperty("events", out var eventsElement))
         return 0;
 
+    var candidatesByFrame =
+        BuildFrameCandidateIndex(
+            frames,
+            lookup);
     var stack = new List<int>();
-    var weightsByFrame = new Dictionary<int, double>();
+    var weightsByCandidate =
+        new Dictionary<
+            int,
+            (AllocationCandidate Candidate, double Weight)>();
     double previousAt = 0;
     bool havePreviousAt = false;
 
@@ -1271,8 +1290,11 @@ static int CorrelateEventedSpeedscopeProfile(
         if (havePreviousAt && at > previousAt)
         {
             var delta = at - previousAt;
-            foreach (var frameIndex in stack)
-                weightsByFrame[frameIndex] = weightsByFrame.GetValueOrDefault(frameIndex) + delta;
+            AccumulateFrameObservation(
+                stack,
+                candidatesByFrame,
+                delta,
+                weightsByCandidate);
         }
 
         havePreviousAt = true;
@@ -1303,7 +1325,9 @@ static int CorrelateEventedSpeedscopeProfile(
         }
     }
 
-    return MarkFrameWeights(weightsByFrame, frames, sourceKind, lookup);
+    return CommitFrameWeights(
+        weightsByCandidate,
+        sourceKind);
 }
 
 static int CorrelateSampledSpeedscopeProfile(
@@ -1319,47 +1343,116 @@ static int CorrelateSampledSpeedscopeProfile(
     if (profile.TryGetProperty("weights", out var weightsElement))
         weights = weightsElement.EnumerateArray().Select(w => w.TryGetDouble(out var value) ? value : 1).ToArray();
 
-    var weightsByFrame = new Dictionary<int, double>();
+    var candidatesByFrame =
+        BuildFrameCandidateIndex(
+            frames,
+            lookup);
+    var weightsByCandidate =
+        new Dictionary<
+            int,
+            (AllocationCandidate Candidate, double Weight)>();
     int sampleIndex = 0;
     foreach (var sample in samplesElement.EnumerateArray())
     {
         var weight = weights is not null && sampleIndex < weights.Length ? weights[sampleIndex] : 1;
         sampleIndex++;
-        foreach (var frameElement in sample.EnumerateArray())
-        {
-            if (!frameElement.TryGetInt32(out var frame))
-                continue;
-            weightsByFrame[frame] = weightsByFrame.GetValueOrDefault(frame) + weight;
-        }
+        var frameIndices = sample
+            .EnumerateArray()
+            .Where(static frameElement =>
+                frameElement.TryGetInt32(out _))
+            .Select(static frameElement =>
+                frameElement.GetInt32());
+        AccumulateFrameObservation(
+            frameIndices,
+            candidatesByFrame,
+            weight,
+            weightsByCandidate);
     }
 
-    return MarkFrameWeights(weightsByFrame, frames, sourceKind, lookup);
+    return CommitFrameWeights(
+        weightsByCandidate,
+        sourceKind);
 }
 
-static int MarkFrameWeights(
-    IReadOnlyDictionary<int, double> weightsByFrame,
-    string[] frames,
-    string sourceKind,
-    CandidateLookup lookup)
+static IReadOnlyList<AllocationCandidate>[]
+    BuildFrameCandidateIndex(
+        string[] frames,
+        CandidateLookup lookup)
+    => frames
+        .Select(frame =>
+            (IReadOnlyList<AllocationCandidate>)
+            [.. lookup.FindByMethodText(frame)
+                .Select(static match =>
+                    match.Candidate)
+                .Where(static candidate =>
+                    !candidate.SupersededByTriage)
+                .DistinctBy(static candidate =>
+                    candidate.Id)
+                .OrderBy(static candidate =>
+                    candidate.Id)])
+        .ToArray();
+
+static void AccumulateFrameObservation(
+    IEnumerable<int> frameIndices,
+    IReadOnlyList<AllocationCandidate>[]
+        candidatesByFrame,
+    double weight,
+    Dictionary<
+        int,
+        (AllocationCandidate Candidate, double Weight)>
+        weightsByCandidate)
 {
-    int matchedRows = 0;
-    foreach (var (frame, weight) in weightsByFrame.OrderByDescending(pair => pair.Value))
+    if (weight <= 0)
+        return;
+
+    var candidates = frameIndices
+        .Where(frame =>
+            frame >= 0
+            && frame < candidatesByFrame.Length)
+        .SelectMany(frame =>
+            candidatesByFrame[frame])
+        .DistinctBy(static candidate =>
+            candidate.Id)
+        .OrderBy(static candidate =>
+            candidate.Id)
+        .ToArray();
+    foreach (var candidate in candidates)
     {
-        if (frame < 0 || frame >= frames.Length || weight <= 0)
-            continue;
-
-        var matchedIds = new HashSet<int>();
-        foreach (var candidate in lookup.FindByMethodText(frames[frame]))
-        {
-            if (candidate.SupersededByTriage)
-                continue;
-
-            MarkHit(candidate, matchedIds, sourceKind, bytes: null, exactOffset: false, weight);
-        }
-        matchedRows += matchedIds.Count;
+        double accumulatedWeight =
+            weightsByCandidate.TryGetValue(
+                candidate.Id,
+                out var accumulated)
+            ? accumulated.Weight
+            : 0;
+        weightsByCandidate[candidate.Id] =
+            (
+                candidate,
+                accumulatedWeight
+                    + weight / candidates.Length);
     }
+}
 
-    return matchedRows;
+static int CommitFrameWeights(
+    IReadOnlyDictionary<
+        int,
+        (AllocationCandidate Candidate, double Weight)>
+        weightsByCandidate,
+    string sourceKind)
+{
+    var matchedIds = new HashSet<int>();
+    foreach (var (_, entry) in weightsByCandidate
+                 .OrderBy(static pair =>
+                     pair.Key))
+    {
+        MarkHit(
+            entry.Candidate,
+            matchedIds,
+            sourceKind,
+            bytes: null,
+            exactOffset: false,
+            entry.Weight);
+    }
+    return matchedIds.Count;
 }
 
 static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
@@ -1370,6 +1463,8 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
     var bytes = TryReadBytes(line);
     var matchedIds = new HashSet<int>();
     var suppressedMethodIds = new HashSet<int>();
+    var exactCandidates =
+        new Dictionary<int, AllocationCandidate>();
     foreach (Match match in Patterns.TokenOffset().Matches(line))
     {
         if (!TryParseHexInt(match.Groups["token"].Value, out var token)
@@ -1384,33 +1479,31 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
             suppressedMethodIds.Add(candidate.Id);
         }
 
-        var candidates = lookup.FindByTokenOffset(
-            token,
-            offset);
-        int activeCount = candidates.Count(
-            static candidate =>
-                !candidate.SupersededByTriage);
-        int activeIndex = 0;
-        for (int i = 0; i < candidates.Count; i++)
+        foreach (var candidate
+                 in lookup.FindByTokenOffset(
+                     token,
+                     offset))
         {
-            if (candidates[i].SupersededByTriage)
+            if (candidate.SupersededByTriage)
                 continue;
 
-            long? attributedBytes = bytes is long totalBytes
-                ? ProgramSupport.AttributedBytesForTest(
-                    totalBytes,
-                    activeCount,
-                    activeIndex)
-                : null;
-            MarkHit(
-                candidates[i],
-                matchedIds,
-                sourceKind,
-                attributedBytes,
-                exactOffset: true,
-                weight: 1d / activeCount);
-            activeIndex++;
+            exactCandidates.TryAdd(
+                candidate.Id,
+                candidate);
         }
+    }
+
+    if (exactCandidates.Count > 0)
+    {
+        MarkAttributedHits(
+            [.. exactCandidates.Values
+                .OrderBy(static candidate =>
+                    candidate.Id)],
+            matchedIds,
+            sourceKind,
+            bytes,
+            exactOffset: true);
+        return matchedIds.Count;
     }
 
     var methodMatches = lookup.FindByMethodText(line);
@@ -1421,37 +1514,71 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
         if (ilMatch.Success && TryParseHexInt(ilMatch.Groups["offset"].Value, out var parsedOffset))
             ilOffset = parsedOffset;
 
-        foreach (var candidate in methodMatches)
-        {
-            if (candidate.SupersededByTriage
+        var candidates = methodMatches
+            .GroupBy(static match =>
+                match.Candidate.Id)
+            .Where(group =>
+            {
+                var candidate = group.First().Candidate;
+                if (candidate.SupersededByTriage
                 || suppressedMethodIds.Contains(
                     candidate.Id))
-            {
-                continue;
-            }
+                {
+                    return false;
+                }
 
-            if (!candidate.HasKnownDistinctEvidenceMethodBody
-                && ilOffset is int offset
-                && candidate.IlOffset >= 0
-                && candidate.IlOffset != offset)
-            {
-                continue;
-            }
+                bool hasRuntimeBodyFragment =
+                    group.Any(static match =>
+                        match.IsRuntimeBody);
+                bool hasSourceBodyFragment =
+                    group.Any(static match =>
+                        !match.IsRuntimeBody);
+                return ilOffset is not int offset
+                    || candidate.IlOffset < 0
+                    || candidate.IlOffset == offset
+                    || !hasRuntimeBodyFragment
+                    || hasSourceBodyFragment;
+            })
+            .Select(static group =>
+                group.First().Candidate)
+            .OrderBy(static candidate =>
+                candidate.Id)
+            .ToArray();
 
-            MarkHit(
-                candidate,
-                matchedIds,
-                sourceKind,
-                bytes,
-                exactOffset: candidate.SourceMethodIdentifiesRuntimeBody
-                    && candidate.HasRuntimeCoordinate
-                    && ilOffset is not null
-                    && candidate.IlOffset == ilOffset,
-                weight: 1);
-        }
+        MarkAttributedHits(
+            candidates,
+            matchedIds,
+            sourceKind,
+            bytes,
+            exactOffset: false);
     }
 
     return matchedIds.Count;
+}
+
+static void MarkAttributedHits(
+    IReadOnlyList<AllocationCandidate> candidates,
+    HashSet<int> matchedIds,
+    string sourceKind,
+    long? bytes,
+    bool exactOffset)
+{
+    for (int index = 0; index < candidates.Count; index++)
+    {
+        long? attributedBytes = bytes is long totalBytes
+            ? ProgramSupport.AttributedBytesForTest(
+                totalBytes,
+                candidates.Count,
+                index)
+            : null;
+        MarkHit(
+            candidates[index],
+            matchedIds,
+            sourceKind,
+            attributedBytes,
+            exactOffset,
+            weight: 1d / candidates.Count);
+    }
 }
 
 static void MarkHit(AllocationCandidate candidate, HashSet<int> matchedIds, string sourceKind, long? bytes, bool exactOffset, double weight)
@@ -2589,20 +2716,30 @@ sealed class AllocationCandidate(
     };
 }
 
+readonly record struct MethodTextMatch(
+    AllocationCandidate Candidate,
+    bool IsRuntimeBody);
+
 sealed class CandidateLookup
 {
     readonly Dictionary<(int Token, int Offset), List<AllocationCandidate>> _byTokenOffset;
     readonly Dictionary<(int Token, int Offset), AllocationCandidate[]> _rejectedByTokenOffset;
     readonly Dictionary<(string Module, int Token), List<AllocationCandidate>> _byModuleMethodToken;
     readonly HashSet<string> _candidateModules;
-    readonly List<(string Fragment, AllocationCandidate Candidate)> _methodFragments;
+    readonly List<(
+        string Fragment,
+        AllocationCandidate Candidate,
+        bool IsRuntimeBody)> _methodFragments;
 
     CandidateLookup(
         Dictionary<(int Token, int Offset), List<AllocationCandidate>> byTokenOffset,
         Dictionary<(int Token, int Offset), AllocationCandidate[]> rejectedByTokenOffset,
         Dictionary<(string Module, int Token), List<AllocationCandidate>> byModuleMethodToken,
         HashSet<string> candidateModules,
-        List<(string Fragment, AllocationCandidate Candidate)> methodFragments)
+        List<(
+            string Fragment,
+            AllocationCandidate Candidate,
+            bool IsRuntimeBody)> methodFragments)
     {
         _byTokenOffset = byTokenOffset;
         _rejectedByTokenOffset =
@@ -2616,7 +2753,10 @@ sealed class CandidateLookup
     {
         var byTokenOffset = new Dictionary<(int Token, int Offset), List<AllocationCandidate>>();
         var byModuleMethodToken = new Dictionary<(string Module, int Token), List<AllocationCandidate>>();
-        var fragments = new List<(string Fragment, AllocationCandidate Candidate)>();
+        var fragments = new List<(
+            string Fragment,
+            AllocationCandidate Candidate,
+            bool IsRuntimeBody)>();
         foreach (var group in candidates.GroupBy(static c => (c.Method, c.AllocationKind)))
         {
             int count = group.Count();
@@ -2652,34 +2792,33 @@ sealed class CandidateLookup
                 }
             }
 
-            AddFragment(candidate.MethodKey, candidate);
-            AddFragment(candidate.MethodStackKey, candidate);
-            AddFragment(candidate.Method, candidate);
-            AddMethodLeafFragment(candidate.MethodKey, candidate);
-            AddMethodLeafFragment(candidate.MethodStackKey, candidate);
+            bool isRuntimeBody =
+                !candidate
+                    .HasKnownDistinctEvidenceMethodBody;
+            AddFragment(
+                candidate.MethodKey,
+                candidate,
+                isRuntimeBody);
+            AddFragment(
+                candidate.MethodStackKey,
+                candidate,
+                isRuntimeBody);
+            AddFragment(
+                candidate.Method,
+                candidate,
+                isRuntimeBody);
+            AddMethodLeafFragment(
+                candidate.MethodKey,
+                candidate,
+                isRuntimeBody);
+            AddMethodLeafFragment(
+                candidate.MethodStackKey,
+                candidate,
+                isRuntimeBody);
         }
 
         foreach (var tokenList in byModuleMethodToken.Values)
             tokenList.Sort(static (left, right) => left.IlOffset.CompareTo(right.IlOffset));
-
-        var rejectedByTokenOffset =
-            new Dictionary<
-                (int Token, int Offset),
-                AllocationCandidate[]>();
-        foreach (var (key, coordinateCandidates)
-                 in byTokenOffset.ToArray())
-        {
-            if (!HasAmbiguousTextCoordinateIdentity(
-                    coordinateCandidates))
-            {
-                continue;
-            }
-
-            rejectedByTokenOffset.Add(
-                key,
-                [.. coordinateCandidates]);
-            byTokenOffset.Remove(key);
-        }
 
         var textSupersessions =
             new List<TextSupersession>();
@@ -2741,8 +2880,12 @@ sealed class CandidateLookup
             var redirectedFragments =
                 new List<(
                     string Fragment,
-                    AllocationCandidate Candidate)>();
-            foreach (var (fragment, candidate)
+                    AllocationCandidate Candidate,
+                    bool IsRuntimeBody)>();
+            foreach (var (
+                         fragment,
+                         candidate,
+                         isRuntimeBody)
                      in fragments)
             {
                 if (!targetsByLibraryId.TryGetValue(
@@ -2750,17 +2893,44 @@ sealed class CandidateLookup
                         out var targets))
                 {
                     redirectedFragments.Add(
-                        (fragment, candidate));
+                        (
+                            fragment,
+                            candidate,
+                            isRuntimeBody));
                     continue;
                 }
 
                 foreach (var target in targets)
                 {
                     redirectedFragments.Add(
-                        (fragment, target));
+                        (
+                            fragment,
+                            target,
+                            isRuntimeBody));
                 }
             }
-            fragments = redirectedFragments;
+            fragments = redirectedFragments
+                .Distinct()
+                .ToList();
+        }
+
+        var rejectedByTokenOffset =
+            new Dictionary<
+                (int Token, int Offset),
+                AllocationCandidate[]>();
+        foreach (var (key, coordinateCandidates)
+                 in byTokenOffset.ToArray())
+        {
+            if (!HasAmbiguousTextCoordinateIdentity(
+                    coordinateCandidates))
+            {
+                continue;
+            }
+
+            rejectedByTokenOffset.Add(
+                key,
+                [.. coordinateCandidates]);
+            byTokenOffset.Remove(key);
         }
 
         return new CandidateLookup(
@@ -2770,13 +2940,25 @@ sealed class CandidateLookup
             [.. byModuleMethodToken.Keys.Select(static key => key.Module)],
             fragments);
 
-        void AddFragment(string value, AllocationCandidate candidate)
+        void AddFragment(
+            string value,
+            AllocationCandidate candidate,
+            bool isRuntimeBody)
         {
             if (value.Length >= 8)
-                fragments.Add((value, candidate));
+            {
+                fragments.Add(
+                    (
+                        value,
+                        candidate,
+                        isRuntimeBody));
+            }
         }
 
-        void AddMethodLeafFragment(string value, AllocationCandidate candidate)
+        void AddMethodLeafFragment(
+            string value,
+            AllocationCandidate candidate,
+            bool isRuntimeBody)
         {
             if (string.IsNullOrWhiteSpace(value))
                 return;
@@ -2794,7 +2976,10 @@ sealed class CandidateLookup
             var declaringType = normalized[..methodDot];
             int typeDot = declaringType.LastIndexOf('.');
             var typeName = typeDot >= 0 ? declaringType[(typeDot + 1)..] : declaringType;
-            AddFragment($"{typeName}.{methodName}", candidate);
+            AddFragment(
+                $"{typeName}.{methodName}",
+                candidate,
+                isRuntimeBody);
         }
     }
 
@@ -2869,13 +3054,22 @@ sealed class CandidateLookup
         return search.Where(candidate => candidate.IlOffset == nearest).ToArray();
     }
 
-    public List<AllocationCandidate> FindByMethodText(string line)
+    public List<MethodTextMatch> FindByMethodText(string line)
     {
-        var candidates = new List<AllocationCandidate>();
-        foreach (var (fragment, candidate) in _methodFragments)
+        var candidates = new List<MethodTextMatch>();
+        foreach (var (
+                     fragment,
+                     candidate,
+                     isRuntimeBody)
+                 in _methodFragments)
         {
             if (line.Contains(fragment, StringComparison.Ordinal))
-                candidates.Add(candidate);
+            {
+                candidates.Add(
+                    new MethodTextMatch(
+                        candidate,
+                        isRuntimeBody));
+            }
         }
 
         return candidates;

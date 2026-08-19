@@ -144,7 +144,9 @@ public class CandidateLookupTests
         Assert.Contains(
             candidate,
             lookup.FindByMethodText(
-                "sample: Fixture.Type::M"));
+                    "sample: Fixture.Type::M")
+                .Select(static match =>
+                    match.Candidate));
     }
 
     [Fact]
@@ -200,6 +202,57 @@ public class CandidateLookupTests
     }
 
     [Fact]
+    public void Create_ProjectsMatchingBuildBeforeRejectingCoordinate()
+    {
+        var library = Candidate(
+            id: 1,
+            methodToken: 0x06000003,
+            ilOffset: 0x0010,
+            moduleVersionId:
+                Guid.Parse(
+                    "11111111-1111-1111-1111-111111111111"));
+        var matchingTriage = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            moduleVersionId:
+                Guid.Parse(
+                    "11111111-1111-1111-1111-111111111111"),
+            evidenceMethodToken: 0x06000003,
+            source: "triage");
+        var otherBuildTriage = Candidate(
+            id: 3,
+            methodToken: 0x06000002,
+            ilOffset: 0x0010,
+            moduleVersionId:
+                Guid.Parse(
+                    "22222222-2222-2222-2222-222222222222"),
+            evidenceMethodToken: 0x06000003,
+            source: "triage");
+
+        var lookup = CandidateLookup.Create(
+            [
+                library,
+                matchingTriage,
+                otherBuildTriage
+            ]);
+
+        Assert.True(library.SupersededByTriage);
+        Assert.Empty(
+            lookup.FindByTokenOffset(
+                0x06000003,
+                0x0010));
+        Assert.Equal(
+            [matchingTriage.Id, otherBuildTriage.Id],
+            lookup.FindRejectedByTokenOffset(
+                    0x06000003,
+                    0x0010)
+                .Select(static candidate =>
+                    candidate.Id)
+                .Order());
+    }
+
+    [Fact]
     public void WhitespaceAssemblyHasNoRuntimeCoordinate()
     {
         var candidate = Candidate(
@@ -246,14 +299,15 @@ public class CandidateLookupTests
         string kind = "Object",
         string assemblyName = "Fixture",
         Guid? moduleVersionId = null,
-        int? evidenceMethodToken = null)
+        int? evidenceMethodToken = null,
+        string source = "library")
     {
         string methodKey = method[..method.IndexOf('(')];
         int lastDot = methodKey.LastIndexOf('.');
         string stackKey = lastDot < 0 ? methodKey : $"{methodKey[..lastDot]}::{methodKey[(lastDot + 1)..]}";
         return new(
             id,
-            "library",
+            source,
             libraryPath,
             assemblyName,
             moduleVersionId,
