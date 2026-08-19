@@ -689,20 +689,33 @@ export function graphMemberTargetFromPacket(
 }
 
 export type GraphMemberDeepLinkDisposition =
-  "graph" | "mismatch" | "public" | "none";
+  "local" | "graph" | "mismatch" | "public" | "none";
+
+export interface LocalGraphMemberSelection {
+  group: { key: string };
+  overloadIndex: number;
+}
 
 export function graphMemberDeepLinkDisposition<TType>(
   deep: {
     member?: string | null;
+    overload?: string | null;
     graphTarget?: GraphMemberShareIdentity | null;
   } | null | undefined,
   candidate: { status: string; type?: TType } | null,
   selectedType: TType,
   publicGroup: unknown,
+  localSelection: LocalGraphMemberSelection | null = null,
 ): GraphMemberDeepLinkDisposition {
   if (deep?.member && deep.graphTarget) {
-    return candidate?.status === "unique" && candidate.type === selectedType
-      ? "graph"
+    if (candidate?.status !== "unique" || candidate.type !== selectedType)
+      return "mismatch";
+    if (!localSelection) return "graph";
+    const overloadIndex = Number(deep.overload);
+    return localSelection.group.key === deep.member
+        && Number.isInteger(overloadIndex)
+        && overloadIndex === localSelection.overloadIndex
+      ? "local"
       : "mismatch";
   }
   return publicGroup ? "public" : "none";
@@ -1163,9 +1176,12 @@ export interface SectionableMember {
 export function memberSectionIdsFor(
   member: SectionableMember | null | undefined,
   isRuntimePack = false,
+  hasSelectedBody = false,
 ): string[] {
-  if (["property", "field", "event", "constant"].includes(member?.kind ?? ""))
+  if (["property", "field", "event", "constant"].includes(member?.kind ?? "")
+    && !hasSelectedBody) {
     return ["overview"];
+  }
   return isRuntimePack
     ? ["overview", "call-graph", "facts"]
     : ["overview", "call-graph", "facts", "source", "annotated"];

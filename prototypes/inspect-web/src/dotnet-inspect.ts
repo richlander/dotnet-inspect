@@ -354,6 +354,11 @@ interface AppMemberGroup {
 interface AppMemberSurface extends BrowserMemberSurface {
   documentationLoaded?: boolean;
   graphOnly?: boolean;
+  graphTarget?: BodyTarget;
+}
+
+interface AppTypeSurface extends BrowserTypeSurface {
+  api: AppMemberSurface[];
 }
 
 function loadStoredTaste() {
@@ -979,11 +984,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function memberSectionsFor(member: BrowserMemberSurface | AppMemberGroup) {
+function memberSectionsFor(member: AppMemberGroup) {
   const allowed = new Set(
     memberSectionIdsFor(
       member,
-      state.package?.isRuntimePack));
+      state.package?.isRuntimePack,
+      memberHasSelectedBody(member)));
   return memberSectionDefs.filter(([id]) => allowed.has(id));
 }
 
@@ -1292,10 +1298,10 @@ function reconcileAccessibilityFilter(
 // remember surfaces its declaring type — any member name on the type. The member scan
 // runs only when the cheaper identity/library match misses, so keystroke filtering stays
 // responsive on large packs like the runtime pseudo-package.
-function typeMatchesFilterText(item: BrowserTypeSurface, needle: string) {
+function typeMatchesFilterText(item: AppTypeSurface, needle: string) {
   if (!needle) return true;
   if (`${item.name} ${item.namespace} ${item.kind} ${libraryKey(item)}`.toLowerCase().includes(needle)) return true;
-  const members = item.api;
+  const members = item.api?.filter(member => !member.graphOnly);
   if (!members || !members.length) return false;
   for (const member of members) {
     if ((member.name || "").toLowerCase().includes(needle)) return true;
@@ -1808,9 +1814,14 @@ function resetMemberSectionState() {
 }
 
 function openMemberGroup(key: string) {
+  const group = memberGroups(selectedType()).find(candidate => candidate.key === key);
+  const graphOnlyTarget =
+    group?.overloads.length === 1 && group.overloads[0].graphOnly
+      ? group.overloads[0].graphTarget ?? null
+      : null;
   state.memberBrowseTypeId = selectedType()?.id ?? "";
   state.selectedMemberKey = key;
-  state.selectedOverloadIndex = null;
+  state.selectedOverloadIndex = graphOnlyTarget ? 0 : null;
   resetMemberSectionState();
   observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
 }
@@ -1852,6 +1863,8 @@ function normalizeMemberSelection() {
 }
 
 function openOverload(index: number) {
+  const graphTarget =
+    selectedMember(selectedType())?.overloads[index]?.graphTarget ?? null;
   state.selectedOverloadIndex = index;
   resetMemberSectionState();
   observeAsync(loadSelectedMemberDocumentation(), "Loading member documentation");
@@ -1865,6 +1878,7 @@ function applyMemberSection(id: MemberSection) {
   const member = selectedMember(selectedType());
   if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
     state.selectedOverloadIndex = 0;
+    state.selectedBodyTarget = member.overloads[0].graphTarget ?? null;
   }
   if (state.memberSection === "call-graph" && id !== "call-graph") {
     invalidateMemberCallGraphWork(state);
@@ -3395,7 +3409,7 @@ function renderTypeSourceHtml(item: BrowserTypeSurface) {
   return renderTypeSource({ item, currentSignature, sourceState: state, escapeHtml, highlightCSharp });
 }
 
-function renderLens(item: BrowserTypeSurface | null | undefined) {
+function renderLens(item: AppTypeSurface | null | undefined) {
   if (state.atPackageRoot) return renderPackageView();
   if (!item) return "";
   const member = selectedMember(item);
@@ -3417,20 +3431,39 @@ function renderLens(item: BrowserTypeSurface | null | undefined) {
   if (state.lens === "metadata") {
     return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
   }
-  const groups = memberGroups(item);
-  const visibleGroups = visibleMemberGroups(item);
+  const publicSurface = {
+    ...item,
+    api: (item.api ?? []).filter(member => !member.graphOnly)
+  };
+  const publicGroups = memberGroups(publicSurface);
+  const graphGroups = memberGroups({
+    ...item,
+    api: (item.api ?? []).filter(member => member.graphOnly)
+  });
+  const visibleGroups = visibleMemberGroups(publicSurface);
   return `
     ${typeHeadingHtml(item)}
     <section class="document-section">
-      <div class="section-title"><h2>Public API</h2><span>${groups.length} member groups · ${item.members} overloads</span></div>
-      <div class="member-browser-controls">${renderMemberFilterControls(item)}</div>
+      <div class="section-title"><h2>Public API</h2><span>${publicGroups.length} member groups · ${item.members} overloads</span></div>
+      <div class="member-browser-controls">${renderMemberFilterControls(publicSurface)}</div>
       <div class="api-list">${visibleGroups.map(group => `
         <button class="api-row" data-member="${escapeHtml(group.key)}">
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
           <code>${highlight(group.overloads[0].signature)}</code>
           <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}</small>
         </button>`).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
-    </section>`;
+    </section>
+    ${graphGroups.length
+      ? `<section class="document-section">
+          <div class="section-title"><h2>Graph-discovered implementation members</h2><span>${graphGroups.reduce((count, group) => count + group.overloads.length, 0)} projected</span></div>
+          <div class="api-list">${graphGroups.map(group => `
+            <button class="api-row" data-member="${escapeHtml(group.key)}">
+              <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
+              <code>${highlight(group.overloads[0].signature)}</code>
+              <small>${group.overloads.length === 1 ? "implementation" : `${group.overloads.length} implementations`}</small>
+            </button>`).join("")}</div>
+        </section>`
+      : ""}`;
 }
 
 function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
@@ -5586,9 +5619,36 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     const graphCandidate = deep.member && deep.graphTarget
       ? resolveLoadedGraphTargetCandidate([pkg], deep.graphTarget)
       : null;
+    const localGraphSelection =
+      deep.graphTarget
+        && graphCandidate?.status === "unique"
+        && graphCandidate.type === type
+        ? findGraphMemberSelection(type, deep.graphTarget)
+        : null;
     const disposition =
-      graphMemberDeepLinkDisposition(deep, graphCandidate, type, group);
-    if (disposition === "graph" && deep.member && deep.graphTarget) {
+      graphMemberDeepLinkDisposition(
+        deep,
+        graphCandidate,
+        type,
+        group,
+        localGraphSelection);
+    if (disposition === "local"
+      && localGraphSelection
+      && deep.graphTarget) {
+      state.selectedMemberKey = localGraphSelection.group.key;
+      state.selectedOverloadIndex = localGraphSelection.overloadIndex;
+      state.selectedBodyTarget = deep.graphTarget;
+      state.memberSection = deep.section
+        && isMemberSection(deep.section)
+        && memberSectionIdsFor(
+          localGraphSelection.group,
+          state.package?.isRuntimePack,
+          true).includes(deep.section)
+        ? deep.section
+        : "overview";
+    } else if (disposition === "graph"
+      && deep.member
+      && deep.graphTarget) {
       state.pendingGraphMemberDeepLink = {
         packageKey: packageIdentityKey(pkg),
         viewSignature: viewSignature(),
@@ -6736,7 +6796,7 @@ async function loadGraphMemberSurface(
     target.metadataToken ?? 0);
 }
 
-function commitGraphMemberSelection(
+function stageGraphMemberSelection(
   pkg: AppPackage,
   type: BrowserTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
@@ -6745,25 +6805,55 @@ function commitGraphMemberSelection(
   let member: AppMemberSurface | undefined = (type.api ?? []).find(candidate =>
     candidate.stableSelector === surface.stableSelector
     && candidate.canonicalSignature === surface.canonicalSignature);
+  const isNew = !member;
   if (!member) {
-    member = { ...surface, graphOnly: true };
-    type.api ??= [];
-    type.api.push(member);
+    member = { ...surface, graphOnly: true, graphTarget: target };
   }
+  const stagedType = isNew
+    ? { ...type, api: [...(type.api ?? []), member] }
+    : type;
+  const selection = resolveLoadedGraphTarget(
+    target,
+    { status: "unique", pkg, type: stagedType });
+  if (!selection.group) {
+    throw new Error(
+      `The graph target '${target.memberName}' did not resolve to the projected member.`);
+  }
+  return {
+    isNew,
+    member,
+    selection: { ...selection, group: selection.group }
+  };
+}
+
+function commitGraphMemberSelection(
+  pkg: AppPackage,
+  type: BrowserTypeSurface,
+  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  staged: ReturnType<typeof stageGraphMemberSelection>,
+) {
+  if (staged.isNew) {
+    type.api ??= [];
+    type.api.push(staged.member);
+  }
+  staged.member.graphTarget = target;
   const selection = resolveLoadedGraphTarget(
     target,
     { status: "unique", pkg, type });
   if (!selection.group) {
     throw new Error(
-      `The graph target '${target.memberName}' did not resolve to the projected member.`);
+      `The graph target '${target.memberName}' was lost while committing its projection.`);
   }
-  return selection;
+  return { ...selection, group: selection.group };
 }
 
 async function navigateToGraphMember(
   loaded: ReturnType<typeof resolveLoadedGraphTarget>,
   target: BrowserCallGraphTarget,
 ) {
+  state.memberCallGraphSeq++;
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
   if (loaded.group) {
     navigateToMember(
       loaded.pkg,
@@ -6796,11 +6886,16 @@ async function navigateToGraphMember(
       }
       return;
     }
-    const selection = commitGraphMemberSelection(
+    const staged = stageGraphMemberSelection(
       loaded.pkg,
       loaded.type,
       target,
       surface);
+    const selection = commitGraphMemberSelection(
+      loaded.pkg,
+      loaded.type,
+      target,
+      staged);
     state.graphMemberNavigationTitle = "";
     navigateToMember(
       selection.pkg,
@@ -6847,13 +6942,22 @@ async function restorePendingGraphMember() {
       discardIfOwned();
       return;
     }
-    const selection = commitGraphMemberSelection(
+    const staged = stageGraphMemberSelection(
       pkg,
       type,
       pending.target,
       surface);
-    if (selection.group.key !== pending.member)
+    const pendingOverloadIndex = Number(pending.overload);
+    if (staged.selection.group.key !== pending.member
+      || !Number.isInteger(pendingOverloadIndex)
+      || staged.selection.overloadIndex !== pendingOverloadIndex) {
       throw new Error("The shared member identity does not match the graph target.");
+    }
+    const selection = commitGraphMemberSelection(
+      pkg,
+      type,
+      pending.target,
+      staged);
     state.pendingGraphMemberDeepLink = null;
     state.selectedMemberKey = selection.group.key;
     state.selectedOverloadIndex = selection.overloadIndex;
@@ -6861,7 +6965,8 @@ async function restorePendingGraphMember() {
       && isMemberSection(pending.section)
       && memberSectionIdsFor(
         selection.group,
-        state.package?.isRuntimePack).includes(pending.section)
+        state.package?.isRuntimePack,
+      true).includes(pending.section)
       ? pending.section
       : "overview";
     state.selectedBodyTarget = pending.target;
@@ -6910,7 +7015,6 @@ function popPlatformDrill() {
 // surface can resolve the target; in-place descent preserves the target's full assembly
 // identity when that surface has no unique member match.
 async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
-  if (state.platformDrillLoading) return;
   invalidateGraphMemberNavigation();
   const seq = state.memberCallGraphSeq;
   const type = selectedType();
@@ -7267,6 +7371,9 @@ function navigateToMember(
   bodyTarget: BodyTarget | null = null,
 ) {
   invalidateGraphMemberNavigation();
+  if (bodyTarget && overloadIndex != null && group.overloads[overloadIndex]) {
+    group.overloads[overloadIndex].graphTarget = bodyTarget;
+  }
   activatePackage(pkg);
   state.lens = "api";
   state.selectedTypeId = type.id;

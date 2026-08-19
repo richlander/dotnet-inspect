@@ -393,6 +393,9 @@ test("platform type and member navigation hides package-only operations", () => 
   assert.deepEqual(
     memberSectionIdsFor({ kind: "method" }, false),
     ["overview", "call-graph", "facts", "source", "annotated"]);
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "property" }, false, true),
+    ["overview", "call-graph", "facts", "source", "annotated"]);
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {
@@ -2960,11 +2963,25 @@ test("graph-only deep links win over colliding public member groups", () => {
       selectedType,
       publicGroup),
     "graph");
+  assert.equal(
+    graphMemberDeepLinkDisposition(
+      {
+        member: publicGroup.key,
+        overload: "0",
+        graphTarget: { memberName: "Run", selectorKey: "public-overload" }
+      },
+      { status: "unique", type: selectedType },
+      selectedType,
+      publicGroup,
+      { group: publicGroup, overloadIndex: 0 }),
+    "local");
 
   const deepLink =
     appSource.match(/function applyDeepLink\(deep\) \{[\s\S]*?\n\}/)?.[0]
     ?? "";
-  assert.match(deepLink, /graphMemberDeepLinkDisposition\(deep, graphCandidate, type, group\)/);
+  assert.match(
+    deepLink,
+    /graphMemberDeepLinkDisposition\(\s*deep,\s*graphCandidate,\s*type,\s*group,\s*localGraphSelection\)/);
   assert.match(deepLink, /if \(disposition === "graph"\)/);
   assert.match(deepLink, /else if \(disposition === "public"\)/);
   assert.match(
@@ -3023,7 +3040,7 @@ test("shared package graph navigation retains existing accessor identity", () =>
     /graphSelection\?\.group\.key === packet\.m/);
   assert.match(
     shareState,
-    /packet\.o == null \|\| graphSelection\.overloadIndex === packet\.o/);
+    /Number\.isInteger\(packet\.o\)\s*&& graphSelection\.overloadIndex === packet\.o/);
   assert.doesNotMatch(shareState, /overloads\.some\(overload => overload\.graphOnly\)/);
   assert.match(appSource, /solid border: no platform lookup/);
 });
@@ -3051,7 +3068,39 @@ test("platform graph navigation supersedes package member loading immediately", 
 
   assert.match(
     navigation,
-    /if \(state\.platformDrillLoading\) return;\s*invalidateGraphMemberNavigation\(\);/);
+    /invalidateGraphMemberNavigation\(\);\s*const seq = \+\+state\.memberCallGraphSeq;/);
+  assert.match(
+    navigation,
+    /state\.platformDrillLoading = false;\s*state\.platformDrillError = "";/);
+});
+
+test("projected members remain distinct from the public API surface", () => {
+  assert.match(
+    appSource,
+    /Graph-discovered implementation members/);
+  assert.match(
+    appSource,
+    /item\.api\?\.filter\(member => !member\.graphOnly\)/);
+  assert.match(
+    appSource,
+    /memberSectionIdsFor\(\s*member,\s*state\.package\?\.isRuntimePack,\s*memberHasSelectedBody\(member\)\)/);
+});
+
+test("shared graph projection validates before committing API state", () => {
+  const restoration =
+    appSource.match(/async function restorePendingGraphMember[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  const validation = restoration.indexOf("staged.selection.group.key !== pending.member");
+  const commit = restoration.indexOf("commitGraphMemberSelection(");
+
+  assert.ok(validation >= 0);
+  assert.ok(commit > validation);
+  assert.match(
+    appSource,
+    /group\?\.overloads\.length === 1 && group\.overloads\[0\]\.graphOnly/);
+  assert.match(
+    appSource,
+    /group\.overloads\[overloadIndex\]\.graphTarget = bodyTarget/);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {
