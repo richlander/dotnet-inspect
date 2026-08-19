@@ -55,6 +55,13 @@ kind, assembly-reference, acquisition-failure, and exception fields. Opaque
 workspace registration handles are deliberately not stringified; the graph
 target and typed reference evidence remain the identities a consumer can
 interpret outside the owning workspace.
+Failure-targeted nodes and groups remain in the JSON document as diagnostic
+context even when they are not endpoints of the selected edge window; they are
+not additional relationship rows. Structured diagnostic text crosses the same
+lossless inert containment boundary as human-readable failures.
+`VisibleGraphFailure_PreservesOutputAndNonzeroExit` gates target
+resolvability, and `StructuredFailureText_IsInertAfterJsonParsing` gates
+containment after a JSON consumer decodes the value.
 
 ## Flag families
 

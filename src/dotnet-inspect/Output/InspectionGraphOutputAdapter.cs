@@ -126,10 +126,23 @@ internal static class InspectionGraphOutputAdapter
             document,
             selectedRows);
         HashSet<int> selectedNodeIds = SelectedNodeIds(edges);
+        selectedNodeIds.UnionWith(
+            document.Failures
+                .Where(static failure =>
+                    failure.Target
+                        is { Kind: InspectionGraphTargetKind.Node })
+                .Select(static failure => failure.Target!.Value.Id));
         HashSet<int> selectedGroupIds = SelectedGroupIds(
             document,
             selectedNodeIds,
             edges.Length > 0 || document.Edges.IsEmpty);
+        selectedGroupIds.UnionWith(
+            document.Failures
+                .Where(static failure =>
+                    failure.Target
+                        is { Kind: InspectionGraphTargetKind.Group })
+                .Select(static failure => failure.Target!.Value.Id));
+        AddGroupAncestors(document, selectedGroupIds);
         return new InspectionGraphJsonDocument(
             "induced-set",
             document.InducedSetRequest!.AdmissionRule.ToString(),
@@ -200,6 +213,21 @@ internal static class InspectionGraphOutputAdapter
                 document.Edges.IsEmpty
                     ? "No selected Integration relationships were found within the package set."
                     : "No Integration relationships are selected by the row window.");
+            if (document.Edges.IsEmpty)
+            {
+                if (embeddedMermaid)
+                {
+                    writer.WriteGraph(ToGraph(document, rows));
+                }
+                else
+                {
+                    writer.WriteList(
+                        [
+                            .. document.InducedSetRequest!.Subjects
+                                .Select(Label),
+                        ]);
+                }
+            }
         }
         else
         {
@@ -359,6 +387,14 @@ internal static class InspectionGraphOutputAdapter
                     .Select(static group => group.Id));
         }
 
+        AddGroupAncestors(document, selected);
+        return selected;
+    }
+
+    static void AddGroupAncestors(
+        InspectionGraphDocument document,
+        HashSet<int> selected)
+    {
         foreach (int groupId in selected.ToArray())
         {
             int? parentId = document.Groups[groupId].ParentId;
@@ -368,7 +404,6 @@ internal static class InspectionGraphOutputAdapter
                 parentId = document.Groups[id].ParentId;
             }
         }
-        return selected;
     }
 
     static InspectionGraphJsonFailure JsonFailure(
@@ -388,14 +423,18 @@ internal static class InspectionGraphOutputAdapter
                             detail.Reference is null
                                 ? null
                                 : new InspectionGraphJsonAssemblyReference(
-                                    detail.Reference.Name,
+                                    ContainRequired(
+                                        detail.Reference.Name),
                                     detail.Reference.Version?.ToString(),
-                                    detail.Reference.Culture,
-                                    detail.Reference.PublicKeyToken),
+                                    Contain(detail.Reference.Culture),
+                                    Contain(
+                                        detail.Reference.PublicKeyToken)),
                             detail.AcquisitionFailure?.Kind.ToString(),
-                            detail.AcquisitionFailure?.Detail,
-                            detail.Error?.GetType().FullName,
-                            detail.Error?.Message)),
+                            Contain(
+                                detail.AcquisitionFailure?.Detail),
+                            Contain(
+                                detail.Error?.GetType().FullName),
+                            Contain(detail.Error?.Message))),
                 ]
                 : [];
         return new InspectionGraphJsonFailure(
@@ -405,6 +444,14 @@ internal static class InspectionGraphOutputAdapter
             target?.Id,
             details);
     }
+
+    static string? Contain(string? value) =>
+        value is null
+            ? null
+            : ContainRequired(value);
+
+    static string ContainRequired(string value) =>
+        CSharpIdentifier.ContainRenderedText(value);
 
     static void WriteFailures(
         MarkoutWriter writer,

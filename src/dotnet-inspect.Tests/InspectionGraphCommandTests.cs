@@ -6,6 +6,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using ILInspector.Metadata;
 using NuGetFetch;
 
 namespace DotnetInspector.Tests;
@@ -242,6 +243,25 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public async Task EdgeFreeMarkdown_RetainsExplicitPackageContext()
+    {
+        Execution execution = await ExecuteAsync(
+            injectedDocument: EdgeFreeGraph());
+
+        Assert.Equal(0, execution.ExitCode);
+        Assert.Equal(
+            2,
+            execution.Output.Split(
+                PackageId,
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            2,
+            execution.Output.Split(
+                OtherPackageId,
+                StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_DefaultsToTheIntegrationRelationshipFamily()
     {
         InspectionGraphInducedSetRequest? capturedRequest = null;
@@ -334,14 +354,15 @@ public sealed class InspectionGraphCommandTests
             [
                 new InspectionGraphFailure(
                     InspectionGraphIntegrationsCatalog.ProjectionFailure,
-                    InspectionGraphTarget.Node(0)),
+                    InspectionGraphTarget.Node(2)),
             ]);
 
         Execution execution = await ExecuteAsync(
             injectedDocument: incomplete);
         Execution json = await ExecuteAsync(
             ["--json"],
-            injectedDocument: incomplete);
+            injectedDocument: incomplete,
+            rows: RowWindow.Head(1));
 
         Assert.Equal(1, execution.ExitCode);
         Assert.Equal(1, json.ExitCode);
@@ -355,7 +376,78 @@ public sealed class InspectionGraphCommandTests
         JsonElement failure = Assert.Single(
             parsed.RootElement.GetProperty("failures").EnumerateArray());
         Assert.Equal("Node", failure.GetProperty("target_kind").GetString());
-        Assert.Equal(0, failure.GetProperty("target_id").GetInt32());
+        Assert.Equal(2, failure.GetProperty("target_id").GetInt32());
+        Assert.Contains(
+            parsed.RootElement.GetProperty("nodes").EnumerateArray(),
+            static node => node.GetProperty("id").GetInt32() == 2);
+    }
+
+    [Fact]
+    public async Task StructuredFailureText_IsInertAfterJsonParsing()
+    {
+        const string bidi = "\u202e";
+        Execution json = await ExecuteAsync(
+            ["--json"],
+            documentFactory: (context, _) =>
+            {
+                InspectionGraphDocument graph = GraphWithTwoEdges();
+                var detail = new InspectionGraphIntegrationFailureDetail(
+                    "integrations",
+                    context.Group.Participants[0]
+                        .Assembly.Registration,
+                    InspectionGraphIntegrationFailureKind.BindingMissing,
+                    new CandidateOpenFailure(
+                        CandidateOpenFailureKind.Unreadable,
+                        $"acquisition{bidi}detail"),
+                    new InvalidOperationException(
+                        $"failure{bidi}message"),
+                    new AssemblyReferenceIdentity(
+                        $"assembly{bidi}name",
+                        new Version(1, 0),
+                        $"culture{bidi}name",
+                        $"token{bidi}value"));
+                return new InspectionGraphDocument(
+                    graph.Scope,
+                    graph.InducedSetRequest!,
+                    graph.Nodes,
+                    graph.Groups,
+                    graph.Edges,
+                    graph.Occurrences,
+                    graph.Characteristics,
+                    graph.Seeds,
+                    graph.Limits,
+                    [
+                        new InspectionGraphFailure(
+                            InspectionGraphIntegrationsCatalog
+                                .ProjectionFailure,
+                            InspectionGraphTarget.Node(2),
+                            new InspectionGraphIntegrationFailureEvidence(
+                                [detail])),
+                    ]);
+            });
+
+        Assert.Equal(1, json.ExitCode);
+        using JsonDocument parsed = JsonDocument.Parse(json.Output);
+        JsonElement detail = Assert.Single(
+            Assert.Single(
+                parsed.RootElement.GetProperty("failures")
+                    .EnumerateArray())
+                .GetProperty("details")
+                .EnumerateArray());
+        Assert.DoesNotContain(
+            bidi,
+            detail.GetProperty("reference")
+                .GetProperty("name").GetString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            bidi,
+            detail.GetProperty("acquisition_failure_detail")
+                .GetString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            bidi,
+            detail.GetProperty("error_message").GetString(),
+            StringComparison.Ordinal);
     }
 
     static async Task<Execution> ExecuteAsync(
@@ -364,7 +456,11 @@ public sealed class InspectionGraphCommandTests
         InspectionGraphDocument? injectedDocument = null,
         Action<InspectionGraphInducedSetRequest>? captureRequest = null,
         RowWindow? rows = null,
-        OutputFormat? formatOverride = null)
+        OutputFormat? formatOverride = null,
+        Func<
+            WorkspaceContextLoadOutcome.Loaded,
+            InspectionGraphInducedSetRequest,
+            InspectionGraphDocument>? documentFactory = null)
     {
         var store = new InMemoryPackageStore();
         string sourceKey = NuGetCache.GetSourceKey(Source.Url);
@@ -415,18 +511,33 @@ public sealed class InspectionGraphCommandTests
             Rows = rows ?? (rowsIndex >= 0 ? RowWindow.Head(1) : null),
         };
 
+        Func<
+            WorkspaceContextLoadOutcome.Loaded,
+            InspectionGraphInducedSetRequest,
+            InspectionGraphDocument>? queryExecutor = null;
+        if (documentFactory is not null)
+        {
+            queryExecutor = (context, request) =>
+            {
+                captureRequest?.Invoke(request);
+                return documentFactory(context, request);
+            };
+        }
+        else if (injectedDocument is not null)
+        {
+            queryExecutor = (_, request) =>
+            {
+                captureRequest?.Invoke(request);
+                return injectedDocument;
+            };
+        }
+
         var captured = await ConsoleCapture.RunAsync(
             () => InspectionGraphCommand.ExecuteAsync(
                 options,
                 loadOptions,
                 TestContext.Current.CancellationToken,
-                queryExecutor: injectedDocument is null
-                    ? null
-                    : (_, request) =>
-                    {
-                        captureRequest?.Invoke(request);
-                        return injectedDocument;
-                    }));
+                queryExecutor));
         return new Execution(
             captured.ExitCode,
             captured.Output,
@@ -529,6 +640,37 @@ public sealed class InspectionGraphCommandTests
                     InspectionGraphInducedSetCatalog.SubjectBound,
                     Evidence:
                         new InspectionGraphInducedSubjectBoundEvidence(3)),
+            ],
+            []);
+    }
+
+    static InspectionGraphDocument EdgeFreeGraph()
+    {
+        InspectionGraphSubject first = PackageSubject(PackageId);
+        InspectionGraphSubject second = PackageSubject(OtherPackageId);
+        var request = new InspectionGraphInducedSetRequest(
+            [first, second],
+            [TestRelationship],
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
+
+        return new InspectionGraphDocument(
+            InspectionGraphDocumentScope.Portable,
+            request,
+            [],
+            [
+                new InspectionGraphGroup(0, first, parentId: null),
+                new InspectionGraphGroup(1, second, parentId: null),
+            ],
+            [],
+            [],
+            [],
+            [],
+            [
+                new InspectionGraphLimit(
+                    InspectionGraphInducedSetCatalog.SubjectBound,
+                    Evidence:
+                        new InspectionGraphInducedSubjectBoundEvidence(2)),
             ],
             []);
     }
