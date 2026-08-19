@@ -1,7 +1,5 @@
 using System.Collections.Immutable;
 
-using ILInspector.Metadata;
-
 namespace DotnetInspector.Queries;
 
 /// <summary>Which semantic endpoint roles a neighborhood may traverse.</summary>
@@ -308,13 +306,22 @@ internal static class InspectionGraphNeighborhoodProjection
             retainedGroupIds.UnionWith(
                 source.Nodes[nodeId].GroupIds);
         }
-        RetainGroupParents(source, retainedGroupIds);
+        InspectionGraphProjectionUtilities.RetainGroupParents(
+            source,
+            retainedGroupIds);
 
-        Dictionary<int, int> groupIds = DenseMap(retainedGroupIds);
-        Dictionary<int, int> nodeIds = DenseMap(retainedNodeIds);
+        Dictionary<int, int> groupIds =
+            InspectionGraphProjectionUtilities.DenseMap(
+                retainedGroupIds);
+        Dictionary<int, int> nodeIds =
+            InspectionGraphProjectionUtilities.DenseMap(
+                retainedNodeIds);
         Dictionary<int, int> occurrenceIds =
-            DenseMap(retainedOccurrenceIds);
-        Dictionary<int, int> edgeIds = DenseMap(retainedEdgeIds);
+            InspectionGraphProjectionUtilities.DenseMap(
+                retainedOccurrenceIds);
+        Dictionary<int, int> edgeIds =
+            InspectionGraphProjectionUtilities.DenseMap(
+                retainedEdgeIds);
 
         InspectionGraphGroup[] groups =
         [
@@ -370,7 +377,7 @@ internal static class InspectionGraphNeighborhoodProjection
         InspectionGraphCharacteristic[] characteristics =
         [
             .. source.Characteristics.Select(characteristic =>
-                RemapCharacteristic(
+                InspectionGraphProjectionUtilities.RemapCharacteristic(
                     characteristic,
                     nodeIds,
                     groupIds,
@@ -385,7 +392,7 @@ internal static class InspectionGraphNeighborhoodProjection
             .. sourceSeeds.Select(sourceSeed =>
                 new InspectionGraphSeed(
                     sourceSeed.Subject,
-                    RemapTarget(
+                    InspectionGraphProjectionUtilities.RemapTarget(
                         sourceSeed.Target,
                         nodeIds,
                         groupIds,
@@ -398,7 +405,7 @@ internal static class InspectionGraphNeighborhoodProjection
         InspectionGraphLimit[] limits =
         [
             .. source.Limits.Select(limit =>
-                RemapLimit(
+                InspectionGraphProjectionUtilities.RemapLimit(
                     limit,
                     nodeIds,
                     groupIds,
@@ -416,7 +423,7 @@ internal static class InspectionGraphNeighborhoodProjection
         InspectionGraphFailure[] failures =
         [
             .. source.Failures.Select(failure =>
-                RemapFailure(
+                InspectionGraphProjectionUtilities.RemapFailure(
                     failure,
                     nodeIds,
                     groupIds,
@@ -486,109 +493,26 @@ internal static class InspectionGraphNeighborhoodProjection
                 edgeEndpoint == seed,
             InspectionGraphSeedAdmissionKind.OccurrenceEndpoint =>
                 edge.OccurrenceIds.Any(id =>
-                    OccurrenceEndpoint(
+                    InspectionGraphProjectionUtilities.OccurrenceEndpoint(
                         source.Occurrences[id],
                         admission.Role)
                     == seed),
             InspectionGraphSeedAdmissionKind.OwnedSubjects =>
-                StrictlyOwns(
+                InspectionGraphProjectionUtilities.StrictlyOwns(
                     source,
                     nodesBySubject,
                     seed,
                     edgeEndpoint)
                 || edge.OccurrenceIds.Any(id =>
-                    StrictlyOwns(
+                    InspectionGraphProjectionUtilities.StrictlyOwns(
                         source,
                         nodesBySubject,
                         seed,
-                        OccurrenceEndpoint(
+                        InspectionGraphProjectionUtilities.OccurrenceEndpoint(
                             source.Occurrences[id],
                             admission.Role))),
             _ => throw new ArgumentOutOfRangeException(nameof(admission)),
         };
-    }
-
-    static InspectionGraphSubject OccurrenceEndpoint(
-        InspectionGraphOccurrence occurrence,
-        InspectionGraphEndpointRole role) =>
-        role == InspectionGraphEndpointRole.Source
-            ? occurrence.SourceSubject
-            : occurrence.TargetSubject;
-
-    static bool StrictlyOwns(
-        InspectionGraphDocument source,
-        IReadOnlyDictionary<
-            InspectionGraphSubject,
-            InspectionGraphNode> nodesBySubject,
-        InspectionGraphSubject owner,
-        InspectionGraphSubject subject)
-    {
-        if (owner.Kind == subject.Kind)
-            return false;
-        if (owner is InspectionGraphSubject.PackageSubject package)
-        {
-            return nodesBySubject.TryGetValue(
-                    subject,
-                    out InspectionGraphNode? node)
-                && node.GroupIds.Any(groupId =>
-                    source.Groups[groupId].Subject == package);
-        }
-        if (!TryGetRegistration(owner, out var ownerRegistration)
-            || !TryGetRegistration(subject, out var subjectRegistration)
-            || !ReferenceEquals(
-                ownerRegistration,
-                subjectRegistration))
-        {
-            return false;
-        }
-
-        return owner switch
-        {
-            InspectionGraphSubject.AssemblySubject =>
-                subject.Kind is InspectionGraphSubjectKind.Type
-                    or InspectionGraphSubjectKind.Member,
-            InspectionGraphSubject.TypeSubject
-                {
-                    Identity:
-                        InspectionGraphTypeIdentity.AcquiredDefinition
-                        ownerType,
-                } when subject is InspectionGraphSubject.MemberSubject
-                {
-                    Identity:
-                        InspectionGraphMemberIdentity.AcquiredApi member,
-                } =>
-                string.Equals(
-                    ownerType.Type.ToMetadataFullName(),
-                    member.Member.TypeFullName,
-                    StringComparison.Ordinal),
-            _ => false,
-        };
-    }
-
-    static bool TryGetRegistration(
-        InspectionGraphSubject subject,
-        out AssemblyAcquisitionRegistration? registration)
-    {
-        registration = subject switch
-        {
-            InspectionGraphSubject.MemberSubject
-            {
-                Identity:
-                    InspectionGraphMemberIdentity.AcquiredApi acquired,
-            } => acquired.Registration,
-            InspectionGraphSubject.TypeSubject
-            {
-                Identity:
-                    InspectionGraphTypeIdentity.AcquiredDefinition acquired,
-            } => acquired.Registration,
-            InspectionGraphSubject.AssemblySubject
-            {
-                Identity:
-                    InspectionGraphAssemblyIdentity.Acquired acquired,
-            } => acquired.Registration,
-            _ => null,
-        };
-        return registration is not null;
     }
 
     static void RetainEdge(
@@ -625,141 +549,5 @@ internal static class InspectionGraphNeighborhoodProjection
             retainedNodeIds?.Add(target.Id);
         else if (target.Kind == InspectionGraphTargetKind.Group)
             retainedGroupIds?.Add(target.Id);
-    }
-
-    static void RetainGroupParents(
-        InspectionGraphDocument source,
-        HashSet<int> retainedGroupIds)
-    {
-        int[] initial = [.. retainedGroupIds];
-        foreach (int id in initial)
-        {
-            int? parentId = source.Groups[id].ParentId;
-            while (parentId is int parent)
-            {
-                retainedGroupIds.Add(parent);
-                parentId = source.Groups[parent].ParentId;
-            }
-        }
-    }
-
-    static Dictionary<int, int> DenseMap(
-        HashSet<int> retainedIds) =>
-        retainedIds.Order().Select((id, index) => (id, index))
-            .ToDictionary(static item => item.id, static item => item.index);
-
-    static InspectionGraphCharacteristic? RemapCharacteristic(
-        InspectionGraphCharacteristic characteristic,
-        IReadOnlyDictionary<int, int> nodeIds,
-        IReadOnlyDictionary<int, int> groupIds,
-        IReadOnlyDictionary<int, int> edgeIds,
-        IReadOnlyDictionary<int, int> occurrenceIds)
-    {
-        InspectionGraphTarget? target = RemapTarget(
-            characteristic.Target,
-            nodeIds,
-            groupIds,
-            edgeIds,
-            occurrenceIds);
-        if (target is null)
-            return null;
-
-        InspectionGraphTarget?[] sources =
-        [
-            .. characteristic.Derivation.Sources.Select(source =>
-                RemapTarget(
-                    source,
-                    nodeIds,
-                    groupIds,
-                    edgeIds,
-                    occurrenceIds)),
-        ];
-        if (sources.Any(static source => source is null))
-            return null;
-
-        return new InspectionGraphCharacteristic(
-            characteristic.Descriptor,
-            target.Value,
-            characteristic.Value,
-            new InspectionGraphCharacteristicDerivation(
-                characteristic.Derivation.Kind,
-                sources.Select(static source => source!.Value)));
-    }
-
-    static InspectionGraphLimit? RemapLimit(
-        InspectionGraphLimit limit,
-        IReadOnlyDictionary<int, int> nodeIds,
-        IReadOnlyDictionary<int, int> groupIds,
-        IReadOnlyDictionary<int, int> edgeIds,
-        IReadOnlyDictionary<int, int> occurrenceIds)
-    {
-        if (limit.Target is not { } sourceTarget)
-            return limit;
-        InspectionGraphTarget? target = RemapTarget(
-            sourceTarget,
-            nodeIds,
-            groupIds,
-            edgeIds,
-            occurrenceIds);
-        return target is null
-            ? null
-            : new InspectionGraphLimit(
-                limit.Descriptor,
-                target,
-                limit.Evidence);
-    }
-
-    static InspectionGraphFailure? RemapFailure(
-        InspectionGraphFailure failure,
-        IReadOnlyDictionary<int, int> nodeIds,
-        IReadOnlyDictionary<int, int> groupIds,
-        IReadOnlyDictionary<int, int> edgeIds,
-        IReadOnlyDictionary<int, int> occurrenceIds)
-    {
-        if (failure.Target is not { } sourceTarget)
-            return failure;
-        InspectionGraphTarget? target = RemapTarget(
-            sourceTarget,
-            nodeIds,
-            groupIds,
-            edgeIds,
-            occurrenceIds);
-        return target is null
-            ? null
-            : new InspectionGraphFailure(
-                failure.Descriptor,
-                target,
-                failure.Evidence);
-    }
-
-    static InspectionGraphTarget? RemapTarget(
-        InspectionGraphTarget target,
-        IReadOnlyDictionary<int, int> nodeIds,
-        IReadOnlyDictionary<int, int> groupIds,
-        IReadOnlyDictionary<int, int> edgeIds,
-        IReadOnlyDictionary<int, int> occurrenceIds)
-    {
-        IReadOnlyDictionary<int, int> ids = target.Kind switch
-        {
-            InspectionGraphTargetKind.Node => nodeIds,
-            InspectionGraphTargetKind.Group => groupIds,
-            InspectionGraphTargetKind.Edge => edgeIds,
-            InspectionGraphTargetKind.Occurrence => occurrenceIds,
-            _ => throw new ArgumentOutOfRangeException(nameof(target)),
-        };
-        if (!ids.TryGetValue(target.Id, out int id))
-            return null;
-        return target.Kind switch
-        {
-            InspectionGraphTargetKind.Node =>
-                InspectionGraphTarget.Node(id),
-            InspectionGraphTargetKind.Group =>
-                InspectionGraphTarget.Group(id),
-            InspectionGraphTargetKind.Edge =>
-                InspectionGraphTarget.Edge(id),
-            InspectionGraphTargetKind.Occurrence =>
-                InspectionGraphTarget.Occurrence(id),
-            _ => throw new ArgumentOutOfRangeException(nameof(target)),
-        };
     }
 }
