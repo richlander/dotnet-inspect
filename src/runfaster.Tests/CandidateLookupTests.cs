@@ -722,6 +722,24 @@ public class CandidateLookupTests
     }
 
     [Fact]
+    public void Create_LogicalDuplicatesCountAsOneSameShapeRow()
+    {
+        var first = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010);
+        var duplicate = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010);
+
+        CandidateLookup.Create([first, duplicate]);
+
+        Assert.Equal(1, first.SameMethodShapeRows);
+        Assert.Equal(1, duplicate.SameMethodShapeRows);
+    }
+
+    [Fact]
     public void AttributeBytes_NegativeTotal_DoesNotMutateRemainderState()
     {
         var first = Candidate(
@@ -784,6 +802,32 @@ public class CandidateLookupTests
         Assert.Equal(50, second.AllocationBytes);
         Assert.True(first.AmbiguousIlOffsetJoin);
         Assert.True(second.AmbiguousIlOffsetJoin);
+    }
+
+    [Fact]
+    public void MarkAllocationHit_ZeroTickShareIsObservedNotCold()
+    {
+        var candidate = Candidate(
+            id: 1,
+            methodToken: 0x06000006,
+            ilOffset: 0x0010,
+            kind: "Delegate");
+        var matched = new HashSet<int>();
+
+        ProgramSupport.MarkAllocationHitForTest(
+            candidate,
+            matched,
+            "trace",
+            "Fixture.Other",
+            50,
+            allocationHits: 0,
+            ilOffsetJoin: true,
+            exactOffset: false,
+            ambiguousIlJoin: true);
+
+        Assert.True(candidate.IsObserved);
+        Assert.Equal(0, candidate.AllocationHits);
+        Assert.Equal("allocation-hot", candidate.Status);
     }
 
     static AllocationCandidate Candidate(

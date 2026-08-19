@@ -960,7 +960,7 @@ public class E2EFixtureTests
             File.WriteAllText(
                 speedscopePath,
                 """
-                {"shared":{"frames":[{"name":"Fixture.Type.First()"},{"name":"Fixture.Type.Second()"}]},"profiles":[{"type":"sampled","samples":[[0,1]],"weights":[100]}]}
+                {"shared":{"frames":[{"name":"Fixture.Type.First()"},{"name":"Fixture.Type.Second()"},{"name":"Fixture.Type.First()"}]},"profiles":[{"type":"sampled","samples":[[0,1,2]],"weights":[100]}]}
                 """);
 
             var result = RunCorrelate(
@@ -979,13 +979,81 @@ public class E2EFixtureTests
                 .EnumerateArray()
                 .ToArray();
             Assert.Equal(2, candidates.Length);
-            Assert.All(
-                candidates,
+            var weights = candidates.ToDictionary(
                 candidate =>
-                    Assert.Equal(
-                        100,
+                    candidate.GetProperty(
+                        "method").GetString()!,
+                candidate =>
+                    candidate.GetProperty(
+                        "runtimeWeight").GetDouble());
+            Assert.Equal(
+                200,
+                weights["Fixture.Type.First()"]);
+            Assert.Equal(
+                100,
+                weights["Fixture.Type.Second()"]);
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(speedscopePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_ProfileLogicalDuplicates_PreserveMethodWeight()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string speedscopePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-{Guid.NewGuid():N}.speedscope.json");
+        try
+        {
+            const string row =
+                """{"member":"Fixture.Type.First()","assembly":"Fixture","method_token":"0x06000001","shape":"object-allocation","il":"IL_0005","allocation":"System.Object"}""";
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"objects":[{{{row}}},{{{row}}}]}}
+                """);
+            File.WriteAllText(
+                speedscopePath,
+                """
+                {"shared":{"frames":[{"name":"Fixture.Type.First()"}]},"profiles":[{"type":"sampled","samples":[[0]],"weights":[100]}]}
+                """);
+
+            var json = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--input",
+                speedscopePath,
+                "--json");
+
+            Assert.Equal(0, json.ExitCode);
+            Assert.Empty(json.Error);
+            using var output =
+                JsonDocument.Parse(json.Output);
+            Assert.Equal(
+                100,
+                output.RootElement
+                    .GetProperty("candidates")
+                    .EnumerateArray()
+                    .Sum(candidate =>
                         candidate.GetProperty(
                             "runtimeWeight").GetDouble()));
+
+            var markdown = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--input",
+                speedscopePath);
+            Assert.Equal(0, markdown.ExitCode);
+            Assert.Empty(markdown.Error);
+            Assert.Contains(
+                "sample weight 100",
+                markdown.Output);
         }
         finally
         {
@@ -2525,10 +2593,37 @@ public class E2EFixtureTests
             Assert.All(
                 candidates,
                 candidate =>
+                {
                     Assert.False(
                         candidate.GetProperty(
                             "ambiguousIlOffsetJoin")
-                            .GetBoolean()));
+                            .GetBoolean());
+                    Assert.False(
+                        candidate.GetProperty(
+                            "rowAmbiguous")
+                            .GetBoolean());
+                    Assert.Equal(
+                        1,
+                        candidate.GetProperty(
+                            "sameMethodShapeRows")
+                            .GetInt32());
+                    Assert.Equal(
+                        "shape-hot",
+                        candidate.GetProperty(
+                            "status").GetString());
+                });
+
+            var markdown = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"));
+            Assert.Equal(0, markdown.ExitCode);
+            Assert.Empty(markdown.Error);
+            Assert.Contains(
+                "11 alloc ticks / 1.11 MB",
+                markdown.Output);
         }
         finally
         {

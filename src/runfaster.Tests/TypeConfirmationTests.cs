@@ -1103,6 +1103,42 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_CountsCoordinateLessDuplicatesOnce()
+    {
+        var result = new CorrelationResult();
+        for (int i = 0;
+             i < ProgramSupport.TypeConfirmMaxSites + 1;
+             i++)
+        {
+            result.Candidates.Add(
+                CandidateWithType(
+                    i + 1,
+                    "Fixture.T.M()",
+                    "System.String",
+                    source: "triage",
+                    assemblyName: "",
+                    methodToken: 0,
+                    ilOffset: 0,
+                    libraryPath: ""));
+        }
+        result.RecordTypeVolume(
+            "System.String",
+            900_000_000);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.All(
+            result.Candidates,
+            candidate =>
+            {
+                Assert.True(candidate.TypeConfirmed);
+                Assert.Equal(
+                    1,
+                    candidate.TypeConfirmedSiteCount);
+            });
+    }
+
+    [Fact]
     public void AllocationCandidate_FromOccurrence_TreatsEmptyMvidAsUnknown()
     {
         var method = new ILInspector.Analysis.MethodIdentity(

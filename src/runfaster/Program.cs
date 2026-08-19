@@ -1321,7 +1321,7 @@ static int CorrelateEventedSpeedscopeProfile(
     JsonElement profile,
     IReadOnlyDictionary<
         int,
-        IReadOnlyList<AllocationCandidate>>
+        IReadOnlyList<MethodTextMatch>>
         candidatesByFrame,
     string sourceKind,
     CandidateLookup lookup)
@@ -1391,7 +1391,7 @@ static int CorrelateSampledSpeedscopeProfile(
     JsonElement profile,
     IReadOnlyDictionary<
         int,
-        IReadOnlyList<AllocationCandidate>>
+        IReadOnlyList<MethodTextMatch>>
         candidatesByFrame,
     string sourceKind,
     CandidateLookup lookup)
@@ -1433,7 +1433,7 @@ static int CorrelateSampledSpeedscopeProfile(
 
 static IReadOnlyDictionary<
     int,
-    IReadOnlyList<AllocationCandidate>>
+    IReadOnlyList<MethodTextMatch>>
     BuildFrameCandidateIndex(
         IEnumerable<(int Index, string Name)> frames,
         CandidateLookup lookup)
@@ -1444,22 +1444,25 @@ static IReadOnlyDictionary<
             static frame =>
                 frame.Index,
             frame =>
-                (IReadOnlyList<AllocationCandidate>)
+                (IReadOnlyList<MethodTextMatch>)
                 [.. lookup.FindByMethodText(frame.Name)
-                .Select(static match =>
-                    match.Candidate)
-                .Where(static candidate =>
-                    !candidate.SupersededByTriage)
-                .DistinctBy(static candidate =>
-                    candidate.Id)
-                .OrderBy(static candidate =>
-                    candidate.Id)]);
+                .Where(static match =>
+                    !match.Candidate.SupersededByTriage)
+                .GroupBy(static match =>
+                    match.Candidate.Id)
+                .Select(static group =>
+                    new MethodTextMatch(
+                        group.First().Candidate,
+                        group.Any(static match =>
+                            match.IsRuntimeBody)))
+                .OrderBy(static match =>
+                    match.Candidate.Id)]);
 
 static void AccumulateFrameObservation(
     IEnumerable<int> frameIndices,
     IReadOnlyDictionary<
         int,
-        IReadOnlyList<AllocationCandidate>>
+        IReadOnlyList<MethodTextMatch>>
         candidatesByFrame,
     double weight,
     Dictionary<
@@ -1471,19 +1474,41 @@ static void AccumulateFrameObservation(
     if (weight <= 0)
         return;
 
+    var matchedFrames = frameIndices
+        .Select(frame =>
+            candidatesByFrame.TryGetValue(
+                frame,
+                out var matches)
+                ? matches
+                : [])
+        .Where(static matches =>
+            matches.Count > 0)
+        .ToArray();
+    var runtimeBodyCandidateIds =
+        matchedFrames
+            .SelectMany(static matches =>
+                matches)
+            .Where(static match =>
+                match.IsRuntimeBody)
+            .Select(static match =>
+                match.Candidate.Id)
+            .ToHashSet();
     var observationWeights =
         new Dictionary<
             int,
             (AllocationCandidate Candidate, double Weight)>();
-    foreach (int frame in frameIndices.Distinct())
+    foreach (var matches in matchedFrames)
     {
-        if (!candidatesByFrame.TryGetValue(
-                frame,
-                out var candidates)
-            || candidates.Count == 0)
-        {
+        var candidates = matches
+            .Where(match =>
+                match.IsRuntimeBody
+                || !runtimeBodyCandidateIds.Contains(
+                    match.Candidate.Id))
+            .Select(static match =>
+                match.Candidate)
+            .ToArray();
+        if (candidates.Length == 0)
             continue;
-        }
 
         var frameWeights =
             lookup.AttributeWeight(
@@ -1500,10 +1525,9 @@ static void AccumulateFrameObservation(
             observationWeights[candidate.Id] =
                 (
                     candidate,
-                    Math.Max(
-                        priorWeight,
-                        frameWeights[
-                            candidate.Id]));
+                    priorWeight
+                        + frameWeights[
+                            candidate.Id]);
         }
     }
 
@@ -1863,10 +1887,10 @@ static void RenderMarkdown(CorrelationResult result, IReadOnlyList<AllocationCan
         .Select(g => new
         {
             Method = g.Key,
-            Weight = g.Max(c => c.RuntimeWeight),
-            Hits = g.Sum(c => c.RuntimeHits),
-            AllocationHits = g.Max(c => c.EffectiveAllocationHits),
-            AllocationBytes = g.Max(c => c.EffectiveObservedBytes),
+            Weight = g.Sum(c => c.RuntimeWeight),
+            Hits = g.Max(c => c.RuntimeHits),
+            AllocationHits = g.Sum(c => c.EffectiveAllocationHits),
+            AllocationBytes = g.Sum(c => c.EffectiveObservedBytes),
             Rows = g.Count(),
             Shapes = string.Join(", ", g.Select(c => c.AllocationKind).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)),
             Confidence = HighestConfidence(g.Select(c => c.Confidence)),
@@ -2793,7 +2817,7 @@ sealed class AllocationCandidate(
         : ShapeMatched
         ? RowAmbiguous ? "shape-hot-ambiguous" : "shape-hot"
         : UnambiguousIlOffsetJoinObserved ? "il-offset-hot"
-        : AllocationHits > 0
+        : AllocationObserved || AllocationHits > 0
             ? "allocation-hot"
             : RuntimeHits == 0
         ? TypeConfirmedBytes > 0
@@ -3161,7 +3185,11 @@ sealed class CandidateLookup
                                 : "",
                          candidate.AllocationKind)))
         {
-            int count = group.Count();
+            int count = group
+                .Select(candidate =>
+                    StableAttributionKey(candidate))
+                .Distinct(StringComparer.Ordinal)
+                .Count();
             foreach (var candidate in group)
                 candidate.SameMethodShapeRows = count;
         }
@@ -3579,7 +3607,7 @@ sealed class CandidateLookup
         return key;
     }
 
-    static string StableAttributionKey(
+    internal static string StableAttributionKey(
         AllocationCandidate candidate)
         => string.Concat(
             EncodeAttributionPart(
@@ -4151,10 +4179,15 @@ internal static class ProgramSupport
         var supersededLibraries = new List<AllocationCandidate>();
         int siteCount = 0;
 
-        foreach (var candidate in candidates.Where(static candidate =>
-                     !candidate.HasRuntimeCoordinate))
+        foreach (var group in candidates
+                     .Where(static candidate =>
+                         !candidate.HasRuntimeCoordinate)
+                     .GroupBy(
+                         CandidateLookup
+                             .StableAttributionKey,
+                         StringComparer.Ordinal))
         {
-            selected.Add(candidate);
+            selected.AddRange(group);
             siteCount++;
         }
 
