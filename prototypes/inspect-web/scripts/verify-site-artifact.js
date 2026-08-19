@@ -18,19 +18,31 @@ export function verifySiteArtifact(siteArgument) {
 
   const assets = new Set();
   const addAsset = (asset) => {
-    if (typeof asset !== "string" || !asset.startsWith("assets/")) {
+    if (
+      typeof asset !== "string"
+      || !/^assets\/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(asset)
+      || asset.split("/").some((segment) => segment === "." || segment === "..")
+    ) {
       throw new Error(`The Vite manifest contains invalid asset '${asset}'.`);
     }
     assets.add(asset);
   };
 
-  for (const entry of Object.values(manifest)) {
+  for (const [key, entry] of Object.entries(manifest)) {
+    if (!entry || typeof entry !== "object") {
+      throw new Error(`The Vite manifest entry '${key}' is invalid.`);
+    }
     addAsset(entry.file);
     for (const asset of entry.css ?? []) {
       addAsset(asset);
     }
     for (const asset of entry.assets ?? []) {
       addAsset(asset);
+    }
+    for (const imported of [...(entry.imports ?? []), ...(entry.dynamicImports ?? [])]) {
+      if (typeof imported !== "string" || !Object.hasOwn(manifest, imported)) {
+        throw new Error(`The Vite manifest entry '${key}' imports missing entry '${imported}'.`);
+      }
     }
   }
 

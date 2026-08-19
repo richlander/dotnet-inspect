@@ -31,16 +31,19 @@ test("the site artifact rejects a missing Vite output", (context) => {
   const site = mkdtempSync(join(tmpdir(), "inspect-web-artifact-"));
   context.after(() => rmSync(site, { recursive: true, force: true }));
   mkdirSync(join(site, "assets"));
-  writeFileSync(
-    join(site, "manifest.json"),
-    JSON.stringify({
-      "index.html": {
-        file: "assets/index.js",
-        css: ["assets/index.css"],
-        isEntry: true,
-      },
-    }),
-  );
+  const manifest = {
+    "index.html": {
+      file: "assets/index.js",
+      css: ["assets/index.css"],
+      dynamicImports: ["src/app.js"],
+      isEntry: true,
+    },
+    "src/app.js": {
+      file: "assets/app.js",
+      isDynamicEntry: true,
+    },
+  };
+  writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   writeFileSync(
     join(site, "index.html"),
     '<script type="module" src="/assets/index.js"></script>'
@@ -48,8 +51,29 @@ test("the site artifact rejects a missing Vite output", (context) => {
   );
   writeFileSync(join(site, "assets/index.js"), "");
   writeFileSync(join(site, "assets/index.css"), "");
+  writeFileSync(join(site, "assets/app.js"), "");
 
   assert.doesNotThrow(() => verifySiteArtifact(site));
+  delete manifest["src/app.js"];
+  writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /entry 'index\.html' imports missing entry 'src\/app\.js'/,
+  );
+
+  manifest["src/app.js"] = {
+    file: "assets/app.js",
+    isDynamicEntry: true,
+  };
+  manifest["index.html"].file = "assets/../index.html";
+  writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
+  assert.throws(
+    () => verifySiteArtifact(site),
+    /manifest contains invalid asset 'assets\/\.\.\/index\.html'/,
+  );
+
+  manifest["index.html"].file = "assets/index.js";
+  writeFileSync(join(site, "manifest.json"), JSON.stringify(manifest));
   unlinkSync(join(site, "assets/index.js"));
   assert.throws(
     () => verifySiteArtifact(site),
