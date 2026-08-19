@@ -1826,8 +1826,7 @@ public class ApiCommand
             }
             if (GetRequestedMemberSections(type, options)
                     .Contains(SectionNames.BodyShapes)
-                && options.IncludeSections?.Contains(
-                    SectionNames.BodyShapes) == true)
+                && HasExplicitBodyShapesSelector(options))
             {
                 CommandError.Write(
                     "Document --json cannot represent Body Shapes analysis. "
@@ -3115,6 +3114,20 @@ public class ApiCommand
                || selector.Equals(
                    "Optimization Opportunities",
                    StringComparison.OrdinalIgnoreCase)) == true;
+
+    private static bool HasExplicitBodyShapesSelector(ApiOptions options)
+    {
+        if (options.Select is { Length: > 0 } selectors)
+        {
+            return selectors.Any(static selector =>
+                selector.Equals(
+                   SectionNames.BodyShapes,
+                   StringComparison.OrdinalIgnoreCase));
+        }
+
+        return options is MemberOptions { BodyKindQuery.HasFilter: true }
+            || options.IncludeSections?.Contains(SectionNames.BodyShapes) == true;
+    }
 
     private static string? ExplicitUnsupportedDocumentJsonSection(ApiOptions options)
         => options.Select?

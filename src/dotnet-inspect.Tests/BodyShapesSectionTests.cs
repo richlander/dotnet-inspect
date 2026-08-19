@@ -632,6 +632,24 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
+    public async Task MemberKindPredicate_WildcardDocumentJsonKeepsRawTypeProjection()
+    {
+        var result = await RunMemberAsync(
+            nameof(BodyShapeFixture.PublicCreation),
+            "ObjectCreationExpression",
+            "-S",
+            "B*",
+            "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            nameof(BodyShapeFixture),
+            document.RootElement.GetProperty("name").GetString());
+    }
+
+    [Fact]
     public async Task MemberKindPredicate_RendersExplicitEmptyState()
     {
         var result = await RunMemberAsync(

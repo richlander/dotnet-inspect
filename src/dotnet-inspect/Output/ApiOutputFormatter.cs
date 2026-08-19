@@ -2619,10 +2619,7 @@ public static class ApiOutputFormatter
         PerformanceTriageOptions? options = null,
         bool restrictToModelMembers = false)
     {
-        HashSet<int> typeMemberTokens = type.Members
-            .Where(member => member.MetadataToken is not null)
-            .Select(member => member.MetadataToken!.Value)
-            .ToHashSet();
+        HashSet<int> typeMemberTokens = AnalysisMethodTokens(type).ToHashSet();
         HashSet<int>? memberTokens = restrictToModelMembers
             ? typeMemberTokens
             : null;
@@ -2690,6 +2687,40 @@ public static class ApiOutputFormatter
 
         if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.PerformanceTriage))
             view.OptimizationOpportunityRows = rows;
+    }
+
+    private static IEnumerable<int> AnalysisMethodTokens(ApiType type)
+    {
+            foreach (ApiMember member in type.Members)
+            {
+                if (ApiMemberSectionDescriptors.IsMethodLike(member)
+                    && member.MetadataToken is { } methodToken)
+                {
+                    yield return methodToken;
+                }
+
+                if (!ApiMemberSectionDescriptors.HasAccessorTokens(member))
+                    continue;
+
+                ApiMember[] accessors = AccessorMethods(member, type).ToArray();
+                if (type.Members.Count == 1
+                    && type.SelectedAccessorOrdinal is { } ordinal)
+                {
+                    if (ordinal > 0
+                        && ordinal <= accessors.Length
+                        && accessors[ordinal - 1].MetadataToken is { } accessorToken)
+                    {
+                        yield return accessorToken;
+                    }
+                    continue;
+                }
+
+                foreach (ApiMember accessor in accessors)
+                {
+                    if (accessor.MetadataToken is { } accessorToken)
+                        yield return accessorToken;
+                }
+            }
     }
 
     internal static void PopulateBodyShapes(

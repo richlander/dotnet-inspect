@@ -415,6 +415,61 @@ public class OutputFormatterTests
         Assert.DoesNotContain(nameof(CreateTemporaryArray), markdown);
     }
 
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(2, false)]
+    public void RenderTypeSectionsMarkdown_ScopesOptimizationOpportunitiesToSelectedAccessor(
+        int accessorOrdinal,
+        bool hasOpportunity)
+    {
+        var property = typeof(OutputFormatterTests).GetProperty(
+            nameof(AccessorSmallArrayOpportunity),
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var type = new ApiType
+        {
+            Namespace = typeof(OutputFormatterTests).Namespace,
+            Name = nameof(OutputFormatterTests),
+            Kind = "class",
+            SelectedAccessorOrdinal = accessorOrdinal,
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "property",
+                    Name = nameof(AccessorSmallArrayOpportunity),
+                    GetterToken = property.GetMethod!.MetadataToken,
+                    SetterToken = property.SetMethod!.MetadataToken,
+                }
+            ]
+        };
+        var options = new MemberOptions
+        {
+            DllPath = typeof(OutputFormatterTests).Assembly.Location,
+            OverloadIndex = accessorOrdinal,
+            MemberFilter = [nameof(AccessorSmallArrayOpportunity)],
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                SectionNames.PerformanceTriage
+            }
+        };
+
+        var markdown = ApiCommand.RenderTypeSectionsMarkdown(type, options);
+
+        Assert.Contains("Performance Triage", markdown);
+        if (hasOpportunity)
+        {
+            Assert.Contains("small-array", markdown);
+            Assert.Contains("get_AccessorSmallArrayOpportunity", markdown);
+        }
+        else
+        {
+            Assert.Contains(
+                "No optimization opportunities were found for this type.",
+                markdown);
+            Assert.DoesNotContain("small-array", markdown);
+        }
+    }
+
     [Fact]
     public void RenderTypeSectionsMarkdown_MapsLiftedOpportunityToSelectedSourceMember()
     {
@@ -461,6 +516,12 @@ public class OutputFormatterTests
     {
         var value = 3;
         return new int[value];
+    }
+
+    private static int[] AccessorSmallArrayOpportunity
+    {
+        get => new int[4];
+        set { }
     }
 
     private static void CreateTemporaryArray()
