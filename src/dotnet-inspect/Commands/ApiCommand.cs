@@ -678,9 +678,9 @@ public class ApiCommand
         bool singleTypeMode = options is MemberOptions || (hasTypeName && !typeNameIsGlob);
         var knownSections = singleTypeMode ? memberPipeline.SelectableSectionNames : typePipeline.SelectableSectionNames;
         if (structuralDetailOptions is null
-            && options is MemberOptions memberOptions
-            && memberOptions.MemberFilter.Count == 0
-            && MightPeelDottedGenericMemberSelector(memberOptions.TypeName))
+            && options is MemberOptions potentialGenericMemberOptions
+            && potentialGenericMemberOptions.MemberFilter.Count == 0
+            && MightPeelDottedGenericMemberSelector(potentialGenericMemberOptions.TypeName))
         {
             knownSections = knownSections
                 .Concat(ApiMemberDetailSectionDescriptors.CreatePipeline().SelectableSectionNames)
