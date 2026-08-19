@@ -234,7 +234,25 @@ public static class LibrarySections
             metadata.GetPrefetchedImage(),
             metadata.PortablePdbPath,
             context.BodyReferenceResolver);
-        var result = BodyShapeSearch.Search(source, kind);
+        IReadOnlySet<int>? methodTokens = null;
+        if (context.Model.PerformanceTriageOptions.HasCandidateFilters)
+        {
+            if (context.Model.OptimizationOpportunitiesQueryResult is null)
+            {
+                throw new InvalidOperationException(
+                    "Composed Body Shapes predicates require the typed "
+                    + "Optimization Opportunities query.");
+            }
+
+            methodTokens = LibraryMetadataService.PerformanceSourceMethods(
+                    context.Model.PerformanceTriageOpportunities)
+                .Select(static method => method.MetadataToken)
+                .ToHashSet();
+        }
+
+        var result = methodTokens is null
+            ? BodyShapeSearch.Search(source, kind)
+            : BodyShapeSearch.Search(source, kind, methodTokens);
         context.Model.BodyShapeSearchResult = result;
 
         if (result.Failures.Count == 0)

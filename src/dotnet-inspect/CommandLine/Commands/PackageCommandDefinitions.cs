@@ -59,6 +59,8 @@ public static class PackageCommandDefinitions
         frontmatterOption.Aliases.Add("--yaml-header");
         var bodyOption = new Option<bool>("--body") { Description = "When printing markdown content, output only content after YAML frontmatter" };
         var outOption = new Option<string?>("--out") { Description = "Write output to file instead of stdout" };
+        outOption.Aliases.Add("--output");
+        outOption.Aliases.Add("-o");
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library by TFM (e.g., net8.0)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter SourceLink: Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");

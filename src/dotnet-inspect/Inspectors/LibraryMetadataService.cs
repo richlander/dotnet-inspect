@@ -1451,6 +1451,13 @@ internal static class LibraryMetadataService
         }
     }
 
+    internal static IReadOnlySet<Analysis.MethodIdentity> PerformanceSourceMethods(
+        IEnumerable<Analysis.OptimizationOpportunity> opportunities)
+        => opportunities
+            .Select(static opportunity =>
+                opportunity.SourceOwner ?? opportunity.Method)
+            .ToHashSet();
+
     internal static void ReportOptimizationDiagnostics(
         Analysis.LibraryBodyIndex index,
         Func<Analysis.AnalysisDiagnostic, bool>? include = null)

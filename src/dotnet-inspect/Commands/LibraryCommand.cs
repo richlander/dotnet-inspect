@@ -248,11 +248,11 @@ public class LibraryCommand
             bool bodyShapesSelected =
                 options.IncludeSections?.Contains(SectionNames.BodyShapes) == true;
             if (options.BodyKindQuery.HasFilter
-                && options.PerformanceTriage.HasFilters)
+                && options.PerformanceTriage.HasRanking)
             {
                 CommandError.Write(
-                    "A Body Shapes predicate cannot be combined with Performance Triage "
-                    + "filters or --order-by in one query.");
+                    "Body Shapes composition accepts Performance Triage filters, "
+                    + "but not --top or --order-by. Use --rows to limit rendered matches.");
                 return 1;
             }
             if (options.BodyKindQuery.HasFilter
@@ -476,6 +476,13 @@ public class LibraryCommand
             commandQueryDemand.AddRange(DiscoveryQueries);
         if (options.CollectReferenceTree)
             commandQueryDemand.Add(("reference tree", AssemblyReferencesQuery.Definition));
+        if (options.BodyKindQuery.HasFilter
+            && options.PerformanceTriage.HasCandidateFilters)
+        {
+            commandQueryDemand.Add(
+                ("Body Shapes performance predicates",
+                    OptimizationOpportunitiesQuery.Definition));
+        }
 
         var queries = pipeline.GetRequiredQueries(
             discoveryInspection && !fullEffectiveDiscovery
