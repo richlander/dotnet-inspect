@@ -641,6 +641,14 @@ public class ApiAccessor
     public bool? IsAbstract { get; set; }
 
     /// <summary>
+    /// The accessor MethodDef name. Ordinary properties use <c>get_Value</c>;
+    /// explicit-interface properties use <c>I.get_Value</c>, which is not
+    /// <c>get_</c> prefixed onto the property display name. Null on older
+    /// serialized surfaces.
+    /// </summary>
+    public string? Name { get; set; }
+
+    /// <summary>
     /// Opaque structural return-type identity for the accessor method itself.
     /// Null when the display spelling is already injective, including ordinary
     /// <c>void</c> setters. <c>init</c> setters carry

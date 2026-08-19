@@ -694,6 +694,9 @@ public static class ApiMemberOverloadSectionDescriptors
                 isViewApplicable: HasSingleBodyAnalysisTarget)
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>(
                 isViewApplicable: HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.BodyShapes>(
+                HasSingleBodyBackedMember,
+                HasSingleExecutableBodyMember)
             .Add<ApiMemberSectionDescriptors.TopLeverage>(
                 HasSingleBodyBackedMember,
                 HasSingleExecutableBodyMember)
@@ -776,6 +779,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<Callers>(isViewApplicable: HasBodyAnalysisTarget)
             .Add<CallGraph>(isViewApplicable: HasBodyAnalysisTarget)
             .Add<UnsafeOperations>(isViewApplicable: HasBodyBackedMember)
+            .Add<BodyShapes>(isViewApplicable: HasExecutableBody)
             .Add<ApiMemberSectionDescriptors.TopLeverage>(isViewApplicable: HasExecutableBody)
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(
                 isViewApplicable: HasExecutableBody)
@@ -1060,6 +1064,21 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Count == 1
+               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+    }
+
+    public sealed class BodyShapes : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.BodyShapes;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static SectionCapabilities Capabilities =>
+            SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1

@@ -1282,7 +1282,8 @@ public static class ApiSurfaceExtractor
                     },
                     eventTypeNodeProvider,
                     typeContext,
-                    observeText);
+                    observeText,
+                    observeDecodeWork);
 
                 string eventName = DecodeString(
                     reader,
@@ -4142,7 +4143,8 @@ public static class ApiSurfaceExtractor
             },
             typeNodeProvider,
             context,
-            beforeRetainText);
+            beforeRetainText,
+            beforeDecodeWork);
 
         var requiredPrefix = AttributeReader.HasRequiredMemberAttribute(
                 reader,
@@ -4347,17 +4349,36 @@ public static class ApiSurfaceExtractor
         Func<string, MethodDefinitionHandle> handleForKind,
         TypeNodeProvider provider,
         GenericContext context,
-        Action<string>? beforeRetainText)
+        Action<string>? beforeRetainText,
+        Action<int>? beforeDecodeWork)
     {
         foreach (ApiAccessor accessor in accessors)
         {
+            MethodDefinitionHandle handle = handleForKind(accessor.Kind);
+            accessor.Name = MethodDefinitionName(reader, handle, beforeDecodeWork);
+            if (accessor.Name is not null)
+                beforeRetainText?.Invoke(accessor.Name);
             accessor.StructuralReturnType = MethodStructuralReturnType(
                 reader,
-                handleForKind(accessor.Kind),
+                handle,
                 provider,
                 context,
                 beforeRetainText);
         }
+    }
+
+    static string? MethodDefinitionName(
+        MetadataReader reader,
+        MethodDefinitionHandle handle,
+        Action<int>? beforeDecodeWork)
+    {
+        if (handle.IsNil)
+            return null;
+
+        return DecodeString(
+            reader,
+            reader.GetMethodDefinition(handle).Name,
+            beforeDecodeWork);
     }
 
     static string? MethodStructuralReturnType(
@@ -4591,6 +4612,7 @@ public static class ApiSurfaceExtractor
     {
         AddText(ref count, accessor.Kind);
         AddText(ref count, accessor.MethodName);
+        AddText(ref count, accessor.Name);
         AddText(ref count, accessor.Accessibility);
         AddText(ref count, accessor.ReturnAttributes);
         AddText(ref count, accessor.StructuralReturnType);
