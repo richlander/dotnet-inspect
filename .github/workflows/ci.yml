@@ -152,6 +152,11 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
 
+      - name: Setup .NET 10 runtime (MSDL proxy target)
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
 
@@ -206,6 +211,12 @@ jobs:
         run: >
           dotnet run
           --project prototypes/inspect-web/engine.Tests
+          -c Release
+
+      - name: Test MSDL CORS proxy
+        run: >
+          dotnet run
+          --project prototypes/inspect-web/msdl-proxy.Tests
           -c Release
 
       - name: Test inspect-web
