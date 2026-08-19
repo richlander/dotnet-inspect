@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using ILInspector.Metadata;
@@ -253,6 +254,83 @@ public sealed class MetadataDeclarationQueryTests
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_UsesCompilerProducedCovariantMethodImpl()
+    {
+        var derivedHandle = GetTypeDefinitionHandle(
+            typeof(MetadataDeclarationQueryFixtures.CovariantReturnDerived));
+        var derived = Reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = GetMethodHandle(derived, "Value");
+        var method = Reader.GetMethodDefinition(methodHandle);
+        var implementation = Assert.Single(
+            derived.GetMethodImplementations().Select(Reader.GetMethodImplementation),
+            candidate => candidate.MethodBody == methodHandle);
+
+        Assert.True((method.Attributes & MethodAttributes.NewSlot) != 0);
+        Assert.Equal(HandleKind.MethodDefinition, implementation.MethodDeclaration.Kind);
+
+        var declaration = MetadataDeclarationQuery.GetMethod(Reader, derived, method);
+        var slot = Assert.IsType<MetadataOverrideSlot>(
+            MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                Reader,
+                derivedHandle,
+                methodHandle));
+
+        Assert.True(declaration.IsOverride);
+        Assert.False(declaration.IsVirtual);
+        Assert.Equal(
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures.CovariantReturnBase)),
+            slot.DeclaringType);
+        Assert.Equal((MethodDefinitionHandle)implementation.MethodDeclaration, slot.Method);
+    }
+
+    [Fact]
+    public void SameAssemblyOverrideSlot_DeclinesInterfaceMethodImpl()
+    {
+        string path = EmitNewSlotInterfaceMethodImpl();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var typeHandle = reader.TypeDefinitions.Single(handle =>
+                reader.GetString(reader.GetTypeDefinition(handle).Name) == "Implementation");
+            var type = reader.GetTypeDefinition(typeHandle);
+            var methodHandle = type.GetMethods().Single(handle =>
+                reader.GetString(reader.GetMethodDefinition(handle).Name) == "Value");
+
+            Assert.Null(MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+                reader,
+                typeHandle,
+                methodHandle));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SameAssemblyOverrideSlot_DeclinesUnauthenticatedClassMethodImpl(
+        bool ambiguousBaseDeclarations)
+    {
+        using var stream = new MemoryStream(
+            BuildUnauthenticatedClassMethodImplImage(ambiguousBaseDeclarations));
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var typeHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name) == "Derived");
+        var type = reader.GetTypeDefinition(typeHandle);
+        var methodHandle = Assert.Single(type.GetMethods());
+
+        Assert.Null(MetadataDeclarationQuery.GetSameAssemblyOverrideSlot(
+            reader,
+            typeHandle,
+            methodHandle));
     }
 
     [Fact]
@@ -676,6 +754,152 @@ public sealed class MetadataDeclarationQueryTests
         string path = Path.Combine(Path.GetTempPath(), $"CovariantReturnOverride-{Guid.NewGuid():N}.dll");
         assembly.Save(path);
         return path;
+    }
+
+    static string EmitNewSlotInterfaceMethodImpl()
+    {
+        var assemblyName = new AssemblyName("NewSlotInterfaceMethodImpl");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+
+        var interfaceType = module.DefineType(
+            "IContract",
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+        var declaration = interfaceType.DefineMethod(
+            "Value",
+            MethodAttributes.Public
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot,
+            typeof(object),
+            Type.EmptyTypes);
+        var createdInterface = interfaceType.CreateType();
+
+        var implementationType = module.DefineType("Implementation", TypeAttributes.Public);
+        implementationType.AddInterfaceImplementation(createdInterface);
+        var body = implementationType.DefineMethod(
+            "Value",
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.NewSlot,
+            typeof(object),
+            Type.EmptyTypes);
+        body.GetILGenerator().Emit(OpCodes.Ldnull);
+        body.GetILGenerator().Emit(OpCodes.Ret);
+        implementationType.DefineMethodOverride(body, declaration);
+        implementationType.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"NewSlotInterfaceMethodImpl-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
+    }
+
+    static byte[] BuildUnauthenticatedClassMethodImplImage(
+        bool ambiguousBaseDeclarations)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("ClassMethodImpl.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("ClassMethodImpl"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(11, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        var objectType = metadata.AddTypeReference(
+            runtime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("Object"));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var baseType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("Base"),
+            objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var middleOrUnrelatedType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString(
+                ambiguousBaseDeclarations ? "Middle" : "Unrelated"),
+            ambiguousBaseDeclarations ? baseType : objectType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        var derivedType = metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            default,
+            metadata.GetOrAddString("Derived"),
+            ambiguousBaseDeclarations ? middleOrUnrelatedType : baseType,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(3));
+
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature(
+            SignatureCallingConvention.Default,
+            genericParameterCount: 0,
+            isInstanceMethod: true).Parameters(
+                0,
+                returnType => returnType.Void(),
+                _ => { });
+        var signatureHandle = metadata.GetOrAddBlob(signature);
+        var attributes = MethodAttributes.Public
+            | MethodAttributes.Virtual
+            | MethodAttributes.NewSlot;
+        var baseMethod = metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Value"),
+            signatureHandle,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        var middleOrUnrelatedMethod = metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Value"),
+            signatureHandle,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+        var derivedMethod = metadata.AddMethodDefinition(
+            attributes,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Value"),
+            signatureHandle,
+            bodyOffset: -1,
+            MetadataTokens.ParameterHandle(1));
+
+        metadata.AddMethodImplementation(
+            derivedType,
+            derivedMethod,
+            middleOrUnrelatedMethod);
+        if (ambiguousBaseDeclarations)
+            metadata.AddMethodImplementation(derivedType, derivedMethod, baseMethod);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static string EmitIncompatibleReturnOverride()

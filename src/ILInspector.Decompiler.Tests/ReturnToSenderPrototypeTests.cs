@@ -89,6 +89,46 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_PreservesCompilerProducedCovariantMethodImpl()
+    {
+        var assemblyPath = CompileFixture("""
+            public class Base
+            {
+                public virtual object Value() => "base";
+            }
+
+            public class Derived : Base
+            {
+                public override string Value() => "derived";
+            }
+            """);
+        string? rebuiltPath = null;
+        try
+        {
+            AssertCovariantMethodImpl(assemblyPath);
+
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Derived", "Value", 0)]));
+
+            Assert.Contains("public override string Value()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("public virtual object Value()", result.Source, StringComparison.Ordinal);
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Source}{Environment.NewLine}{result.Detail}");
+
+            rebuiltPath = CompileFixture(result.Source);
+            AssertCovariantMethodImpl(rebuiltPath);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (rebuiltPath is not null)
+                DeleteFixture(rebuiltPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_AllFullPreservesUnrelatedOverrideDeclaration()
     {
         var assemblyPath = CompileFixture("""
@@ -11305,6 +11345,30 @@ public class ReturnToSenderPrototypeTests
         var emit = compilation.Emit(path);
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
         return path;
+    }
+
+    static void AssertCovariantMethodImpl(string assemblyPath)
+    {
+        using var peReader = new PEReader(File.OpenRead(assemblyPath));
+        var reader = peReader.GetMetadataReader();
+        var baseHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name) == "Base");
+        var derivedHandle = reader.TypeDefinitions.Single(handle =>
+            reader.GetString(reader.GetTypeDefinition(handle).Name) == "Derived");
+        var derived = reader.GetTypeDefinition(derivedHandle);
+        var methodHandle = derived.GetMethods().Single(handle =>
+            reader.GetString(reader.GetMethodDefinition(handle).Name) == "Value");
+        var method = reader.GetMethodDefinition(methodHandle);
+        var implementation = Assert.Single(
+            derived.GetMethodImplementations().Select(reader.GetMethodImplementation),
+            candidate => candidate.MethodBody == methodHandle);
+
+        Assert.True((method.Attributes & MethodAttributes.NewSlot) != 0);
+        Assert.Equal(HandleKind.MethodDefinition, implementation.MethodDeclaration.Kind);
+        Assert.Equal(
+            baseHandle,
+            reader.GetMethodDefinition(
+                (MethodDefinitionHandle)implementation.MethodDeclaration).GetDeclaringType());
     }
 
     static void DeleteFixture(string assemblyPath)

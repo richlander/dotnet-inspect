@@ -447,6 +447,12 @@ reuse-slot methods and properties as override stubs with metadata accessibility,
 abstract slots remain implemented and target bodies may still construct their own declaring type.
 Recompiled targets are found by canonical member signature rather than their original same-name
 ordinal, so scaffold changes cannot shift a target onto a sibling overload.
+Same-assembly override closure also authenticates Roslyn's covariant-return encoding: a virtual
+`NewSlot` method is still a source `override` when an unambiguous `MethodImpl` maps its body to a
+source-declarable virtual method on its base-class chain with compatible declaration shape.
+Interface, unrelated-class, external, malformed, and ambiguous `MethodImpl` declarations do not
+materialize a class override slot. The reconstructed source must compile back to the same
+`NewSlot` plus class-`MethodImpl` relationship, not merely reproduce the target body.
 Unselected `System.Exception` support types additionally require the referenced assembly to bind
 through the platform scope before retaining their base clause. Manifest-less modules begin from
 the base `TypeRef`'s platform reference, then use the Metadata resolution catalog to follow
@@ -526,8 +532,14 @@ matching and trusted-platform upgrade-only unification,
 `SkeletonRetainsSignalForAbstractExternalBase` and
 `SkeletonKeepsConcreteTypeForAbstractBaseWithoutAbstractMembers` gate concrete abstract-base
 scaffolding, `SkeletonFindsTargetByCanonicalSignatureAfterOverrideScaffolding` gates target
-identity after scaffold changes, `SkeletonEmitsExplicitInterfaceTargets` gates selected explicit
-methods and accessors,
+identity after scaffold changes,
+`SameAssemblyOverrideSlot_UsesCompilerProducedCovariantMethodImpl` and
+`SameAssemblyOverrideSlot_DeclinesInterfaceMethodImpl` gate covariant class-`MethodImpl`
+authentication, `SameAssemblyOverrideSlot_DeclinesUnauthenticatedClassMethodImpl` gates unrelated
+and ambiguous class declarations, and
+`CompileBackTargets_PreservesCompilerProducedCovariantMethodImpl` gates the rebuilt metadata
+relationship. `SkeletonEmitsExplicitInterfaceTargets` gates selected explicit methods and
+accessors,
 `SkeletonExplicitInterfaceWholeMemberHonorsRequestedView` gates whole-member production rendering
 the requested body view and printer options,
 `SkeletonDoesNotTreatOrdinaryAccessorPrefixesAsSemantics` gates token mapping, and

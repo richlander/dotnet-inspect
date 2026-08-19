@@ -377,9 +377,16 @@ public static class MetadataDeclarationQuery
         var isSourceDeclarable = IsSourceDeclarableAccessibility(access);
         var isVirtual = (attributes & MethodAttributes.Virtual) != 0;
         var isNewSlot = (attributes & MethodAttributes.NewSlot) != 0;
+        var methodHandle = FindMethodDefinitionHandle(reader, typeDef, method);
+        var hasClassMethodImplOverride = isNewSlot
+            && !methodHandle.IsNil
+            && GetAuthenticatedClassMethodImplOverrideSlot(
+                reader,
+                method.GetDeclaringType(),
+                methodHandle) is not null;
         var isOverride = isSourceDeclarable
             && isVirtual
-            && !isNewSlot
+            && (!isNewSlot || hasClassMethodImplOverride)
             && (attributes & MethodAttributes.Static) == 0
             && (typeDef.Attributes & TypeAttributes.Interface) == 0;
         var typeParameters = MethodTypeParameters(reader, typeDef, method);
@@ -399,7 +406,8 @@ public static class MetadataDeclarationQuery
                 && isVirtual
                 && (attributes & MethodAttributes.Abstract) == 0
                 && (attributes & MethodAttributes.Final) == 0
-                && isNewSlot,
+                && isNewSlot
+                && !hasClassMethodImplOverride,
             isOverride,
             isOverride && (attributes & MethodAttributes.Final) != 0,
             new ApiSignature
@@ -415,8 +423,10 @@ public static class MetadataDeclarationQuery
 
     /// <summary>
     /// Locates the nearest same-assembly virtual slot reused by
-    /// <paramref name="methodHandle"/>, or returns <see langword="null"/> for a
-    /// new slot or a base outside this metadata reader.
+    /// <paramref name="methodHandle"/>, including a source override encoded as
+    /// <c>NewSlot</c> with a class <c>MethodImpl</c>. Returns
+    /// <see langword="null"/> for an actual new slot or a base outside this
+    /// metadata reader.
     /// </summary>
     public static MetadataOverrideSlot? GetSameAssemblyOverrideSlot(
         MetadataReader reader,
@@ -425,8 +435,7 @@ public static class MetadataDeclarationQuery
     {
         var method = reader.GetMethodDefinition(methodHandle);
         if ((method.Attributes & MethodAttributes.Static) != 0
-            || (method.Attributes & MethodAttributes.Virtual) == 0
-            || (method.Attributes & MethodAttributes.NewSlot) != 0)
+            || (method.Attributes & MethodAttributes.Virtual) == 0)
         {
             return null;
         }
@@ -436,6 +445,14 @@ public static class MetadataDeclarationQuery
             || !IsSourceDeclarableAccessibility(method.Attributes & MethodAttributes.MemberAccessMask))
         {
             return null;
+        }
+
+        if ((method.Attributes & MethodAttributes.NewSlot) != 0)
+        {
+            return GetAuthenticatedClassMethodImplOverrideSlot(
+                reader,
+                declaringTypeHandle,
+                methodHandle);
         }
 
         var methodName = reader.GetString(method.Name);
@@ -448,6 +465,7 @@ public static class MetadataDeclarationQuery
         {
             return null;
         }
+
         var methodShape = GetOverrideSlotShape(reader, method, methodSignature);
 
         var baseTypeHandle = declaringType.BaseType;
@@ -493,6 +511,112 @@ public static class MetadataDeclarationQuery
         }
 
         return null;
+    }
+
+    static MethodDefinitionHandle FindMethodDefinitionHandle(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+    {
+        foreach (var candidateHandle in typeDef.GetMethods())
+        {
+            if (reader.GetMethodDefinition(candidateHandle).Equals(method))
+                return candidateHandle;
+        }
+
+        return default;
+    }
+
+    static MetadataOverrideSlot? GetAuthenticatedClassMethodImplOverrideSlot(
+        MetadataReader reader,
+        TypeDefinitionHandle declaringTypeHandle,
+        MethodDefinitionHandle methodHandle)
+    {
+        var declaringType = reader.GetTypeDefinition(declaringTypeHandle);
+        var method = reader.GetMethodDefinition(methodHandle);
+        var methodName = reader.GetString(method.Name);
+        var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
+        if (!GuardedSignatureText.MethodText(
+            reader,
+            method,
+            PositionalGenericContext(declaringType, method))
+            .TryGetValue(out var methodSignature))
+        {
+            return null;
+        }
+
+        var methodShape = GetOverrideSlotShape(reader, method, methodSignature);
+        MetadataOverrideSlot? match = null;
+        foreach (var implementationHandle in declaringType.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody != methodHandle
+                || implementation.MethodDeclaration.Kind != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+
+            var declarationHandle = (MethodDefinitionHandle)implementation.MethodDeclaration;
+            var declaration = reader.GetMethodDefinition(declarationHandle);
+            var declarationTypeHandle = declaration.GetDeclaringType();
+            if (!IsStrictSameAssemblyBase(
+                    reader,
+                    declaringType,
+                    declarationTypeHandle)
+                || (reader.GetTypeDefinition(declarationTypeHandle).Attributes & TypeAttributes.Interface) != 0
+                || reader.GetString(declaration.Name) != methodName
+                || (declaration.Attributes & MethodAttributes.Virtual) == 0
+                || (declaration.Attributes & MethodAttributes.Final) != 0
+                || (declaration.Attributes & MethodAttributes.Static) != 0
+                || (declaration.Attributes & MethodAttributes.MemberAccessMask) != methodAccess
+                || !IsSourceDeclarableAccessibility(
+                    declaration.Attributes & MethodAttributes.MemberAccessMask)
+                || declaration.GetGenericParameters().Count != method.GetGenericParameters().Count)
+            {
+                continue;
+            }
+
+            var declarationType = reader.GetTypeDefinition(declarationTypeHandle);
+            if (!GuardedSignatureText.MethodText(
+                reader,
+                declaration,
+                PositionalGenericContext(declarationType, declaration))
+                .TryGetValue(out var declarationSignature)
+                || !MatchesOverrideSlotShape(
+                    reader,
+                    methodShape,
+                    GetOverrideSlotShape(reader, declaration, declarationSignature)))
+            {
+                continue;
+            }
+
+            if (match is not null)
+                return null;
+
+            match = new MetadataOverrideSlot(declarationTypeHandle, declarationHandle);
+        }
+
+        return match;
+    }
+
+    static bool IsStrictSameAssemblyBase(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        TypeDefinitionHandle candidateHandle)
+    {
+        var baseType = declaringType.BaseType;
+        var visited = new HashSet<TypeDefinitionHandle>();
+        while (baseType.Kind == HandleKind.TypeDefinition
+            && visited.Add((TypeDefinitionHandle)baseType))
+        {
+            var baseHandle = (TypeDefinitionHandle)baseType;
+            if (baseHandle == candidateHandle)
+                return true;
+
+            baseType = reader.GetTypeDefinition(baseHandle).BaseType;
+        }
+
+        return false;
     }
 
     static GenericContext PositionalGenericContext(
