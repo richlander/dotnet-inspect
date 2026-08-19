@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "kind": "view",
+  "id": "stj-serializer-view",
+  "type": "System.Text.Json.JsonSerializer"
+}

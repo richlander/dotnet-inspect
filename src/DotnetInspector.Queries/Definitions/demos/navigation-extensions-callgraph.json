@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "kind": "navigation",
+  "id": "extensions-callgraph-navigation",
+  "tabs": [
+    {
+      "id": "di",
+      "coordinate": {
+        "kind": "package",
+        "id": "Microsoft.Extensions.DependencyInjection.Abstractions",
+        "version": "10.0.0",
+        "framework": "net10.0"
+      }
+    },
+    {
+      "id": "logging",
+      "coordinate": {
+        "kind": "package",
+        "id": "Microsoft.Extensions.Logging",
+        "version": "10.0.0",
+        "framework": "net10.0"
+      }
+    },
+    {
+      "id": "http",
+      "coordinate": {
+        "kind": "package",
+        "id": "Microsoft.Extensions.Http",
+        "version": "10.0.0",
+        "framework": "net10.0"
+      }
+    }
+  ],
+  "focus": "di"
+}

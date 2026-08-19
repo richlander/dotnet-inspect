@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "kind": "scenario",
+  "id": "stj-serializer",
+  "title": "System.Text.Json",
+  "description": "Browse a real package API",
+  "workspace": "stj-serializer-tour",
+  "context": "stj",
+  "view": "stj-serializer-view",
+  "navigation": "stj-navigation"
+}

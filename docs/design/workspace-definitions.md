@@ -9,12 +9,13 @@ grammar for the contract that
 already fixes in prose; that document remains the owner of the bundle
 contract, lifetime rules, and authorization model.
 
-This is a design proposal. Implementation has begun: the `package` and
-`embedded` member coordinates and one loader that realizes a selected context
-into exactly one `AssemblyContextGroup` now exist in product code, with the
-gates listed under [What exists today](#what-exists-today). Every other
-property asserted below is **unverified** until the gates named in
-[Status and gates](#status-and-gates) exist.
+This is a design proposal. Implementation has begun: the `package`,
+`platform`, and `embedded` member coordinates and one loader that realizes a
+selected context into exactly one `AssemblyContextGroup` now exist in product
+code, and the definition-record loader, registry, scenario resolution, and
+product home demos listed under [What exists today](#what-exists-today) are
+gated. Every other property asserted below is **unverified** until the gates
+named in [Status and gates](#status-and-gates) exist.
 
 ## Purpose
 
@@ -782,11 +783,20 @@ Implementation must add, at minimum:
   every record kind, including rejection of duplicate and unknown properties
   at top-level and nested shapes, unknown `schemaVersion` and `kind` values,
   redefinition of well-known group names, and every declared byte, depth,
-  value, coordinate, and cancellation limit;
+  value, coordinate, and cancellation limit —
+  `InspectionDefinitionTests.JsonRoundTrip_PreservesEveryRecordKind`,
+  `Parse_RejectsDuplicateProperties`, `Parse_RejectsUnknownProperties`, and
+  `Parse_RejectsUnknownKindAndSchemaVersion` cover the closed record kinds and
+  hardened bind path; well-known group redefinition, depth/value budgets, and
+  cancellation remain open;
 - a record-separation gate proving scenarios compose peer workspace, query,
   view, and navigation records by id, workspace-free scenarios create no
   assembly group, record count never activates a scenario implicitly, and
-  duplicate, unknown, or cross-kind record references fail visibly;
+  duplicate, unknown, or cross-kind record references fail visibly —
+  `InspectionDefinitionTests.Registry_RejectsDuplicateIdsWithinKind_AndResolvesPeerComposition`,
+  `Registry_UnknownPeerReference_FailsVisibly`,
+  `Registry_WorkspaceFreeScenario_CreatesNoAssemblyGroup`, and
+  `Registry_DoesNotActivateImplicitlyFromRecordCount`;
 - a grammar gate covering recursive catalog paths and composition, plus one
   exact-pin parser exercised through member coordinates, group subscriptions,
   and packet tuples, including rejection of `latest`, ranges, build metadata,
@@ -851,7 +861,12 @@ Implementation must add, at minimum:
   an unknown name a typed outcome there. The gate's concrete form tracks
   the registry-binding open question; and
 - a demo-parity gate showing the previously imperative call-graph demo loads
-  from a definition and lands on the anchor-digest-selected overload.
+  from a definition and lands on the anchor-digest-selected overload —
+  `InspectionDefinitionTests.ProductHomeDemos_ResolveCallGraphByMemberAnchor`
+  (and STJ/platform companions) resolve product-embedded scenarios to
+  `WorkspaceMemberCoordinate` plans and view `memberAnchor` `74b6b4b321`; host
+  acquisition and UI landing remain host work on top of
+  `ProductInspectionDemos` / `ResolvedScenario`.
 
 The shell-safety elimination above is the one asserted property no
 repository gate can reach — it is a claim about external tools, verified
@@ -859,6 +874,22 @@ manually (bash and zsh by transcript; PowerShell and cmd analytically) and
 otherwise falling under this note's blanket unverified marking.
 
 ### What exists today
+
+Definition records and product demos (this slice):
+
+- `DotnetInspector.Queries.Definitions` loads one standalone JSON record through
+  `HardenedJson` then a source-generated context with unmapped members
+  disallowed (`InspectionDefinitionJson`);
+- `InspectionDefinitionRegistry` stores peer records by `(kind, id)`, resolves
+  scenarios by explicit id, and lowers package/platform/embedded coordinates to
+  `WorkspaceMemberCoordinate` for `WorkspaceContextLoader` (group `subscribe`
+  expressions and filesystem coordinates are typed failures in this slice);
+- `ProductInspectionDemos` embeds the three home scenarios
+  (`stj-serializer`, `extensions-callgraph`, `platform-list`) as product
+  resources under `Definitions/demos/`, so CLI and inspect-web can share one
+  registry rather than host-local catalogs; and
+- `InspectionDefinitionTests` is the gate for round-trip, separation, and
+  demo-parity claims above.
 
 The coordinate-realization slice implements the `package`, `platform`, and
 `embedded` member coordinates

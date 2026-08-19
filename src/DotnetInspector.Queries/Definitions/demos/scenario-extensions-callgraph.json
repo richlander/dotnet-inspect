@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "kind": "scenario",
+  "id": "extensions-callgraph",
+  "title": "Cross-package call graph",
+  "description": "Trace calls across three packages",
+  "workspace": "extensions-callgraph",
+  "context": "extensions",
+  "view": "try-add-enumerable-call-graph",
+  "navigation": "extensions-callgraph-navigation"
+}
