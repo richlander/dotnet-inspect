@@ -33,7 +33,7 @@ internal readonly record struct IlTracePoint(int Offset, ImmutableArray<TypeRef?
 /// </summary>
 public readonly record struct OverloadInfo(
     int Index, TypeRef ReturnType, ImmutableArray<TypeRef> ParameterTypes,
-    bool HasThis, bool HasBody, bool IsPublic)
+    bool HasThis, bool HasBody, bool IsPublic, bool IsPrivate)
 {
     public string Describe()
         => $"({string.Join(", ", ParameterTypes.Select(p => p.ToDisplayString()))})";
@@ -286,9 +286,12 @@ public static class IrImporter
                 var signature = GuardedDecode.MethodSignature(reader, method, CallerScope(reader, typeDef, method));
                 bool isPublic = (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask)
                     == System.Reflection.MethodAttributes.Public;
+                bool isPrivate = (method.Attributes & System.Reflection.MethodAttributes.MemberAccessMask)
+                    == System.Reflection.MethodAttributes.Private;
                 result.Add(new OverloadInfo(
                     index++, signature.ReturnType, [.. signature.ParameterTypes],
-                    signature.Header.IsInstance, method.RelativeVirtualAddress != 0, isPublic));
+                    signature.Header.IsInstance, method.RelativeVirtualAddress != 0,
+                    isPublic, isPrivate));
             }
             break;
         }
@@ -535,6 +538,10 @@ public static class IrImporter
         {
             AssemblyPath = source.FilePath,
             MetadataToken = method.MetadataToken,
+            DeclaringTypeGenericParameterNames =
+                method.DeclaringTypeGenericParameterNames.IsDefault
+                    ? []
+                    : method.DeclaringTypeGenericParameterNames,
             BaseType = source.ResolveBaseType(method.DeclaringType),
             MethodKind = ClassifyMethodKind(method.Name),
             Regions = method.Body.Handlers,
