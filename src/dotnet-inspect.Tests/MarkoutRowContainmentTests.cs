@@ -267,8 +267,6 @@ public class MarkoutRowContainmentTests
         "MemberSignatureRow.Description",
         "MemberSignatureRow.Digest",
         "MemberSignatureRow.Signature",
-        "MethodAttributeRow.Name",
-        "MethodAttributeRow.Value",
         "MethodSummaryRow.Decode",
         "MethodSummaryRow.Name",
         "MethodSummaryRow.Overloads",

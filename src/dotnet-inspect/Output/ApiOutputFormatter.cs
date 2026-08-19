@@ -12,6 +12,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using InertText;
 using Markout;
 
 using Decompiler = ILInspector.Decompiler;
@@ -1813,7 +1814,9 @@ public static class ApiOutputFormatter
             if (code.Attributes is { Count: > 0 } attributes)
             {
                 view.MethodAttributeRows = attributes
-                    .Select(a => new MethodAttributeRow(a.Name, a.Value ?? ""))
+                    .Select(a => new MethodAttributeRow(
+                        new InertString(TextPolicy.Field, a.Name),
+                        new InertString(TextPolicy.Field, a.Value ?? "")))
                     .ToList();
             }
 
