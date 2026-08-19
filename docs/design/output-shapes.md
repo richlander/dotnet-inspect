@@ -48,6 +48,14 @@ presentation context, while `--count` and `--rows` count or select logical
 edges consistently across Markdown, tree, Mermaid, tabular, and structured
 output.
 
+The `graph integrations --json` failure array preserves both presentation and
+typed addressing: each failure carries its rendered target plus
+`target_kind`/`target_id`, and Integration failures retain structured producer,
+kind, assembly-reference, acquisition-failure, and exception fields. Opaque
+workspace registration handles are deliberately not stringified; the graph
+target and typed reference evidence remain the identities a consumer can
+interpret outside the owning workspace.
+
 ## Flag families
 
 Three families walk the shape ladder, and a fourth sits before it. A flag in one

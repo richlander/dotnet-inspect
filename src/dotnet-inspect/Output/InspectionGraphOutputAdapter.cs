@@ -23,6 +23,28 @@ internal sealed record InspectionGraphFailureRow(
     string Target,
     string Detail);
 
+internal sealed record InspectionGraphJsonFailureDetail(
+    string Producer,
+    string Kind,
+    InspectionGraphJsonAssemblyReference? Reference,
+    string? AcquisitionFailureKind,
+    string? AcquisitionFailureDetail,
+    string? ErrorType,
+    string? ErrorMessage);
+
+internal sealed record InspectionGraphJsonAssemblyReference(
+    string Name,
+    string? Version,
+    string? Culture,
+    string? PublicKeyToken);
+
+internal sealed record InspectionGraphJsonFailure(
+    string Failure,
+    string Target,
+    string? TargetKind,
+    int? TargetId,
+    InspectionGraphJsonFailureDetail[] Details);
+
 internal sealed record InspectionGraphJsonNode(
     int Id,
     string Kind,
@@ -54,7 +76,7 @@ internal sealed record InspectionGraphJsonDocument(
     InspectionGraphJsonNode[] Nodes,
     InspectionGraphJsonGroup[] Groups,
     InspectionGraphJsonEdge[] Edges,
-    InspectionGraphFailureRow[] Failures);
+    InspectionGraphJsonFailure[] Failures);
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
@@ -106,7 +128,8 @@ internal static class InspectionGraphOutputAdapter
         HashSet<int> selectedNodeIds = SelectedNodeIds(edges);
         HashSet<int> selectedGroupIds = SelectedGroupIds(
             document,
-            selectedNodeIds);
+            selectedNodeIds,
+            edges.Length > 0 || document.Edges.IsEmpty);
         return new InspectionGraphJsonDocument(
             "induced-set",
             document.InducedSetRequest!.AdmissionRule.ToString(),
@@ -150,7 +173,8 @@ internal static class InspectionGraphOutputAdapter
                         [.. edge.OccurrenceIds],
                         Evidence(document, edge))),
             ],
-            [.. FailureRows(document)]);
+            [.. document.Failures.Select(failure =>
+                JsonFailure(document, failure))]);
     }
 
     internal static void WriteMarkdown(
@@ -173,7 +197,9 @@ internal static class InspectionGraphOutputAdapter
         if (rows.Count == 0)
         {
             writer.WriteParagraph(
-                "No selected Integration relationships were found within the package set.");
+                document.Edges.IsEmpty
+                    ? "No selected Integration relationships were found within the package set."
+                    : "No Integration relationships are selected by the row window.");
         }
         else
         {
@@ -230,6 +256,12 @@ internal static class InspectionGraphOutputAdapter
             document,
             rows);
         HashSet<int> selectedNodeIds = SelectedNodeIds(selectedEdges);
+        HashSet<int> representedGroupIds =
+        [
+            .. document.Nodes
+                .Where(node => selectedNodeIds.Contains(node.Id))
+                .SelectMany(static node => node.GroupIds),
+        ];
 
         var nodes = new List<Markout.GraphNode>();
         foreach (InspectionGraphNode node in document.Nodes)
@@ -246,14 +278,15 @@ internal static class InspectionGraphOutputAdapter
                 });
         }
 
-        if (selectedNodeIds.Count == 0)
+        if (selectedEdges.Length > 0 || document.Edges.IsEmpty)
         {
             foreach (InspectionGraphGroup group in document.Groups)
             {
                 if (group.Subject
                     is InspectionGraphSubject.PackageSubject package
                     && document.InducedSetRequest!.Subjects.Contains(
-                        package))
+                        package)
+                    && !representedGroupIds.Contains(group.Id))
                 {
                     nodes.Add(
                         new Markout.GraphNode(
@@ -304,7 +337,8 @@ internal static class InspectionGraphOutputAdapter
 
     static HashSet<int> SelectedGroupIds(
         InspectionGraphDocument document,
-        IReadOnlySet<int> selectedNodeIds)
+        IReadOnlySet<int> selectedNodeIds,
+        bool includeRequestedPackages)
     {
         HashSet<int> selected =
         [
@@ -312,7 +346,7 @@ internal static class InspectionGraphOutputAdapter
                 .Where(node => selectedNodeIds.Contains(node.Id))
                 .SelectMany(static node => node.GroupIds),
         ];
-        if (selectedNodeIds.Count == 0)
+        if (includeRequestedPackages)
         {
             selected.UnionWith(
                 document.Groups
@@ -335,6 +369,41 @@ internal static class InspectionGraphOutputAdapter
             }
         }
         return selected;
+    }
+
+    static InspectionGraphJsonFailure JsonFailure(
+        InspectionGraphDocument document,
+        InspectionGraphFailure failure)
+    {
+        InspectionGraphTarget? target = failure.Target;
+        InspectionGraphJsonFailureDetail[] details =
+            failure.Evidence
+                is InspectionGraphIntegrationFailureEvidence evidence
+                ?
+                [
+                    .. evidence.Details.Select(static detail =>
+                        new InspectionGraphJsonFailureDetail(
+                            detail.Producer,
+                            detail.Kind.ToString(),
+                            detail.Reference is null
+                                ? null
+                                : new InspectionGraphJsonAssemblyReference(
+                                    detail.Reference.Name,
+                                    detail.Reference.Version?.ToString(),
+                                    detail.Reference.Culture,
+                                    detail.Reference.PublicKeyToken),
+                            detail.AcquisitionFailure?.Kind.ToString(),
+                            detail.AcquisitionFailure?.Detail,
+                            detail.Error?.GetType().FullName,
+                            detail.Error?.Message)),
+                ]
+                : [];
+        return new InspectionGraphJsonFailure(
+            failure.Descriptor.Id,
+            Target(document, target),
+            target?.Kind.ToString(),
+            target?.Id,
+            details);
     }
 
     static void WriteFailures(
@@ -393,10 +462,43 @@ internal static class InspectionGraphOutputAdapter
         return string.Join(
             ", ",
             evidence.Details
-                .Select(static detail =>
-                    $"{detail.Producer}: {detail.Kind}")
+                .Select(static detail => FailureDetail(detail))
                 .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal));
+    }
+
+    static string FailureDetail(
+        InspectionGraphIntegrationFailureDetail detail)
+    {
+        var parts = new List<string>
+        {
+            $"{detail.Producer}: {detail.Kind}",
+        };
+        if (detail.Reference is not null)
+        {
+            parts.Add(
+                "reference "
+                + CSharpIdentifier.ContainRenderedText(
+                    AssemblyIdentityFormatter.Format(detail.Reference)));
+        }
+        if (detail.AcquisitionFailure is not null)
+        {
+            parts.Add(
+                "acquisition "
+                + detail.AcquisitionFailure.Kind
+                + ": "
+                + CSharpIdentifier.ContainRenderedText(
+                    detail.AcquisitionFailure.Detail));
+        }
+        if (detail.Error is not null)
+        {
+            parts.Add(
+                detail.Error.GetType().Name
+                + ": "
+                + CSharpIdentifier.ContainRenderedText(
+                    detail.Error.Message));
+        }
+        return string.Join("; ", parts);
     }
 
     static string Target(

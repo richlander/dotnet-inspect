@@ -182,6 +182,13 @@ public static class InspectionGraphCommand
         {
             CountOutput.WriteCount(rows.Count);
         }
+        else if (options.Tree)
+        {
+            InspectionGraphOutputAdapter.WriteGraph(
+                document,
+                rows,
+                new PlainTextFormatter());
+        }
         else
         {
             switch (options.Format)
@@ -216,20 +223,10 @@ public static class InspectionGraphCommand
                         new PlainTextFormatter());
                     break;
                 default:
-                    if (options.Tree)
-                    {
-                        InspectionGraphOutputAdapter.WriteGraph(
-                            document,
-                            rows,
-                            new PlainTextFormatter());
-                    }
-                    else
-                    {
-                        InspectionGraphOutputAdapter.WriteMarkdown(
-                            document,
-                            rows,
-                            options.EmbeddedMermaid);
-                    }
+                    InspectionGraphOutputAdapter.WriteMarkdown(
+                        document,
+                        rows,
+                        options.EmbeddedMermaid);
                     break;
             }
         }

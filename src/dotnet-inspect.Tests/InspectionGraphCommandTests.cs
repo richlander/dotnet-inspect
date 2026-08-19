@@ -204,10 +204,41 @@ public sealed class InspectionGraphCommandTests
             ThirdPackageId,
             edge.GetProperty("target").GetString(),
             StringComparison.Ordinal);
+        Assert.Equal(
+            3,
+            parsed.RootElement.GetProperty("groups").GetArrayLength());
         Assert.Single(
             jsonLines.Output.Split(
                 Environment.NewLine,
                 StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
+    public async Task EmptyRowWindow_DoesNotRepopulatePackageContext()
+    {
+        InspectionGraphDocument document = GraphWithTwoEdges();
+        RowWindow empty = RowWindow.Range(9, 10);
+
+        Execution markdown = await ExecuteAsync(
+            injectedDocument: document,
+            rows: empty);
+        Execution mermaid = await ExecuteAsync(
+            ["--mermaid"],
+            injectedDocument: document,
+            rows: empty);
+        Execution json = await ExecuteAsync(
+            ["--json"],
+            injectedDocument: document,
+            rows: empty);
+
+        Assert.Contains(
+            "No Integration relationships are selected by the row window.",
+            markdown.Output);
+        Assert.DoesNotContain(PackageId, mermaid.Output, StringComparison.Ordinal);
+        using JsonDocument parsed = JsonDocument.Parse(json.Output);
+        Assert.Empty(parsed.RootElement.GetProperty("nodes").EnumerateArray());
+        Assert.Empty(parsed.RootElement.GetProperty("groups").EnumerateArray());
+        Assert.Empty(parsed.RootElement.GetProperty("edges").EnumerateArray());
     }
 
     [Fact]
@@ -271,6 +302,22 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public async Task TreeRendering_OverridesAResolvedEnvironmentFormat()
+    {
+        Execution execution = await ExecuteAsync(
+            ["--tree"],
+            injectedDocument: GraphWithTwoEdges(),
+            formatOverride: OutputFormat.Json);
+
+        Assert.Equal(0, execution.ExitCode);
+        Assert.Contains(PackageId, execution.Output, StringComparison.Ordinal);
+        Assert.False(
+            execution.Output.StartsWith(
+                "{",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task VisibleGraphFailure_PreservesOutputAndNonzeroExit()
     {
         InspectionGraphDocument graph = GraphWithTwoEdges();
@@ -286,26 +333,38 @@ public sealed class InspectionGraphCommandTests
             graph.Limits,
             [
                 new InspectionGraphFailure(
-                    InspectionGraphIntegrationsCatalog.ProjectionFailure),
+                    InspectionGraphIntegrationsCatalog.ProjectionFailure,
+                    InspectionGraphTarget.Node(0)),
             ]);
 
         Execution execution = await ExecuteAsync(
             injectedDocument: incomplete);
+        Execution json = await ExecuteAsync(
+            ["--json"],
+            injectedDocument: incomplete);
 
         Assert.Equal(1, execution.ExitCode);
+        Assert.Equal(1, json.ExitCode);
         Assert.Contains(PackageId, execution.Output, StringComparison.Ordinal);
         Assert.Contains(
             InspectionGraphIntegrationsCatalog.ProjectionFailure.Id,
             execution.Output,
             StringComparison.Ordinal);
         Assert.Contains("Integration graph is incomplete", execution.Error);
+        using JsonDocument parsed = JsonDocument.Parse(json.Output);
+        JsonElement failure = Assert.Single(
+            parsed.RootElement.GetProperty("failures").EnumerateArray());
+        Assert.Equal("Node", failure.GetProperty("target_kind").GetString());
+        Assert.Equal(0, failure.GetProperty("target_id").GetInt32());
     }
 
     static async Task<Execution> ExecuteAsync(
         string[]? additionalArguments = null,
         string[]? relationships = null,
         InspectionGraphDocument? injectedDocument = null,
-        Action<InspectionGraphInducedSetRequest>? captureRequest = null)
+        Action<InspectionGraphInducedSetRequest>? captureRequest = null,
+        RowWindow? rows = null,
+        OutputFormat? formatOverride = null)
     {
         var store = new InMemoryPackageStore();
         string sourceKey = NuGetCache.GetSourceKey(Source.Url);
@@ -350,10 +409,10 @@ public sealed class InspectionGraphCommandTests
             Packages = [$"{PackageId}@{Version}"],
             Tfm = Framework,
             Relationships = relationships ?? [],
-            Format = format,
+            Format = formatOverride ?? format,
             Count = arguments.Contains("--count"),
             Tree = arguments.Contains("--tree"),
-            Rows = rowsIndex >= 0 ? RowWindow.Head(1) : null,
+            Rows = rows ?? (rowsIndex >= 0 ? RowWindow.Head(1) : null),
         };
 
         var captured = await ConsoleCapture.RunAsync(
@@ -393,19 +452,23 @@ public sealed class InspectionGraphCommandTests
                     0,
                     first,
                     InspectionGraphNodeRole.Ordinary,
-                    []),
+                    [0]),
                 new InspectionGraphNode(
                     1,
                     second,
                     InspectionGraphNodeRole.Ordinary,
-                    []),
+                    [1]),
                 new InspectionGraphNode(
                     2,
                     third,
                     InspectionGraphNodeRole.Ordinary,
-                    []),
+                    [2]),
             ],
-            [],
+            [
+                new InspectionGraphGroup(0, first, parentId: null),
+                new InspectionGraphGroup(1, second, parentId: null),
+                new InspectionGraphGroup(2, third, parentId: null),
+            ],
             [
                 new InspectionGraphEdge(0, 0, 1, TestRelationship, []),
                 new InspectionGraphEdge(1, 1, 2, TestRelationship, []),
