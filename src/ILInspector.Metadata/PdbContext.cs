@@ -282,6 +282,23 @@ public class PdbContext : IDisposable
         => Open(assemblyPath, log, PEStreamOptions.Default, loadLocalPdb: false);
 
     /// <summary>
+    /// Prefetches the complete PE image without loading an embedded or adjacent PDB.
+    /// </summary>
+    /// <remarks>
+    /// Gate:
+    /// <c>PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>.
+    /// </remarks>
+    public static PdbContext OpenMetadataOnlyPrefetched(
+        string assemblyPath,
+        Action<string>? log = null)
+        => Open(
+            assemblyPath,
+            log,
+            PEStreamOptions.PrefetchEntireImage
+                | PEStreamOptions.LeaveOpen,
+            loadLocalPdb: false);
+
+    /// <summary>
     /// Opens descriptor-owned PE metadata without loading an embedded or
     /// adjacent PDB.
     /// </summary>
@@ -296,6 +313,29 @@ public class PdbContext : IDisposable
             assembly.Identity.Name,
             log,
             PEStreamOptions.Default,
+            assembly.LastWriteTimeUtc,
+            loadLocalPdb: false);
+    }
+
+    /// <summary>
+    /// Prefetches descriptor-owned PE content without loading an embedded or adjacent PDB.
+    /// </summary>
+    /// <remarks>
+    /// Gate:
+    /// <c>PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb</c>.
+    /// </remarks>
+    public static PdbContext OpenMetadataOnlyPrefetched(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return Open(
+            assembly.OpenRead(),
+            assembly.Path,
+            assembly.Identity.Name,
+            log,
+            PEStreamOptions.PrefetchEntireImage
+                | PEStreamOptions.LeaveOpen,
             assembly.LastWriteTimeUtc,
             loadLocalPdb: false);
     }

@@ -101,6 +101,10 @@ internal static class LibraryMetadataService
                         logger.Log)
                 : discoveryOnly && !needsPrefetchedImage
                     ? SourceLinkService.OpenMetadataOnly(path, logger.Log)
+                    : discoveryOnly
+                        ? SourceLinkService.OpenMetadataOnlyPrefetched(
+                            path,
+                            logger.Log)
                     : !needsPrefetchedImage
                         ? SourceLinkService.Open(path, logger.Log)
                         : SourceLinkService.OpenPrefetched(path, logger.Log);

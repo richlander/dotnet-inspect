@@ -213,6 +213,48 @@ public class IndexBuildInvariantTests
             new System.Reflection.PortableExecutable.PEReader(image);
         Assert.True(reader.HasMetadata);
     }
+
+    [Fact]
+    public void PdbContext_MetadataOnlyPrefetch_RetainsImageWithoutLoadingAdjacentPdb()
+    {
+        Assert.True(
+            File.Exists(
+                Path.ChangeExtension(
+                    FixtureAssembly,
+                    ".pdb")),
+            "The fixture must have an adjacent PDB for this gate to prove it stays unloaded.");
+
+        using var prefetched =
+            ILInspector.SourceLink.SourceLinkService
+                .OpenMetadataOnlyPrefetched(
+                    FixtureAssembly);
+        var image =
+            prefetched.Context.GetPrefetchedImage();
+
+        Assert.False(image.IsDefaultOrEmpty);
+        Assert.False(prefetched.HasPdb);
+        using var reader =
+            new System.Reflection.PortableExecutable.PEReader(
+                image);
+        Assert.True(reader.HasMetadata);
+
+        var descriptor =
+            ILInspector.Metadata.ResolvedAssemblyReference
+                .CreateFromPath(
+                    FixtureAssembly,
+                    ILInspector.Metadata
+                        .AssemblyResolutionProvenance
+                        .Local("metadata-only prefetch gate"));
+        using var descriptorPrefetched =
+            ILInspector.SourceLink.SourceLinkService
+                .OpenMetadataOnlyPrefetched(
+                    descriptor);
+        Assert.False(
+            descriptorPrefetched.Context
+                .GetPrefetchedImage()
+                .IsDefaultOrEmpty);
+        Assert.False(descriptorPrefetched.HasPdb);
+    }
 }
 
 public class IndexBuildGuardFixture

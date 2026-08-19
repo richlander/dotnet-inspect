@@ -115,6 +115,10 @@ internal sealed class LibraryMethodAnalysisResult
     public AnalysisDiagnostic? Diagnostic;
 }
 
+internal readonly record struct UnsafeEvidencePresenceMethodResult(
+    bool HasEvidence,
+    AnalysisDiagnostic? Diagnostic);
+
 /// <summary>
 /// Runs the ordered topic producers for one method while the assembly builder
 /// retains scheduling and primary-image lifetime. The primary metadata
@@ -125,6 +129,241 @@ internal sealed class LibraryMethodAnalysisRunner(
 {
     readonly ILibraryMethodAnalysisInfrastructure _infrastructure =
         infrastructure;
+
+    internal UnsafeEvidencePresenceMethodResult ProbeUnsafeEvidence(
+        TypeDefinitionHandle typeHandle,
+        TypeDefinition typeDefinition,
+        MethodDefinitionHandle methodHandle)
+    {
+        MetadataReader reader = _infrastructure.Reader;
+        MethodIdentity? caller = null;
+        try
+        {
+            var methodDefinition =
+                reader.GetMethodDefinition(methodHandle);
+            GenericScope? scope = null;
+            GenericScope Scope()
+                => scope ??= _infrastructure.CreateScope(
+                    typeDefinition,
+                    methodDefinition);
+            MethodIdentity Caller()
+                => caller ??=
+                    _infrastructure.CreateMethodIdentity(
+                        typeHandle,
+                        methodHandle,
+                        methodDefinition,
+                        Scope());
+
+            if ((MayBeUnsafeApiType(reader, typeHandle)
+                    || SignatureMayContainUnsafeType(
+                        reader,
+                        methodDefinition.Signature))
+                && MethodSafetyAnalysis.HasUnsafeDeclaration(
+                    Caller()))
+            {
+                return new(true, null);
+            }
+            if (methodDefinition.RelativeVirtualAddress == 0
+                || !HasManagedIlBody(
+                    methodDefinition.ImplAttributes))
+            {
+                return new(false, null);
+            }
+
+            var body = _infrastructure.PeReader.GetMethodBody(
+                methodDefinition.RelativeVirtualAddress);
+            if (!body.LocalSignature.IsNil)
+            {
+                var localSignature =
+                    reader.GetStandaloneSignature(
+                        body.LocalSignature);
+                if (SignatureMayContainUnsafeType(
+                        reader,
+                        localSignature.Signature,
+                        includePinned: true))
+                {
+                    ImmutableArray<TypeRef> localTypes =
+                        DecodeLocalTypes(body, Scope());
+                    if (MethodSafetyAnalysis.HasUnsafeLocals(
+                            localTypes))
+                    {
+                        return new(true, null);
+                    }
+                }
+            }
+
+            IMethodCallResolver? resolver = null;
+            foreach (var instruction in InstructionDecoder.Decode(
+                         body.GetILBytes() ?? []))
+            {
+                switch (instruction.OpCode)
+                {
+                    case ILOpCode.Call:
+                    case ILOpCode.Callvirt:
+                    case ILOpCode.Newobj:
+                    case ILOpCode.Ldftn:
+                    case ILOpCode.Ldvirtftn:
+                        int operandToken =
+                            MethodInstructionFacts
+                                .OperandInt32(
+                                    instruction);
+                        if (MayBeUnsafeCall(
+                                reader,
+                                operandToken))
+                        {
+                            resolver ??=
+                                _infrastructure.CreateCallResolver(
+                                    Scope(),
+                                    Caller());
+                            if (MethodSafetyAnalysis.IsUnsafeCall(
+                                    resolver.ResolveMember(
+                                        operandToken)))
+                            {
+                                return new(true, null);
+                            }
+                        }
+                        break;
+
+                    case ILOpCode.Calli:
+                        return new(true, null);
+
+                    default:
+                        if (MethodSafetyAnalysis.IsUnsafeOperation(
+                                instruction.OpCode,
+                                includeIndirectOperations: false))
+                        {
+                            return new(true, null);
+                        }
+                        break;
+                }
+            }
+
+            return new(false, null);
+        }
+        catch (Exception ex)
+            when (IsRecoverableMethodFailure(ex))
+        {
+            return new(
+                false,
+                new AnalysisDiagnostic(
+                    MetadataTokens.GetToken(methodHandle),
+                    MethodLabel(
+                        typeHandle,
+                        methodHandle),
+                    $"{ex.GetType().Name}: {ex.Message}",
+                    DeclaringType: caller?.DeclaringType));
+        }
+    }
+
+    static bool MayBeUnsafeCall(
+        MetadataReader reader,
+        int token)
+    {
+        EntityHandle handle =
+            MetadataTokens.EntityHandle(token);
+        switch (handle.Kind)
+        {
+            case HandleKind.MethodSpecification:
+            {
+                var specification =
+                    reader.GetMethodSpecification(
+                        (MethodSpecificationHandle)handle);
+                return SignatureMayContainUnsafeType(
+                        reader,
+                        specification.Signature)
+                    || MayBeUnsafeCall(
+                        reader,
+                        MetadataTokens.GetToken(
+                            specification.Method));
+            }
+
+            case HandleKind.MethodDefinition:
+            {
+                var method =
+                    reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)handle);
+                return MayBeUnsafeApiType(
+                        reader,
+                        method.GetDeclaringType())
+                    || SignatureMayContainUnsafeType(
+                        reader,
+                        method.Signature);
+            }
+
+            case HandleKind.MemberReference:
+            {
+                var member =
+                    reader.GetMemberReference(
+                        (MemberReferenceHandle)handle);
+                return MayBeUnsafeApiType(
+                        reader,
+                        member.Parent)
+                    || SignatureMayContainUnsafeType(
+                        reader,
+                        member.Signature);
+            }
+
+            default:
+                return true;
+        }
+    }
+
+    static bool MayBeUnsafeApiType(
+        MetadataReader reader,
+        EntityHandle handle)
+    {
+        StringHandle namespaceHandle;
+        StringHandle nameHandle;
+        switch (handle.Kind)
+        {
+            case HandleKind.TypeDefinition:
+            {
+                var type =
+                    reader.GetTypeDefinition(
+                        (TypeDefinitionHandle)handle);
+                namespaceHandle = type.Namespace;
+                nameHandle = type.Name;
+                break;
+            }
+
+            case HandleKind.TypeReference:
+            {
+                var type =
+                    reader.GetTypeReference(
+                        (TypeReferenceHandle)handle);
+                namespaceHandle = type.Namespace;
+                nameHandle = type.Name;
+                break;
+            }
+
+            default:
+                return true;
+        }
+
+        return reader.StringComparer.Equals(
+                nameHandle,
+                "Unsafe")
+            && reader.StringComparer.Equals(
+                namespaceHandle,
+                "System.Runtime.CompilerServices");
+    }
+
+    static bool SignatureMayContainUnsafeType(
+        MetadataReader reader,
+        BlobHandle signature,
+        bool includePinned = false)
+    {
+        foreach (byte value in reader.GetBlobBytes(
+                     signature))
+        {
+            if (value is 0x0F or 0x1B
+                || includePinned && value == 0x45)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     internal LibraryMethodAnalysisResult Analyze(
         TypeDefinitionHandle typeHandle,

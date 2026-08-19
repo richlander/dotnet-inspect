@@ -75,6 +75,16 @@ public sealed class SourceLinkService : IDisposable
         Action<string>? log = null)
         => new(PdbContext.OpenMetadataOnly(assemblyPath, log), DefaultCache, log);
 
+    public static SourceLinkService OpenMetadataOnlyPrefetched(
+        string assemblyPath,
+        Action<string>? log = null)
+        => new(
+            PdbContext.OpenMetadataOnlyPrefetched(
+                assemblyPath,
+                log),
+            DefaultCache,
+            log);
+
     public static SourceLinkService OpenMetadataOnly(
         ResolvedAssemblyReference assembly,
         Action<string>? log = null)
@@ -87,6 +97,17 @@ public sealed class SourceLinkService : IDisposable
         => new(
             PdbContext.OpenMetadataOnly(assembly, log),
             cache,
+            log);
+
+    public static SourceLinkService OpenMetadataOnlyPrefetched(
+        ResolvedAssemblyReference assembly,
+        Action<string>? log = null,
+        ISourceLinkIndexCache? cache = null)
+        => new(
+            PdbContext.OpenMetadataOnlyPrefetched(
+                assembly,
+                log),
+            cache ?? DefaultCache,
             log);
 
     public static SourceLinkService Open(

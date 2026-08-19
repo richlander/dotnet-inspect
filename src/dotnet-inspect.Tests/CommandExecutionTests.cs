@@ -7331,6 +7331,30 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Discover_Bare_DoesNotLoadAdjacentSourceLinkPdb()
+    {
+        string assemblyPath =
+            FixtureCatalog.SourceLinkNormalized.AssemblyPath();
+        using (var sourceLink =
+            ILInspector.SourceLink.SourceLinkService.Open(
+                assemblyPath))
+        {
+            Assert.True(
+                sourceLink.HasSourceLink,
+                "The adjacent fixture PDB must carry SourceLink for this gate to prove it stays unloaded.");
+        }
+
+        var (exit, output, error) = await RunAppAsync(
+            "library", assemblyPath,
+            "-D",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("@SourceLink", output);
+    }
+
+    [Fact]
     public async Task Discover_BareEffective_IgnoresLegacyEffectiveCache()
     {
         const string legacyCategory = "effective-v19";

@@ -14,6 +14,19 @@ internal readonly record struct MethodLocalSafety(
 
 internal static class MethodSafetyAnalysis
 {
+    internal static bool HasUnsafeDeclaration(
+        MethodIdentity method)
+        => IsUnsafeApi(method.DeclaringType)
+            || method.ParameterTypes
+                .Append(method.ReturnType)
+                .Any(ContainsUnsafeType);
+
+    internal static bool HasUnsafeLocals(
+        ImmutableArray<TypeRef> localTypes)
+        => localTypes.Any(
+            local => local.Kind == TypeRefKind.Pinned
+                || ContainsUnsafeType(local));
+
     internal static MethodDeclarationSafety InspectDeclaration(
         MethodIdentity method,
         ImmutableArray<UnsafeEvidence>.Builder evidence)
@@ -386,11 +399,18 @@ internal static class MethodSafetyAnalysis
             _ => null,
         };
 
-    static bool IsUnsafeCall(MemberRef member)
+    internal static bool IsUnsafeCall(MemberRef member)
         => IsUnsafeApi(member.DeclaringType)
             || member.ParameterTypes
                 .Append(member.ReturnType)
                 .Any(ContainsUnsafeType);
+
+    internal static bool IsUnsafeOperation(
+        ILOpCode operation,
+        bool includeIndirectOperations)
+        => UnsafeOpcodeName(
+            operation,
+            includeIndirectOperations) is not null;
 
     static bool IsUnsafeApi(TypeRef type)
         => FrameworkIdentity.IsCoreLibraryType(

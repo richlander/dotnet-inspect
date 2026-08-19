@@ -416,14 +416,12 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
 
     internal bool HasUnsafeEvidence()
     {
-        LibraryBodyAnalysisPlan plan =
-            LibraryBodyAnalysisPlan.Create(
-                LibraryBodyAnalysisFeatures.MethodEvidence,
-                methodScope: null,
-                typeScope: null);
         var methodRunner =
             new LibraryMethodAnalysisRunner(this);
-        AnalysisDiagnostic? firstDiagnostic = null;
+        var methods = new List<(
+            TypeDefinitionHandle TypeHandle,
+            TypeDefinition TypeDefinition,
+            MethodDefinitionHandle MethodHandle)>();
 
         foreach (var typeHandle in _reader.TypeDefinitions)
         {
@@ -431,27 +429,79 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 _reader.GetTypeDefinition(typeHandle);
             foreach (var methodHandle in typeDefinition.GetMethods())
             {
-                LibraryMethodAnalysisResult result =
-                    methodRunner.Analyze(
-                        typeHandle,
-                        typeDefinition,
-                        typeSourceGenerated: false,
-                        methodHandle,
-                        plan);
-                if (!result.UnsafeEvidence.IsDefaultOrEmpty)
-                    return true;
-                firstDiagnostic ??= result.Diagnostic;
+                methods.Add((
+                    typeHandle,
+                    typeDefinition,
+                    methodHandle));
             }
         }
 
-        if (firstDiagnostic is { } diagnostic)
+        if (methods.Count < ParallelBuildMethodThreshold)
         {
+            AnalysisDiagnostic? firstDiagnostic = null;
+            foreach (var method in methods)
+            {
+                UnsafeEvidencePresenceMethodResult result =
+                    methodRunner.ProbeUnsafeEvidence(
+                        method.TypeHandle,
+                        method.TypeDefinition,
+                        method.MethodHandle);
+                if (result.HasEvidence)
+                    return true;
+                firstDiagnostic ??= result.Diagnostic;
+            }
+            ThrowIfIncomplete(firstDiagnostic);
+            return false;
+        }
+
+        int found = 0;
+        var diagnostics =
+            new ConcurrentBag<AnalysisDiagnostic>();
+        Parallel.For(
+            0,
+            methods.Count,
+            (index, loop) =>
+            {
+                if (Volatile.Read(ref found) != 0)
+                {
+                    loop.Stop();
+                    return;
+                }
+
+                var method = methods[index];
+                UnsafeEvidencePresenceMethodResult result =
+                    methodRunner.ProbeUnsafeEvidence(
+                        method.TypeHandle,
+                        method.TypeDefinition,
+                        method.MethodHandle);
+                if (result.HasEvidence)
+                {
+                    Interlocked.Exchange(ref found, 1);
+                    loop.Stop();
+                }
+                else if (result.Diagnostic is { } diagnostic)
+                {
+                    diagnostics.Add(diagnostic);
+                }
+            });
+        if (found != 0)
+            return true;
+
+        ThrowIfIncomplete(
+            diagnostics.MinBy(
+                diagnostic => diagnostic.MethodToken));
+        return false;
+
+        static void ThrowIfIncomplete(
+            AnalysisDiagnostic? diagnostic)
+        {
+            if (diagnostic is null)
+                return;
+
             throw new InvalidDataException(
                 $"Unsafe evidence presence is incomplete because {diagnostic.Method} " +
                 $"could not be analyzed: {diagnostic.Message}");
         }
-
-        return false;
     }
 
     // Assemblies with at least this many methods use the parallel per-method analysis path.

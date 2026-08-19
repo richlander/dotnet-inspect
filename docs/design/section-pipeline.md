@@ -183,7 +183,7 @@ For library discovery:
 
 | Gesture | Candidate scope | Scanner behavior |
 | --- | --- | --- |
-| `-D` | Base sections and category doors | Metadata presence only |
+| `-D` | Base sections, category doors, effective standalone sections | Metadata and bounded presence probes |
 | `-D --effective` | Base-category union | Full base scanner closure |
 | `-D @Category` | Authored category members | Structural; no member scanners |
 | `-D @Category --effective` | Authored category members | Full category scanner closure |
