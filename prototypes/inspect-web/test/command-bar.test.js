@@ -192,10 +192,14 @@ test("trailing whitespace preserves completed command arguments", () => {
       [[expected, "execute"]],
     );
   }
-  assert.deepEqual(
-    commandPaletteResults(commandContext("show metadata extra "), lenses),
-    [],
-  );
+  for (const invalid of [
+    "show metadata extra ",
+    "clear clear",
+    "share share ",
+    "bogus clear",
+  ]) {
+    assert.deepEqual(commandPaletteResults(commandContext(invalid), lenses), []);
+  }
 });
 
 test("an exact root verb advances to its arguments without dropping the verb", () => {
