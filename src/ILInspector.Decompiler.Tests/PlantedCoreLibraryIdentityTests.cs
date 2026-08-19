@@ -374,6 +374,10 @@ public class PlantedCoreLibraryIdentityTests
     /// them: core-library identity is granted.
     /// </para>
     /// <para>
+    /// Selection deliberately ignores the method's name and its declared
+    /// return type, keying on the object actually handed back, because review
+    /// defeated both of the narrower rules in turn.
+    /// <para>
     /// Scope, stated precisely because this gate is meant to be trusted instead
     /// of a hand audit: it proves a grant was not <em>forgotten</em>, not that a
     /// grant is correctly <em>conditional</em>. Every entry point here is fed a
@@ -381,24 +385,31 @@ public class PlantedCoreLibraryIdentityTests
     /// this test with an unconditional grant — which would be the #4411 bug.
     /// <c>PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity</c>
     /// and <c>DiscoveredSibling_FollowsTheHostPolicy</c> are what hold the
-    /// conditional half, by driving an untrusted provenance through
-    /// <c>OpenCore(ResolvedAssemblyReference)</c> and asserting denial. A new
-    /// overload that takes a <see cref="ResolvedAssemblyReference"/> needs a
-    /// negative case there as well as passing this.
+    /// conditional half, by driving an untrusted provenance into
+    /// <see cref="CoreLibraryIdentityTrust.GrantIfEntitled"/> and asserting
+    /// denial — the first through <c>MetadataSource.OpenCore</c>, the second
+    /// through <c>MetadataContext.OpenResolved</c>, which are the two routes
+    /// that reach it. A new overload taking a
+    /// <see cref="ResolvedAssemblyReference"/> needs a negative case there as
+    /// well as passing this.
     /// </para>
     /// </summary>
     [Fact]
     public void EveryPublicFactory_ClassifiesTheReaderItCreates()
     {
         string corelib = typeof(object).Assembly.Location;
-        // Derive on the return type alone. Filtering on an "Open" name prefix
-        // would let a rename drop an entry point out of coverage while the
-        // remaining overloads kept this test green -- round-4 review
-        // demonstrated exactly that by renaming OpenFromPrefetchedImage and
-        // removing its grant without failing the gate.
+        // Derive on the return type, not on the method name: filtering on an
+        // "Open" prefix let a rename drop an entry point out of coverage while
+        // the remaining overloads kept this test green (round-4 review). Match
+        // any return type a MetadataSource is assignable to, not just the exact
+        // type, because declaring a factory as IDisposable escaped an exact
+        // comparison the same way (round-5 review). What the method is called
+        // and how its result is typed are both cosmetic; handing back a live
+        // MetadataSource is the property that matters, so the actual returned
+        // object decides.
         var entryPoints = typeof(MetadataSource)
             .GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .Where(m => m.ReturnType == typeof(MetadataSource))
+            .Where(m => m.ReturnType.IsAssignableFrom(typeof(MetadataSource)))
             .ToList();
 
         Assert.NotEmpty(entryPoints);
@@ -419,9 +430,15 @@ public class PlantedCoreLibraryIdentityTests
                     e);
             }
 
-            using var source = (MetadataSource)method.Invoke(null, arguments)!;
-            if (TypeRefDecoder.CanonicalSelf(source.Reader) != TypeRef.CoreLibrary)
-                unclassified.Add(Signature(method));
+            object? result = method.Invoke(null, arguments);
+            if (result is not MetadataSource source)
+                continue;
+
+            using (source)
+            {
+                if (TypeRefDecoder.CanonicalSelf(source.Reader) != TypeRef.CoreLibrary)
+                    unclassified.Add(Signature(method));
+            }
         }
 
         Assert.True(
