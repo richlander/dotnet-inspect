@@ -718,11 +718,10 @@ two persisted contracts are isomorphic.
   satisfy an exact workspace pin. The shared acquisition owner needs an exact
   normalized-version path and a visible not-found outcome for near matches.
 - **Embedded provenance during migration.** The current closed
-  `AssemblyResolutionProvenance` hierarchy cannot represent the `embedded`
-  coordinate. The target artifact design resolves this with adapter-owned typed
-  provenance rather than a fifth Metadata case. If embedded realization lands
-  before that migration, its temporary representation must not establish a new
-  permanent Metadata-owned source variant.
+  `AssemblyResolutionProvenance` hierarchy represents the `embedded` coordinate
+  with `EmbeddedAsset`. The target artifact design replaces that fifth
+  Metadata case with adapter-owned typed provenance; current implementation
+  must not establish it as the permanent cross-source integration seam.
 - **An `ApiSurface` deserializer is not needed** for this feature and stays
   deferred until a surface-only workspace is pursued.
 - **Packet consolidation.** The `popstate` handler currently re-implements

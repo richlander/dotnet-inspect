@@ -462,6 +462,16 @@ provenance is owned by the assembly-inspection query model; its
 `AssemblyResolutionProvenance` hierarchy is the descriptor property's
 authoritative shape.
 
+> **Current implementation and migration note:** the paragraph above and the
+> descriptor-shape gates below describe the current implementation. The target
+> [artifact acquisition design](artifact-acquisition-and-workspaces.md) moves
+> source-specific typed provenance and correspondence to source adapters.
+> Metadata retains source-neutral artifact/acquisition identity, and content
+> access requires an owner-issued admission or query authorization lease rather
+> than a parameterless opener or readable descriptor path. Those target
+> contracts supersede this document's opener/provenance shape during migration;
+> the catalog identity and correspondence rules remain authoritative.
+
 ### Resolution start
 
 There are four legitimate starts and they stay explicit:
@@ -2792,6 +2802,12 @@ Claim: direct callers and transitive call graphs share one definition identity.
   and registration; neither request identity is stored in the descriptor.
 - Per-path legacy resolver instances feed one per-inspection adapter set and
   cannot mint independent registrations for the same owner-selected entry.
+
+The opener-instance and source-specific provenance gates above are current
+migration gates, not target artifact-contract gates. Their replacements are the
+authorization, guarded-content, adapter-correspondence, and generation-scoping
+gates named in
+[artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md#required-gates).
 - A user path found in the platform inventory and a forwarder binding to that
   entry share the platform registration; an unowned copied path remains local.
 - An external policy receives only the requesting registration, can use

@@ -198,7 +198,8 @@ original value-equal record to a registration-backed, non-equatable descriptor:
 > replaces that Metadata-owned union with an artifact identity and acquisition
 > registration. Source adapters retain their own typed provenance and
 > correspondence proof. It also replaces the parameterless opener with
-> content access guarded by a current query authorization lease. Do not add
+> content access guarded by an owner-issued admission or current-query
+> authorization lease; a descriptor path is not read authority. Do not add
 > another source variant to Metadata as the target integration seam.
 
 ```csharp

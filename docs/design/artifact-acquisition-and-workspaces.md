@@ -203,17 +203,31 @@ disposal may initiate this deferred release; it must not invalidate content
 under an active callback. Cleanup failures compose with, and never replace, the
 active operation failure.
 
-Retaining content does not retain authority. Before a query receives content or
-uses a retained snapshot, the artifact owner revalidates the current query
-plan's capabilities and source policy and issues a query-scoped access lease.
-Changed or revoked authorization rejects access even when the bytes remain in
-memory or storage. The query lease is source-neutral; the adapter that owns the
-typed provenance and authorization evidence makes the decision.
+Retaining content does not retain authority. The artifact owner issues two
+different source-neutral access leases:
 
-Only that query access lease exposes content. An artifact catalog descriptor or
-`ResolvedAssemblyReference` cannot bypass the owner with a bare `Func<Stream>`;
-its guarded open requires the current lease. This is a target change from the
-current parameterless `ResolvedAssemblyReference.OpenRead`.
+- an **admission lease** authorizes the context loader to project sealed
+  artifacts into assembly identities and participants while constructing the
+  group;
+- a **query lease** revalidates the current query plan's capabilities and
+  source policy before it can select participants, observe binding or
+  correspondence answers, receive content, or use a retained snapshot.
+
+Changed or revoked authorization rejects the query before catalog or
+participant selection even when the bytes and prior binding answers remain in
+memory. Reuse of a group also requires that its binding-policy and
+correspondence generation be compatible with the current plan's authorization
+scope. Reauthorizing only the image is insufficient because catalog membership
+and binding answers can themselves reveal unauthorized candidates.
+
+Only an admission or query access lease exposes content. An artifact catalog
+descriptor or `ResolvedAssemblyReference` cannot bypass the owner with a bare
+`Func<Stream>` or readable path. Its guarded open requires the current lease.
+A path on a target descriptor is inert location evidence, not read authority;
+when a producer genuinely requires a path, the lease may provide a
+lease-scoped path to the exact retained snapshot. This is a target change from
+the current parameterless `ResolvedAssemblyReference.OpenRead` and public
+readable `Path`.
 
 It does not:
 
@@ -266,6 +280,9 @@ The exact type names are an implementation decision. The semantic requirements
 are not:
 
 - a required acquisition failure cannot become an empty successful set;
+- each declared context member must realize at least one artifact eligible for
+  that member's projection; an empty or wholly non-projectable `Acquired`
+  result is a typed member failure;
 - a context cannot silently omit a failed required member;
 - every member in a static workspace context remains required;
 - host composition may make an entire acquisition optional before constructing
@@ -286,12 +303,13 @@ The local adapter accepts explicit files or directories under host policy. It
 opens local content without acquiring package or remote-storage dependencies.
 Directory enumeration and path containment remain local-adapter concerns.
 
-Before sealing, it either retains an immutable snapshot or records a digest for
-every admitted file under explicit entry and byte budgets. A later open
-revalidates that digest before exposing bytes. Rebuild, replacement, symlink
-retargeting, or deletion after admission produces a typed content-changed or
-unavailable failure; it never substitutes the new file. Directory admission
-hashes only the selected, bounded entries, not an unbounded tree.
+Before sealing, it copies every admitted file into an immutable retained or
+content-addressed snapshot under explicit entry and byte budgets, then computes
+identity from those exact bytes. Consumers never receive a mutable source-file
+stream after a separate digest check. Rebuild, replacement, symlink retargeting,
+or deletion after admission cannot substitute new bytes into the retained
+snapshot. Directory admission snapshots only the selected, bounded entries,
+not an unbounded tree.
 
 This adapter is the proof that the abstraction is independently useful. A
 local-only host composes:
@@ -343,6 +361,12 @@ The platform adapter resolves installed or remotely acquired platform content.
 Platform packs may happen to be transported as NuGet packages, but transport
 does not make "package" the workspace model. The adapter retains both platform
 identity and the producer authorization needed for re-acquisition.
+
+It validates platform family, version, selected assembly, producer, and content
+identity before minting a platform realization and generation-scoped
+correspondence proof. Platform-aware graph projection consumes that proof
+without parsing NuGet versions or Metadata-owned platform provenance in core
+assembly Queries.
 
 ### Embedded adapter
 
@@ -416,9 +440,10 @@ acceptance test for the abstractions that precede it.
 Storage owns opaque content retention. It may provide filesystem, memory,
 browser, remote-cache, or content-addressed implementations.
 
-A storage lease may expose a repeatable stream opener, a bounded buffer, or a
-contained local path when the implementation has one. Consumers cannot require
-the path form. Storage does not:
+An owner-authorized access lease may expose a repeatable stream opener, a
+bounded buffer, or a lease-scoped path to retained content when the storage
+implementation has one. A catalog or target descriptor cannot expose those
+routes, and consumers cannot require the path form. Storage does not:
 
 - decide whether content is a package or assembly;
 - parse a nuspec or PE header;
@@ -452,8 +477,8 @@ It accepts neutral content:
 ```text
 artifact identity
 acquisition registration
-guarded OpenRead(query access lease)
-optional contained local path
+guarded OpenRead(admission or query access lease)
+optional lease-scoped path to retained snapshot
 ```
 
 It does not accept:
@@ -482,9 +507,10 @@ The execution path is:
 
 ```text
 workspace
-  -> select context group and participant
   -> execute typed query
-  -> artifact owner authorizes this query plan and issues access lease
+  -> artifact owner authorizes this query plan and retained catalog generation
+  -> owner issues query access lease
+  -> select context group and participant
   -> query opens or borrows AssemblyInspectionSession
   -> inspection producers compute evidence
   -> query returns typed result and failure
@@ -538,9 +564,11 @@ properties:
    Packages nor Metadata references the other;
 6. package graph correspondence is validated and projected by the optional
    package companion rather than core assembly Queries;
-7. neutral symbol/PDB storage and source-access contracts do not reference
+7. platform correspondence is minted by the platform adapter and projected
+   without a package or Metadata provenance dependency;
+8. neutral symbol/PDB storage and source-access contracts do not reference
    package source policy;
-8. hosts choose adapters through project references and capabilities.
+9. hosts choose adapters through project references and capabilities.
 
 ## Current mismatches
 
@@ -566,6 +594,8 @@ Several current types are migration inputs, not target precedent:
   project, platform, local, and embedded source concepts.
 - `workspace-definitions.md` currently maps member kinds directly onto that
   closed Metadata provenance hierarchy.
+- `type-forwarding-resolution.md` currently calls that hierarchy authoritative
+  and gates the parameterless opener shape.
 - `IPackageContent` correctly provides a pathless package-content seam, but it
   is package-specific and must not become the generic artifact contract.
 
@@ -580,9 +610,9 @@ The migration is intentionally incremental:
 1. **Land the design and closure gates.** Record the target forbidden
    dependencies and add a package-free closure canary before moving behavior.
 2. **Extract source-neutral artifact contracts.** Introduce artifact identity,
-   content opener, provenance marker, acquisition registration and outcome,
-   query access, quiescent lifetime, and lease contracts in a package- and
-   Metadata-free project.
+   guarded content access, provenance marker, acquisition registration and
+   outcome, admission/query authorization, quiescent lifetime, and lease
+   contracts in a package- and Metadata-free project.
 3. **Prove local acquisition.** Adapt explicit local files/directories into the
    contracts with admission-time content identity and form a workspace without
    any package reference.
@@ -597,13 +627,16 @@ The migration is intentionally incremental:
 7. **Move package correspondence.** Have the package adapter mint typed
    realization proofs and move package graph construction out of core assembly
    Queries while preserving the full host's graph wire contract.
-8. **Retire package-aware assembly sets.** Replace package cases in
+8. **Move platform correspondence.** Have the platform adapter mint typed
+   realization proofs and remove platform provenance/version parsing from core
+   assembly Queries without pulling in the package companion.
+9. **Retire package-aware assembly sets.** Replace package cases in
    `AssemblySetRequest` with host composition of artifact acquisitions and
    workspace groups.
-9. **Migrate API source selection.** Select package assets in the package
+10. **Migrate API source selection.** Select package assets in the package
    adapter, then pass neutral assembly artifacts to the existing assembly/query
    path.
-10. **Add other adapters independently.** Project, platform, embedded, and CI
+11. **Add other adapters independently.** Project, platform, embedded, and CI
    adapters land only with their own typed coordinates, capabilities, limits,
    and provenance gates.
 
@@ -628,16 +661,23 @@ The target remains unverified until tests equivalent to these exist:
 - `ArtifactSetSession_DisposesEveryContributingLease`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
+- `ArtifactAdmission_ProjectsAssembliesThroughAuthorizedLease`
 - `ArtifactAccess_RejectsChangedOrRevokedQueryAuthorization`
+- `ArtifactCatalog_RejectsRevokedPolicyBeforeParticipantSelection`
+- `ArtifactDescriptor_ExposesNoUnguardedContentRoute`
 - `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
+- `LocalArtifactSnapshot_MutationCannotChangeInspectionBytes`
 - `ArtifactAcquisition_CancellationRemainsCancellation`
+- `RequiredMember_EmptyOrNonProjectableAcquisitionFailsContext`
 - `RequiredAcquisitionFailure_DoesNotShortenWorkspaceContext`
 - `AssemblyContextGroup_CanBindParticipantsFromDifferentArtifactSources`
 - `RetainedWorkspace_CanAddASecondSealedContextGeneration`
 - `PackageAdapter_ProjectsSelectedEntriesWithoutLeakingPackageTypes`
 - `PackageGraphProjection_UsesAdapterOwnedCorrespondence`
+- `PlatformGraphProjection_UsesAdapterOwnedCorrespondence`
 - `LocalOnlyWorkspace_ExecutesAssemblyQueryWithoutPackageCapabilities`
 - `CiArtifactScenario_PreservesProviderRunCommitAndDigestProvenance`
+- `CrossProviderCiArtifacts_CompareAcrossSealedAuthorizedContexts`
 - `BrowserWorkspace_ComposesSequentiallyWithoutFilesystemOrThreads`
 
 The first seven are structural edge/closure gates derived from the actual project

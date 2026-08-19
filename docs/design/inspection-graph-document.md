@@ -398,6 +398,10 @@ Metadata-owned package provenance. The serialized `package` subject kind
 remains part of the full host's graph contract, while a package-free host does
 not reference the package projection implementation.
 
+The platform adapter performs the equivalent validation and mints the platform
+correspondence proof. Platform graph projection consumes that proof without
+depending on the package companion or Metadata-owned platform provenance.
+
 ## Relationships and occurrences
 
 ### Relationship descriptors
