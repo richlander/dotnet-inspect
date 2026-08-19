@@ -1316,7 +1316,7 @@ before attribution. Candidate paths, text files, SourceLink carriers, aggregate 
 inflation, SourceLink map bytes, and mapping inventory are bounded. The PDB
 owner reads the same file pointer as the framework decoder and reserves both
 per-file and shared expansion budgets before decompression; the named gates are
-`PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`
+`PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`,
 `PdbContextDescriptorTests.EmbeddedPdbLimit_ReadsTheFilePointerUsedByTheDecoder`,
 `PdbContextDescriptorTests.EmbeddedPdbLimit_AppliesDataPointerRelativeToPeImageStart`,
 `PdbContextDescriptorTests.EmbeddedPdbExpansionBudget_IsSharedAcrossOpens`,
