@@ -125,7 +125,8 @@ export function commandPaletteResults(
   const tokens = input.split(/\s+/).filter(Boolean);
   const root = ROOT_COMMANDS.find(([value]) => value === tokens[0]);
 
-  if (root && tokens.length === 1 && !input.endsWith(" ")) {
+  if (root && tokens.length === 1
+      && (!input.endsWith(" ") || root[2] === "none")) {
     return [{
       kind: "command",
       value: root[0],
@@ -134,6 +135,14 @@ export function commandPaletteResults(
       command: root[0],
       action: root[2] === "none" ? "execute" : "complete",
     }];
+  }
+
+  if (root?.[2] === "choice" && tokens.length > 2) return [];
+  if (root?.[2] === "choice" && tokens.length === 2 && input.endsWith(" ")) {
+    return commandPaletteResults({
+      ...context,
+      command: tokens.join(" "),
+    }, lenses);
   }
 
   if (root?.[2] === "text" && input.includes(" ")) {

@@ -158,6 +158,46 @@ test("command palette results distinguish completion from execution", () => {
   );
 });
 
+test("trailing whitespace preserves completed command arguments", () => {
+  const types = [
+    {
+      id: "A.Widget",
+      name: "Widget",
+      namespace: "A",
+      kind: "class",
+    },
+    {
+      id: "B.Widget",
+      name: "Widget",
+      namespace: "B",
+      kind: "class",
+    },
+  ];
+
+  assert.deepEqual(
+    commandPaletteResults(commandContext("type Widget ", types), lenses)
+      .map(result => [result.command, result.targetTypeId]),
+    [["type Widget", "A.Widget"], ["type Widget", "B.Widget"]],
+  );
+  for (const [command, expected] of [
+    ["show metadata ", "show metadata"],
+    ["framework net9.0 ", "framework net9.0"],
+    ["types kind ", "types kind"],
+    ["clear ", "clear"],
+    ["share ", "share"],
+  ]) {
+    assert.deepEqual(
+      commandPaletteResults(commandContext(command), lenses)
+        .map(result => [result.command, result.action]),
+      [[expected, "execute"]],
+    );
+  }
+  assert.deepEqual(
+    commandPaletteResults(commandContext("show metadata extra "), lenses),
+    [],
+  );
+});
+
 test("an exact root verb advances to its arguments without dropping the verb", () => {
   for (const verb of ["type", "types", "show", "framework", "find"]) {
     assert.deepEqual(

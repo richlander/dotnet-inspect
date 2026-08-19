@@ -117,6 +117,81 @@ test("Spotlight keeps the selected result when async rows are inserted before it
     /id="spotlight-result-2" class="spotlight-item selected"[^>]*data-sl-type="Example\.Selected"/);
 });
 
+test("modal arrow navigation reuses rendered results", () => {
+  const pkg = { id: "Example.Package", version: "1.0.0" };
+  const rows = ["First", "Second", "Third"].map(name => ({
+    kind: "type",
+    pkg,
+    type: { id: `Example.${name}`, name, kind: "class" },
+    ranges: [],
+  }));
+  let searchCount = 0;
+  const { spotlight, state } = createHarness({
+    query: "Example",
+    searchResults: () => {
+      searchCount++;
+      return rows;
+    },
+  });
+  spotlight.modalHtml();
+
+  const listeners = new Map();
+  const input = {
+    value: "Example",
+    selectionStart: 7,
+    selectionEnd: 7,
+    addEventListener: (name, listener) => listeners.set(name, listener),
+    focus: () => {},
+    setAttribute: () => {},
+    setSelectionRange: () => {},
+  };
+  const domRows = rows.map(() => ({
+    classList: { toggle: () => {} },
+    scrollIntoView: () => {},
+    setAttribute: () => {},
+  }));
+  const container = {
+    querySelector: () => null,
+    querySelectorAll: selector => selector === ".spotlight-item" ? domRows : [],
+  };
+  const root = {
+    querySelector: selector => selector === "#spotlight-input" ? input : null,
+    querySelectorAll: () => [],
+  };
+  const previousDocument = globalThis.document;
+  const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
+  globalThis.document = {
+    querySelector: selector => {
+      if (selector === "#spotlight-input") return input;
+      if (selector === "#spotlight-results") return container;
+      return null;
+    },
+  };
+  globalThis.requestAnimationFrame = callback => callback();
+
+  try {
+    spotlight.bind(root, "modal");
+    for (let index = 0; index < 4; index++) {
+      listeners.get("keydown")({
+        key: "ArrowDown",
+        currentTarget: input,
+        preventDefault: () => {},
+      });
+    }
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousRequestAnimationFrame === undefined) {
+      delete globalThis.requestAnimationFrame;
+    } else {
+      globalThis.requestAnimationFrame = previousRequestAnimationFrame;
+    }
+  }
+
+  assert.equal(searchCount, 1);
+  assert.equal(state.spotlightIndex, 2);
+});
+
 test("closing Spotlight restores focus through the application boundary", () => {
   let restored = false;
   const { spotlight, state } = createHarness({

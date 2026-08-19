@@ -232,6 +232,7 @@ export function spotlightResultIdentity(result: SpotlightResult): string {
 export function createSpotlight(options: SpotlightOptions) {
   const { state, escapeHtml } = options;
   let interactionGeneration = 0;
+  let renderedResults: readonly SpotlightResult[] = [];
   let selectedResultIdentity: string | null = null;
 
   function scopes() {
@@ -402,6 +403,13 @@ export function createSpotlight(options: SpotlightOptions) {
     rememberSelection(items);
   }
 
+  function resultsForRender(): readonly SpotlightResult[] {
+    const items = results();
+    restoreSelection(items);
+    renderedResults = items;
+    return items;
+  }
+
   function activeDescendantAttribute(items: readonly SpotlightResult[]): string {
     return items.length
       ? ` aria-activedescendant="spotlight-result-${state.spotlightIndex}"`
@@ -422,8 +430,7 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function modalHtml(): string {
-    const items = results();
-    restoreSelection(items);
+    const items = resultsForRender();
     const commands = state.spotlightScope === "commands";
     return `
       <div class="spotlight-backdrop" id="spotlight-backdrop">
@@ -441,8 +448,7 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function inlineHtml(disabled: boolean): string {
-    const items = results();
-    restoreSelection(items);
+    const items = resultsForRender();
     return `
       <div class="home-search-content" ${disabled ? "inert" : ""}>
         <div class="home-search-box">
@@ -467,7 +473,7 @@ export function createSpotlight(options: SpotlightOptions) {
     root.querySelectorAll<HTMLElement>("[data-sl-index]").forEach(item => {
       item.addEventListener("click", () => {
         const index = Number(item.dataset.slIndex);
-        const result = results()[index];
+        const result = renderedResults[index];
         if (result) pick(result);
       });
     });
@@ -492,8 +498,7 @@ export function createSpotlight(options: SpotlightOptions) {
   function updateResults(): void {
     const container = document.querySelector<HTMLElement>("#spotlight-results");
     if (!container) return;
-    const items = results();
-    restoreSelection(items);
+    const items = resultsForRender();
     container.innerHTML = resultsHtml(items);
     bindResultClicks(container);
     syncActiveDescendant(items.length);
@@ -525,6 +530,7 @@ export function createSpotlight(options: SpotlightOptions) {
     state.spotlightFocus = "input";
     state.spotlightChipIndex = 0;
     state.spotlightIndex = 0;
+    renderedResults = [];
     selectedResultIdentity = null;
   }
 
@@ -604,7 +610,7 @@ export function createSpotlight(options: SpotlightOptions) {
     const next = nextSpotlightSelection(state.spotlightIndex, delta, count);
     if (next === null) return false;
     state.spotlightIndex = next;
-    rememberSelection(results());
+    rememberSelection(renderedResults);
     highlightSelection();
     return true;
   }
@@ -665,7 +671,7 @@ export function createSpotlight(options: SpotlightOptions) {
       } else if (event.key === "ArrowDown" || event.key === "Enter") {
         event.preventDefault();
         state.spotlightIndex = 0;
-        rememberSelection(results());
+        rememberSelection(renderedResults);
         focusInput();
         highlightSelection();
       }
@@ -694,12 +700,12 @@ export function createSpotlight(options: SpotlightOptions) {
       }
     } else if (event.key === "Enter") {
       event.preventDefault();
-      pick(results()[state.spotlightIndex]);
+      pick(renderedResults[state.spotlightIndex]);
     }
   }
 
   function handleInlineKeys(event: KeyboardEvent): void {
-    const items = results();
+    const items = renderedResults;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       state.spotlightIndex = nextSpotlightSelection(
@@ -708,7 +714,7 @@ export function createSpotlight(options: SpotlightOptions) {
         items.length,
       ) ?? 0;
       rememberSelection(items);
-      updateResults();
+      highlightSelection();
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       state.spotlightIndex = nextSpotlightSelection(
@@ -717,7 +723,7 @@ export function createSpotlight(options: SpotlightOptions) {
         items.length,
       ) ?? 0;
       rememberSelection(items);
-      updateResults();
+      highlightSelection();
     } else if (event.key === "Enter") {
       event.preventDefault();
       pick(items[state.spotlightIndex]);
