@@ -3429,6 +3429,22 @@ function renderTypeSourceHtml(item: BrowserTypeSurface) {
 function renderLens(item: AppTypeSurface | null | undefined) {
   if (state.atPackageRoot) return renderPackageView();
   if (!item) return "";
+  const pending = state.pendingGraphMemberDeepLink;
+  if (state.lens === "api"
+    && pending
+    && graphMemberPendingMatchesView(
+      pending,
+      packageIdentityKey(state.package),
+      viewSignature())) {
+    const title =
+      state.graphMemberNavigationTitle
+      || `${typeDisplayName(item)}.${pending.target.memberName}`;
+    return `
+      ${typeHeadingHtml(item)}
+      <section class="document-section graph-member-pending" aria-live="polite">
+        <div class="graph-expanding"><span class="loader"></span> Opening ${escapeHtml(title)}…</div>
+      </section>`;
+  }
   const member = selectedMember(item);
   if (state.lens === "api" && member) return renderMember(item, member);
   if (state.lens === "api" && state.memberBrowseTypeId === item.id) {
@@ -5671,6 +5687,16 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
     } else if (disposition === "graph"
       && deep.member
       && deep.graphTarget) {
+      const overloadIndex = Number(deep.overload);
+      state.selectedMemberKey = deep.member;
+      state.selectedOverloadIndex =
+        Number.isInteger(overloadIndex) && overloadIndex >= 0
+          ? overloadIndex
+          : null;
+      state.memberSection = deep.section && isMemberSection(deep.section)
+        ? deep.section
+        : "overview";
+      state.selectedBodyTarget = deep.graphTarget;
       state.pendingGraphMemberDeepLink = {
         packageKey: packageIdentityKey(pkg),
         viewSignature: viewSignature(),
@@ -6883,11 +6909,10 @@ async function navigateToGraphMember(
   }
 
   const seq = ++state.graphMemberNavigationSeq;
+  const owner = captureViewOperation(seq);
   const packageKey = packageIdentityKey(loaded.pkg);
-  const sourceView = viewSignature();
   const navigationIsCurrent = () =>
-    seq === state.graphMemberNavigationSeq
-    && viewSignature() === sourceView
+    ownsViewOperation(owner, state.graphMemberNavigationSeq)
     && state.packages.some(pkg => packageIdentityKey(pkg) === packageKey);
   state.graphMemberNavigationTitle = loaded.title;
   state.memberCallGraphError = "";
@@ -6942,11 +6967,12 @@ async function restorePendingGraphMember() {
   const type = selectedType();
   if (!pending || !pkg || !type) return;
   const seq = ++state.graphMemberNavigationSeq;
+  const owner = captureViewOperation(seq);
   state.graphMemberNavigationTitle =
     `${type.displayName || type.id}.${pending.target.memberName}`;
   render();
   const restorationIsCurrent = () =>
-    seq === state.graphMemberNavigationSeq
+    ownsViewOperation(owner, state.graphMemberNavigationSeq)
     && state.pendingGraphMemberDeepLink === pending
     && graphMemberPendingMatchesView(
       pending,
@@ -6999,6 +7025,10 @@ async function restorePendingGraphMember() {
     }
     state.pendingGraphMemberDeepLink = null;
     state.graphMemberNavigationTitle = "";
+    state.selectedMemberKey = "";
+    state.selectedOverloadIndex = null;
+    state.memberSection = "overview";
+    state.selectedBodyTarget = null;
     appendQueryNotice(
       `The graph member could not be restored: ${errorMessage(error)}`);
     render();
@@ -7025,11 +7055,13 @@ async function drillPlatformNode(node: BrowserCallGraphTarget) {
 
 async function startPlatformDrill(node: BrowserCallGraphTarget) {
   invalidateGraphMemberNavigation();
-  state.memberCallGraphSeq++;
+  const owner = captureViewOperation(++state.memberCallGraphSeq);
+  const navigationIsCurrent = () =>
+    ownsViewOperation(owner, state.memberCallGraphSeq);
   state.memberCallGraphExpanding = false;
   state.platformDrillLoading = false;
   state.platformDrillError = "";
-  await drillPlatformNode(node);
+  await drillPlatformNode(node, navigationIsCurrent);
 }
 
 function popPlatformDrill() {
@@ -7047,22 +7079,9 @@ function popPlatformDrill() {
 async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   invalidateGraphMemberNavigation();
   const seq = ++state.memberCallGraphSeq;
-  const navigationSeq = state.navigationSeq;
-  const sourceView = viewSignature();
-  state.memberCallGraphExpanding = false;
-  state.platformDrillLoading = false;
-  state.platformDrillError = "";
-  const type = selectedType();
-  const member = selectedMember(type);
-  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
-  if (!type || !member || !overload || state.memberSection !== "call-graph") return;
-  const originSignature = memberRequestSignature(type, overload, true);
+  const owner = captureViewOperation(seq);
   const navigationIsCurrent = () =>
-    seq === state.memberCallGraphSeq
-    && navigationSeq === state.navigationSeq
-    && sourceView === viewSignature()
-    && state.memberSection === "call-graph"
-    && memberRequestIsCurrent(originSignature, true);
+    ownsViewOperation(owner, state.memberCallGraphSeq);
   const discardIfStale = (
     preservedFocus: MemberFocusSnapshot | null = null,
   ) => {
@@ -7076,6 +7095,9 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     }
     return true;
   };
+  state.memberCallGraphExpanding = false;
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
   const framework = state.package?.activeFramework || "";
   let pack = runtimePackPackage();
   if (!pack) {
@@ -7155,7 +7177,7 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     selection = findRuntimeMemberSelection(pack, node, candidate);
   }
   if (candidate.status === "missing" && assemblyResident) {
-    await drillPlatformNode(node);
+    await drillPlatformNode(node, navigationIsCurrent);
     return;
   }
   if (candidate.status !== "unique") {
@@ -7166,7 +7188,7 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   }
   if (!navigationIsCurrent()) return;
   if (!selection) {
-    await drillPlatformNode(node);
+    await drillPlatformNode(node, navigationIsCurrent);
     return;
   }
   navigateToRuntimeMember(pack, selection.type, selection.group, selection.overloadIndex, node);

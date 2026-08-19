@@ -3042,6 +3042,12 @@ test("pending graph-member restoration is bound to its exact view", () => {
   assert.match(
     appSource,
     /The shared graph member's declaring type is no longer available/);
+  assert.match(
+    appSource,
+    /if \(disposition === "graph"\) \{[\s\S]*?state\.selectedMemberKey = deep\.member;[\s\S]*?state\.selectedBodyTarget = deep\.graphTarget;[\s\S]*?viewSignature: viewSignature\(\)/);
+  assert.match(
+    appSource,
+    /function renderLens\(item\) \{[\s\S]*?graphMemberPendingMatchesView\([\s\S]*?graph-member-pending[\s\S]*?Opening \$\{escapeHtml\(title\)\}/);
 });
 
 test("stale graph-only navigation clears progress without surfacing its error", () => {
@@ -3050,6 +3056,9 @@ test("stale graph-only navigation clears progress without surfacing its error", 
     ?? "";
 
   assert.match(navigation, /const navigationIsCurrent = \(\) =>/);
+  assert.match(
+    navigation,
+    /const owner = captureViewOperation\(seq\);[\s\S]*?ownsViewOperation\(owner, state\.graphMemberNavigationSeq\)/);
   assert.equal(
     navigation.match(/if \(!navigationIsCurrent\(\)\)/g)?.length,
     2);
@@ -3341,7 +3350,7 @@ test("graph navigation restores scope and supersedes local drills", () => {
     /state\.memberCallGraphSeq\+\+;\s*state\.memberCallGraphExpanding = false;\s*state\.platformDrillLoading = false;/);
   assert.match(
     startDrill,
-    /invalidateGraphMemberNavigation\(\);\s*state\.memberCallGraphSeq\+\+;\s*state\.memberCallGraphExpanding = false;[\s\S]*?await drillPlatformNode\(node\)/);
+    /invalidateGraphMemberNavigation\(\);\s*const owner = captureViewOperation\(\+\+state\.memberCallGraphSeq\);[\s\S]*?const navigationIsCurrent = \(\) =>\s*ownsViewOperation\(owner, state\.memberCallGraphSeq\);[\s\S]*?await drillPlatformNode\(node, navigationIsCurrent\)/);
   assert.match(
     appSource,
     /else if \(disposition === "resident"\)[\s\S]*?startPlatformDrill\(target\)/);
@@ -3396,13 +3405,16 @@ test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
     /candidate\.status !== "unique"[\s\S]*?loaded platform assembly does not contain the exact target identity/);
   assert.match(
     navigation,
-    /assemblyResident = runtimeGraphTargetAssemblyIsResident\(pack, node\)[\s\S]*?candidate\.status === "missing" && assemblyResident[\s\S]*?drillPlatformNode\(node\)/);
+    /assemblyResident = runtimeGraphTargetAssemblyIsResident\(pack, node\)[\s\S]*?candidate\.status === "missing" && assemblyResident[\s\S]*?drillPlatformNode\(node, navigationIsCurrent\)/);
   assert.match(
     navigation,
-    /const navigationSeq = state\.navigationSeq;\s*const sourceView = viewSignature\(\);\s*const navigationIsCurrent = \(\) =>\s*seq === state\.memberCallGraphSeq\s*&& navigationSeq === state\.navigationSeq\s*&& sourceView === viewSignature\(\)/);
+    /const owner = captureViewOperation\(seq\);\s*const navigationIsCurrent = \(\) =>\s*ownsViewOperation\(owner, state\.memberCallGraphSeq\)/);
   assert.match(
     navigation,
     /const discardIfStale = \(\) => \{[\s\S]*?seq === state\.memberCallGraphSeq[\s\S]*?state\.platformDrillLoading = false;[\s\S]*?render\(\)/);
+  assert.match(
+    appSource,
+    /async function drillPlatformNode\(\s*node,\s*navigationIsCurrent = \(\) => true\)[\s\S]*?const requestIsCurrent = \(\) =>\s*seq === state\.memberCallGraphSeq && navigationIsCurrent\(\)[\s\S]*?if \(discardIfStale\(\)\) return;/);
   assert.match(
     appSource,
     /if \(disposition === "blocked" \|\| disposition === "none"\) return;/);
@@ -3421,6 +3433,24 @@ test("history rebuilds graph-only members through exact pending identity", () =>
   assert.match(
     restore,
     /state\.graphMemberNavigationTitle =[\s\S]*?render\(\);[\s\S]*?loadGraphMemberSurface/);
+  assert.match(
+    restore,
+    /const owner = captureViewOperation\(seq\);[\s\S]*?ownsViewOperation\(owner, state\.graphMemberNavigationSeq\)/);
+});
+
+test("async graph work uses one source-view ownership contract", () => {
+  const ownership =
+    appSource.match(/function captureViewOperation[\s\S]*?(?=\nfunction invalidateGraphMemberNavigation)/)?.[0]
+    ?? "";
+  assert.match(
+    ownership,
+    /navigationSequence: state\.navigationSeq,[\s\S]*?sourceView: viewSignature\(\)/);
+  assert.match(
+    ownership,
+    /owner\.sequence === currentSequence[\s\S]*?owner\.navigationSequence === state\.navigationSeq[\s\S]*?owner\.sourceView === viewSignature\(\)/);
+  assert.equal(
+    appSource.match(/captureViewOperation\(/g)?.length,
+    5);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {
