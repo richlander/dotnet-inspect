@@ -43,6 +43,7 @@ internal static class AnnotatedSourceNodeKindProjection
             [typeof(ConditionalBranch)] = "ConditionalGotoStatement",
             [typeof(Break)] = "BreakStatement",
             [typeof(Continue)] = "ContinueStatement",
+            [typeof(LabelAnchor)] = "EmptyStatement",
             [typeof(Comparison)] = "BinaryExpression",
             [typeof(LogicalBinary)] = "BinaryExpression",
             [typeof(Coalesce)] = "CoalesceExpression",

@@ -137,6 +137,69 @@ public class InfiniteLoopStructuringTests
     }
 
     [Fact]
+    public void LeaveRetryPastRegionExitUsesValidatedCloneAfterHeadDetaches()
+    {
+        var boolean = TypeRef.CoreLib("System", "Boolean");
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var @void = TypeRef.CoreLib("System", "Void");
+
+        var retryTryBody = new BlockContainer();
+        var retryLeave = new Block(0x0011);
+        retryLeave.Add(new Leave(0x0000));
+        retryTryBody.Add(retryLeave);
+
+        var retryFinallyBody = new BlockContainer();
+        var finallyBlock = new Block(0x0012);
+        finallyBlock.Add(new StoreLocal(0, int32, new Constant(1, int32)));
+        retryFinallyBody.Add(finallyBlock);
+
+        var head = new Block(0x0000);
+        head.Add(new ConditionalBranch(new LoadArgument(0, "done", boolean), 0x0030));
+        var retry = new Block(0x0010);
+        retry.Add(new TryFinally(retryTryBody, retryFinallyBody));
+        var otherPredecessor = new Block(0x0020);
+        otherPredecessor.Add(new StoreLocal(0, int32, new Constant(2, int32)));
+        otherPredecessor.Add(new ConditionalBranch(
+            new LoadArgument(1, "redundant", boolean),
+            0x0030));
+        var nestedTransferArm = new Block(0x0031);
+        nestedTransferArm.Add(new Branch(0x0030));
+        var exit = new Block(0x0030);
+        exit.Add(new IfStatement(
+            new LoadArgument(2, "spinTail", boolean),
+            nestedTransferArm,
+            null));
+        exit.Add(new Return(null));
+
+        var body = new BlockContainer();
+        foreach (var block in (Block[])[head, retry, otherPredecessor, exit])
+            body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.CoreLib("Synthetic", "Repro"),
+            new MethodSignature(
+                @void,
+                [
+                    new Parameter("done", boolean),
+                    new Parameter("redundant", boolean),
+                    new Parameter("spinTail", boolean),
+                ],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [int32],
+            body);
+
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Contains(loop.Body.Descendants, node =>
+            node is Return or Throw or Break
+            || node is Branch { TargetOffset: 0x0030 }
+            || node is Leave { TargetOffset: 0x0030 });
+    }
+
+    [Fact]
     public void NestedOuterRetryLoop_KeepsOuterRetryLeave()
     {
         var function = Raised(nameof(CfgSampleClass.NestedOuterRetryLoop));
