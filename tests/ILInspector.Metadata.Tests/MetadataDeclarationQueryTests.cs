@@ -174,12 +174,12 @@ public sealed class MetadataDeclarationQueryTests
 
         Assert.Equal(
             structuralReturn,
-            declaration.Signature.Accessors.Single(accessor => accessor.Kind == "set")
+            declaration.Signature.Accessors.Single(accessor => accessor.Kind is "set" or "init")
                 .StructuralReturnType);
         Assert.Equal(
             structuralReturn,
             surface.Members.Single(member => member.Name == nameof(MetadataDeclarationQueryFixtures.InitValue))
-                .AccessorFacts.Single(accessor => accessor.Kind == "set")
+                .AccessorFacts.Single(accessor => accessor.Kind is "set" or "init")
                 .StructuralReturnType);
     }
 

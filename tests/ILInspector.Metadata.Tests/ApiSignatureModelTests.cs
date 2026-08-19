@@ -132,7 +132,7 @@ public sealed class ApiSignatureModelTests
             setter.StructuralReturnType);
         Assert.Equal(
             setter.StructuralReturnType,
-            member.AccessorFacts.Single(accessor => accessor.Kind == "set")
+            member.AccessorFacts.Single(accessor => accessor.Kind is "set" or "init")
                 .StructuralReturnType);
         Assert.Null(
             member.SignatureModel.Accessors.Single(accessor => accessor.Kind == "get")
@@ -154,7 +154,7 @@ public sealed class ApiSignatureModelTests
                 required: true,
                 "System.Runtime.CompilerServices.IsExternalInit",
                 "System.Void"),
-            member.AccessorFacts.Single(accessor => accessor.Kind == "set")
+            member.AccessorFacts.Single(accessor => accessor.Kind is "set" or "init")
                 .StructuralReturnType);
     }
 

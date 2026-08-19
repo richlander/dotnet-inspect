@@ -1106,7 +1106,7 @@ public static class ApiSurfaceExtractor
                     kind => kind switch
                     {
                         "get" => accessors.Getter,
-                        "set" => accessors.Setter,
+                        "set" or "init" => accessors.Setter,
                         _ => default,
                     },
                     new TypeNodeProvider(observeText, observeDecodeWork),
