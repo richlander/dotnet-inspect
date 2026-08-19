@@ -59,18 +59,25 @@ dnx dotnet-inspect -y -- library MyLib.dll \
   --where "Kind=ObjectCreationExpression" --jsonl
 dnx dotnet-inspect -y -- library System.Text.Json \
   --where "Kind=TryStatement" --columns "Member;Token;Match" --rows 10
+dnx dotnet-inspect -y -- member JsonDocument RootElement:1 \
+  --platform System.Text.Json \
+  --where "Kind=ObjectCreationExpression" --jsonl
 ```
 
 `Kind=...` auto-selects the explicit-only section when no `-S` selection is
-present. Results include the containing stable member selector, MethodDef
+present. Results include a round-tripping qualified member selector, MethodDef
 token, one-based start/end range, and exact selected text. Bodies below `Full`
 fidelity are skipped and reported; add `--verbose` for per-member detail.
 The search runs the decompiler for each candidate body, so it may be expensive
-on a large library.
+on a large library. Member scope requires one exact member name or selector and
+decompiles only that member's MethodDef body. Unambiguous methods and
+single-accessor members are auto-selected; overloaded names require `Name:N`
+or `Name~digest`. A property or event with multiple body accessors requires an
+accessor selector; use `Name~digest:1`/`Name~digest:2` when the owner is
+overloaded. Use `--all` to select a non-public member.
 
-The standalone `body-shape` command remains temporarily for non-public
-`--all` searches and command-specific limits while type/member scoped queries
-reach parity:
+The standalone `body-shape` command remains temporarily while type-scoped
+queries reach parity:
 
 ```bash
 dnx dotnet-inspect -y -- body-shape TryStatement --library MyLib.dll --all --json
