@@ -519,6 +519,19 @@ Package tabs and the framework selector are workspace identity, not display
 state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.
 
+`src/command-bar.ts` owns command completion, suggestion rendering, editing,
+and keyboard interaction. `app.js` supplies the package-navigation effects so
+the component does not acquire engine or workspace authority.
+`test/command-bar.test.js` gates the completion grammar, replacement behavior,
+bounded suggestions, command metadata, selection, and escaping.
+
+`src/package-bar.ts` owns the package tab strip (including the always-present
+Platform tab), the open-package query form, and their keyboard/mouse/wheel
+interaction. `app.js` supplies the workspace effects — selecting, closing, and
+opening a package or the runtime pack — so the component acquires no engine or
+workspace authority. `test/package-bar.test.js` gates tab markup, active/close
+state, escaping, and open-package query parsing.
+
 - `Cmd/Ctrl+K` focuses the persistent command prompt.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
 - Arrow keys select a completion, `Tab` accepts it, and `Enter` runs it.
