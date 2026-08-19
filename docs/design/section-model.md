@@ -58,7 +58,9 @@ Most selectable sections belong to at least one authored category. A section
 may belong to more than one category when it is genuine evidence in multiple
 domains. A deliberately standalone section may remain uncategorized when no
 category is a coherent promise for it; it remains reachable by exact name,
-explicit wildcard, and structural schema discovery.
+explicit wildcard, and structural schema discovery. It may also be promoted in
+target-aware discovery by a bounded presence probe without joining an automatic
+rendering scope.
 
 Two category roles exist.
 
@@ -389,9 +391,10 @@ The library command's current authored ownership is:
 
 `@Library` and `@Surface` are base categories. The remaining categories are
 domains. `Unsafe Members` is a standalone section with no category membership;
-select it directly with `-S "Unsafe Members"`. The explicit-only `Body Shapes`
-section is also uncategorized because its required `Kind=...` predicate, rather
-than a category, supplies its scope.
+target-aware discovery advertises it when a bounded early-exit probe finds
+evidence, and `-S "Unsafe Members"` renders its full census. The explicit-only
+`Body Shapes` section is also uncategorized because its required `Kind=...`
+predicate, rather than a category, supplies its scope.
 
 ## Package category map
 

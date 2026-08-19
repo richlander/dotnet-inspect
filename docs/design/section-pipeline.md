@@ -95,6 +95,9 @@ CLI-owned signal composition, then recomposes only model-derived rows after
 later source evidence lands. `Unsafe Members` binds the unbounded
 `UnsafeEvidenceQuery`, which consumes the command's shared Analysis body index
 and retains raw unsafe evidence through the Finding and presentation boundary.
+Bare library discovery instead uses the network-free
+`UnsafeEvidencePresenceQuery`, which reuses the same Analysis safety producer
+but stops at the first finding and does not materialize the body index.
 `Top Leverage` binds `TopLeverageQuery`, which retains ranked
 `MethodLeverage`, generated-framework evidence, and Analysis diagnostics until
 the presentation boundary. The CLI joins its API-surface drill map for legacy

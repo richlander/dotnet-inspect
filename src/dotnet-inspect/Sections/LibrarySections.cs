@@ -360,6 +360,19 @@ public static class LibrarySections
                 ctx.Query(
                     UnionTypesQuery.Execute,
                     ex => new UnionTypesResult.Failed(ex)))
+            .Add(UnsafeEvidencePresenceQuery.Definition, ctx =>
+            {
+                if (ctx.MetadataContext is not { } metadata)
+                {
+                    return new UnsafeEvidencePresenceResult.Failed(
+                        new InvalidOperationException(
+                            "Unsafe evidence discovery requires the command's prefetched PE image."));
+                }
+
+                return UnsafeEvidencePresenceQuery.Execute(
+                    ctx.AssemblyPath,
+                    metadata.GetPrefetchedImage());
+            })
             .Add(UnsafeEvidenceQuery.Definition, ctx =>
                 ExecuteUnsafeEvidenceQuery(
                     ctx.MetadataContext?.HasMetadata != false,
@@ -750,7 +763,10 @@ public static class LibrarySections
         => model.HasMethodBodies;
 
     private static bool UnsafeMembersDiscoverable(LibraryInspection model)
-        => model.HasMethodBodies || UnsafeMembers.CanRender(model);
+        => model.UnsafeEvidenceInspection is not null
+            ? UnsafeMembers.CanRender(model)
+            : model.UnsafeEvidencePresent
+                ?? (model.HasMethodBodies || UnsafeMembers.CanRender(model));
 
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
     {

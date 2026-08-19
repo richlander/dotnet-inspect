@@ -69,6 +69,13 @@ internal static class LibraryMetadataService
                 requiredQueries,
                 options.BodyKindQuery.HasFilter
                     && options.PerformanceTriage.HasCandidateFilters);
+            bool needsUnsafeEvidencePresence =
+                requiredQueries?.Contains(
+                    UnsafeEvidencePresenceQuery.Definition) == true;
+            bool needsPrefetchedImage =
+                bodyAnalysisFeatures
+                    != Analysis.LibraryBodyAnalysisFeatures.None
+                || needsUnsafeEvidencePresence;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
@@ -87,14 +94,14 @@ internal static class LibraryMetadataService
                         })
                     : null;
             using var service = assemblyReference is not null
-                ? bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
+                ? !needsPrefetchedImage
                     ? SourceLinkService.Open(assemblyReference, logger.Log)
                     : SourceLinkService.OpenPrefetched(
                         assemblyReference,
                         logger.Log)
-                : discoveryOnly
+                : discoveryOnly && !needsPrefetchedImage
                     ? SourceLinkService.OpenMetadataOnly(path, logger.Log)
-                    : bodyAnalysisFeatures == Analysis.LibraryBodyAnalysisFeatures.None
+                    : !needsPrefetchedImage
                         ? SourceLinkService.Open(path, logger.Log)
                         : SourceLinkService.OpenPrefetched(path, logger.Log);
             var pdbContext = service.Context;
@@ -2132,6 +2139,17 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                UnsafeEvidencePresenceQuery.Definition,
+                out UnsafeEvidencePresenceResult? unsafeEvidencePresence))
+        {
+            ApplyUnsafeEvidencePresenceResult(
+                path,
+                inspection,
+                logger,
+                unsafeEvidencePresence);
+        }
+
+        if (results.TryGet(
                 UnsafeEvidenceQuery.Definition,
                 out UnsafeEvidenceResult? unsafeEvidence))
         {
@@ -2599,6 +2617,33 @@ internal static class LibraryMetadataService
             default:
                 throw new InvalidOperationException(
                     $"Unknown unsafe-evidence result '{result.GetType().Name}'.");
+        }
+    }
+
+    internal static void ApplyUnsafeEvidencePresenceResult(
+        string path,
+        LibraryInspection inspection,
+        VerboseLogger logger,
+        UnsafeEvidencePresenceResult result)
+    {
+        switch (result)
+        {
+            case UnsafeEvidencePresenceResult.Available available:
+                inspection.UnsafeEvidencePresent =
+                    available.HasEvidence;
+                break;
+
+            case UnsafeEvidencePresenceResult.Failed failed:
+                ApplyUnsafeEvidenceResult(
+                    path,
+                    inspection,
+                    logger,
+                    new UnsafeEvidenceResult.Failed(failed.Error));
+                break;
+
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown unsafe-evidence-presence result '{result.GetType().Name}'.");
         }
     }
 

@@ -1680,6 +1680,12 @@ public class SectionPipelineTests
             .. pipeline.DeclaredQueries.Where(
                 catalog.GroupQueryRegistry.RegisteredQueries.Contains),
         ];
+        HashSet<InspectionQueryDefinition> commandQueries =
+        [
+            .. LibraryCommand.DiscoveryQueries.Select(demand => demand.Query),
+            .. LibraryCommand.BareDiscoveryQueries.Select(demand => demand.Query),
+        ];
+        scannerContextQueries.UnionWith(commandQueries);
         HashSet<InspectionQueryDefinition> closure =
             catalog.QueryRegistry.ExpandRequired(scannerContextQueries);
         closure.UnionWith(
@@ -1697,7 +1703,7 @@ public class SectionPipelineTests
             closure.OrderBy(q => q.Name, StringComparer.Ordinal),
             registered.OrderBy(q => q.Name, StringComparer.Ordinal));
         Assert.Equal(
-            pipeline.DeclaredQueries.OrderBy(
+            pipeline.DeclaredQueries.Union(commandQueries).OrderBy(
                 query => query.Name,
                 StringComparer.Ordinal),
             scannerContextQueries.Union(groupQueries).OrderBy(

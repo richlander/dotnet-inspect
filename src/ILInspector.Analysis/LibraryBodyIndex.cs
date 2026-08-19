@@ -1005,6 +1005,36 @@ public sealed class LibraryBodyIndex
             rootSnapshot);
     }
 
+    /// <summary>
+    /// Determines whether an immutable PE image contains any unsafe declaration or body evidence,
+    /// stopping after the first finding instead of materializing a whole-assembly body index.
+    /// </summary>
+    /// <remarks>
+    /// Gates:
+    /// <c>Discover_UnsafeMembers_UsesPresenceProbeWithoutExecutingFullQuery</c> and
+    /// <c>Discover_Bare_OmitsUnsafeMembersWhenMethodBodiesHaveNoUnsafeEvidence</c>.
+    /// </remarks>
+    public static bool HasUnsafeEvidence(
+        string path,
+        ImmutableArray<byte> image)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (image.IsDefaultOrEmpty)
+            throw new ArgumentException(
+                "A prefetched PE image is required.",
+                nameof(image));
+
+        using var peReader = new PEReader(image);
+        if (!peReader.HasMetadata)
+            return false;
+
+        using var builder = new LibraryBodyAnalysisBuilder(
+            path,
+            peReader.GetMetadataReader(),
+            peReader);
+        return builder.HasUnsafeEvidence();
+    }
+
     static LibraryBodyIndex BuildFromReader(
         string path,
         PEReader peReader,

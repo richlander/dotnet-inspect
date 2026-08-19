@@ -43,9 +43,11 @@ Library uses `@Library` and `@Surface` as its base categories. Package uses
 `@Dependencies`, `@Audit`, and `@SourceLink` domain categories.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
-no category and is selected by exact name (or an explicit matching wildcard).
-The explicit-only `Body Shapes` section is likewise uncategorized; its required
-`Kind=...` predicate supplies its scope.
+no category and is selected for rendering by exact name (or an explicit
+matching wildcard). Target-aware bare discovery lists it when a bounded,
+early-exit presence probe finds at least one row; the probe does not materialize
+the complete unsafe-evidence census. The explicit-only `Body Shapes` section is
+likewise uncategorized; its required `Kind=...` predicate supplies its scope.
 
 There are no user-facing `@All`, `@Default`, or `@Hidden` categories. Users who
 need broad evidence select the relevant authored categories explicitly.
@@ -97,7 +99,7 @@ The library command is the reference discovery model:
 
 | Gesture | Meaning |
 | --- | --- |
-| `-D` | Cheap, target-aware base catalog and applicable category doors |
+| `-D` | Cheap, target-aware base catalog, applicable category doors, and effective standalone sections |
 | `-D --effective` | Full effective base catalog |
 | `-D @Category` | Structural category membership |
 | `-D @Category --effective` | Effective category membership |
@@ -111,7 +113,9 @@ can exceed that budget.
 
 `-D --effective` spends the larger producer budget. Without an explicit
 category, it remains scoped to base categories so it cannot implicitly run
-performance, metadata, SourceLink, and other domains together.
+performance, metadata, SourceLink, and other domains together. A standalone
+section may define its own bounded presence probe for the bare catalog without
+joining the base scope; `Unsafe Members` is the current library example.
 
 Commands not yet migrated may retain their existing discovery behavior. New
 work should follow the reference model rather than copy a legacy command.

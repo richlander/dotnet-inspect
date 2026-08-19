@@ -430,6 +430,13 @@ public class LibraryInspection
         }
     }
 
+    /// <summary>
+    /// Result of the bounded discovery probe when the complete unsafe-evidence census was not
+    /// requested.
+    /// </summary>
+    [JsonIgnore]
+    public bool? UnsafeEvidencePresent { get; set; }
+
     /// <summary>Per-method failures that made the unsafe-evidence census incomplete.</summary>
     [JsonIgnore]
     public ImmutableArray<AnalysisDiagnostic> UnsafeEvidenceDiagnostics { get; set; } = [];

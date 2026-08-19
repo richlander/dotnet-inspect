@@ -7261,7 +7261,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Discover_FilteredUnsafeMembers_PreservesBodyOnlyApplicabilityWithoutExecutingQuery()
+    public async Task Discover_UnsafeMembers_UsesPresenceProbeWithoutExecutingFullQuery()
     {
         string assemblyPath = typeof(InstructionProducer).Assembly.Location;
         var (renderExit, renderOutput, renderError) = await RunAppAsync(
@@ -7289,13 +7289,52 @@ public partial class CommandExecutionTests
         Assert.Contains("trace: library", error);
         Assert.DoesNotContain(UnsafeEvidenceQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
+
+        var (bareExit, bareOutput, bareError) = await RunAppAsync(
+            "library", assemblyPath,
+            "-D",
+            "--trace",
+            "--tips", "q");
+
+        Assert.Equal(0, bareExit);
+        Assert.Contains(
+            $"| {SectionNames.UnsafeMembers} | section |",
+            bareOutput);
+        Assert.Contains(
+            UnsafeEvidencePresenceQuery.Definition.Name,
+            bareError);
+        Assert.DoesNotContain("body index", bareError);
+    }
+
+    [Fact]
+    public async Task Discover_Bare_OmitsUnsafeMembersWhenMethodBodiesHaveNoUnsafeEvidence()
+    {
+        var (assemblyPath, fixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", assemblyPath,
+                "-D",
+                "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.DoesNotContain(
+                $"| {SectionNames.UnsafeMembers} | section |",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
     }
 
     [Fact]
     public async Task Discover_BareEffective_IgnoresLegacyEffectiveCache()
     {
         const string legacyCategory = "effective-v19";
-        const string currentCategory = "effective-v23";
+        const string currentCategory = "effective-v24";
         string directory = Path.Combine(
             Path.GetTempPath(), $"effective-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
@@ -7328,7 +7367,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains(SectionNames.References, output);
-            Assert.DoesNotContain(SectionNames.UnsafeMembers, output);
+            Assert.Contains(SectionNames.UnsafeMembers, output);
         }
         finally
         {
@@ -14015,6 +14054,7 @@ public partial class CommandExecutionTests
         Assert.Contains("| Signals | section |", output);
         Assert.Contains("| Async Methods | section |", output);
         Assert.Contains("| Custom Attributes | section |", output);
+        Assert.Contains("| Unsafe Members | section |", output);
         Assert.DoesNotContain("section (opt-in)", output);
         Assert.DoesNotContain("section (verbose)", output);
     }

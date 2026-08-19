@@ -414,6 +414,46 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         return accumulator.Build(results);
     }
 
+    internal bool HasUnsafeEvidence()
+    {
+        LibraryBodyAnalysisPlan plan =
+            LibraryBodyAnalysisPlan.Create(
+                LibraryBodyAnalysisFeatures.MethodEvidence,
+                methodScope: null,
+                typeScope: null);
+        var methodRunner =
+            new LibraryMethodAnalysisRunner(this);
+        AnalysisDiagnostic? firstDiagnostic = null;
+
+        foreach (var typeHandle in _reader.TypeDefinitions)
+        {
+            var typeDefinition =
+                _reader.GetTypeDefinition(typeHandle);
+            foreach (var methodHandle in typeDefinition.GetMethods())
+            {
+                LibraryMethodAnalysisResult result =
+                    methodRunner.Analyze(
+                        typeHandle,
+                        typeDefinition,
+                        typeSourceGenerated: false,
+                        methodHandle,
+                        plan);
+                if (!result.UnsafeEvidence.IsDefaultOrEmpty)
+                    return true;
+                firstDiagnostic ??= result.Diagnostic;
+            }
+        }
+
+        if (firstDiagnostic is { } diagnostic)
+        {
+            throw new InvalidDataException(
+                $"Unsafe evidence presence is incomplete because {diagnostic.Method} " +
+                $"could not be analyzed: {diagnostic.Message}");
+        }
+
+        return false;
+    }
+
     // Assemblies with at least this many methods use the parallel per-method analysis path.
     // Below it (and for all scoped member/type builds) the sequential path avoids thread overhead.
     const int ParallelBuildMethodThreshold = 200;
