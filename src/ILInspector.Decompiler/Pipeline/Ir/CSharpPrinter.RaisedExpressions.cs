@@ -290,7 +290,11 @@ public sealed partial class CSharpPrinter
                 UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };
-            return new CSharpPrinter(function, _options, CurrentScopeNames()).PrintBody(function).Trim();
+            return new CSharpPrinter(
+                function,
+                _options,
+                CurrentScopeNames(),
+                _stackSlotTelemetry).PrintBody(function).Trim();
         }
         finally
         {
