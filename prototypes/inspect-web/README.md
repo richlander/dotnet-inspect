@@ -68,13 +68,15 @@ payloads; when that endpoint is blocked, Source falls back to decompilation.
 When a non-default mirror is active, the opaque share packet (`w`) includes its
 service-index URL (`n`). Opening that link validates the same way Settings does
 and applies the mirror for **this session only**, with a banner to **Keep** it in
-local storage or dismiss the offer. History back/forward may re-apply a packet
-mirror in-session but does not rewrite local storage, so Settings → Use nuget.org
-stays durable across Back. Shares from nuget.org omit `n` so they do not wipe a
-recipient's stored corporate mirror. A shared mirror that fails validation falls
-back to the recipient's stored source (if any) and surfaces a notice. Settings
-rewrite the address-bar packet before reload so a stale `n` is not the active
-entry after a source change.
+local storage or dismiss (revert to the stored source or nuget.org and reload).
+History back/forward re-applies a packet mirror in-session without writing local
+storage; entries without `n` restore the stored preference or nuget.org so a
+session mirror cannot stick. Settings → Use nuget.org remains durable across
+Back. Shares from nuget.org omit `n` so they do not wipe a recipient's stored
+corporate mirror. Failed shared mirrors fall back to the stored source (if any)
+and keep their notice through package load. Settings rewrite the address-bar
+packet before reload so a stale `n` is not the active entry after a source
+change.
 
 ## Run the .NET 11 browser-WASM prototype
 
