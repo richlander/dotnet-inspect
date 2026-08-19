@@ -7,9 +7,11 @@ namespace ILInspector.Metadata.Tests;
 /// Gate for #3975: method-list membership uses property/event
 /// <c>MethodSemantics</c>, not a <c>get_</c>/<c>set_</c>/<c>add_</c>/<c>remove_</c>
 /// name prefix. Ordinary prefix-named methods stay methods; ordinary accessors
-/// do not; explicit-interface accessors stay
-/// <c>explicit-interface-implementation</c> because their private property or
-/// event row would otherwise hide the public contract.
+/// do not; a private MethodImpl accessor stays
+/// <c>explicit-interface-implementation</c> because its private property or
+/// event row would otherwise hide the public contract. A public MethodImpl
+/// accessor — covariant override or static-abstract implementation — stays on
+/// that public property or event row.
 /// </summary>
 public sealed class ApiSurfaceEmitSetTests
 {
@@ -117,6 +119,37 @@ public sealed class ApiSurfaceEmitSetTests
     }
 
     [Fact]
+    public void PublicExtract_OmitsPublicMethodImplAccessors()
+    {
+        ApiType covariant = Type(PublicSurface, nameof(CovariantEmitDerived));
+        Assert.Contains(
+            covariant.Members,
+            member => member.Kind == "property"
+                && member.Name == nameof(CovariantEmitDerived.P));
+        Assert.DoesNotContain(
+            covariant.Members,
+            member => member.Name == "get_P");
+
+        ApiType staticImpl = Type(PublicSurface, nameof(StaticAbstractEmitImpl));
+        Assert.Contains(
+            staticImpl.Members,
+            member => member.Kind == "property"
+                && member.Name == nameof(StaticAbstractEmitImpl.Value));
+        Assert.DoesNotContain(
+            staticImpl.Members,
+            member => member.Name == "get_Value");
+
+        ApiType implicitImpl = Type(PublicSurface, nameof(ImplicitEmitImpl));
+        Assert.Contains(
+            implicitImpl.Members,
+            member => member.Kind == "property"
+                && member.Name == nameof(ImplicitEmitImpl.Count));
+        Assert.DoesNotContain(
+            implicitImpl.Members,
+            member => member.Name == "get_Count");
+    }
+
+    [Fact]
     public void IncludeAllExtract_StillKeepsExplicitInterfaceAccessorsAsMethods()
     {
         ApiType type = IncludeAllType();
@@ -157,14 +190,14 @@ public sealed class ApiSurfaceEmitSetTests
         Assert.Equal(publicNames, summaryNames);
     }
 
-    static ApiType PublicType() => Type(PublicSurface);
+    static ApiType PublicType() => Type(PublicSurface, nameof(EmitSetFixture));
 
-    static ApiType IncludeAllType() => Type(IncludeAllSurface);
+    static ApiType IncludeAllType() => Type(IncludeAllSurface, nameof(EmitSetFixture));
 
-    static ApiType SummaryType() => Type(SummarySurface);
+    static ApiType SummaryType() => Type(SummarySurface, nameof(EmitSetFixture));
 
-    static ApiType Type(ApiSurface surface)
-        => surface.Types.Single(type => type.Name == nameof(EmitSetFixture));
+    static ApiType Type(ApiSurface surface, string typeName)
+        => surface.Types.Single(type => type.Name == typeName);
 
     static ApiSurface Extract(string path, bool includeAll)
     {
@@ -208,4 +241,34 @@ public sealed class EmitSetFixture : IEmitSetContract
     public void remove_Standalone(EventHandler? handler)
     {
     }
+}
+
+public class CovariantEmitBase
+{
+    public virtual object P => new();
+}
+
+public sealed class CovariantEmitDerived : CovariantEmitBase
+{
+    public override string P => "";
+}
+
+public interface IStaticAbstractEmit
+{
+    static abstract int Value { get; }
+}
+
+public sealed class StaticAbstractEmitImpl : IStaticAbstractEmit
+{
+    public static int Value => 1;
+}
+
+public interface IImplicitEmit
+{
+    int Count { get; }
+}
+
+public sealed class ImplicitEmitImpl : IImplicitEmit
+{
+    public int Count => 1;
 }

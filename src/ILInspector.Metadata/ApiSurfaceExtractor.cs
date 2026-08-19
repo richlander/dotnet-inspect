@@ -703,11 +703,14 @@ public static class ApiSurfaceExtractor
                     observeDecodeWork);
 
                 // Ordinary MethodSemantics accessors are omitted from the method
-                // list. Explicit-interface accessors stay methods because their
-                // private property or event row is hidden on the public surface.
-                // ApiSurfaceEmitSetTests is the gate.
+                // list. A private MethodImpl accessor is the C#/VB explicit-
+                // interface shape: its property or event row is private and would
+                // hide the public contract. Public MethodImpl accessors — static
+                // abstract implementations, covariant overrides, VB Implements —
+                // stay on that public row. ApiSurfaceEmitSetTests is the gate.
                 if (accessorMethods.Contains(methodHandle)
-                    && !isExplicitInterfaceImplementation)
+                    && !(isExplicitInterfaceImplementation
+                        && methodAccess == MethodAttributes.Private))
                     continue;
 
                 // Skip compiler-generated methods (lambdas, state machines, etc.)
@@ -1348,7 +1351,9 @@ public static class ApiSurfaceExtractor
                 continue;
 
             string methodName = reader.GetString(method.Name);
-            if ((accessorMethods.Contains(methodHandle) && !isExplicitImplementation)
+            if ((accessorMethods.Contains(methodHandle)
+                    && !(isExplicitImplementation
+                        && methodAccess == MethodAttributes.Private))
                 || methodName.StartsWith('<'))
             {
                 continue;
@@ -1809,9 +1814,10 @@ public static class ApiSurfaceExtractor
     /// </summary>
     /// <remarks>
     /// <c>ApiSurfaceEmitSetTests</c> is the gate: ordinary <c>get_*</c> methods
-    /// remain methods, ordinary semantic accessors do not, and explicit-interface
-    /// accessors remain <c>explicit-interface-implementation</c> because their
-    /// private property or event row does not represent the public contract.
+    /// remain methods, ordinary semantic accessors do not, and a private
+    /// MethodImpl accessor remains <c>explicit-interface-implementation</c>
+    /// because its property or event row does not represent the public contract.
+    /// A public MethodImpl accessor is represented by that public row.
     /// </remarks>
     private static HashSet<MethodDefinitionHandle> GetSemanticAccessorMethods(
         MetadataReader reader,
