@@ -230,6 +230,7 @@ permits a selected non-public member.
 | `depends X` | Walk type, package, or library dependency graphs; emits Mermaid diagrams. |
 | `cache` | Inspect or clear dotnet-inspect caches. |
 | `skill` | Print the base LLM skill; routes to focused skills (`skill list`, `skill source`, `skill performance`). |
+| `demo` | List product home demos (`demo list`) or resolve one by id (`demo stj-serializer`) into a package-free activation plan. |
 
 Remote dependency trees requested with `depends --package` or the legacy
 `package --dependencies` option resolve from nuspec manifests without
