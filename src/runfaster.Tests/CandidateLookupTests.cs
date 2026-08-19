@@ -688,6 +688,70 @@ public class CandidateLookupTests
     }
 
     [Fact]
+    public void AttributeWeight_SplitsLogicalAlternativesBeforeDuplicateRows()
+    {
+        var duplicate1 = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010);
+        var duplicate2 = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010);
+        var alternative = Candidate(
+            id: 3,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            kind: "Delegate");
+        var candidates = new[]
+        {
+            duplicate1,
+            duplicate2,
+            alternative,
+        };
+        var lookup = CandidateLookup.Create(candidates);
+
+        var weights = lookup.AttributeWeight(
+            candidates,
+            1);
+
+        Assert.Equal(0.25, weights[duplicate1.Id]);
+        Assert.Equal(0.25, weights[duplicate2.Id]);
+        Assert.Equal(0.5, weights[alternative.Id]);
+        Assert.Equal(1, weights.Values.Sum());
+    }
+
+    [Fact]
+    public void AttributeBytes_NegativeTotal_DoesNotMutateRemainderState()
+    {
+        var first = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            kind: "Object");
+        var second = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            kind: "Delegate");
+        var candidates = new[] { first, second };
+        var lookup = CandidateLookup.Create(candidates);
+
+        Assert.Throws<InvalidDataException>(
+            () => lookup.AttributeBytes(
+                candidates,
+                -1));
+        Assert.Equal(0, lookup.RemainderStateCount);
+
+        var attributed = lookup.AttributeBytes(
+            candidates,
+            1);
+
+        Assert.Equal(1, attributed.Values.Sum());
+        Assert.Equal(1, lookup.RemainderStateCount);
+    }
+
+    [Fact]
     public void WhitespaceAssemblyHasNoRuntimeCoordinate()
     {
         var candidate = Candidate(

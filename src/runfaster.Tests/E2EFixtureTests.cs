@@ -2466,6 +2466,76 @@ public class E2EFixtureTests
         }
     }
 
+    [Fact]
+    public void Correlate_NetTraceLogicalDuplicates_DoNotInflateTicksOrAmbiguity()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var allocateOne =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "AllocateOne",
+                BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(allocateOne);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[allocateOne.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        try
+        {
+            string row = $$$"""
+                {"candidate_id":"duplicate","member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","shape":"fixture-object","operation":"newobj","token":"0x0A000001","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object","provenance":"exact"}
+                """;
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"arrays":[{{{row}}},{{{row}}}]}}
+                """);
+
+            var result = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--trace",
+                FixtureCatalog.RunFasterAllocation.AssetPath(
+                    "fixture.nettrace"),
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output =
+                JsonDocument.Parse(result.Output);
+            var candidates = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .ToArray();
+            Assert.Equal(2, candidates.Length);
+            Assert.Equal(
+                11,
+                candidates.Sum(
+                    candidate =>
+                        candidate.GetProperty(
+                            "allocationHits").GetInt64()));
+            Assert.Equal(
+                1_167_872,
+                candidates.Sum(
+                    candidate =>
+                        candidate.GetProperty(
+                            "allocationBytes").GetInt64()));
+            Assert.All(
+                candidates,
+                candidate =>
+                    Assert.False(
+                        candidate.GetProperty(
+                            "ambiguousIlOffsetJoin")
+                            .GetBoolean()));
+        }
+        finally
+        {
+            File.Delete(triagePath);
+        }
+    }
+
     static (int ExitCode, string Output, string Error) RunCorrelate(
         params string[] arguments)
     {

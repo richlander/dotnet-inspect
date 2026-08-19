@@ -948,6 +948,11 @@ static bool TryCorrelateNetTrace(
 
         source.Clr.GCAllocationTick += data =>
         {
+            if (data.AllocationAmount64 < 0)
+            {
+                throw new InvalidDataException(
+                    "GC allocation tick reported a negative allocation amount");
+            }
             allocationTicks++;
             result.RecordTypeVolume(data.TypeName, data.AllocationAmount64);
             var stack = traceLog.GetCallStackForEvent(data);
@@ -1004,29 +1009,53 @@ static bool TryCorrelateNetTrace(
             if (matchedAddress is null || matchedCandidates.Length == 0)
                 return;
 
-            bool ambiguousIlJoin = matchedCandidates.Length > 1;
-            var methodsRecorded = new HashSet<string>(StringComparer.Ordinal);
+            var attributionPlan =
+                lookup.CreateAttributionPlan(
+                    matchedCandidates);
+            bool ambiguousIlJoin =
+                attributionPlan.Groups.Length > 1;
             var attributedBytes =
                 lookup.AttributeBytes(
                     matchedCandidates,
                     data.AllocationAmount64);
+            var attributedTicks =
+                lookup.AttributeCounts(
+                    attributionPlan,
+                    1);
+            var bytesByMethod =
+                new Dictionary<string, long>(
+                    StringComparer.Ordinal);
             for (int i = 0; i < matchedCandidates.Length; i++)
             {
                 var candidate = matchedCandidates[i];
                 long candidateBytes =
                     attributedBytes[candidate.Id];
 
-                if (methodsRecorded.Add(candidate.Method))
-                    result.RecordMethodAllocation(candidate.Method, data.TypeName, data.AllocationAmount64);
+                bytesByMethod[candidate.Method] =
+                    checked(
+                        bytesByMethod.GetValueOrDefault(
+                            candidate.Method)
+                        + candidateBytes);
                 MarkAllocationHit(
                     candidate,
                     matchedThisEvent,
                     sourceKind,
                     data.TypeName,
                     candidateBytes,
+                    allocationHits: checked((int)
+                        attributedTicks[
+                            candidate.Id]),
                     ilOffsetJoin: true,
                     exactOffset: candidate.IlOffset == matchedAddress.ILOffset,
                     ambiguousIlJoin);
+            }
+            foreach (var (method, methodBytes)
+                     in bytesByMethod)
+            {
+                result.RecordMethodAllocation(
+                    method,
+                    data.TypeName,
+                    methodBytes);
             }
 
             matchedEvents++;
@@ -1097,12 +1126,14 @@ static bool TryCorrelateSpeedscope(
             matchedRows += CorrelateEventedSpeedscopeProfile(
                 profile,
                 candidatesByFrame,
-                sourceKind);
+                sourceKind,
+                lookup);
         else if (string.Equals(type, "sampled", StringComparison.OrdinalIgnoreCase))
             matchedRows += CorrelateSampledSpeedscopeProfile(
                 profile,
                 candidatesByFrame,
-                sourceKind);
+                sourceKind,
+                lookup);
     }
 
     summary.MatchedRows = matchedRows;
@@ -1210,7 +1241,8 @@ static bool TryCorrelateChromiumTrace(
                 stack,
                 candidatesByFrame,
                 delta,
-                weightsByCandidate);
+                weightsByCandidate,
+                lookup);
         }
 
         havePreviousAt = true;
@@ -1291,7 +1323,8 @@ static int CorrelateEventedSpeedscopeProfile(
         int,
         IReadOnlyList<AllocationCandidate>>
         candidatesByFrame,
-    string sourceKind)
+    string sourceKind,
+    CandidateLookup lookup)
 {
     if (!profile.TryGetProperty("events", out var eventsElement))
         return 0;
@@ -1317,7 +1350,8 @@ static int CorrelateEventedSpeedscopeProfile(
                 stack,
                 candidatesByFrame,
                 delta,
-                weightsByCandidate);
+                weightsByCandidate,
+                lookup);
         }
 
         havePreviousAt = true;
@@ -1359,7 +1393,8 @@ static int CorrelateSampledSpeedscopeProfile(
         int,
         IReadOnlyList<AllocationCandidate>>
         candidatesByFrame,
-    string sourceKind)
+    string sourceKind,
+    CandidateLookup lookup)
 {
     if (!profile.TryGetProperty("samples", out var samplesElement))
         return 0;
@@ -1387,7 +1422,8 @@ static int CorrelateSampledSpeedscopeProfile(
             frameIndices,
             candidatesByFrame,
             weight,
-            weightsByCandidate);
+            weightsByCandidate,
+            lookup);
     }
 
     return CommitFrameWeights(
@@ -1429,7 +1465,8 @@ static void AccumulateFrameObservation(
     Dictionary<
         int,
         (AllocationCandidate Candidate, double Weight)>
-        weightsByCandidate)
+        weightsByCandidate,
+    CandidateLookup lookup)
 {
     if (weight <= 0)
         return;
@@ -1448,8 +1485,10 @@ static void AccumulateFrameObservation(
             continue;
         }
 
-        double frameWeight =
-            weight / candidates.Count;
+        var frameWeights =
+            lookup.AttributeWeight(
+                candidates,
+                weight);
         foreach (var candidate in candidates)
         {
             double priorWeight =
@@ -1463,7 +1502,8 @@ static void AccumulateFrameObservation(
                     candidate,
                     Math.Max(
                         priorWeight,
-                        frameWeight));
+                        frameWeights[
+                            candidate.Id]));
         }
     }
 
@@ -1629,6 +1669,10 @@ static void MarkAttributedHits(
             candidates,
             totalBytes)
         : null;
+    var attributedWeights =
+        lookup.AttributeWeight(
+            candidates,
+            1);
     for (int index = 0; index < candidates.Count; index++)
     {
         MarkHit(
@@ -1637,7 +1681,8 @@ static void MarkAttributedHits(
             sourceKind,
             attributedBytes?[candidates[index].Id],
             exactOffset,
-            weight: 1d / candidates.Count);
+            weight: attributedWeights[
+                candidates[index].Id]);
     }
 }
 
@@ -1664,10 +1709,20 @@ static void MarkAllocationHit(
     string sourceKind,
     string? allocatedType,
     long sampledBytes,
+    int allocationHits = 1,
     bool ilOffsetJoin = false,
     bool exactOffset = false,
     bool ambiguousIlJoin = false)
-    => ProgramSupport.MarkAllocationHitForTest(candidate, matchedIds, sourceKind, allocatedType, sampledBytes, ilOffsetJoin, exactOffset, ambiguousIlJoin);
+    => ProgramSupport.MarkAllocationHitForTest(
+        candidate,
+        matchedIds,
+        sourceKind,
+        allocatedType,
+        sampledBytes,
+        allocationHits,
+        ilOffsetJoin,
+        exactOffset,
+        ambiguousIlJoin);
 
 static long? TryReadBytes(string line)
 {
@@ -2608,6 +2663,7 @@ sealed class AllocationCandidate(
     public double RuntimeWeight { get; set; }
     public long RuntimeBytes { get; set; }
     public int AllocationHits { get; set; }
+    public bool AllocationObserved { get; set; }
     public long AllocationBytes { get; set; }
     public int ShapeAllocationHits { get; set; }
     public long ShapeAllocationBytes { get; set; }
@@ -2722,7 +2778,10 @@ sealed class AllocationCandidate(
         }
     }
     public double CostWeight => EffectiveObservedBytes * PromotionFactor;
-    public bool IsObserved => RuntimeHits > 0 || AllocationHits > 0;
+    public bool IsObserved =>
+        RuntimeHits > 0
+        || AllocationObserved
+        || AllocationHits > 0;
     public bool HasRuntimeCoordinate =>
         AssemblyModuleKey.Length > 0
         && ProgramSupport.IsMethodDefinitionToken(
@@ -2866,6 +2925,13 @@ readonly record struct ByteRemainderState(
     AttributionGroupHash Hash,
     int Offset);
 
+sealed record LogicalAttributionGroup(
+    string Key,
+    AllocationCandidate[] Candidates);
+
+sealed record LogicalAttributionPlan(
+    LogicalAttributionGroup[] Groups);
+
 sealed class CandidateLookup
 {
     const int ByteRemainderStateCapacity = 4096;
@@ -2881,6 +2947,8 @@ sealed class CandidateLookup
         _byteRemainderStates = [];
     readonly LinkedList<ByteRemainderState>
         _byteRemainderLru = [];
+    internal int RemainderStateCount =>
+        _byteRemainderStates.Count;
     readonly List<(
         string Fragment,
         AllocationCandidate Candidate,
@@ -3174,40 +3242,109 @@ sealed class CandidateLookup
         AttributeBytes(
             IReadOnlyList<AllocationCandidate> candidates,
             long totalBytes)
+        => AttributeLong(
+            CreateAttributionPlan(candidates),
+            totalBytes,
+            groupDomain: 'B',
+            duplicateDomain: 'D');
+
+    public IReadOnlyDictionary<int, long>
+        AttributeCounts(
+            LogicalAttributionPlan plan,
+            long totalCount)
+        => AttributeLong(
+            plan,
+            totalCount,
+            groupDomain: 'T',
+            duplicateDomain: 'U');
+
+    public IReadOnlyDictionary<int, double>
+        AttributeWeight(
+            IReadOnlyList<AllocationCandidate> candidates,
+            double totalWeight)
     {
-        var groups = candidates
-            .GroupBy(GetStableAttributionKey)
-            .OrderBy(static group =>
-                group.Key,
-                StringComparer.Ordinal)
-            .Select(static group => (
-                Key: group.Key,
-                Candidates: group
-                    .OrderBy(static candidate =>
-                        candidate.Id)
-                    .ToArray()))
-            .ToArray();
+        var plan = CreateAttributionPlan(candidates);
+        var result = candidates.ToDictionary(
+            static candidate => candidate.Id,
+            static _ => 0d);
+        if (plan.Groups.Length == 0)
+            return result;
+
+        double groupWeight =
+            totalWeight / plan.Groups.Length;
+        foreach (var group in plan.Groups)
+        {
+            double candidateWeight =
+                groupWeight
+                / group.Candidates.Length;
+            foreach (var candidate
+                     in group.Candidates)
+            {
+                result[candidate.Id] =
+                    candidateWeight;
+            }
+        }
+        return result;
+    }
+
+    public LogicalAttributionPlan
+        CreateAttributionPlan(
+            IReadOnlyList<AllocationCandidate>
+                candidates)
+        => new(
+            [
+                .. candidates
+                    .GroupBy(
+                        GetStableAttributionKey)
+                    .OrderBy(
+                        static group => group.Key,
+                        StringComparer.Ordinal)
+                    .Select(static group =>
+                        new LogicalAttributionGroup(
+                            group.Key,
+                            [
+                                .. group.OrderBy(
+                                    static candidate =>
+                                        candidate.Id)
+                            ]))
+            ]);
+
+    IReadOnlyDictionary<int, long>
+        AttributeLong(
+            LogicalAttributionPlan plan,
+            long total,
+            char groupDomain,
+            char duplicateDomain)
+    {
+        if (total < 0)
+        {
+            throw new InvalidDataException(
+                "runtime attribution total must be non-negative");
+        }
         var result =
-            candidates.ToDictionary(
+            plan.Groups
+                .SelectMany(static group =>
+                    group.Candidates)
+                .ToDictionary(
                 static candidate =>
                     candidate.Id,
                 static _ => 0L);
-        if (groups.Length == 0)
+        if (plan.Groups.Length == 0)
             return result;
 
-        long[] groupShares = SplitBytes(
-            totalBytes,
-            groups.Length,
+        long[] groupShares = SplitLong(
+            total,
+            plan.Groups.Length,
             ComputeAttributionGroupHash(
-                groups.Select(static group =>
+                plan.Groups.Select(static group =>
                     group.Key),
-                domain: 'G'));
+                domain: groupDomain));
         for (int groupIndex = 0;
-             groupIndex < groups.Length;
+             groupIndex < plan.Groups.Length;
              groupIndex++)
         {
-            var group = groups[groupIndex];
-            long[] candidateShares = SplitBytes(
+            var group = plan.Groups[groupIndex];
+            long[] candidateShares = SplitLong(
                 groupShares[groupIndex],
                 group.Candidates.Length,
                 ComputeAttributionGroupHash(
@@ -3218,7 +3355,7 @@ sealed class CandidateLookup
                                 CultureInfo
                                     .InvariantCulture)
                     ],
-                    domain: 'D'));
+                    domain: duplicateDomain));
             for (int candidateIndex = 0;
                  candidateIndex
                     < group.Candidates.Length;
@@ -3232,15 +3369,20 @@ sealed class CandidateLookup
         return result;
     }
 
-    long[] SplitBytes(
-        long totalBytes,
+    long[] SplitLong(
+        long total,
         int count,
         AttributionGroupHash groupHash)
     {
+        if (total < 0)
+        {
+            throw new InvalidDataException(
+                "runtime attribution total must be non-negative");
+        }
         var result = new long[count];
-        long baseBytes = totalBytes / count;
+        long baseBytes = total / count;
         int remainder = checked((int)(
-            totalBytes % count));
+            total % count));
         Array.Fill(result, baseBytes);
 
         int start = 0;
@@ -3796,6 +3938,7 @@ internal static class ProgramSupport
         string sourceKind,
         string? allocatedType,
         long sampledBytes,
+        int allocationHits = 1,
         bool ilOffsetJoin = false,
         bool exactOffset = false,
         bool ambiguousIlJoin = false)
@@ -3803,7 +3946,10 @@ internal static class ProgramSupport
         if (!matchedIds.Add(candidate.Id))
             return;
 
-        candidate.AllocationHits++;
+        candidate.AllocationObserved = true;
+        candidate.AllocationHits = checked(
+            candidate.AllocationHits
+                + allocationHits);
         candidate.AllocationBytes = checked(
             candidate.AllocationBytes
                 + sampledBytes);
@@ -3819,7 +3965,9 @@ internal static class ProgramSupport
             if (candidate.MatchesAllocatedType(allocatedType))
             {
                 candidate.ShapeMatched = true;
-                candidate.ShapeAllocationHits++;
+                candidate.ShapeAllocationHits = checked(
+                    candidate.ShapeAllocationHits
+                        + allocationHits);
                 candidate.ShapeAllocationBytes = checked(
                     candidate.ShapeAllocationBytes
                         + sampledBytes);
