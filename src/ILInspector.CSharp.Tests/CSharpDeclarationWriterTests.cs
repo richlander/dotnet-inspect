@@ -1221,6 +1221,37 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     /// <summary>
+    /// #3561: when <see cref="ApiSignature"/> is present, parameter names are escaped
+    /// from the model. A poisoned <see cref="ApiMember.Signature"/> whose comment
+    /// <c>)</c> would close the text scanner early must not be consulted, and a tuple
+    /// return must not be re-lexed.
+    /// </summary>
+    [Fact]
+    public void MemberDeclaration_SignatureModel_EscapesParametersWithoutScanningText()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Tuples", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Pair",
+            Kind = "method",
+            Signature = "(int, string) Pair(/* ) */ int event)",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "(int, string)",
+                MemberName = "Pair",
+                Parameters =
+                [
+                    new ApiParameter { Type = "int", Name = "event" }
+                ]
+            }
+        };
+
+        Assert.Equal(
+            "public (int, string) Pair(int @event)",
+            CSharpDeclarationWriter.RenderMemberDeclaration(type, member));
+    }
+
+    /// <summary>
     /// Pins how <c>EscapeParameterLists</c> resolves a <c>(</c> preceded by whitespace,
     /// which is the one genuinely ambiguous position.
     ///
