@@ -7282,11 +7282,12 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Discover_UnsafeApplicability_IgnoresLegacyEffectiveCache()
+    public async Task Discover_BareEffective_IgnoresLegacyEffectiveCache()
     {
         const string legacyCategory = "effective-v19";
-        const string currentCategory = "effective-v22";
-        string directory = Path.Combine(Path.GetTempPath(), $"unsafe-cache-{Guid.NewGuid():N}");
+        const string currentCategory = "effective-v23";
+        string directory = Path.Combine(
+            Path.GetTempPath(), $"effective-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         string assemblyPath = Path.Combine(directory, "Instructions.dll");
         File.Copy(typeof(InstructionProducer).Assembly.Location, assemblyPath);
@@ -7301,6 +7302,7 @@ public partial class CommandExecutionTests
 
         try
         {
+            await CoreCache.RequestVersionedCategoryCleanupAsync();
             foreach (string key in keys)
             {
                 CoreCache.Set(legacyCategory, key, "Library Info\n", extension: "tsv");
@@ -7309,13 +7311,14 @@ public partial class CommandExecutionTests
 
             var (exit, output, error) = await RunAppAsync(
                 "library", assemblyPath,
-                "-D",
+                "-D", "--effective",
                 "--tree",
                 "--tips", "q");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Contains(SectionNames.UnsafeMembers, output);
+            Assert.Contains(SectionNames.References, output);
+            Assert.DoesNotContain(SectionNames.UnsafeMembers, output);
         }
         finally
         {
@@ -15576,6 +15579,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Signals", output);
         Assert.Contains("Symbols", output);
+        Assert.DoesNotContain(SectionNames.UnsafeMembers, output);
         Assert.DoesNotContain("Switches", output);
         Assert.DoesNotContain("Integrations", output);
         Assert.DoesNotContain("Tip:", error);

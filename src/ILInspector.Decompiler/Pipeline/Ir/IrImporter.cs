@@ -538,6 +538,10 @@ public static class IrImporter
         {
             AssemblyPath = source.FilePath,
             MetadataToken = method.MetadataToken,
+            DeclaringTypeGenericParameterNames =
+                method.DeclaringTypeGenericParameterNames.IsDefault
+                    ? []
+                    : method.DeclaringTypeGenericParameterNames,
             BaseType = source.ResolveBaseType(method.DeclaringType),
             MethodKind = ClassifyMethodKind(method.Name),
             Regions = method.Body.Handlers,

@@ -71,5 +71,11 @@ public class ForeignNestedTypeSpellingTests
         var plain = TypeRef.Definition("Asm", "N", "Outer+Inner");
         Assert.Equal("Outer.Inner", plain.ToDisplayString(foreignScope));
         Assert.Equal("Inner", plain.ToDisplayString(TypeRef.Definition("Asm", "N", "Outer")));
+
+        // Keyword segments are legal identifiers via @ escaping; the declaring
+        // chain must escape each segment, not emit a raw keyword (CS1001).
+        var keywordLeaf = TypeRef.Definition("Asm", "N", "Outer+class");
+        Assert.Equal("Outer.@class", keywordLeaf.ToDisplayString(foreignScope));
+        Assert.Equal("@class", keywordLeaf.ToDisplayString(TypeRef.Definition("Asm", "N", "Outer")));
     }
 }
