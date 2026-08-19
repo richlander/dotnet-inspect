@@ -692,10 +692,8 @@ internal sealed class CrossAssemblyTypeResolver
                 ? field.DeclaringType.TypeArguments
                 : [];
             var typeScope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, typeDef.GetGenericParameters()), []);
-            AssemblyReferenceIdentity? coreLibraryAliasIdentity =
-                ScopeFor(type) == AssemblyResolutionScope.Platform
-                    ? type.ResolutionAssembly
-                    : null;
+            bool allowCoreLibraryAliases = type.Assembly == TypeRef.CoreLibrary
+                || ScopeFor(type) == AssemblyResolutionScope.Platform;
 
             foreach (var fieldHandle in typeDef.GetFields())
             {
@@ -852,13 +850,6 @@ internal sealed class CrossAssemblyTypeResolver
                 localAssemblyIdentity,
                 resolvedLocalBindingIdentity))
                 return false;
-            }
-            var parameter = signature.ParameterTypes[i].Instantiate(typeArguments, methodArguments);
-            if (!hasDefinitionParameters
-                && !SameSignatureType(parameter, callee.ParameterTypes[i], coreLibraryAliasIdentity))
-            {
-                return false;
-            }
             parameters.Add(parameter);
         }
 

@@ -761,13 +761,9 @@ public sealed class MetadataSource : IDisposable
                 var method = Reader.GetMethodDefinition(methodHandle);
                 if (!Reader.StringComparer.Equals(method.Name, methodName))
                     continue;
-                bool hasThis =
-                    (method.Attributes
-                        & System.Reflection.MethodAttributes.Static) == 0;
                 if (MethodDefinitionFacts.IsOperator(
-                    method,
-                    methodName,
-                    hasThis))
+                    Reader,
+                    method))
                 {
                     _operatorHierarchyFacts.TryAdd(
                         cacheKey,
