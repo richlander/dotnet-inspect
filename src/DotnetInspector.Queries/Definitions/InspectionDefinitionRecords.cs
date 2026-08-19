@@ -407,50 +407,125 @@ public abstract record DefinitionMemberCoordinate
 
     public abstract string Kind { get; }
 
-    public sealed record PackageCoordinate(
-        string Id,
-        string? Version = null,
-        string? Framework = null,
-        string? RuntimeIdentifier = null) : DefinitionMemberCoordinate
+    public sealed record PackageCoordinate : DefinitionMemberCoordinate
     {
+        public PackageCoordinate(
+            string Id,
+            string? Version = null,
+            string? Framework = null,
+            string? RuntimeIdentifier = null)
+        {
+            this.Id = DefinitionText.Require(Id, nameof(Id));
+            this.Version = Version;
+            this.Framework = Framework;
+            this.RuntimeIdentifier = RuntimeIdentifier;
+        }
+
+        public string Id { get; }
+
+        public string? Version { get; }
+
+        public string? Framework { get; }
+
+        public string? RuntimeIdentifier { get; }
+
         public override string Kind => "package";
     }
 
-    public sealed record PlatformCoordinate(
-        string Family,
-        string? Assembly = null,
-        string? Version = null,
-        string? Framework = null) : DefinitionMemberCoordinate
+    public sealed record PlatformCoordinate : DefinitionMemberCoordinate
     {
+        public PlatformCoordinate(
+            string Family,
+            string? Assembly = null,
+            string? Version = null,
+            string? Framework = null)
+        {
+            this.Family = DefinitionText.Require(Family, nameof(Family));
+            this.Assembly = Assembly;
+            this.Version = Version;
+            this.Framework = Framework;
+        }
+
+        public string Family { get; }
+
+        public string? Assembly { get; }
+
+        public string? Version { get; }
+
+        public string? Framework { get; }
+
         public override string Kind => "platform";
     }
 
-    public sealed record EmbeddedCoordinate(
-        string ContentRef,
-        string Digest,
-        string DeclaredName) : DefinitionMemberCoordinate
+    public sealed record EmbeddedCoordinate : DefinitionMemberCoordinate
     {
+        public EmbeddedCoordinate(string ContentRef, string Digest, string DeclaredName)
+        {
+            this.ContentRef = DefinitionText.Require(ContentRef, nameof(ContentRef));
+            this.Digest = DefinitionText.Require(Digest, nameof(Digest));
+            this.DeclaredName = DefinitionText.Require(DeclaredName, nameof(DeclaredName));
+        }
+
+        public string ContentRef { get; }
+
+        public string Digest { get; }
+
+        public string DeclaredName { get; }
+
         public override string Kind => "embedded";
     }
 
-    public sealed record ProjectCoordinate(
-        string Path,
-        string? Framework = null,
-        string? RuntimeIdentifier = null) : DefinitionMemberCoordinate
+    public sealed record ProjectCoordinate : DefinitionMemberCoordinate
     {
+        public ProjectCoordinate(
+            string Path,
+            string? Framework = null,
+            string? RuntimeIdentifier = null)
+        {
+            this.Path = DefinitionText.Require(Path, nameof(Path));
+            this.Framework = Framework;
+            this.RuntimeIdentifier = RuntimeIdentifier;
+        }
+
+        public string Path { get; }
+
+        public string? Framework { get; }
+
+        public string? RuntimeIdentifier { get; }
+
         public override string Kind => "project";
     }
 
-    public sealed record LocalCoordinate(string Path) : DefinitionMemberCoordinate
+    public sealed record LocalCoordinate : DefinitionMemberCoordinate
     {
+        public LocalCoordinate(string Path)
+        {
+            this.Path = DefinitionText.Require(Path, nameof(Path));
+        }
+
+        public string Path { get; }
+
         public override string Kind => "local";
     }
 
-    public sealed record DirectoryCoordinate(
-        string Path,
-        string? Framework = null,
-        string? RuntimeIdentifier = null) : DefinitionMemberCoordinate
+    public sealed record DirectoryCoordinate : DefinitionMemberCoordinate
     {
+        public DirectoryCoordinate(
+            string Path,
+            string? Framework = null,
+            string? RuntimeIdentifier = null)
+        {
+            this.Path = DefinitionText.Require(Path, nameof(Path));
+            this.Framework = Framework;
+            this.RuntimeIdentifier = RuntimeIdentifier;
+        }
+
+        public string Path { get; }
+
+        public string? Framework { get; }
+
+        public string? RuntimeIdentifier { get; }
+
         public override string Kind => "directory";
     }
 }
@@ -473,6 +548,18 @@ file static class DefinitionText
     {
         if (value is null)
             return null;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException(
+                $"{paramName} must not be blank.",
+                paramName);
+        }
+
+        return value;
+    }
+
+    public static string Require(string? value, string paramName)
+    {
         if (string.IsNullOrWhiteSpace(value))
         {
             throw new ArgumentException(

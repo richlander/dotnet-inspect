@@ -610,6 +610,23 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
+    public void CoordinateConstructors_RejectBlankRequiredFields()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new DefinitionMemberCoordinate.PackageCoordinate("   "));
+        Assert.Throws<ArgumentException>(() =>
+            new DefinitionMemberCoordinate.PlatformCoordinate(" "));
+        Assert.Throws<ArgumentException>(() =>
+            new DefinitionMemberCoordinate.EmbeddedCoordinate("ref", "digest", " "));
+        Assert.Throws<ArgumentException>(() =>
+            new DefinitionMemberCoordinate.ProjectCoordinate("\t"));
+        Assert.Throws<ArgumentException>(() =>
+            new DefinitionMemberCoordinate.LocalCoordinate(""));
+        Assert.Throws<ArgumentException>(() =>
+            new DefinitionMemberCoordinate.DirectoryCoordinate("  "));
+    }
+
+    [Fact]
     public void Parse_RejectsInvalidUtf16InStringOverload()
     {
         var invalid = "{\n  \"schemaVersion\": 1,\n  \"kind\": \"query\",\n  \"id\": \"q\",\n  \"queryId\": \"surface\"\n}".ToCharArray();
