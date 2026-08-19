@@ -17082,6 +17082,60 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DependencyAlias_DiscoveryMatchesCanonicalProjection()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var effective = await RunAppAsync(
+                "package", packagePath, "-D", "-S", "Dependencies", "--tree", "--tips", "q");
+            var effectiveAlias = await RunAppAsync(
+                "package", packagePath, "-D", "--dependencies", "--tips", "q");
+            var schema = await RunAppAsync(
+                "package", "-D", "--schema", "-S", "Dependencies", "--tree", "--tips", "q");
+            var schemaAlias = await RunAppAsync(
+                "package", "-D", "--schema", "--dependencies", "--tips", "q");
+
+            Assert.Equal(0, effective.Exit);
+            Assert.Empty(effective.Error);
+            Assert.Equal(effective.Output, effectiveAlias.Output);
+            Assert.Equal(effective.Error, effectiveAlias.Error);
+            Assert.Contains("Dependencies", effective.Output);
+
+            Assert.Equal(0, schema.Exit);
+            Assert.Empty(schema.Error);
+            Assert.Equal(schema.Output, schemaAlias.Output);
+            Assert.Equal(schema.Error, schemaAlias.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencySection_DefaultsToFlatTfmScopedTable()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Dependencies", "--tfm", "net9.0", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## Dependencies", output);
+            Assert.Contains("| net9.0 | Test.Dependency.One |", output);
+            Assert.Contains("| net9.0 | Test.Dependency.Two |", output);
+            Assert.DoesNotContain("| net8.0 |", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_DependencySection_TreeRendersTheLegacyTransitiveProjection()
     {
         var (packagePath, tempDir) = CreateLocalDependencyPackage();
@@ -17107,6 +17161,69 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Package_DependencyAlias_RejectsAlternateLenses()
+    {
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            (string Lens, string[] Arguments)[] cases =
+            [
+                ("--layout", ["--layout"]),
+                ("--tfms", ["--tfms"]),
+                ("--versions", ["--versions"]),
+                ("--content", ["--content", "--path", "README.md"]),
+            ];
+
+            foreach (var (lens, arguments) in cases)
+            {
+                var (exit, output, error) = await RunAppAsync(
+                    ["package", packagePath, "--dependencies", .. arguments, "--tips", "q"]);
+
+                Assert.Equal(1, exit);
+                Assert.Empty(output);
+                Assert.Contains($"--dependencies cannot be combined with {lens}", error);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DependencyTree_RejectsPlainTextFormats()
+    {
+        var originalFormat = Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        var (packagePath, tempDir) = CreateLocalDependencyPackage();
+        try
+        {
+            var canonical = await RunAppAsync(
+                "package", packagePath, "-S", "Dependencies", "--tree", "--plaintext", "--tips", "q");
+            var alias = await RunAppAsync(
+                "package", packagePath, "--dependencies", "--plaintext", "--tips", "q");
+
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", "plaintext");
+            var environmentAlias = await RunAppAsync(
+                "package", packagePath, "--dependencies", "--tips", "q");
+
+            Assert.Equal(1, canonical.Exit);
+            Assert.Empty(canonical.Output);
+            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", canonical.Error);
+            Assert.Equal(1, alias.Exit);
+            Assert.Empty(alias.Output);
+            Assert.Contains("--dependencies cannot be combined with row projections or non-Markdown formats", alias.Error);
+            Assert.Equal(1, environmentAlias.Exit);
+            Assert.Empty(environmentAlias.Output);
+            Assert.Contains("--dependencies cannot be combined with row projections or non-Markdown formats", environmentAlias.Error);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_FORMAT", originalFormat);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Package_TreeRequiresDependenciesSelection()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage(
@@ -17118,6 +17235,8 @@ public partial class CommandExecutionTests
             var (exit, _, error) = await RunAppAsync("package", packagePath, "--tree", "--tips", "q");
             var (categoryExit, _, categoryError) = await RunAppAsync(
                 "package", packagePath, "-S", "@Dependencies", "--tree", "--tips", "q");
+            var (aliasExit, _, aliasError) = await RunAppAsync(
+                "package", packagePath, "--dependencies", "-S", "Manifest", "--tips", "q");
 
             Assert.Equal(1, exit);
             Assert.Contains("--tree requires exactly one tree-shaped section (-S Dependencies)", error);
@@ -17125,6 +17244,9 @@ public partial class CommandExecutionTests
             Assert.Equal(1, categoryExit);
             Assert.Contains("--tree requires exactly one tree-shaped section (-S Dependencies)", categoryError);
             Assert.DoesNotContain("--layout", categoryError);
+            Assert.Equal(1, aliasExit);
+            Assert.Contains("--dependencies is an alias for -S Dependencies --tree", aliasError);
+            Assert.DoesNotContain("--tree requires", aliasError);
         }
         finally
         {

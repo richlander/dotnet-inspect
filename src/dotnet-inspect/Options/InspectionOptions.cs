@@ -159,6 +159,11 @@ public record InspectionOptions : IProjectionOptions
     public bool JsonOutput { get; init; }
 
     /// <summary>
+    /// Output as plain text.
+    /// </summary>
+    public bool PlainText { get; init; }
+
+    /// <summary>
     /// Print a single selected payload without headings, fences, separators, or tips.
     /// </summary>
     public bool Bare { get; init; }
@@ -293,7 +298,7 @@ public record InspectionOptions : IProjectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || JsonOutput || PlainText || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

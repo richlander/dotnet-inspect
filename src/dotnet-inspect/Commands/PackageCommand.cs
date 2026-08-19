@@ -125,14 +125,17 @@ public class PackageCommand
             // and rejecting that would break the lens modes' normal use. The refusal is
             // unconditional rather than excusing --print: the lens prints its own document
             // without a selection, so accepting -S there would silently ignore it.
-            if (lensMode && options.SelectExplicitlySet)
+            if (lensMode && (options.SelectExplicitlySet || options.ShowDependencies))
             {
                 var lensName = options.ListVersions ? "--versions"
                     : options.ListLayout ? "--layout"
                     : options.ListTfms ? "--tfms"
                     : "--content";
-                CommandError.Write(
-                    $"-S/--select is not available with {lensName}, which renders its own payload rather than sections.");
+                if (options.ShowDependencies)
+                    CommandError.Write($"--dependencies cannot be combined with {lensName}.");
+                else
+                    CommandError.Write(
+                        $"-S/--select is not available with {lensName}, which renders its own payload rather than sections.");
                 return 1;
             }
 
@@ -1556,7 +1559,7 @@ public class PackageCommand
 
     private static InspectionOptions NormalizeDependencyProjection(InspectionOptions options)
     {
-        if (options.Discover != null || !options.ShowDependencies)
+        if (!options.ShowDependencies)
             return options;
 
         var select = options.Select?.ToList() ?? [];
@@ -1579,7 +1582,10 @@ public class PackageCommand
         if (options.IncludeSections is not { Count: 1 }
             || !options.IncludeSections.Contains(PackageSections.Dependencies))
         {
-            CommandError.Write("--tree requires exactly one tree-shaped section (-S Dependencies).");
+            CommandError.Write(
+                options.ShowDependencies
+                    ? "--dependencies is an alias for -S Dependencies --tree and cannot be combined with other section selections."
+                    : "--tree requires exactly one tree-shaped section (-S Dependencies).");
             return false;
         }
 
@@ -1593,9 +1599,11 @@ public class PackageCommand
             || options.Rows is not null
             || options.Bare
             || options.JsonOutput
+            || options.PlainText
             || options.TabularExplicitlySet)
         {
-            CommandError.Write("--tree cannot be combined with row projections or non-Markdown formats.");
+            var optionName = options.ShowDependencies ? "--dependencies" : "--tree";
+            CommandError.Write($"{optionName} cannot be combined with row projections or non-Markdown formats.");
             return false;
         }
 
