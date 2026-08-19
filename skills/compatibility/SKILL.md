@@ -88,10 +88,10 @@ disappearance without treating endpoint-local IL offsets as identity.
 `-S "Implementation Diff"` selects Research-composed body evidence instead of
 the default API compatibility view. Rows identify the member, producer (`C#`,
 `IL`, or `PDB Source`), change kind, and producer-owned evidence. `C#` is
-decompiled text; `PDB Source` is checksum-verified PDB-mapped SourceLink text.
-The lanes are peers: PDB-source absence or failure stays visible and never
-replaces the C# lane. Narrow with `-t` and `-m`; use `--table`, `--tsv`, or
-`--jsonl` for columnar output.
+decompiled text; `PDB Source` is Portable-PDB-selected, checksum-verified text
+acquired locally or through SourceLink. The lanes are peers: PDB-source absence
+or failure stays visible and never replaces the C# lane. Narrow with `-t` and
+`-m`; use `--table`, `--tsv`, or `--jsonl` for columnar output.
 
 ```bash
 dnx dotnet-inspect -y -- diff --library old/Foo.dll..new/Foo.dll \

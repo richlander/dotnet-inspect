@@ -11,8 +11,9 @@ verifies local files and GitHub committed blobs read through `--repo` against
 the PDB checksum. A network `PDB Source` fetch also verifies the checksum
 and requires the final redirect origin to match before returning the body. Use
 `library -S "SourceLink: Integrity"` for opt-in verification of every
-fetchable, non-embedded compiler-source document. Without a usable PDB,
-SourceLink map, or matching source, use the always-local `decompiler` skill.
+fetchable, non-embedded compiler-source document. If no usable PDB or
+checksum-matching source is available locally or through SourceLink, use the
+always-local `decompiler` skill.
 
 The checksum proves that returned bytes match the PDB's declaration. It does
 not independently prove that those bytes are the physical syntax tree that
@@ -38,10 +39,11 @@ dnx dotnet-inspect -y -- library System.Text.Json --il-offset 0x06000001+0x0
 
 ## Fetch PDB source
 
-`-S "PDB Source"` returns the source body selected by Portable PDB coordinates
-when SourceLink can resolve it (also part of the `-S @Source` bundle alongside
-the decompiled and IL views). Use `--print` to fetch the source body behind one
-printable SourceLink row. When the section renders multiple rows, add
+`-S "PDB Source"` returns the source body selected by Portable PDB coordinates,
+acquired locally or through SourceLink, and verified against the PDB checksum
+(also part of the `-S @Source` bundle alongside the decompiled and IL views).
+Use `--print` to fetch the source body behind one printable SourceLink row. When
+the section renders multiple rows, add
 `--row N|first|last`; `N`
 addresses the displayed 1-based row number, while `first` and `last` mean the
 rendered endpoints. If that row has no printable document, the command reports

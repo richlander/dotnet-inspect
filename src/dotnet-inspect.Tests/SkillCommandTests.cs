@@ -66,6 +66,48 @@ public class SkillCommandTests
     }
 
     [Fact]
+    public void PdbSourceGuidance_StatesBothAcquisitionPaths()
+    {
+        string root = FindRepositoryRoot();
+        string[] guidancePaths =
+        [
+            "README.md",
+            "skills/sourcelink/SKILL.md",
+            "skills/compatibility/SKILL.md",
+            "docs/templates/decompiler-pr.md",
+            "docs/workflows/getting-started/verbosity-and-tips.md",
+            "docs/workflows/core/member-lookup-docs-code.md"
+        ];
+        string[] forbiddenImplications =
+        [
+            "SourceLink-backed source",
+            "SourceLink-backed C#",
+            "PDB-mapped SourceLink text",
+            "when SourceLink can resolve",
+            "when SourceLink cannot supply",
+            "PDB Source` (SourceLink",
+            "PDB Source (SourceLink"
+        ];
+
+        foreach (string relativePath in guidancePaths)
+        {
+            string guidance = string.Join(
+                " ",
+                File.ReadAllLines(Path.Combine(root, relativePath)).Select(line => line.Trim()));
+
+            Assert.True(
+                guidance.Contains("locally or through SourceLink", StringComparison.Ordinal),
+                $"{relativePath} must state that PDB Source can be acquired locally or through SourceLink.");
+            foreach (string implication in forbiddenImplications)
+            {
+                Assert.False(
+                    guidance.Contains(implication, StringComparison.OrdinalIgnoreCase),
+                    $"{relativePath} still implies that PDB Source requires SourceLink: {implication}");
+            }
+        }
+    }
+
+    [Fact]
     public async Task ExecuteList_UsesFrontmatterDescriptions()
     {
         var (_, output, _) = await ConsoleCapture.RunAsync(

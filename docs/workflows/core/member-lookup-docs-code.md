@@ -7,7 +7,10 @@ areas: [members, documentation, source, decompilation, nullability, overloads]
 
 # Member Lookup with Docs and Code
 
-> Drill into type members to see documentation, lowered C#, SourceLink-backed source, and IL. The `member` command shows docs by default; selected overloads expose implementation bodies through opt-in sections. Use overload addressing (`Name:N`) to target specific overloads.
+> Drill into type members to see documentation, lowered C#, checksum-verified
+> PDB source, and IL. The `member` command shows docs by default; selected
+> overloads expose implementation bodies through opt-in sections. Use overload
+> addressing (`Name:N`) to target specific overloads.
 
 ## Preconditions
 
@@ -151,7 +154,11 @@ Tips:
 
 ## 3. View member implementation code
 
-> Goal: When selecting a specific member, discover and select implementation sections: raised C# (`Decompiled Source`), mixed C#+IL (`Annotated Source`), SourceLink-backed source (`PDB Source`), and raw IL (`IL`). `-S @Source` selects those four evidence views.
+> Goal: When selecting a specific member, discover and select implementation
+> sections: raised C# (`Decompiled Source`), mixed C#+IL (`Annotated Source`),
+> Portable-PDB-selected, checksum-verified source acquired locally or through SourceLink
+> (`PDB Source`), and raw IL (`IL`). `-S @Source` selects those four evidence
+> views.
 
 ### 3a. Single member (no overloads)
 

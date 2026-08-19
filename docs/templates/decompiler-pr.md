@@ -40,11 +40,12 @@ Acquire each code block from `dotnet-inspect` rather than paraphrasing or
 hand-transcribing, so every render in the PR is verbatim product output for the
 same `{Type} {MethodSelector} {scope}`:
 
-- PDB source reference: `-S "PDB Source"` (SourceLink-backed C#). Its checksum
+- PDB source reference: `-S "PDB Source"` (Portable-PDB-selected,
+  checksum-verified C# acquired locally or through SourceLink). Its checksum
   proves agreement with the Portable PDB declaration, not independent build
-  provenance. When SourceLink cannot supply it (no PDB, no source server, or a
-  non-C# source language), fall back to the raw `IL` section (`-S "IL"`), which
-  remains authoritative for the compiled behavior.
+  provenance. When no matching C# is available (no usable PDB, no local or
+  SourceLink source, or a non-C# source language), fall back to the raw `IL`
+  section (`-S "IL"`), which remains authoritative for the compiled behavior.
 - Before: `-S "Decompiled Source"` at the base commit (the pre-change output).
 - After: `-S "Decompiled Source"` at this PR's head (the post-change output).
 - Applied Taste: `-S "Applied Taste"` at the same commit as each render, to
@@ -175,10 +176,10 @@ dotnet-inspect member {Type} {MethodSelector} {scope} -S "Decompiled Source"
 
 <!--
 Expected for every raise PR. Acquire with dotnet-inspect: prefer C# via
-`-S "PDB Source"` (SourceLink); fall back to the raw IL section
-(`-S "IL"`) when SourceLink cannot supply C#. Omit only after checking and
-finding neither C# source nor IL is obtainable — say so explicitly rather than
-silently deleting this section.
+`-S "PDB Source"`; fall back to the raw IL section (`-S "IL"`) when no
+checksum-matching C# is available locally or through SourceLink. Omit only
+after checking and finding neither C# source nor IL is obtainable — say so
+explicitly rather than silently deleting this section.
 -->
 
 ```csharp
