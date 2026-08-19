@@ -532,10 +532,23 @@ public abstract record DefinitionMemberCoordinate
 
 file static class DefinitionCollections
 {
-    public static IReadOnlyList<T> Freeze<T>(IReadOnlyList<T>? values) =>
-        values is null || values.Count == 0
-            ? Array.Empty<T>()
-            : new ReadOnlyCollection<T>(values is T[] array ? [.. array] : [.. values]);
+    public static IReadOnlyList<T> Freeze<T>(IReadOnlyList<T>? values)
+    {
+        if (values is null || values.Count == 0)
+            return Array.Empty<T>();
+
+        for (var i = 0; i < values.Count; i++)
+        {
+            if (values[i] is null)
+            {
+                throw new ArgumentException(
+                    "Collection must not contain null elements.",
+                    nameof(values));
+            }
+        }
+
+        return new ReadOnlyCollection<T>(values is T[] array ? [.. array] : [.. values]);
+    }
 }
 
 /// <summary>

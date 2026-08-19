@@ -79,6 +79,7 @@ public static class InspectionDefinitionJson
     {
         ArgumentNullException.ThrowIfNull(record);
         EnsureWithinPortableLimits(record);
+        EnsureWellFormedUtf16(record);
         var dto = ToDto(record);
         var json = JsonSerializer.Serialize(dto, InspectionDefinitionJsonContext.Default.InspectionDefinitionDto);
         var byteCount = s_utf8Strict.GetByteCount(json);
@@ -102,6 +103,148 @@ public static class InspectionDefinitionJson
         {
             throw new InspectionDefinitionException(
                 $"Definition exceeds the {MaxCoordinatesPerRecord}-coordinate limit.");
+        }
+    }
+
+    /// <summary>
+    /// System.Text.Json replaces unpaired surrogates with U+FFFD. Reject before emit so identities
+    /// are never silently rewritten on the portable boundary.
+    /// </summary>
+    private static void EnsureWellFormedUtf16(InspectionDefinitionRecord record)
+    {
+        switch (record)
+        {
+            case CatalogDefinition catalog:
+                EnsureUtf16(catalog.Id, "id");
+                EnsureGroupUtf16(catalog.Groups);
+                break;
+            case WorkspaceDefinition workspace:
+                EnsureUtf16(workspace.Id, "id");
+                EnsureUtf16(workspace.Title, "title");
+                EnsureUtf16(workspace.Description, "description");
+                foreach (var context in workspace.Contexts)
+                    EnsureContextUtf16(context);
+                EnsureGroupUtf16(workspace.Groups);
+                break;
+            case QueryDefinition query:
+                EnsureUtf16(query.Id, "id");
+                EnsureUtf16(query.QueryId, "queryId");
+                break;
+            case ViewDefinition view:
+                EnsureUtf16(view.Id, "id");
+                EnsureUtf16(view.Lens, "lens");
+                EnsureUtf16(view.Type, "type");
+                EnsureUtf16(view.MemberAnchor, "memberAnchor");
+                EnsureUtf16(view.MemberSignature, "memberSignature");
+                EnsureUtf16(view.MemberKey, "memberKey");
+                EnsureUtf16(view.Section, "section");
+                EnsureUtf16(view.Library, "library");
+                break;
+            case NavigationDefinition navigation:
+                EnsureUtf16(navigation.Id, "id");
+                EnsureUtf16(navigation.Focus, "focus");
+                foreach (var tab in navigation.Tabs)
+                    EnsureTabUtf16(tab);
+                break;
+            case ScenarioDefinition scenario:
+                EnsureUtf16(scenario.Id, "id");
+                EnsureUtf16(scenario.Title, "title");
+                EnsureUtf16(scenario.Description, "description");
+                EnsureUtf16(scenario.Workspace, "workspace");
+                EnsureUtf16(scenario.Context, "context");
+                EnsureUtf16(scenario.Input, "input");
+                EnsureUtf16(scenario.Query, "query");
+                EnsureUtf16(scenario.View, "view");
+                EnsureUtf16(scenario.Navigation, "navigation");
+                break;
+            default:
+                EnsureUtf16(record.Id, "id");
+                break;
+        }
+    }
+
+    private static void EnsureGroupUtf16(IReadOnlyList<CatalogGroupDefinition> groups)
+    {
+        foreach (var group in groups)
+        {
+            EnsureUtf16(group.Name, "group.name");
+            foreach (var member in group.Members)
+                EnsureCoordinateUtf16(member);
+            EnsureGroupUtf16(group.Children);
+        }
+    }
+
+    private static void EnsureContextUtf16(WorkspaceContextDefinition context)
+    {
+        EnsureUtf16(context.Name, "context.name");
+        EnsureUtf16(context.Framework, "context.framework");
+        EnsureUtf16(context.RuntimeIdentifier, "context.runtimeIdentifier");
+        EnsureUtf16(context.Subscribe, "context.subscribe");
+        foreach (var member in context.Members)
+            EnsureCoordinateUtf16(member);
+    }
+
+    private static void EnsureTabUtf16(NavigationTabDefinition tab)
+    {
+        EnsureUtf16(tab.Id, "tab.id");
+        EnsureUtf16(tab.Subscribe, "tab.subscribe");
+        EnsureUtf16(tab.Framework, "tab.framework");
+        EnsureUtf16(tab.RuntimeIdentifier, "tab.runtimeIdentifier");
+        if (tab.Coordinate is not null)
+            EnsureCoordinateUtf16(tab.Coordinate);
+    }
+
+    private static void EnsureCoordinateUtf16(DefinitionMemberCoordinate coordinate)
+    {
+        switch (coordinate)
+        {
+            case DefinitionMemberCoordinate.PackageCoordinate package:
+                EnsureUtf16(package.Id, "package.id");
+                EnsureUtf16(package.Version, "package.version");
+                EnsureUtf16(package.Framework, "package.framework");
+                EnsureUtf16(package.RuntimeIdentifier, "package.runtimeIdentifier");
+                break;
+            case DefinitionMemberCoordinate.PlatformCoordinate platform:
+                EnsureUtf16(platform.Family, "platform.family");
+                EnsureUtf16(platform.Assembly, "platform.assembly");
+                EnsureUtf16(platform.Version, "platform.version");
+                EnsureUtf16(platform.Framework, "platform.framework");
+                break;
+            case DefinitionMemberCoordinate.EmbeddedCoordinate embedded:
+                EnsureUtf16(embedded.ContentRef, "embedded.contentRef");
+                EnsureUtf16(embedded.Digest, "embedded.digest");
+                EnsureUtf16(embedded.DeclaredName, "embedded.declaredName");
+                break;
+            case DefinitionMemberCoordinate.ProjectCoordinate project:
+                EnsureUtf16(project.Path, "project.path");
+                EnsureUtf16(project.Framework, "project.framework");
+                EnsureUtf16(project.RuntimeIdentifier, "project.runtimeIdentifier");
+                break;
+            case DefinitionMemberCoordinate.LocalCoordinate local:
+                EnsureUtf16(local.Path, "local.path");
+                break;
+            case DefinitionMemberCoordinate.DirectoryCoordinate directory:
+                EnsureUtf16(directory.Path, "directory.path");
+                EnsureUtf16(directory.Framework, "directory.framework");
+                EnsureUtf16(directory.RuntimeIdentifier, "directory.runtimeIdentifier");
+                break;
+        }
+    }
+
+    private static void EnsureUtf16(string? value, string fieldName)
+    {
+        if (value is null)
+            return;
+
+        try
+        {
+            _ = s_utf8Strict.GetByteCount(value);
+        }
+        catch (EncoderFallbackException ex)
+        {
+            throw new InspectionDefinitionException(
+                $"Definition field '{fieldName}' contains invalid UTF-16 text.",
+                ex);
         }
     }
 
@@ -316,7 +459,18 @@ public static class InspectionDefinitionJson
         value = "";
         if (!obj.TryGetProperty(name, out var property) || property.ValueKind != JsonValueKind.String)
             return false;
-        value = property.GetString() ?? "";
+
+        try
+        {
+            value = property.GetString() ?? "";
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InspectionDefinitionException(
+                $"Definition JSON string '{name}' is not well-formed UTF-16.",
+                ex);
+        }
+
         return value.Length > 0;
     }
 

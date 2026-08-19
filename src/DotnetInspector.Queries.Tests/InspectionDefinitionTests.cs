@@ -617,6 +617,10 @@ public class InspectionDefinitionTests
         Assert.Throws<ArgumentException>(() =>
             new DefinitionMemberCoordinate.PlatformCoordinate(" "));
         Assert.Throws<ArgumentException>(() =>
+            new DefinitionMemberCoordinate.EmbeddedCoordinate(" ", "digest", "name"));
+        Assert.Throws<ArgumentException>(() =>
+            new DefinitionMemberCoordinate.EmbeddedCoordinate("ref", " ", "name"));
+        Assert.Throws<ArgumentException>(() =>
             new DefinitionMemberCoordinate.EmbeddedCoordinate("ref", "digest", " "));
         Assert.Throws<ArgumentException>(() =>
             new DefinitionMemberCoordinate.ProjectCoordinate("\t"));
@@ -624,6 +628,43 @@ public class InspectionDefinitionTests
             new DefinitionMemberCoordinate.LocalCoordinate(""));
         Assert.Throws<ArgumentException>(() =>
             new DefinitionMemberCoordinate.DirectoryCoordinate("  "));
+    }
+
+    [Fact]
+    public void Collections_RejectNullElements()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new WorkspaceContextDefinition(
+                "c",
+                members: [null!]));
+        Assert.Throws<ArgumentException>(() =>
+            new CatalogGroupDefinition("g", members: [null!]));
+        Assert.Throws<ArgumentException>(() =>
+            new CatalogGroupDefinition("g", children: [null!]));
+        Assert.Throws<ArgumentException>(() =>
+            new NavigationDefinition(1, "n", [null!], focus: "t"));
+    }
+
+    [Fact]
+    public void Serialize_RejectsInvalidUtf16InRecordFields()
+    {
+        var lone = new string(['\uD800']);
+        var query = new QueryDefinition(1, "q", queryId: lone);
+        var ex = Assert.Throws<InspectionDefinitionException>(
+            () => InspectionDefinitionJson.Serialize(query));
+        Assert.Contains("UTF-16", ex.Message, StringComparison.Ordinal);
+        Assert.IsType<EncoderFallbackException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void Parse_RejectsEscapedInvalidUtf16Surrogates()
+    {
+        var ex = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "\uD800", "id": "q" }
+            """));
+        Assert.Contains("UTF-16", ex.Message, StringComparison.Ordinal);
+        Assert.IsType<InvalidOperationException>(ex.InnerException);
     }
 
     [Fact]
