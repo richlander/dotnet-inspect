@@ -250,6 +250,7 @@ public sealed class MetadataSource : IDisposable
                 AssemblyResolutionProvenance.Local("MetadataSource snapshot"));
             var bindingPolicy = new AssemblyReferenceBindingPolicy(
                 resolver ?? DefaultAssemblyReferenceResolver(path));
+            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(reader);
             return new MetadataSource(
                 path,
                 fullPath,

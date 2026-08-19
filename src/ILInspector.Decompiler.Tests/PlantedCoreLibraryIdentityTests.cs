@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -354,6 +355,93 @@ public class PlantedCoreLibraryIdentityTests
         using var peReader = new PEReader(stream);
         return AssemblyReferenceIdentity.FromAssemblyDefinition(
             peReader.GetMetadataReader());
+    }
+
+
+    /// <summary>
+    /// Every public entry point that turns bytes into a <see cref="MetadataSource"/>
+    /// must classify the reader it creates. Twice now a hand-maintained list of
+    /// those sites has been wrong — round-2 review found
+    /// <c>MetadataSource.OpenCore</c> missing while the registry still failed
+    /// open, and round-3 review found <c>OpenFromPrefetchedImage</c> missing
+    /// once it failed closed. So this gate derives the set by reflection rather
+    /// than restating it: a new <c>Open*</c> overload that forgets to classify
+    /// fails here without anyone remembering to add it.
+    /// <para>
+    /// Each entry point is handed a genuine core library, named either by path
+    /// (a designation) or by a <see cref="ResolvedAssemblyReference"/> carrying
+    /// a designated acquisition, so the expected answer is the same for all of
+    /// them: core-library identity is granted.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void EveryPublicOpenEntryPoint_ClassifiesTheReaderItCreates()
+    {
+        string corelib = typeof(object).Assembly.Location;
+        var entryPoints = typeof(MetadataSource)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(m => m.Name.StartsWith("Open", StringComparison.Ordinal)
+                && m.ReturnType == typeof(MetadataSource))
+            .ToList();
+
+        Assert.NotEmpty(entryPoints);
+
+        var unclassified = new List<string>();
+        foreach (var method in entryPoints)
+        {
+            object?[] arguments;
+            try
+            {
+                arguments = [.. method.GetParameters().Select(p => ArgumentFor(p, corelib))];
+            }
+            catch (NotSupportedException e)
+            {
+                throw new InvalidOperationException(
+                    $"{method.Name} takes a parameter this gate cannot supply ({e.Message}). "
+                    + "Extend ArgumentFor so the entry point stays covered.",
+                    e);
+            }
+
+            using var source = (MetadataSource)method.Invoke(null, arguments)!;
+            if (TypeRefDecoder.CanonicalSelf(source.Reader) != TypeRef.CoreLibrary)
+                unclassified.Add(Signature(method));
+        }
+
+        Assert.True(
+            unclassified.Count == 0,
+            "These MetadataSource entry points create a reader without granting "
+            + "core-library identity to a designated core library, so anything "
+            + "opened through them silently loses corelib identity:"
+            + Environment.NewLine
+            + string.Join(Environment.NewLine, unclassified));
+    }
+
+    static string Signature(MethodInfo method) =>
+        $"{method.Name}({string.Join(", ", method.GetParameters().Select(p => p.ParameterType.Name))})";
+
+    static object? ArgumentFor(ParameterInfo parameter, string corelib)
+    {
+        if (parameter.ParameterType == typeof(string))
+            return parameter.Name == "path" ? corelib : null;
+        if (parameter.ParameterType == typeof(ImmutableArray<byte>))
+            return File.ReadAllBytes(corelib).ToImmutableArray();
+        if (parameter.ParameterType == typeof(MetadataContext))
+            return null;
+        if (typeof(IAssemblyReferenceResolver).IsAssignableFrom(parameter.ParameterType))
+            return TestAssemblyReferenceResolvers.SingleAssembly(corelib);
+        if (typeof(IAssemblyBindingPolicy).IsAssignableFrom(parameter.ParameterType))
+            return new AssemblyReferenceBindingPolicy(
+                TestAssemblyReferenceResolvers.SingleAssembly(corelib));
+        if (parameter.ParameterType == typeof(ResolvedAssemblyReference))
+            return ResolvedAssemblyReference.Create(
+                IdentityOf(corelib),
+                corelib,
+                () => File.OpenRead(corelib),
+                AssemblyResolutionProvenance.Designated("test designation"));
+        if (parameter.ParameterType == typeof(bool))
+            return parameter.HasDefaultValue ? parameter.DefaultValue : true;
+
+        throw new NotSupportedException(parameter.ParameterType.Name);
     }
 
 }
