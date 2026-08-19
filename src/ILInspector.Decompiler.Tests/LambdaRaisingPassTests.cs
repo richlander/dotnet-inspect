@@ -160,6 +160,24 @@ public class LambdaRaisingPassTests
     }
 
     [Fact]
+    public void BodyOnlyInterfaceFact_ReachesInlineLambdaPrinter()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.InterfaceCastLambda));
+
+        Assert.Contains("consumer => ((CfgDimFace)consumer).Value()", output);
+        Assert.DoesNotContain("consumer => (consumer).Value()", output);
+    }
+
+    [Fact]
+    public void BodyOnlyInterfaceFact_ReachesNestedLambdaPrinter()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.InterfaceCastLocalBodyLambda));
+
+        Assert.Contains("((CfgDimFace)consumer).Value()", output);
+        Assert.DoesNotContain("(consumer).Value()", output);
+    }
+
+    [Fact]
     public void LocalDisplayClassEnvironment_RaisesLambdaAndElidesSetup()
     {
         string output = PrintRaised(nameof(CfgSampleClass.InvokeLocalCapture));

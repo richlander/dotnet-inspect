@@ -1781,11 +1781,8 @@ public sealed partial class CSharpPrinter
             // by member name, not a bare int (issue #2983). LocalFunctionRaisingPass
             // merges each raised body's maps into the enclosing function, so these
             // include the definitions this local function references.
-            TypeShapes = _function.TypeShapes,
-            EnumMembers = _function.EnumMembers,
-            EnumUnderlyingTypes = _function.EnumUnderlyingTypes,
-            UnionTypes = _function.UnionTypes,
         };
+        function.CopyTypeFactsFrom(_function);
 
         string pad = new(' ', indent * 4);
         var nestedPrinter = new CSharpPrinter(
@@ -3729,6 +3726,7 @@ public sealed partial class CSharpPrinter
         // deref of the by-ref argument; the referenced element's static type is
         // still `dynamic`, so the `(dynamic)` cast is equally redundant (#3035).
         LoadIndirect { Address: LoadArgument { IsDynamic: true } } => true,
+        LoadIndirect { Address: LoadField { Field.IsDynamic: true } } => true,
         _ => false,
     };
 

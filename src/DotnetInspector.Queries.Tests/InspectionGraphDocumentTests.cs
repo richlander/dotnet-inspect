@@ -711,6 +711,218 @@ public sealed class InspectionGraphDocumentTests
     }
 
     [Fact]
+    public void InducedSetRequest_ValidatesAndSnapshotsExplicitInputs()
+    {
+        InspectionGraphSubject first = Subject("First");
+        InspectionGraphSubject second = Subject("Second");
+        var subjects = new List<InspectionGraphSubject>
+        {
+            first,
+            second,
+        };
+        var relationships =
+            new List<InspectionGraphRelationshipDescriptor>
+            {
+                CallGraphInspectionGraphCatalog.Call,
+            };
+        var request = new InspectionGraphInducedSetRequest(
+            subjects,
+            relationships,
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
+
+        subjects.Clear();
+        relationships.Clear();
+
+        Assert.Equal([first, second], request.Subjects);
+        Assert.Equal(
+            [CallGraphInspectionGraphCatalog.Call],
+            request.Relationships);
+        Assert.Equal(
+            InspectionGraphMode.InducedSet,
+            request.ModeRequest.Mode);
+        Assert.Equal(
+            InspectionGraphInducedSetRule.ExplicitSubjects,
+            request.ModeRequest.InducedSetRule);
+        Assert.Empty(request.ModeRequest.Seeds);
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphInducedSetRequest(
+                [],
+                [CallGraphInspectionGraphCatalog.Call],
+                InspectionGraphInducedSetAdmissionRule
+                    .BothEndpointsWithinSubjectClosure));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphInducedSetRequest(
+                [first, first],
+                [CallGraphInspectionGraphCatalog.Call],
+                InspectionGraphInducedSetAdmissionRule
+                    .BothEndpointsWithinSubjectClosure));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphInducedSetRequest(
+                [first],
+                [],
+                InspectionGraphInducedSetAdmissionRule
+                    .BothEndpointsWithinSubjectClosure));
+        InspectionGraphInducedSetRequest isolated =
+            new(
+                [first],
+                [
+                    InspectionGraphIntegrationsCatalog
+                        .MetadataReference,
+                ],
+                InspectionGraphInducedSetAdmissionRule
+                    .BothEndpointsWithinSubjectClosure);
+        Assert.Equal([first], isolated.Subjects);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new InspectionGraphInducedSubjectBoundEvidence(0));
+    }
+
+    [Fact]
+    public void Document_RetainsExplicitInducedSetRequestWithoutSeeds()
+    {
+        InspectionGraphSubject first = Subject("First");
+        InspectionGraphSubject second = Subject("Second");
+        var request = new InspectionGraphInducedSetRequest(
+            [first, second],
+            [CallGraphInspectionGraphCatalog.Call],
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
+        InspectionGraphNode[] nodes =
+        [
+            new(0, first, InspectionGraphNodeRole.Ordinary, []),
+            new(1, second, InspectionGraphNodeRole.Ordinary, []),
+        ];
+
+        var document = new InspectionGraphDocument(
+            InspectionGraphDocumentScope.SessionBound,
+            request,
+            nodes,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [
+                new InspectionGraphLimit(
+                    InspectionGraphInducedSetCatalog.SubjectBound,
+                    Evidence:
+                        new InspectionGraphInducedSubjectBoundEvidence(2)),
+            ],
+            []);
+
+        Assert.Same(request, document.InducedSetRequest);
+        Assert.Same(request.ModeRequest, document.ModeRequest);
+        Assert.Null(document.NeighborhoodRequest);
+        Assert.Empty(document.Seeds);
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphDocument(
+                InspectionGraphDocumentScope.SessionBound,
+                request.ModeRequest,
+                nodes,
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+                []));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphDocument(
+                InspectionGraphDocumentScope.SessionBound,
+                request,
+                [nodes[0]],
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+                []));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphDocument(
+                InspectionGraphDocumentScope.SessionBound,
+                request,
+                nodes,
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+                []));
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphDocument(
+                InspectionGraphDocumentScope.SessionBound,
+                request,
+                nodes,
+                [],
+                [],
+                [],
+                [],
+                [],
+                [
+                    new InspectionGraphLimit(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
+                        Evidence:
+                            new InspectionGraphInducedSubjectBoundEvidence(
+                                1)),
+                ],
+                []));
+    }
+
+    [Fact]
+    public void Document_RejectsExplicitOccurrenceOutsideSubjectClosure()
+    {
+        InspectionGraphSubject first = Subject("First");
+        InspectionGraphSubject second = Subject("Second");
+        InspectionGraphSubject outside = Subject("Outside");
+        var request = new InspectionGraphInducedSetRequest(
+            [first, second],
+            [TestRelationship],
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
+        InspectionGraphNode[] nodes =
+        [
+            new(0, first, InspectionGraphNodeRole.Ordinary, []),
+            new(1, second, InspectionGraphNodeRole.Ordinary, []),
+            new(2, outside, InspectionGraphNodeRole.Ordinary, []),
+        ];
+        var occurrence = new InspectionGraphOccurrence(
+            0,
+            TestRelationship,
+            first,
+            outside,
+            new TestOccurrenceEvidence(1),
+            []);
+
+        Assert.Throws<ArgumentException>(
+            () => new InspectionGraphDocument(
+                InspectionGraphDocumentScope.SessionBound,
+                request,
+                nodes,
+                [],
+                [
+                    new InspectionGraphEdge(
+                        0,
+                        0,
+                        2,
+                        TestRelationship,
+                        [0]),
+                ],
+                [occurrence],
+                [],
+                [],
+                [
+                    new InspectionGraphLimit(
+                        InspectionGraphInducedSetCatalog.SubjectBound,
+                        Evidence:
+                            new InspectionGraphInducedSubjectBoundEvidence(
+                                2)),
+                ],
+                []));
+    }
+
+    [Fact]
     public void RelationshipDescriptor_ValidatesAndSnapshotsSeedAdmissions()
     {
         static InspectionGraphRelationshipDescriptor Descriptor(

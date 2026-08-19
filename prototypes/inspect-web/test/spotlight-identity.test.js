@@ -918,21 +918,36 @@ test("relationship navigation rejects ambiguous dotted identities", () => {
   assert.equal(uniqueTypeByQueryId([first, second], "N.T"), null);
 });
 
-test("incomplete call graphs produce a visible diagnostic", () => {
+test("call graph diagnostics distinguish failures from expected bounds", () => {
   assert.equal(callGraphDiagnosticsMessage({
     isIncomplete: true,
     incompleteNodes: 2,
     incompleteEdges: 1,
-    bindingIdentityConflicts: 3
+    bindingIdentityConflicts: 3,
+    hasUnexploredTraversalBoundary: true
   }), "Partial call graph: 2 incomplete nodes, 1 incomplete edge, and 3 binding identity conflicts.");
   assert.equal(callGraphDiagnosticsMessage({
     isIncomplete: true,
     incompleteNodes: 0,
     incompleteEdges: 0,
     bindingIdentityConflicts: 0,
+    hasUnexploredTraversalBoundary: true
+  }), "");
+  assert.equal(callGraphDiagnosticsMessage({
+    isIncomplete: true,
+    incompleteNodes: 0,
+    incompleteEdges: 0,
+    bindingIdentityConflicts: 0,
+    hasAnalysisFailureBoundary: true
+  }), "Partial call graph: one or more method bodies could not be analyzed.");
+  assert.equal(callGraphDiagnosticsMessage({
+    isIncomplete: true,
+    incompleteNodes: 1,
+    incompleteEdges: 0,
+    bindingIdentityConflicts: 0,
     hasUnexploredTraversalBoundary: true,
     hasAnalysisFailureBoundary: true
-  }), "Partial call graph: 0 incomplete nodes, 0 incomplete edges, and 0 binding identity conflicts. Boundaries: unexplored traversal and analysis failure.");
+  }), "Partial call graph: 1 incomplete node and one or more method bodies could not be analyzed.");
   assert.equal(callGraphDiagnosticsMessage({ isIncomplete: false }), "");
 });
 

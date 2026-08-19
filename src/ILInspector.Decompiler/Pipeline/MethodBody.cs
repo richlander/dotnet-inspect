@@ -61,7 +61,14 @@ public sealed record MethodBody(
 /// dynamic view lets the printer drop a redundant <c>(dynamic)</c> cast on a
 /// raised dynamic member access whose receiver is this parameter.
 /// </summary>
-public sealed record Parameter(string Name, TypeRef Type, bool HasDefault = false, bool IsDynamic = false);
+public sealed record Parameter(string Name, TypeRef Type, bool HasDefault = false, bool IsDynamic = false)
+{
+    /// <summary>
+    /// Whether an array parameter's element type was authored as
+    /// <c>dynamic</c>. Non-array parameters report <see cref="MetadataFactState.No"/>.
+    /// </summary>
+    public MetadataFactState ArrayElementIsDynamic { get; init; } = MetadataFactState.Unknown;
+}
 
 /// <summary>A method signature with symbolic types throughout.</summary>
 public sealed record MethodSignature(
