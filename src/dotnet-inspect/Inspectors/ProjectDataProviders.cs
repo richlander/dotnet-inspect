@@ -1,3 +1,4 @@
+using System.Text;
 using DotnetInspector.Commands;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
@@ -9,6 +10,13 @@ namespace DotnetInspector.Inspectors;
 
 internal sealed class ProjectSkillsProvider
 {
+    enum SkillReadFailure
+    {
+        None,
+        InvalidName,
+        InvalidDescription,
+    }
+
     static readonly string[] SkillPatterns =
         ["skills/SKILL.md", "skills/**/SKILL.md"];
 
@@ -46,7 +54,7 @@ internal sealed class ProjectSkillsProvider
                 failures.Add(new ProjectContentFailure(
                     file.PackageName,
                     file.Path,
-                    "the restored assets file declares the skill, but the file is missing"));
+                    "a restored package skill listed in project.assets.json is missing from the package cache"));
                 skills.Add(new ProjectSkillData(
                     file.PackageName,
                     file.Version,
@@ -63,6 +71,25 @@ internal sealed class ProjectSkillsProvider
             {
                 long knownSize = new FileInfo(file.FullPath).Length;
                 size = knownSize;
+                string content = File.ReadAllText(file.FullPath);
+                IReadOnlyDictionary<string, string> frontmatter =
+                    MarkdownContent.ParseYamlFrontmatter(content);
+                SkillReadFailure validationFailure = ValidateMetadata(
+                    file.Path,
+                    frontmatter,
+                    out string skillName,
+                    out string description);
+                if (validationFailure != SkillReadFailure.None)
+                {
+                    failures.Add(new ProjectContentFailure(
+                        file.PackageName,
+                        file.Path,
+                        validationFailure == SkillReadFailure.InvalidName
+                            ? "a restored package skill must declare an Agent Skills-compliant name that matches its containing directory"
+                            : "a restored package skill must declare an Agent Skills-compliant description of 1 to 1024 characters"));
+                    continue;
+                }
+
                 if (_deferContent)
                 {
                     _contentStore.Add(
@@ -75,17 +102,12 @@ internal sealed class ProjectSkillsProvider
                         file.Version,
                         file.Path,
                         knownSize,
-                        "",
-                        "",
+                        skillName,
+                        description,
                         ""));
                     continue;
                 }
 
-                string content = File.ReadAllText(file.FullPath);
-                IReadOnlyDictionary<string, string> frontmatter =
-                    MarkdownContent.ParseYamlFrontmatter(content);
-                frontmatter.TryGetValue("name", out string? skillName);
-                frontmatter.TryGetValue("description", out string? description);
                 _contentStore.Add(
                     ProjectSectionNames.Skills,
                     file.PackageName,
@@ -96,8 +118,8 @@ internal sealed class ProjectSkillsProvider
                     file.Version,
                     file.Path,
                     knownSize,
-                    skillName ?? "",
-                    description ?? "",
+                    skillName,
+                    description,
                     ""));
             }
             catch (Exception ex) when (
@@ -122,6 +144,94 @@ internal sealed class ProjectSkillsProvider
         }
 
         return ProjectSkillsQuery.Execute(skills, failures);
+    }
+
+    static SkillReadFailure ValidateMetadata(
+        string packagePath,
+        IReadOnlyDictionary<string, string> frontmatter,
+        out string name,
+        out string description)
+    {
+        if (!TryGetName(packagePath, frontmatter, out name))
+        {
+            description = "";
+            return SkillReadFailure.InvalidName;
+        }
+
+        frontmatter.TryGetValue("description", out string? candidateDescription);
+        if (!IsValidDescription(candidateDescription))
+        {
+            description = "";
+            return SkillReadFailure.InvalidDescription;
+        }
+
+        description = candidateDescription!;
+        return SkillReadFailure.None;
+    }
+
+    static bool TryGetName(
+        string packagePath,
+        IReadOnlyDictionary<string, string> frontmatter,
+        out string name)
+    {
+        string normalizedPath = packagePath.Replace('\\', '/');
+        int fileSeparator = normalizedPath.LastIndexOf('/');
+        if (fileSeparator <= 0)
+        {
+            name = "";
+            return false;
+        }
+
+        string parentPath = normalizedPath[..fileSeparator].TrimEnd('/');
+        int parentSeparator = parentPath.LastIndexOf('/');
+        string directoryName = parentPath[(parentSeparator + 1)..];
+        if (!frontmatter.TryGetValue("name", out name!))
+            return false;
+
+        return string.Equals(name, directoryName, StringComparison.Ordinal)
+            && IsValidName(name);
+    }
+
+    static bool IsValidName(string name)
+    {
+        if (name.Length is < 1 or > 64
+            || name[0] == '-'
+            || name[^1] == '-')
+        {
+            return false;
+        }
+
+        bool previousWasHyphen = false;
+        foreach (char character in name)
+        {
+            bool isHyphen = character == '-';
+            if (!(character is >= 'a' and <= 'z'
+                  || character is >= '0' and <= '9'
+                  || isHyphen)
+                || isHyphen && previousWasHyphen)
+            {
+                return false;
+            }
+
+            previousWasHyphen = isHyphen;
+        }
+
+        return true;
+    }
+
+    static bool IsValidDescription(string? description)
+    {
+        if (string.IsNullOrEmpty(description))
+            return false;
+
+        int length = 0;
+        foreach (Rune _ in description.EnumerateRunes())
+        {
+            if (++length > 1024)
+                return false;
+        }
+
+        return true;
     }
 }
 
