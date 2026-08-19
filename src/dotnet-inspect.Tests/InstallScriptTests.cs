@@ -29,7 +29,11 @@ public sealed class InstallScriptTests
             string bootstrapLog = Path.Combine(directory, "bootstrap.log");
             string installerLog = Path.Combine(directory, "installer.log");
             string pathLog = Path.Combine(directory, "path.log");
-            string installDirectory = Path.Combine(directory, "custom install");
+            string toolBinLog = Path.Combine(directory, "tool-bin.log");
+            string restoredToolBinLog = Path.Combine(directory, "restored-tool-bin.log");
+            string installDirectory = Path.Combine(
+                directory,
+                "custom & %TEMP% ^ install");
             string wrapper = Path.Combine(directory, "run.ps1");
             await File.WriteAllTextAsync(
                 wrapper,
@@ -43,6 +47,7 @@ public sealed class InstallScriptTests
                     @'
                 @echo off
                 > "%DOTNET_INSTALL_TEST_LOG%" echo %*
+                set DOTNET_TOOL_BIN > "%DOTNET_TOOL_BIN_TEST_LOG%"
                 exit /b 0
                 '@ | Set-Content `
                         -LiteralPath (Join-Path $toolPath "dotnet-install.cmd") `
@@ -52,6 +57,9 @@ public sealed class InstallScriptTests
 
                 & $env:DOTNET_INSTALL_TEST_SCRIPT
                 [IO.File]::WriteAllText($env:DOTNET_PATH_TEST_LOG, $env:PATH)
+                [IO.File]::WriteAllText(
+                    $env:DOTNET_RESTORED_TOOL_BIN_TEST_LOG,
+                    $env:DOTNET_TOOL_BIN)
                 """,
                 cancellationToken);
 
@@ -63,6 +71,9 @@ public sealed class InstallScriptTests
                 ["DOTNET_INSTALL_TEST_SCRIPT"] = InstallScript,
                 ["DOTNET_INSTALL_DIR"] = installDirectory,
                 ["DOTNET_PATH_TEST_LOG"] = pathLog,
+                ["DOTNET_RESTORED_TOOL_BIN_TEST_LOG"] = restoredToolBinLog,
+                ["DOTNET_TOOL_BIN"] = "original-tool-bin",
+                ["DOTNET_TOOL_BIN_TEST_LOG"] = toolBinLog,
                 ["PATH"] = initialPath,
                 ["TEMP"] = directory,
                 ["TMP"] = directory,
@@ -91,8 +102,19 @@ public sealed class InstallScriptTests
             string invocation =
                 await File.ReadAllTextAsync(installerLog, cancellationToken);
             Assert.Contains("--package dotnet-inspect", invocation);
-            Assert.Contains("--output", invocation);
-            Assert.Contains(installDirectory, invocation);
+            Assert.DoesNotContain("--output", invocation);
+            string toolBin = (await File.ReadAllLinesAsync(
+                toolBinLog,
+                cancellationToken)).Single(static line =>
+                    line.StartsWith("DOTNET_TOOL_BIN=", StringComparison.Ordinal));
+            Assert.Equal(
+                $"DOTNET_TOOL_BIN={installDirectory}",
+                toolBin);
+            Assert.Equal(
+                "original-tool-bin",
+                await File.ReadAllTextAsync(
+                    restoredToolBinLog,
+                    cancellationToken));
         }
         finally
         {

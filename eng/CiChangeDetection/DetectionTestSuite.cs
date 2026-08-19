@@ -287,6 +287,19 @@ internal static class DetectionTestSuite
                 $"{FormatValues(source)}");
         }
 
+        Dictionary<string, string> windowsInstaller = RunDetection(
+            repository,
+            body,
+            "pull_request",
+            "install.ps1",
+            outputs);
+        if (windowsInstaller["code"] != "true")
+        {
+            throw new InvalidOperationException(
+                "Windows installer canary did not select code: " +
+                FormatValues(windowsInstaller));
+        }
+
         Dictionary<string, string> webDependency = RunDetection(
             repository,
             body,

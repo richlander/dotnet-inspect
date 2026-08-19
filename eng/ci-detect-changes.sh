@@ -318,6 +318,9 @@ while IFS= read -r -d '' file; do
     # Controls checkout line endings on Windows, including the raw
     # string fixtures this lane exists to validate.
     .gitattributes) CODE=true ;;
+    # InstallScriptTests runs the Windows bootstrap under both PowerShell
+    # engines; installer-only changes must reach that test lane.
+    install.ps1) CODE=true ;;
     # GateExpectedClassesTests lives in the fast lane and is the only
     # thing keeping this file honest against the pre-merge preset, so
     # editing the file must run the lane that validates it.

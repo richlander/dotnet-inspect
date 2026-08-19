@@ -15,6 +15,9 @@ $installerCommand = Get-Command "dotnet-install" -ErrorAction SilentlyContinue
 $bootstrapDirectory = $null
 $originalPath = $null
 $pathChanged = $false
+$originalToolBinExists = Test-Path Env:DOTNET_TOOL_BIN
+$originalToolBin = $env:DOTNET_TOOL_BIN
+$toolBinChanged = $false
 
 try {
     if (-not $installerCommand) {
@@ -46,19 +49,26 @@ try {
         }
     }
 
-    $installArguments = @("--package", "dotnet-inspect")
     if (-not [string]::IsNullOrWhiteSpace($env:DOTNET_INSTALL_DIR)) {
-        $installArguments += @("--output", $env:DOTNET_INSTALL_DIR)
+        $env:DOTNET_TOOL_BIN = $env:DOTNET_INSTALL_DIR
+        $toolBinChanged = $true
     }
 
     Write-Host "dotnet-inspect: installing dotnet-inspect..."
-    & $installerCommand @installArguments
+    & $installerCommand --package dotnet-inspect
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     Write-Host "dotnet-inspect: done"
 } finally {
     if ($pathChanged) {
         $env:PATH = $originalPath
+    }
+    if ($toolBinChanged) {
+        if ($originalToolBinExists) {
+            $env:DOTNET_TOOL_BIN = $originalToolBin
+        } else {
+            Remove-Item Env:DOTNET_TOOL_BIN -ErrorAction SilentlyContinue
+        }
     }
     if ($bootstrapDirectory -and (Test-Path -LiteralPath $bootstrapDirectory)) {
         Remove-Item -LiteralPath $bootstrapDirectory -Recurse -Force
