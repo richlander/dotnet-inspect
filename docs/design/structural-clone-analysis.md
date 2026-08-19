@@ -282,7 +282,7 @@ separate retrieval dispositions.
 ordering, input-order determinism, visible top-K suppression, partial-ranking
 disposition, atomic admission, seed-independent populations, duplicate caller
 errors, unsupported seeds, cross-image artifact-scoped identities, candidate
-metadata failure, same-module exclusion across separate readers, and the
+metadata failure, same-MVID collision handling across separate readers, and the
 separation between ranking score and relationship.
 
 ## Correspondence and automorphisms

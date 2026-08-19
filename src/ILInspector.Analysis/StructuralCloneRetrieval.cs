@@ -252,29 +252,22 @@ public static partial class StructuralCloneAnalysis
         }
 
         Guid candidateModuleVersionId = default;
-        bool candidateMetadataAvailable =
+        bool candidateReaderAvailable =
             TryGetMetadataReader(
                 candidateImage,
                 out MetadataReader candidateReader,
-                out StructuralCloneMetadataFailure candidateMetadataFailure)
-            && TryGetModuleVersionId(
-                candidateReader,
-                out candidateModuleVersionId,
-                out candidateMetadataFailure);
-        if (candidateMetadataAvailable)
+                out StructuralCloneMetadataFailure candidateMetadataFailure);
+        if (candidateReaderAvailable)
         {
             foreach (MethodDefinitionHandle method in orderedMethods)
                 ValidateHandle(candidateReader, method, nameof(methods));
         }
-        bool sameModule =
-            candidateMetadataAvailable
-            && seedModuleVersionId == candidateModuleVersionId;
-        if (!sameImage
-            && sameModule
-            && methods.Contains(seed))
-        {
-            potentialCandidates--;
-        }
+        bool candidateMetadataAvailable =
+            candidateReaderAvailable
+            && TryGetModuleVersionId(
+                candidateReader,
+                out candidateModuleVersionId,
+                out candidateMetadataFailure);
 
         MetadataMethodAddress seedAddress =
             new(seedModuleVersionId, seed);
@@ -345,7 +338,7 @@ public static partial class StructuralCloneAnalysis
         StructuralCloneRetrievalProfile seedProfile =
             StructuralCloneRetrievalProfile.Create(
                 seedProduction.Facts!,
-                portableOperands: !sameModule);
+                portableOperands: !sameImage);
         ImmutableArray<StructuralCloneRetrievalMethodOutcome>.Builder outcomes =
             ImmutableArray.CreateBuilder<StructuralCloneRetrievalMethodOutcome>(
                 orderedMethods.Length);
@@ -358,7 +351,7 @@ public static partial class StructuralCloneAnalysis
 
         foreach (MethodDefinitionHandle handle in orderedMethods)
         {
-            if (sameModule && handle == seed)
+            if (sameImage && handle == seed)
                 continue;
             MetadataMethodAddress address =
                 new(candidateModuleVersionId, handle);
@@ -377,7 +370,7 @@ public static partial class StructuralCloneAnalysis
                     StructuralCloneRetrievalProfile profile =
                         StructuralCloneRetrievalProfile.Create(
                             production.Facts!,
-                            portableOperands: !sameModule);
+                            portableOperands: !sameImage);
                     if (seedProduction.Facts!.Signature
                         != production.Facts!.Signature)
                     {
