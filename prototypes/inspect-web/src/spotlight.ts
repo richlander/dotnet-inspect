@@ -29,9 +29,14 @@ interface PackageLoadedResult {
   ranges: readonly HighlightRange[];
 }
 
+export interface SpotlightPackageHit {
+  id: string;
+  version?: string;
+}
+
 interface PackageNugetResult {
   kind: "pkg-nuget";
-  hit: { id: string; version?: string };
+  hit: SpotlightPackageHit;
   ranges: readonly HighlightRange[];
 }
 
@@ -167,9 +172,67 @@ export function nextSpotlightScope(
     : (current + 1) % count;
 }
 
+export function visibleSpotlightPackageHits(
+  query: string,
+  resolvedQuery: string,
+  hits: readonly SpotlightPackageHit[],
+): readonly SpotlightPackageHit[] {
+  return query === resolvedQuery ? hits : [];
+}
+
+export function spotlightResultIdentity(result: SpotlightResult): string {
+  switch (result.kind) {
+    case "command":
+      return JSON.stringify([
+        result.kind,
+        result.action,
+        result.command,
+        result.targetTypeId ?? "",
+      ]);
+    case "pkg-loaded":
+      return JSON.stringify([
+        result.kind,
+        result.pkg.id,
+        result.pkg.version,
+        result.pkg.activeFramework ?? "",
+      ]);
+    case "pkg-nuget":
+      return JSON.stringify([result.kind, result.hit.id, result.hit.version ?? ""]);
+    case "pkg-recent":
+      return JSON.stringify([
+        result.kind,
+        result.entry.id,
+        result.entry.version ?? "",
+        result.entry.framework ?? "",
+      ]);
+    case "platform-lib":
+      return JSON.stringify([result.kind, result.pack, result.assembly]);
+    case "type":
+      return JSON.stringify([
+        result.kind,
+        result.pkg.id,
+        result.pkg.version,
+        result.pkg.activeFramework ?? "",
+        result.type.id,
+      ]);
+    case "member":
+      return JSON.stringify([
+        result.kind,
+        result.pkg.id,
+        result.pkg.version,
+        result.pkg.activeFramework ?? "",
+        result.type.id,
+        result.memberKey,
+      ]);
+    default:
+      return result.kind;
+  }
+}
+
 export function createSpotlight(options: SpotlightOptions) {
   const { state, escapeHtml } = options;
   let interactionGeneration = 0;
+  let selectedResultIdentity: string | null = null;
 
   function scopes() {
     return options.commandContext()
@@ -322,6 +385,23 @@ export function createSpotlight(options: SpotlightOptions) {
     );
   }
 
+  function rememberSelection(items: readonly SpotlightResult[]): void {
+    selectedResultIdentity = items[state.spotlightIndex]
+      ? spotlightResultIdentity(items[state.spotlightIndex])
+      : null;
+  }
+
+  function restoreSelection(items: readonly SpotlightResult[]): void {
+    if (selectedResultIdentity) {
+      const index = items.findIndex(
+        item => spotlightResultIdentity(item) === selectedResultIdentity,
+      );
+      if (index >= 0) state.spotlightIndex = index;
+    }
+    clampSelection(items);
+    rememberSelection(items);
+  }
+
   function activeDescendantAttribute(items: readonly SpotlightResult[]): string {
     return items.length
       ? ` aria-activedescendant="spotlight-result-${state.spotlightIndex}"`
@@ -343,7 +423,7 @@ export function createSpotlight(options: SpotlightOptions) {
 
   function modalHtml(): string {
     const items = results();
-    clampSelection(items);
+    restoreSelection(items);
     const commands = state.spotlightScope === "commands";
     return `
       <div class="spotlight-backdrop" id="spotlight-backdrop">
@@ -362,7 +442,7 @@ export function createSpotlight(options: SpotlightOptions) {
 
   function inlineHtml(disabled: boolean): string {
     const items = results();
-    clampSelection(items);
+    restoreSelection(items);
     return `
       <div class="home-search-content" ${disabled ? "inert" : ""}>
         <div class="home-search-box">
@@ -413,7 +493,7 @@ export function createSpotlight(options: SpotlightOptions) {
     const container = document.querySelector<HTMLElement>("#spotlight-results");
     if (!container) return;
     const items = results();
-    clampSelection(items);
+    restoreSelection(items);
     container.innerHTML = resultsHtml(items);
     bindResultClicks(container);
     syncActiveDescendant(items.length);
@@ -431,6 +511,7 @@ export function createSpotlight(options: SpotlightOptions) {
     if (!available.some(item => item.id === scope)) return;
     state.spotlightScope = scope;
     state.spotlightIndex = 0;
+    selectedResultIdentity = null;
     options.schedulePackageFetch();
     refresh();
     focus();
@@ -444,6 +525,7 @@ export function createSpotlight(options: SpotlightOptions) {
     state.spotlightFocus = "input";
     state.spotlightChipIndex = 0;
     state.spotlightIndex = 0;
+    selectedResultIdentity = null;
   }
 
   function close(): void {
@@ -463,6 +545,7 @@ export function createSpotlight(options: SpotlightOptions) {
     state.spotlightFocus = "input";
     state.spotlightChipIndex = 0;
     state.spotlightIndex = 0;
+    selectedResultIdentity = null;
     options.schedulePackageFetch();
     options.render();
     focus();
@@ -480,6 +563,7 @@ export function createSpotlight(options: SpotlightOptions) {
     if (result.action === "complete") {
       state.spotlightQuery = `${result.command} `;
       state.spotlightIndex = 0;
+      selectedResultIdentity = null;
       const input = document.querySelector<HTMLInputElement>("#spotlight-input");
       if (input) input.value = state.spotlightQuery;
       updateResults();
@@ -520,6 +604,7 @@ export function createSpotlight(options: SpotlightOptions) {
     const next = nextSpotlightSelection(state.spotlightIndex, delta, count);
     if (next === null) return false;
     state.spotlightIndex = next;
+    rememberSelection(results());
     highlightSelection();
     return true;
   }
@@ -580,6 +665,7 @@ export function createSpotlight(options: SpotlightOptions) {
       } else if (event.key === "ArrowDown" || event.key === "Enter") {
         event.preventDefault();
         state.spotlightIndex = 0;
+        rememberSelection(results());
         focusInput();
         highlightSelection();
       }
@@ -621,6 +707,7 @@ export function createSpotlight(options: SpotlightOptions) {
         1,
         items.length,
       ) ?? 0;
+      rememberSelection(items);
       updateResults();
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
@@ -629,6 +716,7 @@ export function createSpotlight(options: SpotlightOptions) {
         -1,
         items.length,
       ) ?? 0;
+      rememberSelection(items);
       updateResults();
     } else if (event.key === "Enter") {
       event.preventDefault();
@@ -642,6 +730,7 @@ export function createSpotlight(options: SpotlightOptions) {
       input.addEventListener("input", () => {
         state.spotlightQuery = input.value;
         state.spotlightIndex = 0;
+        selectedResultIdentity = null;
         if (state.spotlightFocus === "chips") {
           state.spotlightFocus = "input";
           updateChips();

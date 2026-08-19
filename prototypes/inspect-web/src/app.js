@@ -60,7 +60,10 @@ import {
   renderTastePopover,
 } from "/src/settings-panel.ts";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { createSpotlight } from "/src/spotlight.ts";
+import {
+  createSpotlight,
+  visibleSpotlightPackageHits,
+} from "/src/spotlight.ts";
 import { fmtBytes, statusBarHtml } from "/src/status-bar.ts";
 
 let initializeEngine;
@@ -4422,7 +4425,12 @@ function spotlightResults() {
       if (all && recentShown.size >= 6) break;
     }
     let added = 0;
-    for (const hit of state.spotlightPkgHits) {
+    const packageHits = visibleSpotlightPackageHits(
+      query,
+      state.spotlightPkgQuery,
+      state.spotlightPkgHits,
+    );
+    for (const hit of packageHits) {
       if (openIds.has(hit.id.toLowerCase()) || recentShown.has(hit.id.toLowerCase())) continue;
       results.push({ kind: "pkg-nuget", hit, ranges: computeHighlightRanges(hit.id, query.toLowerCase()) });
       if (all && ++added >= 4) break;
@@ -4482,7 +4490,6 @@ function scheduleSpotlightPackageFetch() {
     return;
   }
   const generation = ++spotlightPkgGeneration;
-  state.spotlightPkgHits = [];
   state.spotlightPkgLoading = true;
   spotlightPkgTimer = setTimeout(() => {
     spotlightPkgTimer = null;

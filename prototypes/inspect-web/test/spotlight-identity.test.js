@@ -147,7 +147,9 @@ const commandBarSource = readFileSync(
   "utf8");
 
 test("typed Spotlight owns search presentation and hosts commands", () => {
-  assert.match(appSource, /import \{ createSpotlight \} from "\/src\/spotlight\.ts"/);
+  assert.match(
+    appSource,
+    /import \{\s*createSpotlight,\s*visibleSpotlightPackageHits,\s*\} from "\/src\/spotlight\.ts"/);
   assert.match(appSource, /openSpotlight\("", "commands"\)/);
   assert.match(appSource, /state\.spotlightOpen \? spotlight\.modalHtml\(\)/);
   assert.match(appSource, /spotlight\.inlineHtml\(enginePending\)/);
@@ -182,8 +184,8 @@ test("leaving package search clears its pending loading state", () => {
     scheduler,
     /query === state\.spotlightPkgQuery[\s\S]*spotlightPkgGeneration\+\+;[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
   assert.match(
-    scheduler,
-    /const generation = \+\+spotlightPkgGeneration;\s*state\.spotlightPkgHits = \[\];\s*state\.spotlightPkgLoading = true;/);
+    appSource,
+    /visibleSpotlightPackageHits\(\s*query,\s*state\.spotlightPkgQuery,\s*state\.spotlightPkgHits,\s*\)/);
 });
 
 test("Spotlight async work is generation-gated and refreshes either mounted surface", () => {

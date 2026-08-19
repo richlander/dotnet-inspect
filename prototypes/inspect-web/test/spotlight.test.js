@@ -5,6 +5,7 @@ import {
   createSpotlight,
   nextSpotlightScope,
   nextSpotlightSelection,
+  visibleSpotlightPackageHits,
 } from "../src/spotlight.ts";
 
 function escapeHtml(value) {
@@ -20,6 +21,7 @@ function createHarness({
   query = "",
   commandContext = null,
   focusAfterDismiss = () => {},
+  searchResults = () => [],
 } = {}) {
   const state = {
     spotlightOpen: false,
@@ -35,7 +37,7 @@ function createHarness({
     escapeHtml,
     highlightRanges: (value) => escapeHtml(value),
     kindIcon: () => "C",
-    searchResults: () => [],
+    searchResults,
     pickResult: () => {},
     executeCommand: () => {},
     commandContext: () => commandContext,
@@ -69,6 +71,50 @@ test("Spotlight selection clamps without wrapping and scope cycling wraps", () =
   assert.equal(nextSpotlightSelection(0, 1, 0), null);
   assert.equal(nextSpotlightScope(4, 5, false), 0);
   assert.equal(nextSpotlightScope(0, 5, true), 4);
+});
+
+test("NuGet hits are visible only for their resolved query and survive a query round trip", () => {
+  const hits = [{ id: "Alpha", version: "1.0.0" }];
+
+  assert.deepEqual(visibleSpotlightPackageHits("alpha", "alpha", hits), hits);
+  assert.deepEqual(visibleSpotlightPackageHits("alphabet", "alpha", hits), []);
+  assert.deepEqual(visibleSpotlightPackageHits("alpha", "alpha", hits), hits);
+});
+
+test("Spotlight keeps the selected result when async rows are inserted before it", () => {
+  const pkg = { id: "Example.Package", version: "1.0.0" };
+  const first = {
+    kind: "type",
+    pkg,
+    type: { id: "Example.First", name: "First", kind: "class" },
+    ranges: [],
+  };
+  const selected = {
+    kind: "type",
+    pkg,
+    type: { id: "Example.Selected", name: "Selected", kind: "class" },
+    ranges: [],
+  };
+  let results = [first, selected];
+  const { spotlight, state } = createHarness({
+    query: "Example",
+    searchResults: () => results,
+  });
+  state.spotlightIndex = 1;
+  spotlight.modalHtml();
+
+  results = [{
+    kind: "pkg-nuget",
+    hit: { id: "Example.New", version: "2.0.0" },
+    ranges: [],
+  }, first, selected];
+  const html = spotlight.modalHtml();
+
+  assert.equal(state.spotlightIndex, 2);
+  assert.match(html, /aria-activedescendant="spotlight-result-2"/);
+  assert.match(
+    html,
+    /id="spotlight-result-2" class="spotlight-item selected"[^>]*data-sl-type="Example\.Selected"/);
 });
 
 test("closing Spotlight restores focus through the application boundary", () => {
