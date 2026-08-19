@@ -247,16 +247,19 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /id="clear-member-filter"[^>]*aria-label="Clear member filters"/);
   assert.match(
     appSource,
-    /state\.memberDocumentationLoading = false;\s*if \(memberRequestIsCurrent\(signature\)\)\s*renderPreservingMemberFilterFocus\(\)/);
+    /state\.memberDocumentationLoading = false;\s*if \(memberRequestIsCurrent\(signature\)\)\s*renderPreservingMemberFocus\(\)/);
   assert.match(
     stylesSource,
     /\.type-browser:not\(\.member-nav\) \.namespace-chips, \.pane-footer \{ display: none; \}/);
   assert.match(
     appSource,
-    /memberFilter\?\.addEventListener\("input"[\s\S]*renderPreservingMemberFilterFocus\(\)/);
+    /memberFilter\?\.addEventListener\("input"[\s\S]*renderPreservingMemberFocus\(\)/);
   assert.match(
     appSource,
     /memberFilter\?\.addEventListener\("keydown"[\s\S]*stepMemberNav/);
+  assert.match(
+    appSource,
+    /active\?\.id === "type-list"[\s\S]*selector = "#type-list"/);
 });
 
 test("shared member views retain scope and filter state", () => {
@@ -271,6 +274,9 @@ test("shared member views retain scope and filter state", () => {
   assert.match(encoder, /packet\.r = state\.memberTraitFilter/);
   assert.match(decoder, /memberBrowse: raw\.b === 1/);
   assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
+  assert.match(
+    appSource,
+    /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(loc, deep, navigationSeq\)/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {

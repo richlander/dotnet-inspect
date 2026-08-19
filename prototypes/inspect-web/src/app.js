@@ -3594,7 +3594,7 @@ function bindEvents() {
   memberFilter?.addEventListener("input", event => {
     state.memberTextFilter = event.target.value;
     normalizeMemberSelection();
-    renderPreservingMemberFilterFocus();
+    renderPreservingMemberFocus();
   });
   memberFilter?.addEventListener("keydown", event => {
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -5141,8 +5141,9 @@ function focusFilter() {
   });
 }
 
-function renderPreservingMemberFilterFocus() {
+function renderPreservingMemberFocus() {
   const active = document.activeElement;
+  const memberListScrollTop = document.querySelector("#type-list")?.scrollTop;
   let selector = "";
   let selection = null;
   if (active?.id === "member-filter") {
@@ -5160,12 +5161,17 @@ function renderPreservingMemberFilterFocus() {
     selector = `[data-member-access-filter="${cssEscape(active.dataset.memberAccessFilter)}"]`;
   } else if (active?.dataset?.memberTraitFilter !== undefined) {
     selector = `[data-member-trait-filter="${cssEscape(active.dataset.memberTraitFilter)}"]`;
+  } else if (active?.id === "type-list") {
+    selector = "#type-list";
   }
 
   render();
-  if (!selector) return;
+  if (!selector && memberListScrollTop == null) return;
   requestAnimationFrame(() => {
-    const replacement = document.querySelector(selector);
+    const memberList = document.querySelector("#type-list");
+    if (memberList && memberListScrollTop != null)
+      memberList.scrollTop = memberListScrollTop;
+    const replacement = selector ? document.querySelector(selector) : null;
     replacement?.focus();
     if (selection && replacement?.setSelectionRange) {
       replacement.setSelectionRange(selection.start, selection.end, selection.direction);
@@ -5683,7 +5689,7 @@ async function loadSelectedMemberDocumentation() {
     if (state.memberDocumentationKey === signature) {
       state.memberDocumentationLoading = false;
       if (memberRequestIsCurrent(signature))
-        renderPreservingMemberFilterFocus();
+        renderPreservingMemberFocus();
     }
   }
 }
@@ -5747,7 +5753,7 @@ async function loadSelectedMemberSource() {
     if (current) {
       state.memberSourceLoading = false;
       if (memberRequestIsCurrent(signature, false, true))
-        renderPreservingMemberFilterFocus();
+        renderPreservingMemberFocus();
     }
   }
 }
@@ -5808,7 +5814,7 @@ async function loadSelectedMemberAnnotatedSource() {
     if (state.memberAnnotatedKey === signature) {
       state.memberAnnotatedLoading = false;
       if (memberRequestIsCurrent(signature, true, true))
-        renderPreservingMemberFilterFocus();
+        renderPreservingMemberFocus();
     }
   }
 }
@@ -6264,7 +6270,7 @@ async function loadSelectedMemberCallGraph() {
     state.memberCallGraph = local;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = hasOtherLibraries;
-    renderPreservingMemberFilterFocus();
+    renderPreservingMemberFocus();
     await renderMermaidCallGraph();
 
     if (hasOtherLibraries) {
@@ -6300,11 +6306,11 @@ async function loadSelectedMemberCallGraph() {
     if (state.memberCallGraph) {
       state.memberCallGraphError =
         `Workspace expansion was incomplete: ${String(error?.message || error)}`;
-      renderPreservingMemberFilterFocus();
+      renderPreservingMemberFocus();
       await renderMermaidCallGraph();
     } else {
       state.memberCallGraphError = String(error?.message || error);
-      renderPreservingMemberFilterFocus();
+      renderPreservingMemberFocus();
     }
   }
 }
@@ -6335,14 +6341,14 @@ async function loadRuntimeMemberCallGraph(type, overload) {
     state.memberCallGraph = graph;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
-    renderPreservingMemberFilterFocus();
+    renderPreservingMemberFocus();
     await renderMermaidCallGraph();
   } catch (error) {
     if (seq !== state.memberCallGraphSeq) return;
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
     state.memberCallGraphError = String(error?.message || error);
-    renderPreservingMemberFilterFocus();
+    renderPreservingMemberFocus();
   }
 }
 
@@ -7189,7 +7195,7 @@ async function loadSelectedMemberFacts() {
     if (state.memberFactsKey === signature) {
       state.memberFactsLoading = false;
       if (memberRequestIsCurrent(signature))
-        renderPreservingMemberFilterFocus();
+        renderPreservingMemberFocus();
     }
   }
 }
@@ -7996,22 +8002,11 @@ window.addEventListener("popstate", () => {
     render();
     return;
   }
+  const deep = loc;
   if (!state.package) {
-    const deep = {
-      type: loc.type,
-      member: loc.member,
-      overload: loc.overload,
-      section: loc.section
-    };
     restoreWorkspaceFromLocation(loc, deep, navigationSeq);
     return;
   }
-  const deep = {
-    type: loc.type,
-    member: loc.member,
-    overload: loc.overload,
-    section: loc.section
-  };
   if (loc.tabs?.length && !workspaceCoordinatesMatch(state.packages, loc.tabs)) {
     restoreWorkspaceFromLocation(loc, deep, navigationSeq);
     return;
