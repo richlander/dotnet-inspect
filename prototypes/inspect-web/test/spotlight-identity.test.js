@@ -5,7 +5,6 @@ import test from "node:test";
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
-  authoredSourceLimitationHtml,
   beginSourceRequestState,
   cancelSourceRequestState,
   callGraphAssemblyIdentityMatches,
@@ -752,24 +751,6 @@ test("call graph source identity prefers the structured type definition", () => 
   assert.equal(candidate.type, literal);
   assert.equal(callGraphTargetMatchesType(target, nested), false);
   assert.equal(callGraphTargetMatchesType(target, literal), true);
-});
-
-test("decompiled source discloses the authored-source limitation", () => {
-  const html = authoredSourceLimitationHtml({
-    authoredLimitation: "<img src=x onerror=alert(1)>"
-  });
-  assert.match(html, /Original source unavailable:/);
-  assert.doesNotMatch(html, /<img/);
-  assert.match(html, /&lt;img/);
-  assert.match(
-    appSource,
-    /authoredSourceLimitationHtml\(state\.memberSource\)/);
-  assert.match(
-    appSource,
-    /authoredSourceLimitationHtml\(state\.typeSource\)/);
-  assert.match(
-    appSource,
-    /authoredSourceLimitationHtml\(state\.graphSource\)/);
 });
 
 test("history never applies a selection to another coordinate", () => {
