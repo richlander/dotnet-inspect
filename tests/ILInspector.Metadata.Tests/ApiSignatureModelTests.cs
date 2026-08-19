@@ -1,4 +1,5 @@
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -129,8 +130,31 @@ public sealed class ApiSignatureModelTests
                 "System.Runtime.CompilerServices.IsExternalInit",
                 "System.Void"),
             setter.StructuralReturnType);
+        Assert.Equal(
+            setter.StructuralReturnType,
+            member.AccessorFacts.Single(accessor => accessor.Kind == "set")
+                .StructuralReturnType);
         Assert.Null(
             member.SignatureModel.Accessors.Single(accessor => accessor.Kind == "get")
+                .StructuralReturnType);
+    }
+
+    [Fact]
+    public void PropertyAccessorFacts_RoundTripInitSetterStructuralReturn()
+    {
+        var json = JsonSerializer.Serialize(Surface);
+        var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var member = roundTripped.Types
+            .Single(type => type.Name == nameof(ApiSignatureFixtures))
+            .Members.Single(candidate => candidate.Name == nameof(ApiSignatureFixtures.InitValue));
+
+        Assert.Contains("StructuralReturnType", json, StringComparison.Ordinal);
+        Assert.Equal(
+            StructuralTypeIdentity.Modified(
+                required: true,
+                "System.Runtime.CompilerServices.IsExternalInit",
+                "System.Void"),
+            member.AccessorFacts.Single(accessor => accessor.Kind == "set")
                 .StructuralReturnType);
     }
 

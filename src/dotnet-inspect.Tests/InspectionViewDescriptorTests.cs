@@ -558,7 +558,6 @@ public class InspectionViewDescriptorTests
                 SectionNames.Calls,
                 SectionNames.CostFacts,
                 SectionNames.CostOverlay,
-                SectionNames.ExceptionRegions,
                 SectionNames.FidelityCauses,
                 SectionNames.SafetyFacts,
                 SectionNames.SemanticsOverlay,
@@ -583,6 +582,7 @@ public class InspectionViewDescriptorTests
         {
             Name = "Sample",
             Kind = "class",
+            SelectedAccessorOrdinal = 1,
             Members = [member],
         };
 
@@ -600,6 +600,14 @@ public class InspectionViewDescriptorTests
                 type,
                 new HashSet<string> { SectionNames.Facts },
                 selectedOrdinal: 1));
+
+        IReadOnlySet<string> viewIds = ApiMemberDetailSectionDescriptors.CreatePipeline()
+            .GetInspectionViews(type)
+            .Select(view => view.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(SectionNames.DecompiledSource, viewIds);
+        Assert.Contains(SectionNames.Facts, viewIds);
+        Assert.Contains(SectionNames.Callers, viewIds);
     }
 
     private static ApiType BodylessMethodType(bool isAbstract) => new()

@@ -733,6 +733,14 @@ public class ApiType
     [JsonIgnore]
     public int? SelectedAccessorOrdinal { get; set; }
 
+    /// <summary>
+    /// Complete member set of the declaring type before a member-detail request narrowed
+    /// <see cref="Members"/>. Type-scoped analysis consumes this transient model so it does not
+    /// accidentally become scoped to the selected member.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<ApiMember>? DeclaringTypeMembers { get; set; }
+
     // Source information (populated with --source-url)
     public string? SourceFilePath { get; set; }
 

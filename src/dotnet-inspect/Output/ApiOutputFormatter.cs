@@ -1423,6 +1423,9 @@ public static class ApiOutputFormatter
         IReadOnlySet<string> requestedSections,
         int? selectedOrdinal = null)
     {
+        if (requestedSections.Count == 0)
+            return [];
+
         bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
         var methods = type.Members
             .Where(m => ApiMemberSectionDescriptors.IsMethodLike(m) && (!m.IsAbstract || includeAbstract))
@@ -1466,17 +1469,45 @@ public static class ApiOutputFormatter
         IReadOnlySet<string> requestedSections,
         int? selectedOrdinal)
     {
+        var bodyExecutionSections = new HashSet<string>(
+            requestedSections,
+            StringComparer.OrdinalIgnoreCase);
+        bodyExecutionSections.Remove(SectionNames.ExceptionRegions);
+
         if (selectedOrdinal is not { } ordinal
             || type.Members is not [{ } single]
             || !ApiMemberSectionDescriptors.HasAccessorTokens(single))
         {
-            return requestedSections;
+            return bodyExecutionSections;
         }
 
         var accessors = AccessorMethods(single, type).ToList();
         return ordinal > 0 && ordinal <= accessors.Count
-            ? GetSelectedAccessorSections(accessors[ordinal - 1], requestedSections)
-            : requestedSections;
+            ? GetSelectedAccessorSections(accessors[ordinal - 1], bodyExecutionSections)
+            : bodyExecutionSections;
+    }
+
+    internal static bool IsSelectedAbstractAccessor(ApiType type, int? selectedOrdinal)
+    {
+        if (selectedOrdinal is not { } ordinal
+            || type.Members is not [{ } member]
+            || !ApiMemberSectionDescriptors.HasAccessorTokens(member))
+        {
+            return false;
+        }
+
+        var accessors = AccessorMethods(member, type).ToList();
+        return ordinal > 0
+            && ordinal <= accessors.Count
+            && accessors[ordinal - 1].IsAbstract;
+    }
+
+    internal static void PopulateSelectedAbstractAccessorAbsence(TypeView view)
+    {
+        view.MemberCode ??= new MemberCodeView();
+        view.MemberCode.AnnotatedSourceCode = new CodeSection(
+            "text",
+            "The selected accessor has no IL body.");
     }
 
     private static bool CanAnalyzeSelectedAccessor(
@@ -1487,8 +1518,8 @@ public static class ApiOutputFormatter
     /// <summary>
     /// The body sections a selected property/event accessor still renders. An accessor metadata
     /// positively reports as bodyless keeps the sections that describe a declaration or report the
-    /// absent body (Annotated Source renders a decompilation diagnostic), and drops the ones that
-    /// would otherwise report the owner's other accessor.
+    /// absent body. Abstract accessors leave Annotated Source to the explicit absence path rather
+    /// than constructing a decompilation request; concrete bodyless accessors keep its diagnostic.
     /// </summary>
     private static HashSet<string> GetSelectedAccessorSections(
         ApiMember accessor,
@@ -1506,7 +1537,8 @@ public static class ApiOutputFormatter
             sections.Add(SectionNames.OriginalSource);
         if (requestedSections.Contains(SectionNames.SourceDiff))
             sections.Add(SectionNames.SourceDiff);
-        if (requestedSections.Contains(SectionNames.AnnotatedSource))
+        if (!accessor.IsAbstract
+            && requestedSections.Contains(SectionNames.AnnotatedSource))
             sections.Add(SectionNames.AnnotatedSource);
         if (!accessor.IsAbstract)
         {
@@ -1522,8 +1554,6 @@ public static class ApiOutputFormatter
                 sections.Add(SectionNames.SemanticsOverlay);
             if (requestedSections.Contains(SectionNames.Calls))
                 sections.Add(SectionNames.Calls);
-            if (requestedSections.Contains(SectionNames.ExceptionRegions))
-                sections.Add(SectionNames.ExceptionRegions);
             if (requestedSections.Contains(SectionNames.AllocationFacts))
                 sections.Add(SectionNames.AllocationFacts);
             if (requestedSections.Contains(SectionNames.SafetyFacts))

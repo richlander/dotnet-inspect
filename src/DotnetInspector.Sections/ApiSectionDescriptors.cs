@@ -808,7 +808,9 @@ public static class ApiMemberDetailSectionDescriptors
     private static bool HasExecutableBody(ApiMember member, ApiAccessor? accessor)
         => accessor is null
             ? ApiMemberSectionDescriptors.HasExecutableBody(member)
-            : accessor.HasMethodBody is true;
+            : accessor.IsAbstract is not true
+              && accessor.HasMethodBody is not false
+              && ApiMemberSectionDescriptors.HasAccessorTokens(member);
 
     private static bool MayHaveExecutableBody(ApiType model)
         => model.Members.Count == 1
@@ -826,8 +828,8 @@ public static class ApiMemberDetailSectionDescriptors
     }
 
     private static bool HasBodyAnalysisTarget(ApiMember member, ApiAccessor? accessor)
-        => accessor?.IsAbstract is { } isAbstract
-            ? !isAbstract
+        => accessor is not null
+            ? accessor.IsAbstract is not true
             : ApiMemberSectionDescriptors.HasBodyAnalysisTarget(member);
 
     private static ApiAccessor? SelectedAccessor(ApiType model)
@@ -849,7 +851,8 @@ public static class ApiMemberDetailSectionDescriptors
 
         string kind = kinds[ordinal - 1];
         return member.AccessorFacts.FirstOrDefault(accessor => accessor.Kind == kind)
-            ?? member.SignatureModel?.Accessors.FirstOrDefault(accessor => accessor.Kind == kind);
+            ?? member.SignatureModel?.Accessors.FirstOrDefault(accessor => accessor.Kind == kind)
+            ?? new ApiAccessor { Kind = kind };
     }
 
     public sealed class Summary : ISectionDescriptor<ApiType>

@@ -887,6 +887,7 @@ public class ApiCommand
             SelectedAccessorOrdinal = options is MemberOptions { OverloadIndex: { } ordinal }
                 ? ordinal
                 : null,
+            DeclaringTypeMembers = type.DeclaringTypeMembers,
             SourceFilePath = type.SourceFilePath,
             SourceUrl = type.SourceUrl,
             GitHubBrowseUrl = type.GitHubBrowseUrl,
@@ -899,6 +900,9 @@ public class ApiCommand
             Documentation = type.Documentation
         };
     }
+
+    private static IReadOnlyList<ApiMember> TypeScopedMembers(ApiType type)
+        => type.DeclaringTypeMembers ?? type.Members;
 
     internal static DocumentSchema GetTypeDocumentSchema(ApiOptions options)
     {
@@ -1063,23 +1067,11 @@ public class ApiCommand
             return false;
 
         if (options.Select is { Length: > 0 } selectors)
-        {
-            if (selectors.Any(selector =>
+            return selectors.Any(selector =>
                 string.Equals(
                     selector,
                     SectionNames.UnsafeMembers,
-                    StringComparison.OrdinalIgnoreCase)))
-            {
-                return true;
-            }
-
-            bool broadDocumentSelection = selectors.All(selector =>
-                selector is "*" || string.Equals(
-                    selector,
-                    "@All",
                     StringComparison.OrdinalIgnoreCase));
-            return !broadDocumentSelection;
-        }
 
         return options.IncludeSections?.Contains(SectionNames.UnsafeMembers) == true;
     }
@@ -1913,7 +1905,7 @@ public class ApiCommand
                     mo4.OverloadIndex);
                 if (methods.Count > 0)
                 {
-                    if (requestedSections.Contains(SectionNames.BodyShapes))
+                    if (requestedExecutionSections.Contains(SectionNames.BodyShapes))
                     {
                         ApiOutputFormatter.PopulateBodyShapes(
                             view,
@@ -1927,6 +1919,11 @@ public class ApiCommand
                     ApiOutputFormatter.PopulateIndexSections(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         executionSections, analysisInspection, mo4.PdbPath, mo4.IncludeSections, mo4);
+                }
+                else if (requestedExecutionSections.Contains(SectionNames.AnnotatedSource)
+                    && ApiOutputFormatter.IsSelectedAbstractAccessor(type, mo4.OverloadIndex))
+                {
+                    ApiOutputFormatter.PopulateSelectedAbstractAccessorAbsence(view);
                 }
             }
 
@@ -1948,7 +1945,7 @@ public class ApiCommand
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
-                    type.Members.Where(member => member.MetadataToken is not null
+                    TypeScopedMembers(type).Where(member => member.MetadataToken is not null
                         && ApiMemberSectionDescriptors.IsMethodLike(member)));
                 ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegions, options.IncludeSections);
             }
@@ -2789,7 +2786,7 @@ public class ApiCommand
                     memberOptions.OverloadIndex);
                 if (methods.Count > 0)
                 {
-                    if (requestedSections.Contains(SectionNames.BodyShapes))
+                    if (requestedExecutionSections.Contains(SectionNames.BodyShapes))
                     {
                         ApiOutputFormatter.PopulateBodyShapes(
                             view,
@@ -2806,6 +2803,11 @@ public class ApiCommand
                         memberOptions.OverloadIndex.HasValue ? memberOptions.OverloadIndex.Value - 1 : null,
                         executionSections, analysisInspection, memberOptions.PdbPath,
                         memberOptions.IncludeSections, memberOptions);
+                }
+                else if (requestedExecutionSections.Contains(SectionNames.AnnotatedSource)
+                    && ApiOutputFormatter.IsSelectedAbstractAccessor(type, memberOptions.OverloadIndex))
+                {
+                    ApiOutputFormatter.PopulateSelectedAbstractAccessorAbsence(view);
                 }
 
                 if (executionSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
@@ -2845,7 +2847,7 @@ public class ApiCommand
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
-                    type.Members.Where(member => member.MetadataToken is not null
+                    TypeScopedMembers(type).Where(member => member.MetadataToken is not null
                         && ApiMemberSectionDescriptors.IsMethodLike(member)));
                 ApiOutputFormatter.PopulateTypeExceptionRegions(
                     view, type, exceptionRegions, renderOptions.IncludeSections);

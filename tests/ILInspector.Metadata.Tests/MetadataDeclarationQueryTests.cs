@@ -158,6 +158,31 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void PropertyDeclarationAndTypeSurface_PreserveInitSetterStructuralReturn()
+    {
+        var type = GetTypeDefinition(typeof(MetadataDeclarationQueryFixtures));
+        var property = GetProperty(type, nameof(MetadataDeclarationQueryFixtures.InitValue));
+        var declaration = MetadataDeclarationQuery.GetProperty(Reader, type, property);
+        var surface = MetadataDeclarationQuery.GetTypeSurface(
+            Reader,
+            GetTypeDefinitionHandle(typeof(MetadataDeclarationQueryFixtures)));
+        string structuralReturn = StructuralTypeIdentity.Modified(
+            required: true,
+            "System.Runtime.CompilerServices.IsExternalInit",
+            "System.Void");
+
+        Assert.Equal(
+            structuralReturn,
+            declaration.Signature.Accessors.Single(accessor => accessor.Kind == "set")
+                .StructuralReturnType);
+        Assert.Equal(
+            structuralReturn,
+            surface.Members.Single(member => member.Name == nameof(MetadataDeclarationQueryFixtures.InitValue))
+                .AccessorFacts.Single(accessor => accessor.Kind == "set")
+                .StructuralReturnType);
+    }
+
+    [Fact]
     public void TypeSurface_RecordsUnsafeBodylessSignatures()
     {
         var interfaceSurface = MetadataDeclarationQuery.GetTypeSurface(
@@ -1010,6 +1035,8 @@ public class MetadataDeclarationQueryFixtures
     public int @while { get; set; }
 
     public int Restricted { get; private set; }
+
+    public string InitValue { get; init; } = "";
 
     public string PropertyWithReturnNotNull
     {

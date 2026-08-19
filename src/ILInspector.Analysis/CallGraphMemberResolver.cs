@@ -291,21 +291,22 @@ public static class CallGraphMemberResolver
 
     static string AccessorMethodName(ApiMember member, string kind, string fallback)
     {
-        string? name = member.SignatureModel?.Accessors
-            .FirstOrDefault(accessor =>
-                string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
-            ?.Name;
+        ApiAccessor? accessor = Accessor(member, kind);
+        string? name = accessor?.Name ?? accessor?.MethodName;
         return string.IsNullOrEmpty(name) ? fallback : name;
     }
 
     static string AccessorStructuralReturn(ApiMember member, string kind, string fallback)
     {
-        string? structural = member.SignatureModel?.Accessors
-            .FirstOrDefault(accessor =>
-                string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
-            ?.StructuralReturnType;
+        string? structural = Accessor(member, kind)?.StructuralReturnType;
         return string.IsNullOrEmpty(structural) ? fallback : structural;
     }
+
+    static ApiAccessor? Accessor(ApiMember member, string kind)
+        => member.SignatureModel?.Accessors.FirstOrDefault(accessor =>
+               string.Equals(accessor.Kind, kind, StringComparison.Ordinal))
+           ?? member.AccessorFacts.FirstOrDefault(accessor =>
+               string.Equals(accessor.Kind, kind, StringComparison.Ordinal));
 
     static CallGraphMemberSelector CreateSelector(
         string name,

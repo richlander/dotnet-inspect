@@ -6860,8 +6860,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Annotated Source", output);
-        Assert.Contains("DEC0001", output);
         Assert.Contains("has no IL body", output);
+        Assert.DoesNotContain("DEC0001", output);
     }
 
     [Fact]
@@ -6882,6 +6882,74 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("has no IL body", error);
+    }
+
+    [Fact]
+    public async Task Member_FactsWithTypeScopedExceptionRegions_BodylessAccessorPreservesTypeEvidence()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "Facts,Exception Regions",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Note: The selected accessor has no IL body.", error);
+        Assert.Contains("## Exception Regions", output);
+        Assert.Contains("No exception regions found on this type.", output);
+        Assert.DoesNotContain("## Facts", output);
+    }
+
+    [Fact]
+    public async Task Member_FactsWildcardJson_BodylessAccessorKeepsRawTypeProjection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            "F*",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Note: The selected accessor has no IL body.", error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "ICollection`1",
+            document.RootElement.GetProperty("name").GetString());
+    }
+
+    [Theory]
+    [InlineData("@Audit")]
+    [InlineData("Unsafe*")]
+    public async Task Type_UnsafeMembersBroadJsonSelectorKeepsRawTypeProjection(string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.String",
+            "--platform",
+            "System.Runtime",
+            "-S",
+            selector,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal("String", document.RootElement.GetProperty("name").GetString());
     }
 
     [Theory]

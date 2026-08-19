@@ -224,6 +224,7 @@ public class UnsafeMembersSectionTests
         {
             TypeName = typeof(SampleUnsafeClass).FullName,
             AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
+            Select = [SectionNames.UnsafeMembers],
             IncludeSections = [SectionNames.UnsafeMembers],
             JsonOutput = true,
         }));
@@ -233,22 +234,23 @@ public class UnsafeMembersSectionTests
         Assert.Contains("--jsonl", result.Error);
     }
 
-    [Fact]
-    public async Task TypeUnsafeMembers_AuditCategoryJsonFailsClosed()
+    [Theory]
+    [InlineData(SectionCategoryNames.Audit)]
+    [InlineData("Unsafe*")]
+    public async Task TypeUnsafeMembers_BroadSelectionJsonKeepsRawTypeProjection(string selector)
     {
         var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
         {
             TypeName = typeof(SampleUnsafeClass).FullName,
             AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
-            Select = [SectionCategoryNames.Audit],
+            Select = [selector],
             IncludeSections = [SectionNames.UnsafeMembers],
             JsonOutput = true,
         }));
 
-        Assert.Equal(1, result.ExitCode);
-        Assert.Contains("cannot represent the analysis rows", result.Error);
-        Assert.Contains("--jsonl", result.Error);
-        Assert.DoesNotContain("\"name\"", result.Output);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("\"name\"", result.Output);
     }
 
     [Fact]

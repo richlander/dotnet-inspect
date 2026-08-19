@@ -142,10 +142,10 @@ public static class MetadataDeclarationQuery
                 [
                     .. (declaration.Getter.IsNil
                         ? []
-                        : new[] { AccessorModel(reader, declaration.Getter, "get") }),
+                        : new[] { AccessorModel(reader, typeDef, declaration.Getter, "get") }),
                     .. (declaration.Setter.IsNil
                         ? []
-                        : new[] { AccessorModel(reader, declaration.Setter, "set") }),
+                        : new[] { AccessorModel(reader, typeDef, declaration.Setter, "set") }),
                 ],
                 Signature = signatureText,
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
@@ -219,11 +219,11 @@ public static class MetadataDeclarationQuery
                     [
                         .. (accessors.Adder.IsNil ? [] : new[]
                         {
-                            AccessorModel(reader, accessors.Adder, "add")
+                            AccessorModel(reader, typeDef, accessors.Adder, "add")
                         }),
                         .. (accessors.Remover.IsNil ? [] : new[]
                         {
-                            AccessorModel(reader, accessors.Remover, "remove")
+                            AccessorModel(reader, typeDef, accessors.Remover, "remove")
                         }),
                     ]
                 },
@@ -231,10 +231,10 @@ public static class MetadataDeclarationQuery
                 [
                     .. (accessors.Adder.IsNil
                         ? []
-                        : new[] { AccessorModel(reader, accessors.Adder, "add") }),
+                        : new[] { AccessorModel(reader, typeDef, accessors.Adder, "add") }),
                     .. (accessors.Remover.IsNil
                         ? []
-                        : new[] { AccessorModel(reader, accessors.Remover, "remove") }),
+                        : new[] { AccessorModel(reader, typeDef, accessors.Remover, "remove") }),
                 ],
                 SignatureDecodeStatus = degraded ? SignatureDecodeStatus.Degraded : null,
                 IsStatic = isStatic,
@@ -341,6 +341,7 @@ public static class MetadataDeclarationQuery
 
     static ApiAccessor AccessorModel(
         MetadataReader reader,
+        TypeDefinition typeDef,
         MethodDefinitionHandle handle,
         string kind)
     {
@@ -354,7 +355,24 @@ public static class MetadataDeclarationQuery
             ReturnAttributes = ReturnAttributes(reader, method.GetParameters()).ToList(),
             HasMethodBody = method.RelativeVirtualAddress != 0,
             IsAbstract = (method.Attributes & MethodAttributes.Abstract) != 0,
+            StructuralReturnType = AccessorStructuralReturnType(reader, typeDef, handle),
         };
+    }
+
+    static string? AccessorStructuralReturnType(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinitionHandle handle)
+    {
+        var signature = GuardedProviderDecode.Method(
+            reader,
+            reader.GetMethodDefinition(handle),
+            TypeNodeProvider.Instance,
+            GenericContext.ForType(reader, typeDef),
+            (TypeNode)new DegradedTypeNode());
+        return signature.ReturnType.HasStructuralPayload
+            ? signature.ReturnType.StructuralIdentity()
+            : null;
     }
 
     /// <summary>
@@ -504,6 +522,10 @@ public static class MetadataDeclarationQuery
                 ReturnAttributes = ReturnAttributes(reader, getter.GetParameters()).ToList(),
                 HasMethodBody = getter.RelativeVirtualAddress != 0,
                 IsAbstract = (getter.Attributes & MethodAttributes.Abstract) != 0,
+                StructuralReturnType = AccessorStructuralReturnType(
+                    reader,
+                    typeDef,
+                    accessors.Getter),
             });
         }
 
@@ -516,6 +538,10 @@ public static class MetadataDeclarationQuery
                 ReturnAttributes = ReturnAttributes(reader, setter.GetParameters()).ToList(),
                 HasMethodBody = setter.RelativeVirtualAddress != 0,
                 IsAbstract = (setter.Attributes & MethodAttributes.Abstract) != 0,
+                StructuralReturnType = AccessorStructuralReturnType(
+                    reader,
+                    typeDef,
+                    accessors.Setter),
             });
         }
 

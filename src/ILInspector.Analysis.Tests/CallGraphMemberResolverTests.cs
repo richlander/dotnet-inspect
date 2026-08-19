@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
@@ -260,7 +261,7 @@ public sealed class CallGraphMemberResolverTests
     }
 
     [Fact]
-    public void Resolve_MatchesInitSetterReturnModifierAcrossProducers()
+    public void Resolve_MatchesInitSetterReturnModifierAcrossProducersAndSerializedSurface()
     {
         var member = new ApiMember
         {
@@ -283,6 +284,17 @@ public sealed class CallGraphMemberResolverTests
                     },
                 ],
             },
+            AccessorFacts =
+            [
+                new ApiAccessor
+                {
+                    Kind = "set",
+                    StructuralReturnType = StructuralTypeIdentity.Modified(
+                        required: true,
+                        "System.Runtime.CompilerServices.IsExternalInit",
+                        "System.Void"),
+                },
+            ],
         };
         var type = new ApiType
         {
@@ -308,6 +320,16 @@ public sealed class CallGraphMemberResolverTests
             selector => selector.MemberName == "set_Value");
 
         Assert.Equal(graph.Key, setter.SelectorKey);
+
+        var persisted = JsonSerializer.Deserialize<ApiSurface>(
+            JsonSerializer.Serialize(new ApiSurface { Types = [type] }))!;
+        var persistedType = Assert.Single(persisted.Types);
+        var persistedMember = Assert.Single(persistedType.Members);
+        var persistedSetter = Assert.Single(
+            CallGraphMemberResolver.CreateBodySelectors(persistedType, persistedMember),
+            selector => selector.MemberName == "set_Value");
+
+        Assert.Equal(graph.Key, persistedSetter.SelectorKey);
         Assert.Equal(
             0x06000002,
             CallGraphMemberResolver.Resolve(type, graph.Name, graph.Key)!.BodyToken);

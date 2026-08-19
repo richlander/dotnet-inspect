@@ -235,6 +235,7 @@ public static class MemberCommand
                     WriteAccessorSelectionRequired(apiType, selected);
                     return 1;
                 }
+                apiType.DeclaringTypeMembers ??= apiType.Members;
                 apiType.Members = [selected];
                 var detailDllPath = apiType.SourceAssemblyPath ?? apiDllPath;
                 effectiveOptions = effectiveOptions with
@@ -284,6 +285,7 @@ public static class MemberCommand
                     return 1;
                 }
 
+                apiType.DeclaringTypeMembers ??= apiType.Members;
                 apiType.Members = arityCandidates;
             }
 
@@ -725,7 +727,8 @@ public static class MemberCommand
             .GetInspectionViews(apiType, includeInapplicable: true)
             .Any(view => renderableSections.Contains(view.Id)
                 && !view.Id.Equals(SectionNames.Facts, StringComparison.OrdinalIgnoreCase)
-                && view.CanRender);
+                && view.CanRender)
+            || HasBroadRawDocumentJsonSelection(options);
         string target = accessor is null ? "method" : "accessor";
         if (hasOtherRenderableSection)
         {
@@ -769,6 +772,18 @@ public static class MemberCommand
         return sections;
     }
 
+    private static bool HasBroadRawDocumentJsonSelection(MemberOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !options.Print
+           && !options.Value
+           && !options.Urls
+           && !options.Paths
+           && options.Select?.Any(selector =>
+               selector.StartsWith('@')
+               || selector.Contains('*')
+               || selector.Contains('?')) == true;
+
     /// <summary>
     /// The sections that render for a member metadata positively reports as bodyless without
     /// needing a body-projection target. Signature and Source Locations read the declaration only.
@@ -784,6 +799,7 @@ public static class MemberCommand
                 SectionNames.SourceLocations,
                 SectionNames.OriginalSource,
                 SectionNames.SourceDiff,
+                SectionNames.ExceptionRegions,
             ],
             StringComparer.OrdinalIgnoreCase);
 
@@ -814,9 +830,7 @@ public static class MemberCommand
         return options with
         {
             IncludeSections = remaining,
-            Select = remainingSelectors is { Length: > 0 }
-                ? remainingSelectors
-                : options.Select,
+            Select = remainingSelectors is { Length: > 0 } ? remainingSelectors : null,
         };
     }
 

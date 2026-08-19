@@ -922,6 +922,26 @@ public static class ApiSurfaceExtractor
                     observeText,
                     observeDecodeWork,
                     observeAttributeMaterialize);
+                var accessorFacts = AccessorFacts(
+                    reader,
+                    observeText,
+                    observeDecodeWork,
+                    observeAttributeMaterialize,
+                    (accessors.Getter, "get"),
+                    (accessors.Setter, "set"));
+                ApplyAccessorStructuralReturns(
+                    accessorFacts,
+                    reader,
+                    kind => kind switch
+                    {
+                        "get" => accessors.Getter,
+                        "set" => accessors.Setter,
+                        _ => default,
+                    },
+                    new TypeNodeProvider(observeText, observeDecodeWork),
+                    typeContext,
+                    observeText,
+                    observeDecodeWork);
                 var member = new ApiMember
                 {
                     Name = DecodeString(
@@ -931,13 +951,7 @@ public static class ApiSurfaceExtractor
                     Kind = "property",
                     Signature = propertySignature.Text,
                     SignatureModel = propertySignature.Model,
-                    AccessorFacts = AccessorFacts(
-                        reader,
-                        observeText,
-                        observeDecodeWork,
-                        observeAttributeMaterialize,
-                        (accessors.Getter, "get"),
-                        (accessors.Setter, "set")),
+                    AccessorFacts = accessorFacts,
                     SignatureDecodeStatus = propertySignature.IsDegraded
                         ? SignatureDecodeStatus.Degraded
                         : null,
@@ -1273,6 +1287,19 @@ public static class ApiSurfaceExtractor
                     : new TypeNodeProvider(observeText, observeDecodeWork);
                 ApplyAccessorStructuralReturns(
                     accessorModels,
+                    reader,
+                    kind => kind switch
+                    {
+                        "add" => accessors.Adder,
+                        "remove" => accessors.Remover,
+                        _ => default,
+                    },
+                    eventTypeNodeProvider,
+                    typeContext,
+                    observeText,
+                    observeDecodeWork);
+                ApplyAccessorStructuralReturns(
+                    accessorFacts,
                     reader,
                     kind => kind switch
                     {

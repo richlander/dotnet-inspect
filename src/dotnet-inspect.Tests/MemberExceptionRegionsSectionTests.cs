@@ -28,17 +28,18 @@ public class MemberExceptionRegionsSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Exception Regions", result.Output);
         Assert.Contains("| 1 | finally | IL_", result.Output);
-        Assert.DoesNotContain("Caught Type", result.Output);
+        Assert.Contains("| Member | Region | Clause | Try Range | Handler Range | Caught Type |", result.Output);
     }
 
     [Fact]
-    public async Task ExceptionRegionsSection_RendersEmptyState_WhenExplicitlySelected()
+    public async Task ExceptionRegionsSection_UsesCompleteDeclaringType_WhenSelectedMemberHasNoRegions()
     {
         var result = await RunExceptionRegionsAsync(nameof(MemberExceptionRegionsFixture.NoRegions));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Exception Regions", result.Output);
-        Assert.Contains("No exception regions found in this method body.", result.Output);
+        Assert.Contains("TryCatch", result.Output);
+        Assert.Contains("System.DivideByZeroException", result.Output);
     }
 
     [Fact]
@@ -111,6 +112,50 @@ public class MemberExceptionRegionsSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Exception Regions\tsection", result.Output);
+    }
+
+    [Fact]
+    public async Task SelectedMemberExceptionRegions_UsesCompleteDeclaringTypeOnce()
+    {
+        var type = await ConsoleCapture.RunAsync(() => TypeCommand.ExecuteAsync(new TypeOptions
+        {
+            TypeName = "System.Environment",
+            PlatformAssembly = "System.Runtime",
+            IncludeSections = [SectionNames.ExceptionRegions],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+        var member = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = "System.Environment",
+            PlatformAssembly = "System.Runtime",
+            MemberFilter = ["ExitCode"],
+            OverloadIndex = 1,
+            IncludeSections = [SectionNames.ExceptionRegions],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Minimal,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, type.ExitCode);
+        Assert.Equal(0, member.ExitCode);
+        Assert.Empty(member.Error);
+        Assert.Equal(1, CountHeadings(member.Output, "Exception Regions"));
+        Assert.Equal(ExceptionRegionsSection(type.Output), ExceptionRegionsSection(member.Output));
+    }
+
+    static int CountHeadings(string output, string section)
+        => output.Split('\n').Count(line => line == $"## {section}");
+
+    static string ExceptionRegionsSection(string output)
+    {
+        const string heading = "## Exception Regions";
+        int start = output.IndexOf(heading, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"Expected heading '{heading}'.");
+        int next = output.IndexOf("\n## ", start + heading.Length, StringComparison.Ordinal);
+        return next < 0 ? output[start..] : output[start..next];
     }
 
     static Task<(int ExitCode, string Output, string Error)> RunExceptionRegionsAsync(string memberName, bool discover = false)
