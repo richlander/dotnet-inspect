@@ -2306,6 +2306,8 @@ public static class IrImporter
                     // otherwise be lost; recover it from the underlying MethodDef.
                     ParameterRefKinds = memberFacts.ParameterRefKinds.Kinds,
                     ParameterRefKindsFacts = memberFacts.ParameterRefKinds.State,
+                    DefinitionReturnType = signature.ReturnType,
+                    DefinitionParameterTypes = signature.ParameterTypes,
                     ReturnIsDynamic = memberFacts.ReturnIsDynamic,
                     ReturnArrayElementIsDynamic = memberFacts.ReturnArrayElementIsDynamic,
                     HasRefReadOnlyParameters = memberFacts.ParameterRefKinds.HasRefReadOnlyParameters,
@@ -2326,8 +2328,10 @@ public static class IrImporter
                 return generic with
                 {
                     TypeArguments = methodArguments,
-                    DefinitionParameterTypes = generic.ParameterTypes,
-                    DefinitionReturnType = generic.ReturnType,
+                    DefinitionParameterTypes = generic.DefinitionParameterTypes.IsDefaultOrEmpty
+                        ? generic.ParameterTypes
+                        : generic.DefinitionParameterTypes,
+                    DefinitionReturnType = generic.DefinitionReturnType ?? generic.ReturnType,
                     ReturnType = returnType,
                     ReturnIsDynamic = generic.ReturnIsDynamic == MetadataFactState.No
                         && generic.ReturnType.Kind == TypeRefKind.MethodGenericParameter
