@@ -17215,6 +17215,9 @@ public partial class CommandExecutionTests
             var explicitMarkdown = await RunAppAsync(
                 "package", packagePath, "--dependencies", "--markdown",
                 "--tfm", "net9.0", "--tips", "q");
+            var noHeader = await RunAppAsync(
+                "package", packagePath, "-S", "Dependencies", "--tree",
+                "--no-header", "--tips", "q");
 
             Assert.Equal(1, canonical.Exit);
             Assert.Empty(canonical.Output);
@@ -17230,6 +17233,9 @@ public partial class CommandExecutionTests
             Assert.Contains("--dependencies cannot be combined with row projections or non-Markdown formats", mermaidAlias.Error);
             Assert.Equal(0, explicitMarkdown.Exit);
             Assert.Contains("Test.Dependency.One", explicitMarkdown.Output);
+            Assert.Equal(1, noHeader.Exit);
+            Assert.Empty(noHeader.Output);
+            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", noHeader.Error);
         }
         finally
         {
@@ -17297,9 +17303,22 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("Package Info", output);
+        var bareSections =
+            PackageSectionDescriptors.CreatePipeline().BareSelectSectionNames;
+        Assert.All(
+            bareSections,
+            section => Assert.Contains(section, output));
         Assert.DoesNotContain("Dependencies", output);
-        Assert.DoesNotContain("Manifest", output);
+
+        var synthesized = await RunAppAsync(
+            "package", "-D", "--schema", "-S",
+            "--path", "README.md", "--tree", "--tips", "q");
+
+        Assert.Equal(0, synthesized.Exit);
+        Assert.Empty(synthesized.Error);
+        Assert.Contains("Package files", synthesized.Output);
+        Assert.DoesNotContain("Package Info", synthesized.Output);
+        Assert.DoesNotContain("Manifest", synthesized.Output);
     }
 
     [Fact]
@@ -17410,6 +17429,23 @@ public partial class CommandExecutionTests
             Assert.Equal(1, rendered.ExitCode);
             Assert.Empty(rendered.Output);
             Assert.Contains("--tree cannot be combined with --layout", rendered.Error);
+
+            var rowFormat = await ConsoleCapture.RunAsync(
+                () => PackageCommand.ExecuteAsync(
+                    new InspectionOptions
+                    {
+                        PackageArgs = [packagePath],
+                        Tree = true,
+                        IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            PackageSections.Dependencies,
+                        },
+                        Tsv = true,
+                    }));
+
+            Assert.Equal(1, rowFormat.ExitCode);
+            Assert.Empty(rowFormat.Output);
+            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", rowFormat.Error);
         }
         finally
         {
@@ -17550,6 +17586,9 @@ public partial class CommandExecutionTests
                 "package", packagePath, "--library", "Test.Primary.dll",
                 "-S", "References", "--tree", "--markdown",
                 "--out", outputPath, "--tips", "q");
+            var noHeader = await RunAppAsync(
+                "package", packagePath, "--library", "Test.Primary.dll",
+                "-S", "References", "--tree", "--no-header", "--tips", "q");
 
             Assert.Equal(1, environment.Exit);
             Assert.Empty(environment.Output);
@@ -17564,6 +17603,9 @@ public partial class CommandExecutionTests
             Assert.Empty(file.Output);
             Assert.Empty(file.Error);
             Assert.Contains("## References", File.ReadAllText(outputPath));
+            Assert.Equal(1, noHeader.Exit);
+            Assert.Empty(noHeader.Output);
+            Assert.Contains("--tree cannot be combined with row projections or non-Markdown formats", noHeader.Error);
         }
         finally
         {

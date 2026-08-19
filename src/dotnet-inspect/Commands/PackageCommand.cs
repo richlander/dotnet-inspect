@@ -74,14 +74,16 @@ public class PackageCommand
                         options.IncludeSections,
                         StringComparer.OrdinalIgnoreCase)
                     : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                if (options.Select is { Length: > 0 } || options.SelectDefault)
+                var hasExplicitSelection = options.Select is { Length: > 0 };
+                if (hasExplicitSelection || options.SelectDefault)
                 {
                     var selectResult = SelectResolver.ResolveSelectAsSections(
                         options.Select,
                         sectionNames,
-                        pipeline.InfoSectionNames,
+                        pipeline.BareSelectSectionNames,
                         pipeline.GetCategoryMap(),
-                        selectDefault: options.SelectDefault);
+                        selectDefault: options.SelectDefault
+                            && !hasExplicitSelection);
                     if (SelectOutput.WriteUnresolved(selectResult))
                         return 1;
                     if (selectResult.Sections is { Count: > 0 })
@@ -1642,6 +1644,11 @@ public class PackageCommand
             || options.Bare
             || options.JsonOutput
             || options.Format != OutputFormat.Markdown
+            || options.Tabular
+            || options.Tsv
+            || options.Jsonl
+            || options.JsonArray
+            || options.NoHeader
             || options.TabularExplicitlySet)
         {
             var optionName = options.ShowDependencies ? "--dependencies" : "--tree";
@@ -3386,7 +3393,13 @@ public class PackageCommand
     {
         if (options.Tree
             && options.Discover == null
-            && (options.Format != OutputFormat.Markdown || options.Bare))
+            && (options.Format != OutputFormat.Markdown
+                || options.Bare
+                || options.Tabular
+                || options.Tsv
+                || options.Jsonl
+                || options.JsonArray
+                || options.NoHeader))
         {
             CommandError.Write("--tree cannot be combined with row projections or non-Markdown formats.");
             return false;
