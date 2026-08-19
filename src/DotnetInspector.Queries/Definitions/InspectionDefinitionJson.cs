@@ -92,48 +92,255 @@ public static class InspectionDefinitionJson
 
         var kind = dto.Kind.Trim().ToLowerInvariant();
         var coordinateCount = 0;
-        return kind switch
+        try
         {
-            "catalog" => new CatalogDefinition(
-                dto.SchemaVersion,
-                dto.Id,
-                MapGroups(dto.Groups, ref coordinateCount)),
-            "workspace" => new WorkspaceDefinition(
-                dto.SchemaVersion,
-                dto.Id,
-                MapContexts(dto.Contexts, ref coordinateCount),
-                dto.Title,
-                dto.Description,
-                MapGroups(dto.Groups, ref coordinateCount)),
-            "query" => new QueryDefinition(dto.SchemaVersion, dto.Id, dto.QueryId),
-            "view" => new ViewDefinition(
-                dto.SchemaVersion,
-                dto.Id,
-                dto.Lens,
-                dto.Type,
-                dto.MemberAnchor,
-                dto.MemberSignature,
-                dto.MemberKey,
-                dto.Section,
-                dto.Library),
-            "navigation" => new NavigationDefinition(
-                dto.SchemaVersion,
-                dto.Id,
-                MapTabs(dto.Tabs, ref coordinateCount),
-                dto.Focus ?? throw new InspectionDefinitionException("Navigation requires focus.")),
-            "scenario" => new ScenarioDefinition(
-                dto.SchemaVersion,
-                dto.Id,
-                dto.Title,
-                dto.Description,
-                dto.Workspace,
-                dto.Context,
-                dto.Input,
-                dto.Query,
-                dto.View,
-                dto.Navigation),
-            _ => throw new InspectionDefinitionException($"Unknown definition kind '{dto.Kind}'."),
-        };
+            return kind switch
+            {
+                "catalog" => CreateCatalog(dto, ref coordinateCount),
+                "workspace" => CreateWorkspace(dto, ref coordinateCount),
+                "query" => CreateQuery(dto),
+                "view" => CreateView(dto),
+                "navigation" => CreateNavigation(dto, ref coordinateCount),
+                "scenario" => CreateScenario(dto),
+                _ => throw new InspectionDefinitionException($"Unknown definition kind '{dto.Kind}'."),
+            };
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InspectionDefinitionException(ex.Message, ex);
+        }
+    }
+
+    private static CatalogDefinition CreateCatalog(InspectionDefinitionDto dto, ref int coordinateCount)
+    {
+        RejectForeignRecordFields(
+            dto,
+            "catalog",
+            title: true,
+            description: true,
+            contexts: true,
+            queryId: true,
+            lens: true,
+            type: true,
+            memberAnchor: true,
+            memberSignature: true,
+            memberKey: true,
+            section: true,
+            library: true,
+            tabs: true,
+            focus: true,
+            workspace: true,
+            context: true,
+            input: true,
+            query: true,
+            view: true,
+            navigation: true);
+        return new CatalogDefinition(
+            dto.SchemaVersion,
+            dto.Id!,
+            MapGroups(dto.Groups, ref coordinateCount));
+    }
+
+    private static WorkspaceDefinition CreateWorkspace(InspectionDefinitionDto dto, ref int coordinateCount)
+    {
+        RejectForeignRecordFields(
+            dto,
+            "workspace",
+            queryId: true,
+            lens: true,
+            type: true,
+            memberAnchor: true,
+            memberSignature: true,
+            memberKey: true,
+            section: true,
+            library: true,
+            tabs: true,
+            focus: true,
+            workspace: true,
+            context: true,
+            input: true,
+            query: true,
+            view: true,
+            navigation: true);
+        return new WorkspaceDefinition(
+            dto.SchemaVersion,
+            dto.Id!,
+            MapContexts(dto.Contexts, ref coordinateCount),
+            dto.Title,
+            dto.Description,
+            MapGroups(dto.Groups, ref coordinateCount));
+    }
+
+    private static QueryDefinition CreateQuery(InspectionDefinitionDto dto)
+    {
+        RejectForeignRecordFields(
+            dto,
+            "query",
+            title: true,
+            description: true,
+            groups: true,
+            contexts: true,
+            lens: true,
+            type: true,
+            memberAnchor: true,
+            memberSignature: true,
+            memberKey: true,
+            section: true,
+            library: true,
+            tabs: true,
+            focus: true,
+            workspace: true,
+            context: true,
+            input: true,
+            query: true,
+            view: true,
+            navigation: true);
+        return new QueryDefinition(dto.SchemaVersion, dto.Id!, dto.QueryId);
+    }
+
+    private static ViewDefinition CreateView(InspectionDefinitionDto dto)
+    {
+        RejectForeignRecordFields(
+            dto,
+            "view",
+            title: true,
+            description: true,
+            groups: true,
+            contexts: true,
+            queryId: true,
+            tabs: true,
+            focus: true,
+            workspace: true,
+            context: true,
+            input: true,
+            query: true,
+            view: true,
+            navigation: true);
+        return new ViewDefinition(
+            dto.SchemaVersion,
+            dto.Id!,
+            dto.Lens,
+            dto.Type,
+            dto.MemberAnchor,
+            dto.MemberSignature,
+            dto.MemberKey,
+            dto.Section,
+            dto.Library);
+    }
+
+    private static NavigationDefinition CreateNavigation(InspectionDefinitionDto dto, ref int coordinateCount)
+    {
+        RejectForeignRecordFields(
+            dto,
+            "navigation",
+            title: true,
+            description: true,
+            groups: true,
+            contexts: true,
+            queryId: true,
+            lens: true,
+            type: true,
+            memberAnchor: true,
+            memberSignature: true,
+            memberKey: true,
+            section: true,
+            library: true,
+            workspace: true,
+            context: true,
+            input: true,
+            query: true,
+            view: true,
+            navigation: true);
+        return new NavigationDefinition(
+            dto.SchemaVersion,
+            dto.Id!,
+            MapTabs(dto.Tabs, ref coordinateCount),
+            dto.Focus ?? throw new InspectionDefinitionException("Navigation requires focus."));
+    }
+
+    private static ScenarioDefinition CreateScenario(InspectionDefinitionDto dto)
+    {
+        RejectForeignRecordFields(
+            dto,
+            "scenario",
+            groups: true,
+            contexts: true,
+            queryId: true,
+            lens: true,
+            type: true,
+            memberAnchor: true,
+            memberSignature: true,
+            memberKey: true,
+            section: true,
+            library: true,
+            tabs: true,
+            focus: true);
+        return new ScenarioDefinition(
+            dto.SchemaVersion,
+            dto.Id!,
+            dto.Title,
+            dto.Description,
+            dto.Workspace,
+            dto.Context,
+            dto.Input,
+            dto.Query,
+            dto.View,
+            dto.Navigation);
+    }
+
+    private static void RejectForeignRecordFields(
+        InspectionDefinitionDto dto,
+        string kind,
+        bool title = false,
+        bool description = false,
+        bool groups = false,
+        bool contexts = false,
+        bool queryId = false,
+        bool lens = false,
+        bool type = false,
+        bool memberAnchor = false,
+        bool memberSignature = false,
+        bool memberKey = false,
+        bool section = false,
+        bool library = false,
+        bool tabs = false,
+        bool focus = false,
+        bool workspace = false,
+        bool context = false,
+        bool input = false,
+        bool query = false,
+        bool view = false,
+        bool navigation = false)
+    {
+        void Check(bool reject, string name, object? value)
+        {
+            if (reject && value is not null)
+            {
+                throw new InspectionDefinitionException(
+                    $"{kind} definition must not set '{name}'.");
+            }
+        }
+
+        Check(title, "title", dto.Title);
+        Check(description, "description", dto.Description);
+        Check(groups, "groups", dto.Groups);
+        Check(contexts, "contexts", dto.Contexts);
+        Check(queryId, "queryId", dto.QueryId);
+        Check(lens, "lens", dto.Lens);
+        Check(type, "type", dto.Type);
+        Check(memberAnchor, "memberAnchor", dto.MemberAnchor);
+        Check(memberSignature, "memberSignature", dto.MemberSignature);
+        Check(memberKey, "memberKey", dto.MemberKey);
+        Check(section, "section", dto.Section);
+        Check(library, "library", dto.Library);
+        Check(tabs, "tabs", dto.Tabs);
+        Check(focus, "focus", dto.Focus);
+        Check(workspace, "workspace", dto.Workspace);
+        Check(context, "context", dto.Context);
+        Check(input, "input", dto.Input);
+        Check(query, "query", dto.Query);
+        Check(view, "view", dto.View);
+        Check(navigation, "navigation", dto.Navigation);
     }
 
     internal static InspectionDefinitionDto ToDto(InspectionDefinitionRecord record) =>
@@ -330,35 +537,166 @@ public static class InspectionDefinitionJson
         if (string.IsNullOrWhiteSpace(dto.Kind))
             throw new InspectionDefinitionException("Member coordinate requires kind.");
 
-        return dto.Kind.Trim().ToLowerInvariant() switch
+        var kind = dto.Kind.Trim().ToLowerInvariant();
+        return kind switch
         {
-            "package" => new DefinitionMemberCoordinate.PackageCoordinate(
-                Require(dto.Id, "package id"),
-                dto.Version,
-                dto.Framework,
-                ChooseRuntimeIdentifier(dto.Rid, dto.RuntimeIdentifier, "Package coordinate")),
-            "platform" => new DefinitionMemberCoordinate.PlatformCoordinate(
-                Require(dto.Family, "platform family"),
-                dto.Assembly,
-                dto.Version,
-                dto.Framework),
-            "embedded" => new DefinitionMemberCoordinate.EmbeddedCoordinate(
-                Require(dto.ContentRef, "embedded contentRef"),
-                Require(dto.Digest, "embedded digest"),
-                Require(dto.DeclaredName, "embedded declaredName")),
-            "project" => new DefinitionMemberCoordinate.ProjectCoordinate(
-                Require(dto.Path, "project path"),
-                dto.Framework,
-                ChooseRuntimeIdentifier(dto.Rid, dto.RuntimeIdentifier, "Project coordinate")),
-            "local" => new DefinitionMemberCoordinate.LocalCoordinate(
-                Require(dto.Path, "local path")),
-            "directory" => new DefinitionMemberCoordinate.DirectoryCoordinate(
-                Require(dto.Path, "directory path"),
-                dto.Framework,
-                ChooseRuntimeIdentifier(dto.Rid, dto.RuntimeIdentifier, "Directory coordinate")),
+            "package" => CreatePackageCoordinate(dto),
+            "platform" => CreatePlatformCoordinate(dto),
+            "embedded" => CreateEmbeddedCoordinate(dto),
+            "project" => CreateProjectCoordinate(dto),
+            "local" => CreateLocalCoordinate(dto),
+            "directory" => CreateDirectoryCoordinate(dto),
             _ => throw new InspectionDefinitionException($"Unknown member coordinate kind '{dto.Kind}'."),
         };
     }
+
+    private static DefinitionMemberCoordinate.PackageCoordinate CreatePackageCoordinate(MemberCoordinateDto dto)
+    {
+        RejectForeignCoordinateFields(
+            dto,
+            "package",
+            family: true,
+            assembly: true,
+            contentRef: true,
+            digest: true,
+            declaredName: true,
+            path: true);
+        return new DefinitionMemberCoordinate.PackageCoordinate(
+            Require(dto.Id, "package id"),
+            dto.Version,
+            dto.Framework,
+            ChooseRuntimeIdentifier(dto.Rid, dto.RuntimeIdentifier, "Package coordinate"));
+    }
+
+    private static DefinitionMemberCoordinate.PlatformCoordinate CreatePlatformCoordinate(MemberCoordinateDto dto)
+    {
+        RejectForeignCoordinateFields(
+            dto,
+            "platform",
+            id: true,
+            contentRef: true,
+            digest: true,
+            declaredName: true,
+            path: true,
+            rid: true,
+            runtimeIdentifier: true);
+        return new DefinitionMemberCoordinate.PlatformCoordinate(
+            Require(dto.Family, "platform family"),
+            dto.Assembly,
+            dto.Version,
+            dto.Framework);
+    }
+
+    private static DefinitionMemberCoordinate.EmbeddedCoordinate CreateEmbeddedCoordinate(MemberCoordinateDto dto)
+    {
+        RejectForeignCoordinateFields(
+            dto,
+            "embedded",
+            id: true,
+            version: true,
+            framework: true,
+            family: true,
+            assembly: true,
+            path: true,
+            rid: true,
+            runtimeIdentifier: true);
+        return new DefinitionMemberCoordinate.EmbeddedCoordinate(
+            Require(dto.ContentRef, "embedded contentRef"),
+            Require(dto.Digest, "embedded digest"),
+            Require(dto.DeclaredName, "embedded declaredName"));
+    }
+
+    private static DefinitionMemberCoordinate.ProjectCoordinate CreateProjectCoordinate(MemberCoordinateDto dto)
+    {
+        RejectForeignCoordinateFields(
+            dto,
+            "project",
+            id: true,
+            version: true,
+            family: true,
+            assembly: true,
+            contentRef: true,
+            digest: true,
+            declaredName: true);
+        return new DefinitionMemberCoordinate.ProjectCoordinate(
+            Require(dto.Path, "project path"),
+            dto.Framework,
+            ChooseRuntimeIdentifier(dto.Rid, dto.RuntimeIdentifier, "Project coordinate"));
+    }
+
+    private static DefinitionMemberCoordinate.LocalCoordinate CreateLocalCoordinate(MemberCoordinateDto dto)
+    {
+        RejectForeignCoordinateFields(
+            dto,
+            "local",
+            id: true,
+            version: true,
+            framework: true,
+            family: true,
+            assembly: true,
+            contentRef: true,
+            digest: true,
+            declaredName: true,
+            rid: true,
+            runtimeIdentifier: true);
+        return new DefinitionMemberCoordinate.LocalCoordinate(Require(dto.Path, "local path"));
+    }
+
+    private static DefinitionMemberCoordinate.DirectoryCoordinate CreateDirectoryCoordinate(MemberCoordinateDto dto)
+    {
+        RejectForeignCoordinateFields(
+            dto,
+            "directory",
+            id: true,
+            version: true,
+            family: true,
+            assembly: true,
+            contentRef: true,
+            digest: true,
+            declaredName: true);
+        return new DefinitionMemberCoordinate.DirectoryCoordinate(
+            Require(dto.Path, "directory path"),
+            dto.Framework,
+            ChooseRuntimeIdentifier(dto.Rid, dto.RuntimeIdentifier, "Directory coordinate"));
+    }
+
+    private static void RejectForeignCoordinateFields(
+        MemberCoordinateDto dto,
+        string kind,
+        bool id = false,
+        bool version = false,
+        bool framework = false,
+        bool family = false,
+        bool assembly = false,
+        bool contentRef = false,
+        bool digest = false,
+        bool declaredName = false,
+        bool path = false,
+        bool rid = false,
+        bool runtimeIdentifier = false)
+    {
+        void Check(bool reject, string name, object? value)
+        {
+            if (reject && value is not null)
+            {
+                throw new InspectionDefinitionException(
+                    $"{kind} coordinate must not set '{name}'.");
+            }
+        }
+
+        Check(id, "id", dto.Id);
+        Check(version, "version", dto.Version);
+        Check(framework, "framework", dto.Framework);
+        Check(family, "family", dto.Family);
+        Check(assembly, "assembly", dto.Assembly);
+        Check(contentRef, "contentRef", dto.ContentRef);
+        Check(digest, "digest", dto.Digest);
+        Check(declaredName, "declaredName", dto.DeclaredName);
+        Check(path, "path", dto.Path);
+        Check(rid, "rid", dto.Rid);
+        Check(runtimeIdentifier, "runtimeIdentifier", dto.RuntimeIdentifier);
+    }
+
 
     private static string? ChooseRuntimeIdentifier(string? rid, string? runtimeIdentifier, string owner)
     {

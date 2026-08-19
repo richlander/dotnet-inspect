@@ -92,6 +92,18 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         if (contexts is null || contexts.Count == 0)
             throw new ArgumentException("A workspace definition requires at least one context.", nameof(contexts));
 
+        var contextNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var context in contexts)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+            if (!contextNames.Add(context.Name))
+            {
+                throw new ArgumentException(
+                    $"Duplicate workspace context name '{context.Name}'.",
+                    nameof(contexts));
+            }
+        }
+
         Title = title;
         Description = description;
         Contexts = DefinitionCollections.Freeze(contexts);

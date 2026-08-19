@@ -47,7 +47,7 @@ public static class ProductInspectionDemos
     /// Home demo ids in display order. Enumerating this does not build demo graphs.
     /// </summary>
     public static IReadOnlyList<string> HomeScenarioIds { get; } =
-        Array.ConvertAll(s_entries, static e => e.Id);
+        Array.AsReadOnly(Array.ConvertAll(s_entries, static e => e.Id));
 
     /// <summary>
     /// Catalog metadata for hosts (menus, help). Does not allocate demo records.

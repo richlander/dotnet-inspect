@@ -311,6 +311,96 @@ public class InspectionDefinitionTests
         Assert.Contains("unknown workspace", crossEx.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+
+    [Fact]
+    public void Parse_RejectsCrossKindRecordAndCoordinateFields()
+    {
+        var queryEx = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "query", "id": "q", "queryId": "surface", "workspace": "ws" }
+            """));
+        Assert.Contains("must not set 'workspace'", queryEx.Message, StringComparison.Ordinal);
+
+        var packageEx = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            {
+              "schemaVersion": 1,
+              "kind": "workspace",
+              "id": "ws",
+              "contexts": [
+                {
+                  "name": "c",
+                  "members": [
+                    { "kind": "package", "id": "P", "version": "1.0.0", "framework": "net10.0", "path": "x.csproj" }
+                  ]
+                }
+              ]
+            }
+            """));
+        Assert.Contains("must not set 'path'", packageEx.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_WrapsSemanticConstructorFailures()
+    {
+        var viewEx = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "view", "id": "v", "memberAnchor": "deadbeef01" }
+            """));
+        Assert.IsType<ArgumentException>(viewEx.InnerException);
+
+        var contextEx = Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            {
+              "schemaVersion": 1,
+              "kind": "workspace",
+              "id": "ws",
+              "contexts": [ { "name": "c", "subscribe": "   " } ]
+            }
+            """));
+        Assert.IsType<ArgumentException>(contextEx.InnerException);
+    }
+
+    [Fact]
+    public void Parse_RejectsNullCatalogGroupEntries()
+    {
+        Assert.Throws<InspectionDefinitionException>(() => InspectionDefinitionJson.Parse(
+            """
+            { "schemaVersion": 1, "kind": "catalog", "id": "c", "groups": [ null ] }
+            """));
+    }
+
+    [Fact]
+    public void Workspace_RejectsDuplicateContextNames()
+    {
+        Assert.Throws<ArgumentException>(() => new WorkspaceDefinition(
+            1,
+            "ws",
+            [
+                new WorkspaceContextDefinition(
+                    "c",
+                    members: [new DefinitionMemberCoordinate.PackageCoordinate("P", "1.0.0", "net10.0")]),
+                new WorkspaceContextDefinition(
+                    "c",
+                    members: [new DefinitionMemberCoordinate.PackageCoordinate("Q", "1.0.0", "net10.0")]),
+            ]));
+    }
+
+    [Fact]
+    public void ProductHomeDemos_CatalogSurfaces_AreMutationResistant()
+    {
+        Assert.ThrowsAny<Exception>(() =>
+        {
+            ((string[])ProductInspectionDemos.HomeScenarioIds)[0] = "mutated";
+        });
+        Assert.ThrowsAny<Exception>(() =>
+        {
+            ((ProductInspectionDemos.Entry[])(object)ProductInspectionDemos.Entries)[0] = default;
+        });
+        Assert.Equal("stj-serializer", ProductInspectionDemos.HomeScenarioIds[0]);
+        Assert.Equal("stj-serializer", ProductInspectionDemos.Entries[0].Id);
+    }
+
     [Fact]
     public void ProductHomeDemos_ResolveCallGraphByMemberAnchor()
     {
