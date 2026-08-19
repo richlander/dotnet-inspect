@@ -203,7 +203,7 @@ public sealed class BrowserEngineBoundaryTests
             "microsoft.netcore.app.runtime.linux-x64";
         const string aspNetPackage =
             "microsoft.aspnetcore.app.runtime.linux-x64";
-        const string version = "11.0.0";
+        const string version = "11.0.2";
         byte[] runtimeNupkg = PlatformPackage(
             ("System.Private.CoreLib.dll",
                 File.ReadAllBytes(typeof(object).Assembly.Location)));
