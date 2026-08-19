@@ -34,6 +34,7 @@ import {
   retainWorkspacePackage,
   rootCommands,
   resolveLoadedGraphTargetCandidate,
+  resolvePlatformGraphTargetType,
   shareStateLengthError,
   scopedRequestState,
   sourceSurfaceIsVisible,
@@ -7220,8 +7221,7 @@ function navigateToRuntimeMember(pack, type, group, overloadIndex, bodyTarget = 
 function findRuntimeMemberSelection(pack, node) {
   const typeId = callGraphTargetTypeId(node);
   if (!pack || !typeId) return null;
-  const type = pack.types.find(
-    item => callGraphTargetMatchesType(node, item));
+  const type = resolvePlatformGraphTargetType(pack, node);
   if (!type) return null;
   const groups = memberGroups(type);
   if (node.metadataToken != null) {

@@ -358,6 +358,25 @@ export function callGraphAssemblyIdentityMatches(target, assembly) {
       === String(target.assemblyPublicKeyToken ?? "").toLowerCase();
 }
 
+export function resolvePlatformGraphTargetType(pack, target) {
+  const typeId = callGraphTargetTypeId(target);
+  if (!pack || !typeId || !target?.assembly) return null;
+  const targetAssembly = String(target.assembly)
+    .replace(/\.dll$/i, "")
+    .toLowerCase();
+  const matches = (pack.types ?? []).filter(type => {
+    const descriptor = assemblyDescriptorForType(pack.assemblies, type);
+    const assembly = String(
+      type.assemblyName ?? descriptor?.name ?? type.assembly ?? "")
+      .replace(/\.dll$/i, "")
+      .toLowerCase();
+    return assembly === targetAssembly
+      && callGraphAssemblyIdentityMatches(target, descriptor)
+      && callGraphTargetMatchesType(target, type);
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export function resolveLoadedGraphTargetCandidate(packages, target) {
   const typeId = callGraphTargetTypeId(target);
   if (!typeId || !target?.assembly) return { status: "missing" };

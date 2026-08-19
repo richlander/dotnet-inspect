@@ -40,6 +40,7 @@ import {
   removeWorkspacePackage,
   retainWorkspacePackage,
   resolveLoadedGraphTargetCandidate,
+  resolvePlatformGraphTargetType,
   shareStateLengthError,
   scopedRequestState,
   selectedDependencyGroup,
@@ -992,6 +993,62 @@ test("call graph navigation joins duplicate metadata names by asset identity", (
     pkg,
     type: secondType
   });
+});
+
+test("platform call graph navigation requires the target assembly identity", () => {
+  const consoleType = {
+    assembly: "System.Console.dll",
+    assemblyId: "console",
+    assemblyName: "System.Console",
+    definitionId: "Interop+ErrorInfo"
+  };
+  const processType = {
+    assembly: "System.Diagnostics.Process.dll",
+    assemblyId: "process",
+    assemblyName: "System.Diagnostics.Process",
+    definitionId: "Interop+ErrorInfo"
+  };
+  const pack = {
+    isRuntimePack: true,
+    types: [consoleType, processType],
+    assemblies: [
+      {
+        id: "console",
+        name: "System.Console",
+        version: "11.0.0.0",
+        culture: null,
+        publicKeyToken: "b03f5f7f11d50a3a"
+      },
+      {
+        id: "process",
+        name: "System.Diagnostics.Process",
+        version: "11.0.0.0",
+        culture: null,
+        publicKeyToken: "b03f5f7f11d50a3a"
+      }
+    ]
+  };
+  const target = {
+    assembly: "System.Diagnostics.Process",
+    assemblyVersion: "11.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: "b03f5f7f11d50a3a",
+    typeDefinitionId: "Interop+ErrorInfo"
+  };
+
+  assert.equal(resolvePlatformGraphTargetType(pack, target), processType);
+  assert.equal(
+    resolvePlatformGraphTargetType({
+      ...pack,
+      types: [...pack.types, { ...processType }]
+    }, target),
+    null);
+  assert.equal(
+    resolvePlatformGraphTargetType(pack, {
+      ...target,
+      assemblyVersion: "12.0.0.0"
+    }),
+    null);
 });
 
 test("relationship navigation rejects ambiguous dotted identities", () => {
