@@ -10,6 +10,8 @@ public sealed class BodyShapeFixture : IBodyShapeValue
 {
     public static object PublicCreation() => new object();
 
+    public static int[] PublicSmallArray() => new int[3];
+
     private static object PrivateCreation() => new Version(1, 2);
 
     object IBodyShapeValue.Value => new object();

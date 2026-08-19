@@ -163,6 +163,23 @@ Use `--jsonl` for one machine-readable match per row or `--count` for the
 matching row count. Bodies that cannot be reconstructed at full fidelity are
 reported on stderr rather than mixed into structured output.
 
+At library scope, repeat the existing `--where` syntax to intersect the body
+kind with Performance Triage evidence before decompilation:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll \
+  --where "Kind=InvocationExpression" \
+  --where "Finding=analysis.call-site" \
+  --where "Shape=sync-call-in-async" \
+  --where "Confidence>=medium"
+```
+
+The Performance predicates select typed source MethodDef identities; `Body
+Shapes` then searches only those methods. Select a Performance section
+separately when the candidate, evidence, and IL receipt are also needed.
+Performance `--top` and `--order-by` do not compose; use `--rows` to limit
+rendered matches.
+
 Use the same predicate with one exact member name or stable selector to inspect
 only that member's MethodDef body:
 

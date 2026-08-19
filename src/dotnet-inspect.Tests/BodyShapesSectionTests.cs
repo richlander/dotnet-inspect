@@ -1,5 +1,6 @@
 using DotnetInspector.CommandLine;
 using DotnetInspector.Fixtures;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
 using DotnetInspector.Sections;
@@ -246,7 +247,7 @@ public sealed class BodyShapesSectionTests
     }
 
     [Fact]
-    public async Task BodyKindPredicate_RejectsPerformancePredicatesInSameQuery()
+    public async Task LibraryKindPredicate_ComposesWithPerformancePredicates()
     {
         var root = CommandLineBuilder.CreateRootCommand();
 
@@ -256,17 +257,127 @@ public sealed class BodyShapesSectionTests
                     "library",
                     FixturePath,
                     "--where",
-                    "Kind=LiteralExpression",
+                    "Kind=ArrayCreationExpression",
                     "--where",
-                    "Confidence=high",
+                    "Finding=analysis.allocation",
+                    "--where",
+                    "Shape=small-array",
+                    "--where",
+                    "Confidence>=low",
+                    "--jsonl",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            nameof(BodyShapeFixture.PublicSmallArray),
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Performance:", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryKindPredicate_IntersectsAllPerformancePredicates()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ArrayCreationExpression",
+                    "--where",
+                    "Finding=analysis.call-site",
+                    "--where",
+                    "Shape=small-array",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            "No matching body shapes found.",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(BodyShapeFixture.PublicSmallArray),
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--top", "1")]
+    [InlineData("--order-by", "Confidence desc")]
+    public async Task LibraryKindPredicate_RejectsPerformanceRankingControls(
+        string option,
+        string value)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ArrayCreationExpression",
+                    "--where",
+                    "Shape=small-array",
+                    option,
+                    value,
                 ])
                 .InvokeAsync());
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains(
-            "cannot be combined with Performance Triage",
+            "not --top or --order-by",
             result.Error,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "Use --rows to limit rendered matches.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PerformanceSourceMethods_UsesSourceOwnerIdentity()
+    {
+        var declaringType = ILInspector.Analysis.TypeRef.Definition(
+            "Fixture",
+            "DotnetInspector.Fixtures",
+            nameof(BodyShapeFixture));
+        var synthesized = new ILInspector.Analysis.MethodIdentity(
+            "Fixture",
+            Guid.Empty,
+            declaringType,
+            "<PublicSmallArray>g__Create|0_0",
+            [],
+            ILInspector.Analysis.TypeRef.CoreLib("System", "Object"),
+            0x06000002,
+            IsStatic: true);
+        var sourceOwner = synthesized with
+        {
+            Name = nameof(BodyShapeFixture.PublicSmallArray),
+            MetadataToken = 0x06000001,
+        };
+        var opportunity = new ILInspector.Analysis.OptimizationOpportunity(
+            synthesized,
+            "small-array",
+            "newarr",
+            "Use stackalloc when the array does not escape.",
+            "high",
+            InLoop: false,
+            ILOffset: 0,
+            Caveat: null)
+        {
+            SourceOwner = sourceOwner,
+        };
+
+        var methods = LibraryMetadataService.PerformanceSourceMethods(
+            [opportunity]);
+
+        Assert.Equal([sourceOwner], methods);
     }
 
     [Fact]
