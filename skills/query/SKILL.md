@@ -133,6 +133,8 @@ dnx dotnet-inspect -y -- library MyLib.dll \
   --where "Confidence>=medium" --jsonl
 dnx dotnet-inspect -y -- member Widget Render:1 --library MyLib.dll \
   --where "Kind=InvocationExpression" --jsonl
+dnx dotnet-inspect -y -- type Widget --library MyLib.dll \
+  --where "Kind=InvocationExpression" --jsonl
 ```
 
 At library scope, repeated Performance Triage predicates are ANDed before
@@ -143,13 +145,15 @@ when the canonical candidate/evidence/IL rows are also needed. Performance
 `--top` and `--order-by` do not compose with Body Shapes; use `--rows` to limit
 rendered matches.
 
-Member scope requires one exact member name or stable selector and decompiles
-only the selected MethodDef body. An unambiguous method or single-accessor
-member is auto-selected; overloaded names require `Name:N` or `Name~digest`.
+Type scope requires one exact type and searches only its MethodDef and accessor
+bodies. Member scope requires one exact member name or stable selector and
+decompiles only the selected MethodDef body. An unambiguous method or
+single-accessor member is auto-selected; overloaded names require `Name:N` or
+`Name~digest`.
 A property or event with multiple body accessors requires an accessor selector;
 use `Name~digest:1`/`Name~digest:2` when the owner is overloaded. Every body
-query requires exactly one case-sensitive `Kind=...` predicate. Member scope
-does not yet compose it with Performance Triage predicates.
+query requires exactly one case-sensitive `Kind=...` predicate. Type and member
+scope do not yet compose it with Performance Triage predicates.
 
 ## Filter and order performance rows
 
