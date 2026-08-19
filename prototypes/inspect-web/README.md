@@ -525,6 +525,26 @@ the component does not acquire engine or workspace authority.
 `test/command-bar.test.js` gates the completion grammar, replacement behavior,
 bounded suggestions, command metadata, selection, and escaping.
 
+`src/type-panel.ts` owns the type selector (the "PUBLIC TYPES" / "MEMBERS" nav
+pane) and the type viewer (the type heading, metadata, and source sections
+shown for the "type" scope) as pure, dependency-injected render functions.
+`app.js` still owns the type index, filtering, member grouping, and
+click/keyboard navigation, and passes each computed slice in explicitly; the
+shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
+`typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
+`relatedTypeChip`) stay in `app.js` and are injected the same way.
+`test/type-panel.test.js` gates namespace grouping and selection in the type
+list, active-group and overload selection in the member list, the type
+heading's package/library fields, the metadata- and source-signature cache
+keys, and the metadata/source panels' loading, error, and loaded states.
+
+`src/package-bar.ts` owns the package tab strip (including the always-present
+Platform tab), the open-package query form, and their keyboard/mouse/wheel
+interaction. `app.js` supplies the workspace effects — selecting, closing, and
+opening a package or the runtime pack — so the component acquires no engine or
+workspace authority. `test/package-bar.test.js` gates tab markup, active/close
+state, escaping, and open-package query parsing.
+
 - `Cmd/Ctrl+K` focuses the persistent command prompt.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
 - Arrow keys select a completion, `Tab` accepts it, and `Enter` runs it.

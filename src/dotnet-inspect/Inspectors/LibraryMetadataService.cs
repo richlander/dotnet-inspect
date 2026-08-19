@@ -69,7 +69,9 @@ internal static class LibraryMetadataService
                 trace?.RecordQueryClosure(requiredQueries);
             var bodyAnalysisFeatures = SelectBodyAnalysisFeatures(
                 requiredScanners,
-                requiredQueries);
+                requiredQueries,
+                options.BodyKindQuery.HasFilter
+                    && options.PerformanceTriage.HasCandidateFilters);
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
@@ -519,7 +521,8 @@ internal static class LibraryMetadataService
 
     static Analysis.LibraryBodyAnalysisFeatures SelectBodyAnalysisFeatures(
         IReadOnlySet<string>? scanners,
-        IReadOnlySet<InspectionQueryDefinition>? queries)
+        IReadOnlySet<InspectionQueryDefinition>? queries,
+        bool composedBodyShapeQuery)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
         if (queries?.Contains(TopLeverageQuery.Definition) == true
@@ -529,6 +532,11 @@ internal static class LibraryMetadataService
         }
         if (scanners?.Contains(
                 Sections.LibrarySections.ScannerOptimizationOpportunities) == true)
+        {
+            features |=
+                Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
+        }
+        if (composedBodyShapeQuery)
         {
             features |=
                 Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
@@ -1487,17 +1495,12 @@ internal static class LibraryMetadataService
         {
             var index = openIndex();
             ReportOptimizationDiagnostics(index);
-            var generatedFrameworkTypes = index.GeneratedFrameworkTypes;
-            var rows = FilterAndOrderTriageOpportunities(
-                    TriageOpportunities(index, options)
-                        .Where(opportunity => IncludePerformanceOpportunity(
-                            opportunity,
-                            generatedFrameworkTypes)),
-                    options)
+            var rows = FilterPerformanceOpportunities(index, options)
                 .Select(ProjectOptimizationOpportunity)
                 .ToList();
             return rows.Count > 0 ? rows : null;
         }
+
         catch (CostDeclarationException)
         {
             throw;
@@ -1508,6 +1511,27 @@ internal static class LibraryMetadataService
             return null;
         }
     }
+
+    internal static IEnumerable<Analysis.OptimizationOpportunity>
+        FilterPerformanceOpportunities(
+            Analysis.LibraryBodyIndex index,
+            PerformanceTriageOptions? options)
+    {
+        var generatedFrameworkTypes = index.GeneratedFrameworkTypes;
+        return FilterAndOrderTriageOpportunities(
+            TriageOpportunities(index, options)
+                .Where(opportunity => IncludePerformanceOpportunity(
+                    opportunity,
+                    generatedFrameworkTypes)),
+            options);
+    }
+
+    internal static IReadOnlySet<Analysis.MethodIdentity> PerformanceSourceMethods(
+        IEnumerable<Analysis.OptimizationOpportunity> opportunities)
+        => opportunities
+            .Select(static opportunity =>
+                opportunity.SourceOwner ?? opportunity.Method)
+            .ToHashSet();
 
     internal static void ReportOptimizationDiagnostics(
         Analysis.LibraryBodyIndex index,
