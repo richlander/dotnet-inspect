@@ -102,7 +102,22 @@ public sealed class MetadataContext : IDisposable
     /// </summary>
     internal OpenedAssembly? Open(string path)
     {
-        return _opened.GetOrAdd(path, p => new Lazy<OpenedAssembly?>(() => OpenedAssembly.TryOpen(p))).Value;
+        return _opened.GetOrAdd(path, p => new Lazy<OpenedAssembly?>(() => OpenDesignated(p))).Value;
+    }
+
+    /// <summary>
+    /// Opens a path the caller named directly. Naming an exact file is a
+    /// designation, so the result keeps core-library identity; see
+    /// <see cref="CoreLibraryIdentityTrust"/>.
+    /// </summary>
+    static OpenedAssembly? OpenDesignated(string path)
+    {
+        OpenedAssembly? opened = OpenedAssembly.TryOpen(path);
+        if (opened is not null)
+        {
+            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(opened.Reader);
+        }
+        return opened;
     }
 
     internal OpenedAssembly? Open(ResolvedAssemblyReference assembly)
@@ -114,30 +129,22 @@ public sealed class MetadataContext : IDisposable
 
     /// <summary>
     /// Opens an assembly that reference resolution selected, and records
-    /// whether its acquisition entitles it to core-library identity. This is
-    /// the only place a resolved reference becomes a reader, so it is the one
-    /// place that classification has to happen; see
+    /// whether its acquisition entitles it to core-library identity. Discovery
+    /// is trusted only by provenance or host policy; see
     /// <see cref="CoreLibraryIdentityTrust"/>.
     /// </summary>
     OpenedAssembly? OpenResolved(ResolvedAssemblyReference assembly)
     {
         OpenedAssembly? opened = OpenedAssembly.TryOpen(assembly.OpenRead);
-        if (opened is not null && !MayMint(assembly.Provenance))
+        if (opened is not null)
         {
-            CoreLibraryIdentityTrust.DenyCoreLibraryIdentity(opened.Reader);
+            CoreLibraryIdentityTrust.GrantIfEntitled(
+                opened.Reader,
+                assembly.Provenance,
+                CoreLibraryTrust);
         }
         return opened;
     }
-
-    /// <summary>
-    /// Whether an acquisition entitles the assembly to core-library identity.
-    /// A platform acquisition and an explicit caller designation always do; a
-    /// discovered sibling does only when the host has opted in.
-    /// </summary>
-    bool MayMint(AssemblyResolutionProvenance provenance) =>
-        provenance is AssemblyResolutionProvenance.PlatformAsset
-            or AssemblyResolutionProvenance.DesignatedAsset
-        || CoreLibraryTrust == CoreLibraryTrustPolicy.IncludeDiscovered;
 
     internal OpenedAssembly? Open(
         ResolvedTypeDefinition definition,

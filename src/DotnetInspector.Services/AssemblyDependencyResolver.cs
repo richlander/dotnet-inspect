@@ -257,7 +257,7 @@ public sealed class AssemblyDependencyResolver :
                 continue;
 
             if (scope == AssemblyResolutionScope.Platform
-                && dependency.Provenance is not (AssemblyDependencyProvenance.TrustedPlatformAssembly or AssemblyDependencyProvenance.SharedFramework))
+                && dependency.Provenance is not (AssemblyDependencyProvenance.TrustedPlatformAssembly or AssemblyDependencyProvenance.SharedFramework or AssemblyDependencyProvenance.CorpusAssembly))
                 continue;
 
             CandidateTier tier = TierFor(dependency.Provenance);

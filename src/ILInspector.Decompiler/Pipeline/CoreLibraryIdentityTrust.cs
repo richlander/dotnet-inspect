@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
+using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Pipeline;
 
@@ -17,37 +18,75 @@ namespace ILInspector.Decompiler.Pipeline;
 /// compare equal to the real one.
 /// </para>
 /// <para>
-/// Trust comes from acquisition, not from metadata. The assembly the caller
-/// explicitly opened is trusted by designation, and so is anything resolution
-/// acquired from a platform source
-/// (<see cref="ILInspector.Metadata.AssemblyResolutionProvenance.PlatformAsset"/>).
-/// Everything else resolution opens is marked here and loses only the ability
-/// to claim the corelib name for its own definitions.
+/// Trust comes from acquisition, not from metadata, and it follows how the
+/// caller named the file. A raw path is an explicit designation: the caller
+/// chose that exact file, so it is trusted, which is what lets the CLI open
+/// <c>System.Private.CoreLib.dll</c> out of a dotnet/runtime build layout. A
+/// <see cref="ResolvedAssemblyReference"/> was reached by discovery, so it is
+/// trusted only when its acquisition says so — a platform asset
+/// (<see cref="AssemblyResolutionProvenance.PlatformAsset"/>), an explicitly
+/// enumerated designation
+/// (<see cref="AssemblyResolutionProvenance.DesignatedAsset"/>), or any
+/// acquisition once a host opts in with
+/// <see cref="CoreLibraryTrustPolicy.IncludeDiscovered"/>.
 /// </para>
 /// <para>
-/// Marking is deliberately a deny list applied at the single point where
-/// resolution turns a selected assembly into a reader
-/// (<c>MetadataContext.Open(ResolvedAssemblyReference)</c>), so an unregistered
-/// reader keeps the historical behaviour and a bypass is one search away rather
-/// than an invisible default. <c>PlantedCoreLibraryIdentityTests</c> gates it.
+/// This is an <em>allow</em> list, and the polarity is the point. A deny list
+/// has to name every site that turns bytes into a reader, so a site nobody
+/// remembered fails open and silently restores the vulnerability; review of
+/// PR #4428 found exactly that, because <c>MetadataSource.OpenCore</c> creates
+/// readers without going through <c>MetadataContext</c>. Failing closed bounds
+/// the obligation to the few sites that deliberately <em>grant</em> trust: a
+/// new open path that forgets to classify loses corelib identity, which is
+/// visible and safe, rather than gaining it, which is neither.
+/// </para>
+/// <para>
+/// Gated by <c>PlantedCoreLibraryIdentityTests</c>, which tamper-verifies both
+/// halves — the grant and the check — and covers the resolved, designated,
+/// raw-path, and unclassified open paths.
 /// </para>
 /// </summary>
 static class CoreLibraryIdentityTrust
 {
-    static readonly ConditionalWeakTable<MetadataReader, object> s_untrusted = new();
+    static readonly ConditionalWeakTable<MetadataReader, object> s_trusted = new();
     static readonly object s_marker = new();
 
     /// <summary>
     /// Records that <paramref name="reader"/> was acquired from a source that
-    /// does not entitle it to name its own definitions as core-library types.
+    /// entitles it to name its own definitions as core-library types.
     /// </summary>
-    internal static void DenyCoreLibraryIdentity(MetadataReader reader)
-        => s_untrusted.AddOrUpdate(reader, s_marker);
+    internal static void GrantCoreLibraryIdentity(MetadataReader reader)
+        => s_trusted.AddOrUpdate(reader, s_marker);
+
+    /// <summary>
+    /// Grants when <paramref name="provenance"/> entitles a discovered
+    /// assembly to core-library identity under <paramref name="policy"/>.
+    /// </summary>
+    internal static void GrantIfEntitled(
+        MetadataReader reader,
+        AssemblyResolutionProvenance provenance,
+        CoreLibraryTrustPolicy policy)
+    {
+        if (MayMint(provenance, policy))
+            GrantCoreLibraryIdentity(reader);
+    }
+
+    /// <summary>
+    /// Whether an acquisition entitles the assembly to core-library identity.
+    /// A platform acquisition and an explicit caller designation always do; a
+    /// discovered sibling does only when the host has opted in.
+    /// </summary>
+    internal static bool MayMint(
+        AssemblyResolutionProvenance provenance,
+        CoreLibraryTrustPolicy policy) =>
+        provenance is AssemblyResolutionProvenance.PlatformAsset
+            or AssemblyResolutionProvenance.DesignatedAsset
+        || policy == CoreLibraryTrustPolicy.IncludeDiscovered;
 
     /// <summary>
     /// Whether <paramref name="reader"/> may canonicalize its own assembly name
-    /// to <see cref="TypeRef.CoreLibrary"/>.
+    /// to <see cref="TypeRef.CoreLibrary"/>. An unclassified reader may not.
     /// </summary>
     internal static bool MayMintCoreLibraryIdentity(MetadataReader reader)
-        => !s_untrusted.TryGetValue(reader, out _);
+        => s_trusted.TryGetValue(reader, out _);
 }

@@ -239,4 +239,121 @@ public class PlantedCoreLibraryIdentityTests
         pe.Serialize(image);
         return image.ToArray();
     }
+
+    /// <summary>
+    /// The bypass round-2 review found: <c>MetadataSource.OpenCore</c> creates
+    /// readers without going through <c>MetadataContext</c>, which is the path
+    /// <c>MemberBodyProducer</c> takes for a type defined in a sibling
+    /// assembly. Under the original deny list an unregistered reader failed
+    /// open and the planted sibling minted corelib identity anyway. Fails if
+    /// the registry ever goes back to deny-list polarity.
+    /// </summary>
+    [Fact]
+    public void PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "planted-corelib-bypass-").FullName;
+        try
+        {
+            string path = Path.Combine(directory, "System.Runtime.dll");
+            File.WriteAllBytes(path, BuildPlantedCoreLibrary());
+
+            var identity = IdentityOf(path);
+            var sibling = ResolvedAssemblyReference.Create(
+                identity,
+                path,
+                () => File.OpenRead(path),
+                AssemblyResolutionProvenance.Local("SiblingAssembly"));
+
+            using var source = MetadataSource.OpenWithoutSymbols(
+                sibling,
+                TestAssemblyReferenceResolvers.SingleAssembly(path));
+            TypeRef fake = TypeRef.Definition("System.Runtime", "N", "Fake");
+
+            Assert.NotEqual(
+                MetadataFactState.Yes,
+                source.SupportsCollectionInitializer(fake));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A raw path is a caller designation, so a genuine core library opened out
+    /// of a plain directory — the dotnet/runtime build-layout workflow — keeps
+    /// its identity. This is the negative case that keeps the fail-closed
+    /// registry from re-breaking ordinary use.
+    /// </summary>
+    [Fact]
+    public void RawPathOpen_KeepsCoreLibraryIdentity()
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            typeof(object).Assembly.Location);
+
+        Assert.Equal(
+            TypeRef.CoreLibrary,
+            TypeRefDecoder.CanonicalSelf(source.Reader));
+    }
+
+    /// <summary>
+    /// An explicitly enumerated corpus path is designated, so it must satisfy
+    /// the platform-scope request a corelib TypeRef forces. Round-2 review
+    /// found the resolver excluding <c>CorpusAssembly</c> from platform scope,
+    /// which left the designated build-layout route broken even though the
+    /// provenance mapping was correct.
+    /// </summary>
+    [Fact]
+    public void DesignatedCorpusAssembly_SatisfiesPlatformScope()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "designated-corpus-scope-").FullName;
+        try
+        {
+            string target = Path.Combine(directory, "Target.dll");
+            File.Copy(typeof(PlantedCoreLibraryIdentityTests).Assembly.Location, target);
+
+            string corelib = Path.Combine(directory, "System.Private.CoreLib.dll");
+            File.Copy(typeof(object).Assembly.Location, corelib);
+
+            var resolver = new DotnetInspector.Services.AssemblyDependencyResolver(
+                new DotnetInspector.Services.AssemblyDependencyResolutionOptions(target)
+                {
+                    CorpusAssemblyPaths = [corelib],
+                    IncludeSiblingAssemblies = false,
+                    IncludeTrustedPlatformAssemblies = false,
+                    IncludeAspNetCoreSharedFramework = false,
+                    IncludeDepsJsonAssets = false,
+                });
+
+            var identity = IdentityOf(corelib);
+
+            ResolvedAssemblyReference? resolved = resolver.Resolve(
+                identity,
+                AssemblyResolutionScope.Platform);
+
+            Assert.Equal(corelib, resolved?.Path);
+            Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
+                resolved?.Provenance);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Reads the assembly identity and lets the mapped image go. Returning the
+    /// <see cref="MetadataReader"/> itself would hand back a reader over a
+    /// disposed <see cref="PEReader"/>.
+    /// </summary>
+    static AssemblyReferenceIdentity IdentityOf(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(
+            peReader.GetMetadataReader());
+    }
+
 }

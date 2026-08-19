@@ -294,16 +294,24 @@ unguarded, a planted sibling picked up by reference resolution could mint
 core-library identity for its own definitions and make a fake interface
 authorize raising for a type that implements nothing of the sort.
 
-`CoreLibraryIdentityTrust` owns the rule. Trust follows **acquisition**: the
-caller's designated target is trusted by designation, and an assembly reached
-by reference resolution is trusted when its `AssemblyResolutionProvenance` is a
-`PlatformAsset` or a `DesignatedAsset`.
-`MetadataContext.Open(ResolvedAssemblyReference)` is the single place a resolved
-reference becomes a reader and therefore the single classification point;
-`TypeRefDecoder.CanonicalSelf` consults the registry before honouring a
-platform key. The registry is a deny list rather than an allow list, so a
-reader opened outside resolution keeps its historical behaviour and every
-bypass stays greppable.
+`CoreLibraryIdentityTrust` owns the rule. Trust follows **acquisition**, and
+which acquisition applies follows how the caller named the file. A raw path is
+an explicit designation — the caller chose that exact file — so it is trusted.
+A `ResolvedAssemblyReference` was reached by discovery, so it is trusted only
+when its `AssemblyResolutionProvenance` is a `PlatformAsset` or a
+`DesignatedAsset`. `TypeRefDecoder.CanonicalSelf` consults the registry before
+honouring a platform key.
+
+The registry is an **allow list**, and the polarity is load-bearing. A deny
+list has to enumerate every site that turns bytes into a reader, so a site
+nobody remembered fails open and silently restores the vulnerability. That is
+not hypothetical: the first version of this fix classified only in
+`MetadataContext.Open(ResolvedAssemblyReference)` and missed
+`MetadataSource.OpenCore`, which creates readers directly and is the path
+`MemberBodyProducer` takes for a type defined in a sibling assembly. Failing
+closed bounds the obligation to the few sites that deliberately *grant* trust:
+a new open path that forgets to classify loses core-library identity, which is
+visible and safe, rather than gaining it, which is neither.
 
 Designation is what separates the two workflows that share a shape. A developer
 inspecting a dotnet/runtime build layout has a real core library beside the
@@ -331,8 +339,16 @@ report `PlatformAsset` for that reason.
 `PlantedCoreLibraryIdentityTests.PlantedPlatformKey_DoesNotMintCoreLibraryIdentity`
 gates the boundary with a real planted assembly carrying the verbatim ECMA
 key;
+`PlantedCoreLibraryIdentityTests.PlantedSibling_OpenedThroughMetadataSource_LosesCoreLibraryIdentity`
+gates the reader-creation path that bypasses `MetadataContext`, and fails if
+the registry ever returns to deny-list polarity;
 `PlantedCoreLibraryIdentityTests.DesignatedTarget_KeepsCoreLibraryIdentity`
-gates the scope, so the deny list cannot be widened into every reader;
+and `PlantedCoreLibraryIdentityTests.RawPathOpen_KeepsCoreLibraryIdentity`
+gate the scope, so failing closed does not cost ordinary use;
+`PlantedCoreLibraryIdentityTests.DesignatedCorpusAssembly_SatisfiesPlatformScope`
+gates the resolver half, since a core-library `TypeRef` forces
+`AssemblyResolutionScope.Platform` and a designated corpus assembly must be
+able to satisfy it;
 `PlantedCoreLibraryIdentityTests.DesignatedAcquisition_KeepsCoreLibraryIdentity`
 gates the build-layout and corpus workflow; and
 `PlantedCoreLibraryIdentityTests.DiscoveredSibling_FollowsTheHostPolicy`
