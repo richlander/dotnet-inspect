@@ -64,6 +64,14 @@ public sealed class MetadataContext : IDisposable
     readonly IAssemblyBindingPolicy _bindingPolicy;
     readonly IAssemblyReferenceResolver? _resolver;
 
+    /// <summary>
+    /// How much this context trusts DISCOVERED assemblies to claim
+    /// core-library identity. Defaults to the safe setting; a host whose
+    /// surrounding directory is as trusted as the target may relax it.
+    /// </summary>
+    internal CoreLibraryTrustPolicy CoreLibraryTrust { get; init; }
+        = CoreLibraryTrustPolicy.DesignatedAndPlatform;
+
     public MetadataContext(IAssemblyReferenceResolver resolver)
     {
         ArgumentNullException.ThrowIfNull(resolver);
@@ -111,16 +119,25 @@ public sealed class MetadataContext : IDisposable
     /// place that classification has to happen; see
     /// <see cref="CoreLibraryIdentityTrust"/>.
     /// </summary>
-    static OpenedAssembly? OpenResolved(ResolvedAssemblyReference assembly)
+    OpenedAssembly? OpenResolved(ResolvedAssemblyReference assembly)
     {
         OpenedAssembly? opened = OpenedAssembly.TryOpen(assembly.OpenRead);
-        if (opened is not null
-            && assembly.Provenance is not AssemblyResolutionProvenance.PlatformAsset)
+        if (opened is not null && !MayMint(assembly.Provenance))
         {
             CoreLibraryIdentityTrust.DenyCoreLibraryIdentity(opened.Reader);
         }
         return opened;
     }
+
+    /// <summary>
+    /// Whether an acquisition entitles the assembly to core-library identity.
+    /// A platform acquisition and an explicit caller designation always do; a
+    /// discovered sibling does only when the host has opted in.
+    /// </summary>
+    bool MayMint(AssemblyResolutionProvenance provenance) =>
+        provenance is AssemblyResolutionProvenance.PlatformAsset
+            or AssemblyResolutionProvenance.DesignatedAsset
+        || CoreLibraryTrust == CoreLibraryTrustPolicy.IncludeDiscovered;
 
     internal OpenedAssembly? Open(
         ResolvedTypeDefinition definition,

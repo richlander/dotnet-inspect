@@ -474,6 +474,11 @@ public sealed class AssemblyDependencyResolver :
                     dependency.FrameworkName ?? "Platform",
                     frameworkVersion: null,
                     dependency.Provenance.ToString()),
+            // Corpus paths are enumerated by the caller, not discovered beside
+            // the target, so they carry the caller's designation.
+            AssemblyDependencyProvenance.CorpusAssembly =>
+                AssemblyResolutionProvenance.Designated(
+                    dependency.Provenance.ToString()),
             _ => AssemblyResolutionProvenance.Local(
                 dependency.Provenance.ToString()),
         };

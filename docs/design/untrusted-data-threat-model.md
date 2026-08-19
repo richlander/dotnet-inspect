@@ -296,14 +296,31 @@ authorize raising for a type that implements nothing of the sort.
 
 `CoreLibraryIdentityTrust` owns the rule. Trust follows **acquisition**: the
 caller's designated target is trusted by designation, and an assembly reached
-by reference resolution is trusted only when its
-`AssemblyResolutionProvenance` is a `PlatformAsset`.
+by reference resolution is trusted when its `AssemblyResolutionProvenance` is a
+`PlatformAsset` or a `DesignatedAsset`.
 `MetadataContext.Open(ResolvedAssemblyReference)` is the single place a resolved
 reference becomes a reader and therefore the single classification point;
 `TypeRefDecoder.CanonicalSelf` consults the registry before honouring a
 platform key. The registry is a deny list rather than an allow list, so a
 reader opened outside resolution keeps its historical behaviour and every
 bypass stays greppable.
+
+Designation is what separates the two workflows that share a shape. A developer
+inspecting a dotnet/runtime build layout has a real core library beside the
+assembly under inspection; an attacker shipping a malicious package has a
+planted `System.Runtime.dll` beside its own library. **No metadata distinguishes
+them** — only the caller's intent does. An assembly the caller enumerated
+explicitly (a corpus path, or a directory the user named) carries
+`DesignatedAsset` and keeps core-library identity; one the resolver discovered
+beside the target does not.
+
+The residual case is a host policy, `CoreLibraryTrustPolicy`. The default,
+`DesignatedAndPlatform`, is correct for any host that inspects untrusted
+uploads. A host whose surrounding directory is as trusted as the target — a
+local tool pointed at a build layout the user controls — may select
+`IncludeDiscovered`, which restores the pre-fix behaviour and, with it, the
+planted-sibling exposure. That trade is the host's to make explicitly; it is
+never inferred.
 
 Because trust is read off provenance, provenance must not understate a genuine
 platform acquisition. Resolvers that hand back files taken from the host's
@@ -313,9 +330,13 @@ report `PlatformAsset` for that reason.
 
 `PlantedCoreLibraryIdentityTests.PlantedPlatformKey_DoesNotMintCoreLibraryIdentity`
 gates the boundary with a real planted assembly carrying the verbatim ECMA
-key, and
+key;
 `PlantedCoreLibraryIdentityTests.DesignatedTarget_KeepsCoreLibraryIdentity`
-gates the scope, so the deny list cannot be widened into every reader.
+gates the scope, so the deny list cannot be widened into every reader;
+`PlantedCoreLibraryIdentityTests.DesignatedAcquisition_KeepsCoreLibraryIdentity`
+gates the build-layout and corpus workflow; and
+`PlantedCoreLibraryIdentityTests.DiscoveredSibling_FollowsTheHostPolicy`
+gates both settings of the host policy.
 
 ### Restored manifest paths remain within their owning roots
 

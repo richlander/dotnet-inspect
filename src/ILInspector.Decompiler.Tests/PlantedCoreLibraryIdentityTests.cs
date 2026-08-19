@@ -84,6 +84,106 @@ public class PlantedCoreLibraryIdentityTests
     }
 
     /// <summary>
+    /// An assembly the caller designated — a corpus path, or a build layout the
+    /// user named — keeps core-library identity even though it is reached by
+    /// resolution rather than being the target. Designation is the caller's
+    /// statement of trust, and it is what separates a dotnet/runtime build
+    /// layout from a planted sibling: the two are indistinguishable in
+    /// metadata. Fails if <c>DesignatedAsset</c> stops being honoured, which
+    /// would silently degrade raising for corpus and build-layout inspection.
+    /// </summary>
+    [Fact]
+    public void DesignatedAcquisition_KeepsCoreLibraryIdentity()
+    {
+        RunWithResolvedCoreLibrary(
+            AssemblyResolutionProvenance.Designated("corpus"),
+            CoreLibraryTrustPolicy.DesignatedAndPlatform,
+            expectedCorelib: true);
+    }
+
+    /// <summary>
+    /// A discovered sibling is denied under the default policy but honoured
+    /// when the host opts in. Fails if the policy knob stops being consulted,
+    /// which would leave a host unable to inspect a build layout it trusts.
+    /// </summary>
+    [Fact]
+    public void DiscoveredSibling_FollowsTheHostPolicy()
+    {
+        RunWithResolvedCoreLibrary(
+            AssemblyResolutionProvenance.Local("sibling"),
+            CoreLibraryTrustPolicy.DesignatedAndPlatform,
+            expectedCorelib: false);
+
+        RunWithResolvedCoreLibrary(
+            AssemblyResolutionProvenance.Local("sibling"),
+            CoreLibraryTrustPolicy.IncludeDiscovered,
+            expectedCorelib: true);
+    }
+
+    /// <summary>
+    /// Opens the planted assembly through reference resolution with a given
+    /// acquisition provenance and host policy, and reports whether its own
+    /// definitions decoded as core-library types.
+    /// </summary>
+    static void RunWithResolvedCoreLibrary(
+        AssemblyResolutionProvenance provenance,
+        CoreLibraryTrustPolicy policy,
+        bool expectedCorelib)
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "resolved-corelib-identity-").FullName;
+        try
+        {
+            string path = Path.Combine(directory, "System.Runtime.dll");
+            File.WriteAllBytes(path, BuildPlantedCoreLibrary());
+
+            var resolver = new ProvenanceResolver(path, provenance);
+            using var context = new MetadataContext(resolver)
+            {
+                CoreLibraryTrust = policy,
+            };
+
+            OpenedAssembly opened = Assert.IsType<OpenedAssembly>(
+                context.Open(
+                    resolver.Resolve(
+                        new AssemblyReferenceIdentity(
+                            "System.Runtime",
+                            Version: null,
+                            Culture: null,
+                            PublicKeyToken: null),
+                        AssemblyResolutionScope.Any)!));
+
+            TypeRef decoded = TypeRefDecoder.Instance.GetTypeFromDefinition(
+                opened.Reader,
+                MetadataTokens.TypeDefinitionHandle(2),
+                rawTypeKind: 0);
+
+            Assert.Equal(
+                expectedCorelib,
+                decoded.Assembly == TypeRef.CoreLibrary);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    sealed class ProvenanceResolver(
+        string path,
+        AssemblyResolutionProvenance provenance) : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => string.Equals(
+                identity.Name,
+                "System.Runtime",
+                StringComparison.OrdinalIgnoreCase)
+                ? ResolvedAssemblyReference.CreateFromPath(path, provenance)
+                : null;
+    }
+
+    /// <summary>
     /// An assembly named <c>System.Runtime</c> carrying the real ECMA public key
     /// blob, defining its own <c>System.Collections.IEnumerable</c> (row 2) and a
     /// class implementing it (row 3). The key is copied from the running core
