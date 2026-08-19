@@ -45,7 +45,7 @@ internal static class ExplicitFilterGuard
 
     internal static async ValueTask<string?> ValidateAsync(string[] args, Assembly testAssembly)
     {
-        if (!MightContainIncludedFilter(args))
+        if (!MightContainExplicitSelection(args))
         {
             return null;
         }
@@ -226,7 +226,9 @@ internal static class ExplicitFilterGuard
 
         IReadOnlyList<ExplicitFilter> filters = FindIncludedFilters(
             projectAssembly.Configuration.Filters.ToXunit3Arguments().ToArray());
-        if (filters.Count == 0)
+        bool hasDirectSelection = projectAssembly.TestCaseIDsToRun.Count > 0
+            || projectAssembly.TestCasesToRun.Count > 0;
+        if (filters.Count == 0 && !hasDirectSelection)
         {
             return PreflightResult.Defer;
         }
@@ -297,11 +299,13 @@ internal static class ExplicitFilterGuard
         return PreflightResult.Pass;
     }
 
-    private static bool MightContainIncludedFilter(IReadOnlyList<string> args)
+    private static bool MightContainExplicitSelection(IReadOnlyList<string> args)
         => (args.Count == 2 && args[0] == "@@")
             || args.Any(arg => string.Equals(arg, "-class", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(arg, "-method", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(arg, "-filter", StringComparison.OrdinalIgnoreCase));
+                || string.Equals(arg, "-filter", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(arg, "-id", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(arg, "-run", StringComparison.OrdinalIgnoreCase));
 
     private static bool HasRunnableSelection(
         XunitProjectAssembly projectAssembly,

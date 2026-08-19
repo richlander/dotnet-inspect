@@ -111,8 +111,9 @@ public class ExplicitFilterGuardTests
         ProcessResult disjointId = await RunHostAsync(
             "-class", validClass,
             "-id", TestContext.Current.TestCase!.UniqueID);
+        ProcessResult missingId = await RunHostAsync(
+            "-id", "definitely-not-a-test-case-id");
         ProcessResult invalidRun = await RunHostAsync(
-            "-class", validClass,
             "-run", "definitely-not-a-serialized-test-case");
         ProcessResult explicitOnly = await RunHostAsync(
             "-class", "ILInspector.Decompiler.Tests.ExplicitFilterGuardTests",
@@ -129,16 +130,24 @@ public class ExplicitFilterGuardTests
             "-noColor",
             "-list",
             "discovery/json");
-        string customSerialization = JsonDocument
-            .Parse(customSerializationList.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0])
-            .RootElement
+        using JsonDocument customDiscovery = JsonDocument.Parse(
+            customSerializationList.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries)[0]);
+        string customSerialization = customDiscovery.RootElement
             .GetProperty("Serialization")
             .GetString()
             ?? throw new InvalidOperationException("Discovery serialization was null.");
+        string customId = customDiscovery.RootElement
+            .GetProperty("TestCaseUniqueID")
+            .GetString()
+            ?? throw new InvalidOperationException("Discovery test-case ID was null.");
+        ProcessResult customIdRun = await RunHostAsync(
+            "-preEnumerateTheories",
+            "-id",
+            customId);
         ProcessResult customSerializationRun = await RunHostAsync(
             "-preEnumerateTheories",
-            "-method",
-            customSerializationMethod,
             "-run",
             customSerialization);
         string disposalMarker = Path.Combine(
@@ -208,6 +217,10 @@ public class ExplicitFilterGuardTests
         Assert.Contains("combined xUnit selectors matched no runnable tests", disjointId.Error);
         Assert.DoesNotContain("TEST EXECUTION SUMMARY", disjointId.Output);
 
+        Assert.Equal(2, missingId.ExitCode);
+        Assert.Contains("combined xUnit selectors matched no runnable tests", missingId.Error);
+        Assert.DoesNotContain("TEST EXECUTION SUMMARY", missingId.Output);
+
         Assert.Equal(2, invalidRun.ExitCode);
         Assert.Contains("-run test-case serializations could not be deserialized", invalidRun.Error);
         Assert.DoesNotContain("combined xUnit selectors", invalidRun.Error);
@@ -223,6 +236,8 @@ public class ExplicitFilterGuardTests
         Assert.DoesNotContain("Unhandled exception", malformedQueryDiagnostic);
 
         Assert.Equal(0, customSerializationList.ExitCode);
+        Assert.Equal(0, customIdRun.ExitCode);
+        Assert.Contains("Total: 1,", customIdRun.Output);
         Assert.Equal(0, customSerializationRun.ExitCode);
         Assert.Contains("Total: 1,", customSerializationRun.Output);
         Assert.DoesNotContain("already supported", customSerializationRun.Output);
@@ -423,14 +438,21 @@ public class ExplicitFilterGuardTests
             string observedHost =
                 Path.GetFullPath(
                     File.ReadAllText(observedProcessPath));
-            string sharedAliasPath = Path.Combine(
-                appHostDirectory,
-                OperatingSystem.IsWindows()
-                    ? "dotnet.exe"
-                    : "dotnet");
-            Assert.NotEqual(
-                Path.GetFullPath(sharedAliasPath),
-                observedHost);
+            string aliasFileName =
+                OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+            StringComparison pathComparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            foreach (string aliasDirectory in
+                new[] { workerDirectories[0], workerDirectories[2] })
+            {
+                string liveAliasPath = Path.GetFullPath(
+                    Path.Combine(aliasDirectory, aliasFileName));
+                Assert.False(
+                    string.Equals(liveAliasPath, observedHost, pathComparison),
+                    $"Muxer consumer executed the live apphost alias: {liveAliasPath}");
+            }
+
             Assert.Equal(
                 "dotnet",
                 Path.GetFileNameWithoutExtension(observedHost));
