@@ -73,11 +73,15 @@ public static class InspectionGraphCommandDefinitions
         command.Validators.Add(result =>
         {
             string? missingRelationshipValue =
-                (result.GetValue(relationshipOption) ?? [])
-                    .FirstOrDefault(static value =>
-                        value.StartsWith(
-                            "-",
-                            StringComparison.Ordinal));
+                result.GetResult(relationshipOption)
+                    is { Tokens.Count: > 0 } relationshipResult
+                    ? relationshipResult.Tokens
+                        .Select(static token => token.Value)
+                        .FirstOrDefault(static value =>
+                            value.StartsWith(
+                                "-",
+                                StringComparison.Ordinal))
+                    : null;
             if (missingRelationshipValue is not null)
             {
                 result.AddError(

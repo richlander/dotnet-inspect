@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using DotnetInspector.Options;
@@ -13,9 +14,22 @@ namespace DotnetInspector.Output;
 internal sealed record InspectionGraphEdgeRow(
     int EdgeId,
     string Source,
+    string? SourceAssembly,
     string? SourceGroup,
     string Relationship,
     string Target,
+    string? TargetAssembly,
+    string? TargetGroup,
+    int Occurrences,
+    string? Evidence);
+
+internal sealed record InspectionGraphJsonLine(
+    string Source,
+    string? SourceAssembly,
+    string? SourceGroup,
+    string Relationship,
+    string Target,
+    string? TargetAssembly,
     string? TargetGroup,
     int Occurrences,
     string? Evidence);
@@ -51,6 +65,7 @@ internal sealed record InspectionGraphJsonNode(
     int Id,
     string Kind,
     string Label,
+    string? Assembly,
     string Role,
     int[] GroupIds);
 
@@ -65,9 +80,11 @@ internal sealed record InspectionGraphJsonEdge(
     int FromNodeId,
     int ToNodeId,
     string Source,
+    string? SourceAssembly,
     string? SourceGroup,
     string Relationship,
     string Target,
+    string? TargetAssembly,
     string? TargetGroup,
     int Occurrences,
     string? Evidence);
@@ -85,11 +102,30 @@ internal sealed record InspectionGraphJsonDocument(
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(InspectionGraphJsonDocument))]
+[JsonSerializable(typeof(InspectionGraphJsonLine))]
 internal partial class InspectionGraphJsonContext : JsonSerializerContext;
 
-internal static class InspectionGraphOutputAdapter
+internal sealed class InspectionGraphOutputAdapter
 {
-    internal static List<InspectionGraphEdgeRow> EdgeRows(
+    readonly IReadOnlyDictionary<
+        AssemblyAcquisitionRegistration,
+        string> _assemblyLabels;
+
+    internal InspectionGraphOutputAdapter(
+        WorkspaceContextLoadOutcome.Loaded context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        _assemblyLabels =
+            context.Group.Participants.ToDictionary(
+                static participant =>
+                    participant.Assembly.Registration,
+                static participant =>
+                    CSharpIdentifier.ContainRenderedText(
+                        AssemblyIdentityFormatter.Format(
+                            participant.Assembly.Identity)));
+    }
+
+    internal List<InspectionGraphEdgeRow> EdgeRows(
         InspectionGraphDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -104,9 +140,11 @@ internal static class InspectionGraphOutputAdapter
                 return new InspectionGraphEdgeRow(
                     edge.Id,
                     Label(source.Subject),
+                    AssemblyLabel(source.Subject),
                     GroupLabel(document, source),
                     edge.Relationship.Id,
                     Label(target.Subject),
+                    AssemblyLabel(target.Subject),
                     GroupLabel(document, target),
                     edge.OccurrenceIds.Length,
                     Evidence(document, edge));
@@ -114,7 +152,7 @@ internal static class InspectionGraphOutputAdapter
         ];
     }
 
-    internal static List<InspectionGraphFailureRow> FailureRows(
+    internal List<InspectionGraphFailureRow> FailureRows(
         InspectionGraphDocument document) =>
         [
             .. document.Failures.Select(failure =>
@@ -124,7 +162,7 @@ internal static class InspectionGraphOutputAdapter
                     FailureDetail(failure))),
         ];
 
-    internal static InspectionGraphJsonDocument Json(
+    internal InspectionGraphJsonDocument Json(
         InspectionGraphDocument document,
         IReadOnlyList<InspectionGraphEdgeRow> selectedRows)
     {
@@ -167,6 +205,7 @@ internal static class InspectionGraphOutputAdapter
                         node.Id,
                         node.Subject.Kind.ToString(),
                         Label(node.Subject),
+                        AssemblyLabel(node.Subject),
                         node.Role.ToString(),
                         [.. node.GroupIds])),
             ],
@@ -187,11 +226,15 @@ internal static class InspectionGraphOutputAdapter
                         edge.FromNodeId,
                         edge.ToNodeId,
                         Label(document.Nodes[edge.FromNodeId].Subject),
+                        AssemblyLabel(
+                            document.Nodes[edge.FromNodeId].Subject),
                         GroupLabel(
                             document,
                             document.Nodes[edge.FromNodeId]),
                         edge.Relationship.Id,
                         Label(document.Nodes[edge.ToNodeId].Subject),
+                        AssemblyLabel(
+                            document.Nodes[edge.ToNodeId].Subject),
                         GroupLabel(
                             document,
                             document.Nodes[edge.ToNodeId]),
@@ -202,7 +245,7 @@ internal static class InspectionGraphOutputAdapter
                 JsonFailure(document, failure))]);
     }
 
-    internal static void WriteMarkdown(
+    internal void WriteMarkdown(
         InspectionGraphDocument document,
         IReadOnlyList<InspectionGraphEdgeRow> rows,
         bool embeddedMermaid)
@@ -258,7 +301,7 @@ internal static class InspectionGraphOutputAdapter
         writer.Flush();
     }
 
-    internal static void WriteGraph(
+    internal void WriteGraph(
         InspectionGraphDocument document,
         IReadOnlyList<InspectionGraphEdgeRow> rows,
         IMarkoutFormatter formatter,
@@ -274,7 +317,7 @@ internal static class InspectionGraphOutputAdapter
         writer.Flush();
     }
 
-    internal static void WriteTable(
+    internal void WriteTable(
         IReadOnlyList<InspectionGraphEdgeRow> rows,
         OutputFormat format,
         bool noHeader)
@@ -290,18 +333,22 @@ internal static class InspectionGraphOutputAdapter
         writer.WriteTable(
             [
                 "Source",
+                "Source Assembly",
                 "Source Group",
                 "Relationship",
                 "Target",
+                "Target Assembly",
                 "Target Group",
                 "Occurrences",
                 "Evidence",
             ],
             [
                 "source",
+                "source_assembly",
                 "source_group",
                 "relationship",
                 "target",
+                "target_assembly",
                 "target_group",
                 "occurrences",
                 "evidence",
@@ -310,9 +357,11 @@ internal static class InspectionGraphOutputAdapter
                 .. rows.Select(row => new[]
                 {
                     row.Source,
+                    row.SourceAssembly ?? "",
                     row.SourceGroup ?? "",
                     row.Relationship,
                     row.Target,
+                    row.TargetAssembly ?? "",
                     row.TargetGroup ?? "",
                     row.Occurrences.ToString(CultureInfo.InvariantCulture),
                     row.Evidence ?? "",
@@ -321,7 +370,31 @@ internal static class InspectionGraphOutputAdapter
         writer.Flush();
     }
 
-    static Markout.Graph ToGraph(
+    internal static void WriteJsonLines(
+        IReadOnlyList<InspectionGraphEdgeRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        foreach (InspectionGraphEdgeRow row in rows)
+        {
+            var jsonLine = new InspectionGraphJsonLine(
+                row.Source,
+                row.SourceAssembly,
+                row.SourceGroup,
+                row.Relationship,
+                row.Target,
+                row.TargetAssembly,
+                row.TargetGroup,
+                row.Occurrences,
+                row.Evidence);
+            Console.WriteLine(
+                JsonSerializer.Serialize(
+                    jsonLine,
+                    InspectionGraphJsonContext.Default
+                        .InspectionGraphJsonLine));
+        }
+    }
+
+    Markout.Graph ToGraph(
         InspectionGraphDocument document,
         IReadOnlyList<InspectionGraphEdgeRow> rows,
         bool includeIsolatedPackages,
@@ -346,7 +419,7 @@ internal static class InspectionGraphOutputAdapter
             string? group = node.GroupIds.Length == 0
                 ? null
                 : Label(document.Groups[node.GroupIds[0]].Subject);
-            string label = Label(node.Subject);
+            string label = EndpointLabel(node.Subject);
             if (includeGroupInNodeLabel && group is not null)
                 label = $"{label} [{group}]";
             nodes.Add(
@@ -457,7 +530,7 @@ internal static class InspectionGraphOutputAdapter
         }
     }
 
-    static InspectionGraphJsonFailure JsonFailure(
+    InspectionGraphJsonFailure JsonFailure(
         InspectionGraphDocument document,
         InspectionGraphFailure failure)
     {
@@ -515,7 +588,7 @@ internal static class InspectionGraphOutputAdapter
                     .Select(id => Label(document.Groups[id].Subject))
                     .Distinct(StringComparer.Ordinal));
 
-    static void WriteFailures(
+    void WriteFailures(
         MarkoutWriter writer,
         InspectionGraphDocument document)
     {
@@ -610,7 +683,7 @@ internal static class InspectionGraphOutputAdapter
         return string.Join("; ", parts);
     }
 
-    static string Target(
+    string Target(
         InspectionGraphDocument document,
         InspectionGraphTarget? target) =>
         target switch
@@ -670,6 +743,55 @@ internal static class InspectionGraphOutputAdapter
                 } => $"{package.Package.PackageId}@{package.Package.Version}",
                 _ => subject.Kind.ToString(),
             });
+
+    string EndpointLabel(InspectionGraphSubject subject)
+    {
+        string label = Label(subject);
+        string? assembly = AssemblyLabel(subject);
+        return assembly is null
+            ? label
+            : $"{label} [{assembly}]";
+    }
+
+    string? AssemblyLabel(InspectionGraphSubject subject) =>
+        subject switch
+        {
+            InspectionGraphSubject.MemberSubject
+            {
+                Identity:
+                    InspectionGraphMemberIdentity.AcquiredApi member,
+            } => AssemblyLabel(member.Registration),
+            InspectionGraphSubject.TypeSubject
+            {
+                Identity:
+                    InspectionGraphTypeIdentity.AcquiredDefinition type,
+            } => AssemblyLabel(type.Registration),
+            InspectionGraphSubject.TypeSubject
+            {
+                Identity:
+                    InspectionGraphTypeIdentity.Structural type,
+            } => string.IsNullOrWhiteSpace(type.Type.Assembly)
+                ? null
+                : CSharpIdentifier.ContainRenderedText(
+                    type.Type.Assembly),
+            InspectionGraphSubject.AssemblySubject
+            {
+                Identity:
+                    InspectionGraphAssemblyIdentity.Acquired assembly,
+            } => CSharpIdentifier.ContainRenderedText(
+                AssemblyIdentityFormatter.Format(assembly.Assembly)),
+            InspectionGraphSubject.AssemblySubject
+            {
+                Identity:
+                    InspectionGraphAssemblyIdentity.Metadata assembly,
+            } => CSharpIdentifier.ContainRenderedText(
+                AssemblyIdentityFormatter.Format(assembly.Assembly)),
+            _ => null,
+        };
+
+    string? AssemblyLabel(
+        AssemblyAcquisitionRegistration registration) =>
+        _assemblyLabels.GetValueOrDefault(registration);
 
     static string Key(int id) =>
         id.ToString(CultureInfo.InvariantCulture);

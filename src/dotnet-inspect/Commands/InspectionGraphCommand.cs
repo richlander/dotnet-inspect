@@ -98,7 +98,7 @@ public static class InspectionGraphCommand
             queryExecutor is null
                 ? InspectionGraphIntegrationsQuery.Execute(context, request)
                 : queryExecutor(context, request);
-        return Write(document, options);
+        return Write(document, options, context);
     }
 
     static WorkspaceContextLoadOptions CreateLoadOptions(
@@ -191,12 +191,14 @@ public static class InspectionGraphCommand
 
     static int Write(
         InspectionGraphDocument document,
-        InspectionGraphOptions options)
+        InspectionGraphOptions options,
+        WorkspaceContextLoadOutcome.Loaded context)
     {
+        var output = new InspectionGraphOutputAdapter(context);
         IReadOnlyList<InspectionGraphEdgeRow> rows =
             RowWindow.Apply(
                 options.Rows,
-                InspectionGraphOutputAdapter.EdgeRows(document));
+                output.EdgeRows(document));
         bool incomplete = document.Failures.Length > 0;
 
         if (options.Count)
@@ -205,7 +207,7 @@ public static class InspectionGraphCommand
         }
         else if (options.Tree)
         {
-            InspectionGraphOutputAdapter.WriteGraph(
+            output.WriteGraph(
                 document,
                 rows,
                 new PlainTextFormatter(),
@@ -218,7 +220,7 @@ public static class InspectionGraphCommand
                 case OutputFormat.Json:
                     Console.WriteLine(
                         JsonSerializer.Serialize(
-                            InspectionGraphOutputAdapter.Json(
+                            output.Json(
                                 document,
                                 rows),
                             InspectionGraphJsonContext.Default
@@ -226,28 +228,30 @@ public static class InspectionGraphCommand
                     break;
                 case OutputFormat.Table:
                 case OutputFormat.Tsv:
-                case OutputFormat.Jsonl:
-                    InspectionGraphOutputAdapter.WriteTable(
+                    output.WriteTable(
                         rows,
                         options.Format,
                         options.NoHeader);
                     break;
+                case OutputFormat.Jsonl:
+                    InspectionGraphOutputAdapter.WriteJsonLines(rows);
+                    break;
                 case OutputFormat.Mermaid:
-                    InspectionGraphOutputAdapter.WriteGraph(
+                    output.WriteGraph(
                         document,
                         rows,
                         new MermaidFormatter(),
                         includeGroupInNodeLabel: false);
                     break;
                 case OutputFormat.PlainText:
-                    InspectionGraphOutputAdapter.WriteGraph(
+                    output.WriteGraph(
                         document,
                         rows,
                         new PlainTextFormatter(),
                         includeGroupInNodeLabel: true);
                     break;
                 default:
-                    InspectionGraphOutputAdapter.WriteMarkdown(
+                    output.WriteMarkdown(
                         document,
                         rows,
                         options.EmbeddedMermaid);
@@ -260,7 +264,7 @@ public static class InspectionGraphCommand
             CommandError.Write(
                 "The Integration graph is incomplete.",
                 [
-                    .. InspectionGraphOutputAdapter.FailureRows(document)
+                    .. output.FailureRows(document)
                         .GroupBy(
                             static failure =>
                                 (failure.Failure, failure.Detail))

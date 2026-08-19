@@ -150,6 +150,28 @@ public sealed class InspectionGraphCommandTests
     }
 
     [Fact]
+    public async Task IntegrationsCommand_RejectsBareRelationshipWithoutStack()
+    {
+        var captured = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.CreateRootCommand()
+                .Parse(
+                    [
+                        "graph",
+                        "integrations",
+                        "--package",
+                        "Package.A",
+                        "--tfm",
+                        "net10.0",
+                        "--relationship",
+                    ])
+                .InvokeAsync());
+
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains("--relationship", captured.Error);
+        Assert.DoesNotContain("Exception", captured.Error);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_RejectsUnknownRelationshipWithoutStack()
     {
         Execution execution = await ExecuteAsync(
@@ -276,6 +298,18 @@ public sealed class InspectionGraphCommandTests
             jsonLines.Output.Split(
                 Environment.NewLine,
                 StringSplitOptions.RemoveEmptyEntries));
+        using JsonDocument jsonLine = JsonDocument.Parse(jsonLines.Output);
+        Assert.Equal(
+            JsonValueKind.Number,
+            jsonLine.RootElement.GetProperty("occurrences").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
+            jsonLine.RootElement.GetProperty("source_assembly").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
+            jsonLine.RootElement.GetProperty("evidence").ValueKind);
+        Assert.False(
+            jsonLine.RootElement.TryGetProperty("edge_id", out _));
     }
 
     [Fact]
@@ -415,6 +449,48 @@ public sealed class InspectionGraphCommandTests
             edge.GetProperty("target_group").GetString());
         Assert.Equal(0, edge.GetProperty("occurrences").GetInt32());
         Assert.False(edge.TryGetProperty("occurrence_ids", out _));
+    }
+
+    [Fact]
+    public async Task AcquiredEndpoints_RetainAssemblyWithinOnePackage()
+    {
+        Execution table = await ExecuteAsync(
+            ["--table"],
+            documentFactory:
+                GraphWithDuplicateAcquiredTypeLabels);
+        Execution tree = await ExecuteAsync(
+            ["--tree"],
+            documentFactory:
+                GraphWithDuplicateAcquiredTypeLabels);
+        Execution json = await ExecuteAsync(
+            ["--json"],
+            documentFactory:
+                GraphWithDuplicateAcquiredTypeLabels);
+
+        Assert.All(
+            [table, tree, json],
+            static execution => Assert.Equal(0, execution.ExitCode));
+        Assert.Contains("Source Assembly", table.Output);
+        Assert.Contains("dotnet-inspect.Tests", table.Output);
+        Assert.Contains("dotnet-inspect, Version=", table.Output);
+        Assert.Contains("dotnet-inspect.Tests", tree.Output);
+        Assert.Contains("dotnet-inspect, Version=", tree.Output);
+
+        using JsonDocument parsed = JsonDocument.Parse(json.Output);
+        JsonElement edge = Assert.Single(
+            parsed.RootElement.GetProperty("edges").EnumerateArray());
+        string? sourceAssembly =
+            edge.GetProperty("source_assembly").GetString();
+        string? targetAssembly =
+            edge.GetProperty("target_assembly").GetString();
+        Assert.NotNull(sourceAssembly);
+        Assert.NotNull(targetAssembly);
+        Assert.NotEqual(sourceAssembly, targetAssembly);
+        Assert.All(
+            parsed.RootElement.GetProperty("nodes").EnumerateArray(),
+            static node => Assert.Equal(
+                JsonValueKind.String,
+                node.GetProperty("assembly").ValueKind));
     }
 
     [Fact]
@@ -583,9 +659,14 @@ public sealed class InspectionGraphCommandTests
             await File.ReadAllBytesAsync(
                 typeof(InspectionGraphCommandTests).Assembly.Location,
                 TestContext.Current.CancellationToken);
+        byte[] productAssembly =
+            await File.ReadAllBytesAsync(
+                typeof(InspectionGraphCommand).Assembly.Location,
+                TestContext.Current.CancellationToken);
         byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
             ($"{PackageId}.nuspec", "<package />"u8.ToArray()),
-            ($"lib/{Framework}/dotnet-inspect.Tests.dll", assembly));
+            ($"lib/{Framework}/dotnet-inspect.Tests.dll", assembly),
+            ($"lib/{Framework}/dotnet-inspect.dll", productAssembly));
         using (var stream = new MemoryStream(package))
         {
             await store.CommitAsync(
@@ -823,6 +904,67 @@ public sealed class InspectionGraphCommandTests
                     InspectionGraphInducedSetCatalog.SubjectBound,
                     Evidence:
                         new InspectionGraphInducedSubjectBoundEvidence(2)),
+            ],
+            []);
+    }
+
+    static InspectionGraphDocument GraphWithDuplicateAcquiredTypeLabels(
+        WorkspaceContextLoadOutcome.Loaded context,
+        InspectionGraphInducedSetRequest _)
+    {
+        Assert.Equal(2, context.Group.Participants.Length);
+        var name = Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+            MetadataTypeDefinitionName.Create("Sample", ["Shared"]))
+            .Name;
+        InspectionGraphSubject package = PackageSubject(PackageId);
+        InspectionGraphSubject firstType =
+            InspectionGraphSubject.ForAcquiredType(
+                context.Group.Participants[0].Assembly.Registration,
+                name);
+        InspectionGraphSubject secondType =
+            InspectionGraphSubject.ForAcquiredType(
+                context.Group.Participants[1].Assembly.Registration,
+                name);
+        var request = new InspectionGraphInducedSetRequest(
+            [package],
+            [TestTypeRelationship],
+            InspectionGraphInducedSetAdmissionRule
+                .BothEndpointsWithinSubjectClosure);
+
+        return new InspectionGraphDocument(
+            InspectionGraphDocumentScope.SessionBound,
+            request,
+            [
+                new InspectionGraphNode(
+                    0,
+                    firstType,
+                    InspectionGraphNodeRole.Ordinary,
+                    [0]),
+                new InspectionGraphNode(
+                    1,
+                    secondType,
+                    InspectionGraphNodeRole.Ordinary,
+                    [0]),
+            ],
+            [
+                new InspectionGraphGroup(0, package, parentId: null),
+            ],
+            [
+                new InspectionGraphEdge(
+                    0,
+                    0,
+                    1,
+                    TestTypeRelationship,
+                    []),
+            ],
+            [],
+            [],
+            [],
+            [
+                new InspectionGraphLimit(
+                    InspectionGraphInducedSetCatalog.SubjectBound,
+                    Evidence:
+                        new InspectionGraphInducedSubjectBoundEvidence(1)),
             ],
             []);
     }

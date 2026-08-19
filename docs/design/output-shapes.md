@@ -66,14 +66,17 @@ lossless inert containment boundary as human-readable failures.
 resolvability, and `StructuredFailureText_IsInertAfterJsonParsing` gates
 containment after a JSON consumer decodes the value.
 
-Integration graph edge rows carry `source`, `source_group`, `relationship`,
-`target`, `target_group`, `occurrences`, and `evidence`. Group fields preserve
-package ownership when equal member or type labels occur in different package
-contexts; plain-text trees include that ownership in node labels. JSON edges
-carry the occurrence count and projected evidence rather than exposing
+Integration graph edge rows carry `source`, `source_assembly`, `source_group`,
+`relationship`, `target`, `target_assembly`, `target_group`, `occurrences`,
+and `evidence`. Assembly and group fields preserve endpoint identity within a
+multi-assembly package and package ownership across package contexts;
+plain-text and graph node labels carry the same context. JSON nodes also carry
+assembly identity. JSON and JSONL keep occurrence counts numeric and absent
+values null; JSON edges carry projected evidence rather than exposing
 document-local occurrence ids without the occurrence collection that owns
-them. `ProductionShapedEndpoints_RetainPackageOwnership` gates these contracts
-with equal type labels in different package groups.
+them. `ProductionShapedEndpoints_RetainPackageOwnership`,
+`AcquiredEndpoints_RetainAssemblyWithinOnePackage`, and
+`OutputModes_UseTheSameWindowedLogicalEdges` gate these contracts.
 
 ## Flag families
 
