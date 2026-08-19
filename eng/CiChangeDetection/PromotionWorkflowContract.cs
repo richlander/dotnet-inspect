@@ -21,9 +21,14 @@ internal static class PromotionWorkflowContract
         """
         set -euo pipefail
         site=artifacts/inspect-web-publish/wwwroot
+        api=artifacts/inspect-web-publish/api
         index="$site/index.html"
         test -f "$index"
         test -f "$site/staticwebapp.config.json"
+        test -f "$api/host.json"
+        test -f "$api/functions.metadata"
+        test -f "$api/worker.config.json"
+        jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
         manifest="$site/manifest.json"
         test -f "$manifest"
         jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
@@ -49,9 +54,14 @@ internal static class PromotionWorkflowContract
         """
         set -euo pipefail
         site=artifacts/inspect-web-coreclr-publish/wwwroot
+        api=artifacts/inspect-web-coreclr-publish/api
         index="$site/index.html"
         test -f "$index"
         test -f "$site/staticwebapp.config.json"
+        test -f "$api/host.json"
+        test -f "$api/functions.metadata"
+        test -f "$api/worker.config.json"
+        jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
         manifest="$site/manifest.json"
         test -f "$manifest"
         jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
@@ -506,7 +516,7 @@ internal static class PromotionWorkflowContract
                 ["github-token"] = "${{ secrets.GITHUB_TOKEN }}",
                 ["repository"] = "${{ github.repository }}",
                 ["run-id"] = "${{ inputs.staging_run_id }}",
-                ["path"] = "artifacts/inspect-web-publish/wwwroot",
+                ["path"] = "artifacts/inspect-web-publish",
                 ["digest-mismatch"] = "error",
             },
             "artifact download step.with");
@@ -536,8 +546,10 @@ internal static class PromotionWorkflowContract
                     "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_PRODUCTION }}",
                 ["action"] = "upload",
                 ["app_location"] = "artifacts/inspect-web-publish/wwwroot",
+                ["api_location"] = "artifacts/inspect-web-publish/api",
                 ["output_location"] = "",
                 ["skip_app_build"] = "true",
+                ["skip_api_build"] = "true",
             },
             "production deploy step.with");
     }
@@ -609,12 +621,12 @@ internal static class PromotionWorkflowContract
             "jobs.build");
         RequireScalarValue(build, "runs-on", "ubuntu-26.04", "jobs.build");
         YamlSequenceNode buildSteps = GetRequiredSequence(build, "steps", "jobs.build");
-        if (buildSteps.Children.Count != 8)
+        if (buildSteps.Children.Count != 9)
         {
             throw new InvalidOperationException(
                 "Staging build must contain checkout, .NET and Node setup, " +
-                "workload install, frontend build, publish, artifact verification, " +
-                "and artifact upload steps.");
+                "workload install, frontend build, site and API publish, artifact " +
+                "verification, and artifact upload steps.");
         }
         YamlMappingNode checkout =
             RequireStep(buildSteps, 0, null, "jobs.build");
@@ -712,14 +724,23 @@ internal static class PromotionWorkflowContract
                 "Staging publish command does not match the trusted contract.");
         }
 
+        ValidateManagedApiPublish(
+            RequireStep(
+                buildSteps,
+                6,
+                "Publish MSDL managed API",
+                "jobs.build"),
+            "artifacts/inspect-web-publish/api",
+            "staging managed API publish step");
+
         YamlMappingNode buildVerify =
-            RequireStep(buildSteps, 6, "Verify staged site artifact", "jobs.build");
+            RequireStep(buildSteps, 7, "Verify staged site artifact", "jobs.build");
         ValidateDeploymentArtifactVerification(
             buildVerify,
             "staging build artifact verification step");
 
         YamlMappingNode upload =
-            RequireStep(buildSteps, 7, "Upload staged site artifact", "jobs.build");
+            RequireStep(buildSteps, 8, "Upload staged site artifact", "jobs.build");
         RequireExactKeys(
             upload,
             ["name", "uses", "with"],
@@ -734,7 +755,7 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["name"] = "inspect-web-site",
-                ["path"] = "artifacts/inspect-web-publish/wwwroot",
+                ["path"] = "artifacts/inspect-web-publish",
                 ["if-no-files-found"] = "error",
                 ["retention-days"] = "30",
             },
@@ -790,7 +811,7 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["name"] = "inspect-web-site",
-                ["path"] = "artifacts/inspect-web-publish/wwwroot",
+                ["path"] = "artifacts/inspect-web-publish",
                 ["digest-mismatch"] = "error",
             },
             "staging artifact download step.with");
@@ -820,8 +841,10 @@ internal static class PromotionWorkflowContract
                     "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_STAGING }}",
                 ["action"] = "upload",
                 ["app_location"] = "artifacts/inspect-web-publish/wwwroot",
+                ["api_location"] = "artifacts/inspect-web-publish/api",
                 ["output_location"] = "",
                 ["skip_app_build"] = "true",
+                ["skip_api_build"] = "true",
             },
             "staging deploy step.with");
     }
@@ -904,11 +927,12 @@ internal static class PromotionWorkflowContract
 
         YamlSequenceNode buildSteps =
             GetRequiredSequence(build, "steps", "CoreCLR jobs.build");
-        if (buildSteps.Children.Count != 8)
+        if (buildSteps.Children.Count != 9)
         {
             throw new InvalidOperationException(
                 "CoreCLR staging build must contain checkout, .NET and Node setup, " +
-                "workload install, frontend build, publish, verification, and artifact upload steps.");
+                "workload install, frontend build, site and API publish, verification, " +
+                "and artifact upload steps.");
         }
 
         YamlMappingNode checkout =
@@ -1043,10 +1067,19 @@ internal static class PromotionWorkflowContract
                 "CoreCLR staging publish command does not match the trusted contract.");
         }
 
-        YamlMappingNode buildVerify =
+        ValidateManagedApiPublish(
             RequireStep(
                 buildSteps,
                 6,
+                "Publish MSDL managed API",
+                "CoreCLR jobs.build"),
+            "artifacts/inspect-web-coreclr-publish/api",
+            "CoreCLR managed API publish step");
+
+        YamlMappingNode buildVerify =
+            RequireStep(
+                buildSteps,
+                7,
                 "Verify CoreCLR site artifact",
                 "CoreCLR jobs.build");
         ValidateCoreClrArtifactVerification(
@@ -1056,7 +1089,7 @@ internal static class PromotionWorkflowContract
         YamlMappingNode upload =
             RequireStep(
                 buildSteps,
-                7,
+                8,
                 "Upload CoreCLR staged site artifact",
                 "CoreCLR jobs.build");
         RequireExactKeys(
@@ -1076,7 +1109,7 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["name"] = "inspect-web-coreclr-site",
-                ["path"] = "artifacts/inspect-web-coreclr-publish/wwwroot",
+                ["path"] = "artifacts/inspect-web-coreclr-publish",
                 ["if-no-files-found"] = "error",
                 ["retention-days"] = "30",
             },
@@ -1147,7 +1180,7 @@ internal static class PromotionWorkflowContract
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["name"] = "inspect-web-coreclr-site",
-                ["path"] = "artifacts/inspect-web-coreclr-publish/wwwroot",
+                ["path"] = "artifacts/inspect-web-coreclr-publish",
                 ["digest-mismatch"] = "error",
             },
             "CoreCLR staging artifact download step.with");
@@ -1184,10 +1217,31 @@ internal static class PromotionWorkflowContract
                 ["action"] = "upload",
                 ["app_location"] =
                     "artifacts/inspect-web-coreclr-publish/wwwroot",
+                ["api_location"] =
+                    "artifacts/inspect-web-coreclr-publish/api",
                 ["output_location"] = "",
                 ["skip_app_build"] = "true",
+                ["skip_api_build"] = "true",
             },
             "CoreCLR staging deploy step.with");
+    }
+
+    private static void ValidateManagedApiPublish(
+        YamlMappingNode step,
+        string output,
+        string context)
+    {
+        RequireExactKeys(step, ["name", "run"], context);
+        string command =
+            GetRequiredScalar(step, "run", context).Trim();
+        string expected =
+            "dotnet publish prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj "
+            + $"-c Release --output {output}";
+        if (command != expected)
+        {
+            throw new InvalidOperationException(
+                $"{context} does not match the trusted contract.");
+        }
     }
 
     private static void ValidateCoreClrArtifactVerification(

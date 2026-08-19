@@ -67,14 +67,26 @@ jobs:
             -p:WasmNestedPublishAppDependsOn= \
             -p:WasmEnableExceptionHandling=true
 
+      - name: Publish MSDL managed API
+        run: >
+          dotnet publish
+          prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj
+          -c Release
+          --output artifacts/inspect-web-coreclr-publish/api
+
       - name: Verify CoreCLR site artifact
         shell: bash
         run: |
           set -euo pipefail
           site=artifacts/inspect-web-coreclr-publish/wwwroot
+          api=artifacts/inspect-web-coreclr-publish/api
           index="$site/index.html"
           test -f "$index"
           test -f "$site/staticwebapp.config.json"
+          test -f "$api/host.json"
+          test -f "$api/functions.metadata"
+          test -f "$api/worker.config.json"
+          jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
           manifest="$site/manifest.json"
           test -f "$manifest"
           jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
@@ -102,7 +114,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: inspect-web-coreclr-site
-          path: artifacts/inspect-web-coreclr-publish/wwwroot
+          path: artifacts/inspect-web-coreclr-publish
           if-no-files-found: error
           retention-days: 30
 
@@ -119,7 +131,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: inspect-web-coreclr-site
-          path: artifacts/inspect-web-coreclr-publish/wwwroot
+          path: artifacts/inspect-web-coreclr-publish
           digest-mismatch: error
 
       - name: Verify CoreCLR staged site artifact
@@ -127,9 +139,14 @@ jobs:
         run: |
           set -euo pipefail
           site=artifacts/inspect-web-coreclr-publish/wwwroot
+          api=artifacts/inspect-web-coreclr-publish/api
           index="$site/index.html"
           test -f "$index"
           test -f "$site/staticwebapp.config.json"
+          test -f "$api/host.json"
+          test -f "$api/functions.metadata"
+          test -f "$api/worker.config.json"
+          jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
           manifest="$site/manifest.json"
           test -f "$manifest"
           jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
@@ -159,5 +176,7 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_INSPECT_WEB_CORECLR }}
           action: upload
           app_location: artifacts/inspect-web-coreclr-publish/wwwroot
+          api_location: artifacts/inspect-web-coreclr-publish/api
           output_location: ''
           skip_app_build: true
+          skip_api_build: true

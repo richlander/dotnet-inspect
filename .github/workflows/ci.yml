@@ -194,14 +194,26 @@ jobs:
           -c Release
           --output artifacts/inspect-web-publish
 
+      - name: Publish MSDL managed API
+        run: >
+          dotnet publish
+          prototypes/inspect-web/msdl-proxy/MsdlProxy.csproj
+          -c Release
+          --output artifacts/inspect-web-publish/api
+
       - name: Verify browser site artifact
         shell: bash
         run: |
           set -euo pipefail
           site=artifacts/inspect-web-publish/wwwroot
+          api=artifacts/inspect-web-publish/api
           index="$site/index.html"
           test -f "$index"
           test -f "$site/staticwebapp.config.json"
+          test -f "$api/host.json"
+          test -f "$api/functions.metadata"
+          test -f "$api/worker.config.json"
+          jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
           manifest="$site/manifest.json"
           test -f "$manifest"
           jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
@@ -229,7 +241,7 @@ jobs:
           --project prototypes/inspect-web/engine.Tests
           -c Release
 
-      - name: Test MSDL CORS proxy
+      - name: Test MSDL managed API
         run: >
           dotnet run
           --project prototypes/inspect-web/msdl-proxy.Tests

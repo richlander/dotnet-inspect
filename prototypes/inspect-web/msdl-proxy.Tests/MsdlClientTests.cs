@@ -1,8 +1,8 @@
 using System.Net;
 using System.Text;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 
 namespace MsdlProxy.Tests;
 
@@ -20,18 +20,22 @@ public sealed class MsdlClientTests
         }
     }
 
-    private static async Task<(int StatusCode, byte[] Body)> ExecuteAsync(IResult result)
+    private static async Task<(int StatusCode, byte[] Body)> ExecuteAsync(
+        IActionResult result)
     {
-        var context = new DefaultHttpContext
+        if (result is FileStreamResult streamResult)
         {
-            RequestServices = new ServiceCollection()
-                .AddSingleton<Microsoft.Extensions.Logging.ILoggerFactory>(NullLoggerFactory.Instance)
-                .BuildServiceProvider(),
-        };
-        var body = new MemoryStream();
-        context.Response.Body = body;
-        await result.ExecuteAsync(context);
-        return (context.Response.StatusCode, body.ToArray());
+            await using Stream content = streamResult.FileStream;
+            using var body = new MemoryStream();
+            await content.CopyToAsync(body);
+            return (StatusCodes.Status200OK, body.ToArray());
+        }
+
+        int statusCode =
+            Assert.IsAssignableFrom<IStatusCodeActionResult>(result)
+                .StatusCode
+            ?? StatusCodes.Status200OK;
+        return (statusCode, []);
     }
 
     [Fact]
@@ -48,6 +52,25 @@ public sealed class MsdlClientTests
         Assert.Equal(
             "https://msdl.microsoft.com/download/symbols/foo.pdb/abc123/foo.pdb",
             handler.LastRequest!.RequestUri!.ToString());
+    }
+
+    [Fact]
+    public async Task ProxySymbolAsync_EncodesPdbNameAsOnePathSegment()
+    {
+        var handler = new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.NotFound));
+        using var client = new HttpClient(handler);
+
+        _ = await MsdlClient.ProxySymbolAsync(
+            client,
+            "foo#.pdb",
+            "abc123",
+            CancellationToken.None);
+
+        Assert.Equal(
+            "https://msdl.microsoft.com/download/symbols/"
+            + "foo%23.pdb/abc123/foo%23.pdb",
+            handler.LastRequest!.RequestUri!.AbsoluteUri);
     }
 
     [Fact]
@@ -108,7 +131,7 @@ public sealed class MsdlClientTests
             // Lie about the length being far larger than the configured cap
             // so the early Content-Length check has to fire before any body
             // is ever streamed.
-            response.Content.Headers.ContentLength = 300_000_000;
+            response.Content.Headers.ContentLength = 9 * 1024 * 1024;
             return response;
         });
         using var client = new HttpClient(handler);
@@ -117,5 +140,41 @@ public sealed class MsdlClientTests
         var (statusCode, _) = await ExecuteAsync(result);
 
         Assert.Equal(StatusCodes.Status413PayloadTooLarge, statusCode);
+    }
+
+    [Fact]
+    public async Task ProxySymbolAsync_RejectsUndeclaredBodyAboveBrowserLimit()
+    {
+        byte[] oversized = new byte[(8 * 1024 * 1024) + 1];
+        var handler = new StubHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new UnknownLengthContent(oversized),
+            });
+        using var client = new HttpClient(handler);
+
+        IActionResult result =
+            await MsdlClient.ProxySymbolAsync(
+                client,
+                "foo.pdb",
+                "abc123",
+                CancellationToken.None);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => _ = await ExecuteAsync(result));
+    }
+
+    private sealed class UnknownLengthContent(byte[] bytes) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context) =>
+            stream.WriteAsync(bytes).AsTask();
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 }

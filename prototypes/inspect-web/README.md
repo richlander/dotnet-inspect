@@ -286,6 +286,13 @@ dispatch for HTTPS URLs on GitHub, Azure DevOps, GitLab, and Bitbucket source
 hosts, and the Browser transport refuses redirects; unsupported hosts visibly
 fall back to decompilation.
 
+MSDL's redirect omits CORS headers, so the Browser host rewrites only the exact
+MSDL symbol-request shape to the current site's absolute `/api/msdl/...` URL.
+Each Free Static Web App deploys the small anonymous managed Function in
+`msdl-proxy`; the fixed upstream host and independent path-segment validator
+keep it from becoming a caller-directed proxy. The function enforces the same
+8 MiB portable-PDB ceiling as the Browser consumer.
+
 Source operations are exclusive across the Browser process: a new request
 cancels the previous request, and leaving every source view cancels hidden work.
 The operation holds its workspace and package archives until its fresh bounded
@@ -538,13 +545,13 @@ bounded suggestions, command metadata, selection, and escaping.
 ## Deploy
 
 `.github/workflows/deploy-inspect-web.yml` publishes every `main` commit,
-archives the resulting `wwwroot` as the run-scoped `inspect-web-site` GitHub
-artifact, then uses a fresh environment-gated job to download that artifact by
-ID with digest mismatch configured as an error and deploy it to the public
-staging site at `https://dotnet-inspect.ca`. Candidate build code never runs in
-the staging deployment job. The separate `inspect-web-staging` GitHub
-environment accepts only `main` and holds a deployment token scoped to the
-staging Azure Static Web App.
+archives the resulting `wwwroot` and prebuilt managed API as the run-scoped
+`inspect-web-site` GitHub artifact, then uses a fresh environment-gated job to
+download that artifact by ID with digest mismatch configured as an error and
+deploy it to the public staging site at `https://dotnet-inspect.ca`. Candidate
+build code never runs in the staging deployment job. The separate
+`inspect-web-staging` GitHub environment accepts only `main` and holds a
+deployment token scoped to the staging Azure Static Web App.
 
 `.github/workflows/deploy-inspect-web-coreclr.yml` publishes the same `main`
 commit to the isolated comparison site at
@@ -592,8 +599,10 @@ commit and pin their checkout, SDK setup, and artifact actions to exact
 commits. The workflow contract gate enforces those references. Azure's pinned
 action still pulls Microsoft's `staticappsclient:stable` image; that
 vendor-controlled deployment dependency is not immutable and remains inside
-the Azure trust boundary. All three workflows disable Azure's own app build
-and require the published artifact to contain `staticwebapp.config.json`.
+the Azure trust boundary. All three workflows disable Azure's own app and API
+builds and require the published artifact to contain
+`staticwebapp.config.json`, `host.json`, `functions.metadata`, and
+`worker.config.json`.
 Trusted build and deployment steps also verify that Vite preserved the authored
 .NET placeholders, that every file in Vite's generated manifest exists and is
 loaded by the index where required, that the SDK injected a mapping to the

@@ -1,10 +1,13 @@
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+
 namespace MsdlProxy;
 
 /// <summary>
 /// Fetches a PDB from MSDL server-side (where CORS does not apply) and
-/// streams it back to the browser with permissive CORS headers. The MSDL
-/// host is a compile-time constant; only the two validated path segments
-/// are ever taken from the request.
+/// returns it through the Static Web App's same-origin managed API. The MSDL
+/// host is a compile-time constant; only the two validated path segments are
+/// ever taken from the request.
 /// </summary>
 internal static class MsdlClient
 {
@@ -12,19 +15,20 @@ internal static class MsdlClient
 
     private const string MsdlHost = "https://msdl.microsoft.com";
 
-    // Generous, but bounded: real-world PDBs for Microsoft packages are at
-    // most tens of megabytes. This caps both proxy memory/bandwidth abuse
-    // and how much of a compromised or spoofed upstream response this
-    // service will ever forward.
-    private const long MaxSymbolBytes = 200_000_000;
+    // The browser host independently rejects portable PDBs above 8 MiB.
+    // Enforcing that same cap here bounds managed-Function buffering and
+    // prevents spending proxy bandwidth on content the only consumer rejects.
+    private const long MaxSymbolBytes = 8L * 1024 * 1024;
 
-    public static async Task<IResult> ProxySymbolAsync(
+    public static async Task<IActionResult> ProxySymbolAsync(
         HttpClient client,
         string pdbFileName,
         string symbolKey,
         CancellationToken cancellationToken)
     {
-        var url = $"{MsdlHost}/download/symbols/{pdbFileName}/{symbolKey}/{pdbFileName}";
+        string pdbSegment = Uri.EscapeDataString(pdbFileName);
+        string url =
+            $"{MsdlHost}/download/symbols/{pdbSegment}/{symbolKey}/{pdbSegment}";
 
         HttpResponseMessage response;
         try
@@ -36,26 +40,26 @@ internal static class MsdlClient
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return new StatusCodeResult(StatusCodes.Status502BadGateway);
         }
 
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             response.Dispose();
-            return Results.NotFound();
+            return new NotFoundResult();
         }
 
         if (!response.IsSuccessStatusCode)
         {
             response.Dispose();
-            return Results.StatusCode(StatusCodes.Status502BadGateway);
+            return new StatusCodeResult(StatusCodes.Status502BadGateway);
         }
 
         if (response.Content.Headers.ContentLength is { } declaredLength
             && declaredLength > MaxSymbolBytes)
         {
             response.Dispose();
-            return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+            return new StatusCodeResult(StatusCodes.Status413PayloadTooLarge);
         }
 
         var upstream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -64,7 +68,7 @@ internal static class MsdlClient
         // this is the actual enforcement point rather than the header check
         // above (which only lets an obviously-oversized response fail fast).
         var bounded = new BoundedStream(upstream, response, MaxSymbolBytes);
-        return Results.Stream(bounded, "application/octet-stream");
+        return new FileStreamResult(bounded, "application/octet-stream");
     }
 
     /// <summary>
