@@ -303,7 +303,10 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
         if (awaited.Parent is not null)
             awaited.Detach();
 
-        var awaitExpression = new AwaitExpression(awaited, match.GetResult.Callee.ReturnType);
+        var awaitExpression = new AwaitExpression(
+            awaited,
+            match.GetResult.Callee.ReturnType,
+            match.GetResult.Callee.ReturnIsDynamic);
         awaitExpression.InheritSourceOffset(match.GetResult);
         match.GetResult.ReplaceWith(awaitExpression);
 
