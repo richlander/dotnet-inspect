@@ -1430,6 +1430,21 @@ function defaultAccessibilityFilter(pkg: AppPackage | null | undefined): Set<str
     .map(descriptor => descriptor.id));
 }
 
+function revealTypeInFilters(type: AppTypeSurface | null | undefined) {
+  if (!type) return;
+  state.accessibilityFilter = accessibilityFilterIncludingType(
+    state.accessibilityFilter,
+    type);
+  if (!typeMatchesFilterText(type, state.typeFilter.toLowerCase()))
+    state.typeFilter = "";
+  if (state.namespaceFilter && type.namespace !== state.namespaceFilter)
+    state.namespaceFilter = "";
+  if (state.kindFilter && typeKind(type.kind) !== state.kindFilter)
+    state.kindFilter = "";
+  if (state.libraryScope && !state.libraryScope.has(libraryKey(type)))
+    state.libraryScope = null;
+}
+
 function packageIdentityEquals(
   left: PackageIdentity | null | undefined,
   right: PackageIdentity | null | undefined,
@@ -5600,9 +5615,7 @@ function applyDeepLink(deep: DeepLink | null | undefined) {
   } else if (restoreType && deep) {
     const type = pkg.types.find(item => item.id === deep.type);
     if (!type) return;
-    state.accessibilityFilter = accessibilityFilterIncludingType(
-      state.accessibilityFilter,
-      type);
+    revealTypeInFilters(type);
     const groups = memberGroups(type);
     state.memberTextFilter = deep.memberTextFilter || "";
     state.memberKindFilter = deep.memberKindFilter
@@ -6310,9 +6323,7 @@ function navigateToType(target: BrowserTypeSurface) {
   // Clicking a non-public related type (e.g. an internal derived implementer)
   // enables its accessibility bucket so it appears in the nav list rather than
   // being filtered out by the public-by-default view.
-  state.accessibilityFilter = accessibilityFilterIncludingType(
-    state.accessibilityFilter,
-    target);
+  revealTypeInFilters(target);
   state.selectedTypeId = target.id;
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
@@ -7006,6 +7017,15 @@ async function drillPlatformNode(node: BrowserCallGraphTarget) {
   });
 }
 
+async function startPlatformDrill(node: BrowserCallGraphTarget) {
+  invalidateGraphMemberNavigation();
+  state.memberCallGraphSeq++;
+  state.memberCallGraphExpanding = false;
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
+  await drillPlatformNode(node);
+}
+
 function popPlatformDrill() {
   observeAsync(
     callGraphInspection.popDrill(),
@@ -7060,9 +7080,16 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
       return;
     }
   }
-  let selection = findRuntimeMemberSelection(pack, node);
+  let candidate = resolveRuntimeGraphTargetCandidate(pack, node);
+  if (candidate.status === "ambiguous") {
+    await showPlatformTargetError(
+      node,
+      "the runtime target identity matched multiple types");
+    return;
+  }
+  let selection = findRuntimeMemberSelection(pack, node, candidate);
   if (!ownsNavigation()) return;
-  if (!selection && node.assembly) {
+  if (candidate.status === "missing" && node.assembly) {
     state.platformDrillLoading = true;
     state.platformDrillError = "";
     const preservedFocus = renderPreservingMemberFocus();
@@ -7093,7 +7120,20 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
       return;
     }
     recordPlatformRecent(node.assembly, targetPack);
-    selection = findRuntimeMemberSelection(pack, node);
+    candidate = resolveRuntimeGraphTargetCandidate(pack, node);
+    if (candidate.status === "ambiguous") {
+      await showPlatformTargetError(
+        node,
+        "the runtime target identity matched multiple types");
+      return;
+    }
+    selection = findRuntimeMemberSelection(pack, node, candidate);
+  }
+  if (candidate.status !== "unique") {
+    await showPlatformTargetError(
+      node,
+      "the loaded platform assembly does not contain the exact target identity");
+    return;
   }
   if (!ownsNavigation()) return;
   if (!selection) {
@@ -7101,6 +7141,17 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     return;
   }
   navigateToRuntimeMember(pack, selection.type, selection.group, selection.overloadIndex, node);
+}
+
+async function showPlatformTargetError(
+  node: BrowserCallGraphTarget,
+  reason: string,
+) {
+  state.platformDrillLoading = false;
+  state.platformDrillError =
+    `Could not open ${node.typeFullName}.${node.memberName}: ${reason}.`;
+  render();
+  await renderMermaidCallGraph();
 }
 
 // Enter the resident runtime pack focused on one member's call graph. Mirrors
@@ -7154,8 +7205,10 @@ function navigateToRuntimeMember(
 function findRuntimeMemberSelection(
   pack: AppPackage,
   node: BrowserCallGraphTarget,
+  candidate: ReturnType<
+    typeof resolveRuntimeGraphTargetCandidate<AppTypeSurface>
+  > = resolveRuntimeGraphTargetCandidate(pack, node),
 ) {
-  const candidate = resolveRuntimeGraphTargetCandidate(pack, node);
   if (candidate.status !== "unique") return null;
   const type = candidate.type;
   const groups = memberGroups(type);

@@ -3171,7 +3171,7 @@ test("platform graph borders reflect actual resident lookup", () => {
   assert.match(binding, /resolveRuntimeGraphTargetCandidate\(pack, target\)/);
   assert.match(binding, /if \(disposition === "lookup"\) node\.classList\.add\("platform-node"\)/);
   assert.match(binding, /if \(disposition === "member"\) \{\s*navigateToRuntimeMember\(/);
-  assert.match(binding, /else \{\s*drillPlatformNode\(target\)/);
+  assert.match(binding, /else \{\s*startPlatformDrill\(target\)/);
   assert.match(
     packageBinding,
     /const runtimeCandidate = candidate\.status === "missing" && pack\s*\? resolveRuntimeGraphTargetCandidate\(pack, target\)/);
@@ -3180,7 +3180,7 @@ test("platform graph borders reflect actual resident lookup", () => {
     /runtimeCandidate\.status === "unique"\);\s*if \(disposition === "blocked"/);
   assert.match(
     packageBinding,
-    /else if \(disposition === "resident"\) \{\s*if \(resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{\s*drillPlatformNode\(target\)/);
+    /else if \(disposition === "resident"\) \{\s*if \(resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{\s*startPlatformDrill\(target\)/);
 });
 
 test("runtime graph nodes separate member, drill, and lookup disposition", () => {
@@ -3223,6 +3223,12 @@ test("runtime graph nodes separate member, drill, and lookup disposition", () =>
       externalTarget,
       false),
     "lookup");
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      { status: "ambiguous" },
+      externalTarget,
+      false),
+    "blocked");
 
   const runtimeNavigation =
     appSource.match(/function navigateToRuntimeMember[\s\S]*?\n\}/)?.[0]
@@ -3304,6 +3310,9 @@ test("graph navigation restores scope and supersedes local drills", () => {
   const pop =
     appSource.match(/function popPlatformDrill[\s\S]*?\n\}/)?.[0]
     ?? "";
+  const startDrill =
+    appSource.match(/async function startPlatformDrill[\s\S]*?\n\}/)?.[0]
+    ?? "";
   const navigation =
     appSource.match(/function navigateToMember[\s\S]*?(?=\nasync function loadSelectedMemberFacts)/)?.[0]
     ?? "";
@@ -3313,6 +3322,12 @@ test("graph navigation restores scope and supersedes local drills", () => {
   assert.match(
     pop,
     /state\.memberCallGraphSeq\+\+;\s*state\.memberCallGraphExpanding = false;\s*state\.platformDrillLoading = false;/);
+  assert.match(
+    startDrill,
+    /invalidateGraphMemberNavigation\(\);\s*state\.memberCallGraphSeq\+\+;\s*state\.memberCallGraphExpanding = false;[\s\S]*?await drillPlatformNode\(node\)/);
+  assert.match(
+    appSource,
+    /else if \(disposition === "resident"\)[\s\S]*?startPlatformDrill\(target\)/);
   assert.match(
     navigation,
     /state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.libraryScope = null;/);
@@ -3335,12 +3350,36 @@ test("restored selections reveal their accessibility bucket", () => {
   const deepLink =
     appSource.match(/function applyDeepLink\(deep\) \{[\s\S]*?(?=\n\})/)?.[0]
     ?? "";
+  const reveal =
+    appSource.match(/function revealTypeInFilters[\s\S]*?(?=\n\})/)?.[0]
+    ?? "";
   assert.match(
     apply,
-    /const restoredType = pkg\.types\.find[\s\S]*?accessibilityFilterIncludingType\(\s*state\.accessibilityFilter,\s*restoredType\)[\s\S]*?const type = selectedType\(\)/);
+    /const restoredType = pkg\.types\.find[\s\S]*?revealTypeInFilters\(restoredType\)[\s\S]*?const type = selectedType\(\)/);
   assert.match(
     deepLink,
-    /const type = pkg\.types\.find[\s\S]*?accessibilityFilterIncludingType\(\s*state\.accessibilityFilter,\s*type\)[\s\S]*?state\.typeCursor = Math\.max/);
+    /const type = pkg\.types\.find[\s\S]*?revealTypeInFilters\(type\)[\s\S]*?state\.typeCursor = Math\.max/);
+  assert.match(
+    reveal,
+    /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.libraryScope = null/);
+  assert.match(
+    appSource,
+    /function navigateToType\(target\) \{[\s\S]*?revealTypeInFilters\(target\)[\s\S]*?state\.typeCursor = filteredTypes\(\)\.findIndex/);
+});
+
+test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
+  const navigation =
+    appSource.match(/async function navigateOrDrillPlatform[\s\S]*?(?=\n\})/)?.[0]
+    ?? "";
+  assert.match(
+    navigation,
+    /candidate = resolveRuntimeGraphTargetCandidate\(pack, node\)[\s\S]*?candidate\.status === "ambiguous"[\s\S]*?showPlatformTargetError/);
+  assert.match(
+    navigation,
+    /candidate\.status !== "unique"[\s\S]*?loaded platform assembly does not contain the exact target identity/);
+  assert.match(
+    appSource,
+    /if \(disposition === "blocked" \|\| disposition === "none"\) return;/);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {
