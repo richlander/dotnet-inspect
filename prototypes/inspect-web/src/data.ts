@@ -675,11 +675,15 @@ export function graphMemberTargetFromPacket(
   const target = graphMemberTargetFromShare(field("g"));
   const type = field("y");
   const member = field("m");
+  const overload = field("o");
   if (!target
     || typeof type !== "string"
     || type.length === 0
     || typeof member !== "string"
-    || member.length === 0) {
+    || member.length === 0
+    || typeof overload !== "number"
+    || !Number.isInteger(overload)
+    || overload < 0) {
     return {
       target: null,
       error: "The shared graph member target is invalid and was ignored."
@@ -711,12 +715,7 @@ export function graphMemberDeepLinkDisposition<TType>(
     if (candidate?.status !== "unique" || candidate.type !== selectedType)
       return "mismatch";
     if (!localSelection) return "graph";
-    const overloadIndex = Number(deep.overload);
-    return localSelection.group.key === deep.member
-        && Number.isInteger(overloadIndex)
-        && overloadIndex === localSelection.overloadIndex
-      ? "local"
-      : "mismatch";
+    return localSelection.group.key === deep.member ? "local" : "mismatch";
   }
   return publicGroup ? "public" : "none";
 }
@@ -1182,9 +1181,13 @@ export function memberSectionIdsFor(
     && !hasSelectedBody) {
     return ["overview"];
   }
-  return isRuntimePack
+  const sections = isRuntimePack
     ? ["overview", "call-graph", "facts"]
     : ["overview", "call-graph", "facts", "source", "annotated"];
+  return hasSelectedBody
+    && ["property", "event"].includes(member?.kind ?? "")
+    ? sections.filter(id => id !== "source")
+    : sections;
 }
 
 export function typeLensesFor(

@@ -674,11 +674,6 @@ public static partial class InspectionEngine
     {
         _ = memberSignature;
         _ = typeQueryId;
-        if (metadataToken == 0)
-        {
-            throw new InvalidOperationException(
-                "A call graph needs the selected overload's method-body token.");
-        }
 
         var requests = new List<BrowserPackageRequest>
         {

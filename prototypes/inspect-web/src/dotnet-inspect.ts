@@ -1631,7 +1631,8 @@ function memberGroups(
 ): AppMemberGroup[] {
   const groups = new Map<string, AppMemberGroup>();
   for (const member of (type?.api ?? []) as AppMemberSurface[]) {
-    const key = `${member.kind}:${member.name}`;
+    const key =
+      `${member.graphOnly ? "graph:" : ""}${member.kind}:${member.name}`;
     let group = groups.get(key);
     if (!group) {
       group = { key, name: member.name, kind: member.kind, overloads: [] };
@@ -6947,10 +6948,7 @@ async function restorePendingGraphMember() {
       type,
       pending.target,
       surface);
-    const pendingOverloadIndex = Number(pending.overload);
-    if (staged.selection.group.key !== pending.member
-      || !Number.isInteger(pendingOverloadIndex)
-      || staged.selection.overloadIndex !== pendingOverloadIndex) {
+    if (staged.selection.group.key !== pending.member) {
       throw new Error("The shared member identity does not match the graph target.");
     }
     const selection = commitGraphMemberSelection(

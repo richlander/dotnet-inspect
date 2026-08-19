@@ -194,8 +194,9 @@ as graph-discovered implementation members rather than entering the Public API
 count. Constructed generic nodes recover assembly identity from their
 definition. Synthetic array and function-pointer nodes remain visible but carry
 no navigable definition identity. Accessor nodes resolve through their opaque
-body selector even when the graph has no `MethodDef` token, and that exact body
-enables the member page's implementation sections.
+body selector even when the graph has no `MethodDef` token. That exact body
+enables Call graph, Facts, and Annotated source; whole-member Source remains
+hidden because its product query intentionally rejects accessor bodies.
 The call-graph legend explains the independent border vocabulary: solid nodes
 receive no platform lookup, while dashed nodes are unresolved external
 assemblies that receive a .NET platform lookup on click.

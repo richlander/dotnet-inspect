@@ -395,7 +395,7 @@ test("platform type and member navigation hides package-only operations", () => 
     ["overview", "call-graph", "facts", "source", "annotated"]);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "property" }, false, true),
-    ["overview", "call-graph", "facts", "source", "annotated"]);
+    ["overview", "call-graph", "facts", "annotated"]);
 });
 
 test("platform call graphs carry the target pack into lazy acquisition", () => {
@@ -1760,6 +1760,9 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     spotlightSource,
     /const generation = interactionGeneration;[\s\S]*const focusAfterExecution = \(\) => \{[\s\S]*generation === interactionGeneration[\s\S]*Promise\.resolve\(execution\)\.then\(\s*focusAfterExecution,\s*\(error: unknown\) => \{\s*options\.reportCommandError\(error\);\s*focusAfterExecution\(\)/);
 });
+const browserEngineSource = readFileSync(
+  new URL("../engine/BrowserInspectionEngine.cs", import.meta.url),
+  "utf8");
 
 test("dependency graph render identity includes truncation and navigation", () => {
   const graph = {
@@ -2921,13 +2924,26 @@ test("graph-only member targets round-trip through shared URLs", () => {
     "not-a-token"
   ]), null);
   assert.deepEqual(
-    graphMemberTargetFromPacket({ y: "Example.Widget", m: "method:Run", g: encoded }),
+    graphMemberTargetFromPacket({
+      y: "Example.Widget",
+      m: "method:Run",
+      o: 0,
+      g: encoded
+    }),
     { target });
   assert.match(
     graphMemberTargetFromPacket({
       y: "Example.Widget",
       m: "method:Run",
+      o: 0,
       g: [...encoded.slice(0, 8), "not-a-token"]
+    }).error,
+    /shared graph member target is invalid/);
+  assert.match(
+    graphMemberTargetFromPacket({
+      y: "Example.Widget",
+      m: "method:Run",
+      g: encoded
     }).error,
     /shared graph member target is invalid/);
 });
@@ -2967,7 +2983,7 @@ test("graph-only deep links win over colliding public member groups", () => {
     graphMemberDeepLinkDisposition(
       {
         member: publicGroup.key,
-        overload: "0",
+        overload: "99",
         graphTarget: { memberName: "Run", selectorKey: "public-overload" }
       },
       { status: "unique", type: selectedType },
@@ -3083,6 +3099,9 @@ test("projected members remain distinct from the public API surface", () => {
     /item\.api\?\.filter\(member => !member\.graphOnly\)/);
   assert.match(
     appSource,
+    /\$\{member\.graphOnly \? "graph:" : ""\}\$\{member\.kind\}:\$\{member\.name\}/);
+  assert.match(
+    appSource,
     /memberSectionIdsFor\(\s*member,\s*state\.package\?\.isRuntimePack,\s*memberHasSelectedBody\(member\)\)/);
 });
 
@@ -3095,12 +3114,25 @@ test("shared graph projection validates before committing API state", () => {
 
   assert.ok(validation >= 0);
   assert.ok(commit > validation);
+  assert.doesNotMatch(restoration, /staged\.selection\.overloadIndex !== pendingOverloadIndex/);
   assert.match(
     appSource,
     /group\?\.overloads\.length === 1 && group\.overloads\[0\]\.graphOnly/);
   assert.match(
     appSource,
     /group\.overloads\[overloadIndex\]\.graphTarget = bodyTarget/);
+});
+
+test("selector-only accessors use body-aware implementation queries", () => {
+  assert.doesNotMatch(
+    browserEngineSource,
+    /A call graph needs the selected overload's method-body token/);
+  assert.match(
+    appSource,
+    /inspectMemberAnnotatedSource\(\{[\s\S]*?member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
+  assert.deepEqual(
+    memberSectionIdsFor({ kind: "event" }, false, true),
+    ["overview", "call-graph", "facts", "annotated"]);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {
