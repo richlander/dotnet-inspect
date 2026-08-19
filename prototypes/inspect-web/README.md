@@ -545,6 +545,15 @@ opening a package or the runtime pack — so the component acquires no engine or
 workspace authority. `test/package-bar.test.js` gates tab markup, active/close
 state, escaping, and open-package query parsing.
 
+`src/settings-panel.ts` owns the Settings page and the decompiler "taste"
+popover it shares its style catalog with, as pure, dependency-injected render
+functions. `app.js` still owns `state`, localStorage persistence for theme and
+taste, and event wiring (`setTheme`, `toggleTaste`, `clearTaste`), and passes
+each computed slice in explicitly. `test/settings-panel.test.js` gates the
+style catalog's tier grouping, byte-divergent badges, and checked state; the
+taste popover's active/default states; and the Settings page's theme segment,
+close-button label, and active-style-count states.
+
 - `Cmd/Ctrl+K` focuses the persistent command prompt.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
 - Arrow keys select a completion, `Tab` accepts it, and `Enter` runs it.
