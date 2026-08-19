@@ -560,10 +560,9 @@ compile-back; a pruned skeleton would incorrectly turn that canary green.
 > [!TIP]
 > When measuring a class by name, check the namespace. Several classes in this
 > assembly live in `ILInspector.DecompilerHarness`, not
-> `ILInspector.Decompiler.Tests`, and a `-class` filter that matches nothing is
-> silently dropped rather than reported as an error — an ad-hoc measurement can
-> quietly omit a class. `eng/decompiler-gate-expected-classes.txt` and the CI
-> checker exist to stop exactly that from happening to the gate itself.
+> `ILInspector.Decompiler.Tests`. The test host rejects a `-class` filter that
+> matches nothing; `eng/decompiler-gate-expected-classes.txt` and the CI checker
+> additionally keep the preset and its expected class registry synchronized.
 
 ## Vocabulary
 
