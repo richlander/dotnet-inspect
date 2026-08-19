@@ -277,6 +277,46 @@ and
 `PlatformResolverTests.ResolveAssembly_AssemblyNameCannotEscapeReferencePack`
 gate these seams.
 
+### Core-library identity is granted by acquisition, not by self-declaration
+
+An assembly that decodes as `TypeRef.CoreLibrary` is privileged: the decompiler
+treats its types as the canonical platform types, so a
+`System.Collections.IEnumerable` bearing that identity compares equal to the
+real one and authorizes raising decisions such as
+`SupportsCollectionInitializer`.
+
+That identity must never be derived from what an assembly says about itself.
+The platform public keys are published data and nothing in this product
+verifies a strong-name signature, so an attacker can name a planted file
+`System.Runtime`, copy the ECMA public key blob into its `AssemblyDef` verbatim,
+and satisfy any check made purely on self-declared name and key. Left
+unguarded, a planted sibling picked up by reference resolution could mint
+core-library identity for its own definitions and make a fake interface
+authorize raising for a type that implements nothing of the sort.
+
+`CoreLibraryIdentityTrust` owns the rule. Trust follows **acquisition**: the
+caller's designated target is trusted by designation, and an assembly reached
+by reference resolution is trusted only when its
+`AssemblyResolutionProvenance` is a `PlatformAsset`.
+`MetadataContext.Open(ResolvedAssemblyReference)` is the single place a resolved
+reference becomes a reader and therefore the single classification point;
+`TypeRefDecoder.CanonicalSelf` consults the registry before honouring a
+platform key. The registry is a deny list rather than an allow list, so a
+reader opened outside resolution keeps its historical behaviour and every
+bypass stays greppable.
+
+Because trust is read off provenance, provenance must not understate a genuine
+platform acquisition. Resolvers that hand back files taken from the host's
+trusted-platform-assembly list, and the intrinsic core-library binding that
+returns the designated target when that target is itself the core library,
+report `PlatformAsset` for that reason.
+
+`PlantedCoreLibraryIdentityTests.PlantedPlatformKey_DoesNotMintCoreLibraryIdentity`
+gates the boundary with a real planted assembly carrying the verbatim ECMA
+key, and
+`PlantedCoreLibraryIdentityTests.DesignatedTarget_KeepsCoreLibraryIdentity`
+gates the scope, so the deny list cannot be widened into every reader.
+
 ### Restored manifest paths remain within their owning roots
 
 Paths read from `.deps.json` and `project.assets.json` are relative artifact

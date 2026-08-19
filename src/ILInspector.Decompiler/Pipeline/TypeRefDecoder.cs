@@ -357,16 +357,20 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
     /// <summary>
     /// Canonicalizes the reader's own <see cref="AssemblyDefinition"/> simple
     /// name to <see cref="TypeRef.CoreLibrary"/> only when its public key hashes
-    /// to a trusted platform token (<see cref="PlatformKeys.IsPlatform"/>). The
-    /// reader is not always the originally-opened, explicitly-trusted target: a
-    /// cross-assembly resolver can open an untrusted sibling file (e.g. a
-    /// same-directory <c>System.Runtime.dll</c> resolved for an unsigned
-    /// reference) and decode types from ITS OWN metadata through
+    /// to a trusted platform token (<see cref="PlatformKeys.IsPlatform"/>) AND
+    /// the reader was acquired from a source entitled to that identity
+    /// (<see cref="CoreLibraryIdentityTrust"/>). The reader is not always the
+    /// originally-opened, explicitly-trusted target: a cross-assembly resolver
+    /// can open an untrusted sibling file (e.g. a same-directory
+    /// <c>System.Runtime.dll</c> resolved for an unsigned reference) and decode
+    /// types from ITS OWN metadata through
     /// <see cref="GetTypeFromDefinition"/>. Trusting that reader's self-claimed
     /// name would let a planted file mint corelib identity for the types it
-    /// defines. Every caller of self-name canonicalization (same-assembly
-    /// identity comparisons included) must use this, never plain
-    /// <see cref="Canonical(string)"/>, so identity stays consistent.
+    /// defines — and so would trusting its self-declared public key, which is
+    /// published data that nothing here verifies a signature against. Every
+    /// caller of self-name canonicalization (same-assembly identity comparisons
+    /// included) must use this, never plain <see cref="Canonical(string)"/>, so
+    /// identity stays consistent.
     /// </summary>
     internal static string CanonicalSelf(MetadataReader reader)
     {
@@ -375,6 +379,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         if (!IsCoreLibFacadeName(name))
             return name;
         if (definition.PublicKey.IsNil)
+            return name;
+        if (!CoreLibraryIdentityTrust.MayMintCoreLibraryIdentity(reader))
             return name;
         string token = AssemblyReferenceIdentity.ComputePublicKeyToken(reader.GetBlobBytes(definition.PublicKey));
         return PlatformKeys.IsPlatform(token) ? TypeRef.CoreLibrary : name;

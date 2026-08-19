@@ -436,7 +436,13 @@ public sealed class AssemblyDependencyResolver :
             _options.TargetAssemblyPath);
         AssemblyDescriptorResolution target = DescriptorResult(
             targetPath,
-            AssemblyResolutionProvenance.Local(
+            // Only returned as a binding when this file IS the core library
+            // facade, and it is the caller's designated target either way.
+            // Reporting it as a local asset understated the acquisition, which
+            // matters now that core-library identity is granted on acquisition.
+            AssemblyResolutionProvenance.Platform(
+                "Platform",
+                frameworkVersion: null,
                 "intrinsic core library"));
         return target.Assembly is null
             ? AssemblyBindingSelection.CannotSelect(

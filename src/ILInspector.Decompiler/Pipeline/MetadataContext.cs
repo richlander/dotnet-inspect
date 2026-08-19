@@ -101,8 +101,26 @@ public sealed class MetadataContext : IDisposable
         => _openedRegistrations.GetOrAdd(
             assembly.Registration,
             _ => new Lazy<OpenedAssembly?>(
-                () => OpenedAssembly.TryOpen(assembly.OpenRead),
+                () => OpenResolved(assembly),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+    /// <summary>
+    /// Opens an assembly that reference resolution selected, and records
+    /// whether its acquisition entitles it to core-library identity. This is
+    /// the only place a resolved reference becomes a reader, so it is the one
+    /// place that classification has to happen; see
+    /// <see cref="CoreLibraryIdentityTrust"/>.
+    /// </summary>
+    static OpenedAssembly? OpenResolved(ResolvedAssemblyReference assembly)
+    {
+        OpenedAssembly? opened = OpenedAssembly.TryOpen(assembly.OpenRead);
+        if (opened is not null
+            && assembly.Provenance is not AssemblyResolutionProvenance.PlatformAsset)
+        {
+            CoreLibraryIdentityTrust.DenyCoreLibraryIdentity(opened.Reader);
+        }
+        return opened;
+    }
 
     internal OpenedAssembly? Open(
         ResolvedTypeDefinition definition,
