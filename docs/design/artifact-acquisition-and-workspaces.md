@@ -13,6 +13,10 @@ See [inspection-space.md](../inspection-space.md) for workspace and query
 planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
 [assembly-inspection-query.md](assembly-inspection-query.md) for the
 `ResolvedAssemblyReference` and `AssemblyInspectionSession` seam.
+[workspace-definitions.md](workspace-definitions.md) owns static context
+coordinates, while
+[inspection-graph-document.md](inspection-graph-document.md) owns graph
+subjects and relationships.
 
 ## Decision
 
@@ -35,8 +39,8 @@ host composition
   +-- project adapter ---------+--> artifact acquisitions
   +-- platform adapter --------+          |
   +-- CI artifact adapter -----+          v
-  |                                 ArtifactSetSession
-  |                                   owned by workspace
+  |                              ArtifactSetSession(s)
+  |                                 owned by workspace
   v                                          |
 InspectionWorkspace                         |
   +-- AssemblyContextGroup <----------------+
@@ -94,13 +98,13 @@ package dependency closure.
 | Concept | Meaning | Owns | Must not own |
 | --- | --- | --- | --- |
 | Storage | Retention and retrieval of opaque bytes | cache keys, publication, eviction, content leases | package selection, PE identity, workspace binding |
-| Artifact | One immutable inspectable content item | logical identity, media/kind hint, digest, source-neutral opener | package or assembly policy |
+| Artifact | One immutable inspectable content item | logical identity, media/kind hint, digest, owner-mediated content access | package or assembly policy |
 | Artifact acquisition | One adapter's typed attempt to contribute artifacts | outcomes, diagnostics, provenance, content leases | workspace binding |
 | Artifact source adapter | Resolves one source-specific coordinate | source protocol, authorization, listing, archive rules | inspection queries |
-| `ArtifactSetSession` | Live, stable set of artifacts admitted to one workspace | all child acquisition leases and artifact handles | source-specific resolution or assembly binding |
-| Workspace | Logical inspection composition | contexts, roles, query plans, authorization snapshot | feed or archive mechanics |
+| `ArtifactSetSession` | One sealed artifact generation admitted to a workspace | child acquisition leases and artifact handles | source-specific resolution or assembly binding |
+| Workspace | Logical inspection composition | artifact sessions, contexts, roles, query plans | feed or archive mechanics |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
-| Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and repeatable content opener | package coordinate parsing or storage implementation |
+| Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
 | Assembly inspection session | One opened PE inspection lifetime | reader/image lifetime and session-scoped operations | artifact acquisition |
 | Inspection producer | Computes one family of facts | metadata, IL, source, or comparison evidence | source discovery |
 
@@ -125,12 +129,12 @@ No layer infers one identity from another's display text.
 Source-specific provenance remains typed without becoming a source-specific
 dependency of the artifact or assembly projects.
 
-The artifact contract supplies only a source-neutral provenance marker and an
-owner-issued artifact identity. Each adapter defines its own provenance record:
-package coordinates and producer key in the package companion, CI run and
-artifact ids in a CI companion, and local path/fingerprint evidence in the
-local adapter. The workspace retains that typed record and correlates it with
-the artifact identity.
+The artifact contract supplies only an owner-issued artifact identity and a
+source-neutral marker implemented by typed provenance records. Each adapter
+defines its own record: package coordinates and producer key in the package
+companion, CI run and artifact ids in a CI companion, and local
+path/fingerprint evidence in the local adapter. The workspace retains the
+record and correlates it with the artifact identity.
 
 Assembly projection carries the artifact identity, not a Metadata-owned union
 of every possible source kind. Adapter-aware queries or hosts can ask the
@@ -142,27 +146,42 @@ This is not an untyped property bag. Adding a new source requires a typed
 provenance record and its owning projection/serialization code, but does not
 require changing Metadata.
 
+Correspondence is likewise owner-issued. After validating its coordinate
+against acquired content, an adapter mints an acquisition registration scoped
+to one artifact generation. Assembly projection records which artifact
+registration produced each assembly registration. A package-aware query can
+then consume the package adapter's typed realization and correspondence proof;
+it does not ask Metadata to reinterpret package fields.
+
+Artifact identity and acquisition registration answer exact correspondence
+only inside their owning artifact generation. A digest and immutable source
+coordinate can provide durable content evidence, but neither recreates the
+owner-issued registration after that generation ends.
+
 ## `ArtifactSetSession`
 
-`ArtifactSetSession` is the workspace's acquisition lifetime and consistency
-boundary. The name describes a role; the first implementation may fold the role
-into `InspectionWorkspace` rather than add a second public container with the
-same lifetime.
+`ArtifactSetSession` is one acquisition lifetime and consistency boundary owned
+by a workspace. A workspace may own several sessions, normally one for each
+context realization or other atomic admission. Each session may aggregate
+several source adapters.
 
 The session:
 
 1. accepts typed artifact-acquisition outcomes from multiple adapters;
 2. retains every admitted source-specific content lease;
-3. exposes a stable, source-neutral artifact catalog;
+3. exposes a stable, source-neutral artifact catalog without an unguarded
+   content opener;
 4. preserves provenance on each artifact;
 5. rejects identity collisions or represents them explicitly;
 6. makes acquisition failures visible to workspace construction;
-7. releases all child leases when the workspace is disposed.
+7. releases all child leases after every dependent group is quiescent.
 
 The session has a construction phase and a sealed phase. Adapters contribute
 only during construction. Queries observe only the sealed catalog; adding,
-removing, or replacing an acquisition creates a new session generation rather
-than mutating the one queries use.
+removing, or replacing an acquisition creates a new session rather than
+mutating one that queries use. Loading another context into a retained workspace
+adds another sealed session and group; it does not discard or mutate sessions
+and groups already in use.
 
 Sealing does not claim that GitHub, Azure DevOps, a local directory, and a
 package feed participated in one transaction. Each acquisition records its own
@@ -175,6 +194,26 @@ content-addressed storage, or by validating the recorded digest whenever it
 reopens content. A mutable path or expiring download URL is not sufficient
 identity. If the recorded content can no longer be opened, the operation fails
 visibly rather than reading replacement bytes.
+
+Workspace disposal first prevents new group and query admission, then disposes
+groups. A group may already have an active callback that has not performed its
+first lazy content open. Artifact leases therefore outlive `Dispose()` and are
+released only after every dependent group reports quiescence. Synchronous
+disposal may initiate this deferred release; it must not invalidate content
+under an active callback. Cleanup failures compose with, and never replace, the
+active operation failure.
+
+Retaining content does not retain authority. Before a query receives content or
+uses a retained snapshot, the artifact owner revalidates the current query
+plan's capabilities and source policy and issues a query-scoped access lease.
+Changed or revoked authorization rejects access even when the bytes remain in
+memory or storage. The query lease is source-neutral; the adapter that owns the
+typed provenance and authorization evidence makes the decision.
+
+Only that query access lease exposes content. An artifact catalog descriptor or
+`ResolvedAssemblyReference` cannot bypass the owner with a bare `Func<Stream>`;
+its guarded open requires the current lease. This is a target change from the
+current parameterless `ResolvedAssemblyReference.OpenRead`.
 
 It does not:
 
@@ -228,11 +267,13 @@ are not:
 
 - a required acquisition failure cannot become an empty successful set;
 - a context cannot silently omit a failed required member;
-- an optional acquisition must be declared optional by the workspace
-  definition, not inferred from failure;
+- every member in a static workspace context remains required;
+- host composition may make an entire acquisition optional before constructing
+  a context, but failure never makes a declared context member optional;
 - disposal failure cannot replace the primary acquisition or inspection
   failure;
-- cancellation remains cancellation.
+- cancellation propagates as cancellation rather than occupying a failure arm
+  or being relabeled as an acquisition diagnostic.
 
 ## Source adapters
 
@@ -244,6 +285,13 @@ It returns artifacts and leases; it does not create an assembly session.
 The local adapter accepts explicit files or directories under host policy. It
 opens local content without acquiring package or remote-storage dependencies.
 Directory enumeration and path containment remain local-adapter concerns.
+
+Before sealing, it either retains an immutable snapshot or records a digest for
+every admitted file under explicit entry and byte budgets. A later open
+revalidates that digest before exposing bytes. Rebuild, replacement, symlink
+retargeting, or deletion after admission produces a typed content-changed or
+unavailable failure; it never substitutes the new file. Directory admission
+hashes only the selected, bounded entries, not an unbounded tree.
 
 This adapter is the proof that the abstraction is independently useful. A
 local-only host composes:
@@ -274,6 +322,13 @@ The adapter projects selected package entries into neutral artifacts. Package
 identity stays in artifact/workspace provenance and optional package query
 results. It does not become a case in a Metadata-owned provenance union that
 assembly inspection must understand.
+
+The adapter also validates package coordinate, version, selected asset path,
+producer, and content identity before minting a package realization and
+acquisition registration. Package-aware graph and dependency queries move to an
+optional companion and consume that proof. The shared graph document may retain
+its serialized `package` subject kind as a full-host contract; core assembly
+queries do not construct package subjects or parse package provenance.
 
 ### Project adapter
 
@@ -319,7 +374,12 @@ The adapter would:
 4. acquire the artifact archive lazily or eagerly under declared budgets;
 5. apply archive traversal, entry-count, expanded-size, and content limits;
 6. contribute selected entries as neutral artifacts;
-7. retain the download/archive lease for the workspace lifetime.
+7. retain the download/archive lease until the owning artifact session's
+   dependent groups are quiescent.
+
+Later queries reauthorize that provider, repository/project, run/build, and
+artifact coordinate before receiving a query access lease. Retaining the
+download does not preserve a credential grant after the host removes it.
 
 The workspace could then compare:
 
@@ -374,6 +434,13 @@ Package stores may implement package-specific admission and entry access above
 the generic storage boundary. Their interfaces must not leak into the
 source-neutral artifact or assembly layers.
 
+Portable-PDB and authored-source storage also need neutral ownership.
+`IPdbStore`, source authorization, and package symbol-source options currently
+live in the package project and appear in a core assembly query. The target
+extracts a neutral symbol-content store and source-access capability below core
+Queries. NuGet symbol lookup and package-source authorization remain in an
+optional package/source companion that adapts to those contracts.
+
 ## Assembly boundary
 
 The assembly layer begins when a consumer asks whether an artifact is a managed
@@ -384,9 +451,9 @@ It accepts neutral content:
 
 ```text
 artifact identity
-repeatable OpenRead
+acquisition registration
+guarded OpenRead(query access lease)
 optional contained local path
-source-neutral provenance handle
 ```
 
 It does not accept:
@@ -404,9 +471,12 @@ match those source-specific provenance variants.
 
 ## Workspace and query boundary
 
-The workspace owns the artifact set session and one or more assembly context
-groups. Groups compose projected assembly participants under one binding policy.
-They may span artifact sources.
+The workspace owns one or more artifact set sessions and one or more assembly
+context groups. A context loader constructs and seals a session from all
+required acquisitions for that context, then creates its group. Retained hosts
+may repeat that operation to add contexts. Groups compose projected assembly
+participants under one binding policy and may span artifact sources within
+their session.
 
 The execution path is:
 
@@ -414,6 +484,7 @@ The execution path is:
 workspace
   -> select context group and participant
   -> execute typed query
+  -> artifact owner authorizes this query plan and issues access lease
   -> query opens or borrows AssemblyInspectionSession
   -> inspection producers compute evidence
   -> query returns typed result and failure
@@ -465,7 +536,11 @@ properties:
    the package domain into core assembly queries;
 5. package-aware composition references both sides through an adapter; neither
    Packages nor Metadata references the other;
-6. hosts choose adapters through project references and capabilities.
+6. package graph correspondence is validated and projected by the optional
+   package companion rather than core assembly Queries;
+7. neutral symbol/PDB storage and source-access contracts do not reference
+   package source policy;
+8. hosts choose adapters through project references and capabilities.
 
 ## Current mismatches
 
@@ -481,8 +556,16 @@ Several current types are migration inputs, not target precedent:
 - `DotnetInspector.Queries` references `DotnetInspector.Packages` directly.
 - `WorkspaceContextLoader` realizes package and platform coordinates inside the
   core query project.
+- `AssemblyContextSourceQueryContext` exposes package-owned `IPdbStore`,
+  `IPackageSourceAuthorization`, and `NuGetSourceOptions` even for
+  assembly-authored-source queries.
+- `InspectionGraphPackageBoundary` validates package and platform
+  correspondence by pattern matching Metadata-owned provenance and parsing
+  package versions inside core Queries.
 - `AssemblyResolutionProvenance` is defined by Metadata but enumerates package,
   project, platform, local, and embedded source concepts.
+- `workspace-definitions.md` currently maps member kinds directly onto that
+  closed Metadata provenance hierarchy.
 - `IPackageContent` correctly provides a pathless package-content seam, but it
   is package-specific and must not become the generic artifact contract.
 
@@ -497,21 +580,30 @@ The migration is intentionally incremental:
 1. **Land the design and closure gates.** Record the target forbidden
    dependencies and add a package-free closure canary before moving behavior.
 2. **Extract source-neutral artifact contracts.** Introduce artifact identity,
-   content opener, provenance handle, acquisition outcome, and lease contracts
-   in a package- and Metadata-free project.
+   content opener, provenance marker, acquisition registration and outcome,
+   query access, quiescent lifetime, and lease contracts in a package- and
+   Metadata-free project.
 3. **Prove local acquisition.** Adapt explicit local files/directories into the
-   contracts and form a workspace without any package reference.
-4. **Separate workspace realization.** Move package/platform realization out of
-   core assembly Queries into optional adapters or companion projects.
-5. **Adapt package acquisition.** Reuse current package stores, source policy,
+   contracts with admission-time content identity and form a workspace without
+   any package reference.
+4. **Extract neutral symbol capabilities.** Move PDB content storage and
+   source-access authorization below core assembly Queries; keep NuGet symbol
+   source policy in an optional companion.
+5. **Separate workspace realization.** Move package/platform realization out of
+   core assembly Queries into optional adapters or companion projects, and make
+   retained workspaces own multiple sealed artifact sessions.
+6. **Adapt package acquisition.** Reuse current package stores, source policy,
    package admission, and TFM selection behind a package artifact adapter.
-6. **Retire package-aware assembly sets.** Replace package cases in
+7. **Move package correspondence.** Have the package adapter mint typed
+   realization proofs and move package graph construction out of core assembly
+   Queries while preserving the full host's graph wire contract.
+8. **Retire package-aware assembly sets.** Replace package cases in
    `AssemblySetRequest` with host composition of artifact acquisitions and
    workspace groups.
-7. **Migrate API source selection.** Select package assets in the package
+9. **Migrate API source selection.** Select package assets in the package
    adapter, then pass neutral assembly artifacts to the existing assembly/query
    path.
-8. **Add other adapters independently.** Project, platform, embedded, and CI
+10. **Add other adapters independently.** Project, platform, embedded, and CI
    adapters land only with their own typed coordinates, capabilities, limits,
    and provenance gates.
 
@@ -523,22 +615,37 @@ materialization.
 
 The target remains unverified until tests equivalent to these exist:
 
+- `ArtifactContractsClosure_ExcludesMetadataPackagesAndStorageImplementations`
+- `PackagesClosure_ExcludesMetadata`
 - `AssemblyOnlyHostClosure_ExcludesPackageAndNuGetImplementations`
+- `LocalOnlyHostClosure_ExcludesPackageFeedCacheAndArchiveImplementations`
 - `MetadataClosure_ExcludesPackageAndStorageImplementations`
 - `CoreAssemblyQueries_ExcludePackageImplementations`
+- `CoreAssemblySourceQueries_ExcludePackageSymbolCapabilities`
 - `ArtifactSetSession_ComposesArtifactsFromMultipleSources`
+- `ArtifactSetSession_SealedGenerationCannotMutate`
+- `ArtifactIdentity_IsScopedToOwningGeneration`
 - `ArtifactSetSession_DisposesEveryContributingLease`
+- `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
+- `ArtifactAccess_RejectsChangedOrRevokedQueryAuthorization`
+- `ArtifactOpen_RejectsContentSubstitutionAfterAdmission`
+- `ArtifactAcquisition_CancellationRemainsCancellation`
 - `RequiredAcquisitionFailure_DoesNotShortenWorkspaceContext`
 - `AssemblyContextGroup_CanBindParticipantsFromDifferentArtifactSources`
+- `RetainedWorkspace_CanAddASecondSealedContextGeneration`
 - `PackageAdapter_ProjectsSelectedEntriesWithoutLeakingPackageTypes`
+- `PackageGraphProjection_UsesAdapterOwnedCorrespondence`
 - `LocalOnlyWorkspace_ExecutesAssemblyQueryWithoutPackageCapabilities`
 - `CiArtifactScenario_PreservesProviderRunCommitAndDigestProvenance`
+- `BrowserWorkspace_ComposesSequentiallyWithoutFilesystemOrThreads`
 
-The first three are structural closure gates. The remainder are behavior and
-lifetime gates. A browser-compatible implementation must run the same
-composition sequentially without requiring threads, blocking waits, or a
-filesystem.
+The first seven are structural edge/closure gates derived from the actual project
+graph, not a hand-maintained allow list. The remainder are behavior and lifetime
+gates. The local-only query gate covers metadata and authored-source query
+families so a metadata-only success cannot hide package-owned source
+capabilities. The browser gate runs the same composition sequentially without
+threads, blocking waits, or a filesystem.
 
 ## Non-goals
 
