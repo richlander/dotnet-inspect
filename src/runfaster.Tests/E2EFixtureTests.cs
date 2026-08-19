@@ -242,7 +242,7 @@ public class E2EFixtureTests
     }
 
     [Fact]
-    public void Correlate_DoesNotMatchSourceTextForDistinctEvidenceMethod()
+    public void Correlate_SourceTextDoesNotConfirmPhysicalEvidenceOffset()
     {
         string assemblyPath =
             FixtureCatalog.RunFasterAllocation.AssemblyPath();
@@ -266,6 +266,9 @@ public class E2EFixtureTests
         string logPath = Path.Combine(
             Path.GetTempPath(),
             $"runfaster-log-{Guid.NewGuid():N}.txt");
+        string speedscopePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-{Guid.NewGuid():N}.speedscope.json");
         try
         {
             File.WriteAllText(
@@ -291,14 +294,47 @@ public class E2EFixtureTests
                 JsonDocument.Parse(sourceTextResult.Output))
             {
                 Assert.Equal(
-                    0,
+                    1,
                     output.RootElement.GetProperty(
                         "observedCandidates").GetInt32());
                 var candidate = Assert.Single(
                     output.RootElement.GetProperty(
                         "candidates").EnumerateArray());
                 Assert.Equal(
-                    "cold-for-this-workload",
+                    "method-hot",
+                    candidate.GetProperty(
+                        "status").GetString());
+                Assert.False(
+                    candidate.GetProperty(
+                        "exactOffsetObserved").GetBoolean());
+            }
+
+            File.WriteAllText(
+                speedscopePath,
+                """
+                {"shared":{"frames":[{"name":"RunFaster.AllocationFixture.Program.Main()"}]},"profiles":[{"type":"sampled","samples":[[0]],"weights":[100]}]}
+                """);
+            var sampledResult = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--input",
+                speedscopePath,
+                "--json");
+
+            Assert.Equal(0, sampledResult.ExitCode);
+            Assert.Empty(sampledResult.Error);
+            using (var sampledOutput =
+                JsonDocument.Parse(sampledResult.Output))
+            {
+                Assert.Equal(
+                    1,
+                    sampledOutput.RootElement.GetProperty(
+                        "observedCandidates").GetInt32());
+                var candidate = Assert.Single(
+                    sampledOutput.RootElement.GetProperty(
+                        "candidates").EnumerateArray());
+                Assert.Equal(
+                    "method-hot",
                     candidate.GetProperty(
                         "status").GetString());
             }
@@ -334,6 +370,7 @@ public class E2EFixtureTests
         {
             File.Delete(triagePath);
             File.Delete(logPath);
+            File.Delete(speedscopePath);
         }
     }
 

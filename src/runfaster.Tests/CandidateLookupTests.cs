@@ -92,6 +92,84 @@ public class CandidateLookupTests
     }
 
     [Fact]
+    public void FindNearestByTokenOffset_DoesNotUseSourceNameForDistinctEvidenceBody()
+    {
+        var candidate = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            evidenceMethodToken: 0x06000002);
+        var lookup = CandidateLookup.Create([candidate]);
+
+        var matches = lookup.FindNearestByTokenOffset(
+            0x06000002,
+            0x0011,
+            modulePath: null,
+            moduleName: null,
+            methodName: "Fixture.Type::M");
+
+        Assert.Empty(matches);
+    }
+
+    [Fact]
+    public void FindByMethodText_RetainsSourceNameForDistinctEvidenceBody()
+    {
+        var candidate = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            evidenceMethodToken: 0x06000002);
+        var lookup = CandidateLookup.Create([candidate]);
+
+        Assert.Contains(
+            candidate,
+            lookup.FindByMethodText(
+                "sample: Fixture.Type::M"));
+    }
+
+    [Fact]
+    public void FindByTokenOffset_RejectsCoordinateSharedAcrossAssemblies()
+    {
+        var assemblyA = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            assemblyName: "AssemblyA",
+            evidenceMethodToken: 0x06000003);
+        var assemblyB = Candidate(
+            id: 2,
+            methodToken: 0x06000002,
+            ilOffset: 0x0010,
+            assemblyName: "AssemblyB",
+            evidenceMethodToken: 0x06000003);
+        var lookup = CandidateLookup.Create(
+            [assemblyA, assemblyB]);
+
+        Assert.Empty(
+            lookup.FindByTokenOffset(
+                0x06000003,
+                0x0010));
+    }
+
+    [Fact]
+    public void WhitespaceAssemblyHasNoRuntimeCoordinate()
+    {
+        var candidate = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            assemblyName: " ",
+            evidenceMethodToken: 0x06000002);
+        var lookup = CandidateLookup.Create([candidate]);
+
+        Assert.False(candidate.HasRuntimeCoordinate);
+        Assert.Empty(
+            lookup.FindByTokenOffset(
+                0x06000002,
+                0x0010));
+    }
+
+    [Fact]
     public void MarkAllocationHit_SplitsAmbiguousBytesWithoutInflatingTotal()
     {
         var first = Candidate(id: 1, methodToken: 0x06000006, ilOffset: 0x0010);
@@ -117,7 +195,9 @@ public class CandidateLookupTests
         int ilOffset,
         string libraryPath = "/tmp/Fixture.dll",
         string method = "Fixture.Type.M()",
-        string kind = "Object")
+        string kind = "Object",
+        string assemblyName = "Fixture",
+        int? evidenceMethodToken = null)
     {
         string methodKey = method[..method.IndexOf('(')];
         int lastDot = methodKey.LastIndexOf('.');
@@ -126,7 +206,7 @@ public class CandidateLookupTests
             id,
             "library",
             libraryPath,
-            "Fixture",
+            assemblyName,
             null,
             methodToken,
             ilOffset,
@@ -147,6 +227,7 @@ public class CandidateLookupTests
             null,
             null,
             null,
-            "Capture");
+            "Capture",
+            evidenceMethodToken: evidenceMethodToken);
     }
 }

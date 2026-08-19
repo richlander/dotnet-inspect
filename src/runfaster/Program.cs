@@ -1384,10 +1384,25 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
 
         foreach (var candidate in methodMatches)
         {
-            if (ilOffset is int offset && candidate.IlOffset >= 0 && candidate.IlOffset != offset)
+            bool sourceAndEvidenceBodiesDiffer =
+                candidate.UsesDistinctEvidenceMethodBody;
+            if (!sourceAndEvidenceBodiesDiffer
+                && ilOffset is int offset
+                && candidate.IlOffset >= 0
+                && candidate.IlOffset != offset)
+            {
                 continue;
+            }
 
-            MarkHit(candidate, matchedIds, sourceKind, bytes, exactOffset: ilOffset is not null && candidate.IlOffset == ilOffset, weight: 1);
+            MarkHit(
+                candidate,
+                matchedIds,
+                sourceKind,
+                bytes,
+                exactOffset: !sourceAndEvidenceBodiesDiffer
+                    && ilOffset is not null
+                    && candidate.IlOffset == ilOffset,
+                weight: 1);
         }
     }
 
@@ -2265,6 +2280,9 @@ sealed class AllocationCandidate(
     public string Source { get; } = source;
     public string LibraryPath { get; } = libraryPath;
     public string AssemblyName { get; } = assemblyName;
+    public string AssemblyModuleKey { get; } =
+        ProgramSupport.NormalizeModuleKey(
+            assemblyName);
     public Guid? ModuleVersionId { get; } = moduleVersionId;
     public string UnknownLibraryInputIdentity { get; } =
         source == "library" && moduleVersionId is null
@@ -2276,6 +2294,9 @@ sealed class AllocationCandidate(
         evidenceMethodToken;
     public int RuntimeMethodToken =>
         EvidenceMethodToken ?? MethodToken;
+    public bool UsesDistinctEvidenceMethodBody =>
+        EvidenceMethodToken is int evidenceMethodToken
+        && evidenceMethodToken != MethodToken;
     public int IlOffset { get; } = ilOffset;
     public string? CandidateId { get; } = candidateId;
     public string? Provenance { get; } = provenance;
@@ -2388,7 +2409,7 @@ sealed class AllocationCandidate(
     public double CostWeight => EffectiveObservedBytes * PromotionFactor;
     public bool IsObserved => RuntimeHits > 0 || AllocationHits > 0;
     public bool HasRuntimeCoordinate =>
-        AssemblyName.Length > 0
+        AssemblyModuleKey.Length > 0
         && ProgramSupport.IsMethodDefinitionToken(
             RuntimeMethodToken)
         && IlOffset >= 0;
@@ -2577,12 +2598,6 @@ sealed class CandidateLookup
                 }
             }
 
-            if (candidate.EvidenceMethodToken is int evidenceMethodToken
-                && evidenceMethodToken != candidate.MethodToken)
-            {
-                continue;
-            }
-
             AddFragment(candidate.MethodKey, candidate);
             AddFragment(candidate.MethodStackKey, candidate);
             AddFragment(candidate.Method, candidate);
@@ -2628,7 +2643,22 @@ sealed class CandidateLookup
     }
 
     public IReadOnlyList<AllocationCandidate> FindByTokenOffset(int token, int offset)
-        => _byTokenOffset.TryGetValue((token, offset), out var candidates) ? candidates : [];
+    {
+        if (!_byTokenOffset.TryGetValue(
+                (token, offset),
+                out var candidates))
+        {
+            return [];
+        }
+
+        bool spansAssemblies = candidates
+            .Select(static candidate =>
+                candidate.AssemblyModuleKey)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Skip(1)
+            .Any();
+        return spansAssemblies ? [] : candidates;
+    }
 
     public IReadOnlyList<AllocationCandidate> FindNearestByCodeAddress(TraceCodeAddress address)
     {
@@ -2702,8 +2732,8 @@ sealed class CandidateLookup
 
     static IEnumerable<string> CandidateModuleKeys(AllocationCandidate candidate)
     {
-        if (ProgramSupport.NormalizeModuleKey(candidate.AssemblyName) is { Length: > 0 } assembly)
-            yield return assembly;
+        if (candidate.AssemblyModuleKey is { Length: > 0 })
+            yield return candidate.AssemblyModuleKey;
         if (string.Equals(
                 candidate.Source,
                 "library",
@@ -2728,7 +2758,8 @@ sealed class CandidateLookup
 
     static bool MethodMatches(AllocationCandidate candidate, string? method)
     {
-        return !string.IsNullOrWhiteSpace(method)
+        return !candidate.UsesDistinctEvidenceMethodBody
+            && !string.IsNullOrWhiteSpace(method)
             && (method.Contains(candidate.MethodStackKey, StringComparison.Ordinal)
                 || method.Contains(candidate.MethodKey, StringComparison.Ordinal)
                 || method.Contains(candidate.Method, StringComparison.Ordinal));
@@ -3009,7 +3040,7 @@ internal static class ProgramSupport
                      .Where(static candidate =>
                          candidate.HasRuntimeCoordinate)
                      .GroupBy(static candidate => (
-                         Assembly: NormalizeModuleKey(candidate.AssemblyName),
+                         Assembly: candidate.AssemblyModuleKey,
                          candidate.RuntimeMethodToken,
                          candidate.IlOffset)))
         {
