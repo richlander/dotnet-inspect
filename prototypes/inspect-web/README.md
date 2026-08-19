@@ -411,37 +411,42 @@ lists them.
 
 ## Annotated source
 
-`src/annotated-source-view.js` and its tests are the browser half of the [#3964]
+`src/annotated-source-view.ts` and its tests are the browser half of the [#3964]
 portable `AnnotatedSourceDocument` contract, and `QueryMemberAnnotatedSource` now
 feeds it a real document.
 
 The viewer reuses the owner's module rather than copying it.
 `prototypes/annotated-source-viewer/src/document-model.js` owns validation,
 UTF-16 coordinates, line derivation, segmentation, and the fact → target → node →
-span walk; the engine project links that exact file into
-`wwwroot/src/document-model.js`. `src/document-model.js` here is a re-export the
-repository tree and the Node tests resolve, and it holds no logic. On top of it
-the view module adds only selection state: canonical lines, C#/IL medium toggles
-that hide lines without rebasing a coordinate, fact selection that highlights
-every targeted node across both media without selecting the text between one
-node's separated spans, click-to-tightest-node, explicitly unanchored facts, and
-a copy action that copies `document.text` so the copied artifact is source and
-never annotations. A payload the model rejects is reported as rejected, not
-rendered.
+span walk. `src/document-model.js` here re-exports that owner for Vite and the
+Node tests; Vite bundles the shared implementation into the deployable browser
+artifact. On top of it the typed view module adds only selection state:
+canonical lines, C#/IL medium toggles that hide lines without rebasing a
+coordinate, fact selection that highlights every targeted node across both
+media without selecting the text between one node's separated spans,
+click-to-tightest-node, explicitly unanchored facts, and a copy action that
+copies `document.text` so the copied artifact is source and never annotations.
+A payload the model rejects is reported as rejected, not rendered.
 
 ## Run
 
+The frontend requires Node.js 24 or later; `npm ci` enforces that requirement.
 Install the experimental browser workload selected by the repository SDK:
 
 ```bash
 dotnet workload install wasm-experimental
-cd prototypes/inspect-web/engine
+cd prototypes/inspect-web
+npm ci
+npm run build
+cd engine
 dotnet run -c Release
 ```
 
 Open `http://127.0.0.1:5198`. Create a deployable static bundle with
-`dotnet publish -c Release`. Remote addresses require HTTPS because the .NET
-loader uses secure-context browser APIs.
+`npm run build && dotnet publish -c Release` from the same directories shown
+above. The TypeScript check is part of both `npm run build` and `npm test`.
+Remote addresses require HTTPS because the .NET loader uses secure-context
+browser APIs.
 
 On a bare visit, `app.js` waits for the home page's first contentful paint
 before dynamically importing `engine.js`. Search and demo controls remain
@@ -458,9 +463,12 @@ Emscripten `tools` directory.
 ## Test
 
 ```bash
-dotnet run --project prototypes/inspect-web/engine.Tests -c Release
 cd prototypes/inspect-web
+npm ci
+npm run build
 npm test
+cd ../..
+dotnet run --project prototypes/inspect-web/engine.Tests -c Release
 ```
 
 `BrowserEngineBoundaryTests` gates the browser host's aggregate archive budget,
@@ -497,8 +505,10 @@ above on every browser-engine CI run.
 
 Pull requests that change the browser prototype, its shared annotated-source
 viewer, product dependencies, or repository build inputs run the `inspect-web`
-CI job. That job compiles the platform-index generator, publishes the Release
-Wasm bundle, runs the browser-engine tests, and runs both JavaScript suites.
+CI job. That job installs the locked Node dependencies, checks and bundles the
+TypeScript/JavaScript frontend, compiles the platform-index generator, publishes
+the Release Wasm bundle, runs the browser-engine tests, and runs both JavaScript
+suites.
 The `eng/CiChangeDetection` gate, invoked through
 `eng/test-ci-change-detection.cs`, gates the path classification, and
 `ci-required` includes the job's result.
@@ -577,10 +587,14 @@ commits. The workflow contract gate enforces those references. Azure's pinned
 action still pulls Microsoft's `staticappsclient:stable` image; that
 vendor-controlled deployment dependency is not immutable and remains inside
 the Azure trust boundary. All three workflows disable Azure's own app build
-and require the published artifact to contain `staticwebapp.config.json`. That
-configuration serves `/` and `/index.html` with `Cache-Control: no-cache,
-no-store, must-revalidate`, so an Azure edge cannot retain an old browser boot
-graph after its fingerprinted Wasm assets rotate.
+and require the published artifact to contain `staticwebapp.config.json`.
+Trusted build and deployment steps also verify that Vite preserved the authored
+.NET placeholders, that every file in Vite's generated manifest exists and is
+loaded by the index where required, that the SDK injected a mapping to the
+fingerprinted `dotnet.js`, and that the import map precedes the Vite module
+entry. That configuration serves `/` and `/index.html` with `Cache-Control:
+no-cache, no-store, must-revalidate`, so an Azure edge cannot retain an old
+browser boot graph after its fingerprinted Wasm assets rotate.
 `BrowserStaticWebAppConfigTests.RootDocumentsAreNotCachedAndConfigIsPublished`
 gates the header contract and publish wiring. The staging publish step embeds
 the CLI's authoritative `VersionPrefix`, exact source SHA, and UTC build
