@@ -157,12 +157,21 @@ jobs:
         # than this job's pinned net11.0 preview SDK (it's an independently
         # deployed production service). WorkflowContract.ValidateInspectWebSdk
         # requires exactly one setup-dotnet step in this job, so install the
-        # extra runtime with the official script into the same DOTNET_ROOT
-        # instead of a second setup-dotnet@v5 step.
+        # extra runtime with dotnetup instead of a second setup-dotnet@v5
+        # step. dotnetup is itself in preview; fall back to dotnet-install.sh
+        # on any failure, mirroring dotnet/sdk's own acquisition fallback.
         run: |
-          curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
-          chmod +x /tmp/dotnet-install.sh
-          /tmp/dotnet-install.sh --channel 10.0 --runtime aspnetcore --install-dir "$DOTNET_ROOT"
+          set -e
+          if curl -fsSL --retry 3 https://aka.ms/dotnet/dotnetup/daily/get-dotnetup.sh -o /tmp/get-dotnetup.sh \
+            && bash /tmp/get-dotnetup.sh --install-dir /tmp/dotnetup \
+            && /tmp/dotnetup/dotnetup runtime install aspnetcore@10.0 --install-path "$DOTNET_ROOT" --untracked --no-progress; then
+            echo "Installed aspnetcore@10.0 via dotnetup."
+          else
+            echo "dotnetup acquisition/install failed; falling back to dotnet-install.sh." >&2
+            curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+            chmod +x /tmp/dotnet-install.sh
+            /tmp/dotnet-install.sh --channel 10.0 --runtime aspnetcore --install-dir "$DOTNET_ROOT"
+          fi
 
       - name: Install browser Wasm workload
         run: dotnet workload install wasm-experimental
