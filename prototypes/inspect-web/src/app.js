@@ -46,6 +46,15 @@ import {
 } from "./graph-mermaid.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.ts";
 import { createCommandBar } from "/src/command-bar.ts";
+import {
+  renderMemberNav,
+  renderTypeMetadata,
+  renderTypeNav,
+  renderTypeSource,
+  typeHeading,
+  typeMetadataSignature,
+  typeSourceSignature,
+} from "/src/type-panel.ts";
 import { createPackageBar } from "/src/package-bar.ts";
 import { loadPlatformIndex } from "/src/platform-index.js";
 
@@ -1452,7 +1461,7 @@ function maybeAutoLoadVisibleSource() {
   const type = selectedType();
   if (!type) return;
   if (kind === "type") {
-    const signature = typeSourceSignature(type);
+    const signature = typeSourceSignature(type, state.package, state.taste, memberRequestKey);
     if (sourceRequestNeedsLoad(
         state.typeSourceKey === signature,
         state.typeSourceLoading,
@@ -1481,7 +1490,7 @@ function maybeAutoLoadTypeMetadata() {
   if (state.lens !== "metadata") return;
   const type = selectedType();
   if (!type) return;
-  const signature = typeMetadataSignature(type);
+  const signature = typeMetadataSignature(type, state.package);
   if (state.typeMetadataKey === signature) {
     if (state.typeMetadata?.graphNodes?.length > 1) renderTypeGraph();
     return;
@@ -1490,7 +1499,43 @@ function maybeAutoLoadTypeMetadata() {
 }
 
 function renderNavPane(current, visible) {
-  return navMode() === "member" ? renderMemberNav(current) : renderTypeNav(current, visible);
+  return navMode() === "member"
+    ? renderMemberNavPane(current)
+    : renderTypeNavPane(current, visible);
+}
+
+function renderTypeNavPane(current, visible) {
+  return renderTypeNav({
+    current,
+    visible,
+    typeGroups: typeGroups(),
+    typeFilter: state.typeFilter,
+    namespaceFilter: state.namespaceFilter,
+    kindFilter: state.kindFilter,
+    namespaceCount: namespaces().length,
+    namespaceOptionsHtml: namespaceOptions(),
+    kindFilters: typeKinds(),
+    accessibilityControlHtml: accessibilityControl(),
+    libraryControlHtml: libraryControl(),
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    shortKind,
+  });
+}
+
+function renderMemberNavPane(type) {
+  return renderMemberNav({
+    type,
+    entries: memberNavEntries(type),
+    memberCount: memberGroups(type).length,
+    selectedMemberKey: state.selectedMemberKey,
+    selectedOverloadIndex: state.selectedOverloadIndex,
+    escapeHtml,
+    typeDisplayName,
+    shortKind,
+    highlight,
+  });
 }
 
 // The scope switcher + lens strip. The leading segmented control is the scope ladder —
@@ -1524,96 +1569,6 @@ function renderScopeBar() {
       <span class="lens-separator"></span>
       ${strip}
     </nav>`;
-}
-
-function renderTypeNav(current, visible) {
-  return `
-    <aside class="type-browser" aria-label="Public types">
-      <div class="browser-head">
-        <div>
-          <span class="pane-label">PUBLIC TYPES</span>
-          <span class="result-count">${visible.length} shown</span>
-        </div>
-        <button class="tiny-button" id="clear-filter" title="Clear filter">×</button>
-      </div>
-      <label class="type-search">
-        <span>/</span>
-        <input id="type-filter" value="${escapeHtml(state.typeFilter)}" placeholder="Filter types, members, libraries" autocomplete="off" spellcheck="false" />
-        <kbd>⌘F</kbd>
-      </label>
-      <div class="namespace-picker">
-        <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
-          <option value="" ${!state.namespaceFilter ? "selected" : ""}>All namespaces · ${namespaces().length}</option>
-          ${namespaceOptions()}
-        </select>
-      </div>
-      <div class="chip-stack">
-        <div class="namespace-chips kind-chips" aria-label="Type kind filters">
-          <button class="${!state.kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
-          ${typeKinds().map(kind => `<button class="${state.kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
-        </div>
-        ${accessibilityControl()}
-        ${libraryControl()}
-      </div>
-      <div class="type-list" role="listbox" tabindex="0" id="type-list">
-        ${[...typeGroups()].map(([namespace, types]) => `
-          <section class="type-group">
-            <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
-              <span class="chevron">⌄</span>
-              <span>${escapeHtml(namespace)}</span>
-              <small>${types.length}</small>
-            </button>
-            ${types.map(item => {
-              const selected = item.id === current.id;
-              return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
-                <span class="kind-icon">${kindIcon(item.kind)}</span>
-                <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
-                <small>${escapeHtml(shortKind(item.kind))}</small>
-              </button>`;
-            }).join("")}
-          </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
-      </div>
-      <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
-    </aside>`;
-}
-
-function renderMemberNav(type) {
-  const entries = memberNavEntries(type);
-  return `
-    <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
-      <div class="browser-head">
-        <div>
-          <span class="pane-label">MEMBERS</span>
-          <span class="result-count">${memberGroups(type).length} members</span>
-        </div>
-      </div>
-      <button class="nav-back-row" id="nav-to-types" title="Back to types (Esc)">
-        <span class="chevron">‹</span>
-        <span class="type-name">${escapeHtml(typeDisplayName(type))}</span>
-        <small>types</small>
-      </button>
-      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list">
-        ${entries.map(entry => {
-          if (entry.kind === "member") {
-            const group = entry.group;
-            const isMulti = group.overloads.length > 1;
-            const active = group.key === state.selectedMemberKey;
-            const selected = active && (isMulti ? state.selectedOverloadIndex == null : true);
-            return `<button class="type-row member-row ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
-              <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-              <span class="type-name">${escapeHtml(group.name)}</span>
-              <small>${isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind))}</small>
-            </button>`;
-          }
-          const selected = entry.group.key === state.selectedMemberKey && state.selectedOverloadIndex === entry.index;
-          return `<button class="type-row overload-nav-row ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}">
-            <span class="overload-branch">↳</span>
-            <code>${highlight(entry.group.overloads[entry.index].signature)}</code>
-          </button>`;
-        }).join("")}
-      </div>
-      <footer class="pane-footer"><span>↑↓ members</span><span>←→ sections</span><span>esc types</span></footer>
-    </aside>`;
 }
 
 function packageHeading() {
@@ -3250,17 +3205,30 @@ function renderPackageOverview() {
     </section>${documentsSection}`;
 }
 
+function typeHeadingHtml(item) {
+  return typeHeading({ item, packageContext: state.package, escapeHtml, typeDisplayName, kindIcon, highlight });
+}
+
+function renderTypeMetadataHtml(item) {
+  return renderTypeMetadata({ item, packageContext: state.package, metadataState: state, escapeHtml, relatedTypeChip, factRows });
+}
+
+function renderTypeSourceHtml(item) {
+  const currentSignature = typeSourceSignature(item, state.package, state.taste, memberRequestKey);
+  return renderTypeSource({ item, currentSignature, sourceState: state, escapeHtml, highlightCSharp });
+}
+
 function renderLens(item) {
   if (state.atPackageRoot) return renderPackageView();
   const member = selectedMember(item);
   if (state.lens === "api" && member) return renderMember(item, member);
   if (state.lens === "source") {
     return `
-      ${typeHeading(item)}
-      ${renderTypeSource(item)}`;
+      ${typeHeadingHtml(item)}
+      ${renderTypeSourceHtml(item)}`;
   }
   if (state.lens === "metadata") {
-    return `${typeHeading(item)}${renderTypeMetadata(item)}`;
+    return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
   }
   const groups = memberGroups(item);
   const kindOrder = ["constructor", "method", "property", "field", "event"];
@@ -3274,7 +3242,7 @@ function renderLens(item) {
       `<button class="member-kind ${activeKind === kind ? "active" : ""}" data-kind="${kind}">${kindLabels[kind]}</button>`))
     .join("");
   return `
-    ${typeHeading(item)}
+    ${typeHeadingHtml(item)}
     <section class="document-section">
       <div class="section-title"><h2>Public API</h2><span>${groups.length} member groups · ${item.members} overloads</span></div>
       <div class="member-filter">${filterButtons}</div>
@@ -3584,23 +3552,6 @@ function renderFactTable(title, rows, columns, emptyText) {
   </section>`;
 }
 
-function typeHeading(item) {
-  return `<header class="type-heading">
-    <div class="type-badge">${kindIcon(item.kind)}</div>
-    <div>
-      <div class="type-namespace">${escapeHtml(item.namespace)}</div>
-      <h1>${escapeHtml(typeDisplayName(item))}</h1>
-      <code class="type-signature">${highlight(item.signature)}</code>
-    </div>
-    <div class="type-metrics"><span><strong>${item.members}</strong> members</span><span><strong>${escapeHtml(item.accessibility || "public")}</strong> accessibility</span></div>
-    <dl class="definition-list">
-      <div><dt>TFM:</dt><dd>${escapeHtml(state.package.activeFramework)}</dd></div>
-      <div><dt>Library:</dt><dd>${escapeHtml(item.assembly)}</dd></div>
-      <div><dt>Package:</dt><dd>${escapeHtml(state.package.id)}@${escapeHtml(state.package.version)}</dd></div>
-    </dl>
-  </header>`;
-}
-
 function factRows(rows) {
   return `<dl class="fact-rows">${rows.map(([key, value, evidence]) => `<div><dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code>${factEvidence(evidence)}</dd></div>`).join("")}</dl>`;
 }
@@ -3617,126 +3568,6 @@ function factEvidence(offsets) {
   const extra = unique.length - shown.length;
   const label = shown.join(", ") + (extra > 0 ? ` +${extra}` : "");
   return `<span class="fact-evidence" title="${escapeHtml(unique.join(", "))}">${escapeHtml(label)}</span>`;
-}
-
-function typeMetadataSignature(item) {
-  return `${state.package.id}@${state.package.version}/${state.package.activeFramework}/${item.assembly}/${item.id}`;
-}
-
-const COMPOSITION_KINDS = [
-  ["methods", "Methods"],
-  ["properties", "Properties"],
-  ["fields", "Fields"],
-  ["events", "Events"],
-  ["constructors", "Constructors"],
-  ["operators", "Operators"],
-  ["extensionMethods", "Extension methods"],
-  ["explicitInterfaceImplementations", "Explicit impls"]
-];
-
-const COMPOSITION_FLAGS = [
-  ["static", "static"],
-  ["unsafe", "unsafe"],
-  ["async", "async"],
-  ["virtual", "virtual"],
-  ["abstract", "abstract"],
-  ["override", "override"],
-  ["extension", "extension"],
-  ["obsolete", "obsolete"]
-];
-
-function renderCompositionGrid(composition) {
-  const kinds = COMPOSITION_KINDS
-    .filter(([key]) => composition[key] > 0)
-    .map(([key, label]) => `<div class="count-cell"><strong>${composition[key]}</strong><span>${label}</span></div>`)
-    .join("");
-  const flags = COMPOSITION_FLAGS
-    .filter(([key]) => composition[key] > 0)
-    .map(([key, label]) => `<span class="count-flag flag-${key}">${composition[key]} ${label}</span>`)
-    .join("");
-  return `
-    <div class="composition-grid">${kinds || '<div class="count-cell"><strong>0</strong><span>members</span></div>'}</div>
-    ${flags ? `<div class="composition-flags">${flags}</div>` : ""}`;
-}
-
-function renderTypeMetadata(item) {
-  const current = typeMetadataSignature(item);
-  const fresh = state.typeMetadataKey === current;
-  if (state.typeMetadataLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`;
-  }
-  if (fresh && state.typeMetadataError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(state.typeMetadataError)}</p></section>`;
-  }
-  const meta = fresh ? state.typeMetadata : null;
-  if (!meta) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
-  }
-
-  const shape = [
-    ["Kind", [...(meta.modifiers || []), meta.kind].join(" ")],
-    ["Accessibility", meta.accessibility || "public"],
-    ["Namespace", meta.namespace || "global"],
-    ["Assembly", meta.assembly || item.assembly]
-  ];
-  if (meta.baseType) shape.push(["Base type", meta.baseType]);
-  if (meta.enumUnderlyingType) shape.push(["Enum underlying", meta.enumUnderlyingType]);
-  if (meta.typeParameters?.length) {
-    shape.push(["Type parameters", meta.typeParameters
-      .map(parameter => `${parameter.variance ? parameter.variance + " " : ""}${parameter.name}${parameter.constraints?.length ? ` : ${parameter.constraints.join(", ")}` : ""}`)
-      .join(" · ")]);
-  }
-
-  const interfaces = (meta.interfaces || []).length
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Implements</h2><span>${meta.interfaces.length} interface${meta.interfaces.length === 1 ? "" : "s"}</span></div>
-        <div class="type-chip-list">${meta.interfaces.map(name => relatedTypeChip(name)).join("")}</div>
-      </section>`
-    : "";
-
-  const derived = (meta.derivedTypes || []).length
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Known derived types</h2><span>${meta.derivedTypes.length} in ${escapeHtml(meta.assembly || item.assembly)}</span></div>
-        <div class="type-chip-list">${meta.derivedTypes.map(name => relatedTypeChip(name)).join("")}</div>
-      </section>`
-    : "";
-
-  const attributes = (meta.attributes || []).length
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Custom attributes</h2><span>${meta.attributes.length}</span></div>
-        <div class="type-chip-list">${meta.attributes.map(name => `<code class="attr-chip">[${escapeHtml(name)}]</code>`).join("")}</div>
-      </section>`
-    : "";
-
-  const composition = meta.composition
-    ? `<section class="document-section">
-        <div class="section-title"><h2>Composition</h2><span>${meta.composition.total} member${meta.composition.total === 1 ? "" : "s"}</span></div>
-        ${renderCompositionGrid(meta.composition)}
-      </section>`
-    : "";
-
-  const graph = (meta.graphNodes || []).length > 1
-    ? `<section class="document-section call-graph-section">
-        <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — click a highlighted node to open</span></div>
-        <div id="type-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
-      </section>`
-    : "";
-
-  const failures = (meta.inspectionFailures || []).length
-    ? `<section class="document-section metadata-warning"><strong>⚠ Relationship view may be incomplete</strong><ul>${meta.inspectionFailures.map(entry => `<li><code>${escapeHtml(entry)}</code></li>`).join("")}</ul></section>`
-    : "";
-
-  return `
-    <section class="document-section">
-      <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
-      ${factRows(shape)}
-    </section>
-    ${composition}
-    ${interfaces}
-    ${derived}
-    ${attributes}
-    ${graph}
-    ${failures}`;
 }
 
 function shortTypeName(fullName) {
@@ -3762,34 +3593,6 @@ function splitSignalName(fullName) {
     short: (dot < 0 ? head : head.slice(dot + 1)) + suffix,
     qualifier: dot < 0 ? "" : head.slice(0, dot),
   };
-}
-
-function typeSourceSignature(item) {
-  return memberRequestKey([
-    state.package.id,
-    state.package.version,
-    state.package.activeFramework,
-    item.assembly,
-    item.definitionId ?? item.id
-  ], state.taste);
-}
-
-function renderTypeSource(item) {
-  const current = typeSourceSignature(item);
-  const fresh = state.typeSourceKey === current;
-  if (state.typeSourceLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
-  }
-  if (fresh && state.typeSource) {
-    return `<section class="document-section source-result">
-        <div class="source-provenance"><strong>${state.typeSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.typeSource.provenance)}</span>${state.typeSource.url ? `<a href="${escapeHtml(state.typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-type-source" type="button">copy</button></div>
-        <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.typeSource.text)}</code></pre>
-      </section>`;
-  }
-  if (fresh && state.typeSourceError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(state.typeSourceError)}</p></section>`;
-  }
-  return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
 }
 
 function kindIcon(kind) {
@@ -6083,7 +5886,7 @@ async function loadSelectedTypeSource() {
     render();
     return;
   }
-  const signature = typeSourceSignature(type);
+  const signature = typeSourceSignature(type, state.package, state.taste, memberRequestKey);
   if (!sourceRequestNeedsLoad(
       state.typeSourceKey === signature,
       state.typeSourceLoading,
@@ -6132,7 +5935,7 @@ async function loadSelectedTypeMetadata() {
     render();
     return;
   }
-  const signature = typeMetadataSignature(type);
+  const signature = typeMetadataSignature(type, state.package);
   if (state.typeMetadataKey === signature && (state.typeMetadata || state.typeMetadataError)) {
     render();
     return;
