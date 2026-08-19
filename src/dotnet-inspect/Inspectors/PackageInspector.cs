@@ -288,7 +288,8 @@ internal static class PackageInspector
             && result.IsRidSpecificPointerPackage
             && result.RuntimeIdentifierPackages is { Count: > 0 })
         {
-            await MarkAcquiredRidPackagesAsync(
+            IReadOnlyDictionary<string, NuspecProbeStatus> acquiredEvidence =
+                await MarkAcquiredRidPackagesAsync(
                 result,
                 resolution,
                 wrapperVersion,
@@ -303,18 +304,23 @@ internal static class PackageInspector
                 wrapperVersion,
                 localDir,
                 logger,
-                sourceOptions);
+                sourceOptions,
+                acquiredEvidence);
         }
     }
 
-    internal static async Task MarkAcquiredRidPackagesAsync(
+    internal static async Task<IReadOnlyDictionary<string, NuspecProbeStatus>>
+        MarkAcquiredRidPackagesAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
         string? wrapperVersion,
         Action<string>? log = null)
     {
         if (result.RuntimeIdentifierPackages is not { Count: > 0 })
-            return;
+        {
+            return new Dictionary<string, NuspecProbeStatus>(
+                StringComparer.OrdinalIgnoreCase);
+        }
 
         List<(
             string ExtractPath,
@@ -334,7 +340,7 @@ internal static class PackageInspector
         HashSet<string> requestedPackageIds = result.RuntimeIdentifierPackages
             .Select(package => package.PackageId)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> presentPackageIds =
+        Dictionary<string, NuspecProbeStatus> acquiredEvidence =
             new(StringComparer.OrdinalIgnoreCase);
 
         foreach (var acquired in acquiredPackages)
@@ -344,23 +350,35 @@ internal static class PackageInspector
                 && requestedPackageIds.Contains(acquired.PackageName)
                 && VersionsEqual(
                     wrapperVersion,
-                    acquired.Version)
-                && (await PackageExtractor.ProbeExtractedPackageNuspecAsync(
-                    acquired.ExtractPath,
-                    acquired.PackageName,
-                    acquired.Version,
-                    log).ConfigureAwait(false)).Status
-                == NuspecProbeStatus.Present)
+                    acquired.Version))
             {
-                presentPackageIds.Add(acquired.PackageName);
+                NuspecProbeStatus status =
+                    (await PackageExtractor.ProbeExtractedPackageNuspecAsync(
+                        acquired.ExtractPath,
+                        acquired.PackageName,
+                        acquired.Version,
+                        log).ConfigureAwait(false)).Status;
+                acquiredEvidence[acquired.PackageName] =
+                    acquiredEvidence.TryGetValue(
+                        acquired.PackageName,
+                        out NuspecProbeStatus previous)
+                        ? RidPackageVerifier.CombineEvidence(previous, status)
+                        : status;
             }
         }
 
         foreach (RidPackageReference package in result.RuntimeIdentifierPackages)
         {
-            if (presentPackageIds.Contains(package.PackageId))
+            if (acquiredEvidence.TryGetValue(
+                    package.PackageId,
+                    out NuspecProbeStatus status)
+                && status == NuspecProbeStatus.Present)
+            {
                 package.Exists = true;
+            }
         }
+
+        return acquiredEvidence;
     }
 
     private static bool VersionsEqual(string? left, string? right)

@@ -20,6 +20,23 @@ public static class RidPackageVerifier
         string? localDir,
         VerboseLogger logger,
         NuGetSourceOptions? sourceOptions = null)
+        => await VerifyAsync(
+            client,
+            result,
+            version,
+            localDir,
+            logger,
+            sourceOptions,
+            acquiredEvidence: null).ConfigureAwait(false);
+
+    internal static async Task VerifyAsync(
+        HttpClient client,
+        InspectionResult result,
+        string version,
+        string? localDir,
+        VerboseLogger logger,
+        NuGetSourceOptions? sourceOptions,
+        IReadOnlyDictionary<string, NuspecProbeStatus>? acquiredEvidence)
     {
         if (result.RuntimeIdentifierPackages == null)
             return;
@@ -104,7 +121,12 @@ public static class RidPackageVerifier
                         sourceOptions).ConfigureAwait(false);
                 }
 
-                status = probe.Status;
+                status = acquiredEvidence is not null
+                    && acquiredEvidence.TryGetValue(
+                        ridPkg.PackageId,
+                        out NuspecProbeStatus acquiredStatus)
+                        ? CombineEvidence(acquiredStatus, probe.Status)
+                        : probe.Status;
                 observed.Add(ridPkg.PackageId, status);
             }
 
@@ -247,4 +269,20 @@ public static class RidPackageVerifier
             NuspecProbeStatus.Absent => false,
             _ => null
         };
+
+    internal static NuspecProbeStatus CombineEvidence(
+        NuspecProbeStatus left,
+        NuspecProbeStatus right)
+    {
+        if (left == NuspecProbeStatus.Present
+            || right == NuspecProbeStatus.Present)
+        {
+            return NuspecProbeStatus.Present;
+        }
+
+        return left == NuspecProbeStatus.Indeterminate
+            || right == NuspecProbeStatus.Indeterminate
+                ? NuspecProbeStatus.Indeterminate
+                : NuspecProbeStatus.Absent;
+    }
 }

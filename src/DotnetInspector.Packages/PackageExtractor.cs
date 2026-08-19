@@ -1011,7 +1011,10 @@ public static class PackageExtractor
         try
         {
             FileAttributes attributes = File.GetAttributes(packagePath);
-            if ((attributes & FileAttributes.Directory) != 0)
+            if ((attributes
+                    & (FileAttributes.Directory
+                        | FileAttributes.ReparsePoint))
+                != 0)
             {
                 return IndeterminateLocalProbe(
                     log,

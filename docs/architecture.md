@@ -316,6 +316,8 @@ admission before its strict UTF-8 nuspec can prove presence; an existing but emp
 corrupt, unreadable, or mismatched sibling remains `unknown`. An acquired redirect hop likewise proves its
 mapped package present only when verification was requested and its extracted root nuspec has one
 consistently namespaced metadata, id, and version element that matches the acquired coordinate.
+Indeterminate acquired evidence remains `unknown` when every other applicable probe is absent;
+any coordinate-matching present probe still wins.
 Wrapper metadata uses the same bounded extracted-nuspec path. Bare effective discovery requests
 every discoverable section, so it performs the same Manifest verification as targeted discovery;
 an explicit section selection constrains both discovery output and its producers.

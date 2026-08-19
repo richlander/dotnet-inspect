@@ -679,6 +679,74 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
             Assert.Single(result.RuntimeIdentifierPackages).Exists);
     }
 
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(true, true)]
+    public async Task AcquiredIndeterminateEvidenceCombinesWithRemoteProbe(
+        bool remotePresent,
+        bool? expectedAvailability)
+    {
+        const string source = "https://feed.example/v3/index.json";
+        using var client = new HttpClient(new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "resources": [
+                        {
+                          "@type": "PackageBaseAddress/3.0.0",
+                          "@id": "https://feed.example/flat/"
+                        }
+                      ]
+                    }
+                    """),
+                "/flat/wrapper.package.any/1.0.0/wrapper.package.any.nuspec"
+                    when remotePresent => Xml("""
+                        <package>
+                          <metadata>
+                            <id>Wrapper.Package.any</id>
+                            <version>1.0.0</version>
+                          </metadata>
+                        </package>
+                        """),
+                _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+            }));
+        var result = new InspectionResult
+        {
+            RuntimeIdentifierPackages =
+            [
+                new RidPackageReference
+                {
+                    RuntimeIdentifier = "any",
+                    PackageId = "Wrapper.Package.any",
+                },
+            ],
+        };
+        var resolution = new PackageExtractionResult(
+            _root,
+            TempDir: null,
+            PackageName: "Wrapper.Package.any",
+            Version: "1.0.0");
+
+        IReadOnlyDictionary<string, NuspecProbeStatus> acquiredEvidence =
+            await PackageInspector.MarkAcquiredRidPackagesAsync(
+                result,
+                resolution,
+                wrapperVersion: "1.0.0");
+        await RidPackageVerifier.VerifyAsync(
+            client,
+            result,
+            "1.0.0",
+            localDir: null,
+            new VerboseLogger(enabled: false),
+            new NuGetSourceOptions { Sources = [source] },
+            acquiredEvidence);
+
+        Assert.Equal(
+            expectedAvailability,
+            Assert.Single(result.RuntimeIdentifierPackages).Exists);
+    }
+
     [Fact]
     public async Task InspectAsync_IdentifierAuditMetadataIncludesAlternatePackageId()
     {

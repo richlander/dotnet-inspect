@@ -534,6 +534,49 @@ public class RidPackageVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_SymlinkToFifoSiblingDoesNotBlockAndIsUnknown()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"rid-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string fifoPath = Path.Combine(directory, "package.pipe");
+        string packagePath = Path.Combine(
+            directory,
+            "TestPackage.linux-x64.1.0.0.nupkg");
+        try
+        {
+            await CreateFifoAsync(fifoPath);
+            File.CreateSymbolicLink(packagePath, fifoPath);
+            InspectionResult result = CreateResult();
+
+            await Task.Run(
+                    () => RidPackageVerifier.VerifyAsync(
+                        new HttpClient(),
+                        result,
+                        "1.0.0",
+                        directory,
+                        new VerboseLogger(enabled: false)),
+                    TestContext.Current.CancellationToken)
+                .WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+            Assert.Null(
+                Assert.Single(result.RuntimeIdentifierPackages!).Exists);
+        }
+        finally
+        {
+            File.Delete(packagePath);
+            File.Delete(fifoPath);
+            Directory.Delete(directory);
+        }
+    }
+
+    [Fact]
     public async Task VerifyAsync_MissingLocalSiblingSetsAvailabilityFalse()
     {
         string directory = Path.Combine(
