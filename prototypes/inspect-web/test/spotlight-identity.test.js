@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
+  authoredSourceLimitationHtml,
   beginSourceRequestState,
   cancelSourceRequestState,
   callGraphAssemblyIdentityMatches,
@@ -464,6 +465,24 @@ test("type source identity includes decompiler taste", () => {
     ?? "";
   assert.match(typeSignature, /memberRequestKey\(/);
   assert.match(typeSignature, /taste/);
+});
+
+test("decompiled source discloses the authored-source limitation", () => {
+  const html = authoredSourceLimitationHtml({
+    authoredLimitation: "<img src=x onerror=alert(1)>"
+  });
+  assert.match(html, /Original source unavailable:/);
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /&lt;img/);
+  assert.match(
+    appSource,
+    /authoredSourceLimitationHtml\(state\.memberSource\)/);
+  assert.match(
+    typePanelSource,
+    /authoredSourceLimitationHtml\(typeSource\)/);
+  assert.match(
+    appSource,
+    /authoredSourceLimitationHtml\(state\.graphSource\)/);
 });
 
 test("source operations cancel when superseded or hidden", () => {

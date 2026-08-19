@@ -73,6 +73,7 @@ export interface TypeSourceResult {
   provider: string;
   provenance: string;
   url?: string;
+  authoredLimitation?: string | null;
   text: string;
 }
 
@@ -402,10 +403,11 @@ export interface RenderTypeSourceOptions {
   sourceState: TypeSourceStateSlice;
   escapeHtml: EscapeHtml;
   highlightCSharp: (value: string) => string;
+  authoredSourceLimitationHtml: (source: TypeSourceResult) => string;
 }
 
 export function renderTypeSource(options: RenderTypeSourceOptions): string {
-  const { currentSignature, sourceState, escapeHtml, highlightCSharp } = options;
+  const { currentSignature, sourceState, escapeHtml, highlightCSharp, authoredSourceLimitationHtml } = options;
   const fresh = sourceState.typeSourceKey === currentSignature;
   if (sourceState.typeSourceLoading && fresh) {
     return `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving type source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`;
@@ -413,7 +415,7 @@ export function renderTypeSource(options: RenderTypeSourceOptions): string {
   if (fresh && sourceState.typeSource) {
     const typeSource = sourceState.typeSource;
     return `<section class="document-section source-result">
-        <div class="source-provenance"><strong>${typeSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(typeSource.provenance)}</span>${typeSource.url ? `<a href="${escapeHtml(typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-type-source" type="button">copy</button></div>
+        <div class="source-provenance"><strong>${typeSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(typeSource.provenance)}</span>${typeSource.url ? `<a href="${escapeHtml(typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(typeSource)}<button id="copy-type-source" type="button">copy</button></div>
         <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(typeSource.text)}</code></pre>
       </section>`;
   }

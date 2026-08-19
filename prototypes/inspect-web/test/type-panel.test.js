@@ -265,12 +265,33 @@ test("type source renders the provenance and copy action once loaded", () => {
     },
     escapeHtml,
     highlightCSharp,
+    authoredSourceLimitationHtml: () => "",
   });
 
   assert.match(html, /Original source/);
   assert.match(html, /SourceLink/);
   assert.match(html, /id="copy-type-source"/);
   assert.match(html, /open source ↗/);
+});
+
+test("type source discloses an authored-source limitation for decompiled output", () => {
+  const html = renderTypeSource({
+    item: jsonSerializer,
+    currentSignature: "sig",
+    sourceState: {
+      typeSourceKey: "sig",
+      typeSourceLoading: false,
+      typeSource: { provider: "decompiled", provenance: "dotnet-inspect decompilation", authoredLimitation: "checksum mismatch", text: "class JsonSerializer {}" },
+      typeSourceError: null,
+    },
+    escapeHtml,
+    highlightCSharp,
+    authoredSourceLimitationHtml: source => source.authoredLimitation
+      ? `<span class="graph-source-status">Original source unavailable: ${escapeHtml(source.authoredLimitation)}</span>`
+      : "",
+  });
+
+  assert.match(html, /Original source unavailable: checksum mismatch/);
 });
 
 test("type source reports a failure without a stale result", () => {
@@ -285,6 +306,7 @@ test("type source reports a failure without a stale result", () => {
     },
     escapeHtml,
     highlightCSharp,
+    authoredSourceLimitationHtml: () => "",
   });
 
   assert.match(html, /Type source failed/);
