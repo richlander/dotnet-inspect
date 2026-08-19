@@ -1071,7 +1071,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
         var parts = new List<string>();
         foreach (var segment in Name.Split('+'))
         {
-            string name = StripArity(segment);
+            string name = CSharpNaming.TypeNameSegment(segment);
             int arity = ArityOf(segment);
             if (arity > 0)
                 name = $"{name}<{new string(',', arity - 1)}>";
