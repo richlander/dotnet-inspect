@@ -90,7 +90,7 @@ test("the package bar wraps the tab strip and open-package form", () => {
   assert.match(html, /id="package-query-input"/);
 });
 
-test("parsing the open-package query accepts an id, an id@version, and rejects a bare version", () => {
+test("parsing the open-package query accepts an id and an id@version, and rejects an empty query or an empty version", () => {
   assert.deepEqual(parsePackageQuery("System.Text.Json"), {
     packageId: "System.Text.Json",
     version: "latest",
@@ -102,4 +102,13 @@ test("parsing the open-package query accepts an id, an id@version, and rejects a
   assert.equal(parsePackageQuery(""), null);
   assert.equal(parsePackageQuery("   "), null);
   assert.equal(parsePackageQuery("System.Text.Json@"), null);
+});
+
+// A leading "@" (no package id) is not a rejection case: it is an existing quirk of the
+// inline handler this module replaces, preserved deliberately rather than special-cased.
+test("a leading '@' has no package id to reject, so it is preserved as the whole package id", () => {
+  assert.deepEqual(parsePackageQuery("@1.0.0"), {
+    packageId: "@1.0.0",
+    version: "latest",
+  });
 });

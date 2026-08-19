@@ -106,9 +106,11 @@ export function packageBarHtml(
         </form>`;
 }
 
-// A bare "@version" (or "package@" with nothing after it) is not a usable query: there is
-// no package id, or the version half is empty. Both are rejected the same way the inline
-// handler always has, so the toast prompt is unchanged.
+// Only an empty query or "package@" with nothing after the "@" is rejected, matching the
+// inline handler's original bounds exactly. A leading "@" (no package id, e.g. "@1.0.0")
+// is preserved as-is rather than treated specially: separator > 0 is false, so the whole
+// trimmed string — "@" included — becomes the package id, same as the handler this
+// replaces. That is an existing quirk of the original code, not a rejection case.
 export function parsePackageQuery(value: string): ParsedPackageQuery | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -144,7 +146,7 @@ export function createPackageBar(options: PackageBarOptions) {
         if (target) selectPackageTab(target);
       };
       tab.addEventListener("click", event => {
-        if ((event.target as HTMLElement).closest("[data-package-close]")) return;
+        if ((event.target as Element | null)?.closest("[data-package-close]")) return;
         activate();
       });
       tab.addEventListener("keydown", event => {
