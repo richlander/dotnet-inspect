@@ -681,7 +681,11 @@ const spotlight = createSpotlight({
 });
 
 function focusTypeList() {
-  requestAnimationFrame(() => document.querySelector("#type-list")?.focus());
+  if (state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen) return;
+  requestAnimationFrame(() => {
+    if (state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen) return;
+    document.querySelector("#type-list")?.focus();
+  });
 }
 
 function openSpotlight(seed = "", scope = "all") {
@@ -4689,7 +4693,11 @@ function scheduleSpotlightPackageFetch() {
     state.spotlightPkgLoading = false;
     return;
   }
-  if (query === state.spotlightPkgQuery) return;
+  if (query === state.spotlightPkgQuery) {
+    spotlightPkgGeneration++;
+    state.spotlightPkgLoading = false;
+    return;
+  }
   const generation = ++spotlightPkgGeneration;
   state.spotlightPkgLoading = true;
   spotlightPkgTimer = setTimeout(() => {
@@ -5012,8 +5020,9 @@ async function openPlatformLibrary(assembly, pack, options = {}) {
   state.selectedTypeId = scoped[0]?.id || pkg.types[0]?.id || "";
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
+  const selectionData = loadSelectionData();
   render();
-  loadSelectionData();
+  await selectionData;
   focusTypeList();
 }
 
@@ -5054,7 +5063,7 @@ async function pickSpotlightMember(result) {
   focusTypeList();
 }
 
-function pickSpotlight(packageResult, typeId) {
+async function pickSpotlight(packageResult, typeId) {
   const pkg = state.packages.find(item => packageIdentityEquals(item, packageResult));
   const type = pkg?.types?.find(item => item.id === typeId);
   if (!type) {
@@ -5082,11 +5091,13 @@ function pickSpotlight(packageResult, typeId) {
   state.kindFilter = "";
   spotlight.reset();
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
+  const selectionData = loadSelectionData();
   render();
+  await selectionData;
   requestAnimationFrame(() => {
     document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
-    document.querySelector("#type-list")?.focus();
   });
+  focusTypeList();
 }
 
 function executeCommand(value) {
@@ -5099,10 +5110,14 @@ function executeCommand(value) {
     if (match) {
       state.selectedTypeId = match.id;
       state.selectedMemberKey = "";
+      operation = loadSelectionData();
     }
   } else if (verb === "show") {
     const match = lenses.find(([id, label]) => id === argument.toLowerCase() || label.toLowerCase() === argument.toLowerCase());
-    if (match) state.lens = match[0];
+    if (match) {
+      state.lens = match[0];
+      operation = loadSelectionData();
+    }
   } else if (verb === "framework" && state.package.frameworks.includes(argument)) {
     operation = switchPackageFramework(argument);
   } else if (verb === "package") {
@@ -5217,22 +5232,20 @@ function applyDeepLink(deep) {
 function loadSelectionData() {
   if (state.atPackageRoot) return;
   if (state.lens === "source") {
-    loadSelectedTypeSource();
-    return;
+    return loadSelectedTypeSource();
   }
   if (state.lens === "metadata") {
-    loadSelectedTypeMetadata();
-    return;
+    return loadSelectedTypeMetadata();
   }
   if (state.lens !== "api" || !state.selectedMemberKey) return;
   const member = selectedMember(selectedType());
   if (!member) return;
   if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return;
-  if (state.memberSection === "source") loadSelectedMemberSource();
-  else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
-  else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
-  else if (state.memberSection === "facts") loadSelectedMemberFacts();
-  else loadSelectedMemberDocumentation();
+  if (state.memberSection === "source") return loadSelectedMemberSource();
+  if (state.memberSection === "annotated") return loadSelectedMemberAnnotatedSource();
+  if (state.memberSection === "call-graph") return loadSelectedMemberCallGraph();
+  if (state.memberSection === "facts") return loadSelectedMemberFacts();
+  return loadSelectedMemberDocumentation();
 }
 
 async function share() {
@@ -7217,8 +7230,9 @@ async function loadPackage(packageId, version, framework, options = {}) {
       state.memberSection = "overview";
     }
     state.loading = false;
+    const selectionData = loadSelectionData();
     render();
-    loadSelectionData();
+    await selectionData;
     return packageModel;
   } catch (error) {
     if (navigationSeq != null && navigationSeq !== state.navigationSeq) return null;
@@ -7824,17 +7838,42 @@ document.addEventListener("keydown", event => {
   // The home page has its own scoped input handling (search box); global workbench
   // shortcuts assume a loaded package, so stay out of the way here.
   if (state.home) return;
-  if (state.spotlightOpen) return;
+  if (state.graphSourceOpen) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeGraphSource();
+    } else if ((event.metaKey || event.ctrlKey)
+        && ["f", "k", "p"].includes(event.key.toLowerCase())) {
+      event.preventDefault();
+    }
+    return;
+  }
+  if (state.docViewerOpen) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDocViewer();
+    } else if ((event.metaKey || event.ctrlKey)
+        && ["f", "k", "p"].includes(event.key.toLowerCase())) {
+      event.preventDefault();
+    }
+    return;
+  }
+  if (state.spotlightOpen) {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      openSpotlight("", "commands");
+    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
+      event.preventDefault();
+      openSpotlight();
+    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+      event.preventDefault();
+    }
+    return;
+  }
   if (event.key === "Escape" && state.tasteOpen) {
     event.preventDefault();
     state.tasteOpen = false;
     render();
-  } else if (event.key === "Escape" && state.graphSourceOpen) {
-    event.preventDefault();
-    closeGraphSource();
-  } else if (event.key === "Escape" && state.docViewerOpen) {
-    event.preventDefault();
-    closeDocViewer();
   } else if (event.key === "Escape" && !event.defaultPrevented && !typing
       && (navMode() === "member" || !state.atPackageRoot)) {
     event.preventDefault();

@@ -173,6 +173,9 @@ test("leaving package search clears its pending loading state", () => {
   assert.match(
     appSource,
     /event\.key === "Escape" && !event\.defaultPrevented && !typing/);
+  assert.match(
+    scheduler,
+    /query === state\.spotlightPkgQuery[\s\S]*spotlightPkgGeneration\+\+;[\s\S]*state\.spotlightPkgLoading = false;[\s\S]*return;/);
 });
 
 test("Spotlight async work is generation-gated and refreshes either mounted surface", () => {
@@ -185,10 +188,36 @@ test("Spotlight async work is generation-gated and refreshes either mounted surf
     /if \(!state\.spotlightOpen && !state\.home\) return;[\s\S]*spotlight\.refresh\(\)/);
 });
 
-test("global workbench shortcuts stay behind the Spotlight modal", () => {
+test("global workbench shortcuts respect the topmost modal", () => {
   assert.match(
     appSource,
-    /if \(state\.home\) return;\s*if \(state\.spotlightOpen\) return;/);
+    /if \(state\.home\) return;[\s\S]*if \(state\.graphSourceOpen\)[\s\S]*if \(state\.docViewerOpen\)[\s\S]*if \(state\.spotlightOpen\)/);
+  assert.match(
+    appSource,
+    /state\.spotlightOpen[\s\S]*event\.key\.toLowerCase\(\) === "k"[\s\S]*event\.preventDefault\(\);[\s\S]*openSpotlight\("", "commands"\)/);
+  assert.match(
+    appSource,
+    /state\.spotlightOpen[\s\S]*event\.key\.toLowerCase\(\) === "p"[\s\S]*event\.preventDefault\(\);[\s\S]*openSpotlight\(\)/);
+  assert.match(
+    appSource,
+    /state\.spotlightOpen[\s\S]*event\.key\.toLowerCase\(\) === "f"[\s\S]*event\.preventDefault\(\)/);
+});
+
+test("Spotlight navigation waits for selection data before restoring focus", () => {
+  const selectionLoader =
+    appSource.match(/function loadSelectionData\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(selectionLoader, /return loadSelectedTypeSource\(\)/);
+  assert.match(selectionLoader, /return loadSelectedTypeMetadata\(\)/);
+  assert.match(
+    appSource,
+    /async function loadPackageFromSpotlight[\s\S]*await loadPackage\([\s\S]*focusTypeList\(\)/);
+  assert.match(
+    appSource,
+    /async function openPlatformLibrary[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(\)/);
+  assert.match(
+    appSource,
+    /async function pickSpotlight\(packageResult, typeId\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(\)/);
 });
 
 test("dependency graph render identity includes truncation and navigation", () => {
