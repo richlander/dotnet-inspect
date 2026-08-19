@@ -89,13 +89,15 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
         IReadOnlyList<CatalogGroupDefinition>? groups = null)
         : base(schemaVersion, id)
     {
-        if (contexts is null || contexts.Count == 0)
+        ArgumentNullException.ThrowIfNull(contexts);
+        if (contexts.Count == 0)
             throw new ArgumentException("A workspace definition requires at least one context.", nameof(contexts));
 
+        // Freeze first, then validate the retained snapshot so uniqueness cannot disagree with storage.
+        var frozenContexts = DefinitionCollections.Freeze(contexts);
         var contextNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var context in contexts)
+        foreach (var context in frozenContexts)
         {
-            ArgumentNullException.ThrowIfNull(context);
             if (!contextNames.Add(context.Name))
             {
                 throw new ArgumentException(
@@ -106,7 +108,7 @@ public sealed record WorkspaceDefinition : InspectionDefinitionRecord
 
         Title = title;
         Description = description;
-        Contexts = DefinitionCollections.Freeze(contexts);
+        Contexts = frozenContexts;
         Groups = DefinitionCollections.Freeze(groups);
     }
 

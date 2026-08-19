@@ -659,6 +659,21 @@ public class InspectionDefinitionTests
             new WorkspaceDefinition(1, "ws", [context]));
     }
 
+    [Fact]
+    public void WorkspaceDefinition_ValidatesUniquenessOnFrozenContexts()
+    {
+        var a = new WorkspaceContextDefinition(
+            "a",
+            members: [new DefinitionMemberCoordinate.PackageCoordinate("P", "1.0.0", "net10.0")]);
+        var b = new WorkspaceContextDefinition(
+            "b",
+            members: [new DefinitionMemberCoordinate.PackageCoordinate("Q", "1.0.0", "net10.0")]);
+        // Enumerator yields unique names; indexer exposes a duplicate of a.
+        var lying = new DualViewContextList(enumerate: [a, b], index: [a, a]);
+        var ex = Assert.Throws<ArgumentException>(() => new WorkspaceDefinition(1, "ws", lying));
+        Assert.Contains("Duplicate", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class IndexerOnlyMemberList : IReadOnlyList<DefinitionMemberCoordinate>
     {
         private readonly DefinitionMemberCoordinate _item;
@@ -674,6 +689,30 @@ public class InspectionDefinitionTests
         {
             yield return null!;
         }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
+    }
+
+    private sealed class DualViewContextList : IReadOnlyList<WorkspaceContextDefinition>
+    {
+        private readonly WorkspaceContextDefinition[] _enumerate;
+        private readonly WorkspaceContextDefinition[] _index;
+
+        public DualViewContextList(
+            WorkspaceContextDefinition[] enumerate,
+            WorkspaceContextDefinition[] index)
+        {
+            _enumerate = enumerate;
+            _index = index;
+        }
+
+        public int Count => _index.Length;
+
+        public WorkspaceContextDefinition this[int index] => _index[index];
+
+        public IEnumerator<WorkspaceContextDefinition> GetEnumerator() =>
+            ((IEnumerable<WorkspaceContextDefinition>)_enumerate).GetEnumerator();
 
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
             GetEnumerator();
