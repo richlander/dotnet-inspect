@@ -1006,10 +1006,15 @@ static bool TryCorrelateNetTrace(
 
             bool ambiguousIlJoin = matchedCandidates.Length > 1;
             var methodsRecorded = new HashSet<string>(StringComparer.Ordinal);
+            var attributedBytes =
+                lookup.AttributeBytes(
+                    matchedCandidates,
+                    data.AllocationAmount64);
             for (int i = 0; i < matchedCandidates.Length; i++)
             {
                 var candidate = matchedCandidates[i];
-                long candidateBytes = ProgramSupport.AttributedBytesForTest(data.AllocationAmount64, matchedCandidates.Length, i);
+                long candidateBytes =
+                    attributedBytes[candidate.Id];
 
                 if (methodsRecorded.Add(candidate.Method))
                     result.RecordMethodAllocation(candidate.Method, data.TypeName, data.AllocationAmount64);
@@ -3170,38 +3175,74 @@ sealed class CandidateLookup
             IReadOnlyList<AllocationCandidate> candidates,
             long totalBytes)
     {
-        var ordered = candidates
-            .OrderBy(GetStableAttributionKey,
+        var groups = candidates
+            .GroupBy(GetStableAttributionKey)
+            .OrderBy(static group =>
+                group.Key,
                 StringComparer.Ordinal)
-            .ThenBy(static candidate =>
-                candidate.Id)
+            .Select(static group => (
+                Key: group.Key,
+                Candidates: group
+                    .OrderBy(static candidate =>
+                        candidate.Id)
+                    .ToArray()))
             .ToArray();
         var result =
-            ordered.ToDictionary(
+            candidates.ToDictionary(
                 static candidate =>
                     candidate.Id,
                 static _ => 0L);
-        if (ordered.Length == 0)
+        if (groups.Length == 0)
             return result;
 
-        long baseBytes =
-            totalBytes / ordered.Length;
-        int remainder = checked((int)(
-            totalBytes % ordered.Length));
-        for (int index = 0;
-             index < ordered.Length;
-             index++)
-        {
-            result[ordered[index].Id] =
-                baseBytes;
-        }
-
-        if (remainder == 0)
-            return result;
-
-        var groupHash =
+        long[] groupShares = SplitBytes(
+            totalBytes,
+            groups.Length,
             ComputeAttributionGroupHash(
-                ordered);
+                groups.Select(static group =>
+                    group.Key),
+                domain: 'G'));
+        for (int groupIndex = 0;
+             groupIndex < groups.Length;
+             groupIndex++)
+        {
+            var group = groups[groupIndex];
+            long[] candidateShares = SplitBytes(
+                groupShares[groupIndex],
+                group.Candidates.Length,
+                ComputeAttributionGroupHash(
+                    [
+                        group.Key,
+                        group.Candidates.Length
+                            .ToString(
+                                CultureInfo
+                                    .InvariantCulture)
+                    ],
+                    domain: 'D'));
+            for (int candidateIndex = 0;
+                 candidateIndex
+                    < group.Candidates.Length;
+                 candidateIndex++)
+            {
+                result[group.Candidates[
+                    candidateIndex].Id] =
+                    candidateShares[candidateIndex];
+            }
+        }
+        return result;
+    }
+
+    long[] SplitBytes(
+        long totalBytes,
+        int count,
+        AttributionGroupHash groupHash)
+    {
+        var result = new long[count];
+        long baseBytes = totalBytes / count;
+        int remainder = checked((int)(
+            totalBytes % count));
+        Array.Fill(result, baseBytes);
+
         int start = 0;
         if (_byteRemainderStates.TryGetValue(
                 groupHash,
@@ -3211,18 +3252,21 @@ sealed class CandidateLookup
             _byteRemainderLru.Remove(node);
             _byteRemainderLru.AddLast(node);
         }
+        if (remainder == 0)
+            return result;
+
         for (int index = 0;
              index < remainder;
              index++)
         {
             int recipient =
                 (start + index)
-                % ordered.Length;
-            result[ordered[recipient].Id]++;
+                % count;
+            result[recipient]++;
         }
         int nextOffset =
             (start + remainder)
-            % ordered.Length;
+            % count;
         if (node is not null)
         {
             node.Value = new ByteRemainderState(
@@ -3425,6 +3469,14 @@ sealed class CandidateLookup
             EncodeAttributionPart(
                 candidate.AllocationKind),
             EncodeAttributionPart(
+                candidate.Operation ?? ""),
+            EncodeAttributionPart(
+                candidate.OperandToken
+                    ?.ToString(
+                        "X8",
+                        CultureInfo.InvariantCulture)
+                ?? ""),
+            EncodeAttributionPart(
                 candidate.PredictedType ?? ""),
             EncodeAttributionPart(
                 candidate.CandidateId ?? ""),
@@ -3438,9 +3490,10 @@ sealed class CandidateLookup
             ":",
             value);
 
-    AttributionGroupHash
+    static AttributionGroupHash
         ComputeAttributionGroupHash(
-        IReadOnlyList<AllocationCandidate> candidates)
+            IEnumerable<string> keys,
+            char domain)
     {
         const ulong firstOffset =
             14695981039346656037UL;
@@ -3450,12 +3503,10 @@ sealed class CandidateLookup
             1099511628211UL;
         const ulong secondPrime =
             14029467366897019727UL;
-        ulong first = firstOffset;
-        ulong second = secondOffset;
-        foreach (var candidate in candidates)
+        ulong first = firstOffset ^ domain;
+        ulong second = secondOffset ^ domain;
+        foreach (string key in keys)
         {
-            string key =
-                GetStableAttributionKey(candidate);
             foreach (char character in key)
             {
                 first ^= character;
@@ -3776,16 +3827,6 @@ internal static class ProgramSupport
         }
     }
 
-    public static long AttributedBytesForTest(long totalBytes, int candidateCount, int candidateIndex)
-    {
-        if (candidateCount <= 0)
-            return 0;
-
-        long attributedBytes = totalBytes / candidateCount;
-        long remainderBytes = totalBytes % candidateCount;
-        return attributedBytes + (candidateIndex < remainderBytes ? 1 : 0);
-    }
-
     // Backstop the site-join with type-level confirmation (issue #2264). When a small allocating
     // method is inlined, its GCAllocationTick leaf frame belongs to the inliner, so the IL-offset
     // site-join misses it — but the allocated type is still realized-hot. For each unobserved
@@ -3848,6 +3889,13 @@ internal static class ProgramSupport
             {
                 AddObservedType(
                     projectedLibrary.PredictedType);
+            }
+            foreach (string observedType
+                     in candidate
+                         .ObservedAllocatedTypes.Keys)
+            {
+                AddObservedRuntimeType(
+                    observedType);
             }
         }
 
@@ -3934,6 +3982,15 @@ internal static class ProgramSupport
 
             var canon = CanonicalTypeSignature(
                 NormalizeProducerTypeName(type));
+            if (canon.Length != 0)
+                observedCanons.Add(canon);
+        }
+
+        void AddObservedRuntimeType(string type)
+        {
+            var canon = CanonicalTypeSignature(
+                type,
+                reflection: true);
             if (canon.Length != 0)
                 observedCanons.Add(canon);
         }

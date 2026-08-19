@@ -588,6 +588,106 @@ public class CandidateLookupTests
     }
 
     [Fact]
+    public void AttributeBytes_IncludesOperationAndOperandToken()
+    {
+        var first = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            operation: "newobj",
+            operandToken: 0x0A000001);
+        var second = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            operation: "box",
+            operandToken: 0x01000002);
+        var lookup = CandidateLookup.Create(
+            [first, second]);
+        var attributed = lookup.AttributeBytes(
+            [first, second],
+            1);
+
+        var reversedFirst = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            operation: "newobj",
+            operandToken: 0x0A000001);
+        var reversedSecond = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            operation: "box",
+            operandToken: 0x01000002);
+        var reversedLookup = CandidateLookup.Create(
+            [reversedSecond, reversedFirst]);
+        var reversed = reversedLookup.AttributeBytes(
+            [reversedFirst, reversedSecond],
+            1);
+
+        Assert.Equal(
+            attributed[first.Id],
+            reversed[reversedFirst.Id]);
+        Assert.Equal(
+            attributed[second.Id],
+            reversed[reversedSecond.Id]);
+    }
+
+    [Fact]
+    public void AttributeBytes_DivisibleAccessRefreshesRemainderState()
+    {
+        var first = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            kind: "TargetA");
+        var second = Candidate(
+            id: 2,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            kind: "TargetB");
+        var lookup = CandidateLookup.Create(
+            [first, second]);
+        var initial = lookup.AttributeBytes(
+            [first, second],
+            1);
+
+        for (int index = 0; index < 4096; index++)
+        {
+            var otherFirst = Candidate(
+                id: 10_000 + index * 2,
+                methodToken:
+                    0x06001000 + index,
+                ilOffset: 0x0010,
+                kind: $"Other{index}A");
+            var otherSecond = Candidate(
+                id: 10_001 + index * 2,
+                methodToken:
+                    0x06001000 + index,
+                ilOffset: 0x0010,
+                kind: $"Other{index}B");
+            lookup.AttributeBytes(
+                [otherFirst, otherSecond],
+                1);
+            lookup.AttributeBytes(
+                [first, second],
+                2);
+        }
+
+        var afterChurn = lookup.AttributeBytes(
+            [first, second],
+            1);
+
+        Assert.NotEqual(
+            initial[first.Id],
+            afterChurn[first.Id]);
+        Assert.NotEqual(
+            initial[second.Id],
+            afterChurn[second.Id]);
+    }
+
+    [Fact]
     public void WhitespaceAssemblyHasNoRuntimeCoordinate()
     {
         var candidate = Candidate(
@@ -612,11 +712,8 @@ public class CandidateLookupTests
         var second = Candidate(id: 2, methodToken: 0x06000006, ilOffset: 0x0010, kind: "Delegate");
         var matched = new HashSet<int>();
 
-        long firstBytes = ProgramSupport.AttributedBytesForTest(101, candidateCount: 2, candidateIndex: 0);
-        long secondBytes = ProgramSupport.AttributedBytesForTest(101, candidateCount: 2, candidateIndex: 1);
-
-        ProgramSupport.MarkAllocationHitForTest(first, matched, "trace", "Fixture.Allocated", firstBytes, ilOffsetJoin: true, exactOffset: false, ambiguousIlJoin: true);
-        ProgramSupport.MarkAllocationHitForTest(second, matched, "trace", "Fixture.Allocated", secondBytes, ilOffsetJoin: true, exactOffset: false, ambiguousIlJoin: true);
+        ProgramSupport.MarkAllocationHitForTest(first, matched, "trace", "Fixture.Allocated", 51, ilOffsetJoin: true, exactOffset: false, ambiguousIlJoin: true);
+        ProgramSupport.MarkAllocationHitForTest(second, matched, "trace", "Fixture.Allocated", 50, ilOffsetJoin: true, exactOffset: false, ambiguousIlJoin: true);
 
         Assert.Equal(101, first.AllocationBytes + second.AllocationBytes);
         Assert.Equal(51, first.AllocationBytes);
@@ -635,7 +732,9 @@ public class CandidateLookupTests
         string assemblyName = "Fixture",
         Guid? moduleVersionId = null,
         int? evidenceMethodToken = null,
-        string source = "library")
+        string source = "library",
+        string? operation = null,
+        int? operandToken = null)
     {
         string methodKey = method[..method.IndexOf('(')];
         int lastDot = methodKey.LastIndexOf('.');
@@ -666,6 +765,8 @@ public class CandidateLookupTests
             null,
             null,
             "Capture",
+            operation: operation,
+            operandToken: operandToken,
             evidenceMethodToken: evidenceMethodToken);
     }
 }

@@ -2409,7 +2409,7 @@ public class E2EFixtureTests
             File.WriteAllText(
                 triagePath,
                 $$$"""
-                {"performance":{"arrays":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","module_version_id":"99999999-9999-9999-9999-999999999999","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","shape":"fixture-object","operation":"newobj","token":"0x0A000001","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object","provenance":"exact"}]}}
+                {"performance":{"arrays":[{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","module_version_id":"99999999-9999-9999-9999-999999999999","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","shape":"fixture-object","operation":"newobj","token":"0x0A000001","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object","provenance":"exact"},{"member":"RunFaster.AllocationFixture.Program.AllocateOne()","assembly":"RunFaster.AllocationFixture","module_version_id":"88888888-8888-8888-8888-888888888888","method_token":"0x{{{allocateOne.MetadataToken:X8}}}","shape":"fixture-object","operation":"newobj","token":"0x0A000002","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object","provenance":"exact"}]}}
                 """);
 
             var result = RunCorrelate(
@@ -2435,7 +2435,7 @@ public class E2EFixtureTests
                         ".AllocateOne()",
                         StringComparison.Ordinal))
                 .ToArray();
-            Assert.Equal(2, sameMethod.Length);
+            Assert.Equal(3, sameMethod.Length);
             Assert.All(
                 sameMethod,
                 candidate =>
@@ -2450,6 +2450,15 @@ public class E2EFixtureTests
                         candidate.GetProperty(
                             "allocationBytes").GetInt64() > 0);
                 });
+            var attributedBytes = sameMethod
+                .Select(candidate =>
+                    candidate.GetProperty(
+                        "allocationBytes").GetInt64())
+                .ToArray();
+            Assert.True(
+                attributedBytes.Max()
+                    - attributedBytes.Min() <= 1,
+                $"Expected fair cumulative attribution: {string.Join(", ", attributedBytes)}");
         }
         finally
         {

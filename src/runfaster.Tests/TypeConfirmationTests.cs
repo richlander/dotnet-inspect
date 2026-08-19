@@ -319,6 +319,41 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_ObservedRuntimeTypeExplainsVolume()
+    {
+        var observed = CandidateWithType(
+            1,
+            "Fixture.Observed.M()",
+            "System.Object");
+        var cold = CandidateWithType(
+            2,
+            "Fixture.Cold.M()",
+            "System.String",
+            methodToken: 0x06000002);
+        var matched = new HashSet<int>();
+        ProgramSupport.MarkAllocationHitForTest(
+            observed,
+            matched,
+            "trace",
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+        var result = new CorrelationResult();
+        result.Candidates.Add(observed);
+        result.Candidates.Add(cold);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.True(observed.IsObserved);
+        Assert.False(cold.TypeConfirmed);
+        Assert.Equal(
+            "cold-for-this-workload",
+            cold.Status);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_CollapsesSharedEvidenceBody()
     {
         var first = CandidateWithType(
