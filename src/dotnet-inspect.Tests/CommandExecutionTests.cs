@@ -6912,13 +6912,16 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Note: The selected accessor has no IL body.", error);
         Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
-        Assert.DoesNotContain("Facts", output, StringComparison.OrdinalIgnoreCase);
         if (json)
         {
-            using var _ = JsonDocument.Parse(output);
+            using var document = JsonDocument.Parse(output);
+            JsonElement member = Assert.Single(
+                document.RootElement.GetProperty("members").EnumerateArray());
+            Assert.Equal("Count", member.GetProperty("name").GetString());
         }
         else
         {
+            Assert.DoesNotContain("Facts", output, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("## Signature", output, StringComparison.Ordinal);
         }
     }
@@ -6953,15 +6956,67 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Note: The selected accessor has no IL body.", error);
         Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
-        Assert.DoesNotContain("Facts", output, StringComparison.OrdinalIgnoreCase);
         if (json)
         {
-            using var _ = JsonDocument.Parse(output);
+            using var document = JsonDocument.Parse(output);
+            JsonElement member = Assert.Single(
+                document.RootElement.GetProperty("members").EnumerateArray());
+            Assert.Equal("Count", member.GetProperty("name").GetString());
         }
         else
         {
+            Assert.DoesNotContain("Facts", output, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("## Source Locations", output, StringComparison.Ordinal);
         }
+    }
+
+    [Theory]
+    [InlineData("Fidelity Causes", "no decompiler IR body")]
+    [InlineData("Cost Overlay", "DEC0001")]
+    [InlineData("Semantics Overlay", "DEC0001")]
+    [InlineData("Calls", "No calls to other methods found")]
+    [InlineData("Applied Taste", "No recorded style choices")]
+    public async Task Member_BodylessConcreteAccessor_PreservesSelectedAbsenceSection(
+        string section,
+        string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Environment",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "ExitCode:1",
+            "-S",
+            section,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(expected, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_BodylessConcreteAccessor_AnnotatedSourceDocumentPreservesDiagnostic()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Environment",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "ExitCode:1",
+            "-S",
+            "Annotated Source Document",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("DEC0001", error, StringComparison.Ordinal);
+        Assert.Contains("has no IL body", error, StringComparison.Ordinal);
     }
 
     [Theory]

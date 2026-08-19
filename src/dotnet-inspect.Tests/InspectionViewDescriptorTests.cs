@@ -508,6 +508,92 @@ public class InspectionViewDescriptorTests
                 .OrderBy(section => section, StringComparer.Ordinal));
     }
 
+    [Fact]
+    public void ConcreteBodylessAccessorKeepsAbsenceReportingSections()
+    {
+        var type = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    AccessorFacts =
+                    [
+                        new ApiAccessor
+                        {
+                            Kind = "get",
+                            HasMethodBody = false,
+                            IsAbstract = false,
+                        }
+                    ]
+                }
+            ]
+        };
+        HashSet<string> requested =
+        [
+            SectionNames.Facts,
+            SectionNames.IL,
+            SectionNames.FidelityCauses,
+            SectionNames.AnnotatedSourceDocument,
+            SectionNames.CostOverlay,
+            SectionNames.SemanticsOverlay,
+            SectionNames.Calls,
+            SectionNames.AppliedTaste,
+        ];
+
+        Assert.Equal(
+            [
+                SectionNames.AnnotatedSourceDocument,
+                SectionNames.AppliedTaste,
+                SectionNames.Calls,
+                SectionNames.CostOverlay,
+                SectionNames.FidelityCauses,
+                SectionNames.SemanticsOverlay,
+            ],
+            ApiOutputFormatter
+                .ResolveExecutionSections(type, requested, selectedOrdinal: 1)
+                .OrderBy(section => section, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void LegacyMixedAccessorsKeepUnknownAbstractAndBodyState()
+    {
+        var member = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            GetterToken = 0x06000001,
+            SetterToken = 0x06000002,
+            IsAbstract = true,
+        };
+        var type = new ApiType
+        {
+            Name = "Sample",
+            Kind = "class",
+            Members = [member],
+        };
+
+        ApiMember[] accessors = ApiOutputFormatter.AccessorMethods(member, type).ToArray();
+
+        Assert.Equal(2, accessors.Length);
+        Assert.All(accessors, accessor =>
+        {
+            Assert.False(accessor.IsAbstract);
+            Assert.Null(accessor.HasMethodBody);
+        });
+        Assert.Contains(
+            SectionNames.Facts,
+            ApiOutputFormatter.ResolveExecutionSections(
+                type,
+                new HashSet<string> { SectionNames.Facts },
+                selectedOrdinal: 1));
+    }
+
     private static ApiType BodylessMethodType(bool isAbstract) => new()
     {
         Name = "Sample",

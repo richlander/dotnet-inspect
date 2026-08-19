@@ -1512,6 +1512,18 @@ public static class ApiOutputFormatter
         {
             if (requestedSections.Contains(SectionNames.DecompiledSource))
                 sections.Add(SectionNames.DecompiledSource);
+            if (requestedSections.Contains(SectionNames.FidelityCauses))
+                sections.Add(SectionNames.FidelityCauses);
+            if (requestedSections.Contains(SectionNames.AnnotatedSourceDocument))
+                sections.Add(SectionNames.AnnotatedSourceDocument);
+            if (requestedSections.Contains(SectionNames.CostOverlay))
+                sections.Add(SectionNames.CostOverlay);
+            if (requestedSections.Contains(SectionNames.SemanticsOverlay))
+                sections.Add(SectionNames.SemanticsOverlay);
+            if (requestedSections.Contains(SectionNames.Calls))
+                sections.Add(SectionNames.Calls);
+            if (requestedSections.Contains(SectionNames.AppliedTaste))
+                sections.Add(SectionNames.AppliedTaste);
             if (requestedSections.Contains(SectionNames.Callers))
                 sections.Add(SectionNames.Callers);
             if (requestedSections.Contains(SectionNames.CallGraph))
@@ -1623,9 +1635,10 @@ public static class ApiOutputFormatter
             },
             IsStatic = owner.IsStatic,
             IsVirtual = owner.IsVirtual,
-            IsAbstract = accessorFact?.IsAbstract
-                ?? presentationAccessor?.IsAbstract
-                ?? owner.IsAbstract,
+            IsAbstract = AccessorIsAbstract(
+                owner,
+                accessorFact,
+                presentationAccessor),
             IsOverride = owner.IsOverride,
             IsSealed = owner.IsSealed,
             HasMethodBody = AccessorHasMethodBody(
@@ -1651,13 +1664,27 @@ public static class ApiOutputFormatter
         if (owner.HasMethodBody is false)
             return false;
 
-        int accessorCount =
-            (owner.GetterToken.HasValue ? 1 : 0)
-            + (owner.SetterToken.HasValue ? 1 : 0)
-            + (owner.AdderToken.HasValue ? 1 : 0)
-            + (owner.RemoverToken.HasValue ? 1 : 0);
-        return accessorCount == 1 ? owner.HasMethodBody : null;
+        return AccessorCount(owner) == 1 ? owner.HasMethodBody : null;
     }
+
+    static bool AccessorIsAbstract(
+        ApiMember owner,
+        ApiAccessor? accessorFact,
+        ApiAccessor? presentationAccessor)
+    {
+        if (accessorFact?.IsAbstract is { } fact)
+            return fact;
+        if (presentationAccessor?.IsAbstract is { } presentation)
+            return presentation;
+
+        return AccessorCount(owner) == 1 && owner.IsAbstract;
+    }
+
+    static int AccessorCount(ApiMember owner) =>
+        (owner.GetterToken.HasValue ? 1 : 0)
+        + (owner.SetterToken.HasValue ? 1 : 0)
+        + (owner.AdderToken.HasValue ? 1 : 0)
+        + (owner.RemoverToken.HasValue ? 1 : 0);
 
     static ApiParameter CloneAccessorParameter(ApiParameter parameter) => new()
     {

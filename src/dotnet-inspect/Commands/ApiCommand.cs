@@ -3000,7 +3000,10 @@ public class ApiCommand
             [SectionNames.Constructors] = m => m.Kind == "constructor",
             [SectionNames.Finalizer] = m => m.Kind == "finalizer",
             [SectionNames.Events] = m => m.Kind == "event",
-            [SectionNames.SourceLocations] = ApiMemberSectionDescriptors.IsMethodLike,
+            [SectionNames.Signature] = _ => true,
+            [SectionNames.SourceLocations] = m =>
+                ApiMemberSectionDescriptors.IsMethodLike(m)
+                || ApiMemberSectionDescriptors.HasAccessorTokens(m),
         };
 
     /// <summary>
