@@ -374,6 +374,76 @@ public class E2EFixtureTests
         }
     }
 
+    [Fact]
+    public void Correlate_MissingSourceTokenDoesNotRelaxOffsetMatch()
+    {
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                """
+                {"performance":{"objects":[{"member":"Fixture.Type.M()","assembly":"Fixture","evidence_method":"0x06000010","shape":"object-allocation","il":"IL_0005","allocation":"System.Object"}]}}
+                """);
+            File.WriteAllText(
+                logPath,
+                "Fixture.Type.M() IL_0009 4096 bytes");
+
+            var mismatch = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, mismatch.ExitCode);
+            Assert.Empty(mismatch.Error);
+            using (var output =
+                JsonDocument.Parse(mismatch.Output))
+            {
+                Assert.Equal(
+                    0,
+                    output.RootElement.GetProperty(
+                        "observedCandidates").GetInt32());
+            }
+
+            File.WriteAllText(
+                logPath,
+                "Fixture.Type.M() IL_0005 4096 bytes");
+            var matchingOffset = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, matchingOffset.ExitCode);
+            Assert.Empty(matchingOffset.Error);
+            using var matchingOutput =
+                JsonDocument.Parse(matchingOffset.Output);
+            var candidate = Assert.Single(
+                matchingOutput.RootElement.GetProperty(
+                    "candidates").EnumerateArray());
+            Assert.Equal(
+                "method-hot",
+                candidate.GetProperty(
+                    "status").GetString());
+            Assert.False(
+                candidate.GetProperty(
+                    "exactOffsetObserved").GetBoolean());
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
+        }
+    }
+
     [Theory]
     [InlineData("{}")]
     [InlineData("null")]

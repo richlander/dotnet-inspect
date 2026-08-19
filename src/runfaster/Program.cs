@@ -1384,9 +1384,7 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
 
         foreach (var candidate in methodMatches)
         {
-            bool sourceAndEvidenceBodiesDiffer =
-                candidate.UsesDistinctEvidenceMethodBody;
-            if (!sourceAndEvidenceBodiesDiffer
+            if (!candidate.HasKnownDistinctEvidenceMethodBody
                 && ilOffset is int offset
                 && candidate.IlOffset >= 0
                 && candidate.IlOffset != offset)
@@ -1399,7 +1397,8 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
                 matchedIds,
                 sourceKind,
                 bytes,
-                exactOffset: !sourceAndEvidenceBodiesDiffer
+                exactOffset: candidate.SourceMethodIdentifiesRuntimeBody
+                    && candidate.HasRuntimeCoordinate
                     && ilOffset is not null
                     && candidate.IlOffset == ilOffset,
                 weight: 1);
@@ -2294,9 +2293,14 @@ sealed class AllocationCandidate(
         evidenceMethodToken;
     public int RuntimeMethodToken =>
         EvidenceMethodToken ?? MethodToken;
-    public bool UsesDistinctEvidenceMethodBody =>
+    public bool HasKnownDistinctEvidenceMethodBody =>
         EvidenceMethodToken is int evidenceMethodToken
+        && MethodToken != 0
         && evidenceMethodToken != MethodToken;
+    public bool SourceMethodIdentifiesRuntimeBody =>
+        EvidenceMethodToken is null
+        || (MethodToken != 0
+            && EvidenceMethodToken == MethodToken);
     public int IlOffset { get; } = ilOffset;
     public string? CandidateId { get; } = candidateId;
     public string? Provenance { get; } = provenance;
@@ -2608,6 +2612,16 @@ sealed class CandidateLookup
         foreach (var tokenList in byModuleMethodToken.Values)
             tokenList.Sort(static (left, right) => left.IlOffset.CompareTo(right.IlOffset));
 
+        foreach (var ambiguousKey in byTokenOffset
+                     .Where(static pair =>
+                         HasAmbiguousTextCoordinateIdentity(
+                             pair.Value))
+                     .Select(static pair => pair.Key)
+                     .ToArray())
+        {
+            byTokenOffset.Remove(ambiguousKey);
+        }
+
         return new CandidateLookup(
             byTokenOffset,
             byModuleMethodToken,
@@ -2643,22 +2657,7 @@ sealed class CandidateLookup
     }
 
     public IReadOnlyList<AllocationCandidate> FindByTokenOffset(int token, int offset)
-    {
-        if (!_byTokenOffset.TryGetValue(
-                (token, offset),
-                out var candidates))
-        {
-            return [];
-        }
-
-        bool spansAssemblies = candidates
-            .Select(static candidate =>
-                candidate.AssemblyModuleKey)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Skip(1)
-            .Any();
-        return spansAssemblies ? [] : candidates;
-    }
+        => _byTokenOffset.TryGetValue((token, offset), out var candidates) ? candidates : [];
 
     public IReadOnlyList<AllocationCandidate> FindNearestByCodeAddress(TraceCodeAddress address)
     {
@@ -2758,11 +2757,38 @@ sealed class CandidateLookup
 
     static bool MethodMatches(AllocationCandidate candidate, string? method)
     {
-        return !candidate.UsesDistinctEvidenceMethodBody
+        return candidate.SourceMethodIdentifiesRuntimeBody
             && !string.IsNullOrWhiteSpace(method)
             && (method.Contains(candidate.MethodStackKey, StringComparison.Ordinal)
                 || method.Contains(candidate.MethodKey, StringComparison.Ordinal)
                 || method.Contains(candidate.Method, StringComparison.Ordinal));
+    }
+
+    static bool HasAmbiguousTextCoordinateIdentity(
+        IReadOnlyList<AllocationCandidate> candidates)
+    {
+        if (candidates
+            .Select(static candidate =>
+                candidate.AssemblyModuleKey)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Skip(1)
+            .Any())
+        {
+            return true;
+        }
+
+        int buildIdentityCount = candidates
+            .Where(static candidate =>
+                candidate.ModuleVersionId is not null
+                || candidate.UnknownLibraryInputIdentity.Length > 0)
+            .Select(static candidate =>
+                candidate.ModuleVersionId is Guid moduleVersionId
+                    ? $"mvid:{moduleVersionId:D}"
+                    : $"path:{candidate.UnknownLibraryInputIdentity}")
+            .Distinct(StringComparer.Ordinal)
+            .Take(2)
+            .Count();
+        return buildIdentityCount > 1;
     }
 }
 

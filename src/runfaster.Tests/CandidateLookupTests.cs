@@ -112,6 +112,26 @@ public class CandidateLookupTests
     }
 
     [Fact]
+    public void FindNearestByTokenOffset_DoesNotUseSourceNameWhenSourceTokenIsUnknown()
+    {
+        var candidate = Candidate(
+            id: 1,
+            methodToken: 0,
+            ilOffset: 0x0010,
+            evidenceMethodToken: 0x06000002);
+        var lookup = CandidateLookup.Create([candidate]);
+
+        var matches = lookup.FindNearestByTokenOffset(
+            0x06000002,
+            0x0011,
+            modulePath: null,
+            moduleName: null,
+            methodName: "Fixture.Type::M");
+
+        Assert.Empty(matches);
+    }
+
+    [Fact]
     public void FindByMethodText_RetainsSourceNameForDistinctEvidenceBody()
     {
         var candidate = Candidate(
@@ -144,6 +164,34 @@ public class CandidateLookupTests
             evidenceMethodToken: 0x06000003);
         var lookup = CandidateLookup.Create(
             [assemblyA, assemblyB]);
+
+        Assert.Empty(
+            lookup.FindByTokenOffset(
+                0x06000003,
+                0x0010));
+    }
+
+    [Fact]
+    public void FindByTokenOffset_RejectsCoordinateSharedAcrossModuleVersions()
+    {
+        var firstBuild = Candidate(
+            id: 1,
+            methodToken: 0x06000001,
+            ilOffset: 0x0010,
+            moduleVersionId:
+                Guid.Parse(
+                    "11111111-1111-1111-1111-111111111111"),
+            evidenceMethodToken: 0x06000003);
+        var secondBuild = Candidate(
+            id: 2,
+            methodToken: 0x06000002,
+            ilOffset: 0x0010,
+            moduleVersionId:
+                Guid.Parse(
+                    "22222222-2222-2222-2222-222222222222"),
+            evidenceMethodToken: 0x06000003);
+        var lookup = CandidateLookup.Create(
+            [firstBuild, secondBuild]);
 
         Assert.Empty(
             lookup.FindByTokenOffset(
@@ -197,6 +245,7 @@ public class CandidateLookupTests
         string method = "Fixture.Type.M()",
         string kind = "Object",
         string assemblyName = "Fixture",
+        Guid? moduleVersionId = null,
         int? evidenceMethodToken = null)
     {
         string methodKey = method[..method.IndexOf('(')];
@@ -207,7 +256,7 @@ public class CandidateLookupTests
             "library",
             libraryPath,
             assemblyName,
-            null,
+            moduleVersionId,
             methodToken,
             ilOffset,
             method,
