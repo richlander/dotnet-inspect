@@ -3020,9 +3020,38 @@ test("shared package graph navigation retains existing accessor identity", () =>
 
   assert.match(
     shareState,
-    /if \(!state\.package\?\.isRuntimePack\) \{\s*const graphTarget = graphMemberShareTarget\(state\.selectedBodyTarget\)/);
+    /graphSelection\?\.group\.key === packet\.m/);
+  assert.match(
+    shareState,
+    /packet\.o == null \|\| graphSelection\.overloadIndex === packet\.o/);
   assert.doesNotMatch(shareState, /overloads\.some\(overload => overload\.graphOnly\)/);
   assert.match(appSource, /solid border: no platform lookup/);
+});
+
+test("stale graph member loads cannot mutate the visible member surface", () => {
+  const navigation =
+    appSource.match(/async function navigateToGraphMember[\s\S]*?\n\}/)?.[0]
+    ?? "";
+  const restoration =
+    appSource.match(/async function restorePendingGraphMember[\s\S]*?\n\}/)?.[0]
+    ?? "";
+
+  assert.ok(
+    navigation.indexOf("if (!navigationIsCurrent())")
+      < navigation.indexOf("commitGraphMemberSelection("));
+  assert.ok(
+    restoration.indexOf("if (!restorationIsCurrent())")
+      < restoration.indexOf("commitGraphMemberSelection("));
+});
+
+test("platform graph navigation supersedes package member loading immediately", () => {
+  const navigation =
+    appSource.match(/async function navigateOrDrillPlatform[\s\S]*?\n\}/)?.[0]
+    ?? "";
+
+  assert.match(
+    navigation,
+    /if \(state\.platformDrillLoading\) return;\s*invalidateGraphMemberNavigation\(\);/);
 });
 
 test("call graph navigation rejects ambiguous loaded package coordinates", () => {

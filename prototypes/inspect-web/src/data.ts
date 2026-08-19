@@ -976,8 +976,8 @@ export interface GraphMemberGroup {
 }
 
 export interface GraphMemberTarget {
-  memberName: string;
-  selectorKey: string;
+  memberName?: string | null;
+  selectorKey?: string | null;
   metadataToken?: number | null;
 }
 

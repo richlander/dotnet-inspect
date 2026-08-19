@@ -37,6 +37,7 @@ import {
   spotlightCandidateSignature,
   typeLensesFor,
   type DependencyGroupData,
+  type GraphMemberTarget,
   type GraphMemberShareIdentity,
   type PackageIdentity,
   type PlatformPack,
@@ -6707,7 +6708,7 @@ function resolveLoadedGraphTarget(
 
 function findGraphMemberSelection(
   type: BrowserTypeSurface,
-  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  target: GraphMemberTarget,
 ) {
   const groups = memberGroups(type);
   const selection = graphMemberSelection(groups, target);
@@ -6719,12 +6720,12 @@ function findGraphMemberSelection(
     : null;
 }
 
-async function loadGraphMemberSelection(
+async function loadGraphMemberSurface(
   pkg: AppPackage,
   type: BrowserTypeSurface,
   target: BrowserCallGraphTarget | GraphMemberShareIdentity,
 ) {
-  const surface = await inspectGraphMemberSurface(
+  return inspectGraphMemberSurface(
     pkg.id,
     pkg.version,
     pkg.activeFramework,
@@ -6733,6 +6734,14 @@ async function loadGraphMemberSelection(
     target.memberName,
     target.selectorKey,
     target.metadataToken ?? 0);
+}
+
+function commitGraphMemberSelection(
+  pkg: AppPackage,
+  type: BrowserTypeSurface,
+  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  surface: BrowserMemberSurface,
+) {
   let member: AppMemberSurface | undefined = (type.api ?? []).find(candidate =>
     candidate.stableSelector === surface.stableSelector
     && candidate.canonicalSignature === surface.canonicalSignature);
@@ -6776,7 +6785,7 @@ async function navigateToGraphMember(
   state.memberCallGraphError = "";
   render();
   try {
-    const selection = await loadGraphMemberSelection(
+    const surface = await loadGraphMemberSurface(
       loaded.pkg,
       loaded.type,
       target);
@@ -6787,6 +6796,11 @@ async function navigateToGraphMember(
       }
       return;
     }
+    const selection = commitGraphMemberSelection(
+      loaded.pkg,
+      loaded.type,
+      target,
+      surface);
     state.graphMemberNavigationTitle = "";
     navigateToMember(
       selection.pkg,
@@ -6828,11 +6842,16 @@ async function restorePendingGraphMember() {
     render();
   };
   try {
-    const selection = await loadGraphMemberSelection(pkg, type, pending.target);
+    const surface = await loadGraphMemberSurface(pkg, type, pending.target);
     if (!restorationIsCurrent()) {
       discardIfOwned();
       return;
     }
+    const selection = commitGraphMemberSelection(
+      pkg,
+      type,
+      pending.target,
+      surface);
     if (selection.group.key !== pending.member)
       throw new Error("The shared member identity does not match the graph target.");
     state.pendingGraphMemberDeepLink = null;
@@ -6892,6 +6911,7 @@ function popPlatformDrill() {
 // identity when that surface has no unique member match.
 async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   if (state.platformDrillLoading) return;
+  invalidateGraphMemberNavigation();
   const seq = state.memberCallGraphSeq;
   const type = selectedType();
   const member = selectedMember(type);
