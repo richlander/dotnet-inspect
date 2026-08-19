@@ -745,6 +745,66 @@ public sealed class OperatorApiSurfaceTests
     }
 
     [Fact]
+    public void ResolutionAwareSurface_RejectsExternalRelationshipConversions()
+    {
+        using var interfaceImage = OperatorImage.Build(builder =>
+        {
+            var method = builder.DefineMethod(
+                "op_Explicit",
+                MethodAttributes.Public
+                    | MethodAttributes.Static
+                    | MethodAttributes.SpecialName,
+                typeof(IDisposable),
+                [builder]);
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldnull);
+            il.Emit(OpCodes.Ret);
+        });
+        using var baseImage = OperatorImage.Build(
+            builder =>
+            {
+                var method = builder.DefineMethod(
+                    "op_Implicit",
+                    MethodAttributes.Public
+                        | MethodAttributes.Static
+                        | MethodAttributes.SpecialName,
+                    typeof(Stream),
+                    [builder]);
+                var il = method.GetILGenerator();
+                il.Emit(OpCodes.Ldnull);
+                il.Emit(OpCodes.Ret);
+            },
+            parent: typeof(MemoryStream));
+
+        Assert.All(
+            ResolvedOperators(interfaceImage),
+            member => Assert.False(
+                member.CSharpOperatorDeclaration,
+                member.Signature));
+        Assert.All(
+            ResolvedOperators(baseImage),
+            member => Assert.False(
+                member.CSharpOperatorDeclaration,
+                member.Signature));
+
+        static ApiMember[] ResolvedOperators(OperatorImage image)
+        {
+            using var session = new TypeDefinitionResolutionSession(
+                image.AssemblyPath,
+                isPlatformAssembly: false);
+            ApiSurface? surface =
+                session.ExtractApiSurface(includeAll: true);
+            Assert.NotNull(surface);
+            return Assert.Single(
+                    surface.Types,
+                    type => type.FullName == "OperatorSurface")
+                .Members
+                .Where(member => member.Kind == "operator")
+                .ToArray();
+        }
+    }
+
+    [Fact]
     public void CSharpOperatorDeclaration_RejectsObjectConversions()
     {
         using var toObject = OperatorImage.Build(builder =>

@@ -96,6 +96,7 @@ internal static class TypeParameterKindClassifier
             ResolutionFailures => _resolutionFailures;
         internal IReadOnlyList<ResolutionFailureEntry>
             ResolutionFailureEntries => _resolutionFailureEvidence;
+        internal TypeResolutionContext? Context => _context;
 
         internal sealed record ResolutionFailureEntry(
             MetadataTypeNameFailure Failure,
@@ -167,6 +168,55 @@ internal static class TypeParameterKindClassifier
         {
             ArgumentNullException.ThrowIfNull(context);
             _context = context;
+        }
+
+        internal TypeResolutionOutcome? ResolveRequest(
+            TypeResolutionRequest? request,
+            EntityHandle subject = default)
+        {
+            if (request is null)
+                return null;
+            if (_context is not null)
+            {
+                TypeResolutionOutcome outcome =
+                    _context.Resolve(request);
+                if (outcome is TypeResolutionOutcome.Rejected
+                    {
+                        Failure:
+                            TypeResolutionFailure
+                                .PlanExpansionRequired,
+                    })
+                {
+                    AddRequest(request);
+                    return null;
+                }
+                if (outcome is not TypeResolutionOutcome.Resolved)
+                {
+                    RecordResolutionOutcomeFailure(
+                        request,
+                        outcome,
+                        subject);
+                }
+                return outcome;
+            }
+            AddRequest(request);
+            return null;
+        }
+
+        void AddRequest(TypeResolutionRequest request)
+        {
+            if (_requests.Contains(request))
+                return;
+            if (_requests.Count < _maxTypeResolutionRequests
+                && _requests.Add(request))
+            {
+                _requestOrder.Add(request);
+            }
+            else
+            {
+                _requestBudgetExhausted = true;
+                RecordRequestBudgetFailure(default);
+            }
         }
 
         internal ConstraintClass Classify(
@@ -402,7 +452,7 @@ internal static class TypeParameterKindClassifier
             };
         }
 
-        void RecordResolutionOutcomeFailure(
+        internal void RecordResolutionOutcomeFailure(
             TypeResolutionRequest request,
             TypeResolutionOutcome outcome,
             EntityHandle handle)

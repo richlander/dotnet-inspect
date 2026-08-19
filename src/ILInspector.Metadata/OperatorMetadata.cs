@@ -354,7 +354,8 @@ public static class OperatorMetadata
         if (declaringType.BaseType.IsNil)
             return false;
 
-        var baseType = ReadType(reader, declaringType.BaseType);
+        var baseType =
+            ReadSignatureType(reader, declaringType.BaseType);
         return IsTrustedSystemType(baseType, "Enum")
             || IsTrustedSystemType(baseType, "MulticastDelegate");
     }
@@ -377,7 +378,10 @@ public static class OperatorMetadata
             foreach (var constraintHandle in parameter.GetConstraints())
             {
                 var constraint = reader.GetGenericParameterConstraint(constraintHandle);
-                if (ReadType(reader, constraint.Type).MatchesExactly(declaringIdentity))
+                if (ReadSignatureType(
+                        reader,
+                        constraint.Type)
+                    .MatchesExactly(declaringIdentity))
                 {
                     result.Add(parameter.Index);
                     break;
@@ -387,7 +391,9 @@ public static class OperatorMetadata
         return result;
     }
 
-    static OperatorSignatureType ReadType(MetadataReader reader, EntityHandle handle)
+    internal static OperatorSignatureType ReadSignatureType(
+        MetadataReader reader,
+        EntityHandle handle)
         => handle.Kind switch
         {
             HandleKind.TypeDefinition => OperatorSignatureTypeProvider.Instance.GetTypeFromDefinition(
@@ -481,7 +487,8 @@ public static class OperatorMetadata
             var definition = reader.GetTypeDefinition(definitionHandle);
             if (definition.BaseType.IsNil)
                 return TypeRelationship.No;
-            var baseType = ReadType(reader, definition.BaseType);
+            var baseType =
+                ReadSignatureType(reader, definition.BaseType);
             if (candidate.IsGenericInstantiation)
                 baseType = baseType.Instantiate(candidate.TypeArguments);
             else if (definition.GetGenericParameters().Count != 0)
@@ -637,7 +644,8 @@ public static class OperatorMetadata
         var definition = reader.GetTypeDefinition((TypeDefinitionHandle)type.Identity);
         if (definition.BaseType.IsNil)
             return TypeRelationship.No;
-        var baseType = ReadType(reader, definition.BaseType);
+        var baseType =
+            ReadSignatureType(reader, definition.BaseType);
         return IsTrustedSystemType(baseType, "ValueType")
             || IsTrustedSystemType(baseType, "Enum")
             ? TypeRelationship.Yes

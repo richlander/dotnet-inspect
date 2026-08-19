@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -325,6 +326,8 @@ public sealed class AssemblyInspectionSession : IDisposable
 
     internal AssemblyReferenceIdentity AssemblyIdentity() =>
         AssemblyReferenceIdentity.FromAssemblyDefinition(_image.GetMetadataReader());
+
+    internal MetadataReader Reader => _image.GetMetadataReader();
 
     internal Guid ModuleVersionId()
     {

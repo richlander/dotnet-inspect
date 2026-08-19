@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -330,12 +331,18 @@ public static class ApiSurfaceExtractor
             return surface;
         }
 
-        using TypeResolutionContext context =
-            catalog.CreateApiSurfaceContext(
-                bindingPolicy,
-                [source],
-                constraintResolution.Requests);
-        constraintResolution.Apply(context);
+        int requestCount;
+        do
+        {
+            requestCount = constraintResolution.Requests.Count;
+            using TypeResolutionContext context =
+                catalog.CreateApiSurfaceContext(
+                    bindingPolicy,
+                    [source],
+                    constraintResolution.Requests);
+            constraintResolution.Apply(context);
+        }
+        while (constraintResolution.Requests.Count > requestCount);
         AddConstraintResolutionFailure(
             surface,
             constraintResolution,
@@ -782,6 +789,15 @@ public static class ApiSurfaceExtractor
                             method,
                             observeDecodeWork));
 
+                OperatorMetadata.DeclarationClassification?
+                    operatorClassification = isOperator
+                        ? constraintResolution?.ClassifyOperator(
+                            methodHandle)
+                            ?? OperatorMetadata
+                                .ClassifyCSharpOperatorDeclaration(
+                                    reader,
+                                    method)
+                        : null;
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -808,9 +824,7 @@ public static class ApiSurfaceExtractor
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     CSharpOperatorDeclaration = isOperator
-                        ? OperatorMetadata.ClassifyCSharpOperatorDeclaration(
-                            reader,
-                            method) switch
+                        ? operatorClassification switch
                         {
                             OperatorMetadata.DeclarationClassification.Yes =>
                                 true,
@@ -841,6 +855,14 @@ public static class ApiSurfaceExtractor
                         observeText,
                         observeAttributeMaterialize)
                 };
+                if (operatorClassification
+                    == OperatorMetadata
+                        .DeclarationClassification.Unknown)
+                {
+                    constraintResolution?.TrackOperator(
+                        methodHandle,
+                        member);
+                }
 
                 // Check for extension method
                 if (isExtensionMethod)
@@ -4357,9 +4379,14 @@ public static class ApiSurfaceExtractor
     };
 
     sealed class TypeParameterConstraintResolution
+        : IOperatorTypeRelationshipResolver
     {
         readonly MetadataReader _reader;
+        readonly ResolvedAssemblyReference _source;
         readonly List<Group> _groups = [];
+        readonly List<(MethodDefinitionHandle Handle, ApiMember Member)>
+            _operators = [];
+        EntityHandle _operatorSubject;
 
         internal TypeParameterConstraintResolution(
             MetadataReader reader,
@@ -4367,6 +4394,7 @@ public static class ApiSurfaceExtractor
             int maxTypeResolutionRequests)
         {
             _reader = reader;
+            _source = source;
             Plan = new TypeParameterKindClassifier.ResolutionPlan(
                 reader,
                 source,
@@ -4379,12 +4407,17 @@ public static class ApiSurfaceExtractor
             Plan.Requests;
 
         internal Checkpoint CreateCheckpoint() =>
-            new(_groups.Count, Plan.Checkpoint());
+            new(
+                _groups.Count,
+                _operators.Count,
+                Plan.Checkpoint());
 
         internal void Rollback(Checkpoint checkpoint)
         {
             if (checkpoint.GroupCount < 0
-                || checkpoint.GroupCount > _groups.Count)
+                || checkpoint.GroupCount > _groups.Count
+                || checkpoint.OperatorCount < 0
+                || checkpoint.OperatorCount > _operators.Count)
             {
                 throw new ArgumentOutOfRangeException(
                     nameof(checkpoint));
@@ -4393,6 +4426,9 @@ public static class ApiSurfaceExtractor
             _groups.RemoveRange(
                 checkpoint.GroupCount,
                 _groups.Count - checkpoint.GroupCount);
+            _operators.RemoveRange(
+                checkpoint.OperatorCount,
+                _operators.Count - checkpoint.OperatorCount);
             Plan.Rollback(checkpoint.RequestCheckpoint);
         }
 
@@ -4405,9 +4441,27 @@ public static class ApiSurfaceExtractor
                 _groups.Add(new Group(subject, group));
         }
 
+        internal void TrackOperator(
+            MethodDefinitionHandle handle,
+            ApiMember member)
+            => _operators.Add((handle, member));
+
         internal void Apply(TypeResolutionContext context)
         {
             Plan.Bind(context);
+            foreach (var (handle, member) in _operators)
+            {
+                OperatorMetadata.DeclarationClassification
+                    classification = ClassifyOperator(handle);
+                member.CSharpOperatorDeclaration = classification switch
+                {
+                    OperatorMetadata.DeclarationClassification.Yes =>
+                        true,
+                    OperatorMetadata.DeclarationClassification.No =>
+                        false,
+                    _ => null,
+                };
+            }
             foreach (var group in _groups)
             {
                 var chain =
@@ -4439,6 +4493,7 @@ public static class ApiSurfaceExtractor
 
         internal readonly record struct Checkpoint(
             int GroupCount,
+            int OperatorCount,
             TypeParameterKindClassifier.ResolutionPlan.RequestCheckpoint
                 RequestCheckpoint);
 
@@ -4446,6 +4501,300 @@ public static class ApiSurfaceExtractor
             EntityHandle Subject,
             List<(GenericParameterHandle Handle, TypeParameter Parameter)>
                 Parameters);
+
+        public OperatorMetadata.TypeRelationship ValueTypeRelationship(
+            MetadataReader reader,
+            OperatorMetadata.OperatorSignatureType type)
+            => ResolveDefinition(reader, type, _source)
+                is { } definition
+                    ? definition.IsValueType
+                        ? OperatorMetadata.TypeRelationship.Yes
+                        : OperatorMetadata.TypeRelationship.No
+                    : OperatorMetadata.TypeRelationship.Unknown;
+
+        public OperatorMetadata.TypeRelationship InterfaceRelationship(
+            MetadataReader reader,
+            OperatorMetadata.OperatorSignatureType type)
+            => ResolveDefinition(reader, type, _source)
+                is { } definition
+                    ? definition.IsInterface
+                        ? OperatorMetadata.TypeRelationship.Yes
+                        : OperatorMetadata.TypeRelationship.No
+                    : OperatorMetadata.TypeRelationship.Unknown;
+
+        public OperatorMetadata.TypeRelationship
+            SameOrDerivedRelationship(
+                MetadataReader reader,
+                OperatorMetadata.OperatorSignatureType candidate,
+                OperatorMetadata.OperatorSignatureType requiredBase)
+        {
+            ResolvedAssemblyReference candidateOrigin = _source;
+            MetadataReader candidateReader = reader;
+            var visited = new HashSet<MetadataTypeDefinitionAddress>();
+            for (int depth = 0; depth < 64; depth++)
+            {
+                OperatorMetadata.TypeRelationship same = SameType(
+                    candidateReader,
+                    candidate,
+                    candidateOrigin,
+                    reader,
+                    requiredBase,
+                    _source);
+                if (same != OperatorMetadata.TypeRelationship.No)
+                    return same;
+
+                ResolvedTypeDefinition? definition = ResolveDefinition(
+                    candidateReader,
+                    candidate,
+                    candidateOrigin);
+                if (definition is null
+                    || !visited.Add(definition.Address)
+                    || Plan.Context is not { } context
+                    || context.Open(
+                        definition,
+                        out TypeDefinitionHandle handle)
+                        is not { } resolvedReader)
+                {
+                    return OperatorMetadata.TypeRelationship.Unknown;
+                }
+
+                TypeDefinition typeDefinition =
+                    resolvedReader.GetTypeDefinition(handle);
+                if (typeDefinition.BaseType.IsNil)
+                    return OperatorMetadata.TypeRelationship.No;
+                var baseType =
+                    OperatorMetadata.ReadSignatureType(
+                        resolvedReader,
+                        typeDefinition.BaseType);
+                if (candidate.IsGenericInstantiation)
+                {
+                    baseType = baseType.Instantiate(
+                        candidate.TypeArguments);
+                }
+                else if (typeDefinition.GetGenericParameters().Count != 0)
+                {
+                    return OperatorMetadata.TypeRelationship.Unknown;
+                }
+
+                candidate = baseType;
+                candidateReader = resolvedReader;
+                candidateOrigin = definition.Assembly.Assembly;
+            }
+            return OperatorMetadata.TypeRelationship.Unknown;
+        }
+
+        OperatorMetadata.TypeRelationship SameType(
+            MetadataReader leftReader,
+            OperatorMetadata.OperatorSignatureType left,
+            ResolvedAssemblyReference leftOrigin,
+            MetadataReader rightReader,
+            OperatorMetadata.OperatorSignatureType right,
+            ResolvedAssemblyReference rightOrigin)
+        {
+            if (left.IsTypeParameter || right.IsTypeParameter)
+            {
+                return left.IsTypeParameter
+                    && right.IsTypeParameter
+                    && left.IsMethodTypeParameter
+                        == right.IsMethodTypeParameter
+                    && left.TypeParameterIndex
+                        == right.TypeParameterIndex
+                    ? OperatorMetadata.TypeRelationship.Yes
+                    : OperatorMetadata.TypeRelationship.No;
+            }
+            if (left.IsNonNamedType || right.IsNonNamedType)
+                return OperatorMetadata.TypeRelationship.Unknown;
+            if (left.IsGenericInstantiation
+                != right.IsGenericInstantiation
+                || left.TypeArguments.Length
+                    != right.TypeArguments.Length)
+            {
+                return OperatorMetadata.TypeRelationship.No;
+            }
+            if (left.Identity.IsNil || right.Identity.IsNil)
+            {
+                if (left.Namespace is null
+                    || left.Name is null
+                    || right.Namespace is null
+                    || right.Name is null)
+                {
+                    return OperatorMetadata.TypeRelationship.Unknown;
+                }
+                return left.Identity.IsNil
+                    && right.Identity.IsNil
+                    && left.Namespace == right.Namespace
+                    && left.Name == right.Name
+                    ? OperatorMetadata.TypeRelationship.Yes
+                    : OperatorMetadata.TypeRelationship.No;
+            }
+
+            ResolvedTypeDefinition? leftDefinition =
+                ResolveDefinition(
+                    leftReader,
+                    left,
+                    leftOrigin);
+            ResolvedTypeDefinition? rightDefinition =
+                ResolveDefinition(
+                    rightReader,
+                    right,
+                    rightOrigin);
+            if (leftDefinition is null || rightDefinition is null)
+                return OperatorMetadata.TypeRelationship.Unknown;
+            if (leftDefinition.Address != rightDefinition.Address
+                || !leftDefinition.Assembly.Assembly.Identity
+                    .IsEquivalentTo(
+                        rightDefinition.Assembly.Assembly.Identity))
+            {
+                return OperatorMetadata.TypeRelationship.No;
+            }
+
+            for (int index = 0;
+                index < left.TypeArguments.Length;
+                index++)
+            {
+                OperatorMetadata.TypeRelationship argument = SameType(
+                    leftReader,
+                    left.TypeArguments[index],
+                    leftOrigin,
+                    rightReader,
+                    right.TypeArguments[index],
+                    rightOrigin);
+                if (argument != OperatorMetadata.TypeRelationship.Yes)
+                    return argument;
+            }
+            return OperatorMetadata.TypeRelationship.Yes;
+        }
+
+        ResolvedTypeDefinition? ResolveDefinition(
+            MetadataReader reader,
+            OperatorMetadata.OperatorSignatureType type,
+            ResolvedAssemblyReference origin)
+        {
+            TypeResolutionRequest? request =
+                CreateRequest(reader, type, origin);
+            return Plan.ResolveRequest(request, _operatorSubject)
+                is TypeResolutionOutcome.Resolved resolved
+                    ? resolved.Definition
+                    : null;
+        }
+
+        internal OperatorMetadata.DeclarationClassification
+            ClassifyOperator(MethodDefinitionHandle handle)
+        {
+            _operatorSubject = handle;
+            try
+            {
+                return OperatorMetadata
+                    .ClassifyCSharpOperatorDeclaration(
+                        _reader,
+                        _reader.GetMethodDefinition(handle),
+                        this);
+            }
+            finally
+            {
+                _operatorSubject = default;
+            }
+        }
+
+        static TypeResolutionRequest? CreateRequest(
+            MetadataReader reader,
+            OperatorMetadata.OperatorSignatureType type,
+            ResolvedAssemblyReference origin)
+        {
+            if (type.Identity.Kind is not (
+                HandleKind.TypeDefinition
+                or HandleKind.TypeReference))
+            {
+                return null;
+            }
+            MetadataTypeDefinitionNameReadResult nameResult =
+                type.Identity.Kind switch
+                {
+                    HandleKind.TypeDefinition =>
+                        MetadataTypeDefinitionNameReader.Read(
+                            reader,
+                            (TypeDefinitionHandle)type.Identity),
+                    HandleKind.TypeReference =>
+                        MetadataTypeDefinitionNameReader.Read(
+                            reader,
+                            (TypeReferenceHandle)type.Identity),
+                    _ => throw new UnreachableException(),
+                };
+            if (nameResult
+                is not MetadataTypeDefinitionNameReadResult.Read read)
+            {
+                return null;
+            }
+            if (type.Identity.Kind == HandleKind.TypeDefinition)
+            {
+                return TypeResolutionRequest.FromAssembly(
+                    origin,
+                    AssemblyResolutionScope.Any,
+                    read.Name);
+            }
+
+            Span<TypeReferenceHandle> chain =
+                stackalloc TypeReferenceHandle[
+                    MetadataSafetyPolicy.MaxRelationshipNodes];
+            if (!MetadataRelationshipTraversal
+                    .TryWalkTypeReferenceResolutionScope(
+                        reader,
+                        (TypeReferenceHandle)type.Identity,
+                        chain,
+                        out _,
+                        out EntityHandle terminal,
+                        out _))
+            {
+                return null;
+            }
+
+            return terminal.Kind switch
+            {
+                HandleKind.AssemblyReference =>
+                    FromAssemblyReference(
+                        reader,
+                        origin,
+                        (AssemblyReferenceHandle)terminal,
+                        read.Name),
+                HandleKind.ModuleDefinition =>
+                    TypeResolutionRequest.FromAssembly(
+                        origin,
+                        AssemblyResolutionScope.Any,
+                        read.Name),
+                HandleKind.ModuleReference =>
+                    TypeResolutionRequest.FromModule(
+                        origin,
+                        reader.GetString(
+                            reader.GetModuleReference(
+                                (ModuleReferenceHandle)terminal).Name),
+                        read.Name),
+                _ when terminal.IsNil =>
+                    TypeResolutionRequest.FromAssembly(
+                        origin,
+                        AssemblyResolutionScope.Any,
+                        read.Name),
+                _ => null,
+            };
+        }
+
+        static TypeResolutionRequest FromAssemblyReference(
+            MetadataReader reader,
+            ResolvedAssemblyReference origin,
+            AssemblyReferenceHandle handle,
+            MetadataTypeDefinitionName type)
+        {
+            AssemblyReferenceIdentity reference =
+                AssemblyReferenceIdentity.From(reader, handle);
+            AssemblyResolutionScope scope =
+                PlatformKeys.IsPlatform(reference.PublicKeyToken)
+                    ? AssemblyResolutionScope.Platform
+                    : AssemblyResolutionScope.Any;
+            return TypeResolutionRequest.FromReference(
+                reference,
+                AssemblyBindingOrigin.FromAssembly(origin),
+                scope,
+                type);
+        }
     }
 
     /// <summary>

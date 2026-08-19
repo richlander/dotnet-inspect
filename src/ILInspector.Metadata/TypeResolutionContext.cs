@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
 
@@ -225,6 +226,24 @@ public sealed class TypeResolutionCatalog : IDisposable
                     source.Identity));
         }
         return new ResolutionAwareApiSurfaceOutcome.Read(surface);
+    }
+
+    internal MetadataReader? Open(
+        ResolvedTypeDefinition definition,
+        out TypeDefinitionHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        handle = default;
+        CandidateSessionResult session =
+            _acquisition.OpenSession(definition.Assembly);
+        if (session is not CandidateSessionResult.Ready ready
+            || !definition.Address.TryResolve(
+                ready.Session.Reader,
+                out handle))
+        {
+            return null;
+        }
+        return ready.Session.Reader;
     }
 
     IDisposable AcquireExtractionLease()
@@ -787,6 +806,11 @@ public sealed class TypeResolutionContext : IDisposable
 
     /// <summary>Gets this frozen manifest generation's identity.</summary>
     public AssemblyCatalogGenerationId Generation { get; }
+
+    internal MetadataReader? Open(
+        ResolvedTypeDefinition definition,
+        out TypeDefinitionHandle handle)
+        => _catalog.Open(definition, out handle);
 
     /// <summary>
     /// Projects a definition resolved by this context into the owning
