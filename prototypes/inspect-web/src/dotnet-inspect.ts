@@ -3500,7 +3500,13 @@ function renderLens(item: AppTypeSurface | null | undefined) {
 }
 
 function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
-  if (member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+  const selectedOverloadIndex = state.selectedOverloadIndex;
+  const hasSelectedOverload =
+    selectedOverloadIndex != null
+    && Number.isInteger(selectedOverloadIndex)
+    && selectedOverloadIndex >= 0
+    && selectedOverloadIndex < member.overloads.length;
+  if (member.overloads.length > 1 && !hasSelectedOverload) {
     return `
       <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
       <section class="overload-picker">
@@ -3517,7 +3523,7 @@ function renderMember(type: BrowserTypeSurface, member: AppMemberGroup) {
         </div>
       </section>`;
   }
-  const overloadIndex = state.selectedOverloadIndex ?? 0;
+  const overloadIndex = hasSelectedOverload ? selectedOverloadIndex ?? 0 : 0;
   const overload = member.overloads[overloadIndex];
   if (!overload) return "";
   const pkg = currentPackage();
@@ -7016,6 +7022,7 @@ async function restorePendingGraphMember() {
       ? pending.section
       : "overview";
     state.selectedBodyTarget = pending.target;
+    normalizeCurrentNavEntry();
     render();
     loadSelectionData();
   } catch (error) {
@@ -7029,6 +7036,7 @@ async function restorePendingGraphMember() {
     state.selectedOverloadIndex = null;
     state.memberSection = "overview";
     state.selectedBodyTarget = null;
+    normalizeCurrentNavEntry();
     appendQueryNotice(
       `The graph member could not be restored: ${errorMessage(error)}`);
     render();

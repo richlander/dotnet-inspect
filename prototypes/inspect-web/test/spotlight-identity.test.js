@@ -42,6 +42,7 @@ import {
   mergeInspectionErrors,
   mermaidLabel,
   normalizeShareTabs,
+  navigationViewSignature,
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
@@ -3343,7 +3344,7 @@ test("graph navigation restores scope and supersedes local drills", () => {
     appSource.match(/function navigateToMember[\s\S]*?(?=\nasync function loadSelectedMemberFacts)/)?.[0]
     ?? "";
 
-  assert.match(capture, /libraryScope: state\.libraryScope \? \[\.\.\.state\.libraryScope\] : null/);
+  assert.match(capture, /libraryScope: state\.libraryScope \? \[\.\.\.state\.libraryScope\]\.sort\(\) : null/);
   assert.match(apply, /state\.libraryScope = view\.libraryScope\?\.length\s*\? new Set\(view\.libraryScope\)\s*: null/);
   assert.match(
     pop,
@@ -3429,13 +3430,97 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     ?? "";
   assert.match(
     apply,
-    /!member[\s\S]*?state\.selectedBodyTarget[\s\S]*?state\.pendingGraphMemberDeepLink = \{[\s\S]*?packageKey: packageIdentityKey\(pkg\)[\s\S]*?member: state\.selectedMemberKey[\s\S]*?target: state\.selectedBodyTarget[\s\S]*?restorePendingGraphMember\(\)/);
+    /graphSelection\?\.group\.key !== state\.selectedMemberKey[\s\S]*?state\.pendingGraphMemberDeepLink = \{[\s\S]*?packageKey: packageIdentityKey\(pkg\)[\s\S]*?member: state\.selectedMemberKey[\s\S]*?target: state\.selectedBodyTarget[\s\S]*?restorePendingGraphMember\(\)/);
   assert.match(
     restore,
     /state\.graphMemberNavigationTitle =[\s\S]*?render\(\);[\s\S]*?loadGraphMemberSurface/);
   assert.match(
     restore,
     /const owner = captureViewOperation\(seq\);[\s\S]*?ownsViewOperation\(owner, state\.graphMemberNavigationSeq\)/);
+  assert.equal(
+    restore.match(/replaceCurrentNav\(\);/g)?.length,
+    2);
+  assert.match(
+    apply,
+    /const requestedOverloadIndex = state\.selectedOverloadIndex;[\s\S]*?overload: requestedOverloadIndex/);
+  assert.match(
+    appSource,
+    /function renderMember\(type, member\) \{[\s\S]*?const hasSelectedOverload =[\s\S]*?state\.selectedOverloadIndex < member\.overloads\.length[\s\S]*?const overloadIndex = hasSelectedOverload \? state\.selectedOverloadIndex : 0;/);
+});
+
+test("navigation signatures retain exact graph body and normalized library scope", () => {
+  const base = {
+    packageKey: "Example\u00001.0.0\u0000net10.0",
+    lens: "api",
+    selectedTypeId: "Example.Widget",
+    selectedMemberKey: "graph:property:Value",
+    selectedOverloadIndex: 0,
+    memberSection: "call-graph",
+    atPackageRoot: false,
+    packageLens: "overview"
+  };
+  const getter = {
+    assembly: "Example",
+    assemblyVersion: "1.0.0.0",
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeDefinitionId: "Example.Widget",
+    typeMetadataId: "Example.Widget",
+    memberName: "get_Value",
+    selectorKey: "getter-selector",
+    metadataToken: null
+  };
+  const setter = {
+    ...getter,
+    memberName: "set_Value",
+    selectorKey: "setter-selector"
+  };
+
+  const getterSignature = navigationViewSignature({
+    ...base,
+    bodyTarget: getter,
+    libraryScope: new Set(["System.Runtime", "System.Collections"])
+  });
+  const reorderedScopeSignature = navigationViewSignature({
+    ...base,
+    bodyTarget: getter,
+    libraryScope: new Set(["System.Collections", "System.Runtime"])
+  });
+  const setterSignature = navigationViewSignature({
+    ...base,
+    bodyTarget: setter,
+    libraryScope: new Set(["System.Collections", "System.Runtime"])
+  });
+  const otherLibrarySignature = navigationViewSignature({
+    ...base,
+    bodyTarget: getter,
+    libraryScope: new Set(["System.Text.RegularExpressions"])
+  });
+
+  assert.equal(getterSignature, reorderedScopeSignature);
+  assert.notEqual(getterSignature, setterSignature);
+  assert.notEqual(getterSignature, otherLibrarySignature);
+});
+
+test("pending graph restoration replaces its current history entry", () => {
+  const navigation = {
+    stack: [
+      { sig: "provisional", view: { selectedOverloadIndex: 1 } },
+      { sig: "forward", view: { selectedOverloadIndex: 2 } }
+    ],
+    index: 0
+  };
+  const resolved = {
+    sig: "resolved",
+    view: { selectedOverloadIndex: 0 }
+  };
+
+  replaceCurrentNavigationEntry(navigation, resolved);
+
+  assert.equal(navigation.index, 0);
+  assert.equal(navigation.stack.length, 2);
+  assert.deepEqual(navigation.stack[0], resolved);
+  assert.equal(navigation.stack[1].sig, "forward");
 });
 
 test("async graph work uses one source-view ownership contract", () => {

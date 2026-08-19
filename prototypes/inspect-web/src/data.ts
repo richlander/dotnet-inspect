@@ -537,17 +537,12 @@ export function removeAppendedNotice(current: string, previous: string, appended
 
 interface NavigationEntry {
   sig: string;
-  view: unknown;
+  view: TView;
 }
 
-export interface NavigationState {
+export interface NavigationState<TView = unknown> {
   index: number;
-  stack: NavigationEntry[];
-}
-
-export function replaceCurrentNavigationEntry(nav: NavigationState, sig: string, view: unknown): void {
-  if (nav.index < 0 || nav.index >= nav.stack.length) return;
-  nav.stack[nav.index] = { sig, view };
+  stack: NavigationEntry<TView>[];
 }
 
 export interface CallGraphTarget {
@@ -627,6 +622,64 @@ export function graphMemberShareTarget(
     target.selectorKey,
     target.metadataToken ?? null
   ];
+}
+
+export interface NavigationSignatureView {
+  packageKey?: string;
+  lens?: string;
+  selectedTypeId?: string;
+  selectedMemberKey?: string;
+  memberBrowseTypeId?: string;
+  memberKindFilter?: string;
+  memberAccessibilityFilter?: string;
+  memberTraitFilter?: string;
+  selectedOverloadIndex?: number | null;
+  memberSection?: string;
+  atPackageRoot?: boolean;
+  packageLens?: string;
+  bodyTarget?: CallGraphTarget | null;
+  libraryScope?: Iterable<string> | null;
+}
+
+export function navigationViewSignature(
+  view: NavigationSignatureView,
+): string {
+  const libraryScope = view.libraryScope == null
+    ? null
+    : [...view.libraryScope].sort();
+  return JSON.stringify({
+    p: view.packageKey,
+    l: view.lens,
+    t: view.selectedTypeId,
+    m: view.selectedMemberKey,
+    mb: view.memberBrowseTypeId,
+    mk: view.memberKindFilter,
+    ma: view.memberAccessibilityFilter,
+    mr: view.memberTraitFilter,
+    o: view.selectedOverloadIndex,
+    s: view.memberSection,
+    pr: view.atPackageRoot,
+    pl: view.packageLens,
+    g: graphMemberShareTarget(view.bodyTarget),
+    ls: libraryScope?.length ? libraryScope : null
+  });
+}
+
+export function replaceCurrentNavigationEntry<TView>(
+  navigation: NavigationState<TView>,
+  entry: NavigationEntry<TView>,
+): void {
+  if (navigation.index === -1 && navigation.stack.length === 0) {
+    navigation.stack.push(entry);
+    navigation.index = 0;
+    return;
+  }
+  if (!Number.isInteger(navigation.index)
+    || navigation.index < 0
+    || navigation.index >= navigation.stack.length) {
+    throw new Error("The current navigation entry is unavailable.");
+  }
+  navigation.stack[navigation.index] = entry;
 }
 
 export function graphMemberTargetFromShare(
