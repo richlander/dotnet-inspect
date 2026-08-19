@@ -719,9 +719,20 @@ public static class MemberCommand
             StringComparer.OrdinalIgnoreCase);
         // An empty include set reads as "no explicit selection" and would restore the verbosity
         // defaults, so a selection of nothing but Facts keeps its original shape.
-        return remaining.Count is 0 || remaining.Count == sections.Count
-            ? options
-            : options with { IncludeSections = remaining };
+        if (remaining.Count is 0 || remaining.Count == sections.Count)
+            return options;
+
+        string[]? remainingSelectors = options.Select?
+            .Where(selector =>
+                !selector.Equals(SectionNames.Facts, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        return options with
+        {
+            IncludeSections = remaining,
+            Select = remainingSelectors is { Length: > 0 }
+                ? remainingSelectors
+                : options.Select,
+        };
     }
 
     private static readonly IReadOnlySet<string> EmptySections =

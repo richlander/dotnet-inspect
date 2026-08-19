@@ -1706,6 +1706,15 @@ public class ApiCommand
                 return 1;
             }
 
+            if (ExplicitUnsupportedDocumentJsonSection(options) is { } unsupportedSection)
+            {
+                CommandError.Write(
+                    $"Document --json cannot represent section '{unsupportedSection}'. "
+                    + "Use Markdown output or a section-specific --print, --jsonl, --tsv, "
+                    + "or --table projection.");
+                return 1;
+            }
+
             if (GetRequestedMemberSections(type, options)
                     .Contains(SectionNames.PerformanceTriage)
                 && HasExplicitPerformanceTriageSelector(options))
@@ -1820,16 +1829,16 @@ public class ApiCommand
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
             Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
                 typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
-                    options.DllPath!, executionSections, type, options);
+                    options.DllPath!, requestedExecutionSections, type, options);
 
             if (options.DllPath is not null
-                && executionSections.Contains(SectionNames.UnsafeMembers))
+                && requestedExecutionSections.Contains(SectionNames.UnsafeMembers))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisIndex());
             }
 
             if (options.DllPath is { } exceptionRegionsDllPath
-                && executionSections.Contains(SectionNames.ExceptionRegions))
+                && requestedExecutionSections.Contains(SectionNames.ExceptionRegions))
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
@@ -1839,7 +1848,7 @@ public class ApiCommand
             }
 
             if (options.DllPath is not null
-                && executionSections.Contains(SectionNames.CalledTypes))
+                && requestedExecutionSections.Contains(SectionNames.CalledTypes))
             {
                 ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisIndex(), options.IncludeSections);
             }
@@ -1853,7 +1862,7 @@ public class ApiCommand
             }
 
             if (options.DllPath is not null
-                && executionSections.Contains(SectionNames.PerformanceTriage))
+                && requestedExecutionSections.Contains(SectionNames.PerformanceTriage))
             {
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), options.IncludeSections,
                     options.PerformanceTriage,
@@ -1862,7 +1871,7 @@ public class ApiCommand
             }
 
             if (options.DllPath is not null
-                && executionSections.Contains(SectionNames.TopLeverage))
+                && requestedExecutionSections.Contains(SectionNames.TopLeverage))
             {
                 ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(options)
@@ -2700,16 +2709,16 @@ public class ApiCommand
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
             Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
                 typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
-                    renderOptions.DllPath!, executionSections, type, renderOptions);
+                    renderOptions.DllPath!, requestedExecutionSections, type, renderOptions);
 
             if (renderOptions.DllPath is not null
-                && executionSections.Contains(SectionNames.UnsafeMembers))
+                && requestedExecutionSections.Contains(SectionNames.UnsafeMembers))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(view, type, TypeAnalysisIndex());
             }
 
             if (renderOptions.DllPath is { } exceptionRegionsDllPath
-                && executionSections.Contains(SectionNames.ExceptionRegions))
+                && requestedExecutionSections.Contains(SectionNames.ExceptionRegions))
             {
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
@@ -2720,7 +2729,7 @@ public class ApiCommand
             }
 
             if (renderOptions.DllPath is not null
-                && executionSections.Contains(SectionNames.CalledTypes))
+                && requestedExecutionSections.Contains(SectionNames.CalledTypes))
             {
                 ApiOutputFormatter.PopulateCalledTypes(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections);
             }
@@ -2734,7 +2743,7 @@ public class ApiCommand
             }
 
             if (renderOptions.DllPath is not null
-                && executionSections.Contains(SectionNames.PerformanceTriage))
+                && requestedExecutionSections.Contains(SectionNames.PerformanceTriage))
             {
                 ApiOutputFormatter.PopulateOptimizationOpportunities(view, type, TypeAnalysisIndex(), renderOptions.IncludeSections,
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
@@ -2742,7 +2751,7 @@ public class ApiCommand
             }
 
             if (renderOptions.DllPath is not null
-                && executionSections.Contains(SectionNames.TopLeverage))
+                && requestedExecutionSections.Contains(SectionNames.TopLeverage))
             {
                 ApiOutputFormatter.PopulateTopLeverage(view, type, TypeAnalysisIndex(),
                     restrictToModelMembers: ApiMemberSectionPipelines.UsesDetailPipeline(renderOptions)
@@ -2962,6 +2971,36 @@ public class ApiCommand
                || selector.Equals(
                    "Optimization Opportunities",
                    StringComparison.OrdinalIgnoreCase)) == true;
+
+    private static string? ExplicitUnsupportedDocumentJsonSection(ApiOptions options)
+        => options.Select?
+            .FirstOrDefault(selector =>
+                UnsupportedDocumentJsonSections.Contains(selector));
+
+    private static readonly HashSet<string> UnsupportedDocumentJsonSections =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.Facts,
+            SectionNames.IL,
+            SectionNames.DecompiledSource,
+            SectionNames.FidelityCauses,
+            SectionNames.AnnotatedSource,
+            SectionNames.CostOverlay,
+            SectionNames.SemanticsOverlay,
+            SectionNames.OriginalSource,
+            SectionNames.SourceDiff,
+            SectionNames.Calls,
+            SectionNames.Callers,
+            SectionNames.CallGraph,
+            SectionNames.ExceptionRegions,
+            SectionNames.AllocationFacts,
+            SectionNames.SafetyFacts,
+            SectionNames.CostFacts,
+            SectionNames.AppliedTaste,
+            SectionNames.UnsafeOperations,
+            SectionNames.CalledTypes,
+            SectionNames.TopLeverage,
+        };
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;

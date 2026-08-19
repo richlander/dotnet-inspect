@@ -6796,7 +6796,8 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("## Safety Facts", output, StringComparison.Ordinal);
         Assert.DoesNotContain("## Cost Facts", output, StringComparison.Ordinal);
         Assert.DoesNotContain("## Fidelity Causes", output, StringComparison.Ordinal);
-        Assert.DoesNotContain("## Exception Regions", output, StringComparison.Ordinal);
+        Assert.Contains("## Exception Regions", output, StringComparison.Ordinal);
+        Assert.Contains("No exception regions found on this type", output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -6976,6 +6977,9 @@ public partial class CommandExecutionTests
     [InlineData("Cost Overlay", "DEC0001")]
     [InlineData("Semantics Overlay", "DEC0001")]
     [InlineData("Calls", "No calls to other methods found")]
+    [InlineData("Allocation Facts", "No allocation facts found")]
+    [InlineData("Safety Facts", "No safety facts found")]
+    [InlineData("Cost Facts", "No cost facts found")]
     [InlineData("Applied Taste", "No recorded style choices")]
     public async Task Member_BodylessConcreteAccessor_PreservesSelectedAbsenceSection(
         string section,
@@ -7018,6 +7022,86 @@ public partial class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("DEC0001", error, StringComparison.Ordinal);
         Assert.Contains("has no IL body", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_BodylessConcreteAccessor_FactsRemovalNormalizesAnnotatedDocumentSelection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Environment",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "ExitCode:1",
+            "-S",
+            "Facts,Annotated Source Document",
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Note: The selected accessor has no IL body.", error);
+        Assert.Contains("DEC0001", error, StringComparison.Ordinal);
+        Assert.Contains("has no IL body", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("must be the only selected section", error);
+    }
+
+    [Theory]
+    [InlineData("Exception Regions", "No exception regions found on this type")]
+    [InlineData("Performance Triage", "No optimization opportunities were found for this type")]
+    public async Task Member_BodylessAbstractAccessor_PreservesTypeScopedSection(
+        string section,
+        string expected)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Collections.Generic.ICollection<T>",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "Count:1",
+            "-S",
+            section,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(expected, output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Facts,Fidelity Causes", "Fidelity Causes")]
+    [InlineData("Signature,Fidelity Causes", "Fidelity Causes")]
+    [InlineData("Calls", "Calls")]
+    [InlineData("Cost Overlay", "Cost Overlay")]
+    [InlineData("Applied Taste", "Applied Taste")]
+    [InlineData("Allocation Facts", "Allocation Facts")]
+    [InlineData("Exception Regions", "Exception Regions")]
+    public async Task Member_DocumentJson_RejectsExplicitAnalysisSection(
+        string sections,
+        string rejectedSection)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "System.Environment",
+            "--platform",
+            "System.Runtime",
+            "-m",
+            "ExitCode:1",
+            "-S",
+            sections,
+            "--json",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Document --json cannot represent section '{rejectedSection}'.",
+            error);
     }
 
     [Theory]

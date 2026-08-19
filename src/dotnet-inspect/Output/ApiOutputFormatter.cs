@@ -1522,6 +1522,14 @@ public static class ApiOutputFormatter
                 sections.Add(SectionNames.SemanticsOverlay);
             if (requestedSections.Contains(SectionNames.Calls))
                 sections.Add(SectionNames.Calls);
+            if (requestedSections.Contains(SectionNames.ExceptionRegions))
+                sections.Add(SectionNames.ExceptionRegions);
+            if (requestedSections.Contains(SectionNames.AllocationFacts))
+                sections.Add(SectionNames.AllocationFacts);
+            if (requestedSections.Contains(SectionNames.SafetyFacts))
+                sections.Add(SectionNames.SafetyFacts);
+            if (requestedSections.Contains(SectionNames.CostFacts))
+                sections.Add(SectionNames.CostFacts);
             if (requestedSections.Contains(SectionNames.AppliedTaste))
                 sections.Add(SectionNames.AppliedTaste);
             if (requestedSections.Contains(SectionNames.Callers))

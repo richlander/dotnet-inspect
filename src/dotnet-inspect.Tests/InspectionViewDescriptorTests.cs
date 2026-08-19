@@ -543,16 +543,24 @@ public class InspectionViewDescriptorTests
             SectionNames.CostOverlay,
             SectionNames.SemanticsOverlay,
             SectionNames.Calls,
+            SectionNames.ExceptionRegions,
+            SectionNames.AllocationFacts,
+            SectionNames.SafetyFacts,
+            SectionNames.CostFacts,
             SectionNames.AppliedTaste,
         ];
 
         Assert.Equal(
             [
+                SectionNames.AllocationFacts,
                 SectionNames.AnnotatedSourceDocument,
                 SectionNames.AppliedTaste,
                 SectionNames.Calls,
+                SectionNames.CostFacts,
                 SectionNames.CostOverlay,
+                SectionNames.ExceptionRegions,
                 SectionNames.FidelityCauses,
+                SectionNames.SafetyFacts,
                 SectionNames.SemanticsOverlay,
             ],
             ApiOutputFormatter
