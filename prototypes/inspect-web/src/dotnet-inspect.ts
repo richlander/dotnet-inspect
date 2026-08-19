@@ -7135,10 +7135,12 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   }
   let candidate = resolveRuntimeGraphTargetCandidate(pack, node);
   let assemblyResident = runtimeGraphTargetAssemblyIsResident(pack, node);
-  if (candidate.status === "ambiguous") {
+  if (candidate.status === "ambiguous" || candidate.status === "skew") {
     await showPlatformTargetError(
       node,
-      "the runtime target identity matched multiple types");
+      candidate.status === "skew"
+        ? "the loaded runtime assembly identity does not match the exact target"
+        : "the runtime target identity matched multiple types");
     return;
   }
   let selection = findRuntimeMemberSelection(pack, node, candidate);
@@ -7176,10 +7178,12 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     recordPlatformRecent(node.assembly, targetPack);
     candidate = resolveRuntimeGraphTargetCandidate(pack, node);
     assemblyResident = runtimeGraphTargetAssemblyIsResident(pack, node);
-    if (candidate.status === "ambiguous") {
+    if (candidate.status === "ambiguous" || candidate.status === "skew") {
       await showPlatformTargetError(
         node,
-        "the runtime target identity matched multiple types");
+        candidate.status === "skew"
+          ? "the loaded runtime assembly identity does not match the exact target"
+          : "the runtime target identity matched multiple types");
       return;
     }
     selection = findRuntimeMemberSelection(pack, node, candidate);

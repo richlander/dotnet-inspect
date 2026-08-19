@@ -911,6 +911,7 @@ export function resolveOpportunitySourceType<
 export type GraphTargetCandidate<TPackage, TType> =
   | { status: "missing" }
   | { status: "ambiguous" }
+  | { status: "skew" }
   | { status: "unique"; pkg: TPackage; type: TType };
 
 export function resolveLoadedGraphTargetCandidate<
@@ -924,6 +925,7 @@ export function resolveLoadedGraphTargetCandidate<
   const typeId = callGraphTargetTypeId(target);
   if (!typeId || !target?.assembly) return { status: "missing" };
   const matches: { pkg: TPackage; type: TType }[] = [];
+  let identitySkew = false;
   for (const pkg of packages) {
     if (!pkg || pkg.isRuntimePack) continue;
     for (const type of pkg.types ?? []) {
@@ -941,11 +943,19 @@ export function resolveLoadedGraphTargetCandidate<
         matches.push({ pkg, type });
         if (matches.length > 1) return { status: "ambiguous" };
       }
+      if (!callGraphAssemblyIdentityMatches(target, descriptor)) {
+        identitySkew = true;
+        continue;
+      }
+      matches.push({ pkg, type });
+      if (matches.length > 1) return { status: "ambiguous" };
     }
   }
   return matches.length === 1
     ? { status: "unique", ...matches[0] }
-    : { status: "missing" };
+    : identitySkew
+      ? { status: "skew" }
+      : { status: "missing" };
 }
 
 export function resolveLoadedGraphTargetCandidate<
@@ -1027,7 +1037,8 @@ export function graphTargetNavigationDisposition(
   target: CallGraphTarget | null | undefined,
   resident = false,
 ): GraphTargetNavigationDisposition {
-  if (candidate.status === "ambiguous") return "blocked";
+  if (candidate.status === "ambiguous" || candidate.status === "skew")
+    return "blocked";
   if (candidate.status === "unique") return "loaded";
   if (Object.prototype.hasOwnProperty.call(
       target ?? {},

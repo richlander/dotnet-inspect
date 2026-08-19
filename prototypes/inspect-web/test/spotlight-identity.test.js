@@ -3579,6 +3579,15 @@ test("ambiguous call graph targets expose a visible refusal", () => {
   assert.match(
     binding,
     /showPlatformTargetError\(target, reason\)/);
+  assert.match(
+    binding,
+    /invalidateGraphMemberNavigation\(\);\s*state\.memberCallGraphSeq\+\+;[\s\S]*?showPlatformTargetError\(target, reason\)/);
+  assert.match(
+    binding,
+    /node\.setAttribute\("tabindex", "0"\);\s*node\.setAttribute\("role", "button"\)/);
+  assert.match(
+    binding,
+    /node\.addEventListener\("keydown", event => \{[\s\S]*?event\.key !== "Enter" && event\.key !== " "[\s\S]*?refuse\(\)/);
 });
 
 test("async graph work uses one source-view ownership contract", () => {
@@ -3640,7 +3649,9 @@ test("call graph navigation rejects assembly identity skew", () => {
     assembly: "Example",
     assemblyVersion: "1.0.0.0",
     assemblyCulture: "neutral",
-    assemblyPublicKeyToken: "0011223344556677"
+    assemblyPublicKeyToken: "0011223344556677",
+    typeMetadataId: "Example.Widget",
+    kind: "external"
   };
   const exact = {
     name: "Example",
@@ -3663,6 +3674,45 @@ test("call graph navigation rejects assembly identity skew", () => {
       { assembly: "Example", typeMetadataId: "Example.Widget" },
       exact),
     true);
+
+  const skewedPackage = {
+    ...packageAt("2.0.0", "net8.0"),
+    types: [{
+      assemblyId: "example",
+      assemblyName: "Example",
+      metadataId: "Example.Widget"
+    }],
+    assemblies: [{
+      id: "example",
+      ...exact,
+      version: "2.0.0.0"
+    }]
+  };
+  const candidate = resolveLoadedGraphTargetCandidate(
+    [skewedPackage],
+    target);
+  assert.deepEqual(candidate, { status: "skew" });
+  assert.equal(
+    graphTargetNavigationDisposition(candidate, target),
+    "blocked");
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      candidate,
+      target,
+      false),
+    "blocked");
+});
+
+test("failed graph restoration uses the canonical empty member identity", () => {
+  const restore =
+    appSource.match(/async function restorePendingGraphMember[\s\S]*?(?=\n\})/)?.[0]
+    ?? "";
+  assert.match(
+    restore,
+    /catch \(error\)[\s\S]*?state\.selectedMemberKey = "";/);
+  assert.doesNotMatch(
+    restore,
+    /state\.selectedMemberKey = null/);
 });
 
 test("call graph navigation joins asset names through metadata identity", () => {
