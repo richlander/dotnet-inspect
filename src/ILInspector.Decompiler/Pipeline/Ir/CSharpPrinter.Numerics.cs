@@ -1593,7 +1593,7 @@ public sealed partial class CSharpPrinter
         if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual
             && (left is Box || right is Box))
         {
-            return $"{BoxedReferenceOperand(left)} {ComparisonOperator(kind)} {BoxedReferenceOperand(right)}";
+            return $"{ObjectReferenceOperand(left)} {ComparisonOperator(kind)} {ObjectReferenceOperand(right)}";
         }
         // The `cgt.un`/`clt.un` against null idiom csc emits for a reference
         // inequality (`ldnull; cgt.un` = `obj != null`): an unsigned ordering of a
@@ -1620,8 +1620,7 @@ public sealed partial class CSharpPrinter
         // pointer types (CS8521), so this uses the equality form, not is-null.
         if (kind is ComparisonKind.Equal or ComparisonKind.NotEqual)
         {
-            if (IsCurrentEqualityOperator()
-                && IsKnownReferenceComparison(left, right))
+            if (NeedsReferenceIdentityCast(kind, left, right))
             {
                 return $"(object){Operand(left)} {ComparisonOperator(kind)} (object){Operand(right)}";
             }
@@ -1694,19 +1693,149 @@ public sealed partial class CSharpPrinter
             : $"{Operand(left)} {ComparisonOperator(kind)} {Operand(right)}";
     }
 
-    bool IsCurrentEqualityOperator()
-        => _function.Name is "op_Equality" or "op_Inequality";
-
     bool IsKnownReferenceComparison(IrExpression left, IrExpression right)
-        => IsKnownReferenceType(left.ResultType) && IsKnownReferenceType(right.ResultType);
+        => IsKnownReferenceValue(left) && IsKnownReferenceValue(right);
+
+    bool IsKnownReferenceValue(IrExpression expression)
+        => expression switch
+        {
+            IsInstance instance => !IsValueTypeTarget(instance.Type),
+            NewObject creation => !IsValueTypeTarget(creation.Constructor.DeclaringType),
+            CastClass or Box => true,
+            _ => IsKnownReferenceType(expression.ResultType),
+        };
 
     bool IsKnownReferenceType(TypeRef? type)
         => TypeFamilies.Of(type) == StackFamily.O
             || type is { Kind: TypeRefKind.SzArray or TypeRefKind.Array }
+            || type?.DeclaredValueTypeHint == ValueTypeHint.ReferenceType
             || type is not null && _function.TypeShapes.GetValueOrDefault(NamedDefinition(type)) == TypeShape.Reference;
 
-    string BoxedReferenceOperand(IrExpression operand)
-        => operand is Box box ? $"(object){Operand(box.Operand)}" : Operand(operand);
+    bool NeedsReferenceIdentityCast(ComparisonKind kind, IrExpression left, IrExpression right)
+        => IsKnownReferenceComparison(left, right)
+            && (!IsOperatorFreeReferenceOperand(left, kind)
+                || !IsOperatorFreeReferenceOperand(right, kind)
+                || !BareReferenceEqualityBinds(left.ResultType, right.ResultType));
+
+    bool IsOperatorFreeReferenceOperand(IrExpression operand, ComparisonKind kind)
+    {
+        if (RendersAsDynamic(operand))
+            return false;
+        var type = operand.ResultType;
+        if (type is null)
+            return false;
+        if (type.Kind is TypeRefKind.SzArray or TypeRefKind.Array)
+            return true;
+        if (TypeDefinitionIdentity.Create(type) is not { } definition)
+            return false;
+        if (definition.Definition is
+            {
+                Assembly: TypeRef.CoreLibrary,
+                Namespace: "System",
+                Name: "Object",
+            })
+            return true;
+        return kind == ComparisonKind.Equal
+            ? _function.EqualityOperatorFreeTypes.Contains(definition)
+            : _function.InequalityOperatorFreeTypes.Contains(definition);
+    }
+
+    static bool BareReferenceEqualityBinds(TypeRef? left, TypeRef? right)
+        => left is not null
+            && right is not null
+            && (SameResolvedType(left, right) || IsObject(left) || IsObject(right));
+
+    static bool SameResolvedType(TypeRef left, TypeRef right)
+    {
+        if (!left.Equals(right))
+            return false;
+        if (TypeDefinitionIdentity.Create(left) is { } leftIdentity
+            && TypeDefinitionIdentity.Create(right) is { } rightIdentity
+            && leftIdentity != rightIdentity)
+        {
+            return false;
+        }
+        if (left.ElementType is { } leftElement
+            && right.ElementType is { } rightElement
+            && !SameResolvedType(leftElement, rightElement))
+        {
+            return false;
+        }
+        for (int i = 0; i < left.TypeArguments.Length; i++)
+        {
+            if (!SameResolvedType(left.TypeArguments[i], right.TypeArguments[i]))
+                return false;
+        }
+        return true;
+    }
+
+    static bool IsObject(TypeRef type)
+        => type is
+        {
+            Kind: TypeRefKind.Definition,
+            Assembly: TypeRef.CoreLibrary,
+            Namespace: "System",
+            Name: "Object",
+        };
+
+    static bool RendersAsDynamic(IrExpression operand)
+        => operand switch
+        {
+            DynamicGetMember => true,
+            Call call => MayRenderDynamicResult(call.Callee),
+            LoadProperty property => MayRenderDynamicResult(property.Accessor),
+            LoadIndirect { Address: Call call } => MayRenderByRefDynamicResult(call.Callee),
+            LoadIndirect { Address: LoadProperty property } => MayRenderByRefDynamicResult(property.Accessor),
+            LoadIndirect
+            {
+                Address: LoadField
+                {
+                    Field:
+                    {
+                        Type: { Kind: TypeRefKind.ByRef, ElementType: { } element },
+                        DynamicFact: not MetadataFactState.No,
+                    },
+                },
+            } => IsSystemObjectType(element),
+            LoadField field => IsSystemObjectType(field.Field.Type)
+                && field.Field.DynamicFact != MetadataFactState.No,
+            LoadElement { ResultType: { } type } element => IsSystemObjectType(type)
+                && element.ResultIsDynamic != MetadataFactState.No,
+            AwaitExpression { ResultType: { } resultType } awaitExpression
+                => IsSystemObjectType(resultType)
+                    && awaitExpression.ResultIsDynamic != MetadataFactState.No,
+            Conditional conditional => RendersAsDynamic(conditional.WhenTrue)
+                || RendersAsDynamic(conditional.WhenFalse),
+            Coalesce coalesce => RendersAsDynamic(coalesce.Left)
+                || RendersAsDynamic(coalesce.Right),
+            NullConditional conditional => RendersAsDynamic(conditional.Member),
+            SwitchExpression switchExpression => switchExpression.Arms.Any(arm => RendersAsDynamic(arm.Value)),
+            UnionSwitchExpression switchExpression => switchExpression.Arms.Any(arm => RendersAsDynamic(arm.Value))
+                || switchExpression.NullValue is { } nullValue && RendersAsDynamic(nullValue)
+                || switchExpression.DefaultValue is { } defaultValue && RendersAsDynamic(defaultValue),
+            PatternSwitchExpression switchExpression => switchExpression.Arms.Any(arm => RendersAsDynamic(arm.Value))
+                || switchExpression.DefaultValue is { } defaultValue && RendersAsDynamic(defaultValue),
+            TupleSwitchExpression switchExpression => switchExpression.Arms.Any(arm => RendersAsDynamic(arm.Value)),
+            _ => IsDynamicTypedReceiver(operand),
+        };
+
+    static bool MayRenderDynamicResult(MethodRef method)
+        => IsSystemObjectType(method.ReturnType)
+            && method.ReturnIsDynamic != MetadataFactState.No;
+
+    static bool MayRenderByRefDynamicResult(MethodRef method)
+        => method.ReturnType is
+            {
+                Kind: TypeRefKind.ByRef,
+                ElementType: { } element,
+            }
+            && IsSystemObjectType(element)
+            && method.ReturnIsDynamic != MetadataFactState.No;
+
+    string ObjectReferenceOperand(IrExpression operand)
+        => operand is Box box
+            ? $"(object){Operand(box.Operand)}"
+            : $"(object){Operand(operand)}";
 
     string? IsInstanceNullTestText(IrExpression operand, bool isNotNull)
     {

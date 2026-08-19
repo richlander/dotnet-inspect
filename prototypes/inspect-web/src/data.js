@@ -380,16 +380,23 @@ export function pdbSourceLimitationHtml(source) {
 }
 
 export function callGraphDiagnosticsMessage(diagnostics) {
-  if (!diagnostics?.isIncomplete) return "";
-  const boundaries = [];
-  if (diagnostics.hasUnexploredTraversalBoundary)
-    boundaries.push("unexplored traversal");
+  if (!diagnostics) return "";
+  const evidence = [];
+  if (diagnostics.incompleteNodes > 0)
+    evidence.push(`${diagnostics.incompleteNodes} incomplete node${diagnostics.incompleteNodes === 1 ? "" : "s"}`);
+  if (diagnostics.incompleteEdges > 0)
+    evidence.push(`${diagnostics.incompleteEdges} incomplete edge${diagnostics.incompleteEdges === 1 ? "" : "s"}`);
+  if (diagnostics.bindingIdentityConflicts > 0)
+    evidence.push(`${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}`);
   if (diagnostics.hasAnalysisFailureBoundary)
-    boundaries.push("analysis failure");
-  const boundaryText = boundaries.length
-    ? ` Boundaries: ${boundaries.join(" and ")}.`
-    : "";
-  return `Partial call graph: ${diagnostics.incompleteNodes} incomplete node${diagnostics.incompleteNodes === 1 ? "" : "s"}, ${diagnostics.incompleteEdges} incomplete edge${diagnostics.incompleteEdges === 1 ? "" : "s"}, and ${diagnostics.bindingIdentityConflicts} binding identity conflict${diagnostics.bindingIdentityConflicts === 1 ? "" : "s"}.${boundaryText}`;
+    evidence.push("one or more method bodies could not be analyzed");
+  if (!evidence.length) return "";
+  const detail = evidence.length === 1
+    ? evidence[0]
+    : evidence.length === 2
+    ? `${evidence[0]} and ${evidence[1]}`
+    : `${evidence.slice(0, -1).join(", ")}, and ${evidence.at(-1)}`;
+  return `Partial call graph: ${detail}.`;
 }
 
 export function parameterTitleHtml(parameters) {
