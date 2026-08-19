@@ -363,6 +363,7 @@ public static class MemberCommand
                     MemberHasNoPdbDeclaration = resolved.MemberHasNoPdbDeclaration,
                     MemberSourceTooComplex = resolved.MemberSourceTooComplex,
                     MemberSourceCoordinatesInvalid = resolved.MemberSourceCoordinatesInvalid,
+                    PdbSourceUnavailableReason = resolved.PdbSourceUnavailableReason,
                     PdbPath = resolved.PdbPath
                 };
             }

@@ -1483,13 +1483,17 @@ public class ApiCommand
     /// <param name="MemberSourceCoordinatesInvalid">
     /// True when portable-PDB sequence-point coordinates cannot address the verified source.
     /// </param>
+    /// <param name="PdbSourceUnavailableReason">
+    /// Visible explanation when PDB source acquisition failed for another reason.
+    /// </param>
     internal sealed record ResolvedMethodSource(
         MethodSourceContext? Source,
         string? PdbPath,
         bool MemberHasNoBody = false,
         bool MemberHasNoPdbDeclaration = false,
         bool MemberSourceTooComplex = false,
-        bool MemberSourceCoordinatesInvalid = false);
+        bool MemberSourceCoordinatesInvalid = false,
+        string? PdbSourceUnavailableReason = null);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
@@ -1524,12 +1528,26 @@ public class ApiCommand
             // (issue #3299). Only a definite "no" counts; an unreadable token stays unknown.
             bool memberHasNoBody = metadataToken != 0 && context.MethodHasBody(metadataToken) == false;
 
-            if (!fetchSource || !service.HasPdb || !service.HasSourceLink)
+            if (!fetchSource)
                 return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
+            if (!service.HasPdb)
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    memberHasNoBody,
+                    PdbSourceUnavailableReason: NoPortablePdbReason);
+            }
 
             var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly, metadataToken);
             if (methodInfo == null)
-                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    memberHasNoBody,
+                    PdbSourceUnavailableReason: NoPdbSourceMappingReason);
+            }
 
             // Honor the source the portable PDB records when it is present locally: a non-reproducible
             // (local dev) build keeps a real local path whose exact compiled bytes may exist only here,
@@ -1571,7 +1589,13 @@ public class ApiCommand
             }
 
             if (content == null)
-                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
+            {
+                return new ResolvedMethodSource(
+                    null,
+                    pdbPath,
+                    memberHasNoBody,
+                    PdbSourceUnavailableReason: NoMatchingPdbSourceReason);
+            }
 
             return SliceResolvedMethodSource(
                 content,
@@ -1585,7 +1609,10 @@ public class ApiCommand
         catch (Exception ex)
         {
             logger.LogWarning($"Failed to resolve method source for {typeName}.{methodName}: {ex.Message}");
-            return new ResolvedMethodSource(null, null);
+            return new ResolvedMethodSource(
+                null,
+                null,
+                PdbSourceUnavailableReason: PdbSourceInspectionFailedReason);
         }
     }
 
@@ -2870,6 +2897,18 @@ public class ApiCommand
         "// PDB source extraction stopped because the portable-PDB sequence-point coordinates "
         + "cannot address the verified source.";
 
+    internal const string NoPortablePdbReason =
+        "No portable PDB is available for the selected member.";
+
+    internal const string NoPdbSourceMappingReason =
+        "The selected member has no portable-PDB source mapping.";
+
+    internal const string NoMatchingPdbSourceReason =
+        "No checksum-matching PDB source could be acquired locally or through SourceLink.";
+
+    internal const string PdbSourceInspectionFailedReason =
+        "PDB source inspection failed.";
+
     internal static string? PdbSourceUnavailableNote(MemberOptions options) =>
         options.MemberHasNoBody
             ? BodylessMemberNote
@@ -2879,7 +2918,9 @@ public class ApiCommand
                     ? SourceCoordinatesInvalidNote
                     : options.MemberHasNoPdbDeclaration
                         ? NoPdbDeclarationNote
-                        : null;
+                        : options.PdbSourceUnavailableReason is { Length: > 0 } reason
+                            ? $"// {reason}"
+                            : null;
 
     private static void PopulateSourceDiff(
         TypeView view,

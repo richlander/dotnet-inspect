@@ -903,10 +903,10 @@ work.
     today).
   - **PDB source reference** (the readable endpoint the raise aims at): prefer
     C# via `-S "PDB Source"`; the checksum proves agreement with the Portable
-    PDB declaration, not independent build provenance. When SourceLink cannot
-    supply it (no PDB, no source server, or a non-C# source language), fall back
-    to the raw `IL` section (`-S "IL"`), which remains authoritative for the
-    compiled behavior.
+    PDB declaration, not independent build provenance. When no checksum-matching
+    C# is available locally or through SourceLink (no usable PDB, no local or
+    SourceLink source, or a non-C# source language), fall back to the raw `IL`
+    section (`-S "IL"`), which remains authoritative for the compiled behavior.
 
   ```bash
   dnx dotnet-inspect -y -- member {Type} {MethodSelector} {scope} -S "PDB Source"

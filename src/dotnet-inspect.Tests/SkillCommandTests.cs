@@ -74,6 +74,7 @@ public class SkillCommandTests
             "README.md",
             "skills/sourcelink/SKILL.md",
             "skills/compatibility/SKILL.md",
+            "docs/decompiler-quality.md",
             "docs/templates/decompiler-pr.md",
             "docs/workflows/getting-started/verbosity-and-tips.md",
             "docs/workflows/core/member-lookup-docs-code.md"

@@ -318,6 +318,11 @@ public record MemberOptions : ApiOptions
     public bool MemberSourceCoordinatesInvalid { get; init; }
 
     /// <summary>
+    /// Explains why PDB source acquisition failed when no more specific source state applies.
+    /// </summary>
+    public string? PdbSourceUnavailableReason { get; init; }
+
+    /// <summary>
     /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for cross-assembly callers
     /// and bidirectional Call Graph traversal, in addition to the member's own assembly.
     /// Empty = own assembly only.

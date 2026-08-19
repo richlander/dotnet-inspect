@@ -46,8 +46,8 @@ public sealed record VerifiedSourceTextResult(string? Text, string? Failure)
 }
 
 /// <summary>
-/// Acquires one PDB-mapped member from SourceLink and verifies the portable-PDB checksum before
-/// exposing its text as evidence.
+/// Acquires one PDB-mapped member source and verifies the portable-PDB checksum before exposing
+/// its text as evidence.
 /// </summary>
 public static class PdbSourceAcquisition
 {

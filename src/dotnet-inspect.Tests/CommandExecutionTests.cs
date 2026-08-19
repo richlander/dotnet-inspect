@@ -910,7 +910,8 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
-    private static (string AssemblyPath, string FixtureDir) CreateNoSourceLinkDiscoveryAssembly()
+    private static (string AssemblyPath, string SourcePath, string FixtureDir)
+        CreateNoSourceLinkDiscoveryAssembly()
     {
         const string source =
             """
@@ -932,6 +933,9 @@ public partial class CommandExecutionTests
         {
             var assemblyPath = Path.Combine(fixtureDir, "NoSourceLinkDiscovery.dll");
             var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
+            var sourcePath = Path.Combine(fixtureDir, "NoSourceLinkDiscovery.cs");
+            var sourceEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            File.WriteAllText(sourcePath, source, sourceEncoding);
             var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
                 .Split(Path.PathSeparator)
                 .Select(path => MetadataReference.CreateFromFile(path));
@@ -939,9 +943,9 @@ public partial class CommandExecutionTests
                 "NoSourceLinkDiscovery",
                 [
                     CSharpSyntaxTree.ParseText(
-                        SourceText.From(source, Encoding.UTF8),
+                        SourceText.From(source, sourceEncoding),
                         new CSharpParseOptions(LanguageVersion.Preview),
-                        path: "/_/NoSourceLinkDiscovery.cs")
+                        path: sourcePath)
                 ],
                 references,
                 new CSharpCompilationOptions(
@@ -964,7 +968,7 @@ public partial class CommandExecutionTests
             using var sourceLink = SourceLinkService.Open(assemblyPath);
             Assert.True(sourceLink.HasPdb);
             Assert.False(sourceLink.HasSourceLink);
-            return (assemblyPath, fixtureDir);
+            return (assemblyPath, sourcePath, fixtureDir);
         }
         catch
         {
@@ -6300,6 +6304,73 @@ public partial class CommandExecutionTests
         Assert.Empty(error);
         Assert.Contains("## PDB Source", output);
         Assert.DoesNotContain("## Original Source", output);
+    }
+
+    [Fact]
+    public async Task Member_PdbSource_LocalDocumentDoesNotRequireSourceLinkMap()
+    {
+        var (assemblyPath, _, fixtureDir) = CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath,
+                "-S", "PDB Source", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## PDB Source", output);
+            Assert.Contains(
+                "public static int Overloaded(int value) => value;",
+                output);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_PdbSource_LocalChecksumMismatchIsVisible()
+    {
+        var (assemblyPath, sourcePath, fixtureDir) =
+            CreateNoSourceLinkDiscoveryAssembly();
+        try
+        {
+            string source = File.ReadAllText(sourcePath);
+            File.WriteAllText(
+                sourcePath,
+                source.Replace(
+                    "public static int Overloaded(int value) => value;",
+                    "public static int Overloaded(int value) => value + 1;",
+                    StringComparison.Ordinal),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            var (exit, output, error) = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath,
+                "-S", "PDB Source", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains("## PDB Source", output);
+            Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, output);
+            Assert.DoesNotContain("value + 1", output);
+
+            var (jsonExit, jsonOutput, jsonError) = await RunAppAsync(
+                "member", "DiscoveryFixtures.NoSourceLink", "Overloaded:1",
+                "--library", assemblyPath,
+                "-S", "PDB Source", "--json", "--print", "--tips", "q");
+
+            Assert.Equal(0, jsonExit);
+            Assert.Empty(jsonError);
+            Assert.Contains(ApiCommand.NoMatchingPdbSourceReason, jsonOutput);
+            Assert.DoesNotContain("value + 1", jsonOutput);
+        }
+        finally
+        {
+            Directory.Delete(fixtureDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -14045,7 +14116,7 @@ public partial class CommandExecutionTests
     public async Task CliDiscoverySections_AreSelectable()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
-        var (noSourceLinkAssemblyPath, noSourceLinkFixtureDir) =
+        var (noSourceLinkAssemblyPath, _, noSourceLinkFixtureDir) =
             CreateNoSourceLinkDiscoveryAssembly();
         try
         {
