@@ -401,6 +401,8 @@ them as negative workload evidence. For nested rows, it preserves the
 source-facing `MethodToken` but uses `EvidenceMethod` as the physical body token
 when supplied. Blank flattened cells are treated as absent; invalid non-empty
 or conflicting supplied evidence-method tokens fail visibly.
+Method-name samples can still establish method-level heat, but only a complete
+runtime coordinate can produce an exact `confirmed-hot` result.
 For filtered triage exports, allocation-stack correlation stops at the first
 frame in the represented assembly. If that method has no exported row, the
 allocation remains unattributed rather than being credited to an outer caller.

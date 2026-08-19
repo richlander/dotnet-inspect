@@ -236,6 +236,38 @@ public class TypeConfirmationTests
     }
 
     [Fact]
+    public void ApplyTypeConfirmation_CollapsesSharedEvidenceBody()
+    {
+        var first = CandidateWithType(
+            1,
+            "Fixture.A.SourceOne()",
+            "System.String",
+            source: "triage",
+            methodToken: 0x06000001,
+            evidenceMethodToken: 0x06000003);
+        var second = CandidateWithType(
+            2,
+            "Fixture.A.SourceTwo()",
+            "System.String",
+            source: "triage",
+            methodToken: 0x06000002,
+            evidenceMethodToken: 0x06000003);
+        var result = new CorrelationResult();
+        result.Candidates.Add(first);
+        result.Candidates.Add(second);
+        result.RecordTypeVolume(
+            "System.String",
+            ProgramSupport.TypeConfirmMinBytes);
+
+        ProgramSupport.ApplyTypeConfirmation(result);
+
+        Assert.Equal(1, first.TypeConfirmedSiteCount);
+        Assert.Equal(1, second.TypeConfirmedSiteCount);
+        Assert.Equal("type-hot", first.Status);
+        Assert.Equal("type-hot", second.Status);
+    }
+
+    [Fact]
     public void ApplyTypeConfirmation_NormalizesAssemblyNameForDuplicatePhysicalSite()
     {
         var library = CandidateWithType(
@@ -1002,7 +1034,8 @@ public class TypeConfirmationTests
         int methodToken = 0x06000001,
         int ilOffset = 0x0010,
         Guid? moduleVersionId = null,
-        string libraryPath = "/tmp/Fixture.dll")
+        string libraryPath = "/tmp/Fixture.dll",
+        int? evidenceMethodToken = null)
     {
         string methodKey = method[..method.IndexOf('(')];
         int lastDot = methodKey.LastIndexOf('.');
@@ -1034,6 +1067,7 @@ public class TypeConfirmationTests
             null,
             null,
             null,
-            null);
+            null,
+            evidenceMethodToken: evidenceMethodToken);
     }
 }

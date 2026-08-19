@@ -1370,8 +1370,32 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
             || !TryParseHexInt(match.Groups["offset"].Value, out var offset))
             continue;
 
-        foreach (var candidate in lookup.FindByTokenOffset(token, offset))
-            MarkHit(candidate, matchedIds, sourceKind, bytes, exactOffset: true, weight: 1);
+        foreach (var candidate in lookup.FindSupersededByTokenOffset(
+                     token,
+                     offset))
+        {
+            candidate.SupersededByTriage = true;
+        }
+
+        var candidates = lookup.FindByTokenOffset(
+            token,
+            offset);
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            long? attributedBytes = bytes is long totalBytes
+                ? ProgramSupport.AttributedBytesForTest(
+                    totalBytes,
+                    candidates.Count,
+                    i)
+                : null;
+            MarkHit(
+                candidates[i],
+                matchedIds,
+                sourceKind,
+                attributedBytes,
+                exactOffset: true,
+                weight: 1d / candidates.Count);
+        }
     }
 
     var methodMatches = lookup.FindByMethodText(line);
@@ -1384,6 +1408,9 @@ static int CorrelateLine(string line, string sourceKind, CandidateLookup lookup)
 
         foreach (var candidate in methodMatches)
         {
+            if (candidate.SupersededByTriage)
+                continue;
+
             if (!candidate.HasKnownDistinctEvidenceMethodBody
                 && ilOffset is int offset
                 && candidate.IlOffset >= 0
@@ -2546,17 +2573,21 @@ sealed class AllocationCandidate(
 sealed class CandidateLookup
 {
     readonly Dictionary<(int Token, int Offset), List<AllocationCandidate>> _byTokenOffset;
+    readonly Dictionary<(int Token, int Offset), AllocationCandidate[]> _supersededByTokenOffset;
     readonly Dictionary<(string Module, int Token), List<AllocationCandidate>> _byModuleMethodToken;
     readonly HashSet<string> _candidateModules;
     readonly List<(string Fragment, AllocationCandidate Candidate)> _methodFragments;
 
     CandidateLookup(
         Dictionary<(int Token, int Offset), List<AllocationCandidate>> byTokenOffset,
+        Dictionary<(int Token, int Offset), AllocationCandidate[]> supersededByTokenOffset,
         Dictionary<(string Module, int Token), List<AllocationCandidate>> byModuleMethodToken,
         HashSet<string> candidateModules,
         List<(string Fragment, AllocationCandidate Candidate)> methodFragments)
     {
         _byTokenOffset = byTokenOffset;
+        _supersededByTokenOffset =
+            supersededByTokenOffset;
         _byModuleMethodToken = byModuleMethodToken;
         _candidateModules = candidateModules;
         _methodFragments = methodFragments;
@@ -2622,8 +2653,34 @@ sealed class CandidateLookup
             byTokenOffset.Remove(ambiguousKey);
         }
 
+        var supersededByTokenOffset =
+            new Dictionary<
+                (int Token, int Offset),
+                AllocationCandidate[]>();
+        foreach (var (key, coordinateCandidates)
+                 in byTokenOffset)
+        {
+            var superseded = ProgramSupport
+                .FindLibrariesSupersededByTriage(
+                    coordinateCandidates)
+                .ToArray();
+            if (superseded.Length == 0)
+                continue;
+
+            supersededByTokenOffset.Add(
+                key,
+                superseded);
+            var supersededIds = superseded
+                .Select(static candidate => candidate.Id)
+                .ToHashSet();
+            coordinateCandidates.RemoveAll(
+                candidate => supersededIds.Contains(
+                    candidate.Id));
+        }
+
         return new CandidateLookup(
             byTokenOffset,
+            supersededByTokenOffset,
             byModuleMethodToken,
             [.. byModuleMethodToken.Keys.Select(static key => key.Module)],
             fragments);
@@ -2658,6 +2715,16 @@ sealed class CandidateLookup
 
     public IReadOnlyList<AllocationCandidate> FindByTokenOffset(int token, int offset)
         => _byTokenOffset.TryGetValue((token, offset), out var candidates) ? candidates : [];
+
+    public IReadOnlyList<AllocationCandidate>
+        FindSupersededByTokenOffset(
+            int token,
+            int offset)
+        => _supersededByTokenOffset.TryGetValue(
+            (token, offset),
+            out var candidates)
+            ? candidates
+            : [];
 
     public IReadOnlyList<AllocationCandidate> FindNearestByCodeAddress(TraceCodeAddress address)
     {

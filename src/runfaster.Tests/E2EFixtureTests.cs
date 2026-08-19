@@ -279,7 +279,7 @@ public class E2EFixtureTests
             File.WriteAllText(
                 logPath,
                 $"RunFaster.AllocationFixture.Program.Main() "
-                    + $"IL_{occurrence.ILOffset:X4} 512 bytes");
+                    + "IL_FFFE 512 bytes");
 
             var sourceTextResult = RunCorrelate(
                 "--triage",
@@ -307,6 +307,10 @@ public class E2EFixtureTests
                 Assert.False(
                     candidate.GetProperty(
                         "exactOffsetObserved").GetBoolean());
+                Assert.Equal(
+                    512,
+                    candidate.GetProperty(
+                        "runtimeBytes").GetInt64());
             }
 
             File.WriteAllText(
@@ -371,6 +375,114 @@ public class E2EFixtureTests
             File.Delete(triagePath);
             File.Delete(logPath);
             File.Delete(speedscopePath);
+        }
+    }
+
+    [Fact]
+    public void Correlate_TextCoordinateSupersedesMatchingLibraryRow()
+    {
+        string assemblyPath =
+            FixtureCatalog.RunFasterAllocation.AssemblyPath();
+        var sourceMethod =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "Main",
+                BindingFlags.Public | BindingFlags.Static);
+        var evidenceMethod =
+            typeof(RunFaster.AllocationFixture.Program).GetMethod(
+                "AllocateOne",
+                BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(sourceMethod);
+        Assert.NotNull(evidenceMethod);
+        var occurrence = Assert.Single(
+            LibraryBodyIndex.Open(assemblyPath)
+                .GetAllocationOccurrences()[
+                    evidenceMethod.MetadataToken]);
+        string triagePath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-triage-{Guid.NewGuid():N}.json");
+        string logPath = Path.Combine(
+            Path.GetTempPath(),
+            $"runfaster-log-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(
+                triagePath,
+                $$$"""
+                {"performance":{"objects":[{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"{{{occurrence.Method.AssemblyName}}}","module_version_id":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{sourceMethod.MetadataToken:X8}}}","evidence_method":"0x{{{evidenceMethod.MetadataToken:X8}}}","shape":"object-allocation","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object"},{"member":"RunFaster.AllocationFixture.Program.Main()","assembly":"{{{occurrence.Method.AssemblyName}}}","module_version_id":"{{{occurrence.Method.ModuleVersionId:D}}}","method_token":"0x{{{sourceMethod.MetadataToken:X8}}}","evidence_method":"0x{{{evidenceMethod.MetadataToken:X8}}}","shape":"fixture-object","il":"IL_{{{occurrence.ILOffset:X4}}}","allocation":"System.Object"}]}}
+                """);
+            File.WriteAllText(
+                logPath,
+                $"0x{evidenceMethod.MetadataToken:X8}"
+                    + $"+{occurrence.ILOffset:X4} "
+                    + "RunFaster.AllocationFixture.Program.AllocateOne() "
+                    + "512 bytes");
+
+            var result = RunCorrelate(
+                "--library",
+                assemblyPath,
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Empty(result.Error);
+            using var output = JsonDocument.Parse(result.Output);
+            var coordinateRows = output.RootElement
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .Where(candidate =>
+                    candidate.GetProperty(
+                        "tokenIl").GetString()
+                    == $"0x{evidenceMethod.MetadataToken:X8}"
+                        + $"+IL_{occurrence.ILOffset:X4}")
+                .ToArray();
+            var triageRows = coordinateRows
+                .Where(candidate => candidate.GetProperty(
+                    "source").GetString() == "triage")
+                .ToArray();
+            Assert.Equal(2, triageRows.Length);
+            var library = Assert.Single(
+                coordinateRows,
+                candidate => candidate.GetProperty(
+                    "source").GetString() == "library");
+            Assert.All(
+                triageRows,
+                candidate =>
+                {
+                    Assert.Equal(
+                        256,
+                        candidate.GetProperty(
+                            "runtimeBytes").GetInt64());
+                    Assert.Equal(
+                        "confirmed-hot",
+                        candidate.GetProperty(
+                            "status").GetString());
+                });
+            Assert.Equal(
+                0,
+                library.GetProperty(
+                    "runtimeBytes").GetInt64());
+            Assert.Equal(
+                "superseded-by-triage",
+                library.GetProperty(
+                    "status").GetString());
+            Assert.Equal(
+                512,
+                coordinateRows.Sum(candidate =>
+                    candidate.GetProperty(
+                        "runtimeBytes").GetInt64()));
+            Assert.Equal(
+                1,
+                coordinateRows.Sum(candidate =>
+                    candidate.GetProperty(
+                        "runtimeWeight").GetDouble()));
+        }
+        finally
+        {
+            File.Delete(triagePath);
+            File.Delete(logPath);
         }
     }
 
@@ -1198,6 +1310,9 @@ public class E2EFixtureTests
         string ilOffset = Assert.IsType<string>(
             producedRow.RootElement.GetProperty(
                 "il").GetString());
+        string member = Assert.IsType<string>(
+            producedRow.RootElement.GetProperty(
+                "member").GetString());
         Assert.StartsWith(
             "IL_",
             ilOffset,
@@ -1241,6 +1356,34 @@ public class E2EFixtureTests
             Assert.Equal(
                 "not-runtime-correlatable",
                 candidate.GetProperty(
+                    "status").GetString());
+
+            File.WriteAllText(
+                logPath,
+                $"{member} {ilOffset} 512 bytes");
+            var methodResult = RunCorrelate(
+                "--triage",
+                triagePath,
+                "--log",
+                logPath,
+                "--json");
+
+            Assert.Equal(0, methodResult.ExitCode);
+            Assert.Empty(methodResult.Error);
+            using var methodOutput =
+                JsonDocument.Parse(methodResult.Output);
+            var methodCandidate = Assert.Single(
+                methodOutput.RootElement.GetProperty(
+                    "candidates").EnumerateArray());
+            Assert.False(
+                methodCandidate.GetProperty(
+                    "runtimeCorrelatable").GetBoolean());
+            Assert.False(
+                methodCandidate.GetProperty(
+                    "exactOffsetObserved").GetBoolean());
+            Assert.Equal(
+                "method-hot",
+                methodCandidate.GetProperty(
                     "status").GetString());
         }
         finally

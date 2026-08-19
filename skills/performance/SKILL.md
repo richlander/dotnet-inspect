@@ -156,6 +156,8 @@ source-facing `MethodToken`, uses `EvidenceMethod` as the physical body token
 when supplied, and reports missing runtime coordinates explicitly. Blank
 flattened cells are treated as absent; invalid non-empty or conflicting
 supplied evidence-method tokens fail visibly.
+Method-name samples can still establish method-level heat, but only a complete
+runtime coordinate can produce an exact `confirmed-hot` result.
 For a filtered export, the trace join stops at the first frame in the
 represented assembly; it does not walk past an unexported in-assembly callee
 and credit an outer caller. If `--library` and `--triage` name the same physical
