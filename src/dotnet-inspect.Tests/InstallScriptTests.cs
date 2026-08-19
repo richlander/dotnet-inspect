@@ -29,11 +29,13 @@ public sealed class InstallScriptTests
             string bootstrapLog = Path.Combine(directory, "bootstrap.log");
             string installerLog = Path.Combine(directory, "installer.log");
             string pathLog = Path.Combine(directory, "path.log");
-            string toolBinLog = Path.Combine(directory, "tool-bin.log");
-            string restoredToolBinLog = Path.Combine(directory, "restored-tool-bin.log");
             string installDirectory = Path.Combine(
                 directory,
                 "custom & %TEMP% ^ install");
+            string specialTemp = Path.Combine(
+                directory,
+                "temp & %TEMP% ^ directory");
+            Directory.CreateDirectory(specialTemp);
             string wrapper = Path.Combine(directory, "run.ps1");
             await File.WriteAllTextAsync(
                 wrapper,
@@ -43,23 +45,25 @@ public sealed class InstallScriptTests
                         $env:DOTNET_BOOTSTRAP_TEST_LOG,
                         [string[]]$args)
                     $toolPath = $args[3]
-                    New-Item -ItemType Directory -Path $toolPath -Force | Out-Null
-                    @'
-                @echo off
-                > "%DOTNET_INSTALL_TEST_LOG%" echo %*
-                set DOTNET_TOOL_BIN > "%DOTNET_TOOL_BIN_TEST_LOG%"
-                exit /b 0
-                '@ | Set-Content `
-                        -LiteralPath (Join-Path $toolPath "dotnet-install.cmd") `
-                        -Encoding ascii
+                    $nativeDirectory = Join-Path `
+                        $toolPath `
+                        ".store\dotnet-install\test\tools\win-x64"
+                    New-Item `
+                        -ItemType Directory `
+                        -Path $nativeDirectory `
+                        -Force | Out-Null
+                    Copy-Item `
+                        -Path (Join-Path $env:DOTNET_INSTALL_FIXTURE_DIRECTORY "*") `
+                        -Destination $nativeDirectory `
+                        -Recurse
                     $global:LASTEXITCODE = 0
+                }
+                function dotnet-install {
+                    throw "existing dotnet-install should not run with an override"
                 }
 
                 & $env:DOTNET_INSTALL_TEST_SCRIPT
                 [IO.File]::WriteAllText($env:DOTNET_PATH_TEST_LOG, $env:PATH)
-                [IO.File]::WriteAllText(
-                    $env:DOTNET_RESTORED_TOOL_BIN_TEST_LOG,
-                    $env:DOTNET_TOOL_BIN)
                 """,
                 cancellationToken);
 
@@ -67,16 +71,16 @@ public sealed class InstallScriptTests
             var environment = new Dictionary<string, string?>
             {
                 ["DOTNET_BOOTSTRAP_TEST_LOG"] = bootstrapLog,
+                ["DOTNET_INSTALL_FIXTURE_DIRECTORY"] =
+                    FindInstallerFixtureDirectory(),
                 ["DOTNET_INSTALL_TEST_LOG"] = installerLog,
                 ["DOTNET_INSTALL_TEST_SCRIPT"] = InstallScript,
                 ["DOTNET_INSTALL_DIR"] = installDirectory,
                 ["DOTNET_PATH_TEST_LOG"] = pathLog,
-                ["DOTNET_RESTORED_TOOL_BIN_TEST_LOG"] = restoredToolBinLog,
-                ["DOTNET_TOOL_BIN"] = "original-tool-bin",
-                ["DOTNET_TOOL_BIN_TEST_LOG"] = toolBinLog,
+                ["PATHEXT"] = ".EXE",
                 ["PATH"] = initialPath,
-                ["TEMP"] = directory,
-                ["TMP"] = directory,
+                ["TEMP"] = specialTemp,
+                ["TMP"] = specialTemp,
             };
 
             ProcessResult result =
@@ -89,7 +93,10 @@ public sealed class InstallScriptTests
                 ["tool", "install", "--tool-path"],
                 bootstrapArguments[..3]);
             string bootstrapDirectory = bootstrapArguments[3];
-            Assert.StartsWith(directory, bootstrapDirectory, StringComparison.OrdinalIgnoreCase);
+            Assert.StartsWith(
+                specialTemp,
+                bootstrapDirectory,
+                StringComparison.OrdinalIgnoreCase);
             Assert.EndsWith(
                 "dotnet-install",
                 bootstrapArguments[4],
@@ -99,21 +106,10 @@ public sealed class InstallScriptTests
                 initialPath,
                 await File.ReadAllTextAsync(pathLog, cancellationToken));
 
-            string invocation =
-                await File.ReadAllTextAsync(installerLog, cancellationToken);
-            Assert.Contains("--package dotnet-inspect", invocation);
-            Assert.DoesNotContain("--output", invocation);
-            string toolBin = (await File.ReadAllLinesAsync(
-                toolBinLog,
-                cancellationToken)).Single(static line =>
-                    line.StartsWith("DOTNET_TOOL_BIN=", StringComparison.Ordinal));
             Assert.Equal(
-                $"DOTNET_TOOL_BIN={installDirectory}",
-                toolBin);
-            Assert.Equal(
-                "original-tool-bin",
-                await File.ReadAllTextAsync(
-                    restoredToolBinLog,
+                ["--package", "dotnet-inspect", "--output", installDirectory],
+                await File.ReadAllLinesAsync(
+                    installerLog,
                     cancellationToken));
         }
         finally
@@ -253,6 +249,20 @@ public sealed class InstallScriptTests
                 .Where(static directory =>
                     !File.Exists(Path.Combine(directory, "dotnet-install.cmd"))
                     && !File.Exists(Path.Combine(directory, "dotnet-install.exe"))));
+    }
+
+    static string FindInstallerFixtureDirectory()
+    {
+        string directory = Path.Combine(
+            RepoRoot,
+            "artifacts",
+            "bin",
+            "DotnetInspector.InstallScriptFixture",
+            "release");
+        Assert.True(
+            File.Exists(Path.Combine(directory, "dotnet-install.exe")),
+            $"Expected the installer fixture under {directory}.");
+        return directory;
     }
 
     static IReadOnlyList<string> FindPowerShellExecutables()
