@@ -60,7 +60,8 @@ target while retaining the static value IDs.
 | C# Body Kinds | `csharp.body-kinds` | Exact rendered body-syntax kinds |
 
 The library `Body Shapes` section consumes body-kind IDs through
-`--where "Kind=<ID>"`; its first slice accepts one exact equality predicate and
-auto-selects that section when no explicit `-S` selection is present. Type and
-member scoping still need parity before the standalone `body-shape` command is
-removed without a compatibility alias.
+`--where "Kind=<ID>"` and auto-selects that section when no explicit `-S`
+selection is present. Repeated Performance Triage predicates compose at library
+scope by selecting typed source MethodDef identities before decompilation.
+Exact member scoping is also available; type scoping still needs parity before
+the standalone `body-shape` command is removed without a compatibility alias.

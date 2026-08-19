@@ -1,7 +1,6 @@
 import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
-  authoredSourceLimitationHtml,
   beginSourceRequestState,
   cancelSourceRequestState,
   callGraphDiagnosticsMessage,
@@ -47,6 +46,7 @@ import {
 } from "./graph-mermaid.js";
 import { buildAnnotatedView, factsForNode, MEDIA, MEDIUM_LABELS, nodeAtOffset } from "/src/annotated-source-view.ts";
 import { createCommandBar } from "/src/command-bar.ts";
+import { createPackageBar } from "/src/package-bar.ts";
 import { loadPlatformIndex } from "/src/platform-index.js";
 
 let initializeEngine;
@@ -670,6 +670,18 @@ const commandBar = createCommandBar({
   focusAfterDismiss: () => document.querySelector("#type-list").focus(),
 });
 
+const packageBar = createPackageBar({
+  state,
+  escapeHtml,
+  packageIdentityKey,
+  runtimePackPackage,
+  selectPackageTab,
+  closePackageTab,
+  openRuntimePack: openRuntimePackFromHome,
+  openPackage: (packageId, version) => loadPackage(packageId, version, ""),
+  showToast,
+});
+
 function selectedType() {
   if (!state.package) return null;
   return state.package.types.find(item => item.id === state.selectedTypeId) || filteredTypes()[0] || state.package.types[0];
@@ -1276,23 +1288,7 @@ function render() {
     <div class="workbench">
       <header class="titlebar">
         <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
-        <div class="package-tabs" role="tablist" aria-label="Package scope">
-          ${platformTabHtml()}
-          ${state.packages.filter(item => !item.isRuntimePack).map(item => `
-            <div class="package-tab ${packageIdentityEquals(item, state.package) ? "active" : ""}" data-package-key="${escapeHtml(packageIdentityKey(item))}" role="tab" tabindex="0">
-              <span class="package-cube">⬡</span>
-              <span class="tab-label">${escapeHtml(item.id)}</span>
-              <small>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</small>
-              ${packageIdentityEquals(item, state.package)
-                ? `<button class="tab-close" data-package-close="${escapeHtml(packageIdentityKey(item))}" type="button" aria-label="Close ${escapeHtml(item.id)}">×</button>`
-                : ""}
-            </div>`).join("")}
-        </div>
-        <form class="package-query" id="package-query">
-          <span>+</span>
-          <input id="package-query-input" placeholder="Package or Package@version" aria-label="Open NuGet package" autocomplete="off" spellcheck="false" />
-          <button>open</button>
-        </form>
+        ${packageBar.html()}
         <div class="title-actions">
           <button id="go-home" title="Back to the home page">home</button>
           <button id="theme-toggle" aria-label="Switch to light theme">${state.theme === "dark" ? "light" : "dark"}</button>
@@ -3425,7 +3421,7 @@ function renderMember(type, member) {
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`
       : state.memberSource
         ? `<section class="document-section source-result">
-            <div class="source-provenance"><strong>${state.memberSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.memberSource)}<button id="copy-source" type="button">copy</button></div>
+            <div class="source-provenance"><strong>${state.memberSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-source" type="button">copy</button></div>
             <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
@@ -3757,7 +3753,7 @@ function renderTypeSource(item) {
   }
   if (fresh && state.typeSource) {
     return `<section class="document-section source-result">
-        <div class="source-provenance"><strong>${state.typeSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.typeSource.provenance)}</span>${state.typeSource.url ? `<a href="${escapeHtml(state.typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.typeSource)}<button id="copy-type-source" type="button">copy</button></div>
+        <div class="source-provenance"><strong>${state.typeSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.typeSource.provenance)}</span>${state.typeSource.url ? `<a href="${escapeHtml(state.typeSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-type-source" type="button">copy</button></div>
         <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.typeSource.text)}</code></pre>
       </section>`;
   }
@@ -3792,37 +3788,7 @@ function highlightCSharp(value) {
 }
 
 function bindEvents() {
-  document.querySelectorAll("[data-package-key]").forEach(tab => {
-    const activate = () => selectPackageTab(
-      state.packages.find(item => packageIdentityKey(item) === tab.dataset.packageKey));
-    tab.addEventListener("click", event => {
-      if (event.target.closest("[data-package-close]")) return;
-      activate();
-    });
-    tab.addEventListener("keydown", event => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      activate();
-    });
-  });
-  document.querySelectorAll("[data-package-close]").forEach(button =>
-    button.addEventListener("click", event => {
-      event.stopPropagation();
-      closePackageTab(button.dataset.packageClose);
-    }));
-  document.querySelector("[data-platform-open]")?.addEventListener("click", () => openRuntimePackFromHome());
-  // Browser-tab behavior for a crowded strip: keep the active tab in view, and let a
-  // vertical wheel scroll the horizontal strip so hidden tabs stay reachable.
-  const tabStrip = document.querySelector(".package-tabs");
-  if (tabStrip) {
-    requestAnimationFrame(() =>
-      tabStrip.querySelector(".package-tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" }));
-    tabStrip.addEventListener("wheel", event => {
-      if (event.deltaY === 0) return;
-      event.preventDefault();
-      tabStrip.scrollLeft += event.deltaY;
-    }, { passive: false });
-  }
+  packageBar.bind(document);
   document.querySelectorAll("[data-scope]").forEach(button => button.addEventListener("click", () => {
     const target = button.dataset.scope;
     if (target === "package") {
@@ -4179,18 +4145,6 @@ function bindEvents() {
     focusFilter();
   });
 
-  document.querySelector("#package-query").addEventListener("submit", event => {
-    event.preventDefault();
-    const value = document.querySelector("#package-query-input").value.trim();
-    const separator = value.lastIndexOf("@");
-    if (!value || separator === value.length - 1) {
-      showToast("enter a package, optionally followed by @version");
-      return;
-    }
-    const packageId = separator > 0 ? value.slice(0, separator) : value;
-    const version = separator > 0 ? value.slice(separator + 1) : "latest";
-    loadPackage(packageId, version, "");
-  });
   document.querySelector("#share").addEventListener("click", share);
   document.querySelector("[data-graph-back]")?.addEventListener("click", popPlatformDrill);
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
@@ -7405,7 +7359,7 @@ function renderGraphSource() {
   const body = state.graphSourceLoading
     ? `<div class="graph-source-status">Resolving source for ${escapeHtml(state.graphSourceTitle)}…</div>`
     : state.graphSource
-      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span>${state.graphSource.url ? `<a href="${escapeHtml(state.graphSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${authoredSourceLimitationHtml(state.graphSource)}</div>
+      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span>${state.graphSource.url ? `<a href="${escapeHtml(state.graphSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}</div>
          <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.graphSource.text)}</code></pre>`
       : `<div class="graph-source-status error">${escapeHtml(state.graphSourceError || "No source was returned.")}</div>`;
   return `
@@ -7684,22 +7638,6 @@ function platformLibrarySelectHtml(options = {}) {
       ${group("netcore.app", ".NET")}
       ${group("aspnetcore.app", "ASP.NET Core")}
     </select>`;
-}
-
-// The always-present, non-closable, left-most "Platform" tab. It abstracts the .NET runtime
-// packs (netcore.app, aspnetcore.app, …) behind a single surface: when a pack is resident it
-// activates it; otherwise clicking loads it lazily. Rendered separately from the normal tab
-// map so it is always first and never carries a close affordance.
-function platformTabHtml() {
-  const rt = runtimePackPackage();
-  const active = rt && state.package && state.package.id === rt.id ? "active" : "";
-  const framework = rt?.activeFramework || state.package?.activeFramework || "";
-  const attr = rt ? `data-package-key="${escapeHtml(packageIdentityKey(rt))}"` : `data-platform-open="1"`;
-  return `<button class="package-tab platform ${active}" ${attr} role="tab" title="Platform · .NET runtime libraries">
-      <span class="package-cube">◎</span>
-      <span class="tab-label">Platform</span>
-      <small>${escapeHtml(framework || "load")}</small>
-    </button>`;
 }
 
 // The resident runtime pseudo-package rides in the shared workspace/URL packet under the

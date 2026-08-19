@@ -499,6 +499,9 @@ public class LibraryInspection
     [JsonIgnore]
     public PerformanceTriageOptions PerformanceTriageOptions { get; set; } = PerformanceTriageOptions.Default;
 
+    [JsonIgnore]
+    internal bool PerformanceDiagnosticsReported { get; set; }
+
     /// <summary>
     /// Exact rendered C# syntax matches produced for the selected Body Shapes query.
     /// </summary>

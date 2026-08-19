@@ -163,6 +163,23 @@ Use `--jsonl` for one machine-readable match per row or `--count` for the
 matching row count. Bodies that cannot be reconstructed at full fidelity are
 reported on stderr rather than mixed into structured output.
 
+At library scope, repeat the existing `--where` syntax to intersect the body
+kind with Performance Triage evidence before decompilation:
+
+```bash
+dnx dotnet-inspect -y -- library MyLib.dll \
+  --where "Kind=InvocationExpression" \
+  --where "Finding=analysis.call-site" \
+  --where "Shape=sync-call-in-async" \
+  --where "Confidence>=medium"
+```
+
+The Performance predicates select typed source MethodDef identities; `Body
+Shapes` then searches only those methods. Select a Performance section
+separately when the candidate, evidence, and IL receipt are also needed.
+Performance `--top` and `--order-by` do not compose; use `--rows` to limit
+rendered matches.
+
 Use the same predicate with one exact member name or stable selector to inspect
 only that member's MethodDef body:
 
@@ -183,7 +200,7 @@ permits a selected non-public member.
 | Capability | Commands | Highlights |
 | ---------- | -------- | ---------- |
 | Package inventory | `package` | Metadata, versions, TFMs, file layout, dependency tree, metadata audit, vulnerability data, custom feeds, NuGet config support. |
-| Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files, plus version-resolved package README/PROJECT docs from restored projects. |
+| Project skills | `project` | Direct dependency `Skills` rows from package `skills/**/SKILL.md` files with valid required Agent Skills metadata and directory-matching names, plus version-resolved package README/PROJECT docs from restored projects. Invalid metadata and missing restored skill files fail visibly. |
 | Query vocabulary | `vocabulary` | Product-owned stable values, operators, defaults, and applicability for rich queries, exposed as ordinary discoverable sections and shared with browser/WASM. |
 | Library audit | `library` | Assembly identity, public key token, trim/AOT metadata, unsafe/interoperability signals, OpenTelemetry support, symbols/PDBs, SourceLink and determinism audit, flat or depth-bounded tree references, resources, async method classification. |
 | API discovery | `type`, `member`, `find` | Type search, member tables, docs, overload selection, generics, obsolete-member markers, direct calls and callers, source/decompiled/IL drill-in. Add `--project` to resolve type/member queries in the project's restored dependency context. |
