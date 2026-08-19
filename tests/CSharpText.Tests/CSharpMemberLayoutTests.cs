@@ -320,6 +320,17 @@ public sealed class CSharpMemberLayoutTests
                 indent: 4));
 
     [Fact]
+    public void LayOutDeclarationHead_WhereInsideLineComment_DoesNotBecomeLiveConstraint()
+    {
+        const string head =
+            "public void Log<T>() // mentions where U : class";
+
+        Assert.Equal(
+            head,
+            CSharpMemberLayout.LayOutDeclarationHead(head));
+    }
+
+    [Fact]
     public void Append_WhereInsideBlockComment_IsIgnoredWhileRealConstraintWraps()
         => Assert.Equal(
             "    public void Log<T>() /* mentions where U : class */\n"

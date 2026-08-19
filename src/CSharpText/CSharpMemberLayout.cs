@@ -84,13 +84,19 @@ public static class CSharpMemberLayout
     /// <summary>
     /// Applies this layout's generic-constraint wrapping to a declaration head
     /// without adding a body, terminator, or indentation. A head without
-    /// constraints remains unchanged, including an over-width signature.
+    /// constraints remains unchanged, including an over-width signature. A
+    /// line comment disables splitting so commented text cannot become live;
+    /// <c>LayOutDeclarationHead_WhereInsideLineComment_DoesNotBecomeLiveConstraint</c>
+    /// gates that token-preservation boundary.
     /// </summary>
     public static string LayOutDeclarationHead(string head, bool disableSignatureWrapping = false)
     {
         ArgumentNullException.ThrowIfNull(head);
+        if (disableSignatureWrapping || ContainsLineComment(head))
+            return head;
+
         var parts = SplitConstraintClauses(head);
-        if (disableSignatureWrapping || parts.Count == 1)
+        if (parts.Count == 1)
             return head;
 
         var sb = new StringBuilder(parts[0]);
