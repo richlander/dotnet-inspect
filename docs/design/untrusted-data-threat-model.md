@@ -1312,11 +1312,17 @@ evidence plus NuGet restore-source semantics. It also reports every literal
 `../` in a decoded SourceLink document key or URL as a review-oriented parent
 path finding. This does not classify the mapping as malicious; the existing
 provenance boundary above remains responsible for canonicalizing resolved URLs
-before attribution. Embedded-PDB inflation, SourceLink map bytes, and mapping
-inventory are rejected at their owner boundaries before over-budget payloads
-are decompressed, copied, or retained; the named gates are
+before attribution. Candidate paths, text files, SourceLink carriers, aggregate embedded-PDB
+inflation, SourceLink map bytes, and mapping inventory are bounded. The PDB
+owner reads the same file pointer as the framework decoder and reserves both
+per-file and shared expansion budgets before decompression; the named gates are
 `PdbContextDescriptorTests.EmbeddedPdbAndSourceLinkLimits_PrecedePayloadMaterialization`
-and
+`PdbContextDescriptorTests.EmbeddedPdbLimit_ReadsTheFilePointerUsedByTheDecoder`,
+`PdbContextDescriptorTests.EmbeddedPdbExpansionBudget_IsSharedAcrossOpens`,
+`PdbContextDescriptorTests.MalformedEmbeddedPdb_ConsumesExpansionBudgetBeforeDecode`,
+`PackageContentAuditTests.CandidatePathLimit_BoundsRepeatedInputBeforeMaterialization`,
+`PackageContentAuditTests.TextFileLimit_BoundsZeroByteReads`,
+`PackageContentAuditTests.SourceLinkCarrierLimit_BoundsZeroByteWork`, and
 `SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`.
 Neither audit section is the scalar-by-scalar refusal
 survey mode described below, and neither changes acceptance policy. Document payloads are

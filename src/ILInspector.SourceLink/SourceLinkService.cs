@@ -28,7 +28,8 @@ public sealed class SourceLinkReadLimits
     public SourceLinkReadLimits(
         int maxEmbeddedPdbBytes,
         int maxMapBytes,
-        int maxMappings)
+        int maxMappings,
+        PdbExpansionBudget? embeddedPdbBudget = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
         ArgumentOutOfRangeException.ThrowIfNegative(maxMapBytes);
@@ -36,11 +37,13 @@ public sealed class SourceLinkReadLimits
         MaxEmbeddedPdbBytes = maxEmbeddedPdbBytes;
         MaxMapBytes = maxMapBytes;
         MaxMappings = maxMappings;
+        EmbeddedPdbBudget = embeddedPdbBudget;
     }
 
     public int MaxEmbeddedPdbBytes { get; }
     public int MaxMapBytes { get; }
     public int MaxMappings { get; }
+    public PdbExpansionBudget? EmbeddedPdbBudget { get; }
 }
 
 /// <summary>
@@ -223,7 +226,8 @@ public sealed class SourceLinkService : IDisposable
             PdbContext.OpenEmbeddedPdbOnly(
                 assemblyPath,
                 limits.MaxEmbeddedPdbBytes,
-                log),
+                log,
+                limits.EmbeddedPdbBudget),
             DefaultCache,
             log,
             limits);
@@ -245,6 +249,24 @@ public sealed class SourceLinkService : IDisposable
             PdbContext.OpenEmbeddedPdbOnly(assembly, log),
             cache,
             log);
+
+    public static SourceLinkService OpenEmbeddedPdbOnly(
+        ResolvedAssemblyReference assembly,
+        SourceLinkReadLimits limits,
+        Action<string>? log = null,
+        ISourceLinkIndexCache? cache = null)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        return new(
+            PdbContext.OpenEmbeddedPdbOnly(
+                assembly,
+                limits.MaxEmbeddedPdbBytes,
+                log,
+                limits.EmbeddedPdbBudget),
+            cache,
+            log,
+            limits);
+    }
 
     public static SourceLinkService OpenMetadataOnly(
         ResolvedAssemblyReference assembly,

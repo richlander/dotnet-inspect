@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -88,6 +89,87 @@ public class PdbContextDescriptorTests
             Assert.Equal(SourceLinkMapLimitKind.Mappings, audit.LimitKind);
             Assert.Empty(audit.Entries);
         }
+    }
+
+    [Fact]
+    public void EmbeddedPdbLimit_ReadsTheFilePointerUsedByTheDecoder()
+    {
+        const int Limit = 1024 * 1024;
+        byte[] image = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        byte[] divergent = PointEmbeddedPdbAtDeclaredSize(
+            image,
+            declaredSize: Limit + 1);
+        var descriptor = CreateDescriptor(
+            divergent,
+            ReadIdentity(divergent));
+
+        PdbResourceLimitException error =
+            Assert.Throws<PdbResourceLimitException>(
+                () => PdbContext.OpenEmbeddedPdbOnly(
+                    descriptor,
+                    maxEmbeddedPdbBytes: Limit));
+
+        Assert.Equal(Limit + 1, error.ActualBytes);
+        Assert.Equal(Limit, error.LimitBytes);
+    }
+
+    [Fact]
+    public void EmbeddedPdbExpansionBudget_IsSharedAcrossOpens()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        var descriptor = CreateDescriptor(
+            image,
+            ReadIdentity(image));
+        int embeddedPdbSize;
+        using (PdbContext baseline =
+               PdbContext.OpenEmbeddedPdbOnly(descriptor))
+        {
+            embeddedPdbSize = baseline.EmbeddedPdbSize;
+        }
+        Assert.True(embeddedPdbSize > 0);
+
+        var budget = new PdbExpansionBudget(embeddedPdbSize);
+        using PdbContext first =
+            PdbContext.OpenEmbeddedPdbOnly(
+                descriptor,
+                maxEmbeddedPdbBytes: embeddedPdbSize,
+                expansionBudget: budget);
+
+        PdbResourceLimitException error =
+            Assert.Throws<PdbResourceLimitException>(
+                () => PdbContext.OpenEmbeddedPdbOnly(
+                    descriptor,
+                    maxEmbeddedPdbBytes: embeddedPdbSize,
+                    expansionBudget: budget));
+
+        Assert.Equal(embeddedPdbSize, budget.ReservedBytes);
+        Assert.Equal(embeddedPdbSize, error.ActualBytes);
+        Assert.Equal(0, error.LimitBytes);
+    }
+
+    [Fact]
+    public void MalformedEmbeddedPdb_ConsumesExpansionBudgetBeforeDecode()
+    {
+        const int DeclaredSize = 2 * 1024 * 1024;
+        byte[] image = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        byte[] malformed = PointEmbeddedPdbAtDeclaredSize(
+            image,
+            DeclaredSize);
+        var descriptor = CreateDescriptor(
+            malformed,
+            ReadIdentity(malformed));
+        var budget = new PdbExpansionBudget(DeclaredSize);
+
+        Assert.Throws<BadImageFormatException>(
+            () => PdbContext.OpenEmbeddedPdbOnly(
+                descriptor,
+                maxEmbeddedPdbBytes: DeclaredSize,
+                expansionBudget: budget));
+
+        Assert.Equal(DeclaredSize, budget.ReservedBytes);
     }
 
     [Fact]
@@ -368,6 +450,78 @@ public class PdbContextDescriptorTests
             path: null,
             () => new MemoryStream(image, writable: false),
             AssemblyResolutionProvenance.Local("test"));
+
+    static byte[] PointEmbeddedPdbAtDeclaredSize(
+        byte[] image,
+        int declaredSize)
+    {
+        const int DebugDirectoryEntrySize = 28;
+        const int TypeOffset = 12;
+        const int DataSizeOffset = 16;
+        const int DataPointerOffset = 24;
+        const uint EmbeddedPortablePdbSignature = 0x4244504D;
+
+        using var stream = new MemoryStream(image, writable: false);
+        using var reader = new PEReader(stream);
+        DirectoryEntry directory =
+            reader.PEHeaders.PEHeader!.DebugTableDirectory;
+        int directoryOffset = RvaToFileOffset(
+            reader.PEHeaders,
+            directory.RelativeVirtualAddress);
+        int entryCount = directory.Size / DebugDirectoryEntrySize;
+        int embeddedEntryOffset = -1;
+        for (int index = 0; index < entryCount; index++)
+        {
+            int entryOffset =
+                directoryOffset + index * DebugDirectoryEntrySize;
+            int type = BinaryPrimitives.ReadInt32LittleEndian(
+                image.AsSpan(entryOffset + TypeOffset, sizeof(int)));
+            if (type == (int)DebugDirectoryEntryType.EmbeddedPortablePdb)
+            {
+                embeddedEntryOffset = entryOffset;
+                break;
+            }
+        }
+        Assert.True(
+            embeddedEntryOffset >= 0,
+            "Expected an embedded portable-PDB debug-directory entry.");
+
+        byte[] patched = new byte[image.Length + 8];
+        image.CopyTo(patched, 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(
+            patched.AsSpan(image.Length, sizeof(uint)),
+            EmbeddedPortablePdbSignature);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            patched.AsSpan(image.Length + sizeof(uint), sizeof(int)),
+            declaredSize);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            patched.AsSpan(embeddedEntryOffset + DataSizeOffset, sizeof(int)),
+            8);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            patched.AsSpan(embeddedEntryOffset + DataPointerOffset, sizeof(int)),
+            image.Length);
+        return patched;
+    }
+
+    static int RvaToFileOffset(PEHeaders headers, int rva)
+    {
+        foreach (SectionHeader section in headers.SectionHeaders)
+        {
+            int sectionSize = Math.Max(
+                section.VirtualSize,
+                section.SizeOfRawData);
+            if (rva >= section.VirtualAddress
+                && rva - section.VirtualAddress < sectionSize)
+            {
+                return section.PointerToRawData
+                    + rva
+                    - section.VirtualAddress;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"RVA 0x{rva:X8} is not mapped by a PE section.");
+    }
 
     static byte[] BuildNestedForwarderAssembly()
     {

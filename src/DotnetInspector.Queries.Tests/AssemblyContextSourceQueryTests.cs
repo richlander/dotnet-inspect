@@ -1498,6 +1498,72 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task EmbeddedPdbHostLimit_AppliesBeforeQueryOwnedOpen()
+    {
+        byte[] bytes = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        using var stream =
+            new DisposeCountingStream(
+                new MemoryStream(
+                    bytes,
+                    writable: false));
+        var descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(bytes),
+                path: null,
+                () => stream,
+                AssemblyResolutionProvenance.Local(
+                    "embedded PDB limit fixture"));
+        using var host = QueryHost.WithoutPdb(
+            new SymbolAcquisitionLimits(
+                maxSymbolPackageBytes: 1024,
+                maxPortablePdbBytes: 1024,
+                maxSymbolPackageEntries: 1,
+                maxExpandedPdbBytes: 1));
+
+        var result =
+            await AssemblyContextSourceQuery.OpenSourceLinkAsync(
+                descriptor,
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(result.Source);
+        Assert.IsType<PdbResourceLimitException>(result.Failure);
+        Assert.Equal(1, stream.DisposeCount);
+        Assert.Empty(host.SymbolRequests);
+    }
+
+    [Fact]
+    public async Task PreOpenCancellation_DoesNotOpenAssemblyStream()
+    {
+        byte[] bytes = File.ReadAllBytes(
+            typeof(EmbeddedSourceFixture).Assembly.Location);
+        int openCount = 0;
+        var descriptor =
+            ResolvedAssemblyReference.Create(
+                ReadIdentity(bytes),
+                path: null,
+                () =>
+                {
+                    openCount++;
+                    return new MemoryStream(bytes, writable: false);
+                },
+                AssemblyResolutionProvenance.Local(
+                    "pre-open cancellation fixture"));
+        using var host = QueryHost.WithoutPdb();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => AssemblyContextSourceQuery.OpenSourceLinkAsync(
+                descriptor,
+                host.Context,
+                cancellation.Token));
+
+        Assert.Equal(0, openCount);
+    }
+
+    [Fact]
     public async Task PdbAcquisitionCancellation_DisposesOpenedSourceLinkService()
     {
         TestAssembly assembly = TestAssembly.Create();
@@ -2859,7 +2925,8 @@ public sealed class AssemblyContextSourceQueryTests
             SourceHandler sourceHandler,
             ISourceContentStore? sourceContentStore = null,
             IPdbStore? pdbStore = null,
-            bool allowLocalSourceReads = false)
+            bool allowLocalSourceReads = false,
+            SymbolAcquisitionLimits? symbolAcquisitionLimits = null)
         {
             _symbolClient = new HttpClient(symbolHandler);
             _sourceClient = new HttpClient(sourceHandler);
@@ -2876,6 +2943,8 @@ public sealed class AssemblyContextSourceQueryTests
             {
                 AllowLocalSourceReads =
                     allowLocalSourceReads,
+                SymbolAcquisitionLimits =
+                    symbolAcquisitionLimits,
             };
             SymbolRequests = symbolHandler.RequestUris;
             SourceRequests = sourceHandler.RequestUris;
@@ -2921,10 +2990,12 @@ public sealed class AssemblyContextSourceQueryTests
                 allowLocalSourceReads:
                     allowLocalSourceReads);
 
-        internal static QueryHost WithoutPdb()
+        internal static QueryHost WithoutPdb(
+            SymbolAcquisitionLimits? symbolAcquisitionLimits = null)
             => new(
                 new SymbolPackageHandler(snupkg: null),
-                new SourceHandler(content: null));
+                new SourceHandler(content: null),
+                symbolAcquisitionLimits: symbolAcquisitionLimits);
 
         public void Dispose()
         {

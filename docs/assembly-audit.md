@@ -94,12 +94,15 @@ claiming that it matches any package assembly; identity remains mandatory for
 method/source mapping.
 
 Retained output is capped at 4,096 findings and 2 MiB of encoded evidence.
-SourceLink inspection is additionally capped at 4 MiB per decoded map, 32 MiB
-of maps per package, 16,384 decoded mappings, 64 MiB per decompressed embedded
-PDB, 64 MiB per PE/PDB carrier, and 256 MiB of carriers per package. The
-embedded-PDB, map-byte, and mapping-count limits are checked before their
-respective payloads are decompressed, copied, or retained. Reaching any cap
-adds one `scan limit` row and makes the result `Partial`.
+Input work is capped at 16,384 candidate paths and 4,096 text files.
+SourceLink inspection is additionally capped at 256 PE/PDB carriers, 4 MiB per
+decoded map, 32 MiB of maps per package, 16,384 decoded mappings, 64 MiB per
+decompressed embedded PDB, 256 MiB of decompressed embedded PDBs per package,
+64 MiB per PE/PDB carrier, and 256 MiB of carriers per package. The
+embedded-PDB per-file and shared budgets, map-byte limit, and mapping-count
+limit are checked before their respective payloads are decompressed, copied,
+or retained. Reaching any cap adds one `scan limit` row and makes the result
+`Partial`.
 
 The detail table has exactly `Path`, `Kind`, and `Encoded Text`. A source line
 produces one rendering finding containing all Unicode concern kinds on that

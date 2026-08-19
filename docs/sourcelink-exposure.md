@@ -89,8 +89,10 @@ identity remains mandatory for method/document correspondence. The audit also
 emits a review-oriented finding for every literal `../` in a decoded document
 key or URL. That finding is intentionally suspiciousness, not a maliciousness
 verdict. Embedded-PDB inflation and SourceLink map byte/mapping materialization
-are caller-bounded before allocation. The audit does not acquire PDBs or
-contact SourceLink URLs.
+are caller-bounded before allocation, including a shared decompression budget
+across package carriers. Query hosts likewise apply their symbol-acquisition
+expansion limit before a query-owned embedded PDB is opened. The audit does not
+acquire PDBs or contact SourceLink URLs.
 
 ### Type and member
 

@@ -293,6 +293,106 @@ public sealed class PackageContentAuditTests
     }
 
     [Fact]
+    public void CandidatePathLimit_BoundsRepeatedInputBeforeMaterialization()
+    {
+        string root = CreateRoot();
+        try
+        {
+            Write(root, "README.md", string.Empty);
+
+            PackageContentAuditResult result = PackageContentAudit.Scan(
+                root,
+                Enumerable.Repeat(
+                    "README.md",
+                    PackageContentAudit.MaxCandidatePaths + 1));
+
+            Assert.False(result.Complete);
+            Assert.Equal(1, result.EligibleFiles);
+            Assert.Contains(
+                result.Findings,
+                finding =>
+                    finding.Path == "<package>"
+                    && finding.Kind == PackageContentFindingKind.ScanLimit);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SourceLinkCarrierLimit_BoundsZeroByteWork()
+    {
+        string root = CreateRoot();
+        try
+        {
+            string[] paths =
+            [
+                .. Enumerable.Range(
+                        0,
+                        PackageContentAudit.MaxSourceLinkCarriers + 1)
+                    .Select(index => $"lib/net11.0/carrier-{index:D3}.dll"),
+            ];
+
+            PackageContentAuditResult result =
+                PackageContentAudit.Scan(root, paths);
+
+            Assert.False(result.Complete);
+            Assert.Contains(
+                result.Findings,
+                finding =>
+                    finding.Kind == PackageContentFindingKind.ScanLimit
+                    && finding.EncodedText.ToString().Contains(
+                        "carrier limit",
+                        StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TextFileLimit_BoundsZeroByteReads()
+    {
+        string root = CreateRoot();
+        try
+        {
+            Write(root, "content/README.md", string.Empty);
+            string[] paths =
+            [
+                .. Enumerable.Range(
+                        0,
+                        PackageContentAudit.MaxTextFiles + 1)
+                    .Select(index =>
+                        $"content/directory-{index}/../README.md"),
+            ];
+
+            PackageContentAuditResult result =
+                PackageContentAudit.Scan(root, paths);
+
+            Assert.False(result.Complete);
+            Assert.Equal(
+                PackageContentAudit.MaxTextFiles,
+                result.EligibleFiles);
+            Assert.Equal(
+                PackageContentAudit.MaxTextFiles,
+                result.ScannedFiles);
+            Assert.Contains(
+                result.Findings,
+                finding =>
+                    finding.Kind == PackageContentFindingKind.ScanLimit
+                    && finding.EncodedText.ToString().Contains(
+                        "text-file limit",
+                        StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void FindingLimit_StopsPathologicalLineCardinalityAndMarksPartial()
     {
         string root = CreateRoot();

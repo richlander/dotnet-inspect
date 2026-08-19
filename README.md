@@ -250,7 +250,8 @@ SourceLink mappings inside the package. It reports one row per finding with
 sources, declared package sources, concerning SourceLink map text, and literal
 `../` references in SourceLink document keys or URLs. A parent-path row is a
 prompt to review the mapping, not a maliciousness verdict. The scan is explicit
-because its work scales with package content; text reads are bounded. Package
+because its work scales with package content; candidate paths, text reads,
+SourceLink carriers, and embedded-PDB expansion are bounded. Package
 document payloads are visually encoded on stdout; `--out
 <path>` on a single-file selection remains the byte-exact payload export.
 `PackageContentAuditTests` and

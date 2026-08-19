@@ -81,12 +81,16 @@ public static class PackageContentAudit
 {
     internal const int MaxFileBytes = 4 * 1024 * 1024;
     internal const int MaxTotalBytes = 32 * 1024 * 1024;
+    internal const int MaxCandidatePaths = 16 * 1024;
+    internal const int MaxTextFiles = 4096;
     internal const int MaxFindings = 4096;
     internal const int MaxEvidenceCharacters = 2 * 1024 * 1024;
     internal const int MaxSourceLinkMappings = 16 * 1024;
     internal const int MaxSourceLinkMapBytes = 4 * 1024 * 1024;
     internal const int MaxTotalSourceLinkMapBytes = 32 * 1024 * 1024;
     internal const int MaxEmbeddedPdbBytes = 64 * 1024 * 1024;
+    internal const int MaxTotalEmbeddedPdbBytes = 256 * 1024 * 1024;
+    internal const int MaxSourceLinkCarriers = 256;
     internal const long MaxSourceLinkCarrierBytes = 64L * 1024 * 1024;
     internal const long MaxTotalSourceLinkCarrierBytes = 256L * 1024 * 1024;
     private const int MaxEncodedTextLength = 512;
@@ -128,7 +132,17 @@ public static class PackageContentAudit
         long scannedBytes = 0;
 
         string[] paths =
-            NormalizePackagePaths(packageRelativePaths);
+            NormalizePackagePaths(
+                packageRelativePaths,
+                MaxCandidatePaths,
+                out bool candidateLimitReached);
+        if (candidateLimitReached)
+        {
+            collector.AddIncomplete(ToolFinding(
+                "<package>",
+                PackageContentFindingKind.ScanLimit,
+                $"Package audit exceeded the {MaxCandidatePaths} candidate-path limit."));
+        }
 
         foreach (string relativePath in paths)
         {
@@ -136,6 +150,14 @@ public static class PackageContentAudit
                 break;
             if (!IsTextBearingPath(relativePath))
                 continue;
+            if (eligibleFiles >= MaxTextFiles)
+            {
+                collector.AddIncomplete(ToolFinding(
+                    relativePath,
+                    PackageContentFindingKind.ScanLimit,
+                    $"Package audit exceeded the {MaxTextFiles} text-file limit."));
+                break;
+            }
 
             eligibleFiles++;
             string fullPath;
@@ -246,7 +268,10 @@ public static class PackageContentAudit
         int scannedMaps = 0;
         int scannedMappings = 0;
         int scannedMapBytes = 0;
+        int scannedCarriers = 0;
         long scannedCarrierBytes = 0;
+        var embeddedPdbBudget =
+            new PdbExpansionBudget(MaxTotalEmbeddedPdbBytes);
 
         foreach (string assemblyPath in packagePaths.Where(static path =>
             Path.GetExtension(path).Equals(".dll", StringComparison.OrdinalIgnoreCase)
@@ -260,6 +285,19 @@ public static class PackageContentAudit
                     scannedMappings,
                     scannedMapBytes))
                 break;
+            if (!TryAccountSourceLinkCarrier(
+                    assemblyPath,
+                    collector,
+                    ref scannedCarriers))
+                break;
+            if (embeddedPdbBudget.RemainingBytes == 0)
+            {
+                collector.AddIncomplete(ToolFinding(
+                    assemblyPath,
+                    PackageContentFindingKind.ScanLimit,
+                    $"Embedded PDBs reached the {MaxTotalEmbeddedPdbBytes / (1024 * 1024)} MiB aggregate decompression limit."));
+                break;
+            }
             if (!TryResolveAndAccountSourceLinkCarrier(
                     root,
                     assemblyPath,
@@ -277,7 +315,8 @@ public static class PackageContentAudit
                     Math.Min(
                         MaxSourceLinkMapBytes,
                         MaxTotalSourceLinkMapBytes - scannedMapBytes),
-                    MaxSourceLinkMappings - scannedMappings);
+                    MaxSourceLinkMappings - scannedMappings,
+                    embeddedPdbBudget);
                 using SourceLinkService source =
                     SourceLinkService.OpenEmbeddedPdbOnly(
                         fullAssemblyPath,
@@ -328,6 +367,11 @@ public static class PackageContentAudit
                     scannedMappings,
                     scannedMapBytes))
                 break;
+            if (!TryAccountSourceLinkCarrier(
+                    pdbPath,
+                    collector,
+                    ref scannedCarriers))
+                break;
             if (!TryResolveAndAccountSourceLinkCarrier(
                     root,
                     pdbPath,
@@ -371,6 +415,23 @@ public static class PackageContentAudit
         }
 
         return scannedMaps;
+    }
+
+    private static bool TryAccountSourceLinkCarrier(
+        string evidencePath,
+        FindingCollector collector,
+        ref int scannedCarriers)
+    {
+        if (scannedCarriers >= MaxSourceLinkCarriers)
+        {
+            collector.AddLimit(
+                evidencePath,
+                $"SourceLink audit exceeded the {MaxSourceLinkCarriers} carrier limit.");
+            return false;
+        }
+
+        scannedCarriers++;
+        return true;
     }
 
     private static bool CanInspectAnotherSourceLinkMap(
@@ -613,6 +674,31 @@ public static class PackageContentAudit
                 .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal),
         ];
+
+    private static string[] NormalizePackagePaths(
+        IEnumerable<string> paths,
+        int maxCandidates,
+        out bool limitReached)
+    {
+        var normalized = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        int candidates = 0;
+        limitReached = false;
+        foreach (string path in paths)
+        {
+            if (candidates >= maxCandidates)
+            {
+                limitReached = true;
+                break;
+            }
+            candidates++;
+            if (seen.Add(path))
+                normalized.Add(path);
+        }
+
+        normalized.Sort(StringComparer.Ordinal);
+        return [.. normalized];
+    }
 
     internal static InertString EncodeSourceLinkEvidence(string evidence)
         => new(TextPolicy.Field, evidence);
