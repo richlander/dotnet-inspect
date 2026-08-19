@@ -253,6 +253,7 @@ internal sealed class DegradedTypeNode : TypeNode
 /// <summary>C# primitive types (int, string, object, etc.).</summary>
 internal sealed class PrimitiveTypeNode(string name, bool isReferenceType) : TypeNode
 {
+    public string Name => name;
     public override bool IsReferenceType => isReferenceType;
     public override long EstimatedRenderedLength => name.Length + 1L;
 
@@ -349,8 +350,16 @@ internal sealed class GenericTypeNode(
             return IsReferenceType && IsNullableAnnotated ? $"{tuple}?" : tuple;
         }
 
-        var argsStr = string.Join(", ", arguments.Select(a => a.Render(canonicalTuples)));
-        var result = $"{baseName}<{argsStr}>{nestedSuffix}";
+        // Outer`1.Inner`1 must render as Outer<int>.Inner<string>, not
+        // Outer<int, string>.Inner<T>. ApplyGenericArguments owns that split.
+        string[] renderedArguments = [.. arguments.Select(argument => argument.Render(canonicalTuples))];
+        string result = metadataName is { Length: > 0 }
+            ? TypeResolver.ApplyGenericArguments(
+                metadataName.Replace('+', '.'),
+                renderedArguments)
+            : arguments.Length == 0
+                ? $"{baseName}{nestedSuffix}"
+                : $"{baseName}<{string.Join(", ", renderedArguments)}>{nestedSuffix}";
         return IsReferenceType && IsNullableAnnotated ? $"{result}?" : result;
     }
 

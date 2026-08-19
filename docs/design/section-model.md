@@ -389,7 +389,9 @@ The library command's current authored ownership is:
 
 `@Library` and `@Surface` are base categories. The remaining categories are
 domains. `Unsafe Members` is a standalone section with no category membership;
-select it directly with `-S "Unsafe Members"`.
+select it directly with `-S "Unsafe Members"`. The explicit-only `Body Shapes`
+section is also uncategorized because its required `Kind=...` predicate, rather
+than a category, supplies its scope.
 
 ## Package category map
 
@@ -415,8 +417,9 @@ The section pipeline and derived catalog gates enforce these invariants:
 3. Every category member names a registered section.
 4. Every selectable package section has authored category ownership. Every
    selectable library section is categorized except the explicitly pinned
-   standalone `Unsafe Members` section. Gates:
-   `LibraryPipeline_UnsafeMembersIsTheOnlyUncategorizedSection` and
+   standalone `Unsafe Members` and coordinate-gated `Body Shapes` sections.
+   Gates:
+   `LibraryPipeline_UnsafeMembersAndBodyShapesAreTheOnlyUncategorizedSections` and
    `PackagePipeline_EverySelectableSectionBelongsToAnAuthoredCategory`.
 5. Base categories are explicitly marked; domain categories never enter
    automatic scope by accident.

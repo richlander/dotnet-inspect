@@ -135,6 +135,28 @@ public sealed class ApiSignatureModelTests
     }
 
     [Fact]
+    public void PropertySignatureModel_ExposesExplicitInterfaceAccessorMethodName()
+    {
+        ApiMember member = Assert.Single(
+            GetType(nameof(ExplicitAccessorFixtures)).Members,
+            candidate => candidate.Kind == "property"
+                && candidate.Name.EndsWith(
+                    $".{nameof(IExplicitAccessor.Value)}",
+                    StringComparison.Ordinal));
+
+        Assert.NotNull(member.SignatureModel);
+        ApiAccessor getter = Assert.Single(
+            member.SignatureModel.Accessors,
+            accessor => accessor.Kind == "get");
+        Assert.False(string.IsNullOrEmpty(getter.Name));
+        Assert.False(getter.Name.StartsWith("get_", StringComparison.Ordinal));
+        Assert.EndsWith(
+            $".get_{nameof(IExplicitAccessor.Value)}",
+            getter.Name,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FieldAndEventSignatureModels_ExposeReturnType()
     {
         var field = GetMember(nameof(ApiSignatureFixtures), nameof(ApiSignatureFixtures.Count));
@@ -531,6 +553,16 @@ public sealed class ApiSignatureFixtures
     }
 
     public int InitValue { get; init; }
+}
+
+public interface IExplicitAccessor
+{
+    int Value { get; }
+}
+
+public sealed class ExplicitAccessorFixtures : IExplicitAccessor
+{
+    int IExplicitAccessor.Value => 1;
 }
 
 public sealed class StructuralGenericPayloadFixtures

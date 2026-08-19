@@ -1,10 +1,15 @@
 using DotnetInspector.CommandLine;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Models;
+using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using DotnetInspector.Views;
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using Markout;
+using System.Reflection;
 using System.Text.Json;
 
 namespace DotnetInspector.Tests;
@@ -36,6 +41,31 @@ public sealed class BodyShapesSectionTests
         Assert.Contains(
             nameof(BodyShapeFixture.PublicCreation),
             result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberBodyShapeGlobExpansion_RequiresKindPredicate()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(CommandLineBuilder.PreprocessArgs(
+                [
+                    "member",
+                    typeof(BodyShapeFixture).FullName!,
+                    $"{nameof(BodyShapeFixture.PublicCreation)}:1",
+                    "--library",
+                    FixturePath,
+                    "-S",
+                    "Body*,Signature",
+                ]))
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "requires --where \"Kind=<C# Body Kinds ID>\"",
+            result.Error,
             StringComparison.Ordinal);
     }
 
@@ -111,7 +141,7 @@ public sealed class BodyShapesSectionTests
                     "library",
                     FixturePath,
                     "-D",
-                    "@Decompiler",
+                    SectionNames.BodyShapes,
                     "--effective",
                 ]))
                 .InvokeAsync());
@@ -123,6 +153,31 @@ public sealed class BodyShapesSectionTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "Could not read library",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberEffectiveDiscovery_BodyShapeGlobRequiresKind()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(BodyShapeFixture).FullName!,
+                    $"{nameof(BodyShapeFixture.PublicCreation)}:1",
+                    "--library",
+                    FixturePath,
+                    "-D",
+                    "Body*",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "requires --where \"Kind=<C# Body Kinds ID>\"",
             result.Error,
             StringComparison.Ordinal);
     }
@@ -212,5 +267,623 @@ public sealed class BodyShapesSectionTests
             "cannot be combined with Performance Triage",
             result.Error,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_AutoSelectsBodyShapesForOnlyTheSelectedMethod()
+    {
+        var result = await RunMemberAsync(
+            nameof(BodyShapeFixture.PublicCreation),
+            "ObjectCreationExpression");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Error:", result.Error, StringComparison.Ordinal);
+        Assert.Contains("## Body Shapes", result.Output, StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(BodyShapeFixture.PublicCreation),
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("PrivateCreation", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_QualifiedTypeMemberComposesWithCount()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    $"{typeof(BodyShapeFixture).FullName}."
+                        + nameof(BodyShapeFixture.PublicCreation),
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--count",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_AutoSelectsTheUniqueOverload()
+    {
+        var result = await RunMemberAsync(
+            nameof(BodyShapeFixture.Branch),
+            "IfStatement",
+            includeSelector: false);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Body Shapes", result.Output, StringComparison.Ordinal);
+        Assert.Contains("if (value)", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_AmbiguousNameRequiresAnOverloadSelector()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(MemberCallsFixture).FullName!,
+                    nameof(MemberCallsFixture.Overloaded),
+                    "--library",
+                    typeof(MemberCallsFixture).Assembly.Location,
+                    "--where",
+                    "Kind=InvocationExpression",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "requires a single selected overload",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"{nameof(MemberCallsFixture.Overloaded)}:1",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberEffectiveDiscovery_DescribesBodyShapesWhenKindIsPresent()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(CommandLineBuilder.PreprocessArgs(
+                [
+                    "member",
+                    typeof(BodyShapeFixture).FullName!,
+                    nameof(BodyShapeFixture.PublicCreation),
+                    "--library",
+                    FixturePath,
+                    "-D",
+                    "Body Shapes",
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                ]))
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Error:", result.Error, StringComparison.Ordinal);
+        Assert.Contains("| Kind | column |", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberEffectiveDiscovery_RequiresKindBeforeRunningBodyShapes()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(CommandLineBuilder.PreprocessArgs(
+                [
+                    "member",
+                    typeof(BodyShapeFixture).FullName!,
+                    $"{nameof(BodyShapeFixture.PublicCreation)}:1",
+                    "--library",
+                    FixturePath,
+                    "-D",
+                    "Body Shapes",
+                ]))
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "requires --where \"Kind=<C# Body Kinds ID>\"",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberBareDiscovery_DoesNotAdvertiseBodyShapesWithoutKind()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(BodyShapeFixture).FullName!,
+                    nameof(BodyShapeFixture.PublicCreation),
+                    "--library",
+                    FixturePath,
+                    "-D",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Body Shapes", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberBodyShapesSelection_RequiresKindPredicate()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(BodyShapeFixture).FullName!,
+                    $"{nameof(BodyShapeFixture.PublicCreation)}:1",
+                    "--library",
+                    FixturePath,
+                    "-S",
+                    "Body Shapes",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "requires --where \"Kind=<C# Body Kinds ID>\"",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberBroadSelection_OmitsBodyShapesWithoutKind()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(BodyShapeFixture).FullName!,
+                    $"{nameof(BodyShapeFixture.PublicCreation)}:1",
+                    "--library",
+                    FixturePath,
+                    "-S",
+                    "*",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Signature", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Body Shapes", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_RejectsAnotherSelectedSection()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(BodyShapeFixture).FullName!,
+                    $"{nameof(BodyShapeFixture.PublicCreation)}:1",
+                    "--library",
+                    FixturePath,
+                    "-S",
+                    "Decompiled Source",
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "targets section 'Body Shapes'",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_RejectsPerformancePredicatesInSameQuery()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(BodyShapeFixture).FullName!,
+                    $"{nameof(BodyShapeFixture.PublicCreation)}:1",
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=ObjectCreationExpression",
+                    "--where",
+                    "Confidence=high",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "cannot yet be combined with Performance Triage",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Public*")]
+    public async Task MemberKindPredicate_RequiresOneExactMember(string? memberFilter)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var args = new List<string>
+        {
+            "member",
+            typeof(BodyShapeFixture).FullName!,
+            "--library",
+            FixturePath,
+            "--where",
+            "Kind=ObjectCreationExpression",
+        };
+        if (memberFilter is not null)
+        {
+            args.Add("-m");
+            args.Add(memberFilter);
+        }
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(args).InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "requires one exact member name or selector",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_UsesOrdinaryJsonlProjection()
+    {
+        var result = await RunMemberAsync(
+            nameof(BodyShapeFixture.PublicCreation),
+            "ObjectCreationExpression",
+            "--columns",
+            "Kind;Token",
+            "--jsonl");
+
+        Assert.Equal(0, result.ExitCode);
+        using var row = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "ObjectCreationExpression",
+            row.RootElement.GetProperty("kind").GetString());
+        Assert.StartsWith(
+            "0x06",
+            row.RootElement.GetProperty("token").GetString(),
+            StringComparison.Ordinal);
+        Assert.Equal(2, row.RootElement.EnumerateObject().Count());
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_CountUsesTheScopedMatches()
+    {
+        var result = await RunMemberAsync(
+            nameof(BodyShapeFixture.PublicCreation),
+            "ObjectCreationExpression",
+            "--count");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("1", result.Output.Trim());
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_DocumentJsonFailsClosed()
+    {
+        var result = await RunMemberAsync(
+            nameof(BodyShapeFixture.PublicCreation),
+            "ObjectCreationExpression",
+            "--json");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "Document --json cannot represent Body Shapes analysis.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_RendersExplicitEmptyState()
+    {
+        var result = await RunMemberAsync(
+            nameof(BodyShapeFixture.PublicCreation),
+            "FixedStatement");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains(
+            "No matching body shapes found.",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_AllCanSelectANonPublicBody()
+    {
+        var result = await RunMemberAsync(
+            "PrivateCreation",
+            "ObjectCreationExpression",
+            "--all");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("new Version(1, 2)", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(BodyShapeFixture.PublicCreation),
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_UsesOnlyTheSelectedAccessorBody()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string assemblyPath = typeof(MemberAccessorModifierFixture).Assembly.Location;
+        string typeName = typeof(MemberAccessorModifierFixture).FullName!;
+
+        var getter = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeName,
+                    "State:1",
+                    "--library",
+                    assemblyPath,
+                    "--where",
+                    "Kind=ReturnStatement",
+                    "--count",
+                ])
+                .InvokeAsync());
+        var setter = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeName,
+                    "State:2",
+                    "--library",
+                    assemblyPath,
+                    "--where",
+                    "Kind=ReturnStatement",
+                    "--count",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, getter.ExitCode);
+        Assert.Equal("1", getter.Output.Trim());
+        Assert.Equal(0, setter.ExitCode);
+        Assert.Equal("0", setter.Output.Trim());
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_MultipleAccessorsRequireASelector()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(MemberAccessorModifierFixture).FullName!,
+                    "State",
+                    "--library",
+                    typeof(MemberAccessorModifierFixture).Assembly.Location,
+                    "--where",
+                    "Kind=AssignmentStatement",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("has 2 body accessors", result.Error, StringComparison.Ordinal);
+        Assert.Contains(":1 through", result.Error, StringComparison.Ordinal);
+        Assert.Contains(":2", result.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_EmitsAnAccessorSelectorThatRoundTrips()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string assemblyPath = typeof(MemberAccessorModifierFixture).Assembly.Location;
+        string typeName = typeof(MemberAccessorModifierFixture).FullName!;
+
+        var first = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeName,
+                    "State:2",
+                    "--library",
+                    assemblyPath,
+                    "--where",
+                    "Kind=AssignmentStatement",
+                    "--jsonl",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, first.ExitCode);
+        using var row = JsonDocument.Parse(first.Output);
+        string selector = row.RootElement.GetProperty("member").GetString()!;
+        string token = row.RootElement.GetProperty("token").GetString()!;
+        Assert.StartsWith($"{typeName}.State~", selector, StringComparison.Ordinal);
+        Assert.EndsWith(":2", selector, StringComparison.Ordinal);
+
+        var replay = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    selector,
+                    "--library",
+                    assemblyPath,
+                    "--where",
+                    "Kind=AssignmentStatement",
+                    "--jsonl",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, replay.ExitCode);
+        using var replayRow = JsonDocument.Parse(replay.Output);
+        Assert.Equal(
+            token,
+            replayRow.RootElement.GetProperty("token").GetString());
+        Assert.Equal(
+            selector,
+            replayRow.RootElement.GetProperty("member").GetString());
+    }
+
+    [Fact]
+    public async Task MemberKindPredicate_OverloadedAccessorSelectorRoundTrips()
+    {
+        using var source = MetadataSource.Open(FixturePath);
+        var surface = source.ExtractApiSurface(includeAll: false);
+        var type = Assert.Single(surface.Types, candidate =>
+            candidate.FullName
+                == typeof(OverloadedIndexerBodyShapeFixture).FullName);
+        var stringIndexer = Assert.Single(type.Members, member =>
+            member.Kind == "property"
+            && member.Signature?.Contains(
+                "string key",
+                StringComparison.Ordinal) == true);
+        string stable = ApiMemberIdentity
+            .GetMemberAnchor(type, stringIndexer)
+            .StableSelector;
+        string selector = $"{stable}:2";
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var result = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(OverloadedIndexerBodyShapeFixture).FullName!,
+                    selector,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=InvocationExpression",
+                    "--jsonl",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, result.ExitCode);
+        using var row = JsonDocument.Parse(result.Output);
+        string emitted = row.RootElement.GetProperty("member").GetString()!;
+        string token = row.RootElement.GetProperty("token").GetString()!;
+        Assert.Equal(
+            $"{typeof(OverloadedIndexerBodyShapeFixture).FullName}.{selector}",
+            emitted);
+
+        var replay = await ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    emitted,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    "Kind=InvocationExpression",
+                    "--jsonl",
+                ])
+                .InvokeAsync());
+
+        Assert.Equal(0, replay.ExitCode);
+        using var replayRow = JsonDocument.Parse(replay.Output);
+        Assert.Equal(
+            token,
+            replayRow.RootElement.GetProperty("token").GetString());
+        Assert.Equal(
+            emitted,
+            replayRow.RootElement.GetProperty("member").GetString());
+    }
+
+    [Fact]
+    public void MemberBodyResolution_UsesPropertyAndEventAccessorTokens()
+    {
+        using var source = MetadataSource.Open(FixturePath);
+        var surface = source.ExtractApiSurface(includeAll: true);
+        var type = Assert.Single(surface.Types, candidate =>
+            candidate.FullName == typeof(BodyShapeFixture).FullName);
+        var property = Assert.Single(type.Members, member =>
+            member.Kind == "property"
+            && member.Name.EndsWith(".Value", StringComparison.Ordinal));
+        var @event = Assert.Single(type.Members, member =>
+            member.Kind == "event"
+            && member.Name.EndsWith(".Changed", StringComparison.Ordinal));
+
+        type.Members = [property];
+        var propertyMethods = ApiOutputFormatter.ResolveBodyMethods(
+            type,
+            new HashSet<string> { SectionNames.BodyShapes });
+        type.Members = [@event];
+        var eventMethods = ApiOutputFormatter.ResolveBodyMethods(
+            type,
+            new HashSet<string> { SectionNames.BodyShapes });
+
+        var reflectionProperty = typeof(BodyShapeFixture).GetProperty(
+            $"{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Value)}",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var reflectionEvent = typeof(BodyShapeFixture).GetEvent(
+            $"{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Changed)}",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.Equal(
+            [reflectionProperty.GetMethod!.MetadataToken],
+            propertyMethods.Select(method => method.MetadataToken));
+        Assert.Equal(
+            [
+                reflectionEvent.AddMethod!.MetadataToken,
+                reflectionEvent.RemoveMethod!.MetadataToken,
+            ],
+            eventMethods.Select(method => method.MetadataToken));
+        Assert.Equal(
+            reflectionEvent.RemoveMethod.MetadataToken,
+            Assert.Single(
+                ApiOutputFormatter.ResolveBodyShapeMethods(
+                    eventMethods,
+                    overloadIndex: 2)).MetadataToken);
+    }
+
+    static Task<(int ExitCode, string Output, string Error)> RunMemberAsync(
+        string member,
+        string kind,
+        params string[] extraArguments)
+        => RunMemberAsync(member, kind, includeSelector: true, extraArguments);
+
+    static Task<(int ExitCode, string Output, string Error)> RunMemberAsync(
+        string member,
+        string kind,
+        bool includeSelector,
+        params string[] extraArguments)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        return ConsoleCapture.RunAsync(() =>
+            root.Parse(
+                [
+                    "member",
+                    typeof(BodyShapeFixture).FullName!,
+                    includeSelector ? $"{member}:1" : member,
+                    "--library",
+                    FixturePath,
+                    "--where",
+                    $"Kind={kind}",
+                    .. extraArguments,
+                ])
+                .InvokeAsync());
     }
 }

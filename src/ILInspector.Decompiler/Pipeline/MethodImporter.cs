@@ -63,6 +63,7 @@ public static class MethodImporter
         var namesByIndex = new Dictionary<int, string>();
         var hasDefaultByIndex = new Dictionary<int, bool>();
         var dynamicByIndex = new Dictionary<int, bool>();
+        var arrayElementDynamicByIndex = new Dictionary<int, MetadataFactState>();
         foreach (var parameterHandle in method.GetParameters())
         {
             var parameter = reader.GetParameter(parameterHandle);
@@ -81,6 +82,14 @@ public static class MethodImporter
                 dynamicByIndex[index] = isByRef
                     ? DynamicReader.IsByRefElementDynamic(dynamicFlags)
                     : DynamicReader.IsTopLevelDynamic(dynamicFlags);
+                if (index < decoded.ParameterTypes.Length)
+                {
+                    arrayElementDynamicByIndex[index] =
+                        MethodDefinitionFacts.ParameterArrayElementDynamicFact(
+                            reader,
+                            parameter,
+                            decoded.ParameterTypes[index]);
+                }
             }
         }
         for (int i = 0; i < decoded.ParameterTypes.Length; i++)
@@ -88,7 +97,12 @@ public static class MethodImporter
                 namesByIndex.GetValueOrDefault(i, $"arg{i}"),
                 decoded.ParameterTypes[i],
                 hasDefaultByIndex.GetValueOrDefault(i),
-                dynamicByIndex.GetValueOrDefault(i)));
+                dynamicByIndex.GetValueOrDefault(i))
+            {
+                ArrayElementIsDynamic = arrayElementDynamicByIndex.GetValueOrDefault(
+                    i,
+                    MetadataFactState.Unknown),
+            });
 
         var signature = new MethodSignature(
             decoded.ReturnType,
