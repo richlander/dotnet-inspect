@@ -4388,12 +4388,18 @@ public static class CompileBackSourceComposer
             try
             {
                 var signature = GuardedDecode.MethodSignature(reader, method, IrImporter.CallerScope(reader, typeDef, method));
+                var typeArguments = methodRef.DeclaringType.Kind == TypeRefKind.GenericInstance
+                    ? methodRef.DeclaringType.TypeArguments
+                    : [];
+                var definitionReturnType = signature.ReturnType.Instantiate(typeArguments, []);
                 var definitionParameterTypes = methodRef.DefinitionParameterTypes.IsDefaultOrEmpty
                     ? methodRef.ParameterTypes
                     : methodRef.DefinitionParameterTypes;
-                return signature.ReturnType.Equals(methodRef.DefinitionReturnType ?? methodRef.ReturnType)
+                return definitionReturnType.Equals(methodRef.DefinitionReturnType ?? methodRef.ReturnType)
                     && signature.ParameterTypes.Length == definitionParameterTypes.Length
-                    && signature.ParameterTypes.SequenceEqual(definitionParameterTypes);
+                    && signature.ParameterTypes
+                        .Select(parameter => parameter.Instantiate(typeArguments, []))
+                        .SequenceEqual(definitionParameterTypes);
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
             {
