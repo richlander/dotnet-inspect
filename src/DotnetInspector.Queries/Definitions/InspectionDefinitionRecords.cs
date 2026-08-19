@@ -537,17 +537,23 @@ file static class DefinitionCollections
         if (values is null || values.Count == 0)
             return Array.Empty<T>();
 
-        for (var i = 0; i < values.Count; i++)
+        // Copy once through the indexer, validate that snapshot, and wrap it. Do not re-enumerate
+        // the source: a hostile IReadOnlyList can disagree between indexer and enumerator.
+        var copy = new T[values.Count];
+        for (var i = 0; i < copy.Length; i++)
         {
-            if (values[i] is null)
+            var item = values[i];
+            if (item is null)
             {
                 throw new ArgumentException(
                     "Collection must not contain null elements.",
                     nameof(values));
             }
+
+            copy[i] = item;
         }
 
-        return new ReadOnlyCollection<T>(values is T[] array ? [.. array] : [.. values]);
+        return new ReadOnlyCollection<T>(copy);
     }
 }
 

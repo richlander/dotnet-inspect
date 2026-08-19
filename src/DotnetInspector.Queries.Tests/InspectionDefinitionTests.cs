@@ -646,6 +646,40 @@ public class InspectionDefinitionTests
     }
 
     [Fact]
+    public void Collections_FreezeUsesIndexerSnapshotNotSecondEnumeration()
+    {
+        // Enumerator yields null while indexer returns a real coordinate. Freeze must not
+        // retain the enumerated null via a second pass.
+        var lying = new IndexerOnlyMemberList(
+            new DefinitionMemberCoordinate.PackageCoordinate("P", "1.0.0", "net10.0"));
+        var context = new WorkspaceContextDefinition("c", members: lying);
+        Assert.Single(context.Members);
+        Assert.IsType<DefinitionMemberCoordinate.PackageCoordinate>(context.Members[0]);
+        _ = InspectionDefinitionJson.Serialize(
+            new WorkspaceDefinition(1, "ws", [context]));
+    }
+
+    private sealed class IndexerOnlyMemberList : IReadOnlyList<DefinitionMemberCoordinate>
+    {
+        private readonly DefinitionMemberCoordinate _item;
+
+        public IndexerOnlyMemberList(DefinitionMemberCoordinate item) => _item = item;
+
+        public int Count => 1;
+
+        public DefinitionMemberCoordinate this[int index] =>
+            index == 0 ? _item : throw new ArgumentOutOfRangeException(nameof(index));
+
+        public IEnumerator<DefinitionMemberCoordinate> GetEnumerator()
+        {
+            yield return null!;
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
+    }
+
+    [Fact]
     public void Serialize_RejectsInvalidUtf16InRecordFields()
     {
         var lone = new string(['\uD800']);
