@@ -515,6 +515,12 @@ once from `ResolvedAssemblyReference.OpenRead` and consumed by all three. Concre
 owner the single-open promise is aspirational; with it, [Symptom 3](#symptom-3-the-same-image-is-parsed-multiple-times)
 is genuinely fixed.
 
+Definition-bound consumers use `ProbeDeclaration` for structured type
+identity and `DeclaresExtensionMember` for the exact structured declaring type
+plus member anchor. Neither operation admits display text as identity.
+`AssemblyInspectionSessionTests.DeclaresExtensionMember_RequiresExactStructuredIdentity`
+gates the member probe.
+
 Method-body consumers use the narrower `MethodBodySource` capability rather
 than borrowing the session's readers. It resolves method selectors, returns
 copied IL/EH snapshots, and supplies operand names while the session is alive.
