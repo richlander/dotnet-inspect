@@ -682,6 +682,17 @@ export function replaceCurrentNavigationEntry<TView>(
   navigation.stack[navigation.index] = entry;
 }
 
+export function reconcileCurrentNavigationEntry<TView>(
+  navigation: NavigationState<TView>,
+  entry: NavigationEntry<TView>,
+): void {
+  if (navigation.index < 0
+    || navigation.stack[navigation.index]?.sig === entry.sig) {
+    return;
+  }
+  replaceCurrentNavigationEntry(navigation, entry);
+}
+
 export function graphMemberTargetFromShare(
   value: unknown,
 ): GraphMemberShareIdentity | null {

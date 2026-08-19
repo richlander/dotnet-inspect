@@ -49,6 +49,7 @@ import {
   parameterTitleHtml,
   platformPackFromProvenance,
   platformPackToken,
+  reconcileCurrentNavigationEntry,
   removeWorkspacePackage,
   removeAppendedNotice,
   replaceCurrentNavigationEntry,
@@ -3418,7 +3419,7 @@ test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
     /async function drillPlatformNode\(\s*node,\s*navigationIsCurrent = \(\) => true\)[\s\S]*?const requestIsCurrent = \(\) =>\s*seq === state\.memberCallGraphSeq && navigationIsCurrent\(\)[\s\S]*?if \(discardIfStale\(\)\) return;/);
   assert.match(
     appSource,
-    /if \(disposition === "blocked" \|\| disposition === "none"\) return;/);
+    /if \(disposition === "blocked"\) \{[\s\S]*?bindBlockedCallGraphNode\([\s\S]*?if \(disposition === "none"\) return;/);
 });
 
 test("history rebuilds graph-only members through exact pending identity", () => {
@@ -3521,6 +3522,63 @@ test("pending graph restoration replaces its current history entry", () => {
   assert.equal(navigation.stack.length, 2);
   assert.deepEqual(navigation.stack[0], resolved);
   assert.equal(navigation.stack[1].sig, "forward");
+});
+
+test("history normalization preserves the current index and forward entries", () => {
+  const navigation = {
+    stack: [
+      { sig: "older", view: {} },
+      { sig: "recorded", view: { selectedOverloadIndex: 0 } },
+      { sig: "forward", view: {} }
+    ],
+    index: 1
+  };
+  const normalized = {
+    sig: "normalized",
+    view: { selectedOverloadIndex: 1 }
+  };
+
+  reconcileCurrentNavigationEntry(navigation, normalized);
+
+  assert.equal(navigation.index, 1);
+  assert.deepEqual(
+    navigation.stack.map(entry => entry.sig),
+    ["older", "normalized", "forward"]);
+
+  reconcileCurrentNavigationEntry(navigation, normalized);
+  assert.deepEqual(
+    navigation.stack.map(entry => entry.sig),
+    ["older", "normalized", "forward"]);
+});
+
+test("restored views reconcile normalization before rendering", () => {
+  const apply =
+    appSource.match(/function applyView[\s\S]*?(?=\nfunction navBack)/)?.[0]
+    ?? "";
+  assert.match(
+    apply,
+    /if \(!state\.atPackageRoot\) revealTypeInFilters\(restoredType\)/);
+  assert.match(
+    apply,
+    /graphSelection\?\.group\.key !== state\.selectedMemberKey\) \{\s*reconcileCurrentNav\(\);[\s\S]*?restorePendingGraphMember\(\)/);
+  assert.match(
+    apply,
+    /if \(member[\s\S]*?state\.memberSection = "overview";\s*\}\s*reconcileCurrentNav\(\);/);
+});
+
+test("ambiguous call graph targets expose a visible refusal", () => {
+  const binding =
+    appSource.match(/if \(bindCallGraphNodes\)[\s\S]*?\n  fit\(\);/)?.[0]
+    ?? "";
+  assert.equal(
+    binding.match(/bindBlockedCallGraphNode\(/g)?.length,
+    3);
+  assert.match(
+    binding,
+    /node\.setAttribute\(\s*"aria-label",\s*`Cannot open \$\{target\.typeFullName\}\.\$\{target\.memberName\}: \$\{reason\}`\)/);
+  assert.match(
+    binding,
+    /showPlatformTargetError\(target, reason\)/);
 });
 
 test("async graph work uses one source-view ownership contract", () => {
