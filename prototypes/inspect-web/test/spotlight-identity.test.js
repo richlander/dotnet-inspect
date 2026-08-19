@@ -128,7 +128,11 @@ const typePanelSource = readFileSync(
 const packageBarSource = readFileSync(
   new URL("../src/package-bar.ts", import.meta.url),
   "utf8");
-const applicationSources = `${appSource}\n${graphSource}\n${packageBarSource}`;
+const metadataViewerSource = readFileSync(
+  new URL("../src/metadata-viewer.ts", import.meta.url),
+  "utf8");
+const applicationSources =
+  `${appSource}\n${graphSource}\n${packageBarSource}\n${metadataViewerSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const engineSource = readFileSync(
   new URL("../engine/wwwroot/engine.js", import.meta.url),

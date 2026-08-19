@@ -323,6 +323,16 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void BranchingMethod_MarksConditionalBranchesImported()
+    {
+        var function = ImportFixture(nameof(CfgSampleClass.AbsShort));
+
+        Assert.All(
+            function.Descendants.OfType<ConditionalBranch>(),
+            branch => Assert.Equal(ConditionalBranchOrigin.Imported, branch.Origin));
+    }
+
+    [Fact]
     public void Convert_UnsignedNarrowing_MapsToCorrectTargetUnchecked()
     {
         // conv.u1 and conv.u2 live far from the main conv.* opcode range;
