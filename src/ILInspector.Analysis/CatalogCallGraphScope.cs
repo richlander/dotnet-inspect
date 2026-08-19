@@ -679,6 +679,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                 GraphNodeStorageKey? parentEdgeCallerDefinition = null)
             {
                 GraphNodeIdentity identity = evidence.Identity;
+                AssemblyReferenceIdentity? definitionAssemblyIdentity =
+                    DefinitionAssemblyIdentityFor(identity);
                 bool external = !string.Equals(
                     assembly,
                     targetAssembly,
@@ -713,6 +715,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
                         parentEdgeCallSites:
                             parentEdgeCallSites,
                         parentEdgeCallerDefinition:
@@ -748,6 +752,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
                         parentEdgeCallSites:
                             parentEdgeCallSites,
                         parentEdgeCallerDefinition:
@@ -770,6 +776,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
                         parentEdgeCallSites:
                             parentEdgeCallSites,
                         parentEdgeCallerDefinition:
@@ -824,6 +832,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         signals,
                         source),
                     evidence,
+                    definitionAssemblyIdentity:
+                        definitionAssemblyIdentity,
                     parentEdgeCallSites:
                         parentEdgeCallSites,
                     parentEdgeCallerDefinition:
@@ -866,6 +876,8 @@ public sealed class CatalogCallGraphScope : IDisposable
             {
                 GraphNodeIdentity identity = evidence.Identity;
                 StoredDefinition? definition = DefinitionFor(identity);
+                AssemblyReferenceIdentity? definitionAssemblyIdentity =
+                    DefinitionAssemblyIdentityFor(identity);
                 string assembly =
                     definition?.Participant.Assembly.Identity.Name
                     ?? member.DeclaringType.Assembly;
@@ -908,6 +920,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
                         parentEdgeCallSites,
@@ -932,6 +946,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
                         parentEdgeCallSites,
@@ -954,6 +970,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                             signals,
                             source),
                         evidence,
+                        definitionAssemblyIdentity:
+                            definitionAssemblyIdentity,
                         definition?.Diagnostic,
                         hasUnresolvedDispatch,
                         parentEdgeCallSites,
@@ -1026,6 +1044,8 @@ public sealed class CatalogCallGraphScope : IDisposable
                         signals,
                         source),
                     evidence,
+                    definitionAssemblyIdentity:
+                        definitionAssemblyIdentity,
                     definition?.Diagnostic,
                     hasUnresolvedDispatch,
                     parentEdgeCallSites,
@@ -1085,6 +1105,26 @@ public sealed class CatalogCallGraphScope : IDisposable
                 out ImmutableArray<StoredDefinition> definitions)
                 ? definitions[0]
                 : null;
+
+        AssemblyReferenceIdentity? DefinitionAssemblyIdentityFor(
+            GraphNodeIdentity identity)
+        {
+            if (!_definitionsByIdentity.TryGetValue(
+                    identity,
+                    out ImmutableArray<StoredDefinition> definitions)
+                || definitions.IsDefaultOrEmpty)
+            {
+                return null;
+            }
+
+            AssemblyReferenceIdentity first =
+                definitions[0].Participant.Assembly.Identity;
+            return definitions.All(definition =>
+                    definition.Participant.Assembly.Identity
+                        .IsEquivalentTo(first))
+                ? first
+                : null;
+        }
 
         internal CallTreeNode Detach(CallTreeNode root)
         {
@@ -1204,6 +1244,7 @@ public sealed class CatalogCallGraphScope : IDisposable
             ImmutableArray<CallTreeNode> children,
             CallTreePerf perf,
             GraphNodeEvidence evidence,
+            AssemblyReferenceIdentity? definitionAssemblyIdentity = null,
             AnalysisDiagnostic? diagnostic = null,
             bool hasUnresolvedDispatch = false,
             ImmutableArray<DirectCall> parentEdgeCallSites = default,
@@ -1211,6 +1252,8 @@ public sealed class CatalogCallGraphScope : IDisposable
             new(member, kind, status, children, perf)
             {
                 GraphEvidence = evidence,
+                DefinitionAssemblyIdentity =
+                    definitionAssemblyIdentity,
                 Diagnostic = diagnostic,
                 HasUnresolvedDispatch =
                     hasUnresolvedDispatch,

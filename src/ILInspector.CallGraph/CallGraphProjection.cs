@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 
 namespace ILInspector.CallGraph;
 
@@ -56,6 +57,11 @@ public enum CallGraphNodeKind
 /// Distinct physical evidence carried by the projected tree occurrences that
 /// collapsed onto this logical node.
 /// </param>
+/// <param name="DefinitionAssemblyIdentity">
+/// Exact assembly identity of the unambiguous resolved definition site, when catalog evidence
+/// supplied one. <c>CalleeTreeCarriesResolvedDefinitionAssemblyIdentity</c> and
+/// <c>ConflictingDefinitionAssembliesAreWithheld</c> gate preservation and ambiguity.
+/// </param>
 public sealed record CallGraphNode(
     int Id,
     GraphNodeIdentity Identity,
@@ -63,7 +69,8 @@ public sealed record CallGraphNode(
     string Label,
     CallGraphNodeKind Kind,
     CallTreePerf? Perf = null,
-    ImmutableArray<GraphNodeEvidence> GraphEvidence = default);
+    ImmutableArray<GraphNodeEvidence> GraphEvidence = default,
+    AssemblyReferenceIdentity? DefinitionAssemblyIdentity = null);
 
 /// <summary>The traversal half that first contributed one logical edge.</summary>
 public enum CallGraphEdgeOrigin
@@ -426,7 +433,9 @@ public sealed partial class CallGraphProjection
             focus,
             MergePerf(calleeRoot?.Perf, callerRoot?.Perf),
             calleeRoot?.GraphEvidence,
-            callerRoot?.GraphEvidence);
+            callerRoot?.GraphEvidence,
+            calleeRoot?.DefinitionAssemblyIdentity,
+            callerRoot?.DefinitionAssemblyIdentity);
         if (callerRoot is not null)
             builder.WalkCallers(callerRoot, focusId);
         if (calleeRoot is not null)
@@ -475,6 +484,9 @@ public sealed partial class CallGraphProjection
         public CallGraphNodeKind Kind { get; set; } = kind;
         public CallTreePerf? Perf { get; set; } = perf;
         public List<GraphNodeEvidence> GraphEvidence { get; } = [];
+        public AssemblyReferenceIdentity? DefinitionAssemblyIdentity
+            { get; set; }
+        public bool HasDefinitionAssemblyConflict { get; set; }
     }
 
     private sealed class Builder(
@@ -515,7 +527,9 @@ public sealed partial class CallGraphProjection
             MemberRef member,
             CallTreePerf? perf,
             GraphNodeEvidence? firstEvidence,
-            GraphNodeEvidence? secondEvidence)
+            GraphNodeEvidence? secondEvidence,
+            AssemblyReferenceIdentity? firstDefinitionAssembly,
+            AssemblyReferenceIdentity? secondDefinitionAssembly)
         {
             GraphNodeIdentity identity = useGraphEvidence
                 ? (firstEvidence ?? secondEvidence)!.Identity
@@ -525,8 +539,12 @@ public sealed partial class CallGraphProjection
                 member,
                 CallGraphNodeKind.Focus,
                 perf,
-                firstEvidence);
+                firstEvidence,
+                firstDefinitionAssembly);
             AddEvidence(_nodes[id], secondEvidence);
+            AddDefinitionAssembly(
+                _nodes[id],
+                secondDefinitionAssembly);
             return id;
         }
 
@@ -540,7 +558,8 @@ public sealed partial class CallGraphProjection
                     child.Member,
                     KindFor(child.Status),
                     child.Perf,
-                    child.GraphEvidence);
+                    child.GraphEvidence,
+                    child.DefinitionAssemblyIdentity);
                 AddEdge(
                     childId,
                     nodeId,
@@ -563,7 +582,8 @@ public sealed partial class CallGraphProjection
                     child.Member,
                     KindFor(child.Status),
                     child.Perf,
-                    child.GraphEvidence);
+                    child.GraphEvidence,
+                    child.DefinitionAssemblyIdentity);
                 AddEdge(
                     nodeId,
                     childId,
@@ -591,7 +611,8 @@ public sealed partial class CallGraphProjection
                         node.Label,
                         node.Kind,
                         node.Perf,
-                        [.. node.GraphEvidence]));
+                        [.. node.GraphEvidence],
+                        node.DefinitionAssemblyIdentity));
             }
             var edges = ImmutableArray.CreateBuilder<CallGraphEdge>(
                 _edges.Count);
@@ -620,7 +641,8 @@ public sealed partial class CallGraphProjection
             MemberRef member,
             CallGraphNodeKind candidate,
             CallTreePerf? perf,
-            GraphNodeEvidence? evidence)
+            GraphNodeEvidence? evidence,
+            AssemblyReferenceIdentity? definitionAssemblyIdentity)
         {
             if (!_ids.TryGetValue(identity, out var id))
             {
@@ -634,6 +656,9 @@ public sealed partial class CallGraphProjection
                     candidate,
                     perf);
                 AddEvidence(node, evidence);
+                AddDefinitionAssembly(
+                    node,
+                    definitionAssemblyIdentity);
                 _nodes.Add(node);
                 return id;
             }
@@ -648,6 +673,9 @@ public sealed partial class CallGraphProjection
             // only indexes one direction, so merge the observations field by field.
             info.Perf = MergePerf(info.Perf, perf);
             AddEvidence(info, evidence);
+            AddDefinitionAssembly(
+                info,
+                definitionAssemblyIdentity);
             return id;
         }
 
@@ -663,6 +691,27 @@ public sealed partial class CallGraphProjection
             }
 
             node.GraphEvidence.Add(evidence);
+        }
+
+        static void AddDefinitionAssembly(
+            MutableNode node,
+            AssemblyReferenceIdentity? identity)
+        {
+            if (identity is null
+                || node.HasDefinitionAssemblyConflict)
+            {
+                return;
+            }
+            if (node.DefinitionAssemblyIdentity is null)
+            {
+                node.DefinitionAssemblyIdentity = identity;
+                return;
+            }
+            if (node.DefinitionAssemblyIdentity.IsEquivalentTo(identity))
+                return;
+
+            node.DefinitionAssemblyIdentity = null;
+            node.HasDefinitionAssemblyConflict = true;
         }
 
         private void AddEdge(

@@ -9,6 +9,7 @@ using System.Xml;
 using System.Text.Json;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Services;
 using ILInspector.Analysis;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
@@ -1718,6 +1719,121 @@ public sealed class BrowserEngineBoundaryTests
                 Assert.Equal("Example.Outer`1+Widget`1", target.TypeMetadataId);
             });
         Assert.Null(targets[3].TypeMetadataId);
+    }
+
+    [Fact]
+    public void CallGraphTargets_PreferResolvedDefinitionAssemblyIdentity()
+    {
+        var facade = new AssemblyReferenceIdentity(
+            "System.Runtime",
+            new Version(11, 0, 0, 0),
+            "neutral",
+            "b03f5f7f11d50a3a");
+        var definition = new AssemblyReferenceIdentity(
+            "System.Private.CoreLib",
+            new Version(11, 0, 0, 0),
+            "neutral",
+            "7cec85d7bea7798e");
+        TypeRef declaringType = TypeRef.Definition(
+            TypeRef.CoreLibrary,
+            "System.IO",
+            "TextWriter",
+            new ResolvableTypeReference(
+                new TypeReferenceOrigin.AssemblyReference(facade),
+                DefinitionName("System.IO", ["TextWriter"])));
+        var member = new MemberRef(
+            declaringType,
+            "WriteLine",
+            [TypeRef.CoreLib("System", "String")],
+            TypeRef.CoreLib("System", "Void"),
+            MemberKind.Method);
+        var node = new CallGraphNode(
+            0,
+            GraphNodeIdentity.FromMember(member),
+            member,
+            "TextWriter.WriteLine",
+            CallGraphNodeKind.Normal,
+            DefinitionAssemblyIdentity: definition);
+
+        BrowserCallGraphTarget target = Assert.Single(
+            BrowserInspectionEngine.Targets(
+                [node],
+                [facade, definition],
+                assembly => assembly == definition.Name
+                    ? "netcore.app"
+                    : null));
+
+        Assert.Equal(definition.Name, target.Assembly);
+        Assert.Equal("11.0.0.0", target.AssemblyVersion);
+        Assert.Equal(definition.PublicKeyToken, target.AssemblyPublicKeyToken);
+        Assert.Equal("netcore.app", target.PlatformPack);
+    }
+
+    [Fact]
+    public void CallGraphTargets_UseDefinitionsBehindPlatformFacades()
+    {
+        LibraryBodyIndex console = LibraryBodyIndex.Open(
+            typeof(Console).Assembly.Location);
+        LibraryBodyIndex coreLibrary = LibraryBodyIndex.Open(
+            typeof(object).Assembly.Location);
+        ResolvedAssemblyReference consoleAssembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                console.Path,
+                AssemblyResolutionProvenance.Platform(
+                    "net11.0",
+                    frameworkVersion: null,
+                    resolverSource: "Browser engine test"));
+        ResolvedAssemblyReference coreLibraryAssembly =
+            ResolvedAssemblyReference.CreateFromPath(
+                coreLibrary.Path,
+                AssemblyResolutionProvenance.Platform(
+                    "net11.0",
+                    frameworkVersion: null,
+                    resolverSource: "Browser engine test"));
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(console.Path)
+            {
+                PreferImplementationAssemblies = true,
+                AllowPlatformAssemblyVersionRollForward = true,
+            });
+        using var scope = new CatalogCallGraphScope(
+            resolver,
+            [
+                new(console, consoleAssembly),
+                new(coreLibrary, coreLibraryAssembly),
+            ]);
+        MethodIdentity writeLine = console.DeclaredMethods.Single(method =>
+            method.DeclaringType.Namespace == "System"
+            && method.DeclaringType.Name == "Console"
+            && method.Name == "WriteLine"
+            && method.ParameterTypes.Length == 1
+            && method.ParameterTypes[0].Namespace == "System"
+            && method.ParameterTypes[0].Name == "String");
+        CallGraphProjection projection = CallGraphProjection.FromCallees(
+            scope.BuildCallTree(
+                console,
+                writeLine.MetadataToken,
+                maxDepth: 2,
+                maxNodes: 500));
+        CallGraphNode forwarded = Assert.Single(
+            projection.Nodes,
+            node =>
+                node.Member.DeclaringType.Resolution?.Origin
+                    is TypeReferenceOrigin.AssemblyReference reference
+                && reference.Assembly.Name == "System.Runtime"
+                && node.DefinitionAssemblyIdentity?.Name
+                    == coreLibraryAssembly.Identity.Name);
+
+        BrowserCallGraphTarget target = Assert.Single(
+            BrowserInspectionEngine.Targets(
+                [forwarded],
+                [consoleAssembly.Identity, coreLibraryAssembly.Identity]),
+            candidate => candidate.Id == $"n{forwarded.Id}");
+
+        Assert.Equal(coreLibraryAssembly.Identity.Name, target.Assembly);
+        Assert.Equal(
+            coreLibraryAssembly.Identity.PublicKeyToken,
+            target.AssemblyPublicKeyToken);
     }
 
     // A package coordinate becomes a flat-container path segment and a cache key. Both halves are

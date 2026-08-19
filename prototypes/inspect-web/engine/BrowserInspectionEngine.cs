@@ -1143,8 +1143,12 @@ public static partial class BrowserInspectionEngine
         Func<string, string?>? platformPackForAssembly)
     {
         Analysis.TypeRef? definition = DeclaringTypeDefinition(node.Member.DeclaringType);
+        // The metadata origin may be a facade; the resolved definition identifies the browsable
+        // assembly and must win when the catalog established it.
         AssemblyReferenceIdentity? identity =
-            (definition?.Resolution?.Origin as Analysis.TypeReferenceOrigin.AssemblyReference)
+            node.DefinitionAssemblyIdentity
+            ?? (definition?.Resolution?.Origin
+                    as Analysis.TypeReferenceOrigin.AssemblyReference)
                 ?.Assembly;
         if (identity is null && definition is not null)
         {

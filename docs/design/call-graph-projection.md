@@ -104,6 +104,11 @@ The projection owns everything a host must not re-invent in JavaScript:
   collapse to one node in either domain.
 - **Physical evidence.** Every projected node retains the distinct
   `GraphNodeEvidence` carried by the tree occurrences that collapsed into it.
+  A catalog-resolved node also carries the exact defining assembly identity
+  when every definition site agrees; call-site storage remains attributed to
+  the caller and is not repurposed as defining evidence.
+  `CalleeTreeCarriesResolvedDefinitionAssemblyIdentity` and
+  `ConflictingDefinitionAssembliesAreWithheld` gate that separation.
   Every product-built tree child also retains all `DirectCall` receipts for its
   parent edge and the acquisition-aware definition storage of their caller.
   `CallGraphProjection.CallSites` deduplicates catalog receipts by that caller

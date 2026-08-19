@@ -116,6 +116,42 @@ public class CatalogCallGraphScopeTests
     }
 
     [Fact]
+    public void CalleeTreeCarriesResolvedDefinitionAssemblyIdentity()
+    {
+        LibraryBodyIndex caller = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        LibraryBodyIndex target = LibraryBodyIndex.Open(
+            FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        using CatalogCallGraphScope scope =
+            CatalogCallGraphTestExtensions.CreateScope(
+                caller,
+                [target]);
+        MethodIdentity root = caller.DeclaredMethods.Single(method =>
+            method.DeclaringType.Name == "Entry"
+            && method.Name == "RunTwice");
+
+        CallTreeNode tree = scope.BuildCallTree(
+            caller,
+            root.MetadataToken);
+        CallTreeNode callee = Assert.Single(tree.Children);
+
+        Assert.Equal(
+            GraphNodeStorageKind.CallSite,
+            callee.GraphEvidence?.Storage.Kind);
+        Assert.True(
+            Descriptor(target).Identity.IsEquivalentTo(
+                Assert.IsType<AssemblyReferenceIdentity>(
+                    callee.DefinitionAssemblyIdentity)));
+        CallGraphNode projected = Assert.Single(
+            CallGraphProjection.FromCallees(tree).Nodes,
+            node => node.Member.Name == callee.Member.Name);
+        Assert.True(
+            Descriptor(target).Identity.IsEquivalentTo(
+                Assert.IsType<AssemblyReferenceIdentity>(
+                    projected.DefinitionAssemblyIdentity)));
+    }
+
+    [Fact]
     public void ExactVersionSkewedParticipantRetainsTypedConflictEvidence()
     {
         LibraryBodyIndex targetV2 = LibraryBodyIndex.Open(
