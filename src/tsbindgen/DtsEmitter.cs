@@ -1,16 +1,15 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 
 namespace tsbindgen;
 
-/// <summary>
-/// Projects a <see cref="JsExportSurface.JsExportSurface"/> into <c>.d.ts</c> text. Purely
-/// mechanical: all type-mapping and naming-policy decisions are delegated to
-/// <see cref="TsTypeMapper"/> and <see cref="CamelCase"/>; this type only handles layout/output.
-/// </summary>
-static class DtsEmitter
+static partial class DtsEmitter
 {
+    [GeneratedRegex("^[A-Za-z_$][A-Za-z0-9_$]*$", RegexOptions.CultureInvariant)]
+    private static partial Regex TsIdentifierRegex();
+
     public static string Emit(
         ILInspector.JsExportSurface.JsExportSurface surface,
         TsBindGenDiagnostics? diagnostics = null)
@@ -19,58 +18,18 @@ static class DtsEmitter
             surface.Records.Select(r => r.Name).Concat(surface.Enums.Select(e => e.Name)),
             StringComparer.Ordinal);
 
-        JsonWireNamingPolicy namingPolicy = ResolveNamingPolicy(surface);
-        if (namingPolicy == JsonWireNamingPolicy.Unsupported)
-        {
-            diagnostics?.ReportUnmappedType(
-                "JsonSerializerContext.PropertyNamingPolicy",
-                "unsupported JsonKnownNamingPolicy");
-        }
-
         var sb = new StringBuilder();
 
         foreach (ApiType enumType in surface.Enums.OrderBy(e => e.Name, StringComparer.Ordinal))
-        {
             EmitEnum(sb, enumType);
-        }
 
         foreach (ApiType record in surface.Records.OrderBy(r => r.Name, StringComparer.Ordinal))
-        {
-            EmitRecord(sb, record, knownTypeNames, namingPolicy, diagnostics);
-        }
+            EmitRecord(sb, record, knownTypeNames, diagnostics);
 
-        foreach (JsExportFunction function in surface.Functions.OrderBy(
-            f => f.Name, StringComparer.Ordinal))
-        {
+        foreach (JsExportFunction function in surface.Functions.OrderBy(f => f.Name, StringComparer.Ordinal))
             EmitFunction(sb, function, knownTypeNames, diagnostics);
-        }
 
         return sb.ToString();
-    }
-
-    static JsonWireNamingPolicy ResolveNamingPolicy(ILInspector.JsExportSurface.JsExportSurface surface)
-    {
-        JsonWireNamingPolicy? resolved = null;
-        foreach (ApiType record in surface.Records)
-        {
-            if (record.JsonPropertyNamingPolicy is null)
-            {
-                continue;
-            }
-
-            if (resolved is null)
-            {
-                resolved = record.JsonPropertyNamingPolicy.Value;
-                continue;
-            }
-
-            if (resolved != record.JsonPropertyNamingPolicy.Value)
-            {
-                return JsonWireNamingPolicy.Unsupported;
-            }
-        }
-
-        return resolved ?? JsonWireNamingPolicy.None;
     }
 
     static void EmitEnum(StringBuilder sb, ApiType enumType)
@@ -87,9 +46,7 @@ static class DtsEmitter
             return;
         }
 
-        IEnumerable<string> memberNames = enumType.Members
-            .Where(m => m.Kind == "field" && m.IsConst)
-            .Select(m => m.Name);
+        IEnumerable<string> memberNames = enumType.Members.Where(m => m.Kind == "field" && m.IsConst).Select(m => m.Name);
         string union = string.Join(" | ", memberNames.Select(n => $"\"{n}\""));
         sb.Append("export type ").Append(enumType.Name).Append(" = ").Append(union).Append(";\n\n");
     }
@@ -98,9 +55,17 @@ static class DtsEmitter
         StringBuilder sb,
         ApiType record,
         IReadOnlySet<string> knownTypeNames,
-        JsonWireNamingPolicy namingPolicy,
         TsBindGenDiagnostics? diagnostics)
     {
+        JsonWireNamingPolicy namingPolicy = record.JsonPropertyNamingPolicy ?? JsonWireNamingPolicy.None;
+        if (namingPolicy == JsonWireNamingPolicy.Unsupported)
+        {
+            diagnostics?.ReportUnmappedType(
+                $"{record.Name} JsonSerializerContext.PropertyNamingPolicy",
+                "unsupported JsonKnownNamingPolicy");
+            namingPolicy = JsonWireNamingPolicy.None;
+        }
+
         sb.Append("export interface ").Append(record.Name).Append(" {\n");
 
         foreach (ApiMember member in record.Members)
@@ -113,14 +78,10 @@ static class DtsEmitter
                 continue;
             }
 
-            string tsName = member.JsonPropertyName
-                ?? ApplyNamingPolicy(member.Name, namingPolicy);
+            string resolvedName = member.JsonPropertyName ?? ApplyNamingPolicy(member.Name, namingPolicy);
+            string tsName = FormatPropertyKey(resolvedName);
             string propertyType = member.SignatureModel?.ReturnType ?? member.ReturnType ?? "unknown";
-            string tsType = TsTypeMapper.MapParameterType(
-                propertyType,
-                knownTypeNames,
-                diagnostics,
-                $"{record.Name}.{member.Name}");
+            string tsType = TsTypeMapper.MapParameterType(propertyType, knownTypeNames, diagnostics, $"{record.Name}.{member.Name}");
             sb.Append("  ").Append(tsName).Append(": ").Append(tsType).Append(";\n");
         }
 
@@ -128,23 +89,20 @@ static class DtsEmitter
     }
 
     static void EmitFunction(
-        StringBuilder sb, JsExportFunction function, IReadOnlySet<string> knownTypeNames, TsBindGenDiagnostics? diagnostics)
+        StringBuilder sb,
+        JsExportFunction function,
+        IReadOnlySet<string> knownTypeNames,
+        TsBindGenDiagnostics? diagnostics)
     {
-        string tsName = CamelCase.FromPascalCase(function.Name);
         string returnType = function.ReturnWireType is { } returnWireType
-            ? TsTypeMapper.MapReturnEnvelope(
-                function.ReturnType,
-                returnWireType,
-                knownTypeNames,
-                diagnostics,
-                $"{function.Name} return")
+            ? TsTypeMapper.MapReturnEnvelope(function.ReturnType, returnWireType, knownTypeNames, diagnostics, $"{function.Name} return")
             : TsTypeMapper.MapReturnType(function.ReturnType, knownTypeNames, diagnostics, $"{function.Name} return");
 
         var parameters = function.Parameters.Select(p =>
             $"{CamelCase.FromPascalCase(p.Name)}: {TsTypeMapper.MapParameterType(p.Type, knownTypeNames, diagnostics, $"{function.Name}.{p.Name}")}");
 
         sb.Append("export declare function ")
-          .Append(tsName)
+          .Append(function.Name)
           .Append('(')
           .Append(string.Join(", ", parameters))
           .Append("): ")
@@ -162,4 +120,11 @@ static class DtsEmitter
         JsonWireNamingPolicy.KebabCaseUpper => JsonNamingPolicies.KebabCaseUpper(name),
         _ => name,
     };
+
+    static string FormatPropertyKey(string name) =>
+        TsIdentifierRegex().IsMatch(name) ? name : $"\"{EscapeString(name)}\"";
+
+    static string EscapeString(string text) =>
+        text.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
 }

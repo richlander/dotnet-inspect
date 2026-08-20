@@ -533,8 +533,7 @@ public static partial class AttributeReader
         Action<int>? beforeMaterialize)
     {
         if (AttributeDecoder.TryDecode(reader, attr, beforeMaterialize) is { FixedArguments.Length: 1 } decoded
-            && decoded.FixedArguments[0].Value is string text
-            && !string.IsNullOrEmpty(text))
+            && decoded.FixedArguments[0].Value is string text)
         {
             value = text;
             return true;

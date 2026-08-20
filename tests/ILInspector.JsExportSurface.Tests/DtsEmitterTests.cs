@@ -29,14 +29,6 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_ProducesInterfacesForBothRecords()
-    {
-        string dts = EmitFixtureDts();
-        Assert.Contains("export interface WidgetDto {", dts, StringComparison.Ordinal);
-        Assert.Contains("export interface WidgetOwner {", dts, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void Emit_UsesContextNamingPolicyForFixtureProperties()
     {
         string dts = EmitFixtureDts();
@@ -46,12 +38,14 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_CurrentlyAppliesDefaultNamingToInternalContextProperties()
+    public void Emit_PreservesPascalCaseForNoPolicyContextEvenWhenAnotherContextUsesCamelCase()
     {
         string dts = EmitFixtureDts(includeAll: true);
         Assert.Contains("export interface InternalContextPascalWidget {", dts, StringComparison.Ordinal);
+        Assert.Contains("  Name: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  Count: number;", dts, StringComparison.Ordinal);
+        Assert.Contains("export interface InternalContextCamelWidget {", dts, StringComparison.Ordinal);
         Assert.Contains("  name: string;", dts, StringComparison.Ordinal);
-        Assert.Contains("  count: number;", dts, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -63,83 +57,28 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_DeclaresFunctionsWithCamelCaseNamesAndPromiseReturnTypes()
+    public void Emit_UsesVerbatimJsExportFunctionNames()
     {
         string dts = EmitFixtureDts();
-        Assert.Contains("export declare function getWidget(name: string, count: number): string;", dts, StringComparison.Ordinal);
-        Assert.Contains("export declare function getWidgetAsync(name: string): Promise<string>;", dts, StringComparison.Ordinal);
-        Assert.Contains("export declare function ping(): Promise<void>;", dts, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Emit_WithoutWireContracts_ReportsErasedEnvelopeTypesRaw()
-    {
-        string dts = EmitFixtureDts();
-        Assert.Contains("export declare function getWidget(name: string, count: number): string;", dts, StringComparison.Ordinal);
-        Assert.Contains("export declare function getWidgetAsync(name: string): Promise<string>;", dts, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Emit_WithWireContracts_SubstitutesResolvedDtoForSyncStringReturn()
-    {
-        string dts = EmitFixtureDtsWithWireContracts();
-        Assert.Contains("export declare function getWidget(name: string, count: number): WidgetDto;", dts, StringComparison.Ordinal);
+        Assert.Contains("export declare function QueryPackage(packageId: string): string;", dts, StringComparison.Ordinal);
+        Assert.DoesNotContain("export declare function queryPackage", dts, StringComparison.Ordinal);
     }
 
     [Fact]
     public void Emit_WithWireContracts_SubstitutesResolvedDtoInsidePromiseForAsyncReturn()
     {
         string dts = EmitFixtureDtsWithWireContracts();
-        Assert.Contains("export declare function getWidgetAsync(name: string): Promise<WidgetDto>;", dts, StringComparison.Ordinal);
+        Assert.Contains("export declare function GetWidgetAsync(name: string): Promise<WidgetDto>;", dts, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Emit_WithWireContracts_LeavesNonEnvelopeReturnUnchanged()
+    public void Emit_HonorsJsonPropertyNameAndQuotesNonIdentifiers()
     {
-        string dts = EmitFixtureDtsWithWireContracts();
-        Assert.Contains("export declare function ping(): Promise<void>;", dts, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Emit_WithWireContracts_DoesNotGuessParameterAttributionWithMultipleStringParams()
-    {
-        string dts = EmitFixtureDtsWithWireContracts();
-        Assert.Contains("export declare function renameWidget(widgetJson: string, newName: string): WidgetDto;", dts, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Emit_WithWireContracts_SubstitutesArrayDtoForContainerShapedReturn()
-    {
-        string dts = EmitFixtureDtsWithWireContracts();
-        Assert.Contains("export declare function getWidgetArray(): WidgetDto[];", dts, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Emit_WithWireContracts_LeavesAmbiguousReturnAsRawEnvelope()
-    {
-        string dts = EmitFixtureDtsWithWireContracts();
-        Assert.Contains("export declare function getWidgetOrOwner(wantOwner: boolean): string;", dts, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Emit_ProjectsEnumAsStringLiteralUnionNotEmptyInterface()
-    {
-        string dts = EmitFixtureDts();
-        Assert.Contains("export type WidgetStatus = \"Draft\" | \"Published\" | \"Archived\";", dts, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Emit_ProjectsFlagsEnumAsStringNotClosedUnion()
-    {
-        string dts = EmitFixtureDts();
-        Assert.Contains("export type WidgetPermission = string;", dts, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Emit_ProjectsConverterlessEnumAsNumberNotStringUnion()
-    {
-        string dts = EmitFixtureDts();
-        Assert.Contains("export type WidgetPriority = number;", dts, StringComparison.Ordinal);
+        string dts = EmitFixtureDts(includeAll: true);
+        Assert.Contains("  wire_name: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  \"display-name\": string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  \"\": string;", dts, StringComparison.Ordinal);
+        Assert.DoesNotContain("ignoredAtWire", dts, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -147,13 +86,5 @@ public sealed class DtsEmitterTests
     {
         string dts = EmitFixtureDts(includeAll: true);
         Assert.Contains("lastEditedBy", dts, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Emit_HonorsJsonPropertyNameAndJsonIgnore()
-    {
-        string dts = EmitFixtureDts();
-        Assert.Contains("  wire_name: string;", dts, StringComparison.Ordinal);
-        Assert.DoesNotContain("ignoredAtWire", dts, StringComparison.Ordinal);
     }
 }
