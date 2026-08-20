@@ -924,6 +924,7 @@ public class MemberCodeView
     public CodeSection SourceDiffCode { get; set; }
 
     [MarkoutSection(Name = "Calls", EmptyText = "No calls to other methods found in this method body.")]
+    [MarkoutIgnoreColumnWhen(nameof(CallEvidenceMethodIsEmpty), nameof(CallSiteRow.EvidenceMethod))]
     public List<CallSiteRow>? CallRows { get; set; }
 
     [MarkoutSection(Name = "Exception Regions", EmptyText = "No exception regions found in this method body.")]
@@ -942,6 +943,9 @@ public class MemberCodeView
     /// </summary>
     public static bool CallerSourceIsUniform(List<CallerSiteRow>? rows)
         => rows is null || rows.Select(r => r.Source).Distinct(StringComparer.Ordinal).Count() <= 1;
+
+    public static bool CallEvidenceMethodIsEmpty(List<CallSiteRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.EvidenceMethod));
 
     public static bool ExceptionRegionFilterRangeIsEmpty(List<ExceptionRegionRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.FilterRange));
