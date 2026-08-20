@@ -378,8 +378,8 @@ internal sealed class LibraryBodyAsyncSourceResolver
 
             foreach (var methodHandle in typeDefinition.GetMethods())
             {
-                MetadataTypeDefinitionName? candidateType =
-                    null;
+                ImmutableArray<MetadataTypeDefinitionName>
+                    candidateTypes = [];
                 try
                 {
                     var methodDefinition =
@@ -387,23 +387,35 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     AsyncStateMachineAttributeInfo attribute =
                         AsyncStateMachineAttribute(
                             methodDefinition.GetCustomAttributes());
-                    if (attribute.SerializedType is
-                            { } candidateSerializedType)
+                    var candidateBuilder =
+                        ImmutableArray.CreateBuilder<
+                            MetadataTypeDefinitionName>();
+                    foreach (string claimedType
+                        in attribute.ClaimedSerializedTypes)
                     {
-                        candidateType =
-                            StateMachineTypeDefinitionName(
-                                candidateSerializedType);
+                        if (StateMachineTypeDefinitionName(
+                                claimedType) is { } candidateType)
+                        {
+                            candidateBuilder.Add(candidateType);
+                        }
                     }
+                    candidateTypes = candidateBuilder.ToImmutable();
+                    bool liftedSource =
+                        CompilerGeneratedNames
+                            .IsLocalFunctionOrLambda(
+                                _reader.GetString(
+                                    methodDefinition.Name));
                     if (typeSourceGenerated
                         || _primaryMetadataResolver
                             .HasGeneratedCodeAttribute(
                                 methodDefinition.GetCustomAttributes())
-                        || _primaryMetadataResolver
-                            .HasCompilerGeneratedAttribute(
-                                methodDefinition.GetCustomAttributes()))
+                        || !liftedSource
+                            && _primaryMetadataResolver
+                                .HasCompilerGeneratedAttribute(
+                                    methodDefinition
+                                        .GetCustomAttributes()))
                     {
-                        if (candidateType is { } skippedType)
-                            unresolved.Add(skippedType);
+                        unresolved.UnionWith(candidateTypes);
                         continue;
                     }
 
@@ -421,8 +433,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
                             is not { } stateMachineType
                         || ambiguous.Contains(stateMachineType))
                     {
-                        if (candidateType is { } skippedType)
-                            unresolved.Add(skippedType);
+                        unresolved.UnionWith(candidateTypes);
                         continue;
                     }
 
@@ -453,8 +464,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
                 catch (Exception ex)
                     when (IsRecoverableMethodFailure(ex))
                 {
-                    if (candidateType is { } failedType)
-                        unresolved.Add(failedType);
+                    unresolved.UnionWith(candidateTypes);
                     // The normal per-method pass retains the malformed method's
                     // diagnostic; source-map prewarming must not abort the index.
                 }
@@ -648,7 +658,9 @@ internal sealed class LibraryBodyAsyncSourceResolver
         CustomAttributeHandleCollection attributes)
     {
         bool sawAttribute = false;
-        string? serializedType = null;
+        bool rejected = false;
+        var claimedTypes =
+            ImmutableArray.CreateBuilder<string>();
         foreach (var handle in attributes)
         {
             var attribute = _reader.GetCustomAttribute(handle);
@@ -672,21 +684,13 @@ internal sealed class LibraryBodyAsyncSourceResolver
             if (!HasAsyncStateMachineConstructorShape(
                     constructor))
             {
-                return new(
-                    Present: true,
-                    Rejected: true,
-                    Ignored: false,
-                    SerializedType: null);
+                sawAttribute = true;
+                rejected = true;
+                continue;
             }
 
             if (sawAttribute)
-            {
-                return new(
-                    Present: true,
-                    Rejected: true,
-                    Ignored: false,
-                    SerializedType: null);
-            }
+                rejected = true;
             sawAttribute = true;
 
             if (TryReadSerializedStateMachineType(
@@ -694,22 +698,26 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     out string? typeName))
             {
                 if (IsCurrentAssemblyStateMachineType(typeName))
-                    serializedType = typeName;
+                    claimedTypes.Add(typeName);
                 continue;
             }
 
-            return new(
-                Present: true,
-                Rejected: true,
-                Ignored: false,
-                SerializedType: null);
+            rejected = true;
         }
+        ImmutableArray<string> claims =
+            claimedTypes.ToImmutable();
+        string? serializedType =
+            !rejected && claims.Length == 1
+                ? claims[0]
+                : null;
         return new(
             Present: sawAttribute,
-            Rejected: false,
+            Rejected: rejected,
             Ignored: sawAttribute
+                && !rejected
                 && serializedType is null,
-            serializedType);
+            serializedType,
+            claims);
     }
 
     internal static bool IsTrustedAsyncStateMachineAttribute(
@@ -906,5 +914,6 @@ internal sealed class LibraryBodyAsyncSourceResolver
         bool Present,
         bool Rejected,
         bool Ignored,
-        string? SerializedType);
+        string? SerializedType,
+        ImmutableArray<string> ClaimedSerializedTypes);
 }

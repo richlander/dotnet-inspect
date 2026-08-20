@@ -4163,14 +4163,21 @@ public class LibraryBodyIndexTests
             call => call.Callee.Name == "Read");
     }
 
-    [Fact]
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
     public void
-        OptimizationOpportunities_ScopedSkippedAsyncSourceFailsClosed()
+        OptimizationOpportunities_ScopedUnauthenticatedAsyncSourceFailsClosed(
+            bool malformedAnalyzeSignature,
+            bool duplicateAnalyzeAttribute)
     {
         byte[] image =
             BuildMalformedAsyncSourceAssembly(
                 moveNextSmallArray: true,
-                malformedAnalyzeSignature: true);
+                malformedAnalyzeSignature:
+                    malformedAnalyzeSignature,
+                duplicateAnalyzeAttribute:
+                    duplicateAnalyzeAttribute);
         string path = Path.Combine(
             Path.GetTempPath(),
             $"SkippedAsyncOwner-{Guid.NewGuid():N}.dll");
@@ -4217,7 +4224,8 @@ public class LibraryBodyIndexTests
         int extraMethodCount = 0,
         bool moveNextSmallArray = false,
         bool unresolvedLiftedSource = false,
-        bool malformedAnalyzeSignature = false)
+        bool malformedAnalyzeSignature = false,
+        bool duplicateAnalyzeAttribute = false)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -4545,6 +4553,14 @@ public class LibraryBodyIndexTests
             analyze,
             attributeConstructor,
             "Sample.Source+<AnalyzeAsync>d__1, MalformedAsyncSource");
+        if (duplicateAnalyzeAttribute)
+        {
+            AddAsyncStateMachineAttribute(
+                metadata,
+                analyze,
+                attributeConstructor,
+                "Sample.Source+<AnalyzeAsync>d__1, MalformedAsyncSource");
+        }
 
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
@@ -10485,6 +10501,38 @@ public class LibraryBodyIndexTests
             opportunity => opportunity.Method.Name.StartsWith(
                 "<EnumerateTypeDocuments>g__AddDocument|",
                 StringComparison.Ordinal));
+        Assert.Equal(
+            full.AllocationFanoutOpportunities,
+            scoped.AllocationFanoutOpportunities);
+    }
+
+    [Fact]
+    public void
+        AllocationFanout_TypeScopeAdmittingEveryFixtureTypePreservesAsyncLocals()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(path);
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            bodyTypeScope: _ => true);
+
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            opportunity => opportunity.Method.Name == "MoveNext"
+                && opportunity.Method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        "ScopedAsyncLocalAllocationOwner",
+                        StringComparison.Ordinal));
+        Assert.Contains(
+            full.AllocationFanoutOpportunities,
+            opportunity => opportunity.Method.Name == "MoveNext"
+                && opportunity.Method.DeclaringType
+                    .ToQualifiedDisplayString()
+                    .Contains(
+                        "ScopedIteratorAsyncLocalAllocationOwner",
+                        StringComparison.Ordinal));
         Assert.Equal(
             full.AllocationFanoutOpportunities,
             scoped.AllocationFanoutOpportunities);

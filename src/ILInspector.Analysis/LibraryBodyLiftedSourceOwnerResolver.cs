@@ -233,6 +233,12 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     out execution);
             if (topLevel)
                 executionHandle = execution.Method;
+            else if (TryGetStateMachineExecutionMethod(
+                    _reader.GetMethodDefinition(ownerHandle),
+                    out MethodDefinitionHandle stateMachineExecution))
+            {
+                executionHandle = stateMachineExecution;
+            }
             evidence.AddOwner(
                 ownerHandle,
                 topLevel,
@@ -346,7 +352,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                 ownerHandle);
         }
 
-        if (!TryGetAsyncStateMachineType(
+        if (!TryGetStateMachineType(
                 ownerMethod,
                 out TypeDefinitionHandle stateMachineHandle))
         {
@@ -500,21 +506,63 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             referenceFailure);
     }
 
-    bool TryGetAsyncStateMachineType(
+    bool TryGetStateMachineExecutionMethod(
+        MethodDefinition ownerMethod,
+        out MethodDefinitionHandle executionMethod)
+    {
+        executionMethod = default;
+        if (!TryGetStateMachineType(
+                ownerMethod,
+                out TypeDefinitionHandle stateMachineHandle))
+        {
+            return false;
+        }
+
+        foreach (MethodDefinitionHandle methodHandle
+            in _reader.GetTypeDefinition(
+                stateMachineHandle).GetMethods())
+        {
+            MethodDefinition method =
+                _reader.GetMethodDefinition(methodHandle);
+            if (!_reader.StringComparer.Equals(
+                    method.Name,
+                    "MoveNext")
+                || method.RelativeVirtualAddress == 0)
+            {
+                continue;
+            }
+            if (!executionMethod.IsNil)
+                return false;
+            executionMethod = methodHandle;
+        }
+        return !executionMethod.IsNil;
+    }
+
+    bool TryGetStateMachineType(
         MethodDefinition ownerMethod,
         out TypeDefinitionHandle stateMachineHandle)
     {
         stateMachineHandle = default;
         string? stateMachineName = null;
+        string? stateMachineAttribute = null;
         foreach (CustomAttributeHandle attributeHandle
             in ownerMethod.GetCustomAttributes())
         {
             CustomAttribute attribute =
                 _reader.GetCustomAttribute(attributeHandle);
-            if (AttributeDecoder.GetAttributeTypeName(
+            string? attributeName =
+                AttributeDecoder.GetAttributeTypeName(
                     _reader,
-                    attribute.Constructor)
-                != "System.Runtime.CompilerServices.AsyncStateMachineAttribute"
+                    attribute.Constructor);
+            if (attributeName is not (
+                    KnownAttributeNames.AsyncStateMachineAttribute
+                    or KnownAttributeNames.AsyncIteratorStateMachineAttribute
+                    or KnownAttributeNames.IteratorStateMachineAttribute)
+                || !LibraryBodyAsyncSourceResolver
+                    .IsTrustedAsyncStateMachineAttribute(
+                        _reader,
+                        attribute.Constructor,
+                        attributeName)
                 || AttributeDecoder.TryDecodePreservingSerializedTypeNames(
                         _reader,
                         attribute)
@@ -526,8 +574,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             if (stateMachineName is not null)
                 return false;
             stateMachineName = typeName;
+            stateMachineAttribute = attributeName;
         }
-        if (stateMachineName is null)
+        if (stateMachineName is null
+            || stateMachineAttribute is null)
             return false;
 
         TypeDefinitionHandle? resolved =
@@ -538,6 +588,14 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     LazyThreadSafetyMode.ExecutionAndPublication)).Value;
         if (resolved is not { } handle)
             return false;
+        if (stateMachineAttribute
+                != KnownAttributeNames.IteratorStateMachineAttribute
+            && !_primaryMetadataResolver
+                .AsyncStateMachineTypeHandles()
+                .Contains(handle))
+        {
+            return false;
+        }
         stateMachineHandle = handle;
         return true;
     }
@@ -554,11 +612,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             return null;
         }
 
-        return _primaryMetadataResolver
-                .AsyncStateMachineTypeHandles()
-                .Contains(handle)
-            ? handle
-            : null;
+        return handle;
     }
 
     MetadataTypeDefinitionIndex BuildTypeDefinitionIndex()
