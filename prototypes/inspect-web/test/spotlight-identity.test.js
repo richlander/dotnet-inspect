@@ -384,13 +384,16 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /memberFilter\?\.addEventListener\("input"[\s\S]*renderPreservingMemberFocus\(\)/);
   assert.match(
     appSource,
-    /memberFilter\?\.addEventListener\("keydown"[\s\S]*event\.key === "Escape"[\s\S]*exitMemberScope\(\)[\s\S]*stepMemberNav/);
+    /memberFilter\?\.addEventListener\("keydown"[\s\S]*event\.key === "Escape"[\s\S]*if \(navMode\(\) === "member"\)[\s\S]*exitMemberScope\(\)[\s\S]*state\.memberTextFilter = ""[\s\S]*renderMemberFilterAndRestoreFocus\("#member-filter"\)[\s\S]*stepMemberNav/);
   assert.match(
     appSource,
     /event\.key === "Escape" && !event\.defaultPrevented && !typing[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);
   assert.match(
     appSource,
     /#nav-to-types"\)\?\.addEventListener\("click", \(\) => \{\s*exitMemberScope\(\)/);
+  assert.match(
+    appSource,
+    /const renderMemberFilterAndRestoreFocus = selector => \{[\s\S]*renderWithMemberFocus\(preserved\)/);
   assert.match(
     memberFocusSource,
     /active\?\.id === "type-list"[\s\S]*selector = "#type-list"/);
@@ -463,7 +466,10 @@ test("home demos restore the complete parsed location", () => {
     ?? "";
   assert.match(
     restoreWorkspace,
-    /state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
+    /applyLocationView\(loc\);[\s\S]*await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);[\s\S]*applyDeepLink\(deep\)/);
+  assert.match(
+    appSource,
+    /function applyLocationView\(loc\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
 });
 
 test("opening an already-resident Platform resets type-specific member filters", () => {

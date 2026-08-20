@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   captureMemberFocus,
+  createMemberFocusRestorer,
   resolveMemberFocusSnapshot,
   restoreMemberFocus,
 } from "../src/member-focus.ts";
@@ -142,4 +143,66 @@ test("deferred restoration does not steal intentionally moved focus", () => {
   callbacks.shift()(0);
 
   assert.equal(document.activeElement, unrelated);
+});
+
+test("newer caret restoration invalidates older queued callbacks", () => {
+  const { document, element } = createDocument();
+  let restoredSelection = null;
+  const input = element("#member-filter", {
+    id: "member-filter",
+    selectionStart: 1,
+    selectionEnd: 1,
+    selectionDirection: "none",
+    setSelectionRange(start, end, direction) {
+      restoredSelection = { start, end, direction };
+    },
+  });
+  const callbacks = [];
+  const requestFrame = callback => {
+    callbacks.push(callback);
+    return callbacks.length;
+  };
+  const restorer = createMemberFocusRestorer();
+
+  document.activeElement = input;
+  const older = captureMemberFocus(document, value => value);
+  restorer.schedule(document, older, requestFrame);
+
+  input.selectionStart = 5;
+  input.selectionEnd = 5;
+  const newer = captureMemberFocus(document, value => value);
+  restorer.schedule(document, newer, requestFrame);
+
+  document.activeElement = document.body;
+  const completion = restorer.resolve(
+    captureMemberFocus(document, value => value),
+    older,
+  );
+  restorer.schedule(document, completion, requestFrame);
+
+  for (const callback of callbacks)
+    callback(0);
+
+  assert.deepEqual(
+    restoredSelection,
+    { start: 5, end: 5, direction: "none" },
+  );
+});
+
+test("a new render without a fallback does not revive an older focus target", () => {
+  const { document, element } = createDocument();
+  const input = element("#member-filter", { id: "member-filter" });
+  document.activeElement = input;
+  const older = captureMemberFocus(document, value => value);
+  const restorer = createMemberFocusRestorer();
+  restorer.schedule(document, older, () => 1);
+
+  document.activeElement = document.body;
+  const current = restorer.resolve(
+    captureMemberFocus(document, value => value),
+    null,
+  );
+
+  assert.equal(current.selector, "");
+  assert.equal(current.focusLost, true);
 });

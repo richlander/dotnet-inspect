@@ -10,6 +10,18 @@ export interface MemberFocusSnapshot {
   focusLost: boolean;
 }
 
+export interface MemberFocusRestorer {
+  resolve(
+    current: MemberFocusSnapshot,
+    fallback: MemberFocusSnapshot | null,
+  ): MemberFocusSnapshot;
+  schedule(
+    document: Document,
+    snapshot: MemberFocusSnapshot,
+    requestFrame: (callback: FrameRequestCallback) => number,
+  ): void;
+}
+
 export function captureMemberFocus(
   document: Document,
   escapeSelectorValue: (value: string) => string,
@@ -64,11 +76,15 @@ export function restoreMemberFocus(
   document: Document,
   snapshot: MemberFocusSnapshot,
   requestFrame: (callback: FrameRequestCallback) => number,
+  isCurrent: () => boolean = () => true,
 ): void {
   if (!snapshot.selector && snapshot.navigationScope === null)
     return;
 
   requestFrame(() => {
+    if (!isCurrent())
+      return;
+
     const navigationList = document.querySelector<HTMLElement>("#type-list");
     if (navigationList
       && snapshot.navigationScope !== null
@@ -98,4 +114,25 @@ export function restoreMemberFocus(
       );
     }
   });
+}
+
+export function createMemberFocusRestorer(): MemberFocusRestorer {
+  let latest: MemberFocusSnapshot | null = null;
+  let generation = 0;
+  return {
+    resolve(current, fallback) {
+      const orderedFallback = fallback === null ? null : (latest ?? fallback);
+      return resolveMemberFocusSnapshot(current, orderedFallback);
+    },
+    schedule(document, snapshot, requestFrame) {
+      latest = snapshot;
+      const scheduledGeneration = ++generation;
+      restoreMemberFocus(
+        document,
+        snapshot,
+        requestFrame,
+        () => scheduledGeneration === generation,
+      );
+    },
+  };
 }

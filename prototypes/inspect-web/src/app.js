@@ -48,8 +48,7 @@ import {
 } from "./member-filtering.js";
 import {
   captureMemberFocus,
-  resolveMemberFocusSnapshot,
-  restoreMemberFocus
+  createMemberFocusRestorer
 } from "/src/member-focus.ts";
 import {
   buildDependencyGraphMermaid,
@@ -3520,8 +3519,11 @@ function bindEvents() {
     openSpotlight(button.dataset.oppLookfor);
   }));
   const renderMemberFilterAndRestoreFocus = selector => {
-    render();
-    requestAnimationFrame(() => document.querySelector(selector)?.focus());
+    const preserved = {
+      ...captureMemberFocus(document, cssEscape),
+      selector
+    };
+    renderWithMemberFocus(preserved);
   };
   document.querySelectorAll("[data-member-kind-filter]").forEach(button => button.addEventListener("click", () => {
     const value = button.dataset.memberKindFilter;
@@ -3550,7 +3552,13 @@ function bindEvents() {
   memberFilter?.addEventListener("keydown", event => {
     if (event.key === "Escape") {
       event.preventDefault();
-      exitMemberScope();
+      if (navMode() === "member") {
+        exitMemberScope();
+      } else {
+        state.memberTextFilter = "";
+        normalizeMemberSelection();
+        renderMemberFilterAndRestoreFocus("#member-filter");
+      }
       return;
     }
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -4801,12 +4809,21 @@ function focusFilter() {
   });
 }
 
+const memberFocusRestorer = createMemberFocusRestorer();
+
+function renderWithMemberFocus(preserved) {
+  render();
+  memberFocusRestorer.schedule(
+    document,
+    preserved,
+    requestAnimationFrame);
+  return preserved;
+}
+
 function renderPreservingMemberFocus(fallback = null) {
   const current = captureMemberFocus(document, cssEscape);
-  const preserved = resolveMemberFocusSnapshot(current, fallback);
-  render();
-  restoreMemberFocus(document, preserved, requestAnimationFrame);
-  return preserved;
+  const preserved = memberFocusRestorer.resolve(current, fallback);
+  return renderWithMemberFocus(preserved);
 }
 
 function buildStateUrl(base = location.href) {
@@ -7206,9 +7223,7 @@ async function restoreWorkspaceFromLocation(
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   state.home = false;
-  state.lens = loc.lens || "api";
-  state.atPackageRoot = loc.atPackageRoot || false;
-  state.packageLens = loc.packageLens || "overview";
+  applyLocationView(loc);
   state.loading = true;
   state.error = "";
   state.retryAction = null;
@@ -7282,6 +7297,7 @@ async function restoreWorkspaceFromLocation(
         navigationSeq,
         () => restoreWorkspaceFromLocation(loc, deep));
       if (navigationSeq !== state.navigationSeq) return;
+      applyLocationView(loc);
     }
     applyDeepLink(deep);
     state.loading = false;
@@ -7306,6 +7322,12 @@ async function restoreWorkspaceFromLocation(
     state.retryAction = () => restoreWorkspaceFromLocation(loc, deep);
     render();
   }
+}
+
+function applyLocationView(loc) {
+  state.lens = loc.lens || "api";
+  state.atPackageRoot = loc.atPackageRoot || false;
+  state.packageLens = loc.packageLens || "overview";
 }
 
 // Restores the full open-tab set from the opaque workspace bucket (or just the visible
@@ -7588,9 +7610,7 @@ window.addEventListener("popstate", () => {
     activatePackage(target, { resetAccessibility: true });
   }
   state.home = false;
-  state.lens = loc.lens || "api";
-  state.atPackageRoot = loc.atPackageRoot || false;
-  state.packageLens = loc.packageLens || "overview";
+  applyLocationView(loc);
   const samePackage = packageCoordinateMatchesLocation(state.package, loc);
   if (samePackage || !loc.package) {
     if (isRuntimePackId(state.package.id)) {
