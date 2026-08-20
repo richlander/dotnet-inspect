@@ -1404,8 +1404,9 @@ gates are
 `PdbContextDescriptorTests.MalformedEmbeddedPdb_ConsumesExpansionBudgetBeforeDecode`,
 `PackageContentAuditTests.CandidatePathLimit_BoundsRepeatedInputBeforeMaterialization`,
 `PackageContentAuditTests.TextFileLimit_BoundsZeroByteReads`,
-`PackageContentAuditTests.SourceLinkCarrierLimit_BoundsZeroByteWork`, and
+`PackageContentAuditTests.SourceLinkCarrierLimit_BoundsZeroByteWork`,
 `PackageContentAuditTests.OversizedCodeViewRecord_MarksAuditPartialBeforeDecode`,
+and
 `SourceLinkMapConformanceTests.MappingLimit_StopsBeforeRetainingAnOverBudgetInventory`.
 Neither audit section is the scalar-by-scalar refusal
 survey mode described below, and neither changes acceptance policy. Document payloads are
