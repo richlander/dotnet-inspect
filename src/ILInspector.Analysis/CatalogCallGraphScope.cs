@@ -560,7 +560,7 @@ public sealed class CatalogCallGraphScope : IDisposable
                 {
                     var storage = GraphNodeStorageKey.CallSite(
                         participant.Assembly,
-                        call.Caller.ModuleVersionId,
+                        call.EvidenceMethod.ModuleVersionId,
                         call);
                     PlanEntry plan = GetOrAddPlan(
                         plans,
@@ -866,6 +866,13 @@ public sealed class CatalogCallGraphScope : IDisposable
             {
                 GraphNodeIdentity identity = evidence.Identity;
                 StoredDefinition? definition = DefinitionFor(identity);
+                if (definition is not null
+                    && evidence.Storage.Kind
+                        == GraphNodeStorageKind.CallSite)
+                {
+                    evidence = evidence.WithDefinitionStorage(
+                        definition.Evidence.Storage);
+                }
                 string assembly =
                     definition?.Participant.Assembly.Identity.Name
                     ?? member.DeclaringType.Assembly;
@@ -1149,7 +1156,9 @@ public sealed class CatalogCallGraphScope : IDisposable
                 return new GraphNodeEvidence(
                     evidence.Storage,
                     DetachIdentity(evidence, isRoot),
-                    correspondence: null);
+                    correspondence: null,
+                    definitionStorage:
+                        evidence.DefinitionStorage);
             }
 
             CallTreeNode DetachNode(

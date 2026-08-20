@@ -1,5 +1,6 @@
 using ILInspector.CSharp;
 using System.Text.Json.Serialization;
+using DotnetInspector.Output;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using Markout;
@@ -268,6 +269,10 @@ public class TypeView
     [MarkoutSection(Name = SectionNames.PerformanceTriage, EmptyText = "No optimization opportunities were found for this type.")]
     [JsonIgnore]
     public List<OptimizationOpportunityRow>? OptimizationOpportunityRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.BodyShapes, EmptyText = "No matching body shapes found.")]
+    [JsonIgnore]
+    public List<ApiBodyShapeRow>? BodyShapeRows { get; set; }
 
     public static bool TopLeverageVisibilityEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Visibility));
     public static bool TopLeverageGeneratedEmpty(List<TopLeverageRow>? rows) => rows is null || rows.All(r => string.IsNullOrEmpty(r.Generated));
@@ -919,6 +924,7 @@ public class MemberCodeView
     public CodeSection SourceDiffCode { get; set; }
 
     [MarkoutSection(Name = "Calls", EmptyText = "No calls to other methods found in this method body.")]
+    [MarkoutIgnoreColumnWhen(nameof(CallEvidenceMethodIsEmpty), nameof(CallSiteRow.EvidenceMethod))]
     public List<CallSiteRow>? CallRows { get; set; }
 
     [MarkoutSection(Name = "Exception Regions", EmptyText = "No exception regions found in this method body.")]
@@ -928,6 +934,7 @@ public class MemberCodeView
 
     [MarkoutSection(Name = "Callers", EmptyText = "No callers found in this assembly.")]
     [MarkoutIgnoreColumnWhen(nameof(CallerSourceIsUniform), nameof(CallerSiteRow.Source))]
+    [MarkoutIgnoreColumnWhen(nameof(CallerEvidenceMethodIsEmpty), nameof(CallerSiteRow.EvidenceMethod))]
     public List<CallerSiteRow>? CallerRows { get; set; }
 
     /// <summary>
@@ -937,6 +944,12 @@ public class MemberCodeView
     /// </summary>
     public static bool CallerSourceIsUniform(List<CallerSiteRow>? rows)
         => rows is null || rows.Select(r => r.Source).Distinct(StringComparer.Ordinal).Count() <= 1;
+
+    public static bool CallerEvidenceMethodIsEmpty(List<CallerSiteRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.EvidenceMethod));
+
+    public static bool CallEvidenceMethodIsEmpty(List<CallSiteRow>? rows)
+        => rows is null || rows.All(row => string.IsNullOrEmpty(row.EvidenceMethod));
 
     public static bool ExceptionRegionFilterRangeIsEmpty(List<ExceptionRegionRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.FilterRange));
@@ -1020,6 +1033,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(CostFactRow))]
 [MarkoutContext(typeof(TopLeverageRow))]
 [MarkoutContext(typeof(OptimizationOpportunityRow))]
+[MarkoutContext(typeof(ApiBodyShapeRow))]
 [MarkoutContext(typeof(ConstructorOverloadView))]
 [MarkoutContext(typeof(ConstructorParameterRow))]
 [MarkoutContext(typeof(EnumValueRow))]
@@ -1038,14 +1052,75 @@ public partial class ApiViewContext : MarkoutSerializerContext
 }
 
 [MarkoutSerializable]
+public sealed record ApiBodyShapeRow(
+    string Kind,
+    string Member,
+    string Token,
+    int StartLine,
+    int StartColumn,
+    int EndLine,
+    int EndColumn,
+    string Match)
+{
+    public string Kind { get; init; } = CSharpIdentifier.ContainRenderedText(Kind);
+    public string Member { get; init; } = MarkoutInline.Code(Member);
+    public string Token { get; init; } = MarkoutInline.Code(Token);
+    [MarkoutPropertyName("Start Line")]
+    public int StartLine { get; init; } = StartLine;
+    [MarkoutPropertyName("Start Column")]
+    public int StartColumn { get; init; } = StartColumn;
+    [MarkoutPropertyName("End Line")]
+    public int EndLine { get; init; } = EndLine;
+    [MarkoutPropertyName("End Column")]
+    public int EndColumn { get; init; } = EndColumn;
+    public string Match { get; init; } = MarkoutInline.Code(Match);
+
+    internal static ApiBodyShapeRow FromMatch(
+        ILInspector.Decompiler.BodyShapeMatch match)
+        => new(
+            match.Kind,
+            match.Member,
+            $"0x{match.MethodToken:X8}",
+            match.Extent.StartLine + 1,
+            match.Extent.StartColumn + 1,
+            match.Extent.EndLine + 1,
+            match.Extent.EndColumn + 1,
+            match.Text);
+}
+
+[MarkoutSerializable]
 public record CallSiteRow(
-    [property: MarkoutPropertyName("IL Offset")] string ILOffset,
+    string ILOffset,
+    string? EvidenceMethod,
     string Opcode,
-    [property: MarkoutPropertyName("Call Kind")] string CallKind,
+    string CallKind,
     string Callee,
-    [property: MarkoutPropertyName("Operand Token")] string OperandToken,
-    [property: MarkoutPropertyName("Return Address")]
-    [property: MarkoutSkipNull] string? ReturnAddress);
+    string OperandToken,
+    string? ReturnAddress)
+{
+    [MarkoutPropertyName("IL Offset")]
+    public string ILOffset { get; init; } = ILOffset;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Evidence Method")]
+    [MarkoutSkipNull]
+    public string? EvidenceMethod { get; init; } =
+        LibraryViewText.Contain(EvidenceMethod);
+
+    public string Opcode { get; init; } = Opcode;
+
+    [MarkoutPropertyName("Call Kind")]
+    public string CallKind { get; init; } = CallKind;
+
+    public string Callee { get; init; } = Callee;
+
+    [MarkoutPropertyName("Operand Token")]
+    public string OperandToken { get; init; } = OperandToken;
+
+    [MarkoutPropertyName("Return Address")]
+    [MarkoutSkipNull]
+    public string? ReturnAddress { get; init; } = ReturnAddress;
+}
 
 [MarkoutSerializable]
 public record TypeExceptionRegionRow(
@@ -1113,12 +1188,38 @@ public record ExceptionRegionRow(
 public record CallerSiteRow(
     string Source,
     string Caller,
-    [property: MarkoutPropertyName("IL Offset")] string ILOffset,
+    string? EvidenceMethod,
+    string ILOffset,
     string Opcode,
-    [property: MarkoutPropertyName("Call Kind")] string CallKind,
-    [property: MarkoutPropertyName("Operand Token")] string OperandToken,
-    [property: MarkoutPropertyName("Return Address")]
-    [property: MarkoutSkipNull] string? ReturnAddress);
+    string CallKind,
+    string OperandToken,
+    string? ReturnAddress)
+{
+    public string Source { get; init; } = Source;
+
+    public string Caller { get; init; } = Caller;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Evidence Method")]
+    [MarkoutSkipNull]
+    public string? EvidenceMethod { get; init; } =
+        LibraryViewText.Contain(EvidenceMethod);
+
+    [MarkoutPropertyName("IL Offset")]
+    public string ILOffset { get; init; } = ILOffset;
+
+    public string Opcode { get; init; } = Opcode;
+
+    [MarkoutPropertyName("Call Kind")]
+    public string CallKind { get; init; } = CallKind;
+
+    [MarkoutPropertyName("Operand Token")]
+    public string OperandToken { get; init; } = OperandToken;
+
+    [MarkoutPropertyName("Return Address")]
+    [MarkoutSkipNull]
+    public string? ReturnAddress { get; init; } = ReturnAddress;
+}
 
 [MarkoutSerializable]
 public record UnsafeOperationRow(

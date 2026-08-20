@@ -104,7 +104,7 @@ public static class ArgumentPreprocessor
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "audit", // removed command, reserved so it is not treated as an implicit package target
-        "package", "project", "library", "api", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "body-shape", "source", "list", "ls", "skill", "extensions", "implements", "depends", "cache", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "package", "project", "library", "api", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "source", "list", "ls", "skill", "extensions", "implements", "depends", "cache", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     /// <summary>
@@ -232,7 +232,7 @@ public static class ArgumentPreprocessor
         "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
         "--caller-package", "--caller-project", "--match", "--path",
         "--il-offset", "--il-offsets", "--heap", "--extract-resources", "--version", "--versions", "--versions-with-feed",
-        "--out", "--take", "--row", "--where", "--order-by",
+        "--out", "--output", "-o", "--take", "--row", "--where", "--order-by",
         "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",

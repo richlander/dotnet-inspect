@@ -194,9 +194,6 @@ public static class CommandLineBuilder
         // Product-owned query vocabulary
         rootCommand.Subcommands.Add(VocabularyCommandDefinitions.CreateVocabularyCommand(opts));
 
-        // Body shape command
-        rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateBodyShapeCommand(opts));
-
         // Implements command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateImplementsCommand(opts));
 
