@@ -20,6 +20,12 @@ public static class ClassicAsyncSiblingFixture
         return ReadValue(value);
     }
 
+    public static int CallsThroughLocalFunction(int value)
+    {
+        int Core(int v) => ReadValue(v);
+        return Core(value);
+    }
+
     public static void ReadByRef(ref int value)
         => value++;
 

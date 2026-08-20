@@ -621,6 +621,29 @@ original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
 escaping in both the header and loading status.
 
+`src/annotated-source.ts` owns the annotated source result (the
+fact-annotated C#/IL dual view shown for a member overload) as a pure,
+dependency-injected render function; it composes `annotated-source-view.ts`'s
+`buildAnnotatedView` projection into markup. `app.js` still owns `state`, the
+sequence-guarded async load lifecycle, and the medium-toggle/fact-selection
+event handlers, and passes each computed slice in explicitly.
+`test/annotated-source.test.js` gates the rejected-document fallback, the
+medium toggles and hidden-line count, the context-limitation notice, anchored
+versus unanchored fact rendering, selection state, and source-text escaping.
+
+`src/package-opportunities.ts` owns the package/platform "Integration
+opportunities" lens (the ecosystem auth/cloud/config/database/AI-client
+integration suggestions for a package or platform library) as a pure,
+dependency-injected render function, including its opportunity-row API-name
+splitting, package-chip detection, and "look for" chip rendering. `app.js`
+still owns `state`, the scan-scope-keyed async load lifecycle
+(`loadPackageOpportunities`), and the platform library picker, and passes
+each computed slice in explicitly. `test/package-opportunities.test.js` gates
+the platform pick-a-library prompt, the scanning/loading/error states (fresh
+versus stale scope), the no-opportunities and inspection-error banners, the
+category summary counts, API name splitting, package-chip versus plain-text
+kind rendering, look-for chip/wildcard/empty rendering, and text escaping.
+
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
