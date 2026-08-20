@@ -260,6 +260,9 @@ internal sealed class LibraryMethodAnalysisRunner(
                             bodyTypeScope)))
                     return result;
             }
+            MethodIdentity? opportunityDeclaredMethod = null;
+            bool opportunityDeclaredMethodResolved =
+                bodyTypeScope is null;
             try
             {
                 bool directlySelectedBody =
@@ -279,6 +282,22 @@ internal sealed class LibraryMethodAnalysisRunner(
                         directlySelectedBody);
                 result.DeclaredMethod = declaredMethod;
                 result.DeclaredSource = declaredMethod;
+                if (bodyTypeScope is not null)
+                {
+                    // Evidence admission follows the selected type, but a
+                    // recommendation belongs to the ultimate declared owner.
+                    opportunityDeclaredMethod =
+                        _infrastructure.ResolveDeclaredMethod(
+                            methodHandle,
+                            methodDefinition,
+                            caller,
+                            typeSourceGenerated,
+                            ownerMethodScope: null,
+                            ownerTypeScope: null,
+                            requestedMethodScope: null,
+                            directlySelectedBody: false);
+                    opportunityDeclaredMethodResolved = true;
+                }
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
@@ -393,10 +412,12 @@ internal sealed class LibraryMethodAnalysisRunner(
             bool collectScopedOpportunities =
                 includeOpportunities
                 && (bodyTypeScope is null
-                    || result.DeclaredMethod is null
-                    || bodyTypeScope(
-                        result.DeclaredMethod.DeclaringType));
-            if (collectScopedOpportunities)
+                    || opportunityDeclaredMethodResolved
+                        && (opportunityDeclaredMethod is null
+                            || bodyTypeScope(
+                                opportunityDeclaredMethod
+                                    .DeclaringType)));
+            if (includeOpportunities)
             {
                 var methodAttributes =
                     methodDefinition.GetCustomAttributes();
@@ -425,41 +446,42 @@ internal sealed class LibraryMethodAnalysisRunner(
                     _infrastructure.HasCompilerGeneratedAttribute(
                         methodAttributes)
                     || sourceFunction;
-                if (!typeSourceGenerated
-                    && !sourceGenerated
-                    && !compilerGenerated
-                    && !IsBlazorRenderMethod(caller))
+                bool suppressOpportunities =
+                    typeSourceGenerated
+                    || sourceGenerated
+                    || compilerGenerated
+                    || IsBlazorRenderMethod(caller);
+                result.Suppressed = suppressOpportunities;
+                if (collectScopedOpportunities
+                    && !suppressOpportunities)
                 {
                     result.Opportunities =
                         OptimizationOpportunityAnalysis.Collect(
                             allocationFacts,
                             methodAnalysisResolver);
                 }
-                else
+                else if (collectScopedOpportunities
+                    && !sourceGenerated
+                    && !typeSourceGenerated
+                    && compilerGenerated
+                    && hasSourceOwner
+                    && sourceOwner is not null
+                    && !IsBlazorRenderMethod(caller)
+                    && !IsBlazorRenderMethod(sourceOwner))
                 {
-                    if (!typeSourceGenerated
-                        && !sourceGenerated
-                        && compilerGenerated
-                        && hasSourceOwner
-                        && sourceOwner is not null
-                        && !IsBlazorRenderMethod(caller)
-                        && !IsBlazorRenderMethod(sourceOwner))
-                    {
-                        result.Opportunities =
-                        [
-                            .. OptimizationOpportunityAnalysis.Collect(
-                                allocationFacts,
-                                methodAnalysisResolver)
-                            .Where(static opportunity =>
-                                opportunity.Shape
-                                    == "generic-parameter-object-box")
-                            .Select(opportunity => opportunity with
-                            {
-                                SourceOwner = sourceOwner,
-                            }),
-                        ];
-                    }
-                    result.Suppressed = true;
+                    result.Opportunities =
+                    [
+                        .. OptimizationOpportunityAnalysis.Collect(
+                            allocationFacts,
+                            methodAnalysisResolver)
+                        .Where(static opportunity =>
+                            opportunity.Shape
+                                == "generic-parameter-object-box")
+                        .Select(opportunity => opportunity with
+                        {
+                            SourceOwner = sourceOwner,
+                        }),
+                    ];
                 }
             }
 

@@ -35,6 +35,41 @@ public static class ClassicAsyncSiblingFixture
             await task;
         };
 
+    internal static Func<Task<int>>
+        ScopedAsyncLambdaRecommendationOwner() =>
+        async () =>
+        {
+            await Task.Yield();
+            return ReadValue(42);
+        };
+
+    internal static Func<int, object>
+        ScopedAllocationHotspotLambdaOwner() =>
+        count =>
+        {
+            var items = new List<object>();
+            for (int i = 0; i < count; i++)
+            {
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+                items.Add(new object());
+            }
+            return items;
+        };
+
     public static Task ScopedAsyncLambdaOwner(int marker) =>
         Task.CompletedTask;
 

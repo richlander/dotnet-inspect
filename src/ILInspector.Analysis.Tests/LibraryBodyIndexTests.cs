@@ -10145,6 +10145,115 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        OptimizationOpportunities_ClosureTypeScopeDoesNotLeakAsyncLambdaOwner()
+    {
+        const string ownerName =
+            "ScopedAsyncLambdaRecommendationOwner";
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(path);
+        MethodIdentity owner = Assert.Single(
+            full.Methods,
+            method => method.Name == ownerName);
+        MethodIdentity kickoff = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                $"<{ownerName}>b__",
+                StringComparison.Ordinal));
+        OptimizationOpportunity opportunity = Assert.Single(
+            full.OptimizationOpportunities,
+            candidate => candidate.Shape == "sync-call-in-async"
+                && candidate.Method == kickoff);
+        MethodIdentity evidence = Assert.Single(
+            full.Methods,
+            method => method.MetadataToken
+                == Assert.IsType<int>(
+                    opportunity.EvidenceMethodToken));
+
+        Assert.Equal("MoveNext", evidence.Name);
+        Assert.Equal(
+            owner,
+            full.ResolveDeclaredMethod(kickoff));
+        Assert.Equal(
+            owner,
+            full.ResolveDeclaredMethod(evidence));
+
+        DirectCall expectedCall = Assert.Single(
+            full.DirectCalls,
+            call => call.Caller == owner
+                && call.EvidenceMethod == evidence
+                && call.Callee.Name
+                    == nameof(ClassicAsyncSiblingFixture
+                        .ReadValue));
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            bodyTypeScope:
+                type => type.Equals(
+                    kickoff.DeclaringType));
+
+        Assert.Contains(
+            scoped.DirectCalls,
+            call => call == expectedCall);
+        Assert.DoesNotContain(
+            scoped.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == opportunity.Shape
+                && candidate.Method == kickoff
+                && candidate.EvidenceMethodToken
+                    == opportunity.EvidenceMethodToken);
+    }
+
+    [Fact]
+    public void
+        OptimizationOpportunities_ClosureTypeScopePreservesSuppression()
+    {
+        const string ownerName =
+            "ScopedAllocationHotspotLambdaOwner";
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(path);
+        MethodIdentity kickoff = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                $"<{ownerName}>b__",
+                StringComparison.Ordinal));
+        Assert.True(
+            full.GetAllocationOccurrences().TryGetValue(
+                kickoff.MetadataToken,
+                out ImmutableArray<AllocationOccurrence>
+                    fullAllocations));
+        Assert.True(
+            fullAllocations.Count(
+                allocation => allocation.CountsAsHeapAllocation
+                    && allocation.InLoop) >= 16);
+
+        Assert.DoesNotContain(
+            full.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "allocation-hotspot"
+                && candidate.Method == kickoff);
+
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            bodyTypeScope:
+                type => type.Equals(
+                    kickoff.DeclaringType));
+        Assert.True(
+            scoped.GetAllocationOccurrences().TryGetValue(
+                kickoff.MetadataToken,
+                out ImmutableArray<AllocationOccurrence>
+                    scopedAllocations));
+        Assert.Equal(fullAllocations, scopedAllocations);
+
+        Assert.DoesNotContain(
+            scoped.OptimizationOpportunities,
+            candidate => candidate.Shape
+                    == "allocation-hotspot"
+                && candidate.Method == kickoff);
+    }
+
+    [Fact]
+    public void
         ResolveDeclaredMethod_DirectAsyncLiftedKickoffScopeReturnsOwner()
     {
         string path =
