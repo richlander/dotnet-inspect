@@ -365,7 +365,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             || current == method)
         {
             ultimateOwner = null;
-            return !RequiresDeclaredOwner(method);
+            return !CompilerGeneratedNames
+                .RequiresDeclaredOwner(method);
         }
 
         return TryResolveUltimateLiftedOwner(
@@ -432,18 +433,6 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         ultimateOwner = current;
         return true;
     }
-
-    static bool RequiresDeclaredOwner(
-        MethodIdentity method)
-        => CompilerGeneratedNames
-                .IsLocalFunctionOrLambda(method.Name)
-            || method.Name == "MoveNext"
-                && CompilerGeneratedNames
-                    .LeafName(method.DeclaringType)
-                    .Contains(
-                        CompilerGeneratedNames
-                            .StateMachineInfix,
-                        StringComparison.Ordinal);
 
     bool ILibraryMethodAnalysisInfrastructure.DispatchCanTargetOverride(
         TypeDefinition declaringType,

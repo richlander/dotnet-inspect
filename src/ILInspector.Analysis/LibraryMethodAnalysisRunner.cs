@@ -296,15 +296,32 @@ internal sealed class LibraryMethodAnalysisRunner(
                         requestedMethodScope,
                         directlySelectedBody);
                 result.DeclaredMethod = declaredMethod;
+                MethodIdentity? ultimateOwner =
+                    declaredMethod;
                 bool ultimateOwnerResolved =
-                    _infrastructure
-                        .TryResolveUltimateDeclaredMethod(
-                            methodHandle,
-                            methodDefinition,
-                            caller,
-                            typeSourceGenerated,
-                            out MethodIdentity?
-                                ultimateOwner);
+                    declaredMethod is not null
+                    || !CompilerGeneratedNames
+                        .RequiresDeclaredOwner(caller);
+                bool needsUltimateResolution =
+                    declaredMethod is not null
+                        && CompilerGeneratedNames
+                            .IsLocalFunctionOrLambda(
+                                declaredMethod.Name)
+                    || includeOpportunities
+                        && bodyTypeScope is not null
+                        && CompilerGeneratedNames
+                            .RequiresDeclaredOwner(caller);
+                if (needsUltimateResolution)
+                {
+                    ultimateOwnerResolved =
+                        _infrastructure
+                            .TryResolveUltimateDeclaredMethod(
+                                methodHandle,
+                                methodDefinition,
+                                caller,
+                                typeSourceGenerated,
+                                out ultimateOwner);
+                }
                 if (ultimateOwnerResolved)
                     result.DeclaredSource = ultimateOwner;
                 if (bodyTypeScope is not null)
