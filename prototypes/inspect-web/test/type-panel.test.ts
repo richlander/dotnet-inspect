@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindTypePanel,
+  renderGraphMemberPending,
   renderMemberNav,
   renderTypeMetadata,
   renderTypeNav,
@@ -607,6 +608,22 @@ test("the type heading reports the owning package and library", () => {
   assert.match(html, /<h1>JsonSerializer<\/h1>/);
   assert.match(html, /System\.Text\.Json\.dll/);
   assert.match(html, /System\.Text\.Json@9\.0\.0/);
+});
+
+test("pending graph-member rendering composes the extracted type heading", () => {
+  const html = renderGraphMemberPending({
+    item: jsonSerializer,
+    title: "JsonSerializer.<Open>",
+    packageContext: { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" },
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    highlight,
+  });
+
+  assert.match(html, /<h1>JsonSerializer<\/h1>/);
+  assert.match(html, /Opening JsonSerializer\.&lt;Open&gt;…/);
+  assert.match(html, /class="document-section graph-member-pending" aria-live="polite"/);
 });
 
 test("type metadata signature keys on the exact package, framework, and type coordinate", () => {

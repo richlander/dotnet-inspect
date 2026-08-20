@@ -27,6 +27,7 @@ import {
   dependencyGraphPackageKey,
   dependencyGraphRenderSignature,
   ensureBoundedGraphNode,
+  graphTargetBlockedReason,
   graphTargetNavigationDisposition,
   graphMemberDeepLinkDisposition,
   graphMemberPendingMatchesView,
@@ -3049,7 +3050,7 @@ test("pending graph-member restoration is bound to its exact view", () => {
     /if \(disposition === "graph"\) \{[\s\S]*?state\.selectedMemberKey = deep\.member;[\s\S]*?state\.selectedBodyTarget = deep\.graphTarget;[\s\S]*?viewSignature: viewSignature\(\)/);
   assert.match(
     appSource,
-    /function renderLens\(item\) \{[\s\S]*?graphMemberPendingMatchesView\([\s\S]*?graph-member-pending[\s\S]*?Opening \$\{escapeHtml\(title\)\}/);
+    /function renderLens\(item\) \{[\s\S]*?graphMemberPendingMatchesView\([\s\S]*?return renderGraphMemberPendingHtml\(item, title\)/);
 });
 
 test("stale graph-only navigation clears progress without surfacing its error", () => {
@@ -3193,6 +3194,9 @@ test("platform graph borders reflect actual resident lookup", () => {
   assert.match(
     packageBinding,
     /else if \(disposition === "resident"\) \{\s*if \(resident\) \{[\s\S]*?navigateToRuntimeMember\([\s\S]*?\} else \{\s*startPlatformDrill\(target\)/);
+  assert.match(
+    appSource,
+    /if \(candidate\.status === "resident"\s*\|\| \(candidate\.status === "missing" && assemblyResident\)\) \{\s*await drillPlatformNode\(/);
 });
 
 test("runtime graph nodes separate member, drill, and lookup disposition", () => {
@@ -3248,6 +3252,18 @@ test("runtime graph nodes separate member, drill, and lookup disposition", () =>
       false,
       true),
     "drill");
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      { status: "resident" },
+      externalTarget,
+      false),
+    "drill");
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      { status: "missing" },
+      { ...externalTarget, assemblyVersion: null },
+      false),
+    "none");
 
   const runtimeNavigation =
     appSource.match(/function navigateToRuntimeMember[\s\S]*?\n\}/)?.[0]
@@ -3701,6 +3717,80 @@ test("call graph navigation rejects assembly identity skew", () => {
       target,
       false),
     "blocked");
+  assert.equal(
+    graphTargetBlockedReason(candidate, "package"),
+    "the loaded package assembly identity does not match the exact target");
+
+  const noProjectedTarget = {
+    ...skewedPackage,
+    types: [{
+      assemblyId: "example",
+      assemblyName: "Example",
+      metadataId: "Example.Other"
+    }]
+  };
+  assert.deepEqual(
+    resolveLoadedGraphTargetCandidate([noProjectedTarget], target),
+    { status: "skew" });
+
+  const exactResident = {
+    ...noProjectedTarget,
+    assemblies: [{ id: "example", ...exact }]
+  };
+  const residentCandidate = resolveLoadedGraphTargetCandidate(
+    [exactResident],
+    target);
+  assert.deepEqual(residentCandidate, { status: "resident" });
+  assert.equal(
+    graphTargetNavigationDisposition(residentCandidate, target),
+    "blocked");
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      residentCandidate,
+      target,
+      false),
+    "drill");
+  assert.equal(
+    graphTargetBlockedReason(residentCandidate, "package"),
+    "the exact target type is not projected from the loaded package assembly");
+});
+
+test("call graph navigation keeps identity-unknown targets inert", () => {
+  const target = {
+    assembly: "Example",
+    assemblyVersion: null,
+    assemblyCulture: null,
+    assemblyPublicKeyToken: null,
+    typeMetadataId: "Example.Widget",
+    kind: "external"
+  };
+  const pack = {
+    ...packageAt("1.0.0", "net8.0"),
+    types: [{
+      assemblyId: "example",
+      assemblyName: "Example",
+      metadataId: "Example.Widget"
+    }],
+    assemblies: [{
+      id: "example",
+      name: "Example",
+      version: "1.0.0.0",
+      culture: null,
+      publicKeyToken: null
+    }]
+  };
+
+  const candidate = resolveLoadedGraphTargetCandidate([pack], target);
+  assert.deepEqual(candidate, { status: "missing" });
+  assert.equal(
+    graphTargetNavigationDisposition(candidate, target),
+    "none");
+  assert.equal(
+    runtimeGraphTargetNavigationDisposition(
+      candidate,
+      target,
+      false),
+    "none");
 });
 
 test("failed graph restoration uses the canonical empty member identity", () => {

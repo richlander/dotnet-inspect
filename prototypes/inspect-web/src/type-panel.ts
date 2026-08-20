@@ -412,6 +412,18 @@ export function typeHeading(options: TypeHeadingOptions): string {
   </header>`;
 }
 
+export interface RenderGraphMemberPendingOptions extends TypeHeadingOptions {
+  title: string;
+}
+
+export function renderGraphMemberPending(options: RenderGraphMemberPendingOptions): string {
+  return `
+    ${typeHeading(options)}
+    <section class="document-section graph-member-pending" aria-live="polite">
+      <div class="graph-expanding"><span class="loader"></span> Opening ${options.escapeHtml(options.title)}…</div>
+    </section>`;
+}
+
 export function typeMetadataSignature(item: TypeSummary, packageContext: TypePanelPackageContext): string {
   return `${packageContext.id}@${packageContext.version}/${packageContext.activeFramework}/${item.assembly}/${item.id}`;
 }

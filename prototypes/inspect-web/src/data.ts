@@ -912,6 +912,7 @@ export type GraphTargetCandidate<TPackage, TType> =
   | { status: "missing" }
   | { status: "ambiguous" }
   | { status: "skew" }
+  | { status: "resident" }
   | { status: "unique"; pkg: TPackage; type: TType };
 
 export function resolveLoadedGraphTargetCandidate<
@@ -924,14 +925,21 @@ export function resolveLoadedGraphTargetCandidate<
 ): GraphTargetCandidate<TPackage, TType> {
   const typeId = callGraphTargetTypeId(target);
   if (!typeId || !target?.assembly) return { status: "missing" };
-  const matches: { pkg: TPackage; type: TType }[] = [];
+  if (Object.prototype.hasOwnProperty.call(target, "assemblyVersion")
+      && !target.assemblyVersion) {
+    return { status: "missing" };
+  }
+  const targetAssembly = String(target.assembly)
+    .replace(/\.dll$/i, "")
+    .toLowerCase();
+  const matches = [];
+  let exactAssemblyResident = false;
   let identitySkew = false;
   for (const pkg of packages) {
     if (!pkg || pkg.isRuntimePack) continue;
     for (const type of pkg.types ?? []) {
       const assembly = (type.assemblyName ?? type.assembly ?? pkg.assembly ?? "")
         .replace(/\.dll$/i, "");
-      const descriptors = pkg.assemblies ?? [];
       const descriptor = type.assemblyId
         ? descriptors.find(candidate => candidate.id === type.assemblyId)
         : descriptors.find(candidate =>
@@ -944,7 +952,7 @@ export function resolveLoadedGraphTargetCandidate<
         if (matches.length > 1) return { status: "ambiguous" };
       }
       if (!callGraphAssemblyIdentityMatches(target, descriptor)) {
-        identitySkew = true;
+        if (descriptor) identitySkew = true;
         continue;
       }
       matches.push({ pkg, type });
@@ -953,9 +961,11 @@ export function resolveLoadedGraphTargetCandidate<
   }
   return matches.length === 1
     ? { status: "unique", ...matches[0] }
-    : identitySkew
-      ? { status: "skew" }
-      : { status: "missing" };
+    : exactAssemblyResident
+      ? { status: "resident" }
+      : identitySkew
+        ? { status: "skew" }
+        : { status: "missing" };
 }
 
 export function resolveLoadedGraphTargetCandidate<
@@ -1037,15 +1047,18 @@ export function graphTargetNavigationDisposition(
   target: CallGraphTarget | null | undefined,
   resident = false,
 ): GraphTargetNavigationDisposition {
-  if (candidate.status === "ambiguous" || candidate.status === "skew")
-    return "blocked";
-  if (candidate.status === "unique") return "loaded";
   if (Object.prototype.hasOwnProperty.call(
       target ?? {},
       "assemblyVersion")
       && !target?.assemblyVersion) {
     return "none";
   }
+  if (candidate.status === "ambiguous"
+      || candidate.status === "skew"
+      || candidate.status === "resident") {
+    return "blocked";
+  }
+  if (candidate.status === "unique") return "loaded";
   return target?.kind === "external"
       && Boolean(target.assembly)
       && Boolean(callGraphTargetTypeId(target))
@@ -1068,6 +1081,18 @@ export function pdbSourceLimitationHtml(
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
   return `<span class="graph-source-status">PDB source unavailable: ${escaped}</span>`;
+}
+
+export function graphTargetBlockedReason(
+  candidate: { status?: string } | null | undefined,
+  scope: "runtime" | "package",
+): string {
+  const owner = scope === "runtime" ? "runtime" : "package";
+  if (candidate?.status === "skew")
+    return `the loaded ${owner} assembly identity does not match the exact target`;
+  if (candidate?.status === "resident")
+    return `the exact target type is not projected from the loaded ${owner} assembly`;
+  return `the exact ${owner} target identity matched multiple loaded types`;
 }
 
 export interface CallGraphDiagnostics {

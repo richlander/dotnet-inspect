@@ -10,6 +10,7 @@ import {
   dependencyCoordinateCandidates,
   dependencyGroupSelectionMessage,
   dependencyGraphRenderSignature,
+  graphTargetBlockedReason,
   graphTargetNavigationDisposition,
   graphMemberDeepLinkDisposition,
   graphMemberPendingMatchesView,
@@ -3405,6 +3406,21 @@ function typeHeadingHtml(item: BrowserTypeSurface) {
   });
 }
 
+function renderGraphMemberPendingHtml(
+  item: BrowserTypeSurface,
+  title: string,
+) {
+  return renderGraphMemberPending({
+    item,
+    title,
+    packageContext: currentPackage(),
+    escapeHtml,
+    typeDisplayName,
+    kindIcon,
+    highlight,
+  });
+}
+
 function renderTypeMetadataHtml(item: BrowserTypeSurface) {
   return renderTypeMetadata({
     item,
@@ -3439,11 +3455,7 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     const title =
       state.graphMemberNavigationTitle
       || `${typeDisplayName(item)}.${pending.target.memberName}`;
-    return `
-      ${typeHeadingHtml(item)}
-      <section class="document-section graph-member-pending" aria-live="polite">
-        <div class="graph-expanding"><span class="loader"></span> Opening ${escapeHtml(title)}…</div>
-      </section>`;
+    return renderGraphMemberPendingHtml(item, title);
   }
   const member = selectedMember(item);
   if (state.lens === "api" && member) return renderMember(item, member);
@@ -7138,9 +7150,7 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
   if (candidate.status === "ambiguous" || candidate.status === "skew") {
     await showPlatformTargetError(
       node,
-      candidate.status === "skew"
-        ? "the loaded runtime assembly identity does not match the exact target"
-        : "the runtime target identity matched multiple types");
+      graphTargetBlockedReason(candidate, "runtime"));
     return;
   }
   let selection = findRuntimeMemberSelection(pack, node, candidate);
@@ -7181,14 +7191,13 @@ async function navigateOrDrillPlatform(node: BrowserCallGraphTarget) {
     if (candidate.status === "ambiguous" || candidate.status === "skew") {
       await showPlatformTargetError(
         node,
-        candidate.status === "skew"
-          ? "the loaded runtime assembly identity does not match the exact target"
-          : "the runtime target identity matched multiple types");
+        graphTargetBlockedReason(candidate, "runtime"));
       return;
     }
     selection = findRuntimeMemberSelection(pack, node, candidate);
   }
-  if (candidate.status === "missing" && assemblyResident) {
+  if (candidate.status === "resident"
+      || (candidate.status === "missing" && assemblyResident)) {
     await drillPlatformNode(node, navigationIsCurrent);
     return;
   }
