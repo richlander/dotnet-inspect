@@ -96,6 +96,7 @@ internal interface ILibraryMethodAnalysisInfrastructure
         bool typeSourceGenerated,
         IReadOnlySet<int>? ownerMethodScope,
         Func<TypeRef, bool>? ownerTypeScope,
+        IReadOnlySet<int>? requestedMethodScope,
         bool directlySelectedBody);
 
     bool DispatchCanTargetOverride(
@@ -266,6 +267,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                         typeSourceGenerated,
                         bodyScope,
                         bodyTypeScope,
+                        requestedMethodScope,
                         requestedMethodScope?.Contains(
                             caller.MetadataToken)
                             == true);

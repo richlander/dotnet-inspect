@@ -292,6 +292,7 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             bool typeSourceGenerated,
             IReadOnlySet<int>? ownerMethodScope,
             Func<TypeRef, bool>? ownerTypeScope,
+            IReadOnlySet<int>? requestedMethodScope,
             bool directlySelectedBody)
     {
         if (_liftedSourceOwnerResolver.TryResolve(
@@ -332,7 +333,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 out _,
                 ownerMethodScope,
                 ownerTypeScope,
-                directlySelectedBody))
+                directlySelectedBody
+                    || requestedMethodScope?.Contains(
+                        asyncSource.MetadataToken)
+                        == true))
         {
             return sourceOwner;
         }

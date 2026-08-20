@@ -10108,6 +10108,46 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void
+        ResolveDeclaredMethod_DirectAsyncLiftedKickoffScopeReturnsOwner()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity owner = Assert.Single(
+            full.DeclaredMethods,
+            method => method.Name
+                    == nameof(ClassicAsyncSiblingFixture
+                        .ScopedAsyncLambdaOwner)
+                && method.ParameterTypes.Length == 1
+                && method.ParameterTypes[0].Equals(
+                    TypeRef.CoreLib("System", "String")));
+        MethodIdentity kickoff = Assert.Single(
+            full.Methods,
+            method => method.Name.StartsWith(
+                "<ScopedAsyncLambdaOwner>b__",
+                StringComparison.Ordinal));
+        var scoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                kickoff.MetadataToken,
+            });
+        DirectCall call = Assert.Single(
+            scoped.DirectCalls,
+            call => call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name == "GetAwaiter");
+
+        Assert.Equal(
+            owner,
+            scoped.ResolveDeclaredMethod(
+                call.EvidenceMethod));
+    }
+
+    [Fact]
     public void OptimizationOpportunities_DistinctMethodSpecsShareMemberRefResolution()
     {
         string path =
