@@ -4582,7 +4582,17 @@ function applyDeepLink(deep) {
       next.add(selected.accessibilityId);
       state.accessibilityFilter = next;
     }
-    if (state.libraryScope && !state.libraryScope.has(libraryKey(selected))) {
+    // Only the .NET Platform pseudo-package's library scope is carried in the URL/history
+    // (via applyPlatformLibraryScope, which every restore path already runs before reaching
+    // here). A regular package's scope is never part of that restored view, so any value
+    // still set is leftover session state -- always clear it rather than reconciling it
+    // against the selected type, which could coincidentally leave a stale scope in place
+    // when the restored type happens to still belong to it.
+    if (isRuntimePackId(pkg.id)) {
+      if (state.libraryScope && !state.libraryScope.has(libraryKey(selected))) {
+        state.libraryScope = null;
+      }
+    } else {
       state.libraryScope = null;
     }
   }
@@ -7363,16 +7373,17 @@ async function restoreRuntimePackFromHistory(loc, deep, navigationSeq) {
   if (navigationSeq !== state.navigationSeq) return;
   if (pack) {
     activatePackage(pack, { resetAccessibility: true });
-    if (loc.library) {
-      await applyPlatformLibraryScope(
-        loc.library,
-        navigationSeq,
-        () => restoreRuntimePackFromHistory(
-          loc,
-          deep,
-          state.navigationSeq));
-      if (navigationSeq !== state.navigationSeq) return;
-    }
+    // Always resolve scope from the history entry's own library field -- even when it's
+    // empty (the aggregate view) -- so a stale scope from whatever the session was
+    // previously viewing doesn't survive the restore. Mirrors restorePlatformScopeThenDeepLink.
+    await applyPlatformLibraryScope(
+      loc.library,
+      navigationSeq,
+      () => restoreRuntimePackFromHistory(
+        loc,
+        deep,
+        state.navigationSeq));
+    if (navigationSeq !== state.navigationSeq) return;
     applyDeepLink(deep);
   } else {
     appendQueryNotice(
