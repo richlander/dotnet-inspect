@@ -40,6 +40,7 @@ export async function initializeEngine(onStatus = () => {}) {
   const runtime = await dotnet.create();
   const config = runtime.getConfig();
   const exports = await runtime.getAssemblyExports(config.mainAssemblyName);
+  exports.BrowserInspectionEngine.ConfigureHost(window.location.origin);
   queryPackage = exports.BrowserInspectionEngine.QueryPackage;
   queryPackageVersions = exports.BrowserInspectionEngine.QueryPackageVersions;
   resolvePackageDependencyVersion = exports.BrowserInspectionEngine.ResolvePackageDependencyVersion;

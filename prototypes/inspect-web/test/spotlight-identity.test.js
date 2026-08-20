@@ -818,6 +818,12 @@ test("source operations cancel when superseded or hidden", () => {
   assert.equal(requestState.typeSourceError, "");
 });
 
+test("browser engine configures the same-origin managed MSDL API", () => {
+  assert.match(
+    engineSource,
+    /exports\.BrowserInspectionEngine\.ConfigureHost\(window\.location\.origin\)/);
+});
+
 test("MethodDef-only member sections are hidden for bodiless APIs", () => {
   for (const kind of ["property", "field", "event", "constant"]) {
     assert.deepEqual(
