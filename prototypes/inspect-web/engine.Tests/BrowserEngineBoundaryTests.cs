@@ -2228,6 +2228,35 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageOperation_LateSuccessDisposesOwnedResult()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = Coordinate(
+            "Late.Success",
+            Package(image, "lib/net11.0/Late.Success.dll"));
+        BrowserInspectionScope scope =
+            BrowserPackageWorkspace.OpenScope([coordinate]);
+
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => BrowserPackageWorkspace.RunPackageOperationAsync<
+                BrowserScopeLease<BrowserInspectionScope>>(
+                deadline =>
+                {
+                    BrowserScopeLease<BrowserInspectionScope> lease =
+                        BrowserPackageWorkspace.LeaseScope(scope);
+                    while (!deadline.HasExpired)
+                        Thread.SpinWait(100);
+                    return Task.FromResult(lease);
+                },
+                TimeSpan.FromMilliseconds(10),
+                TestContext.Current.CancellationToken));
+
+        BrowserPackageWorkspace.RemoveScope(scope);
+        Assert.False(BrowserPackageWorkspace.IsScopeRetained(scope));
+    }
+
+    [Fact]
     public async Task PackageOperation_LateCallerCancellationRemainsCancellation()
     {
         using var callerCancellation = new CancellationTokenSource();

@@ -47,6 +47,8 @@ namespace InspectWeb.Engine;
 /// gates the final monotonic check before cache publication, and
 /// <c>BrowserEngineBoundaryTests.PackageOperation_LateFailureBecomesVisibleTimeout</c>
 /// gates timeout classification after synchronous work overruns the deadline.
+/// <c>BrowserEngineBoundaryTests.PackageOperation_LateSuccessDisposesOwnedResult</c>
+/// gates ownership when that final deadline check rejects a completed result.
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_ExactPinUsesGalleryCdnWithoutServiceIndex</c>
 /// and
 /// <c>BrowserEngineBoundaryTests.PackageAcquisition_FloatingRootUsesGallerySearchAndCdn</c>
@@ -736,7 +738,18 @@ internal static class BrowserPackageWorkspace
         try
         {
             T result = await operation(deadline).ConfigureAwait(false);
-            deadline.ThrowIfExpired();
+            try
+            {
+                deadline.ThrowIfExpired();
+            }
+            catch (Exception exception)
+                when (exception is OperationCanceledException
+                    or TimeoutException)
+            {
+                if (result is IDisposable owned)
+                    owned.Dispose();
+                throw;
+            }
             return result;
         }
         catch (OperationCanceledException)
