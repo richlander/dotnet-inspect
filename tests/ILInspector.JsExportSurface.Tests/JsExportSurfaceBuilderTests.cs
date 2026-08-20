@@ -26,7 +26,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var names = surface.Functions.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(7, surface.Functions.Count);
+        Assert.Equal(10, surface.Functions.Count);
         Assert.Contains("GetWidget", names);
         Assert.Contains("GetWidgetAsync", names);
         Assert.Contains("Ping", names);
@@ -64,7 +64,7 @@ public sealed class JsExportSurfaceBuilderTests
         ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
 
         var recordNames = surface.Records.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(4, surface.Records.Count);
+        Assert.Equal(7, surface.Records.Count);
         Assert.Contains("WidgetDto", recordNames);
         Assert.Contains("WidgetOwner", recordNames);
         Assert.Contains("WidgetCatalog", recordNames);
@@ -81,6 +81,31 @@ public sealed class JsExportSurfaceBuilderTests
 
         Assert.Contains(surface.Enums, e => e.Name == "WidgetStatus");
         Assert.DoesNotContain(surface.Records, r => r.Name == "WidgetStatus");
+    }
+
+    [Fact]
+    public void Build_CapturesFlagsAndJsonStringEnumConverterFactsOnEnum()
+    {
+        // WidgetPermission is both [Flags] and backed by JsonStringEnumConverter; the builder
+        // must surface both facts unmodified on the ApiType so DtsEmitter can render the
+        // comma-joined-string wire shape instead of a closed single-member union.
+        ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
+
+        ApiType permission = Assert.Single(surface.Enums, e => e.Name == "WidgetPermission");
+        Assert.True(permission.IsFlagsEnum);
+        Assert.True(permission.HasJsonStringEnumConverter);
+    }
+
+    [Fact]
+    public void Build_CapturesAbsenceOfJsonStringEnumConverterOnEnum()
+    {
+        // WidgetPriority carries no JsonConverter at all, so HasJsonStringEnumConverter must be
+        // false — the enum is serialized by numeric underlying value, not by declared name.
+        ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurface();
+
+        ApiType priority = Assert.Single(surface.Enums, e => e.Name == "WidgetPriority");
+        Assert.False(priority.IsFlagsEnum);
+        Assert.False(priority.HasJsonStringEnumConverter);
     }
 
     [Fact]
@@ -164,5 +189,22 @@ public sealed class JsExportSurfaceBuilderTests
 
         Assert.Contains(surface.Records, r => r.Name == "Widget");
         Assert.DoesNotContain(surface.Records, r => r.Name == "Result");
+    }
+
+    [Fact]
+    public void Build_IncludeAllKeepsJsonIncludeNonPublicPropertyOnRecord()
+    {
+        // WidgetAudit.LastEditedBy is internal but carries [JsonInclude]; the builder's
+        // includeAll queue-seeding walk must not drop it merely because Accessibility is
+        // non-null — that filter exists to exclude compiler-synthesized infrastructure like
+        // EqualityContract, not a deliberately wire-included non-public property.
+        using FileStream stream = File.OpenRead(typeof(FixtureExports).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ILInspector.JsExportSurface.JsExportSurface surface = JsExportSurfaceBuilder.Build(apiSurface);
+
+        ApiType audit = Assert.Single(surface.Records, r => r.Name == "WidgetAudit");
+        ApiMember lastEditedBy = Assert.Single(audit.Members, m => m.Name == "LastEditedBy");
+        Assert.True(lastEditedBy.HasJsonInclude);
     }
 }

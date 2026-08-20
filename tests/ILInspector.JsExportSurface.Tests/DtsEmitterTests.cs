@@ -206,4 +206,47 @@ public sealed class DtsEmitterTests
 
         Assert.DoesNotContain("equalityContract", dts, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Emit_ProjectsFlagsEnumAsStringNotClosedUnion()
+    {
+        // WidgetPermission is [Flags] and backed by JsonStringEnumConverter; STJ serializes a
+        // combination as a comma-joined string of names (e.g. "Read, Write"), which a closed
+        // single-member union cannot represent — so the emitter must fall back to `string`.
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export type WidgetPermission = string;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_ProjectsConverterlessEnumAsNumberNotStringUnion()
+    {
+        // WidgetPriority carries no JsonConverter, so STJ serializes it by its numeric underlying
+        // value, not by declared name — the emitter must not assume every enum is a string union.
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export type WidgetPriority = number;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("\"Low\" | \"Medium\" | \"High\"", dts, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithIncludeAllKeepsJsonIncludeNonPublicProperty()
+    {
+        // WidgetAudit.LastEditedBy is internal but carries [JsonInclude], explicitly opting it
+        // into the wire contract — it must not be excluded by the same filter that drops a
+        // record's compiler-synthesized EqualityContract getter, even though both are non-public.
+        using FileStream stream = File.OpenRead(typeof(FixtureExports).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        ILInspector.JsExportSurface.JsExportSurface surface = JsExportSurfaceBuilder.Build(apiSurface);
+        string dts = DtsEmitter.Emit(surface);
+
+        Assert.Contains("lastEditedBy", dts, StringComparison.Ordinal);
+    }
 }

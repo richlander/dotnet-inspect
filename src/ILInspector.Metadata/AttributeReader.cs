@@ -14,6 +14,10 @@ public static partial class AttributeReader
     private const string ExtensionMarkerAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerAttribute";
     private const string ExtensionMarkerNameAttributeName = "System.Runtime.CompilerServices.ExtensionMarkerNameAttribute";
     private const string ObsoleteAttributeName = "System.ObsoleteAttribute";
+    private const string JsonConverterAttributeName = "System.Text.Json.Serialization.JsonConverterAttribute";
+    private const string JsonStringEnumConverterTypeName = "System.Text.Json.Serialization.JsonStringEnumConverter";
+    private const string FlagsAttributeName = "System.FlagsAttribute";
+    private const string JsonIncludeAttributeName = "System.Text.Json.Serialization.JsonIncludeAttribute";
     private const string RequiredMembersFeatureName = "RequiredMembers";
     private const string RequiredMembersConstructorObsoleteMessage =
         "Constructors of types with required members are not supported in this version of your compiler.";
@@ -358,6 +362,60 @@ public static partial class AttributeReader
                 attr.Constructor,
                 beforeMaterialize);
             if (attrName == attributeTypeName)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Checks if the enum has the <c>[Flags]</c> attribute.</summary>
+    public static bool HasFlagsAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+        => HasAttribute(reader, attributes, FlagsAttributeName, beforeMaterialize);
+
+    /// <summary>Checks if the member has the <c>[JsonInclude]</c> attribute.</summary>
+    public static bool HasJsonIncludeAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+        => HasAttribute(reader, attributes, JsonIncludeAttributeName, beforeMaterialize);
+
+    /// <summary>
+    /// Checks whether the enum carries <c>[JsonConverter(typeof(JsonStringEnumConverter&lt;...&gt;))]</c> (or
+    /// the non-generic <c>JsonStringEnumConverter</c>) — the marker that makes STJ serialize this enum's values
+    /// as their declared names rather than their numeric underlying value. The converter's <c>typeof()</c>
+    /// argument is a generic type reference, which <see cref="AttributeReader.Rendering"/>'s C#-spelling
+    /// renderer cannot render (it returns null for any argument whose serialized name contains a backtick,
+    /// which drops the whole attribute from the rendered <c>Attributes</c> list) — so this reads the
+    /// argument's raw serialized type name directly via <see cref="AttributeDecoder"/> instead of relying on
+    /// the rendered attribute text.
+    /// </summary>
+    public static bool HasJsonStringEnumConverterAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        foreach (var attrHandle in attributes)
+        {
+            var attr = reader.GetCustomAttribute(attrHandle);
+            var attrName = GetAttributeTypeName(
+                reader,
+                attr.Constructor,
+                beforeMaterialize);
+            if (attrName != JsonConverterAttributeName)
+                continue;
+            if (AttributeDecoder.TryDecodePreservingSerializedTypeNames(reader, attr)
+                    is not { FixedArguments.Length: 1 } decoded
+                || decoded.FixedArguments[0].Value is not string converterTypeName)
+                continue;
+            // Strip generic arity (`1) and any nested/assembly-qualified suffix before comparing, since
+            // the serialized name preserves those (e.g. "System.Text.Json.Serialization.JsonStringEnumConverter`1[[...]]").
+            int genericMarker = converterTypeName.IndexOfAny(['`', '[']);
+            string baseName = genericMarker < 0
+                ? converterTypeName
+                : converterTypeName[..genericMarker];
+            if (baseName == JsonStringEnumConverterTypeName)
                 return true;
         }
         return false;

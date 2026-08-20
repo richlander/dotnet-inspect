@@ -173,10 +173,13 @@ public static class JsExportSurfaceBuilder
             {
                 if (member.Kind != "property"
                     // Compiler-synthesized record infrastructure (e.g. a positional record's
-                    // `EqualityContract` getter) is never intended as wire-contract shape: it is
-                    // never public, so it is only reachable here when includeAll surfaces
-                    // non-public members alongside the type's real, public data properties.
-                    || member.Accessibility is not null)
+                    // `EqualityContract` getter) is never intended as wire-contract shape.
+                    // Detected directly via [CompilerGenerated] rather than accessibility, since a
+                    // legitimate non-public property opted into the wire contract via
+                    // [JsonInclude] would otherwise look identical (non-null Accessibility) to
+                    // synthesized infrastructure.
+                    || member.IsCompilerGenerated
+                    || (member.Accessibility is not null && !member.HasJsonInclude))
                 {
                     continue;
                 }

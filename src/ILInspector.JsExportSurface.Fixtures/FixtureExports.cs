@@ -76,6 +76,32 @@ public static partial class FixtureExports
         JsonSerializer.Serialize(
             new WidgetSummary("widget", WidgetStatus.Published),
             FixtureJsonContext.Default.WidgetSummary);
+
+    // Exercises [Flags]-enum wire fidelity: STJ's string converter serializes a combination as a
+    // comma-joined list of names (e.g. "Read, Write"), not a single declared name, so a closed
+    // union is wrong here even though the converter is present.
+    [JSExport]
+    public static string GetWidgetPermissionSummary() =>
+        JsonSerializer.Serialize(
+            new WidgetPermissionSummary("widget", WidgetPermission.Read | WidgetPermission.Write),
+            FixtureJsonContext.Default.WidgetPermissionSummary);
+
+    // Exercises the absence of JsonStringEnumConverter: without it, STJ serializes the enum by its
+    // numeric underlying value, so the wire shape must be `number`, not a string-literal union.
+    [JSExport]
+    public static string GetWidgetPrioritySummary() =>
+        JsonSerializer.Serialize(
+            new WidgetPrioritySummary("widget", WidgetPriority.High),
+            FixtureJsonContext.Default.WidgetPrioritySummary);
+
+    // Exercises [JsonInclude]: a non-public property explicitly opted into the wire contract must
+    // still be emitted, even though it looks (via non-null Accessibility) like the same shape as a
+    // record's compiler-synthesized EqualityContract getter.
+    [JSExport]
+    public static string GetWidgetAudit() =>
+        JsonSerializer.Serialize(
+            new WidgetAudit("widget", "system"),
+            FixtureJsonContext.Default.WidgetAudit);
 }
 
 public sealed record WidgetDto(string Name, int Count, int[] Tags, WidgetOwner? Owner);
@@ -100,9 +126,49 @@ public enum WidgetStatus
 
 public sealed record WidgetSummary(string Name, WidgetStatus Status);
 
+// A [Flags] enum backed by JsonStringEnumConverter: STJ serializes a combination as a
+// comma-joined string of member names, which is not representable as a single-member union.
+[Flags]
+[JsonConverter(typeof(JsonStringEnumConverter<WidgetPermission>))]
+public enum WidgetPermission
+{
+    None = 0,
+    Read = 1,
+    Write = 2,
+}
+
+public sealed record WidgetPermissionSummary(string Name, WidgetPermission Permissions);
+
+// Deliberately has no JsonConverter: STJ serializes this by its numeric underlying value.
+public enum WidgetPriority
+{
+    Low,
+    Medium,
+    High,
+}
+
+public sealed record WidgetPrioritySummary(string Name, WidgetPriority Priority);
+
+// Exercises [JsonInclude] on a non-public property: it must still be emitted as wire-contract
+// shape, distinct from a record's compiler-synthesized (and always non-public) EqualityContract.
+public sealed record WidgetAudit(string Name)
+{
+    [JsonInclude]
+    internal string LastEditedBy { get; init; } = "";
+
+    public WidgetAudit(string name, string lastEditedBy) : this(name)
+    {
+        LastEditedBy = lastEditedBy;
+    }
+}
+
+
 [JsonSerializable(typeof(WidgetDto))]
 [JsonSerializable(typeof(WidgetDto[]))]
 [JsonSerializable(typeof(WidgetCatalog))]
 [JsonSerializable(typeof(WidgetSummary))]
+[JsonSerializable(typeof(WidgetPermissionSummary))]
+[JsonSerializable(typeof(WidgetPrioritySummary))]
+[JsonSerializable(typeof(WidgetAudit))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 public sealed partial class FixtureJsonContext : JsonSerializerContext;

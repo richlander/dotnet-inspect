@@ -618,6 +618,23 @@ public static class ApiSurfaceExtractor
                     observeDecodeWork);
             }
 
+            // Capture the wire-fidelity-relevant facts for an enum's JSON serialization: whether
+            // it is [Flags] (STJ serializes a combination as a comma-joined string, not a single
+            // declared name) and whether it carries a JsonStringEnumConverter (STJ serializes by
+            // declared name rather than by numeric value only when this converter is present).
+            if (apiType.Kind == "enum")
+            {
+                var enumAttributes = typeDef.GetCustomAttributes();
+                apiType.IsFlagsEnum = AttributeReader.HasFlagsAttribute(
+                    reader,
+                    enumAttributes,
+                    observeDecodeWork);
+                apiType.HasJsonStringEnumConverter = AttributeReader.HasJsonStringEnumConverterAttribute(
+                    reader,
+                    enumAttributes,
+                    observeDecodeWork);
+            }
+
             // Check if this is an extension class (static class with [Extension] attribute)
             bool isExtensionClass = apiType.IsStatic
                 && AttributeReader.HasExtensionAttribute(
@@ -933,6 +950,15 @@ public static class ApiSurfaceExtractor
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
+                    IsCompilerGenerated = AttributeReader.HasAttribute(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        KnownAttributeNames.CompilerGeneratedAttribute,
+                        observeDecodeWork),
+                    HasJsonInclude = AttributeReader.HasJsonIncludeAttribute(
+                        reader,
+                        prop.GetCustomAttributes(),
+                        observeDecodeWork),
                     Attributes = RenderMemberAttributes(
                         reader,
                         prop.GetCustomAttributes(),

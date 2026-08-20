@@ -40,8 +40,24 @@ static class DtsEmitter
 
     static void EmitEnum(StringBuilder sb, ApiType enumType)
     {
-        // STJ's JsonStringEnumConverter serializes an enum member as its declared name (a plain
-        // string), not an object — so the wire shape is a string-literal union, not an interface.
+        // STJ only serializes an enum member as its declared name (a string) when the enum
+        // carries JsonStringEnumConverter; without it, STJ serializes the enum by its numeric
+        // underlying value, so the wire shape is `number`, not a string-literal union.
+        if (!enumType.HasJsonStringEnumConverter)
+        {
+            sb.Append("export type ").Append(enumType.Name).Append(" = number;\n\n");
+            return;
+        }
+
+        // A [Flags] combination is serialized by STJ's string converter as a comma-joined list of
+        // declared names (e.g. "Read, Write"), which a closed single-member union cannot represent,
+        // so fall back to `string` for the combination shape.
+        if (enumType.IsFlagsEnum)
+        {
+            sb.Append("export type ").Append(enumType.Name).Append(" = string;\n\n");
+            return;
+        }
+
         // The enum's storage slot (`value__`, its underlying-type instance field) is captured
         // alongside its named values as Kind == "field" but is not itself a member value — filter
         // to IsConst, which is only set for the literal enum members.
@@ -60,11 +76,11 @@ static class DtsEmitter
         {
             if (member.Kind != "property"
                 // Compiler-synthesized record infrastructure (e.g. a positional record's
-                // EqualityContract getter) is never public, so a non-null Accessibility here means
-                // this is not one of the type's real, public data properties — never a wire-shape
-                // concern, only reachable at all when includeAll surfaces non-public members
-                // alongside the type's public ones.
-                || member.Accessibility is not null)
+                // EqualityContract getter) is detected directly via [CompilerGenerated] — the
+                // exact signal for synthesized infrastructure, unlike non-public Accessibility,
+                // which a legitimate [JsonInclude]-marked non-public property would also carry.
+                || member.IsCompilerGenerated
+                || (member.Accessibility is not null && !member.HasJsonInclude))
             {
                 continue;
             }
