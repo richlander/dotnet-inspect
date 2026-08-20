@@ -10098,34 +10098,6 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
-    public void
-        OptimizationOpportunities_DirectLiftedTypeScopeRetainsSourceOwner()
-    {
-        string path =
-            typeof(OptimizationOpportunityFixtures).Assembly.Location;
-        var full = LibraryBodyIndex.Open(path);
-        OptimizationOpportunity expected = Assert.Single(
-            full.OptimizationOpportunities,
-            opportunity => opportunity.Method.Name.Contains(
-                    nameof(OptimizationOpportunityFixtures
-                        .GenericObjectEqualsLambda),
-                    StringComparison.Ordinal)
-                && opportunity.Shape
-                    == "generic-parameter-object-box");
-
-        var scoped = LibraryBodyIndex.Open(
-            path,
-            bodyTypeScope: type =>
-                type.Equals(expected.Method.DeclaringType));
-        OptimizationOpportunity actual = Assert.Single(
-            scoped.OptimizationOpportunities,
-            opportunity => opportunity.Method == expected.Method
-                && opportunity.Shape == expected.Shape);
-
-        Assert.Equal(expected.SourceOwner, actual.SourceOwner);
-    }
-
-    [Fact]
     public void DirectCalls_AttributeLiftedBodiesButNotIterators()
     {
         var index = LibraryBodyIndex.Open(

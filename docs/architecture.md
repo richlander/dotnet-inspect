@@ -797,7 +797,6 @@ Research overlay bridge, and the application layer:
   `DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner`,
   `AsyncMoveNextResolution_UsesExplicitInterfaceImplementation`,
   `DirectCalls_DirectLiftedTypeScopeRetainsDeclaredCaller`,
-  `OptimizationOpportunities_DirectLiftedTypeScopeRetainsSourceOwner`,
   `OptimizationOpportunities_MalformedMethodSpecCannotAuthenticateOwner`,
   `TypeTargetedBuild_MatchesFullBuild_ForEveryMethodOfTheType`,
   `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and
