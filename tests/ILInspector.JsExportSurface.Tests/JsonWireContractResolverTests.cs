@@ -54,6 +54,18 @@ public sealed class JsonWireContractResolverTests
     }
 
     [Fact]
+    public void Build_ResolvesParameterWireTypeForDeserializeCall()
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface = BuildFixtureSurfaceWithWireContracts();
+
+        JsExportFunction renameWidget = Assert.Single(
+            surface.Functions,
+            f => f.Name == "RenameWidget");
+        Assert.Equal("WidgetDto", renameWidget.ReturnWireType);
+        Assert.Equal(["WidgetDto"], renameWidget.ParameterWireTypes);
+    }
+
+    [Fact]
     public void Build_LeavesWireContractUnsetForNonEnvelopeExport()
     {
         // Ping has no JSON envelope at all (returns a non-generic Task), so no

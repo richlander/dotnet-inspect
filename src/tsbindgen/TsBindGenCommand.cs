@@ -1,5 +1,6 @@
 using System.CommandLine;
 using System.Reflection.PortableExecutable;
+using ILInspector.Analysis;
 using ILInspector.JsExportSurface;
 using ILInspector.Metadata;
 
@@ -62,8 +63,21 @@ public static class TsBindGenCommand
                 return 1;
             }
 
-            global::ILInspector.JsExportSurface.JsExportSurface jsExportSurface =
-                JsExportSurfaceBuilder.Build(apiSurface);
+            global::ILInspector.JsExportSurface.JsExportSurface jsExportSurface;
+            try
+            {
+                LibraryBodyIndex bodyIndex = LibraryBodyIndex.Open(assemblyPath);
+                jsExportSurface = JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException or IOException or UnauthorizedAccessException)
+            {
+                stderr.WriteLine(
+                    $"tsbindgen: could not read IL bodies from '{assemblyPath}' for wire-contract "
+                        + $"resolution: {ex.Message}");
+                return 1;
+            }
+
             string generated = DtsEmitter.Emit(jsExportSurface);
 
             if (diffAgainst is null)

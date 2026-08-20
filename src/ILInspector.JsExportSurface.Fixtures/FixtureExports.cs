@@ -34,6 +34,17 @@ public static partial class FixtureExports
     {
         await Task.Yield();
     }
+
+    // Exercises the Deserialize side of JsonWireContractResolver: a single JSON-string parameter
+    // carrying a DTO the erased [JSExport] signature (string -> string) cannot reveal.
+    [JSExport]
+    public static string RenameWidget(string widgetJson, string newName)
+    {
+        WidgetDto widget = JsonSerializer.Deserialize(
+            widgetJson, FixtureJsonContext.Default.WidgetDto)!;
+        return JsonSerializer.Serialize(
+            widget with { Name = newName }, FixtureJsonContext.Default.WidgetDto);
+    }
 }
 
 public sealed record WidgetDto(string Name, int Count, int[] Tags, WidgetOwner? Owner);

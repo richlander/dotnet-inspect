@@ -1,4 +1,5 @@
 using System.Reflection.PortableExecutable;
+using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.Metadata;
 using tsbindgen;
@@ -19,6 +20,18 @@ public sealed class DtsEmitterTests
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
         ILInspector.JsExportSurface.JsExportSurface surface = JsExportSurfaceBuilder.Build(apiSurface);
+        return DtsEmitter.Emit(surface);
+    }
+
+    private static string EmitFixtureDtsWithWireContracts()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(peReader, includeAll: false);
+        var bodyIndex = LibraryBodyIndex.Open(path);
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            JsExportSurfaceBuilder.Build(apiSurface, bodyIndex);
         return DtsEmitter.Emit(surface);
     }
 
@@ -65,6 +78,72 @@ public sealed class DtsEmitterTests
             StringComparison.Ordinal);
         Assert.Contains(
             "export declare function ping(): Promise<void>;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithoutWireContracts_ReportsErasedEnvelopeTypesRaw()
+    {
+        // Without a LibraryBodyIndex, GetWidget/GetWidgetAsync's declared string/Task<string>
+        // envelope is all the emitter can see, so it reports it as-is: correct, but not the DTO
+        // callers actually observe. This is the exact gap JsonWireContractResolver closes below.
+        string dts = EmitFixtureDts();
+
+        Assert.Contains(
+            "export declare function getWidget(name: string, count: number): string;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export declare function getWidgetAsync(name: string): Promise<string>;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithWireContracts_SubstitutesResolvedDtoForSyncStringReturn()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function getWidget(name: string, count: number): WidgetDto;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithWireContracts_SubstitutesResolvedDtoInsidePromiseForAsyncReturn()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function getWidgetAsync(name: string): Promise<WidgetDto>;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithWireContracts_LeavesNonEnvelopeReturnUnchanged()
+    {
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function ping(): Promise<void>;",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithWireContracts_DoesNotGuessParameterAttributionWithMultipleStringParams()
+    {
+        // RenameWidget(widgetJson, newName) has two string parameters but only one resolved
+        // Deserialize DTO with no positional attribution (documented residual gap in
+        // JsonWireContractResolver). The emitter must not guess which parameter it applies to;
+        // both stay mapped from their raw signature text.
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function renameWidget(widgetJson: string, newName: string): WidgetDto;",
             dts,
             StringComparison.Ordinal);
     }

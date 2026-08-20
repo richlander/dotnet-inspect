@@ -26,6 +26,23 @@ public sealed class TsBindGenCommandTests
     }
 
     [Fact]
+    public void Invoke_ResolvesWireContractsFromBodyEvidence()
+    {
+        // The CLI must open a LibraryBodyIndex and pass it through so the emitted return type is
+        // the resolved WidgetDto, not the erased string envelope declared on GetWidget itself.
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = TsBindGenCommand.Invoke([FixtureAssemblyPath], output, error);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "export declare function getWidget(name: string, count: number): WidgetDto;",
+            output.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Invoke_WithMatchingDiffAgainstFile_ReturnsZero()
     {
         var generateOutput = new StringWriter();

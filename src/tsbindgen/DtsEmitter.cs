@@ -57,8 +57,15 @@ static class DtsEmitter
         StringBuilder sb, JsExportFunction function, IReadOnlySet<string> recordNames)
     {
         string tsName = CamelCase.FromPascalCase(function.Name);
-        string returnType = TsTypeMapper.MapReturnType(function.ReturnType, recordNames);
+        string returnType = function.ReturnWireType is { } returnWireType
+            ? TsTypeMapper.MapReturnEnvelope(function.ReturnType, returnWireType, recordNames)
+            : TsTypeMapper.MapReturnType(function.ReturnType, recordNames);
 
+        // ParameterWireTypes is not consumed here: JsonWireContractResolver does not attribute a
+        // resolved DTO to a specific parameter position (documented residual gap), so applying it
+        // to "the" string parameter would silently guess wrong whenever an export has more than
+        // one string-typed parameter (e.g. RenameWidget's widgetJson and newName). Parameters
+        // keep their raw signature-text mapping until that attribution exists.
         var parameters = function.Parameters.Select(p =>
             $"{CamelCase.FromPascalCase(p.Name)}: {TsTypeMapper.MapParameterType(p.Type, recordNames)}");
 

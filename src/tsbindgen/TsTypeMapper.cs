@@ -36,6 +36,46 @@ static class TsTypeMapper
         return Map(trimmed, recordNames);
     }
 
+    /// <summary>
+    /// Maps a return type the same way as <see cref="MapReturnType"/>, but substitutes
+    /// <paramref name="wireDtoName"/> — the DTO type <see cref="JsonWireContractResolver"/>
+    /// resolved from the method's own <c>JsonSerializer.Serialize</c> call site — for the erased
+    /// JSON-envelope payload (a bare <c>string</c>, possibly wrapped in <c>Task&lt;&gt;</c>/
+    /// <c>ValueTask&lt;&gt;</c>). Without this, an export's declared <c>Task&lt;string&gt;</c>
+    /// signature would map to the useless <c>Promise&lt;string&gt;</c> instead of the DTO shape
+    /// callers actually receive after JSON-parsing the string.
+    /// </summary>
+    public static string MapReturnEnvelope(
+        string csharpType, string wireDtoName, IReadOnlySet<string> recordNames)
+    {
+        string trimmed = csharpType.Trim();
+        string dtoType = Map(wireDtoName, recordNames);
+
+        if ((TryUnwrapGeneric(trimmed, "System.Threading.Tasks.Task", out string? taskArg)
+                || TryUnwrapGeneric(trimmed, "Task", out taskArg))
+            && taskArg!.Trim() is "string" or "System.String")
+        {
+            return $"Promise<{dtoType}>";
+        }
+
+        if ((TryUnwrapGeneric(trimmed, "System.Threading.Tasks.ValueTask", out string? valueTaskArg)
+                || TryUnwrapGeneric(trimmed, "ValueTask", out valueTaskArg))
+            && valueTaskArg!.Trim() is "string" or "System.String")
+        {
+            return $"Promise<{dtoType}>";
+        }
+
+        if (trimmed is "string" or "System.String")
+        {
+            return dtoType;
+        }
+
+        // The resolved DTO doesn't correspond to a string-shaped envelope this method knows how
+        // to substitute into (an unexpected shape) — fall back to the raw signature mapping
+        // rather than silently applying the DTO to something it wasn't resolved against.
+        return MapReturnType(csharpType, recordNames);
+    }
+
     public static string MapParameterType(string csharpType, IReadOnlySet<string> recordNames) =>
         Map(csharpType.Trim(), recordNames);
 
