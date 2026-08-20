@@ -174,7 +174,10 @@ test("normalizing a history entry keeps its consumed position and later entries"
     ],
   };
 
-  replaceCurrentNavigationEntry(nav, "normalized", { id: "normalized" });
+  replaceCurrentNavigationEntry(nav, {
+    sig: "normalized",
+    view: { id: "normalized" }
+  });
 
   assert.equal(nav.index, 1);
   assert.deepEqual(nav.stack, [
@@ -1994,7 +1997,7 @@ test("shared member views retain scope and filter state", () => {
   assert.match(appSource, /if \(deep\.memberBrowse && groups\.length\)\s*state\.memberBrowseTypeId = type\.id/);
   assert.match(
     deepLink,
-    /state\.memberSection = "overview";\s*state\.selectedBodyTarget = null;\s*if \(restoreType && deep\)[\s\S]*bodyTargetMatchesOverload\(deep\.bodyTarget, group, restoredOverload\)[\s\S]*state\.selectedBodyTarget = deep\.bodyTarget \?\? null/);
+    /state\.memberSection = "overview";[\s\S]*else if \(restoreType && deep\)[\s\S]*else if \(disposition === "public"\)[\s\S]*bodyTargetMatchesOverload\(deep\.bodyTarget, group, restoredOverload\)[\s\S]*state\.selectedBodyTarget = deep\.bodyTarget/);
   assert.match(
     appSource,
     /function selectMemberNavEntry\(entry: MemberNavEntry, focusList: boolean\) \{\s*const preservedFocus = captureMemberFocus\(document\);[\s\S]*memberFocusRestorer\.schedule\(\s*document,\s*preservedFocus/);
@@ -3403,8 +3406,10 @@ test("graph navigation restores scope and supersedes local drills", () => {
     appSource.match(/function navigateToMember[\s\S]*?(?=\nasync function loadSelectedMemberFacts)/)?.[0]
     ?? "";
 
-  assert.match(capture, /libraryScope: state\.libraryScope \? \[\.\.\.state\.libraryScope\]\.sort\(\) : null/);
-  assert.match(apply, /state\.libraryScope = view\.libraryScope\?\.length\s*\? new Set\(view\.libraryScope\)\s*: null/);
+  assert.match(capture, /libraryScope: captureLibraryScope\(state\.libraryScope\)/);
+  assert.match(
+    apply,
+    /state\.libraryScope = restoreLibraryScope\(\s*view\.libraryScope,\s*pkg\.types\.map\(type => libraryKey\(type\)\)\)/);
   assert.match(
     pop,
     /state\.memberCallGraphSeq\+\+;\s*state\.memberCallGraphExpanding = false;\s*state\.platformDrillLoading = false;/);
@@ -3441,7 +3446,7 @@ test("restored selections reveal their accessibility bucket", () => {
     ?? "";
   assert.match(
     apply,
-    /const restoredType = pkg\.types\.find[\s\S]*?revealTypeInFilters\(restoredType\)[\s\S]*?const type = selectedType\(\)/);
+    /const type = pkg\.types\.find[\s\S]*?if \(!state\.atPackageRoot\) revealTypeInFilters\(type\)/);
   assert.match(
     deepLink,
     /const type = pkg\.types\.find[\s\S]*?revealTypeInFilters\(type\)[\s\S]*?state\.typeCursor = Math\.max/);
@@ -3471,7 +3476,7 @@ test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
     /const owner = captureViewOperation\(seq\);\s*const navigationIsCurrent = \(\) =>\s*ownsViewOperation\(owner, state\.memberCallGraphSeq\)/);
   assert.match(
     navigation,
-    /const discardIfStale = \(\) => \{[\s\S]*?seq === state\.memberCallGraphSeq[\s\S]*?state\.platformDrillLoading = false;[\s\S]*?render\(\)/);
+    /const discardIfStale = preservedFocus => \{[\s\S]*?seq === state\.memberCallGraphSeq[\s\S]*?state\.platformDrillLoading = false;[\s\S]*?if \(preservedFocus\) renderPreservingMemberFocus\(preservedFocus\);\s*else render\(\)/);
   assert.match(
     appSource,
     /async function drillPlatformNode\(\s*node,\s*navigationIsCurrent = \(\) => true\)[\s\S]*?const requestIsCurrent = \(\) =>\s*seq === state\.memberCallGraphSeq && navigationIsCurrent\(\)[\s\S]*?if \(discardIfStale\(\)\) return;/);
@@ -3489,7 +3494,7 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     ?? "";
   assert.match(
     apply,
-    /graphSelection\?\.group\.key !== state\.selectedMemberKey[\s\S]*?state\.pendingGraphMemberDeepLink = \{[\s\S]*?packageKey: packageIdentityKey\(pkg\)[\s\S]*?member: state\.selectedMemberKey[\s\S]*?target: state\.selectedBodyTarget[\s\S]*?restorePendingGraphMember\(\)/);
+    /graphSelection\?\.group\.key !== view\.selectedMemberKey[\s\S]*?state\.pendingGraphMemberDeepLink = \{[\s\S]*?packageKey: packageIdentityKey\(pkg\)[\s\S]*?member: view\.selectedMemberKey[\s\S]*?target: view\.bodyTarget[\s\S]*?restorePendingGraphMember\(\)/);
   assert.match(
     restore,
     /state\.graphMemberNavigationTitle =[\s\S]*?render\(\);[\s\S]*?loadGraphMemberSurface/);
@@ -3497,11 +3502,11 @@ test("history rebuilds graph-only members through exact pending identity", () =>
     restore,
     /const owner = captureViewOperation\(seq\);[\s\S]*?ownsViewOperation\(owner, state\.graphMemberNavigationSeq\)/);
   assert.equal(
-    restore.match(/replaceCurrentNav\(\);/g)?.length,
+    restore.match(/normalizeCurrentNavEntry\(\);/g)?.length,
     2);
   assert.match(
     apply,
-    /const requestedOverloadIndex = state\.selectedOverloadIndex;[\s\S]*?overload: requestedOverloadIndex/);
+    /const requestedOverloadIndex = view\.selectedOverloadIndex;[\s\S]*?overload: requestedOverloadIndex/);
   assert.match(
     appSource,
     /function renderMember\(type, member\) \{[\s\S]*?const hasSelectedOverload =[\s\S]*?state\.selectedOverloadIndex < member\.overloads\.length[\s\S]*?const overloadIndex = hasSelectedOverload \? state\.selectedOverloadIndex : 0;/);
@@ -3615,13 +3620,13 @@ test("restored views reconcile normalization before rendering", () => {
     ?? "";
   assert.match(
     apply,
-    /if \(!state\.atPackageRoot\) revealTypeInFilters\(restoredType\)/);
+    /if \(!state\.atPackageRoot\) revealTypeInFilters\(type\)/);
   assert.match(
     apply,
-    /graphSelection\?\.group\.key !== state\.selectedMemberKey\) \{\s*reconcileCurrentNav\(\);[\s\S]*?restorePendingGraphMember\(\)/);
+    /graphSelection\?\.group\.key !== view\.selectedMemberKey\) \{[\s\S]*?reconcileCurrentNav\(\);[\s\S]*?restorePendingGraphMember\(\)/);
   assert.match(
     apply,
-    /if \(member[\s\S]*?state\.memberSection = "overview";\s*\}\s*reconcileCurrentNav\(\);/);
+    /state\.memberSection = memberHistory\.memberSection;[\s\S]*?reconcileCurrentNav\(\);/);
 });
 
 test("ambiguous call graph targets expose a visible refusal", () => {
