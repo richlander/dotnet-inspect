@@ -207,7 +207,10 @@ public static class AnnotatedMemberDocumentQuery
             .Where(fact =>
                 fact.Descriptor
                     == ResearchFactRegistry.CallRelationshipDescriptorId)
-            .ToDictionary(fact => fact.SourceOffset);
+            .GroupBy(fact => fact.SourceOffset)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToImmutableArray());
         var occurrences =
             ImmutableArray.CreateBuilder<AnnotatedCallGraphOccurrence>(
                 mappedCalls.Count);
@@ -215,18 +218,25 @@ public static class AnnotatedMemberDocumentQuery
         {
             if (!factsByOffset.TryGetValue(
                     call.ILOffset,
-                    out AnnotatedSourceFact fact))
+                    out ImmutableArray<AnnotatedSourceFact> facts)
+                || facts.Length == 0)
             {
                 return Failure(
                     $"Call site IL_{call.ILOffset:X4} has no portable source fact.");
             }
+            if (facts.Length != 1)
+            {
+                return Failure(
+                    $"Call site IL_{call.ILOffset:X4} maps to more than one portable source fact.");
+            }
+            AnnotatedSourceFact fact = facts[0];
 
             occurrences.Add(
                 new AnnotatedCallGraphOccurrence(
                     row.Number,
                     fact.Id,
-                    call.Caller.ModuleVersionId,
-                    call.Caller.MetadataToken,
+                    call.EvidenceMethod.ModuleVersionId,
+                    call.EvidenceMethod.MetadataToken,
                     call.ILOffset,
                     call.OperandToken,
                     call.Kind,
