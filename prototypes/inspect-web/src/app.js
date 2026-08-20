@@ -964,6 +964,7 @@ function selectPackageTab(pkg) {
   state.namespaceFilter = "";
   state.kindFilter = "";
   state.libraryScope = null;
+  resetMemberFilters();
   resetMemberSectionState();
   render();
 }
