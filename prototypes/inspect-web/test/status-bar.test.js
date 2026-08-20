@@ -80,7 +80,7 @@ test("the compact workspace data bar shows version/commit, provenance, and a one
 
   assert.match(html, /class="statusbar data-bar"/);
   assert.doesNotMatch(html, /class="statusbar data-bar expanded"/);
-  assert.match(html, /role="button"/);
+  assert.match(html, /tabindex="0"/);
   assert.match(html, /aria-expanded="false"/);
 
   const identityIndex = html.indexOf("v1.2.3");

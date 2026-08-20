@@ -3172,12 +3172,14 @@ function highlightCSharp(value) {
 
 function bindStatusBarToggle() {
   document.querySelectorAll("[data-status-bar-toggle]").forEach(bar => {
-    bar.addEventListener("click", () => {
+    bar.addEventListener("click", event => {
+      if (event.target.closest("a")) return;
       state.statusBarExpanded = !state.statusBarExpanded;
       render();
     });
     bar.addEventListener("keydown", event => {
       if (event.key !== "Enter" && event.key !== " ") return;
+      if (event.target.closest("a")) return;
       event.preventDefault();
       state.statusBarExpanded = !state.statusBarExpanded;
       render();
