@@ -1607,6 +1607,11 @@ public static class ApiOutputFormatter
                 .OrderBy(call => call.ILOffset)
                 .Select(call => new CallSiteRow(
                     MarkoutInline.Code($"IL_{call.ILOffset:X4}"),
+                    call.Caller == call.EvidenceMethod
+                        ? null
+                        : MarkoutInline.Code(
+                            $"{FormatMethod(call.EvidenceMethod)} "
+                            + $"[0x{call.EvidenceMethod.MetadataToken:X8}]"),
                     string.IsNullOrEmpty(call.Opcode) ? FormatOpcode(call.Kind) : call.Opcode,
                     FormatCallsiteKind(call.Kind),
                     MarkoutInline.Code(FormatCallee(call.Callee)),
@@ -1793,7 +1798,8 @@ public static class ApiOutputFormatter
             if (requestedSections.Contains(SectionNames.CostFacts))
             {
                 var rows = Analysis.SemanticFactProjection.CostFacts(
-                        analysisInspection.BodyIndex.GetDirectCallsByCaller(),
+                        CallsByEvidenceMethod(
+                            analysisInspection.BodyIndex),
                         semanticToken)
                     .Select(fact => ToCostFactRow(fact, includeMember: false))
                     .ToList();
@@ -2318,7 +2324,8 @@ public static class ApiOutputFormatter
 
         if (requestedSections?.Contains(SectionNames.CostFacts) == true)
         {
-            var directCallsByCaller = index.GetDirectCallsByCaller();
+            var directCallsByCaller =
+                CallsByEvidenceMethod(index);
             var rows = methodTokens
                 .SelectMany(token => Analysis.SemanticFactProjection.CostFacts(directCallsByCaller, token))
                 .Select(fact => ToCostFactRow(fact, includeMember: true))
@@ -2667,6 +2674,17 @@ public static class ApiOutputFormatter
             MarkoutInline.Code(fact.Operation),
             fact.InLoop ? "Yes" : "No",
             fact.Evidence);
+
+    static IReadOnlyDictionary<
+        int,
+        ImmutableArray<Analysis.DirectCall>>
+        CallsByEvidenceMethod(Analysis.LibraryBodyIndex index) =>
+        index.DirectCalls
+            .GroupBy(call =>
+                call.EvidenceMethod.MetadataToken)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToImmutableArray());
 
     internal static string FormatMethod(Analysis.MethodIdentity method)
         => FormatMember(method.DeclaringType, method.Name, method.ParameterTypes, []);

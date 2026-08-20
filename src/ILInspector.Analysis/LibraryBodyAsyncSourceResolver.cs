@@ -86,8 +86,14 @@ internal sealed class LibraryBodyAsyncSourceResolver
                     MethodIdentity source)
                     in AsyncStateMachineSourceMethods())
                 {
+                    TypeRef declaredSourceType =
+                        typeScopeEvidenceSources.TryGetValue(
+                            source.MetadataToken,
+                            out TypeRef? liftedSourceType)
+                            ? liftedSourceType
+                            : source.DeclaringType;
                     typeScopeEvidenceSources[moveNextToken] =
-                        source.DeclaringType;
+                        declaredSourceType;
                     if (bodyScope?.Contains(
                             source.MetadataToken)
                         == true)

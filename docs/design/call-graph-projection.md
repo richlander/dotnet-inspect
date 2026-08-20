@@ -305,9 +305,12 @@ the `CrossLibrary` layer lets a caller chain *and* a callee chain each cross a
 package boundary. The seam yields presentation-free `CallTreeNode` roots as a
 `MemberCallGraphView` (`Tier`, focus MVID/token, `CalleeRoot`, `CallerRoot`,
 `FocusCallSites`, `Diagnostics`). `FocusCallSites` retains every physical
-outbound operand occurrence from the same scoped or full index that produced
-the roots; the tree now carries the same physical receipts on every retained
-edge, not only the focus edge. A host renders the roots directly or projects
+outbound operand occurrence in the selected member's own IL body from the same
+scoped or full index that produced the roots. Calls attributed from generated
+evidence bodies remain receipts on the logical graph edge, but are not attached
+to the declared kickoff body's source or IL offsets. The tree carries physical
+receipts on every retained edge, not only the focus edge. A host renders the
+roots directly or projects
 them with
 `CallGraphProjection.Create(CallerRoot, CalleeRoot)` — "with or without mermaid."
 `Diagnostics` is a stable count summary of incomplete correspondence and exact

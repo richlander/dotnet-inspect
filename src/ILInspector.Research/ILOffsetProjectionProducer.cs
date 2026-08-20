@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using ILInspector.Findings;
 using ILInspector.Instructions;
@@ -328,9 +329,12 @@ public static class ILOffsetProjectionProducer
         int methodToken,
         int ilOffset)
         => Analysis.SemanticFactProjection.CostFacts(
-                index.GetDirectCallsByCaller(),
-                methodToken,
-                ilOffset)
+                index.DirectCalls
+                    .Where(call =>
+                        call.EvidenceMethod.MetadataToken
+                            == methodToken)
+                    .ToImmutableArray(),
+                ilOffset: ilOffset)
             .Select(ToILOffsetCostContext)
             .ToList();
 

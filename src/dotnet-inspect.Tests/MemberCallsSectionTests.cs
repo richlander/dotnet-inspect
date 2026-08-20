@@ -14,7 +14,7 @@ public class MemberCallsSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Calls", result.Output);
-        Assert.Contains("| IL Offset | Opcode | Call Kind | Callee | Operand Token | Return Address |", result.Output);
+        Assert.Contains("| IL Offset | Evidence Method | Opcode | Call Kind | Callee | Operand Token | Return Address |", result.Output);
         Assert.Equal(2, CountOccurrences(result.Output, "`System.Console.WriteLine(string)`"));
         Assert.Contains("`IL_", result.Output);
         Assert.Contains("`0x0A", result.Output);
@@ -28,6 +28,22 @@ public class MemberCallsSectionTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("`System.Collections.Generic.IList<int>.get_Item(int)`", result.Output);
         Assert.Contains("| callvirt | virtual |", result.Output);
+    }
+
+    [Fact]
+    public async Task
+        CallsSection_IdentifiesGeneratedEvidenceBody()
+    {
+        var result = await RunMemberCallsAsync(
+            nameof(MemberCallsFixture
+                .CallsWriteLineAfterYield));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("Evidence Method", result.Output);
+        Assert.Contains("MoveNext", result.Output);
+        Assert.Contains(
+            "`System.Console.WriteLine(string)`",
+            result.Output);
     }
 
     [Fact]
@@ -46,7 +62,7 @@ public class MemberCallsSectionTests
         var result = await RunMemberCallsAsync(nameof(MemberCallsFixture.CallsWriteLineTwice), tsv: true);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.StartsWith("il_offset\topcode\tcall_kind\tcallee\toperand_token\treturn_address", result.Output);
+        Assert.StartsWith("il_offset\tevidence_method\topcode\tcall_kind\tcallee\toperand_token\treturn_address", result.Output);
         Assert.DoesNotContain('`', result.Output);
         Assert.Equal(2, CountOccurrences(result.Output, "System.Console.WriteLine(string)"));
     }
@@ -99,6 +115,13 @@ public static class MemberCallsFixture
     }
 
     public static int CallsInterfaceItem(IList<int> values) => values[0];
+
+    public static async Task
+        CallsWriteLineAfterYield()
+    {
+        await Task.Yield();
+        Console.WriteLine("async");
+    }
 
     public static void Overloaded(int value)
     {

@@ -545,7 +545,15 @@ public static class ResearchDiff
             var generatedFrameworkTypes = index.GeneratedFrameworkTypes;
             var signalsByToken = index.GetMethodSignals();
             var allocationsByToken = index.GetAllocationOccurrences();
-            var callsByToken = includeCallSites ? index.GetDirectCallsByCaller() : null;
+            IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
+                callsByToken = includeCallSites
+                    ? index.DirectCalls
+                        .GroupBy(call =>
+                            call.EvidenceMethod.MetadataToken)
+                        .ToDictionary(
+                            group => group.Key,
+                            group => group.ToImmutableArray())
+                    : null;
             var unsafetyByToken = includeUnsafety ? index.GetUnsafetyOccurrences() : null;
             foreach (var method in index.Methods)
             {

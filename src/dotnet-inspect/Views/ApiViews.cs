@@ -1083,6 +1083,8 @@ public sealed record ApiBodyShapeRow(
 [MarkoutSerializable]
 public record CallSiteRow(
     [property: MarkoutPropertyName("IL Offset")] string ILOffset,
+    [property: MarkoutPropertyName("Evidence Method")]
+    [property: MarkoutSkipNull] string? EvidenceMethod,
     string Opcode,
     [property: MarkoutPropertyName("Call Kind")] string CallKind,
     string Callee,

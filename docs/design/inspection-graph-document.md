@@ -555,8 +555,10 @@ caller acquisition when catalog evidence is complete, so two acquired artifacts
 with identical MVIDs and call coordinates remain distinct occurrences while
 both producer deduplication and document validation use the same currency.
 `AnnotatedCallGraphOccurrence` remains the source-overlay seam for focus-member
-facts; it maps those same physical coordinates to stable edge rows and source
-facts.
+facts; it maps physical coordinates from the selected member's own evidence
+body to stable edge rows and source facts. Receipts from async or lifted
+evidence bodies remain graph occurrences, but do not borrow the declared
+kickoff body's source anchors.
 
 ## Characteristics
 

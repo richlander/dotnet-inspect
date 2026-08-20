@@ -1306,6 +1306,57 @@ public class LibraryBodyIndexTests
 
     [Fact]
     public void
+        DirectCalls_TypeScopeIncludesAsyncLiftedBodies()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        var full = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence);
+        MethodIdentity sourceMethod = Assert.Single(
+            full.Methods,
+            method => method.Name
+                == nameof(ClassicAsyncSiblingFixture
+                    .AwaitTaskInAsyncLambda));
+        DirectCall expected = Assert.Single(
+            full.DirectCalls,
+            call => call.Caller == sourceMethod
+                && call.EvidenceMethod.Name == "MoveNext"
+                && call.Callee.Name
+                    == "GetAwaiter");
+        var memberScoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyScope: new HashSet<int>
+            {
+                sourceMethod.MetadataToken,
+            });
+        var typeScoped = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.MethodEvidence,
+            bodyTypeScope:
+                type => type.ToQualifiedDisplayString()
+                    == sourceMethod.DeclaringType
+                        .ToQualifiedDisplayString());
+
+        Assert.Contains(
+            memberScoped.DirectCalls,
+            call => call.Caller == expected.Caller
+                && call.EvidenceMethod
+                    == expected.EvidenceMethod
+                && call.ILOffset == expected.ILOffset
+                && call.Callee == expected.Callee);
+        Assert.Contains(
+            typeScoped.DirectCalls,
+            call => call.Caller == expected.Caller
+                && call.EvidenceMethod
+                    == expected.EvidenceMethod
+                && call.ILOffset == expected.ILOffset
+                && call.Callee == expected.Callee);
+    }
+
+    [Fact]
+    public void
         OptimizationOpportunities_PrivateAccessIsDirectionalAcrossNestedTypes()
     {
         OptimizationOpportunity[] opportunities =

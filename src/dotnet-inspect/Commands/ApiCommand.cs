@@ -914,7 +914,7 @@ public class ApiCommand
         if (!ApiMemberSectionPipelines.UsesDetailPipeline(options))
             return detailSchema;
         if (detailSchema.GetSection(SectionNames.Calls) == null)
-            detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
+            detailSchema.Add(SectionNames.Calls, "column", "IL Offset", "Evidence Method", "Opcode", "Call Kind", "Callee", "Operand Token", "Return Address");
         if (detailSchema.GetSection(SectionNames.Callers) == null)
             detailSchema.Add(SectionNames.Callers, "column", "Caller", "IL Offset", "Opcode", "Call Kind", "Operand Token", "Return Address");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)

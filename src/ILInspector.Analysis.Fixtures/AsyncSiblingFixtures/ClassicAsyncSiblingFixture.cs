@@ -20,6 +20,9 @@ public static class ClassicAsyncSiblingFixture
         return ReadValue(value);
     }
 
+    public static Action<Task> AwaitTaskInAsyncLambda() =>
+        async task => await task;
+
     public static void ReadByRef(ref int value)
         => value++;
 
