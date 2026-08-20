@@ -684,6 +684,9 @@ public sealed class LeakTriageAnalyzerTests
         var opportunities = LibraryBodyIndex.Open(
             path,
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+        var asyncSiblings = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities);
 
         Assert.Equal(
             LibraryBodyAnalysisFeatures.MethodEvidence
@@ -692,6 +695,11 @@ public sealed class LeakTriageAnalyzerTests
         Assert.Equal(
             LibraryBodyAnalysisFeatures.Default,
             opportunities.Features);
+        Assert.Equal(
+            LibraryBodyAnalysisFeatures.MethodEvidence
+                | LibraryBodyAnalysisFeatures
+                    .AsyncSiblingOpportunities,
+            asyncSiblings.Features);
     }
 
     [Fact]

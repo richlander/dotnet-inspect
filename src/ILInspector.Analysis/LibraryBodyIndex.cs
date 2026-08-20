@@ -35,8 +35,16 @@ public enum LibraryBodyAnalysisFeatures
     /// Produce compact body-scoped ArrayPool ownership-flow summaries.
     /// </summary>
     OwnershipFlow = 1 << 4,
+    /// <summary>
+    /// Produce sync-call-in-async opportunities; implies
+    /// <see cref="MethodEvidence"/>.
+    /// </summary>
+    AsyncSiblingOpportunities = 1 << 5,
     /// <summary>The body-analysis features used by the general index.</summary>
-    Default = MethodEvidence | Allocations | OptimizationOpportunities,
+    Default = MethodEvidence
+        | Allocations
+        | OptimizationOpportunities
+        | AsyncSiblingOpportunities,
     /// <summary>All available body-analysis producers.</summary>
     All = Default | LeakTriage | OwnershipFlow,
 }
@@ -67,6 +75,11 @@ public sealed class LibraryBodyIndex
         Diagnostics = analysis.Diagnostics;
         _rawOpportunities = analysis.Optimizations.Opportunities;
         _opportunitiesComputed =
+            (features
+                & (LibraryBodyAnalysisFeatures.OptimizationOpportunities
+                    | LibraryBodyAnalysisFeatures
+                        .AsyncSiblingOpportunities)) != 0;
+        _allocationOpportunitiesComputed =
             (features
                 & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0;
         _unsafeLeverageMethods = analysis.Safety.LeverageMethods;
@@ -127,6 +140,7 @@ public sealed class LibraryBodyIndex
 
     readonly ImmutableArray<OptimizationOpportunity> _rawOpportunities;
     readonly bool _opportunitiesComputed;
+    readonly bool _allocationOpportunitiesComputed;
     readonly ImmutableArray<MethodIdentity> _unsafeLeverageMethods;
     ImmutableArray<OptimizationOpportunity> _opportunities;
     ImmutableArray<OptimizationOpportunity> _allocationFanoutOpportunities;
@@ -178,12 +192,19 @@ public sealed class LibraryBodyIndex
             if (_opportunities.IsDefault)
             {
                 var reachByToken = RootReachByToken;
-                _opportunities = AttachCallerLoopEvidence(AttachFindingProvenance(
+                ImmutableArray<OptimizationOpportunity> raw =
                 [
                     .. _rawOpportunities.Select(opportunity =>
                     {
-                        int reach = reachByToken.TryGetValue(opportunity.Method.MetadataToken, out int r) ? r : opportunity.RootReach;
-                        var adjusted = reach != opportunity.RootReach ? opportunity with { RootReach = reach } : opportunity;
+                        int reach = reachByToken.TryGetValue(
+                            opportunity.Method.MetadataToken,
+                            out int r)
+                                ? r
+                                : opportunity.RootReach;
+                        var adjusted =
+                            reach != opportunity.RootReach
+                                ? opportunity with { RootReach = reach }
+                                : opportunity;
                         adjusted = MarkAmortizedSetup(adjusted);
                         var confidence = IsLowFrequencyOpportunity(adjusted)
                             ? "low"
@@ -193,25 +214,49 @@ public sealed class LibraryBodyIndex
                                     adjusted.InLoop,
                                     adjusted.Confidence,
                                     reach);
-                        adjusted = confidence != adjusted.Confidence ? adjusted with { Confidence = confidence } : adjusted;
+                        adjusted =
+                            confidence != adjusted.Confidence
+                                ? adjusted with
+                                {
+                                    Confidence = confidence,
+                                }
+                                : adjusted;
                         return OptimizationOpportunityAnalysis
                             .AddFallbackMetadata(adjusted);
                     }),
-                    .. AllocationHotspots(reachByToken, new HashSet<int>(_rawOpportunities
-                        .Where(o => o.Shape != "sync-call-in-async"
-                            && !(o.Shape == "async-state-machine" && o.Amortized))
-                        .Select(o => o.Method.MetadataToken)))
-                        .Select(OptimizationOpportunityAnalysis
-                            .AddFallbackMetadata),
-                    .. RepeatedScanAnalysis.Collect(
-                            Methods,
-                            DirectCalls,
-                            _rawOpportunities,
-                            _suppressedOpportunityTokens,
-                            reachByToken)
-                        .Select(OptimizationOpportunityAnalysis
-                            .AddFallbackMetadata),
-                ]), DirectCallerLoops);
+                ];
+                ImmutableArray<OptimizationOpportunity> opportunities =
+                    _allocationOpportunitiesComputed
+                        ?
+                        [
+                            .. raw,
+                            .. AllocationHotspots(
+                                    reachByToken,
+                                    new HashSet<int>(
+                                        _rawOpportunities
+                                            .Where(o =>
+                                                o.Shape
+                                                    != "sync-call-in-async"
+                                                && !(o.Shape
+                                                        == "async-state-machine"
+                                                    && o.Amortized))
+                                            .Select(o =>
+                                                o.Method.MetadataToken)))
+                                .Select(OptimizationOpportunityAnalysis
+                                    .AddFallbackMetadata),
+                            .. RepeatedScanAnalysis.Collect(
+                                    Methods,
+                                    DirectCalls,
+                                    _rawOpportunities,
+                                    _suppressedOpportunityTokens,
+                                    reachByToken)
+                                .Select(OptimizationOpportunityAnalysis
+                                    .AddFallbackMetadata),
+                        ]
+                        : raw;
+                _opportunities = AttachCallerLoopEvidence(
+                    AttachFindingProvenance(opportunities),
+                    DirectCallerLoops);
             }
             return _opportunities;
         }
@@ -697,7 +742,16 @@ public sealed class LibraryBodyIndex
     /// throw/catch/finally, evidence offsets), keyed by metadata token. Computed once
     /// from the call index and the body-scan signals, reused by the call-graph builders.
     /// </summary>
-    Dictionary<int, MethodSignals> Signals => _signals ??= MethodSignalAnalysis.Collect(DirectCalls, UnsafeEvidence, _bodySignals, _allocationOccurrences, _inAssemblyTypeIsException, _nonHeapNewObjOperandTokens);
+    Dictionary<int, MethodSignals> Signals =>
+        _signals ??= MethodSignalAnalysis.Collect(
+            DirectCalls,
+            UnsafeEvidence,
+            _bodySignals,
+            Features.HasFlag(LibraryBodyAnalysisFeatures.Allocations)
+                ? _allocationOccurrences
+                : null,
+            _inAssemblyTypeIsException,
+            _nonHeapNewObjOperandTokens);
 
     /// <summary>
     /// Returns per-method body/call signals keyed by metadata token.
@@ -1021,6 +1075,9 @@ public sealed class LibraryBodyIndex
                     .OptimizationOpportunities)
             || plan.Includes(
                 LibraryBodyAnalysisFeatures
+                    .AsyncSiblingOpportunities)
+            || plan.Includes(
+                LibraryBodyAnalysisFeatures
                     .OwnershipFlow)
                 ? resolver
                 : null;
@@ -1041,6 +1098,8 @@ public sealed class LibraryBodyIndex
         LibraryBodyAnalysisPlan plan) =>
         plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities)
+        || plan.Includes(
+            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities)
         || plan.Includes(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
 

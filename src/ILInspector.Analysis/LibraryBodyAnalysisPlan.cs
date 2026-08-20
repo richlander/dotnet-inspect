@@ -23,10 +23,17 @@ internal sealed record LibraryBodyAnalysisPlan(
         if ((features
                 & LibraryBodyAnalysisFeatures.OptimizationOpportunities) != 0)
         {
-            features |= LibraryBodyAnalysisFeatures.Allocations;
+            features |=
+                LibraryBodyAnalysisFeatures.Allocations
+                | LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities;
         }
         if ((features & LibraryBodyAnalysisFeatures.Allocations) != 0)
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
+        if ((features
+                & LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities) != 0)
+        {
+            features |= LibraryBodyAnalysisFeatures.MethodEvidence;
+        }
         if ((features & LibraryBodyAnalysisFeatures.OwnershipFlow) != 0)
             features |= LibraryBodyAnalysisFeatures.MethodEvidence;
         if ((features & LibraryBodyAnalysisFeatures.LeakTriage) != 0

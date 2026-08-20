@@ -438,6 +438,29 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_EvidenceILRetainsAllocationOffsetsWithoutAllocField()
+    {
+        var result = await ConsoleCapture.RunAsync(() =>
+            MemberCommand.ExecuteAsync(new MemberOptions
+            {
+                TypeName = typeof(MemberCallGraphFixture).FullName!,
+                AssemblyPath =
+                    typeof(MemberCallGraphFixture).Assembly.Location,
+                MemberFilter =
+                    [nameof(MemberCallGraphFixture.AllocCall)],
+                IncludeSections = [SectionNames.CallGraph],
+                Fields = ["EvidenceIL"],
+                TipLevel = TipLevel.Quiet,
+                Verbosity = Verbosity.Normal,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("il IL_0001,IL_000C", result.Output);
+        Assert.DoesNotContain("alloc ", result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_ProjectsAsyncAlternativeOpportunities()
     {
         var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions

@@ -108,15 +108,23 @@ resolve graph fields or authorize opportunity analysis.
 
 Opportunity analysis in cross-assembly graph scope sessions is enabled only
 when the resolved graph fields include `Async` / `AsyncAlternatives`.
+That field selects the allocation-independent async-sibling producer, not the
+full allocation-dependent Performance Triage opportunity pipeline.
 Selecting `Performance Triage` alongside an unprojected Call Graph enables the
 target member's canonical triage analysis without multiplying that work across
 the graph scope; `CallGraphScopes_DoNotInheritPerformanceTriageOpportunities`
-gates the cost boundary.
+and
+`CallGraphAsyncField_EnablesCallerScopeOpportunitiesWithoutAllocations`
+gate the cost boundary.
 
 Most graph annotations consume compact call/body signals from the
-always-required method-evidence index. Only the `Alloc` / `Allocations` field
-authorizes escape-classified allocation occurrences for the target and graph
-scopes. Columns, topology fields, and non-allocation signal fields do not. A
+always-required method-evidence index. That compact evidence retains
+unclassified allocation-site offsets for `EvidenceIL` without running escape
+classification;
+`CallGraphSection_EvidenceILRetainsAllocationOffsetsWithoutAllocField` gates
+the receipt. Only the `Alloc` / `Allocations` field authorizes
+escape-classified allocation occurrences for the target and graph scopes.
+Columns, topology fields, and non-allocation signal fields do not. A
 separately selected `Allocation Facts` or `Performance Triage` section may
 still authorize allocation analysis for the target member only.
 `CallGraphColumns_DoNotEnableScopedGraphOpportunities`,

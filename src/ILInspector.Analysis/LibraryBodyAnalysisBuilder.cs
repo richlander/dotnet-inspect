@@ -337,6 +337,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             LibraryBodyAnalysisFeatures.MethodEvidence);
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+        bool includeAsyncSiblingOpportunities = plan.Includes(
+            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities);
+        bool includeAnyOpportunities =
+            includeOpportunities || includeAsyncSiblingOpportunities;
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         var methodRunner =
             new LibraryMethodAnalysisRunner(this);
@@ -360,7 +364,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             // Source-generated types (JSON/regex/etc. carry [GeneratedCode]) are not
             // actionable source-shape opportunities, so skip optimization-opportunity
             // collection for them (they are still indexed for calls/leverage/signals).
-            bool typeSourceGenerated = includeOpportunities
+            bool typeSourceGenerated =
+                includeAnyOpportunities
                 && IsSourceGeneratedTypeOrEnclosing(typeHandle);
             foreach (var methodHandle in typeDef.GetMethods())
                 workItems.Add((typeHandle, typeDef, typeSourceGenerated, methodHandle));
@@ -379,11 +384,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             if (includeMethodEvidence)
                 _ = _primaryMetadataResolver
                     .AsyncStateMachineTypes();
-            if (includeOpportunities)
+            if (includeAnyOpportunities)
                 _asyncSourceResolver.Prewarm();
             // Prewarm the async-state-machine set so it is fully computed before the parallel
             // pass reads it read-only.
-            if (includeMethodEvidence || includeOpportunities)
+            if (includeMethodEvidence || includeAnyOpportunities)
                 _ = _primaryMetadataResolver.AsyncStateMachineTypes();
             _parallelBuildStarting?.Invoke();
             Parallel.For(0, workItems.Count, i =>

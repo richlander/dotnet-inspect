@@ -207,6 +207,41 @@ public class LibraryBodyIndexTests
     }
 
     [Fact]
+    public void AsyncSiblingOpportunities_DoNotRequireAllocationAnalysis()
+    {
+        string path = typeof(OptimizationOpportunityFixtures)
+            .Assembly.Location;
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+            });
+        var index = LibraryBodyIndex.Open(
+            path,
+            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities,
+            resolver);
+
+        Assert.False(index.Features.HasFlag(
+            LibraryBodyAnalysisFeatures.Allocations));
+        Assert.False(index.Features.HasFlag(
+            LibraryBodyAnalysisFeatures.OptimizationOpportunities));
+        Assert.Contains(
+            index.OptimizationOpportunities,
+            opportunity =>
+                opportunity.Shape == "sync-call-in-async"
+                && opportunity.Method.Name
+                    == nameof(
+                        OptimizationOpportunityAsyncSiblingFixtures
+                            .CallsSyncSiblingFromAsync));
+        Assert.DoesNotContain(
+            index.OptimizationOpportunities,
+            opportunity =>
+                opportunity.Shape != "sync-call-in-async");
+    }
+
+    [Fact]
     public void OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce()
     {
         string path =

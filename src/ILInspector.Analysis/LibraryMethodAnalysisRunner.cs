@@ -139,6 +139,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.Allocations);
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+        bool includeAsyncSiblingOpportunities = plan.Includes(
+            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities);
         bool includeLeakTriage = plan.Includes(
             LibraryBodyAnalysisFeatures.LeakTriage);
         bool includeOwnershipFlow = plan.Includes(
@@ -198,7 +200,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                 || !HasManagedIlBody(
                     methodDefinition.ImplAttributes))
             {
-                if (includeOpportunities
+                if (includeAsyncSiblingOpportunities
                     && (bodyScope is null
                         || bodyScope.Contains(
                             caller.MetadataToken))
@@ -413,7 +415,7 @@ internal sealed class LibraryMethodAnalysisRunner(
                     hasUnsafeApiMember
                     || hasUnsafeSignature
                     || hasUnsafeLocals);
-            if (includeOpportunities)
+            if (includeAsyncSiblingOpportunities)
             {
                 MethodIdentity? asyncSource = null;
                 try

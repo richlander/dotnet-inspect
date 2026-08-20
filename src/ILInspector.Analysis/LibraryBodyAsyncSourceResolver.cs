@@ -61,7 +61,7 @@ internal sealed class LibraryBodyAsyncSourceResolver
         IReadOnlyDictionary<int, TypeRef>?
             typeScopeEvidenceSources = null;
         if (plan.Includes(
-                LibraryBodyAnalysisFeatures.OptimizationOpportunities)
+                LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities)
             && (bodyScope is not null
                 || plan.TypeScope is not null))
         {
