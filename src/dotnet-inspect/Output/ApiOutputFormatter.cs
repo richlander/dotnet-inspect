@@ -2937,12 +2937,14 @@ public static class ApiOutputFormatter
             string? stable = canonicalCounts[canonical] > 1 ? null : $"{selectorName}~{GetMemberDigest(canonical)}";
             var drill = (stable, member.Accessibility ?? "public", selector);
 
-            // Register under the member's own token and, for properties, both accessor
-            // MethodDef tokens, so accessor-level leverage rows (get_X/set_X) resolve to
-            // the owning property's selector.
+            // Register under the member's own token and every aggregate accessor
+            // MethodDef token, so accessor-level leverage rows resolve to the owning
+            // property or event selector.
             Register(member.MetadataToken, drill);
             Register(member.GetterToken, drill);
             Register(member.SetterToken, drill);
+            Register(member.AdderToken, drill);
+            Register(member.RemoverToken, drill);
         }
 
         return map;

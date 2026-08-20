@@ -228,6 +228,37 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void BuildMemberDrillMap_MapsEventAccessorsToOwningEvent()
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "T",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "event",
+                    Name = "Changed",
+                    Accessibility = "internal",
+                    AdderToken = 1001,
+                    RemoverToken = 1002,
+                },
+            ],
+        };
+
+        var map = ApiOutputFormatter.BuildMemberDrillMap(type);
+
+        Assert.True(map.TryGetValue(1001, out var adder));
+        Assert.True(map.TryGetValue(1002, out var remover));
+        Assert.Equal("internal", adder.Visibility);
+        Assert.Equal("Changed", adder.Selector);
+        Assert.Matches(@"^Changed~[0-9a-f]{10}$", adder.Stable);
+        Assert.Equal(adder, remover);
+    }
+
+    [Fact]
     public void PopulateOptimizationOpportunities_RendersRowsForMatchingType()
     {
         var type = new ApiType
