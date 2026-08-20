@@ -369,6 +369,31 @@ public sealed class MetadataDeclarationQueryTests
     }
 
     [Fact]
+    public void ExtensionIndexerImplementationMatching_DecodesCandidatesLinearly()
+    {
+        using var stream = File.OpenRead(
+            typeof(ExtensionIndexerScalingFixture).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        TypeDefinitionHandle typeHandle = GetTypeDefinitionHandle(
+            reader,
+            typeof(ExtensionIndexerScalingFixture).FullName!);
+        int observedWork = 0;
+
+        HashSet<MethodDefinitionHandle> implementations =
+            ExtensionMethodScanner
+                .GetDeclaredExtensionPropertyImplementationMethods(
+                    reader,
+                    reader.GetTypeDefinition(typeHandle),
+                    _ => observedWork++);
+
+        Assert.Equal(16, implementations.Count);
+        Assert.True(
+            observedWork < 200,
+            $"Extension indexer matching performed {observedWork} materialization steps.");
+    }
+
+    [Fact]
     public void TypeSurface_PreservesQualifiedMethodImplAccessors()
     {
         var queried = MetadataDeclarationQuery.GetTypeSurface(

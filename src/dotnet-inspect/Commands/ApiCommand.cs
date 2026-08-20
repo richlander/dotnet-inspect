@@ -1927,8 +1927,10 @@ public class ApiCommand
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         executionSections, analysisInspection, mo4.PdbPath, mo4.IncludeSections, mo4);
                 }
-                else if (requestedExecutionSections.Contains(SectionNames.AnnotatedSource)
-                    && ApiOutputFormatter.IsSelectedAbstractAccessor(type, mo4.OverloadIndex))
+                if (requestedExecutionSections.Contains(SectionNames.AnnotatedSource)
+                    && ApiOutputFormatter.IsSelectedAbstractAccessor(
+                        type,
+                        mo4.OverloadIndex))
                 {
                     ApiOutputFormatter.PopulateSelectedAbstractAccessorAbsence(view);
                 }
@@ -2822,8 +2824,10 @@ public class ApiCommand
                         executionSections, analysisInspection, memberOptions.PdbPath,
                         memberOptions.IncludeSections, memberOptions);
                 }
-                else if (requestedExecutionSections.Contains(SectionNames.AnnotatedSource)
-                    && ApiOutputFormatter.IsSelectedAbstractAccessor(type, memberOptions.OverloadIndex))
+                if (requestedExecutionSections.Contains(SectionNames.AnnotatedSource)
+                    && ApiOutputFormatter.IsSelectedAbstractAccessor(
+                        type,
+                        memberOptions.OverloadIndex))
                 {
                     ApiOutputFormatter.PopulateSelectedAbstractAccessorAbsence(view);
                 }

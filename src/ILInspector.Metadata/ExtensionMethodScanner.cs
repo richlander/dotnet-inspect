@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -696,6 +697,11 @@ public static class ExtensionMethodScanner
         }
 
         Dictionary<string, List<MethodDefinitionHandle>>? candidatesByName = null;
+        var candidatesBySignature = new Dictionary<
+            ExtensionPropertyImplementationKey,
+            List<MethodDefinitionHandle>>(
+                ExtensionPropertyImplementationKeyComparer.Instance);
+        HashSet<string> indexedCandidateNames = new(StringComparer.Ordinal);
         GenericContext? extensionClassContext = null;
         int extensionClassGenericCount = extensionClass.GetGenericParameters().Count;
 
@@ -778,52 +784,94 @@ public static class ExtensionMethodScanner
                         reader,
                         extensionClass,
                         beforeMaterialize);
-                    if (!candidatesByName.TryGetValue(
+                    if (indexedCandidateNames.Add(accessorName)
+                        && candidatesByName.TryGetValue(
                             accessorName,
-                            out var candidates))
+                            out var sameNamedCandidates))
                     {
-                        continue;
-                    }
-
-                    MethodDefinitionHandle matched = default;
-                    int matchCount = 0;
-                    foreach (var candidateHandle in candidates)
-                    {
-                        var candidate = reader.GetMethodDefinition(candidateHandle);
                         extensionClassContext ??= GenericContext.ForType(
                             reader,
                             extensionClass,
                             beforeMaterialize);
-                        var candidateContext = GenericContext.ForMethod(
-                            reader,
-                            extensionClassContext,
-                            candidate,
-                            beforeMaterialize);
-                        if (!TryReadMethodSignature(
-                                reader,
-                                candidate,
-                                candidateContext,
-                                beforeMaterialize,
-                                out var candidateSignature)
-                            || !MatchesExtensionPropertyImplementation(
-                                markerSignature,
-                                accessor,
-                                accessorSignature,
-                                candidate,
-                                candidateSignature,
-                                expectedGenericCount))
+                        foreach (var candidateHandle in sameNamedCandidates)
                         {
-                            continue;
-                        }
+                            var candidate =
+                                reader.GetMethodDefinition(candidateHandle);
+                            if (candidate.RelativeVirtualAddress == 0)
+                                continue;
 
-                        matched = candidateHandle;
-                        matchCount++;
-                        if (matchCount > 1)
-                            break;
+                            var candidateContext = GenericContext.ForMethod(
+                                reader,
+                                extensionClassContext,
+                                candidate,
+                                beforeMaterialize);
+                            if (!TryReadMethodSignature(
+                                    reader,
+                                    candidate,
+                                    candidateContext,
+                                    beforeMaterialize,
+                                    out var candidateSignature))
+                            {
+                                continue;
+                            }
+
+                            var candidateKey =
+                                new ExtensionPropertyImplementationKey(
+                                    accessorName,
+                                    candidate.Attributes
+                                        & MethodAttributes.MemberAccessMask,
+                                    candidate.GetGenericParameters().Count,
+                                    candidateSignature.ReturnType,
+                                    candidateSignature.ParameterTypes);
+                            if (!candidatesBySignature.TryGetValue(
+                                    candidateKey,
+                                    out var matching))
+                            {
+                                matching = [];
+                                candidatesBySignature.Add(
+                                    candidateKey,
+                                    matching);
+                            }
+                            matching.Add(candidateHandle);
+                        }
                     }
 
-                    if (matchCount == 1)
-                        implementations.Add(matched);
+                    bool staticAccessor =
+                        (accessor.Attributes & MethodAttributes.Static) != 0;
+                    ImmutableArray<string> expectedParameters;
+                    if (staticAccessor)
+                    {
+                        expectedParameters =
+                            accessorSignature.ParameterTypes;
+                    }
+                    else
+                    {
+                        beforeMaterialize?.Invoke(
+                            accessorSignature.ParameterTypes.Length + 1);
+                        var parameters =
+                            ImmutableArray.CreateBuilder<string>(
+                                accessorSignature.ParameterTypes.Length + 1);
+                        parameters.Add(
+                            markerSignature.ParameterTypes[0]);
+                        parameters.AddRange(
+                            accessorSignature.ParameterTypes);
+                        expectedParameters = parameters.MoveToImmutable();
+                    }
+
+                    var key = new ExtensionPropertyImplementationKey(
+                        accessorName,
+                        accessor.Attributes
+                            & MethodAttributes.MemberAccessMask,
+                        expectedGenericCount,
+                        accessorSignature.ReturnType,
+                        expectedParameters);
+                    if (candidatesBySignature.TryGetValue(
+                            key,
+                            out var candidates)
+                        && candidates.Count == 1)
+                    {
+                        implementations.Add(candidates[0]);
+                    }
                 }
             }
         }
@@ -860,60 +908,50 @@ public static class ExtensionMethodScanner
         return candidates;
     }
 
-    private static bool MatchesExtensionPropertyImplementation(
-        MethodSignature<string> markerSignature,
-        MethodDefinition accessor,
-        MethodSignature<string> accessorSignature,
-        MethodDefinition candidate,
-        MethodSignature<string> candidateSignature,
-        int expectedGenericCount)
+    private readonly record struct ExtensionPropertyImplementationKey(
+        string Name,
+        MethodAttributes Accessibility,
+        int GenericCount,
+        string ReturnType,
+        ImmutableArray<string> ParameterTypes);
+
+    private sealed class ExtensionPropertyImplementationKeyComparer :
+        IEqualityComparer<ExtensionPropertyImplementationKey>
     {
-        if ((candidate.Attributes & MethodAttributes.Static) == 0
-            || candidate.RelativeVirtualAddress == 0
-            || (candidate.Attributes & MethodAttributes.MemberAccessMask)
-                != (accessor.Attributes & MethodAttributes.MemberAccessMask)
-            || candidate.GetGenericParameters().Count != expectedGenericCount
-            || !string.Equals(
-                candidateSignature.ReturnType,
-                accessorSignature.ReturnType,
-                StringComparison.Ordinal))
-        {
-            return false;
-        }
+        internal static ExtensionPropertyImplementationKeyComparer Instance
+            { get; } = new();
 
-        bool staticAccessor = (accessor.Attributes & MethodAttributes.Static) != 0;
-        int receiverCount = staticAccessor ? 0 : 1;
-        if (candidateSignature.ParameterTypes.Length
-            != accessorSignature.ParameterTypes.Length + receiverCount)
-        {
-            return false;
-        }
+        public bool Equals(
+            ExtensionPropertyImplementationKey left,
+            ExtensionPropertyImplementationKey right)
+            => left.Accessibility == right.Accessibility
+            && left.GenericCount == right.GenericCount
+            && string.Equals(
+                left.Name,
+                right.Name,
+                StringComparison.Ordinal)
+            && string.Equals(
+                left.ReturnType,
+                right.ReturnType,
+                StringComparison.Ordinal)
+            && left.ParameterTypes.SequenceEqual(
+                right.ParameterTypes,
+                StringComparer.Ordinal);
 
-        int candidateIndex = 0;
-        if (!staticAccessor)
+        public int GetHashCode(
+            ExtensionPropertyImplementationKey key)
         {
-            if (!string.Equals(
-                    candidateSignature.ParameterTypes[0],
-                    markerSignature.ParameterTypes[0],
-                    StringComparison.Ordinal))
+            var hash = new HashCode();
+            hash.Add(key.Name, StringComparer.Ordinal);
+            hash.Add(key.Accessibility);
+            hash.Add(key.GenericCount);
+            hash.Add(key.ReturnType, StringComparer.Ordinal);
+            foreach (string parameter in key.ParameterTypes)
             {
-                return false;
+                hash.Add(parameter, StringComparer.Ordinal);
             }
-            candidateIndex = 1;
+            return hash.ToHashCode();
         }
-
-        for (int i = 0; i < accessorSignature.ParameterTypes.Length; i++)
-        {
-            if (!string.Equals(
-                    candidateSignature.ParameterTypes[candidateIndex + i],
-                    accessorSignature.ParameterTypes[i],
-                    StringComparison.Ordinal))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private static bool TryReadMethodSignature(
