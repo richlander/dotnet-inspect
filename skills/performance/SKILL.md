@@ -83,6 +83,21 @@ scan helpers stay low-confidence because static analysis cannot
 prove that the scanned sequence grows with the loop or traversal, so a
 `--min-confidence high` pass intentionally excludes them.
 
+After selecting a `sync-call-in-async` candidate, project
+`--fields AsyncAlternatives` on the member's `Call Graph` to carry its
+opportunity count into the leverage view:
+
+```bash
+dnx dotnet-inspect -y -- member MyType ReadAsync:1 --library MyLib.dll \
+  -S "Call Graph" --fields "Fanin,Depth,Loop,AsyncAlternatives"
+```
+
+The graph cue is source-member-level context, not a replacement for triage.
+Use `Performance Triage` for the exact Finding, physical
+`EvidenceMethod`/`IL` receipt, and proposed async sibling. In classic async
+methods the physical call is in generated `MoveNext`, so the graph deliberately
+does not fabricate a direct source-method edge to that synchronous API.
+
 The default `Triage` order keeps `Priority` separate from `Confidence`.
 `Priority` is a static actionability judgment: directly evidenced algorithmic amplification,
 avoidable cache-lookup factory allocations, and actionable high allocation
