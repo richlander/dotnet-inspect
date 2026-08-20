@@ -1082,20 +1082,36 @@ public sealed record ApiBodyShapeRow(
 
 [MarkoutSerializable]
 public record CallSiteRow(
-    [property: MarkoutPropertyName("IL Offset")] string ILOffset,
+    string ILOffset,
     string? EvidenceMethod,
     string Opcode,
-    [property: MarkoutPropertyName("Call Kind")] string CallKind,
+    string CallKind,
     string Callee,
-    [property: MarkoutPropertyName("Operand Token")] string OperandToken,
-    [property: MarkoutPropertyName("Return Address")]
-    [property: MarkoutSkipNull] string? ReturnAddress)
+    string OperandToken,
+    string? ReturnAddress)
 {
+    [MarkoutPropertyName("IL Offset")]
+    public string ILOffset { get; init; } = ILOffset;
+
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Evidence Method")]
     [MarkoutSkipNull]
     public string? EvidenceMethod { get; init; } =
         LibraryViewText.Contain(EvidenceMethod);
+
+    public string Opcode { get; init; } = Opcode;
+
+    [MarkoutPropertyName("Call Kind")]
+    public string CallKind { get; init; } = CallKind;
+
+    public string Callee { get; init; } = Callee;
+
+    [MarkoutPropertyName("Operand Token")]
+    public string OperandToken { get; init; } = OperandToken;
+
+    [MarkoutPropertyName("Return Address")]
+    [MarkoutSkipNull]
+    public string? ReturnAddress { get; init; } = ReturnAddress;
 }
 
 [MarkoutSerializable]
