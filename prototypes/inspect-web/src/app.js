@@ -442,16 +442,25 @@ function applyView(view) {
   const pkg = packageForView(state.packages, view);
   if (!pkg) return false;
   activatePackage(pkg);
+  const type = pkg.types.find(item => item.id === view.selectedTypeId);
+  const member = type
+    ? memberGroups(type).find(group => group.key === view.selectedMemberKey)
+    : null;
+  const restoreMemberScope = Boolean(type)
+    && view.memberBrowseTypeId === type.id
+    && (!view.selectedMemberKey || member);
   state.lens = view.lens;
-  state.selectedTypeId = view.selectedTypeId;
-  state.selectedMemberKey = view.selectedMemberKey;
-  state.memberBrowseTypeId = view.memberBrowseTypeId ?? "";
-  state.memberKindFilter = view.memberKindFilter ?? "all";
-  state.memberAccessibilityFilter = view.memberAccessibilityFilter ?? "all";
-  state.memberTraitFilter = view.memberTraitFilter ?? "";
-  state.memberTextFilter = view.memberTextFilter ?? "";
-  state.selectedOverloadIndex = view.selectedOverloadIndex;
-  state.memberSection = view.memberSection;
+  state.selectedTypeId = type?.id ?? pkg.types[0]?.id ?? "";
+  state.selectedMemberKey = restoreMemberScope && member ? member.key : "";
+  state.memberBrowseTypeId = restoreMemberScope ? type.id : "";
+  state.memberKindFilter = restoreMemberScope ? (view.memberKindFilter ?? "all") : "all";
+  state.memberAccessibilityFilter =
+    restoreMemberScope ? (view.memberAccessibilityFilter ?? "all") : "all";
+  state.memberTraitFilter = restoreMemberScope ? (view.memberTraitFilter ?? "") : "";
+  state.memberTextFilter = restoreMemberScope ? (view.memberTextFilter ?? "") : "";
+  state.selectedOverloadIndex =
+    restoreMemberScope && member ? view.selectedOverloadIndex : null;
+  state.memberSection = restoreMemberScope && member ? view.memberSection : "overview";
   state.atPackageRoot = view.atPackageRoot ?? false;
   state.packageLens = view.packageLens ?? "overview";
   state.memberSource = null;
@@ -463,9 +472,8 @@ function applyView(view) {
   state.memberFactsError = "";
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
-  state.selectedBodyTarget = view.bodyTarget ?? null;
-  const type = selectedType();
-  const member = selectedMember(type);
+  state.selectedBodyTarget =
+    restoreMemberScope && member ? (view.bodyTarget ?? null) : null;
   if (member
     && !memberSectionIdsFor(member).includes(state.memberSection)) {
     state.memberSection = "overview";
@@ -1257,6 +1265,7 @@ function renderMemberComposition(type) {
       property,
       `flag-${label}`))
     .join("");
+  if (!kinds && !accessibilities && !traits) return "";
   return `
     <div class="composition-filters" aria-label="Browse members by kind">${kinds}</div>
     ${accessibilities ? `<div class="composition-filters" aria-label="Browse members by accessibility">${accessibilities}</div>` : ""}
@@ -1584,6 +1593,11 @@ function render() {
     state.selectedOverloadIndex = null;
   } else if (state.selectedTypeId !== current.id) {
     state.selectedTypeId = current.id;
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    state.selectedOverloadIndex = null;
+    resetMemberFilters();
+    resetMemberSectionState();
   }
   const visible = filteredTypes();
   // Keep the package lens on something the active package actually supports, so a restored
@@ -3745,9 +3759,19 @@ function bindEvents() {
   // root + the active lens, then rescan. Types are loaded too so switching to Types/Overview
   // afterward isn't empty.
   const bindPlatformLensPicker = (dataAttr, lens, loader) => {
-    const openLibrary = async (name, pack) => {
+    const openLibrary = async (
+      name,
+      pack,
+      originPackage = state.package,
+      noticeRetryAction = null) => {
+      if (!state.packages.includes(originPackage)
+        || !packageIdentityEquals(state.package, originPackage)
+        || state.home
+        || !state.atPackageRoot
+        || state.packageLens !== lens) {
+        return;
+      }
       const navigationSeq = ++state.navigationSeq;
-      const originPackage = state.package;
       const isCurrent = () =>
         navigationSeq === state.navigationSeq
         && !state.home
@@ -3764,9 +3788,11 @@ function bindEvents() {
           () => state.packages.includes(originPackage));
         if (!loaded) {
           if (isCurrent()) {
+            const retryAction = () =>
+              openLibrary(name, pack, originPackage, retryAction);
             appendQueryNotice(
               `Couldn’t load ${key}: ${state.runtimePackError || "runtime pack acquisition failed."}`,
-              () => openLibrary(name, pack));
+              retryAction);
             render();
           }
           return;
@@ -3781,6 +3807,11 @@ function bindEvents() {
       state.typeFilter = "";
       state.kindFilter = "";
       normalizeLibrarySelection();
+      if (noticeRetryAction
+        && state.queryNoticeRetryAction === noticeRetryAction) {
+        state.queryNotice = "";
+        state.queryNoticeRetryAction = null;
+      }
       loader();
     };
     document.querySelectorAll(`[${dataAttr}]`).forEach(select => select.addEventListener("change", () => {
@@ -4865,6 +4896,13 @@ function renderPreservingMemberFocus(fallback = null) {
   return renderWithMemberFocus(preserved);
 }
 
+function workbenchOverlayOwnsFocus() {
+  return state.spotlightOpen
+    || state.graphSourceOpen
+    || state.docViewerOpen
+    || state.tasteOpen;
+}
+
 function buildStateUrl(base = location.href) {
   const url = new URL(base);
   if (!state.package) return url;
@@ -5520,6 +5558,13 @@ async function loadSelectedTypeSource() {
   state.typeSourceError = "";
   state.typeSourceLoading = true;
   const preservedFocus = renderPreservingMemberFocus();
+  const ownsRequest = () =>
+    generation === state.sourceRequestGeneration
+    && state.typeSourceKey === signature;
+  const isCurrent = () =>
+    ownsRequest()
+    && activeSourceOperationKind(state) === "type"
+    && !workbenchOverlayOwnsFocus();
   try {
     const result = await inspectTypeSource({
       packageId: state.package.id,
@@ -5530,21 +5575,18 @@ async function loadSelectedTypeSource() {
       typeIdentity: type.definitionId ?? type.id,
       styleOptionsJson: JSON.stringify(state.taste)
     });
-    if (generation === state.sourceRequestGeneration
-      && state.typeSourceKey === signature) {
+    if (ownsRequest()) {
       state.typeSource = result;
     }
   } catch (error) {
-    if (generation === state.sourceRequestGeneration
-      && state.typeSourceKey === signature) {
+    if (ownsRequest()) {
       state.typeSourceError = String(error?.message || error);
     }
   } finally {
-    const current = generation === state.sourceRequestGeneration
-      && state.typeSourceKey === signature;
-    if (current) {
+    if (ownsRequest()) {
       state.typeSourceLoading = false;
-      renderPreservingMemberFocus(preservedFocus);
+      if (isCurrent())
+        renderPreservingMemberFocus(preservedFocus);
     }
   }
 }
@@ -5578,10 +5620,7 @@ async function loadSelectedTypeMetadata() {
       && !state.explorer?.open
       && !state.loading
       && !state.error
-      && !state.spotlightOpen
-      && !state.graphSourceOpen
-      && !state.docViewerOpen
-      && !state.tasteOpen
+      && !workbenchOverlayOwnsFocus()
       && state.lens === "metadata"
       && !state.atPackageRoot
       && currentType
@@ -5603,7 +5642,6 @@ async function loadSelectedTypeMetadata() {
       state.typeMetadataLoading = false;
       if (isCurrent()) {
         renderPreservingMemberFocus(preservedFocus);
-        if (state.typeMetadata?.graphNodes?.length > 1) renderTypeGraph();
       }
     }
   }

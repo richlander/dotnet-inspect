@@ -499,7 +499,7 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /const openLibrary = async \(name, pack\) => \{[\s\S]*const originPackage = state\.package;[\s\S]*state\.atPackageRoot[\s\S]*state\.packageLens === lens[\s\S]*packageIdentityEquals\(state\.package, originPackage\)[\s\S]*const loaded = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*if \(!loaded\) \{[\s\S]*appendQueryNotice\([\s\S]*\(\) => openLibrary\(name, pack\)\);[\s\S]*return;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);\s*loader\(\)/);
+    /const openLibrary = async \([\s\S]*originPackage = state\.package,[\s\S]*noticeRetryAction = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*const loaded = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\)\);[\s\S]*const retryAction = \(\) =>\s*openLibrary\(name, pack, originPackage, retryAction\);[\s\S]*appendQueryNotice\([\s\S]*retryAction\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*state\.queryNoticeRetryAction === noticeRetryAction[\s\S]*state\.queryNotice = "";[\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*loader\(\)/);
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
@@ -535,14 +535,17 @@ test("type projection completions render only while current and preserve navigat
     ?? "";
   assert.match(
     typeSource,
-    /const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*const current = generation === state\.sourceRequestGeneration[\s\S]*if \(current\) \{\s*state\.typeSourceLoading = false;\s*renderPreservingMemberFocus\(preservedFocus\);\s*}/);
+    /const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*const ownsRequest = \(\) =>[\s\S]*const isCurrent = \(\) =>[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(isCurrent\(\)\)\s*renderPreservingMemberFocus\(preservedFocus\);/);
   assert.doesNotMatch(typeSource, /finally \{[\s\S]*\n\s*render\(\);\s*}/);
   const typeMetadata =
     appSource.match(/async function loadSelectedTypeMetadata\([\s\S]*?\n}\n\n\/\/ Projects/)?.[0]
     ?? "";
   assert.match(
     typeMetadata,
-    /const generation = \+\+state\.typeMetadataGeneration;[\s\S]*const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*generation === state\.typeMetadataGeneration[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!state\.spotlightOpen[\s\S]*!state\.graphSourceOpen[\s\S]*!state\.docViewerOpen[\s\S]*!state\.tasteOpen[\s\S]*typeMetadataSignature\(currentType, state\.package\) === signature[\s\S]*if \(isCurrent\(\)\) \{[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+    /const generation = \+\+state\.typeMetadataGeneration;[\s\S]*const preservedFocus = renderPreservingMemberFocus\(\);[\s\S]*generation === state\.typeMetadataGeneration[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*typeMetadataSignature\(currentType, state\.package\) === signature[\s\S]*if \(isCurrent\(\)\) \{[\s\S]*renderPreservingMemberFocus\(preservedFocus\)/);
+  assert.doesNotMatch(
+    typeMetadata,
+    /renderPreservingMemberFocus\(preservedFocus\);\s*if \(state\.typeMetadata\?\.graphNodes/);
 });
 
 test("typeless member lookup and request guards stay empty", () => {
@@ -552,6 +555,39 @@ test("typeless member lookup and request guards stay empty", () => {
   assert.match(
     appSource,
     /function memberRequestIsCurrent\([\s\S]*const type = selectedType\(\);\s*if \(!type\) return false;\s*const member = selectedMember\(type\)/);
+});
+
+test("history validates saved type and member identity before restoring Member state", () => {
+  const applyView =
+    appSource.match(/function applyView\(view\) \{[\s\S]*?\n}\n\nfunction navBack/)?.[0]
+    ?? "";
+  assert.match(
+    applyView,
+    /const type = pkg\.types\.find\(item => item\.id === view\.selectedTypeId\);[\s\S]*const restoreMemberScope = Boolean\(type\)[\s\S]*view\.memberBrowseTypeId === type\.id[\s\S]*\(!view\.selectedMemberKey \|\| member\)/);
+  assert.match(
+    applyView,
+    /state\.selectedTypeId = type\?\.id \?\? pkg\.types\[0\]\?\.id \?\? "";[\s\S]*state\.selectedMemberKey = restoreMemberScope && member \? member\.key : "";[\s\S]*state\.memberBrowseTypeId = restoreMemberScope \? type\.id : ""/);
+  assert.match(
+    appSource,
+    /else if \(state\.selectedTypeId !== current\.id\) \{\s*state\.selectedTypeId = current\.id;\s*state\.selectedMemberKey = "";\s*state\.memberBrowseTypeId = "";\s*state\.selectedOverloadIndex = null;\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\)/);
+});
+
+test("Type Source completion settles behind workbench overlays", () => {
+  const typeSource =
+    appSource.match(/async function loadSelectedTypeSource\([\s\S]*?\n}\n\nasync function loadSelectedTypeMetadata/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.tasteOpen;/);
+  assert.match(
+    typeSource,
+    /const ownsRequest = \(\) =>[\s\S]*const isCurrent = \(\) =>\s*ownsRequest\(\)\s*&& activeSourceOperationKind\(state\) === "type"\s*&& !workbenchOverlayOwnsFocus\(\);[\s\S]*if \(ownsRequest\(\)\) \{\s*state\.typeSourceLoading = false;\s*if \(isCurrent\(\)\)\s*renderPreservingMemberFocus\(preservedFocus\)/);
+});
+
+test("member-less Metadata omits the empty composition call to action", () => {
+  assert.match(
+    appSource,
+    /function renderMemberComposition\(type\) \{[\s\S]*if \(!kinds && !accessibilities && !traits\) return "";/);
 });
 
 test("settings keep a viewport-bounded scroll region", () => {
