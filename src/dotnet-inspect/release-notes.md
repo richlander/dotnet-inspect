@@ -4,21 +4,24 @@
 
 ### Query and package workflows
 
-- Adds shared query vocabulary and typed `Body Shapes` queries for library,
-  type, and member scopes. Body-kind predicates use ordinary section
-  projection and structured output, resolve property and event accessors, and
-  compose with Performance Triage predicates without widening the selected
-  source MethodDefs (#4312, #4370, #4390, #4410, #4435, #4442).
+- Adds the `vocabulary` command for discovering product-owned query values and
+  typed `Body Shapes` queries for library, type, and member scopes. Body-kind
+  predicates use ordinary section projection and structured output, resolve
+  property and event accessors, and, at library scope, compose with Performance
+  Triage predicates without widening the selected source MethodDefs (#4312,
+  #4370, #4390, #4410, #4435, #4442).
 - Adds package dependency-tree projection and avoids package archive downloads
   when nuspec or dependency-only evidence is sufficient. Multi-library output
   paths and global row windows now stay aligned across output formats (#4318,
   #4329, #4340, #4353, #4423).
 - Adds a version-matched `package-skills` guide for discovering, validating,
   selecting, and persisting `SKILL.md` files supplied by restored NuGet
-  dependencies (#4404).
-- Makes `Unsafe Members` an independently selectable library section backed by
-  typed unsafe evidence rather than a singleton decompiler category (#4319,
-  #4415, #4424).
+  dependencies. `project -S Skills` now validates package skill identity and
+  descriptions and fails visibly for invalid metadata or missing restored
+  skill files instead of returning tolerant rows (#4404).
+- **Breaking:** `Unsafe Members` no longer expands from `@Audit`; select the
+  independently selectable library section by name. Its rows are backed by
+  typed unsafe evidence (#4319, #4415).
 - Carries diff titles, summaries, versions, grouped type names, row values, and
   composed document fields through typed inert-text boundaries while
   preserving Markdown and structured output shapes (#4308).
@@ -48,20 +51,24 @@
 - Preserves primary assembly acquisition failures and refactors symbol-package
   and method-reference resolution into shared bounded owners (#4310, #4330,
   #4337).
+- Bounds custom-attribute decoding and metadata type-name construction before
+  allocation, rejecting amplified element counts, excessive nesting, and
+  oversized names (#4234, #4345).
 
 ### Decompiler and analysis correctness
 
-- Expands authored-or-decompiled source queries and fixes explicit-interface
-  accessor identity, nested-generic and byref selector keys, generated
-  framework type identity, and async/lifted source ownership (#4205, #4359,
-  #4371, #4386, #4402, #4425).
+- Fixes explicit-interface accessor identity and API-surface retention,
+  nested-generic and byref selector keys, generated framework type identity,
+  async/lifted source ownership, and signature re-lexing that could produce
+  malformed parameter declarations (#4359, #4371, #4386, #4402, #4425, #4431,
+  #4445).
 - Preserves raw reference-equality binding instead of rebinding decompiled
   comparisons to user-defined equality operators (#4250).
 - Improves control-flow and dataflow fidelity for sparse switch partitions,
-  legal multi-block `do`/`while` loops, early region exits, and proven
-  cross-block stack-slot live ranges. Unsupported lambda parameter types are
-  declined rather than rendered with unspellable explicit types (#3971,
-  #4154, #4299, #4301, #4314, #4333).
+  legal multi-block `do`/`while` loops, retained-merge loop structuring, early
+  region exits, and proven cross-block stack-slot live ranges. Unsupported
+  lambda parameter types are declined rather than rendered with unspellable
+  explicit types (#3971, #4154, #4299, #4301, #4314, #4333, #4363).
 
 ## v0.20.0
 
