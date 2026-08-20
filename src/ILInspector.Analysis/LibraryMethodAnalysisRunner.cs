@@ -86,7 +86,8 @@ internal interface ILibraryMethodAnalysisInfrastructure
         out MethodIdentity? sourceOwner,
         out bool sourceGenerated,
         IReadOnlySet<int>? ownerMethodScope,
-        Func<TypeRef, bool>? ownerTypeScope);
+        Func<TypeRef, bool>? ownerTypeScope,
+        bool directlySelectedBody);
 
     MethodIdentity? ResolveDeclaredMethod(
         MethodDefinitionHandle methodHandle,
@@ -94,7 +95,8 @@ internal interface ILibraryMethodAnalysisInfrastructure
         MethodIdentity method,
         bool typeSourceGenerated,
         IReadOnlySet<int>? ownerMethodScope,
-        Func<TypeRef, bool>? ownerTypeScope);
+        Func<TypeRef, bool>? ownerTypeScope,
+        bool directlySelectedBody);
 
     bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
@@ -157,6 +159,8 @@ internal sealed class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.OwnershipFlow);
         IReadOnlySet<int>? bodyScope = plan.MethodScope;
         Func<TypeRef, bool>? bodyTypeScope = plan.TypeScope;
+        IReadOnlySet<int>? requestedMethodScope =
+            plan.RequestedMethodScope;
         if (!includeMethodEvidence)
         {
             return includeLeakTriage
@@ -261,7 +265,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                         caller,
                         typeSourceGenerated,
                         bodyScope,
-                        bodyTypeScope);
+                        bodyTypeScope,
+                        requestedMethodScope?.Contains(
+                            caller.MetadataToken)
+                            == true);
                 result.DeclaredMethod = declaredMethod;
                 result.DeclaredSource = declaredMethod;
             }
@@ -392,7 +399,10 @@ internal sealed class LibraryMethodAnalysisRunner(
                         out sourceOwner,
                         out sourceOwnerGenerated,
                         bodyScope,
-                        bodyTypeScope);
+                        bodyTypeScope,
+                        requestedMethodScope?.Contains(
+                            caller.MetadataToken)
+                            == true);
                 bool sourceGenerated =
                     _infrastructure.HasGeneratedCodeAttribute(
                         methodAttributes)

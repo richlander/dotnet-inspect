@@ -272,7 +272,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
         out MethodIdentity? sourceOwner,
         out bool sourceGenerated,
         IReadOnlySet<int>? ownerMethodScope,
-        Func<TypeRef, bool>? ownerTypeScope) =>
+        Func<TypeRef, bool>? ownerTypeScope,
+        bool directlySelectedBody) =>
         _liftedSourceOwnerResolver.TryResolve(
             liftedHandle,
             liftedMethod,
@@ -280,7 +281,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             out sourceOwner,
             out sourceGenerated,
             ownerMethodScope,
-            ownerTypeScope);
+            ownerTypeScope,
+            directlySelectedBody);
 
     MethodIdentity?
         ILibraryMethodAnalysisInfrastructure.ResolveDeclaredMethod(
@@ -289,7 +291,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
             MethodIdentity method,
             bool typeSourceGenerated,
             IReadOnlySet<int>? ownerMethodScope,
-            Func<TypeRef, bool>? ownerTypeScope)
+            Func<TypeRef, bool>? ownerTypeScope,
+            bool directlySelectedBody)
     {
         if (_liftedSourceOwnerResolver.TryResolve(
                 methodHandle,
@@ -298,7 +301,8 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                 out MethodIdentity? sourceOwner,
                 out _,
                 ownerMethodScope,
-                ownerTypeScope))
+                ownerTypeScope,
+                directlySelectedBody))
         {
             return sourceOwner;
         }
@@ -325,7 +329,10 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                     (MethodDefinitionHandle)asyncSourceHandle),
                 asyncSource,
                 out sourceOwner,
-                out _))
+                out _,
+                ownerMethodScope,
+                ownerTypeScope,
+                directlySelectedBody))
         {
             return sourceOwner;
         }
@@ -533,7 +540,11 @@ internal sealed partial class LibraryBodyAnalysisBuilder :
                             out MethodIdentity? sourceOwner,
                             out _,
                             plan.MethodScope,
-                            plan.TypeScope)
+                            plan.TypeScope,
+                            plan.RequestedMethodScope?.Contains(
+                                MetadataTokens.GetToken(
+                                    methodHandle))
+                                == true)
                         && sourceOwner is not null)
                     {
                         ownersByBody[method] = sourceOwner;

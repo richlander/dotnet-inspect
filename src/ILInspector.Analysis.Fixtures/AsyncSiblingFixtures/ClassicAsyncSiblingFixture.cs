@@ -23,6 +23,13 @@ public static class ClassicAsyncSiblingFixture
     public static Action<Task> AwaitTaskInAsyncLambda() =>
         async task => await task;
 
+    internal static Action<Task> ScopedAsyncLambdaOwner(
+        string marker) =>
+        async task => await task;
+
+    public static Task ScopedAsyncLambdaOwner(int marker) =>
+        Task.CompletedTask;
+
     public static int CallsThroughLocalFunction(int value)
     {
         int Core(int v) => ReadValue(v);

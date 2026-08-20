@@ -79,7 +79,8 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         out MethodIdentity? sourceOwner,
         out bool sourceGenerated,
         IReadOnlySet<int>? ownerMethodScope = null,
-        Func<TypeRef, bool>? ownerTypeScope = null)
+        Func<TypeRef, bool>? ownerTypeScope = null,
+        bool directlySelectedBody = false)
     {
         sourceOwner = null;
         sourceGenerated = false;
@@ -121,7 +122,10 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         TypeDefinitionHandle ownerType = chain[ownerIndex];
         TypeDefinition ownerDefinition = _reader.GetTypeDefinition(ownerType);
         string ownerName = liftedName[1..close];
+        int liftedToken =
+            MetadataTokens.GetToken(liftedHandle);
         if (ownerMethodScope is not null
+            && !directlySelectedBody
             && (!MethodsByName(ownerType).TryGetValue(
                     ownerName,
                     out ImmutableArray<MethodDefinitionHandle> scopedOwners)
@@ -149,9 +153,11 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
             LiftedOwnerGroup(
                 ownerType,
                 ownerName,
-                ownerMethodScope);
+                directlySelectedBody
+                    ? null
+                    : ownerMethodScope);
         if (!ownerGroup.TryResolve(
-                MetadataTokens.GetToken(liftedHandle),
+                liftedToken,
                 member,
                 out MethodDefinitionHandle ownerHandle,
                 out bool ownerIsTopLevelEntryPoint))
