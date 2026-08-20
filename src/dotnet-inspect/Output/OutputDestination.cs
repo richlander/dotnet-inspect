@@ -13,7 +13,9 @@ internal static class OutputDestination
     {
         if (string.IsNullOrEmpty(outputPath))
         {
-            write(Console.Out);
+            var console = new LfTextWriter(Console.Out);
+            write(console);
+            console.Flush();
             return;
         }
 
@@ -31,6 +33,7 @@ internal static class OutputDestination
             countingWriter = new CountingTextWriter(output);
             destination = countingWriter;
         }
+        destination = new LfTextWriter(destination);
 
         TailLineLimitingTextWriter? tailWriter = null;
         bool hasLineWindow = false;

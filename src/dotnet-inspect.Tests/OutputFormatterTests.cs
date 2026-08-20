@@ -58,6 +58,35 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void OutputDestination_NormalizesBufferedAndConsoleLineEndings()
+    {
+        var tempDirectory = Directory.CreateTempSubdirectory("output-destination-lf-");
+        var originalOutput = Console.Out;
+        try
+        {
+            var path = Path.Combine(tempDirectory.FullName, "output.txt");
+            OutputDestination.Write(
+                path,
+                rowWindow: null,
+                writer => writer.Write("first\r\nsecond\rthird\n"));
+            Assert.Equal("first\nsecond\nthird\n", File.ReadAllText(path));
+
+            var console = new StringWriter { NewLine = "\r\n" };
+            Console.SetOut(console);
+            OutputDestination.Write(
+                outputPath: null,
+                rowWindow: null,
+                writer => writer.WriteLine("first\r\nsecond"));
+            Assert.Equal("first\nsecond\n", console.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+            tempDirectory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void ResourceTriageFailure_IsVisible()
     {
         var subject = new FindingSubject("fixture", "fixture");
