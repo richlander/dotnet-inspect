@@ -22,7 +22,7 @@ internal static class OutputDestination
             append: false,
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
         {
-            NewLine = Console.Out.NewLine
+            NewLine = "\n"
         };
         CountingTextWriter? countingWriter = null;
         TextWriter destination = output;
