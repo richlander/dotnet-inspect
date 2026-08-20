@@ -147,4 +147,32 @@ public sealed class DtsEmitterTests
             dts,
             StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Emit_WithWireContracts_SubstitutesArrayDtoForContainerShapedReturn()
+    {
+        // GetWidgetArray's resolved wire type is "WidgetDto[]" (a container shape, not a plain
+        // record name) — proves the resolver's ToDisplayString() fix reaches all the way through
+        // to the emitted .d.ts, not just the resolver's own unit-level assertion.
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function getWidgetArray(): WidgetDto[];",
+            dts,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_WithWireContracts_LeavesAmbiguousReturnAsRawEnvelope()
+    {
+        // GetWidgetOrOwner serializes two distinct DTOs on different branches, so
+        // JsonWireContractResolver leaves ReturnWireType unset; the emitter must fall back to the
+        // raw (erased) signature type rather than guessing one of the two DTOs.
+        string dts = EmitFixtureDtsWithWireContracts();
+
+        Assert.Contains(
+            "export declare function getWidgetOrOwner(wantOwner: boolean): string;",
+            dts,
+            StringComparison.Ordinal);
+    }
 }

@@ -32,7 +32,14 @@ namespace ILInspector.JsExportSurface;
 /// one distinct <c>Serialize&lt;T&gt;</c> call site (e.g. different DTOs serialized on different
 /// branches) has no principled way to pick "the" return DTO. Rather than silently guess the first
 /// one found, <see cref="Attach"/> leaves <see cref="JsExportFunction.ReturnWireType"/> unset
-/// whenever more than one distinct DTO is found for the return position.
+/// whenever more than one distinct DTO is found for the return position. "Distinct" is judged by
+/// resolved display-string name (e.g. <c>"WidgetDto"</c>), not full type identity: two DTOs from
+/// different namespaces sharing a simple name would collapse into one entry and escape this
+/// ambiguity guard. This matches <see cref="JsExportSurfaceBuilder"/>'s own pre-existing record
+/// discovery, which is deliberately simple-name-keyed for the same reason (see its remarks) — the
+/// same erased-signature text is all either stage has to work with, so staying consistent with
+/// that existing boundary is correct rather than introducing a second, differently-scoped notion
+/// of type identity at this layer alone.
 /// </para>
 /// </remarks>
 public static class JsonWireContractResolver
@@ -110,12 +117,17 @@ public static class JsonWireContractResolver
                 && elementType.Namespace == JsonTypeInfoNamespace
                 && parameter.TypeArguments.Length == 1)
             {
-                // ToDisplayString (not .Name) so a container DTO — WidgetDto[], List<WidgetDto> —
-                // renders as C#-syntax text rather than the empty string TypeRef.Name carries for
+                // ToDisplayString (not .Name) so a container DTO — e.g. WidgetDto[] — renders as
+                // C#-syntax text rather than the empty string TypeRef.Name carries for
                 // non-Definition kinds (GenericInstance/SzArray/Array). TsTypeMapper's Map already
-                // parses this exact "[]"/generic-argument syntax for every other type string in
-                // this pipeline (signature-derived parameter/return/property types), so container
-                // DTOs resolve to a correct TS type instead of silently collapsing to "unknown".
+                // parses this exact array ("[]") syntax for every other signature-derived type
+                // string in this pipeline, so an array-of-DTO return resolves to a correct TS
+                // array type instead of silently collapsing to "unknown". This does not extend
+                // support to arbitrary generic containers (List<T>, Dictionary<K,V>): Map has
+                // never parsed C# generic-argument syntax for any type in this pipeline (see its
+                // WidgetCatalog.OwnersByKey property, which already renders "unknown" for exactly
+                // this reason, independent of this resolver). Recovering the correct display text
+                // here does not change that pre-existing, system-wide boundary.
                 return parameter.TypeArguments[0].ToDisplayString();
             }
         }
