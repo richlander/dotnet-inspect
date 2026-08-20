@@ -480,7 +480,7 @@ kbd {
   font: 10px var(--mono);
 }
 
-.detail-pane { min-width: 0; min-height: 0; display: grid; grid-template-rows: 40px minmax(0, 1fr) 25px; background: var(--bg); }
+.detail-pane { min-width: 0; min-height: 0; display: grid; grid-template-rows: 40px minmax(0, 1fr); background: var(--bg); }
 .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 0 17px; border-bottom: 1px solid var(--line); }
 .nav-history { display: flex; gap: 2px; flex: none; }
 .nav-history button { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
@@ -1038,7 +1038,7 @@ kbd {
 .empty-document code { color: var(--yellow); font-family: var(--mono); }
 .large-glyph { color: var(--dim); font: 33px var(--mono); }
 
-.statusbar { display: flex; align-items: center; gap: 8px; padding: 0 11px; border-top: 1px solid var(--line); background: var(--chrome); color: var(--dim); font: 10px var(--mono); }
+.statusbar { min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 0 13px; border-top: 1px solid var(--line-strong); background: var(--chrome); color: var(--dim); font: 10px var(--mono); scrollbar-width: thin; }
 .ready-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 7px rgba(142,187,118,.5); }
 .status-spacer { flex: 1; }
 .diag { color: var(--dim); white-space: nowrap; cursor: help; }
@@ -1048,54 +1048,6 @@ kbd {
 .build-identity::before { content: "·"; margin-right: 8px; color: var(--line-strong); }
 .build-identity a { color: var(--blue); text-decoration: none; }
 .build-identity a:hover { text-decoration: underline; }
-
-.command-area { position: relative; z-index: 20; min-height: 45px; border-top: 1px solid var(--line-strong); background: var(--chrome); }
-.command-panel { position: relative; }
-.command-line { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 13px; }
-.command-scope {
-  max-width: 230px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding-right: 12px;
-  border-right: 1px solid var(--line);
-  color: var(--dim);
-  font: 10px var(--mono);
-  white-space: nowrap;
-}
-.prompt { color: var(--accent); font: 16px var(--mono); }
-.command-line input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: 13px var(--mono); caret-color: var(--accent); }
-.command-line input::placeholder { color: var(--dim); }
-.suggestions {
-  display: none;
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 44px;
-  border-top: 1px solid var(--line-strong);
-  border-bottom: 1px solid var(--line);
-  background: rgba(24,25,21,.98);
-  box-shadow: 0 -18px 50px rgba(0,0,0,.35);
-  backdrop-filter: blur(14px);
-}
-.command-panel.open .suggestions { display: block; }
-.suggestion {
-  width: 100%;
-  height: 38px;
-  display: grid;
-  grid-template-columns: minmax(150px, 24%) 1fr auto;
-  gap: 20px;
-  align-items: center;
-  padding: 0 15px 0 145px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  background: transparent;
-  text-align: left;
-}
-.suggestion.selected { background: var(--panel-active); }
-.suggestion strong { color: var(--text); font: 12px var(--mono); }
-.suggestion span { color: var(--muted); font-size: 12px; }
-.suggestion small { color: var(--dim); font: 10px var(--mono); text-transform: uppercase; }
-.suggestion-help { display: flex; justify-content: flex-end; gap: 17px; padding: 6px 14px; color: var(--dim); font: 10px var(--mono); }
 
 .toast {
   position: fixed;
@@ -1172,7 +1124,6 @@ kbd {
   .workspace { grid-template-columns: 330px minmax(0, 1fr); }
   .type-metrics { display: none; }
   .type-heading p { grid-column: 2; }
-  .suggestion { padding-left: 30px; }
 }
 
 @media (max-width: 760px) {
@@ -1287,6 +1238,7 @@ kbd {
 .kind-icon.sl-pkg-new { color: var(--muted); }
 .kind-icon.sl-member { color: var(--text); }
 .kind-icon.sl-lib { color: var(--accent); }
+.kind-icon.sl-command { color: var(--accent); font-size: 16px; }
 .spotlight-empty { padding: 26px 14px; color: var(--dim); font: 12px var(--mono); text-align: center; }
 .spotlight-foot {
   display: flex;
