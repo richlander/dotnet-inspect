@@ -1,3 +1,4 @@
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 
 namespace ILInspector.JsExportSurface;
@@ -30,7 +31,15 @@ public static class JsExportSurfaceBuilder
     const string JsonTypeInfoPrefix = "System.Text.Json.Serialization.Metadata.JsonTypeInfo<";
     const string JsonSerializerContextBaseType = "System.Text.Json.Serialization.JsonSerializerContext";
 
-    public static JsExportSurface Build(ApiSurface surface)
+    /// <summary>
+    /// Builds a <see cref="JsExportSurface"/> from <paramref name="surface"/>. When
+    /// <paramref name="bodyIndex"/> is supplied (the same assembly's IL-body evidence), each
+    /// function's <see cref="JsExportFunction.ReturnWireType"/> and
+    /// <see cref="JsExportFunction.ParameterWireTypes"/> are additionally resolved from its own
+    /// body's <c>JsonSerializer.Serialize</c>/<c>Deserialize</c> call sites — see
+    /// <see cref="JsonWireContractResolver"/>. Without it, both remain unset.
+    /// </summary>
+    public static JsExportSurface Build(ApiSurface surface, LibraryBodyIndex? bodyIndex = null)
     {
         // Keyed by simple (last-dotted-segment) name, since that's what's recoverable from
         // signature text alone (see remarks above). Two distinct types sharing a simple name in
@@ -70,13 +79,20 @@ public static class JsExportSurfaceBuilder
                         + "extraction must run with signature models populated.");
                 }
 
-                functions.Add(new JsExportFunction
+                var function = new JsExportFunction
                 {
                     DeclaringType = type.Name,
                     Name = member.Name,
                     ReturnType = signature.ReturnType ?? member.ReturnType ?? "void",
                     Parameters = signature.Parameters,
-                });
+                };
+
+                if (bodyIndex is not null && member.MetadataToken is { } token)
+                {
+                    function = JsonWireContractResolver.Attach(bodyIndex, function, token);
+                }
+
+                functions.Add(function);
             }
         }
 

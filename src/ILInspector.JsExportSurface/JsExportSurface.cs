@@ -30,4 +30,20 @@ public sealed class JsExportFunction
     public required string ReturnType { get; init; }
 
     public IReadOnlyList<ApiParameter> Parameters { get; init; } = [];
+
+    /// <summary>
+    /// The DTO type actually serialized by this method's own body onto its return value, resolved
+    /// from a <c>JsonSerializer.Serialize</c> call site — not inferred from the assembly's whole
+    /// registered shape vocabulary. Null when the body contains no such call (e.g. <see
+    /// cref="ReturnType"/> is already a marshalable type, or the export has no return payload).
+    /// See <see cref="JsonWireContractResolver"/>.
+    /// </summary>
+    public string? ReturnWireType { get; init; }
+
+    /// <summary>
+    /// DTO type(s) this method's own body deserializes from a JSON-string argument, resolved from
+    /// <c>JsonSerializer.Deserialize</c> call sites. Not yet attributed to a specific parameter
+    /// position — see <see cref="JsonWireContractResolver"/> remarks for that residual gap.
+    /// </summary>
+    public IReadOnlyList<string> ParameterWireTypes { get; init; } = [];
 }
