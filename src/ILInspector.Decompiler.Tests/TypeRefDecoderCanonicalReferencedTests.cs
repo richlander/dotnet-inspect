@@ -187,7 +187,30 @@ public sealed class TypeRefDecoderCanonicalSelfTests
         Assert.Equal(TypeRef.CoreLibrary, type.Assembly);
     }
 
-    static TypeRef DecodeSelfDefinedType(string assemblyName, byte[]? publicKey)
+    /// <summary>
+    /// The key is necessary but no longer sufficient. Acquisition decides
+    /// whether a reader may name its own definitions as core-library types, so
+    /// the same platform-keyed metadata reached without a trusted acquisition
+    /// keeps its declared name. <c>CoreLibraryIdentityTrust</c> owns the rule
+    /// and <c>PlantedCoreLibraryIdentityTests</c> gates the real attack; this
+    /// is the unit-level statement of the same boundary.
+    /// </summary>
+    [Theory]
+    [InlineData("System.Runtime")]
+    [InlineData("mscorlib")]
+    public void GenuineSelfNamedAssembly_WithoutTrustedAcquisition_DoesNotGrantCoreLibraryIdentity(string facadeName)
+    {
+        var type = DecodeSelfDefinedType(facadeName, EcmaPublicKey, trusted: false);
+        Assert.Equal(facadeName, type.Assembly);
+    }
+
+    /// <summary>
+    /// Decodes a synthetic self-defined type. These cases exercise the public
+    /// key rule, so by default the reader is granted the acquisition trust that
+    /// a designated open would carry; pass <paramref name="trusted"/> as false
+    /// to exercise the acquisition rule instead.
+    /// </summary>
+    static TypeRef DecodeSelfDefinedType(string assemblyName, byte[]? publicKey, bool trusted = true)
     {
         var mb = new MetadataBuilder();
         mb.AddAssembly(
@@ -218,6 +241,8 @@ public sealed class TypeRefDecoderCanonicalSelfTests
 
         using var provider = MetadataReaderProvider.FromMetadataImage(image.ToImmutableArray());
         var reader = provider.GetMetadataReader();
+        if (trusted)
+            CoreLibraryIdentityTrust.GrantCoreLibraryIdentity(reader);
         var handle = reader.TypeDefinitions.Single(h => reader.GetString(reader.GetTypeDefinition(h).Name) == "Decimal");
         return TypeRefDecoder.Instance.GetTypeFromDefinition(reader, handle, rawTypeKind: 0);
     }
