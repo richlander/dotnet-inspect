@@ -147,10 +147,14 @@ public sealed record StructuralCloneComparisonDocument
         }
         ArgumentNullException.ThrowIfNull(Left);
         ArgumentNullException.ThrowIfNull(Right);
-        if (Left.ModuleVersionId != Right.ModuleVersionId)
+        // A module version id alone is not sufficient: MVIDs are not guaranteed globally
+        // unique (see MetadataMethodAddress.cs), so two byte-distinct modules could otherwise
+        // slip past this A-vs-A boundary while carrying the very content hashes meant to
+        // catch a substituted module. Require the full identity, hash included, to match.
+        if (Left != Right)
         {
             throw new ArgumentException(
-                "A structural clone comparison document requires both sides to originate from the same module; cross-module comparison is not yet supported.",
+                "A structural clone comparison document requires both sides to originate from the same module (matching file name, content hash, and module version id); cross-module comparison is not yet supported.",
                 nameof(Right));
         }
         if (Blockers.IsDefault)
@@ -158,6 +162,19 @@ public sealed record StructuralCloneComparisonDocument
             throw new ArgumentException(
                 "Structural clone comparison document blockers must be initialized.",
                 nameof(Blockers));
+        }
+        ArgumentNullException.ThrowIfNull(Receipt);
+        if (!IsMethodDefinitionToken(LeftToken))
+        {
+            throw new ArgumentException(
+                "Structural clone comparison document tokens must be MethodDef tokens.",
+                nameof(LeftToken));
+        }
+        if (!IsMethodDefinitionToken(RightToken))
+        {
+            throw new ArgumentException(
+                "Structural clone comparison document tokens must be MethodDef tokens.",
+                nameof(RightToken));
         }
 
         Comparison = Disposition == StructuralCloneDisposition.Completed
@@ -278,4 +295,16 @@ public sealed record StructuralCloneComparisonDocument
         => new(
             identity.ModuleVersionId,
             MetadataTokens.MethodDefinitionHandle(token));
+
+    /// <summary>
+    /// <see cref="MetadataTokens.MethodDefinitionHandle(int)"/> masks off a token's table
+    /// bits and keeps only the row number, so a non-MethodDef token (or a nil token) would
+    /// otherwise silently round-trip into a plausible-looking MethodDef handle while the
+    /// document's own <see cref="LeftToken"/>/<see cref="RightToken"/> retained the original,
+    /// differently-tabled value. Reject anything but a non-nil MethodDef token up front so the
+    /// document's stored token and its reissued handle can never disagree.
+    /// </summary>
+    static bool IsMethodDefinitionToken(int token)
+        => unchecked((uint)token & 0xFF000000) == 0x06000000
+            && ((uint)token & 0x00FFFFFF) != 0;
 }

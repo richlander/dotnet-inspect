@@ -79,6 +79,85 @@ public class StructuralCloneComparisonDocumentTests
     }
 
     [Fact]
+    public void Constructor_SameModuleVersionIdDifferentHash_Throws()
+    {
+        // A module version id alone is not a sufficient identity: MVIDs are not
+        // guaranteed globally unique, so two byte-distinct modules could otherwise
+        // slip past the A-vs-A boundary while carrying different content hashes.
+        Guid sharedModuleVersionId = Guid.NewGuid();
+        StructuralCloneModuleIdentity left =
+            new("left.dll", new string('a', 64), sharedModuleVersionId);
+        StructuralCloneModuleIdentity right =
+            new("right.dll", new string('b', 64), sharedModuleVersionId);
+
+        Assert.Throws<ArgumentException>(() => new StructuralCloneComparisonDocument(
+            StructuralCloneComparisonDocument.CurrentSchemaVersion,
+            StructuralCloneComparisonDocument.CurrentMethodologyVersion,
+            left,
+            right,
+            LeftToken: 0x06000001,
+            RightToken: 0x06000001,
+            StructuralCloneDisposition.Unsupported,
+            Relation: null,
+            Correspondence: null,
+            Alignment: null,
+            Blockers: [UnsupportedBlocker()],
+            Receipt: EmptyReceipt(),
+            AlignmentReceipt: null));
+    }
+
+    [Fact]
+    public void Constructor_NullReceipt_Throws()
+    {
+        StructuralCloneModuleIdentity identity =
+            new("fixture.dll", new string('a', 64), Guid.NewGuid());
+
+        Assert.Throws<ArgumentNullException>(() => new StructuralCloneComparisonDocument(
+            StructuralCloneComparisonDocument.CurrentSchemaVersion,
+            StructuralCloneComparisonDocument.CurrentMethodologyVersion,
+            identity,
+            identity,
+            LeftToken: 0x06000001,
+            RightToken: 0x06000002,
+            StructuralCloneDisposition.Unsupported,
+            Relation: null,
+            Correspondence: null,
+            Alignment: null,
+            Blockers: [UnsupportedBlocker()],
+            Receipt: null!,
+            AlignmentReceipt: null));
+    }
+
+    [Theory]
+    [InlineData(0x00000000)] // nil token
+    [InlineData(0x02000001)] // TypeDef, not MethodDef
+    [InlineData(unchecked((int)0x0A000001))] // MemberRef, not MethodDef
+    public void Constructor_NonMethodDefToken_Throws(int token)
+    {
+        StructuralCloneModuleIdentity identity =
+            new("fixture.dll", new string('a', 64), Guid.NewGuid());
+
+        // MetadataTokens.MethodDefinitionHandle(int) masks off a token's table bits and
+        // keeps only the row number, so a non-MethodDef token would otherwise silently
+        // round-trip into a plausible-looking MethodDef handle while LeftToken/RightToken
+        // retained the original, differently-tabled value.
+        Assert.Throws<ArgumentException>(() => new StructuralCloneComparisonDocument(
+            StructuralCloneComparisonDocument.CurrentSchemaVersion,
+            StructuralCloneComparisonDocument.CurrentMethodologyVersion,
+            identity,
+            identity,
+            LeftToken: token,
+            RightToken: 0x06000002,
+            StructuralCloneDisposition.Unsupported,
+            Relation: null,
+            Correspondence: null,
+            Alignment: null,
+            Blockers: [UnsupportedBlocker()],
+            Receipt: EmptyReceipt(),
+            AlignmentReceipt: null));
+    }
+
+    [Fact]
     public void Constructor_CompletedWithoutRelation_ThrowsViaReissue()
     {
         StructuralCloneModuleIdentity identity =
