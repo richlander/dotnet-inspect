@@ -179,17 +179,6 @@ internal sealed class LibraryMethodAnalysisRunner(
             result.HasCaller = true;
             result.Caller = caller;
             result.Token = caller.MetadataToken;
-            if (CompilerGeneratedNames.IsLocalFunctionOrLambda(caller.Name)
-                && _infrastructure.TryResolveLiftedSourceOwner(
-                    methodHandle,
-                    methodDefinition,
-                    caller,
-                    out MethodIdentity? liftedOwner,
-                    out _)
-                && liftedOwner is not null)
-            {
-                result.DeclaredSource = liftedOwner;
-            }
             // Tally the unsafe mode for every method, including bodiless
             // extern/abstract members (P/Invokes are a major source).
             result.Mode = caller.CallerUnsafeMode;
@@ -251,6 +240,17 @@ internal sealed class LibraryMethodAnalysisRunner(
                         : caller.DeclaringType;
                 if (!bodyTypeScope(scopedType))
                     return result;
+            }
+            if (CompilerGeneratedNames.IsLocalFunctionOrLambda(caller.Name)
+                && _infrastructure.TryResolveLiftedSourceOwner(
+                    methodHandle,
+                    methodDefinition,
+                    caller,
+                    out MethodIdentity? liftedOwner,
+                    out _)
+                && liftedOwner is not null)
+            {
+                result.DeclaredSource = liftedOwner;
             }
             leakFailureKind =
                 LeakTriageFailureKind.BodyAcquisition;
