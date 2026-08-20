@@ -17,6 +17,14 @@ function createDocument() {
     querySelector(selector) {
       return elements.get(selector) ?? null;
     },
+    querySelectorAll(selector) {
+      const key = selector.match(/^\[data-([a-z-]+)\]$/)?.[1]
+        ?.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+      return key
+        ? [...elements.values()].filter(value =>
+          value.isConnected && value.dataset[key] !== undefined)
+        : [];
+    },
   };
   const element = (selector, properties = {}) => {
     const value = {
@@ -46,7 +54,7 @@ test("navigation focus and scroll survive completion before loading focus restor
     scrollTop: 87,
   });
   document.activeElement = initialList;
-  const initial = captureMemberFocus(document, value => value);
+  const initial = captureMemberFocus(document);
 
   initialList.isConnected = false;
   const replacementList = element("#type-list", {
@@ -58,7 +66,7 @@ test("navigation focus and scroll survive completion before loading focus restor
   });
   document.activeElement = document.body;
   const completion = resolveMemberFocusSnapshot(
-    captureMemberFocus(document, value => value),
+    captureMemberFocus(document),
     initial,
   );
 
@@ -73,7 +81,7 @@ test("navigation focus and scroll survive completion before loading focus restor
   const unrelated = element("#unrelated", { id: "unrelated" });
   document.activeElement = unrelated;
   const current = resolveMemberFocusSnapshot(
-    captureMemberFocus(document, value => value),
+    captureMemberFocus(document),
     initial,
   );
   assert.equal(current.selector, "#unrelated");
@@ -88,7 +96,7 @@ test("navigation scroll is not copied into a different list scope", () => {
     dataset: { navScope: "types" },
     scrollTop: 1200,
   });
-  const snapshot = captureMemberFocus(document, value => value);
+  const snapshot = captureMemberFocus(document);
   const memberList = element("#type-list", {
     id: "type-list",
     dataset: { navScope: "members:Type0" },
@@ -112,7 +120,7 @@ test("navigation scroll yields to a changed selection in the same scope", () => 
     },
     scrollTop: 87,
   });
-  const snapshot = captureMemberFocus(document, value => value);
+  const snapshot = captureMemberFocus(document);
   const memberList = element("#type-list", {
     id: "type-list",
     dataset: {
@@ -139,7 +147,7 @@ test("member-filter selection survives a replacement render", () => {
     selectionDirection: "backward",
   });
   document.activeElement = initialInput;
-  const snapshot = captureMemberFocus(document, value => value);
+  const snapshot = captureMemberFocus(document);
 
   let restoredSelection = null;
   const replacementInput = element("#member-filter", {
@@ -170,7 +178,7 @@ test("type-filter selection survives a replacement render", () => {
     selectionDirection: "backward",
   });
   document.activeElement = initialInput;
-  const snapshot = captureMemberFocus(document, value => value);
+  const snapshot = captureMemberFocus(document);
 
   let restoredSelection = null;
   const replacementInput = element("#type-filter", {
@@ -196,7 +204,7 @@ test("stable workbench controls survive a replacement render", () => {
   const { document, element } = createDocument();
   const initialButton = element("#copy-name", { id: "copy-name" });
   document.activeElement = initialButton;
-  const snapshot = captureMemberFocus(document, value => value);
+  const snapshot = captureMemberFocus(document);
 
   const replacementButton = element("#copy-name", { id: "copy-name" });
   document.activeElement = document.body;
@@ -220,7 +228,7 @@ test("scope and lens controls survive a replacement render", () => {
     const { document, element } = createDocument();
     const initialButton = element(selector, { dataset });
     document.activeElement = initialButton;
-    const snapshot = captureMemberFocus(document, value => value);
+    const snapshot = captureMemberFocus(document);
 
     const replacementButton = element(selector, { dataset });
     document.activeElement = document.body;
@@ -243,7 +251,7 @@ test("member and overload rows survive activation renders", () => {
     const { document, element } = createDocument();
     const initialButton = element(selector, { dataset });
     document.activeElement = initialButton;
-    const snapshot = captureMemberFocus(document, value => value);
+    const snapshot = captureMemberFocus(document);
 
     const replacementButton = element(selector, { dataset });
     document.activeElement = document.body;
@@ -259,7 +267,7 @@ test("member and overload rows survive activation renders", () => {
         dataset: { taste: "prefer-var" },
       });
       document.activeElement = initialCheckbox;
-      const snapshot = captureMemberFocus(document, value => value);
+      const snapshot = captureMemberFocus(document);
 
       const replacementCheckbox = element(selector, {
         dataset: { taste: "prefer-var" },
@@ -315,17 +323,17 @@ test("newer caret restoration invalidates older queued callbacks", () => {
   const restorer = createMemberFocusRestorer();
 
   document.activeElement = input;
-  const older = captureMemberFocus(document, value => value);
+  const older = captureMemberFocus(document);
   restorer.schedule(document, older, requestFrame);
 
   input.selectionStart = 5;
   input.selectionEnd = 5;
-  const newer = captureMemberFocus(document, value => value);
+  const newer = captureMemberFocus(document);
   restorer.schedule(document, newer, requestFrame);
 
   document.activeElement = document.body;
   const completion = restorer.resolve(
-    captureMemberFocus(document, value => value),
+    captureMemberFocus(document),
     older,
   );
   restorer.schedule(document, completion, requestFrame);
@@ -343,16 +351,45 @@ test("a new render without a fallback does not revive an older focus target", ()
   const { document, element } = createDocument();
   const input = element("#member-filter", { id: "member-filter" });
   document.activeElement = input;
-  const older = captureMemberFocus(document, value => value);
+  const older = captureMemberFocus(document);
   const restorer = createMemberFocusRestorer();
   restorer.schedule(document, older, () => 1);
 
   document.activeElement = document.body;
   const current = restorer.resolve(
-    captureMemberFocus(document, value => value),
+    captureMemberFocus(document),
     null,
   );
 
   assert.equal(current.selector, "");
   assert.equal(current.focusLost, true);
+});
+
+test("metadata member identities restore without becoming CSS selectors", () => {
+  const { document, element } = createDocument();
+  const identity = "method:Build\"quoted\\name\nnext";
+  const initialButton = element("#initial-member", {
+    dataset: { navMember: identity },
+  });
+  document.activeElement = initialButton;
+  const snapshot = captureMemberFocus(document);
+
+  assert.equal(snapshot.selector, "");
+  assert.deepEqual(snapshot.dataTarget, {
+    selector: "[data-nav-member]",
+    key: "navMember",
+    value: identity,
+  });
+
+  initialButton.isConnected = false;
+  const replacementButton = element("#replacement-member", {
+    dataset: { navMember: identity },
+  });
+  document.activeElement = document.body;
+  restoreMemberFocus(document, snapshot, callback => {
+    callback(0);
+    return 1;
+  });
+
+  assert.equal(document.activeElement, replacementButton);
 });

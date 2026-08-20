@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bodyTargetMatchesOverload,
+  captureLibraryScope,
   decodeBodyTarget,
   encodeBodyTarget,
   filterMemberGroups,
+  invalidateMemberCallGraphWork,
   memberGroupMatches,
   memberNavTargetIndex,
   memberScopeIsActive,
+  restoreLibraryScope,
   restoreMemberHistoryState,
 } from "../src/member-filtering.js";
 
@@ -214,4 +217,42 @@ test("member navigation enters the nearest edge from no selection", () => {
   assert.equal(memberNavTargetIndex(-1, 3, -1), 2);
   assert.equal(memberNavTargetIndex(0, 3, 1), 1);
   assert.equal(memberNavTargetIndex(2, 3, 1), 2);
+});
+
+test("Call graph invalidation releases every asynchronous owner", () => {
+  const state = {
+    memberCallGraphSeq: 4,
+    memberCallGraphLoading: false,
+    memberCallGraphExpanding: true,
+    memberCallGraphKey: "package|type|member",
+    platformDrillLoading: true,
+    platformDrillError: "old failure",
+  };
+
+  invalidateMemberCallGraphWork(state);
+
+  assert.deepEqual(state, {
+    memberCallGraphSeq: 5,
+    memberCallGraphLoading: false,
+    memberCallGraphExpanding: false,
+    memberCallGraphKey: "",
+    platformDrillLoading: false,
+    platformDrillError: "",
+  });
+});
+
+test("library scope round-trips only within the restored package", () => {
+  const captured = captureLibraryScope(new Set(["System.Runtime", "System.Console"]));
+  assert.deepEqual(captured, ["System.Console", "System.Runtime"]);
+  assert.deepEqual(
+    [...restoreLibraryScope(captured, [
+      "System.Console",
+      "System.Private.CoreLib",
+      "System.Runtime",
+    ])],
+    captured);
+  assert.equal(
+    restoreLibraryScope(["System.Private.CoreLib"], ["Newtonsoft.Json"]),
+    null);
+  assert.equal(restoreLibraryScope(["Newtonsoft.Json"], ["Newtonsoft.Json"]), null);
 });

@@ -44,12 +44,15 @@ import {
 } from "./data.js";
 import {
   bodyTargetMatchesOverload,
+  captureLibraryScope,
   decodeBodyTarget,
   encodeBodyTarget,
   filterMemberGroups,
+  invalidateMemberCallGraphWork,
   MEMBER_TRAITS,
   memberNavTargetIndex,
   memberScopeIsActive,
+  restoreLibraryScope,
   restoreMemberHistoryState,
 } from "./member-filtering.js";
 import {
@@ -410,7 +413,8 @@ function viewSignature() {
     b: encodeBodyTarget(state.selectedBodyTarget),
     s: state.memberSection,
     pr: state.atPackageRoot,
-    pl: state.packageLens
+    pl: state.packageLens,
+    ls: captureLibraryScope(state.libraryScope),
   });
 }
 
@@ -430,7 +434,8 @@ function captureView() {
     bodyTarget: state.selectedBodyTarget,
     memberSection: state.memberSection,
     atPackageRoot: state.atPackageRoot,
-    packageLens: state.packageLens
+    packageLens: state.packageLens,
+    libraryScope: captureLibraryScope(state.libraryScope),
   };
 }
 
@@ -453,7 +458,11 @@ function normalizeCurrentNavEntry() {
 function applyView(view) {
   const pkg = packageForView(state.packages, view);
   if (!pkg) return false;
+  invalidateMemberCallGraphWork(state);
   activatePackage(pkg);
+  state.libraryScope = restoreLibraryScope(
+    view.libraryScope,
+    pkg.types.map(type => libraryKey(type)));
   const type = pkg.types.find(item => item.id === view.selectedTypeId);
   const member = type
     ? memberGroups(type).find(group => group.key === view.selectedMemberKey)
@@ -1342,18 +1351,13 @@ function navMode() {
 }
 
 function resetMemberSectionState() {
+  invalidateMemberCallGraphWork(state);
   state.memberSection = "overview";
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
   state.memberCallGraphKey = "";
-  state.memberCallGraphExpanding = false;
-  state.platformDrillLoading = false;
-  state.platformDrillError = "";
-  // Invalidate any in-flight progressive call-graph load so a late cross-library
-  // result can't repopulate the graph after the selection has moved on.
-  state.memberCallGraphSeq++;
   state.memberFacts = null;
   state.memberFactsError = "";
   state.memberAnnotated = null;
@@ -1421,8 +1425,7 @@ function applyMemberSection(id) {
     state.selectedOverloadIndex = 0;
   }
   if (state.memberSection === "call-graph" && id !== "call-graph") {
-    state.memberCallGraphSeq++;
-    state.platformDrillLoading = false;
+    invalidateMemberCallGraphWork(state);
   }
   state.memberSection = id;
   if (id === "source") loadSelectedMemberSource();
@@ -1457,7 +1460,7 @@ function memberNavCursor(entries) {
 }
 
 function selectMemberNavEntry(entry, focusList) {
-  const preservedFocus = captureMemberFocus(document, cssEscape);
+  const preservedFocus = captureMemberFocus(document);
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey && entry.group.overloads.length === 1) {
       render();
@@ -1510,12 +1513,7 @@ function stepHorizontal(delta) {
     const order = memberSectionsFor(member).map(([id]) => id);
     let index = order.indexOf(state.memberSection);
     if (index < 0) index = 0;
-    state.memberSection = order[(index + delta + order.length) % order.length];
-    if (state.memberSection === "source") loadSelectedMemberSource();
-    else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
-    else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
-    else if (state.memberSection === "facts") loadSelectedMemberFacts();
-    else loadSelectedMemberDocumentation();
+    applyMemberSection(order[(index + delta + order.length) % order.length]);
   } else {
     const index = lenses.findIndex(([id]) => id === state.lens);
     state.lens = lenses[(index + delta + lenses.length) % lenses.length][0];
@@ -1549,6 +1547,7 @@ function drillOut() {
     const member = selectedMember(selectedType());
     if (member && member.overloads.length > 1 && state.selectedOverloadIndex != null) {
       state.selectedOverloadIndex = null;
+      resetMemberSectionState();
     } else {
       return exitMemberScope();
     }
@@ -1567,6 +1566,7 @@ function exitMemberScope() {
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
+  resetMemberSectionState();
   render();
   return true;
 }
@@ -3589,29 +3589,30 @@ function bindEvents() {
     openSpotlight(button.dataset.oppLookfor);
   }));
   const renderMemberFilterAndRestoreFocus = selector => {
-    const preserved = {
-      ...captureMemberFocus(document, cssEscape),
-      selector
-    };
+    const preserved = captureMemberFocus(document);
+    if (selector) {
+      preserved.selector = selector;
+      preserved.dataTarget = null;
+    }
     renderWithMemberFocus(preserved);
   };
   document.querySelectorAll("[data-member-kind-filter]").forEach(button => button.addEventListener("click", () => {
     const value = button.dataset.memberKindFilter;
     state.memberKindFilter = value;
     normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus(`[data-member-kind-filter="${cssEscape(value)}"]`);
+    renderMemberFilterAndRestoreFocus();
   }));
   document.querySelectorAll("[data-member-access-filter]").forEach(button => button.addEventListener("click", () => {
     const value = button.dataset.memberAccessFilter;
     state.memberAccessibilityFilter = value;
     normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus(`[data-member-access-filter="${cssEscape(value)}"]`);
+    renderMemberFilterAndRestoreFocus();
   }));
   document.querySelectorAll("[data-member-trait-filter]").forEach(button => button.addEventListener("click", () => {
     const value = button.dataset.memberTraitFilter;
     state.memberTraitFilter = value;
     normalizeMemberSelection();
-    renderMemberFilterAndRestoreFocus(`[data-member-trait-filter="${cssEscape(value)}"]`);
+    renderMemberFilterAndRestoreFocus();
   }));
   const memberFilter = document.querySelector("#member-filter");
   memberFilter?.addEventListener("input", event => {
@@ -4956,7 +4957,7 @@ function renderWithMemberFocus(preserved) {
 }
 
 function renderPreservingMemberFocus(fallback = null) {
-  const current = captureMemberFocus(document, cssEscape);
+  const current = captureMemberFocus(document);
   const preserved = memberFocusRestorer.resolve(current, fallback);
   return renderWithMemberFocus(preserved);
 }
@@ -6521,7 +6522,13 @@ async function navigateOrDrillPlatform(node) {
     pack = await loadRuntimePack(
       framework,
       ownsNavigation);
-    if (!ownsNavigation()) return;
+    if (!ownsNavigation()) {
+      if (seq === state.memberCallGraphSeq) {
+        state.platformDrillLoading = false;
+        renderPreservingMemberFocus(preservedFocus);
+      }
+      return;
+    }
     state.platformDrillLoading = false;
     if (!pack) {
       state.platformDrillError = state.runtimePackError || "Could not load the .NET runtime pack.";

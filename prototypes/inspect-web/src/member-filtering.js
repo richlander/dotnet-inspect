@@ -48,6 +48,30 @@ export function memberNavTargetIndex(currentIndex, entryCount, delta) {
   return Math.max(0, Math.min(entryCount - 1, currentIndex + delta));
 }
 
+export function invalidateMemberCallGraphWork(state) {
+  const incomplete = state.memberCallGraphLoading || state.memberCallGraphExpanding;
+  state.memberCallGraphSeq++;
+  state.memberCallGraphLoading = false;
+  state.memberCallGraphExpanding = false;
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
+  if (incomplete) state.memberCallGraphKey = "";
+}
+
+export function captureLibraryScope(scope) {
+  return scope ? [...scope].sort() : null;
+}
+
+export function restoreLibraryScope(savedScope, availableLibraries) {
+  if (!Array.isArray(savedScope) || !savedScope.length) return null;
+  const available = new Set(availableLibraries);
+  const restored = new Set(
+    savedScope.filter(key => typeof key === "string" && available.has(key)));
+  return restored.size > 0 && restored.size < available.size
+    ? restored
+    : null;
+}
+
 export function bodyTargetMatchesOverload(target, member, overload) {
   if (!target || !overload
     || (target.metadataToken == null && !target.selectorKey && !target.memberName)) {

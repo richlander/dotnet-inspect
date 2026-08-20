@@ -1,5 +1,10 @@
 export interface MemberFocusSnapshot {
   selector: string;
+  dataTarget: {
+    selector: string;
+    key: string;
+    value: string;
+  } | null;
   selection: {
     start: number | null;
     end: number | null;
@@ -25,11 +30,11 @@ export interface MemberFocusRestorer {
 
 export function captureMemberFocus(
   document: Document,
-  escapeSelectorValue: (value: string) => string,
 ): MemberFocusSnapshot {
   const active = document.activeElement as HTMLElement | null;
   const navigationList = document.querySelector<HTMLElement>("#type-list");
   let selector = "";
+  let dataTarget: MemberFocusSnapshot["dataTarget"] = null;
   let selection: MemberFocusSnapshot["selection"] = null;
   if (active?.id === "member-filter" || active?.id === "type-filter") {
     const input = active as HTMLInputElement;
@@ -42,29 +47,65 @@ export function captureMemberFocus(
   } else if (active?.id === "clear-member-filter") {
     selector = "#clear-member-filter";
   } else if (active?.dataset.memberKindFilter !== undefined) {
-    selector =
-      `[data-member-kind-filter="${escapeSelectorValue(active.dataset.memberKindFilter)}"]`;
+    dataTarget = {
+      selector: "[data-member-kind-filter]",
+      key: "memberKindFilter",
+      value: active.dataset.memberKindFilter,
+    };
   } else if (active?.dataset.memberAccessFilter !== undefined) {
-    selector =
-      `[data-member-access-filter="${escapeSelectorValue(active.dataset.memberAccessFilter)}"]`;
+    dataTarget = {
+      selector: "[data-member-access-filter]",
+      key: "memberAccessFilter",
+      value: active.dataset.memberAccessFilter,
+    };
   } else if (active?.dataset.memberTraitFilter !== undefined) {
-    selector =
-      `[data-member-trait-filter="${escapeSelectorValue(active.dataset.memberTraitFilter)}"]`;
+    dataTarget = {
+      selector: "[data-member-trait-filter]",
+      key: "memberTraitFilter",
+      value: active.dataset.memberTraitFilter,
+    };
   } else if (active?.dataset.navMember !== undefined) {
-    selector = `[data-nav-member="${escapeSelectorValue(active.dataset.navMember)}"]`;
+    dataTarget = {
+      selector: "[data-nav-member]",
+      key: "navMember",
+      value: active.dataset.navMember,
+    };
   } else if (active?.dataset.navOverload !== undefined) {
-    selector = `[data-nav-overload="${escapeSelectorValue(active.dataset.navOverload)}"]`;
+    dataTarget = {
+      selector: "[data-nav-overload]",
+      key: "navOverload",
+      value: active.dataset.navOverload,
+    };
   } else if (active?.dataset.taste !== undefined) {
-    selector = `[data-taste="${escapeSelectorValue(active.dataset.taste)}"]`;
+    dataTarget = {
+      selector: "[data-taste]",
+      key: "taste",
+      value: active.dataset.taste,
+    };
   } else if (active?.dataset.packageLens !== undefined) {
-    selector = `[data-package-lens="${escapeSelectorValue(active.dataset.packageLens)}"]`;
+    dataTarget = {
+      selector: "[data-package-lens]",
+      key: "packageLens",
+      value: active.dataset.packageLens,
+    };
   } else if (active?.dataset.lens !== undefined) {
-    selector = `[data-lens="${escapeSelectorValue(active.dataset.lens)}"]`;
+    dataTarget = {
+      selector: "[data-lens]",
+      key: "lens",
+      value: active.dataset.lens,
+    };
   } else if (active?.dataset.memberSection !== undefined) {
-    selector =
-      `[data-member-section="${escapeSelectorValue(active.dataset.memberSection)}"]`;
+    dataTarget = {
+      selector: "[data-member-section]",
+      key: "memberSection",
+      value: active.dataset.memberSection,
+    };
   } else if (active?.dataset.scope !== undefined) {
-    selector = `[data-scope="${escapeSelectorValue(active.dataset.scope)}"]`;
+    dataTarget = {
+      selector: "[data-scope]",
+      key: "scope",
+      value: active.dataset.scope,
+    };
   } else if (active?.id === "type-list") {
     selector = "#type-list";
   } else if (active?.id && /^[A-Za-z][A-Za-z0-9_-]*$/.test(active.id)) {
@@ -73,6 +114,7 @@ export function captureMemberFocus(
 
   return {
     selector,
+    dataTarget,
     selection,
     navigationScope: navigationList?.dataset.navScope ?? null,
     navigationSelection: navigationList?.dataset.navSelection ?? null,
@@ -97,7 +139,7 @@ export function restoreMemberFocus(
   requestFrame: (callback: FrameRequestCallback) => number,
   isCurrent: () => boolean = () => true,
 ): void {
-  if (!snapshot.selector && snapshot.navigationScope === null)
+  if (!snapshot.selector && !snapshot.dataTarget && snapshot.navigationScope === null)
     return;
 
   requestFrame(() => {
@@ -112,9 +154,14 @@ export function restoreMemberFocus(
       && snapshot.navigationScrollTop !== null) {
       navigationList.scrollTop = snapshot.navigationScrollTop;
     }
-    const replacement = snapshot.selector
-      ? document.querySelector<HTMLElement>(snapshot.selector)
-      : null;
+    const replacement = snapshot.dataTarget
+      ? [...document.querySelectorAll<HTMLElement>(snapshot.dataTarget.selector)]
+        .find(element =>
+          element.dataset[snapshot.dataTarget!.key] === snapshot.dataTarget!.value)
+        ?? null
+      : snapshot.selector
+        ? document.querySelector<HTMLElement>(snapshot.selector)
+        : null;
     const active = document.activeElement as HTMLElement | null;
     const canRestoreFocus =
       active === null
