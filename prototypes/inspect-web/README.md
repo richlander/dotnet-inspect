@@ -621,6 +621,16 @@ original-versus-decompiled provenance labels, the open-source link's presence
 only when a `url` is provided, the error state's fallback message, and title
 escaping in both the header and loading status.
 
+`src/annotated-source.ts` owns the annotated source result (the
+fact-annotated C#/IL dual view shown for a member overload) as a pure,
+dependency-injected render function; it composes `annotated-source-view.ts`'s
+`buildAnnotatedView` projection into markup. `app.js` still owns `state`, the
+sequence-guarded async load lifecycle, and the medium-toggle/fact-selection
+event handlers, and passes each computed slice in explicitly.
+`test/annotated-source.test.js` gates the rejected-document fallback, the
+medium toggles and hidden-line count, the context-limitation notice, anchored
+versus unanchored fact rendering, selection state, and source-text escaping.
+
 - `Cmd/Ctrl+K` opens Spotlight in the Commands scope.
 - `Cmd/Ctrl+P` opens Spotlight in the All scope.
 - `Cmd/Ctrl+F` or `/` focuses the type filter.
