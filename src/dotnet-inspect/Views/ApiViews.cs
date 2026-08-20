@@ -1083,8 +1083,7 @@ public sealed record ApiBodyShapeRow(
 [MarkoutSerializable]
 public record CallSiteRow(
     [property: MarkoutPropertyName("IL Offset")] string ILOffset,
-    [property: MarkoutPropertyName("Evidence Method")]
-    [property: MarkoutSkipNull] string? EvidenceMethod,
+    string? EvidenceMethod,
     string Opcode,
     [property: MarkoutPropertyName("Call Kind")] string CallKind,
     string Callee,
@@ -1093,6 +1092,8 @@ public record CallSiteRow(
     [property: MarkoutSkipNull] string? ReturnAddress)
 {
     /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Evidence Method")]
+    [MarkoutSkipNull]
     public string? EvidenceMethod { get; init; } =
         LibraryViewText.Contain(EvidenceMethod);
 }

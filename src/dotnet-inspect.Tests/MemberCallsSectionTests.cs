@@ -14,7 +14,7 @@ public class MemberCallsSectionTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Calls", result.Output);
-        Assert.Contains("| IL Offset | Evidence Method | Opcode | Call Kind | Callee | Operand Token | Return Address |", result.Output);
+        Assert.Contains("| IL Offset | Opcode | Call Kind | Callee | Operand Token | Return Address |", result.Output);
         Assert.Equal(2, CountOccurrences(result.Output, "`System.Console.WriteLine(string)`"));
         Assert.Contains("`IL_", result.Output);
         Assert.Contains("`0x0A", result.Output);
@@ -62,7 +62,7 @@ public class MemberCallsSectionTests
         var result = await RunMemberCallsAsync(nameof(MemberCallsFixture.CallsWriteLineTwice), tsv: true);
 
         Assert.Equal(0, result.ExitCode);
-        Assert.StartsWith("il_offset\tevidence_method\topcode\tcall_kind\tcallee\toperand_token\treturn_address", result.Output);
+        Assert.StartsWith("il_offset\topcode\tcall_kind\tcallee\toperand_token\treturn_address", result.Output);
         Assert.DoesNotContain('`', result.Output);
         Assert.Equal(2, CountOccurrences(result.Output, "System.Console.WriteLine(string)"));
     }
