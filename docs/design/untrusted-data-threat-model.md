@@ -344,8 +344,12 @@ understate a genuine platform acquisition. Resolvers that hand back files taken
 from the host's trusted-platform-assembly list, and the intrinsic core-library
 binding that returns the designated target when that target is itself the core
 library, report `PlatformAsset` for that reason. In the target architecture,
-the platform adapter mints the corresponding authorized platform-trust role
-instead.
+the platform adapter mints only validated platform realization and
+correspondence evidence. Workspace admission grants the corresponding
+platform-trust role under explicit host policy. An adapter-provided provenance
+record, platform-shaped coordinate, assembly name, or public-key blob cannot
+grant that role by itself;
+`PlatformArtifactTrust_RequiresAuthorizedAdmissionRole` gates this boundary.
 
 `PlantedCoreLibraryIdentityTests.PlantedPlatformKey_DoesNotMintCoreLibraryIdentity`
 gates the boundary with a real planted assembly carrying the verbatim ECMA

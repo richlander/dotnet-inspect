@@ -381,14 +381,21 @@ layout.
 
 The platform adapter resolves installed or remotely acquired platform content.
 Platform packs may happen to be transported as NuGet packages, but transport
-does not make "package" the workspace model. The adapter retains both platform
-identity and the producer authorization needed for re-acquisition.
+does not make "package" the workspace model. An installed-platform adapter is
+package-free. A NuGet-backed remote-platform implementation may instead live
+with the optional package acquisition implementation so that it reuses package
+source mapping, producer authorization, version selection, and payload-cache
+rules rather than duplicating them. It returns a neutral validated platform
+realization; the platform graph projection and core assembly path do not
+reference its package transport.
 
 It validates platform family, version, selected assembly, producer, and content
 identity before minting a platform realization and generation-scoped
 correspondence proof. Platform-aware graph projection consumes that proof
 without parsing NuGet versions or Metadata-owned platform provenance in core
-assembly Queries.
+assembly Queries. The realization records evidence; it does not grant
+core-library trust. Workspace admission assigns any platform-trust role under
+explicit host policy after validating that evidence.
 
 ### Embedded adapter
 
@@ -593,8 +600,10 @@ properties:
    package companion rather than core assembly Queries;
 7. platform correspondence is minted by the platform adapter and projected
    without a package or Metadata provenance dependency;
-8. the platform adapter and graph projection reference neither package/NuGet
-   implementations nor the package companion;
+8. platform graph projection references neither package/NuGet implementations
+   nor the package companion; an installed-platform adapter has the same
+   closure, while an optional NuGet-backed remote-platform implementation
+   reuses package acquisition without exposing it through the realization;
 9. neutral symbol/PDB storage and source-access contracts do not reference
    package source policy;
 10. hosts choose adapters through project references and capabilities.
@@ -663,7 +672,10 @@ The migration is intentionally incremental:
    Queries while preserving the full host's graph wire contract.
 8. **Move platform correspondence.** Have the platform adapter mint typed
    realization proofs and remove platform provenance/version parsing from core
-   assembly Queries without pulling in the package companion.
+   assembly Queries without pulling the package companion into platform
+   projection. Keep installed-platform acquisition package-free; place any
+   NuGet-backed remote-platform implementation with the optional package
+   acquisition side.
 9. **Retire package-aware assembly sets.** Replace package cases in
    `AssemblySetRequest` with host composition of artifact acquisitions and
    workspace groups.
@@ -694,6 +706,7 @@ The target remains unverified until tests equivalent to these exist:
 - `ArtifactSetSession_SealedGenerationCannotMutate`
 - `ArtifactIdentity_IsScopedToOwningGeneration`
 - `DesignatedArtifactTrust_RequiresAuthorizedAdmissionRole`
+- `PlatformArtifactTrust_RequiresAuthorizedAdmissionRole`
 - `ArtifactSetSession_DisposesEveryContributingLease`
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterDependentGroupsQuiesce`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
